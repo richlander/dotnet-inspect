@@ -142,8 +142,11 @@ public sealed class PackageDependencyGroupsQueryTests
         Assert.Equal("2.*", dependency.VersionRange);
     }
 
-    [Fact]
-    public async Task ExecuteAsync_SelectsUngroupedDependenciesForAnyFramework()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_SelectsUngroupedDependenciesForAnyFramework(
+        bool allowCompatibleFallback)
     {
         InMemoryPackageContent content = Content(
             ("Example.Package.nuspec", Manifest(
@@ -155,10 +158,13 @@ public sealed class PackageDependencyGroupsQueryTests
             await ExecuteAsync(
                 content,
                 "Example.Package",
-                "net9.0"));
+                "net9.0",
+                allowCompatibleFallbackForRequestedTfm:
+                    allowCompatibleFallback));
 
         Assert.Equal(PackageDependencyGroupSelectionStatus.Selected, result.SelectionStatus);
         Assert.Equal("any", result.SelectedTargetFramework);
+        Assert.Equal(0, result.SelectedGroupIndex);
         DeclaredPackageDependencyGroup group = Assert.Single(result.Groups);
         Assert.Equal("Universal.Dependency", Assert.Single(group.Dependencies).Id);
     }

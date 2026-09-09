@@ -646,6 +646,10 @@ public static class MemberOptionsParser
                 parseResult.GetResult(opts.RawUrls) is { Implicit: false }
                 || parseResult.GetResult(opts.BrowsableUrls)
                     is { Implicit: false },
+            LineWindowExplicitlySet =
+                parseResult.GetResult(opts.Limit) is { Implicit: false }
+                || parseResult.GetResult(opts.Head) is { Implicit: false }
+                || parseResult.GetResult(opts.Tail) is { Implicit: false },
             ShareFormat = shareFormat,
             MemberDigest = memberDigest,
             MemberGenericArity = memberGenericArity,

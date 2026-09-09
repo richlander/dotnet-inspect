@@ -334,6 +334,7 @@ public record MemberOptions : ApiOptions
     internal string[] RouterDeferredTypeMemberValues { get; init; } = [];
     internal bool OverloadIndexExplicitlySet { get; init; }
     internal bool LegacyUrlModeExplicitlySet { get; init; }
+    internal bool LineWindowExplicitlySet { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
 
     /// <summary>

@@ -367,6 +367,8 @@ Each adoption must add focused Release gates proving:
   subject, facet, query, and portable options.
 
 The existing `MemberShare_*` tests gate the narrower member subset.
+`MemberShare_RejectsLegacyLineWindowBeforeScalarOutput` specifically gates
+scalar output against the outer legacy line writer.
 `DependsShare_PacketProjectsExactPackageDependencyView`,
 `DependsShare_PacketPreservesCompatibleRequestedFramework`,
 `DependsShare_UrlWrapsCanonicalPacket`,
@@ -380,6 +382,7 @@ The existing `MemberShare_*` tests gate the narrower member subset.
 `DependsShare_RejectsConflictingOutput` gate the CLI package Dependencies
 projection.
 `PackageDependencies_UsesCompatibleAssetsWithoutChangingRequestedFramework`,
+`PackageDependencies_SelectsUngroupedDependenciesWithCompatibleAssets`,
 `canonical package dependency views restore the package root lens`,
 `canonical package views reject contradictory structural selection`, `capture
 projects package Dependencies through the packet lens`, `capture refuses a

@@ -36,6 +36,7 @@ internal static class MemberShareProjection
         }
         if (options.FormatFlagExplicitlySet
             || options.LegacyUrlModeExplicitlySet
+            || options.LineWindowExplicitlySet
             || options.CompactJson
             || options.PlainText
             || options.MarkdownExplicitlySet

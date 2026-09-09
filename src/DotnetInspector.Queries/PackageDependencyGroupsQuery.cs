@@ -256,9 +256,8 @@ public static class PackageDependencyGroupsQuery
                 mutableGroups,
                 requestedTargetFramework,
                 allowCompatibleFallbackForRequestedTfm);
-        int? selectedGroupIndex = selection.Group is null
-            ? null
-            : mutableGroups?.IndexOf(selection.Group);
+        int? selectedGroupIndex =
+            FindSelectedGroupIndex(mutableGroups, selection.Group);
         if (selection.Group is not null && selectedGroupIndex is not >= 0)
         {
             throw new InvalidOperationException(
@@ -283,5 +282,20 @@ public static class PackageDependencyGroupsQuery
                 _ => throw new InvalidOperationException(
                     "Unknown dependency-group selection status."),
             });
+    }
+
+    private static int? FindSelectedGroupIndex(
+        List<DependencyGroup> declaredGroups,
+        DependencyGroup? selectedGroup)
+    {
+        if (selectedGroup is null)
+            return null;
+
+        int index = declaredGroups.IndexOf(selectedGroup);
+        if (index >= 0 || !selectedGroup.IsImplicitManifestGroup)
+            return index;
+
+        return declaredGroups.FindIndex(group =>
+            group.IsImplicitManifestGroup);
     }
 }

@@ -271,4 +271,29 @@ public partial class CommandExecutionTests
             "Package 'Missing.Package'",
             result.Error);
     }
+
+    [Fact]
+    public async Task MemberShare_RejectsLegacyLineWindowBeforeScalarOutput()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "JsonConvert",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "SerializeObject:1",
+            "--tfm",
+            "net6.0",
+            "--share",
+            "--tail",
+            "-n",
+            "0",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "cannot be combined with other output formatting or projection options",
+            result.Error);
+    }
 }
