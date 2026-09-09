@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Reflection.PortableExecutable;
 
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGetFetch;

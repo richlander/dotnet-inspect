@@ -118,9 +118,6 @@
     <Project Path="src/CSharpText/CSharpText.csproj" />
     <Project Path="src/CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
-    <Project Path="src/DotnetInspector.Artifacts.Local/DotnetInspector.Artifacts.Local.csproj" />
-    <Project Path="src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
-    <Project Path="src/DotnetInspector.Artifacts/DotnetInspector.Artifacts.csproj" />
     <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
@@ -134,6 +131,9 @@
     <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
+    <Project Path="src/Inspector.Artifacts/Inspector.Artifacts.csproj" />
+    <Project Path="src/Inspector.Artifacts.Local/Inspector.Artifacts.Local.csproj" />
+    <Project Path="src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
     <Project Path="src/Inspector.Findings/Inspector.Findings.csproj" />
     <Project Path="src/Inspector.Text/Inspector.Text.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
@@ -161,7 +161,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/CSharpText.MemberSlicing.Tests/CSharpText.MemberSlicing.Tests.csproj" />
     <Project Path="tests/CSharpText.Tests/CSharpText.Tests.csproj" />
-    <Project Path="tests/DotnetInspector.Artifacts.Tests/DotnetInspector.Artifacts.Tests.csproj" />
     <Project Path="tests/DotnetInspector.AssemblyOnlyHost.Fixture/DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Consumer.Tests/DotnetInspector.Ecosystems.Consumer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
@@ -174,6 +173,7 @@
     <Project Path="tests/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
+    <Project Path="tests/Inspector.Artifacts.Tests/Inspector.Artifacts.Tests.csproj" />
     <Project Path="tests/Inspector.Text.Tests/Inspector.Text.Tests.csproj" />
     <Project Path="tests/InertText.Tests/InertText.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />

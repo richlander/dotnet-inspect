@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace DotnetInspector.Artifacts.Tests;
+namespace Inspector.Artifacts.Tests;
 
 public sealed class ArtifactContractTests
 {

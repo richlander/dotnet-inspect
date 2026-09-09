@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/DotnetInspector.Artifacts.Local/DotnetInspector.Artifacts.Local.csproj" />
+    <ProjectReference Include="../../src/Inspector.Artifacts.Local/Inspector.Artifacts.Local.csproj" />
   </ItemGroup>
 
 </Project>

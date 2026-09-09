@@ -1,6 +1,6 @@
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts.Workspaces;
 
-namespace DotnetInspector.Artifacts.Tests;
+namespace Inspector.Artifacts.Tests;
 
 /// <summary>
 /// Materialization cleanup evidence stays strictly secondary to the condition

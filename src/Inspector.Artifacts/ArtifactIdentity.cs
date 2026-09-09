@@ -1,4 +1,4 @@
-namespace DotnetInspector.Artifacts;
+namespace Inspector.Artifacts;
 
 /// <summary>Source-specific provenance attached to one registered artifact.</summary>
 public interface IArtifactProvenance

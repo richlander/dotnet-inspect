@@ -1,4 +1,4 @@
-namespace DotnetInspector.Artifacts.Workspaces;
+namespace Inspector.Artifacts.Workspaces;
 
 /// <summary>
 /// A source-neutral policy role assigned by workspace admission.

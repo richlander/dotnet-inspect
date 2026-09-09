@@ -68,13 +68,13 @@ public sealed class PolicyEvaluatorTests
                     "ILInspector.Metadata",
                     projectReferences:
                     [
-                        "DotnetInspector.Artifacts",
+                        "DotnetInspector.Contracts",
                         "DotnetInspector.Services",
                     ]),
                 Node(
                     "ILInspector.Metadata.Tests",
                     projectReferences: ["DotnetInspector.Services"]),
-                Node("DotnetInspector.Artifacts"),
+                Node("DotnetInspector.Contracts"),
                 Node("DotnetInspector.Services"),
             ]);
         DependencyPolicyDocument policy = Policy(
@@ -86,7 +86,7 @@ public sealed class PolicyEvaluatorTests
                 Targets = ["ILInspector.*"],
                 ExcludeTargets = ["*.Tests"],
                 Deny = ["DotnetInspector.*"],
-                Except = ["DotnetInspector.Artifacts"],
+                Except = ["DotnetInspector.Contracts"],
             });
 
         DependencyViolation violation = Assert.Single(

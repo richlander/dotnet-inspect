@@ -197,7 +197,7 @@ substrates, and inspection producers that will extend that space.
   bounded one-candidate primary-assembly evaluation and resource-free
   package-plus-selected-asset semantic evidence without realizing unrelated
   package assemblies.
-- `src/DotnetInspector.Artifacts/` (target `Inspector.Artifacts`) is the
+- `src/Inspector.Artifacts/` is the
   package- and Metadata-free contract floor for generation-scoped artifact
   identity, typed provenance and diagnostics, acquisition outcomes, and
   owner-issued guarded access.

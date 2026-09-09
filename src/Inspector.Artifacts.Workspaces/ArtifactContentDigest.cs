@@ -1,4 +1,4 @@
-namespace DotnetInspector.Artifacts.Workspaces;
+namespace Inspector.Artifacts.Workspaces;
 
 /// <summary>An owner-issued digest of one artifact's retained snapshot.</summary>
 public sealed class ArtifactContentDigest

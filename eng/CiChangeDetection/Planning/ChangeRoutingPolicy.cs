@@ -224,7 +224,7 @@ internal sealed class ChangeRoutingPolicy
         else if (BytePattern.MatchesAny(
             path,
             "tests/ILInspector.MetadataPrimitives.PlatformProbe/*",
-            "tests/DotnetInspector.Artifacts.Local.PlatformProbe/*",
+            "tests/Inspector.Artifacts.Local.PlatformProbe/*",
             "fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/*",
             "tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/*"))
         {

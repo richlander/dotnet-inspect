@@ -1,7 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using DotnetInspector.Fixtures;
 
 using ILInspector.Analysis;

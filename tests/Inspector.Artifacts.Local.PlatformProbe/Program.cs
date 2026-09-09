@@ -1,7 +1,7 @@
 using System;
 using System.IO;
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Local;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Local;
 
 string path = Path.Combine(
     Path.GetTempPath(),

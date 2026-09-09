@@ -1,4 +1,4 @@
-namespace DotnetInspector.Artifacts;
+namespace Inspector.Artifacts;
 
 /// <summary>A typed, source-owned artifact acquisition diagnostic.</summary>
 public interface IArtifactAcquisitionDiagnostic
