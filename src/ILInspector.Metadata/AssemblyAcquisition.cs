@@ -379,8 +379,23 @@ public sealed class ResolvedAssemblyReference
     public static AssemblyDescriptorSelectionResult SelectFromStream(
         Func<Stream> openRead,
         AssemblyResolutionProvenance provenance,
-        DateTime? lastWriteTimeUtc = null,
-        string? assetFileName = null)
+        DateTime? lastWriteTimeUtc = null)
+        => SelectFromStream(
+            openRead,
+            provenance,
+            lastWriteTimeUtc,
+            assetFileName: null);
+
+    /// <summary>
+    /// Selects an assembly descriptor from a repeatable stream while retaining
+    /// the acquisition-owned physical asset file name separately from metadata
+    /// identity and local path.
+    /// </summary>
+    public static AssemblyDescriptorSelectionResult SelectFromStream(
+        Func<Stream> openRead,
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc,
+        string? assetFileName)
     {
         ArgumentNullException.ThrowIfNull(openRead);
         ArgumentNullException.ThrowIfNull(provenance);
@@ -435,8 +450,23 @@ public sealed class ResolvedAssemblyReference
     public static ResolvedAssemblyReference? CreateFromStreamIfManaged(
         Func<Stream> openRead,
         AssemblyResolutionProvenance provenance,
-        DateTime? lastWriteTimeUtc = null,
-        string? assetFileName = null)
+        DateTime? lastWriteTimeUtc = null)
+        => CreateFromStreamIfManaged(
+            openRead,
+            provenance,
+            lastWriteTimeUtc,
+            assetFileName: null);
+
+    /// <summary>
+    /// Creates a descriptor for a managed assembly served by a repeatable
+    /// stream factory while retaining its acquisition-owned physical asset
+    /// file name.
+    /// </summary>
+    public static ResolvedAssemblyReference? CreateFromStreamIfManaged(
+        Func<Stream> openRead,
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc,
+        string? assetFileName)
         => DescriptorOrNull(
             SelectFromStream(
                 openRead,

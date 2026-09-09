@@ -427,6 +427,7 @@ public class InspectionAcquisitionPlanTests
                 ResolvedAssemblyReference.SelectFromStream(
                     () => new MemoryStream(valid, writable: false),
                     provenance,
+                    lastWriteTimeUtc: null,
                     assetFileName: "PhysicalPayload.dll"));
         Assert.Equal("Selected", ready.Reference.Identity.Name);
         Assert.Equal(

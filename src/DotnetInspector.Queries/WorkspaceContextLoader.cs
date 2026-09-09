@@ -1829,6 +1829,7 @@ public static class WorkspaceContextLoader
                             acquired.Content,
                             asset.EntryPath),
                         provenance,
+                        lastWriteTimeUtc: null,
                         assetFileName: asset.FileName);
                 if (assembly is null)
                     continue;
