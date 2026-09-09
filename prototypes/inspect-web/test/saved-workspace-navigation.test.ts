@@ -196,6 +196,8 @@ function harness() {
       filter: string;
     } | null,
     platformSlot: -1,
+    platformCatalogStatus: { loading: false, error: "" },
+    platformOpeningStatus: { loading: false, error: "" },
     packages: [sourcePackage], package: sourcePackage as Package | null,
     workspaceShareBasis: null as BrowserWorkspaceShareState | null,
     libraryScope: null as Set<string> | null,
@@ -599,6 +601,35 @@ test("canonical restoration preserves coordinator-owned comparison state identit
   assert.equal(h.state.memberCallGraphSeq, 10);
   assert.equal(h.state.graphMemberNavigationSeq, 11);
   assert.equal(h.state.docViewerSeq, 13);
+});
+
+test("retained Workspace snapshots make cancelled Platform work retryable", () => {
+  const h = harness();
+  h.state.platformCatalogStatus = { loading: true, error: "" };
+  h.state.platformOpeningStatus = { loading: true, error: "" };
+
+  const snapshot = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context,
+  ) as {
+    state: {
+      platformCatalogStatus: { loading: boolean; error: string };
+      platformOpeningStatus: { loading: boolean; error: string };
+    };
+  };
+
+  assert.equal(snapshot.state.platformCatalogStatus.loading, false);
+  assert.equal(
+    snapshot.state.platformCatalogStatus.error,
+    "Platform catalog loading was interrupted.",
+  );
+  assert.equal(snapshot.state.platformOpeningStatus.loading, false);
+  assert.equal(
+    snapshot.state.platformOpeningStatus.error,
+    "Platform Library opening was interrupted.",
+  );
+  assert.deepEqual(h.state.platformCatalogStatus, { loading: true, error: "" });
+  assert.deepEqual(h.state.platformOpeningStatus, { loading: true, error: "" });
 });
 
 test("capture uses the original share projection and retains Workspace presentation without effects", () => {

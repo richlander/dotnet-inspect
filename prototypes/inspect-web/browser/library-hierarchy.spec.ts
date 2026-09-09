@@ -1089,6 +1089,50 @@ test("restored Platform failure retries its own Library request", async ({ page 
   );
 });
 
+for (const pendingRequest of ["Library", "catalog"] as const) {
+  test(`restored Platform ${pendingRequest} cancellation becomes retryable`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem(
+      "inspect-recent-packages",
+      JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+    ));
+    await openPlatform(page, pendingRequest === "Library"
+      ? { libraryPending: true, libraryFailure: true }
+      : { catalogPending: true, catalogFailure: true });
+    const platformWorkspace = await currentWorkspaceHistoryState(page);
+
+    if (pendingRequest === "Library") {
+      await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+      await expect(page.locator("#inspector-panel")).toContainText(
+        "Opening the selected Library...",
+      );
+    } else {
+      await page.getByLabel("Platform version", { exact: true })
+        .selectOption(alternatePlatformVersion);
+      await expect(page.locator("#inspector-panel")).toContainText(
+        "Loading Platform catalog...",
+      );
+    }
+
+    await page.keyboard.press("Control+p");
+    await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+    await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+    await page.evaluate(request => document.dispatchEvent(new Event(
+      request === "Library" ? "finish-platform-library" : "finish-platform-catalog",
+    )), pendingRequest);
+
+    await page.goBack();
+    await expect.poll(() => currentWorkspaceHistoryState(page)).toEqual(platformWorkspace);
+    await expect(page.locator("#inspector-panel")).toContainText(
+      pendingRequest === "Library"
+        ? "Platform Library opening was interrupted."
+        : "Platform catalog loading was interrupted.",
+    );
+    await expect(page.locator(
+      `[data-platform-retry="${pendingRequest === "Library" ? "library" : "catalog"}"]`,
+    )).toBeEnabled();
+  });
+}
+
 async function currentWorkspaceHistoryState(page: Page): Promise<{
   id: string | null;
   session: string | null;

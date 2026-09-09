@@ -3241,6 +3241,9 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
     /platformLibraryRetry: snapshot\.platformLibraryRetry,\s*platformCatalogRetry: snapshot\.platformCatalogRetry,/);
   assert.match(
     appSource,
+    /if \(snapshotState\.platformCatalogStatus\.loading\)[\s\S]*error: "Platform catalog loading was interrupted\."[\s\S]*if \(snapshotState\.platformOpeningStatus\.loading\)[\s\S]*error: "Platform Library opening was interrupted\."/);
+  assert.match(
+    appSource,
     /retryAction: \(\) =>\s*restorePlatformHistoryView\(view, row, navigationSequence\.current\(\)\)/);
 
   const ensureOccurrence =

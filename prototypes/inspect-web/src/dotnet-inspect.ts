@@ -1248,6 +1248,18 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
   snapshotState.runtimePackLoading = false;
+  if (snapshotState.platformCatalogStatus.loading) {
+    snapshotState.platformCatalogStatus = {
+      loading: false,
+      error: "Platform catalog loading was interrupted.",
+    };
+  }
+  if (snapshotState.platformOpeningStatus.loading) {
+    snapshotState.platformOpeningStatus = {
+      loading: false,
+      error: "Platform Library opening was interrupted.",
+    };
+  }
   if (snapshotState.graphSource.status === "loading") {
     snapshotState.graphSource = {
       status: "cancelled",
