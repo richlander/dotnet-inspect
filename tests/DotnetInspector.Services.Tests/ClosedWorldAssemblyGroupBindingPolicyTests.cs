@@ -67,6 +67,7 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
     [InlineData("selected")]
     [InlineData("ambiguous")]
     [InlineData("shadow")]
+    [InlineData("composition")]
     public void CreateClosedWorld_UsesRetainedImagesForEveryCandidateArm(string arm)
     {
         var root = Named("Root");
@@ -76,7 +77,11 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
         {
             "selected" => AssemblyBindingSelection.Found(first.Source),
             "ambiguous" => AssemblyBindingSelection.Multiple([first.Source, second.Source]),
-            "shadow" => AssemblyBindingSelection.Found(first.Source, [second.Source]),
+            "shadow" => AssemblyBindingCandidateDomain.Create(
+                [first.Source, second.Source]).Finalize([first.Source]),
+            "composition" => AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [first.Source, second.Source])),
             _ => throw new ArgumentOutOfRangeException(nameof(arm)),
         });
         var policy = SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
@@ -84,7 +89,15 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
         AssemblyBindingSelection selection = policy.Select(
             Request(Skewed(first.Source.Identity), AssemblyBindingOrigin.FromAssembly(root))).Selection;
 
-        if (arm == "ambiguous")
+        if (arm == "composition")
+        {
+            var required = Assert.IsType<
+                AssemblyBindingSelection.CompositionRequired>(selection);
+            Assert.Equal(
+                [first.Retained, second.Retained],
+                required.Domain.Candidates);
+        }
+        else if (arm == "ambiguous")
         {
             Assert.Equal([first.Retained, second.Retained],
                 Assert.IsType<AssemblyBindingSelection.Ambiguous>(selection).Assemblies);
@@ -106,6 +119,7 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
     [InlineData("selected")]
     [InlineData("ambiguous")]
     [InlineData("shadow")]
+    [InlineData("composition")]
     public void CreateClosedWorld_RejectsEveryOutsideCandidateArmWithoutOpening(string arm)
     {
         var root = Named("Root");
@@ -122,7 +136,10 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
         {
             "selected" => AssemblyBindingSelection.Found(outside),
             "ambiguous" => AssemblyBindingSelection.Multiple([root, outside]),
-            "shadow" => AssemblyBindingSelection.Found(root, [outside]),
+            "shadow" => AssemblyBindingCandidateDomain.Create(
+                [root, outside]).Finalize([root]),
+            "composition" => AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create([root, outside])),
             _ => throw new ArgumentOutOfRangeException(nameof(arm)),
         });
         var policy = SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld([(root, select)]);

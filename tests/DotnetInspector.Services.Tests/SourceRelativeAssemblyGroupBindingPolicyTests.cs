@@ -97,7 +97,9 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
         var selecting = new SelectionPolicy(request =>
             request.Target is AssemblyBindingTarget.AssemblyReference
                 { Identity.Name: "Active" }
-                ? AssemblyBindingSelection.Found(active, [first])
+                ? AssemblyBindingCandidateDomain.Create(
+                    [active, first])
+                    .Finalize([active])
                 : AssemblyBindingSelection.Multiple([first, second]));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [(fallback, (IAssemblyBindingPolicy)missing), (owner, selecting)]);
@@ -230,6 +232,31 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
 
         Assert.Same(foreign, group.Select(request));
         Assert.NotSame(version, group.Version);
+    }
+
+    [Fact]
+    public void Select_ForeignCompositionSnapshotEscapesBeforeDomainInterpretation()
+    {
+        var owner = NamedDescriptor("Owner");
+        var candidate = NamedDescriptor("Candidate");
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create([candidate]);
+        var foreign = new AssemblyBindingSelectionSnapshot(
+            new AssemblyBindingPolicyVersion(),
+            AssemblyBindingSelection.RequireComposition(domain));
+        var policy = new ForeignSnapshotPolicy(foreign);
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)policy)]);
+
+        AssemblyBindingSelectionSnapshot actual =
+            group.Select(Request(candidate, owner));
+
+        Assert.Same(foreign, actual);
+        Assert.Same(
+            domain,
+            Assert.IsType<
+                AssemblyBindingSelection.CompositionRequired>(
+                    actual.Selection).Domain);
         Assert.Equal(1, policy.SelectionCount);
     }
 

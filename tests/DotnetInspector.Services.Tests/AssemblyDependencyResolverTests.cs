@@ -809,6 +809,48 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void IntrinsicCompositionHandoff_DoesNotFallThroughToLaterFacade()
+    {
+        byte[] image = BuildAssembly(
+            "IntrinsicCompositionOwner",
+            [1, 2, 3],
+            assemblyReferences:
+            [
+                "System.Private.CoreLib",
+                "mscorlib",
+            ]);
+        ResolvedAssemblyReference owner =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "IntrinsicCompositionOwner",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "intrinsic composition handoff test"));
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create([owner]);
+        int selectionCount = 0;
+
+        AssemblyBindingSelection result =
+            IntrinsicCoreLibraryBinding.Select(
+                owner,
+                _ => ++selectionCount == 1
+                    ? AssemblyBindingSelection.RequireComposition(
+                        domain)
+                    : AssemblyBindingSelection.Found(owner));
+
+        Assert.Same(
+            domain,
+            Assert.IsType<
+                AssemblyBindingSelection.CompositionRequired>(
+                    result).Domain);
+        Assert.Equal(1, selectionCount);
+    }
+
+    [Fact]
     public void AssemblyGroup_VersionSkewedRootRequiresIdentityPolicy()
     {
         string path = typeof(AssemblyDependencyResolverTests)
@@ -1477,6 +1519,56 @@ public partial class AssemblyDependencyResolverTests
         Assert.Equal(2, ambiguous.Assemblies.Length);
         Assert.Contains(root, ambiguous.Assemblies);
         Assert.Contains(policyCandidate, ambiguous.Assemblies);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void AssemblyGroup_DesignatedTieRetainsLowerPrecedencePlatformEvidence()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        ResolvedAssemblyReference first = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Designated(
+                "first designated contender"));
+        ResolvedAssemblyReference second = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "second designated contender"));
+        ResolvedAssemblyReference platform = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "inactive platform contender"));
+        var policy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.Found(platform));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (first, (IAssemblyBindingPolicy)policy),
+                (second, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(request).Selection);
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
+        Assert.Equal([platform], ambiguous.ShadowedAssemblies);
         Assert.Equal(1, policy.SelectionCount);
     }
 

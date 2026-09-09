@@ -144,19 +144,45 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 {
                     return OutsideGroup();
                 }
-                return AssemblyBindingSelection.FoundOccurrence(
-                    selected.Occurrence,
-                    [.. selected.ShadowedAssemblies.Select(assembly =>
-                        _routes[assembly.Registration].Assembly)]);
+                return AssemblyBindingCandidateDomain.Create(
+                    [
+                        selected.Assembly,
+                        .. selected.ShadowedAssemblies.Select(assembly =>
+                            _routes[assembly.Registration].Assembly),
+                    ]).Finalize(selected.Occurrence);
             case AssemblyBindingSelection.Ambiguous ambiguous:
-                if (ambiguous.Assemblies.Any(assembly =>
-                    !_routes.ContainsKey(assembly.Registration)))
+                if (ambiguous.Assemblies
+                        .Concat(ambiguous.ShadowedAssemblies)
+                        .Any(assembly =>
+                            !_routes.ContainsKey(assembly.Registration)))
                 {
                     return OutsideGroup();
                 }
-                return AssemblyBindingSelection.Multiple(
-                    [.. ambiguous.Assemblies.Select(assembly =>
-                        _routes[assembly.Registration].Assembly)]);
+                ImmutableArray<ResolvedAssemblyReference> active =
+                [
+                    .. ambiguous.Assemblies.Select(assembly =>
+                        _routes[assembly.Registration].Assembly),
+                ];
+                if (ambiguous.ShadowedAssemblies.IsEmpty)
+                    return AssemblyBindingSelection.Multiple(active);
+                return AssemblyBindingCandidateDomain.Create(
+                    [
+                        .. active,
+                        .. ambiguous.ShadowedAssemblies.Select(assembly =>
+                            _routes[assembly.Registration].Assembly),
+                    ]).Finalize(active);
+            case AssemblyBindingSelection.CompositionRequired required:
+                if (required.Domain.Candidates.Any(assembly =>
+                        !_routes.ContainsKey(assembly.Registration)))
+                {
+                    return OutsideGroup();
+                }
+                return AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create(
+                    [
+                        .. required.Domain.Candidates.Select(assembly =>
+                            _routes[assembly.Registration].Assembly),
+                    ]));
             default:
                 return selection;
         }
@@ -361,12 +387,6 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                         candidate.Provenance
                             is AssemblyResolutionProvenance
                                 .DesignatedAsset)));
-        if (designatedCandidates.Length > 1)
-        {
-            return AssemblyBindingSelection.Multiple(
-                designatedCandidates);
-        }
-
         IEnumerable<ResolvedAssemblyReference> policyShadows =
             policySelection
                 is AssemblyBindingSelection.Selected selectedWithShadows
@@ -386,18 +406,25 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                         requested,
                         candidate,
                         ignoreVersion: true)));
+
+        if (designatedCandidates.Length > 1)
+        {
+            return AssemblyBindingCandidateDomain.Create(
+                [.. designatedCandidates, .. platforms])
+                .Finalize(designatedCandidates);
+        }
+
         ResolvedAssemblyReference chosen = designatedCandidates[0];
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create(
+                [chosen, .. platforms]);
         return policySelection
                 is AssemblyBindingSelection.Selected delegated
             && ReferenceEquals(
                 chosen.Registration,
                 delegated.Assembly.Registration)
-                ? AssemblyBindingSelection.FoundOccurrence(
-                    delegated.Occurrence,
-                    platforms)
-                : AssemblyBindingSelection.Found(
-                    chosen,
-                    platforms);
+                ? domain.Finalize(delegated.Occurrence)
+                : domain.Finalize([chosen]);
     }
 
     static ImmutableArray<ResolvedAssemblyReference> DesignatedCandidates(
@@ -553,9 +580,11 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             return IssueSelection(
                 state,
                 route,
-                AssemblyBindingSelection.FoundOccurrence(
-                    requestingOccurrence,
-                    selected.ShadowedAssemblies));
+                AssemblyBindingCandidateDomain.Create(
+                    [
+                        selected.Assembly,
+                        .. selected.ShadowedAssemblies,
+                    ]).Finalize(requestingOccurrence));
         }
 
         return IssueSelection(state, route, selection);
@@ -662,9 +691,9 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             state,
             bindingDelegate,
             delegatedOccurrence);
-        return AssemblyBindingSelection.FoundOccurrence(
-            lineage.Issue(assembly),
-            selected.ShadowedAssemblies);
+        return AssemblyBindingCandidateDomain.Create(
+            [assembly, .. selected.ShadowedAssemblies])
+            .Finalize(lineage.Issue(assembly));
     }
 
     sealed class ClosedWorldBindingPolicy(

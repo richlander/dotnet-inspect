@@ -1761,9 +1761,9 @@ authority; no implementation code or runtime-loading mechanism is imported.
 
 #### Complete identity-eligible binding composition
 
-> **Status: design-only and unverified in the product.** The companion TLA+
-> model checks the bounded interaction contract. Product correspondence
-> requires focused Release gates when this contract is implemented.
+> **Status: implemented.** The companion TLA+ model checks the bounded
+> interaction contract. Focused Metadata, Services, and Queries Release gates
+> establish the product correspondence named below.
 
 `AssemblyBindingCandidateDomain` is the binding identity owner's immutable
 handoff for one exact `AssemblyBindingRequest`. It contains every and only
@@ -1877,6 +1877,25 @@ checks complete and order-independent issuance, exact final partitioning,
 valid-decision correspondence, non-domain-result preservation,
 noncanonical terminal-partition preservation, empty/foreign-decision
 rejection, foreign snapshot exclusion, and eventual completion.
+
+`AssemblyBindingCandidateDomainTests` gates nonempty exact domain construction,
+owner-issued order, atomic handoff transport, exact ordered final partitions,
+decision preservation, resolver-lineage preservation, malformed-decision
+rejection, terminal-factory closure, and the unfinalized Metadata boundary.
+`TypeResolutionContextTests.SharedCatalog_ReusesAmbiguousInactiveEvidenceWithoutOpeningIt`
+gates inactive ambiguous evidence through interning and frozen reuse.
+`AssemblyDependencyResolverTests` gates the existing designated/platform
+arbitration owner consuming the domain without registration-order precedence
+and retaining lower-precedence platform evidence beneath a designated tie.
+`SourceRelativeAssemblyGroupBindingPolicyTests.Select_ForeignCompositionSnapshotEscapesBeforeDomainInterpretation`
+gates
+foreign-snapshot exclusion before a transforming composite can inspect the
+domain. The existing selected-shadow and continuation gates remain the
+neighboring terminal-preservation evidence.
+`ClosedWorldAssemblyGroupBindingPolicyTests`,
+`AssemblyContextAnalysisSourceTests`, and
+`AssemblyContextSourceQueryTests` gate exact domain-descriptor transformation
+through closed-world, retained-image, and cancellation-observing facades.
 
 #### Binding miss name ownership
 

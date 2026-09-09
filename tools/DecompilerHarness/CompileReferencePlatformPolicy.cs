@@ -265,8 +265,16 @@ public sealed class CompileReferencePlatformPolicy
                 Retain(shadow);
             // Services currently issues Seed occurrences. Retention preserves both
             // that continuation and the original acquisition registration.
-            return new(Version, AssemblyBindingSelection.Found(Retain(selected.Assembly),
-                [.. selected.ShadowedAssemblies.Select(Retain)]));
+            ResolvedAssemblyReference retained = Retain(selected.Assembly);
+            ImmutableArray<ResolvedAssemblyReference> retainedShadows =
+                [.. selected.ShadowedAssemblies.Select(Retain)];
+            AssemblyBindingSelection retainedSelection =
+                retainedShadows.IsEmpty
+                    ? AssemblyBindingSelection.Found(retained)
+                    : AssemblyBindingCandidateDomain.Create(
+                        [retained, .. retainedShadows])
+                        .Finalize([retained]);
+            return new(Version, retainedSelection);
         }
 
         public ResolvedAssemblyReference Retain(ResolvedAssemblyReference assembly)
