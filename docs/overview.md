@@ -132,7 +132,7 @@ substrates, and inspection producers that will extend that space.
   instruction streams: canonicalization, alignment, Finding projection, typed
   failures, and producer-owned diff presentation.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
-- `src/ILInspector.Text/` (target `Inspector.Text`) provides the reusable
+- `src/Inspector.Text/` provides the reusable
   `TextFindings` API for exact, ordered line inspection and generic text
   comparison on the shared Finding spine, plus deterministic LF construction.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,

@@ -89,7 +89,7 @@ Run the complete text-library suites from the repository root:
 
 ```bash
 dotnet run --project tests/InertText.Tests -c Release
-dotnet run --project tests/ILInspector.Text.Tests -c Release
+dotnet run --project tests/Inspector.Text.Tests -c Release
 ```
 
 Both are xUnit in-process executables. Their source lives under `tests/`, while

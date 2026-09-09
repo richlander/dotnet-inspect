@@ -1,6 +1,6 @@
 using Inspector.Findings;
 
-namespace ILInspector.Text.Tests;
+namespace Inspector.Text.Tests;
 
 public class TextFindingsTests
 {
