@@ -202,14 +202,6 @@ export function nextSpotlightScope(
     : (current + 1) % count;
 }
 
-export function visibleSpotlightPackageHits(
-  query: string,
-  resolvedQuery: string,
-  hits: readonly SpotlightPackageHit[],
-): readonly SpotlightPackageHit[] {
-  return query === resolvedQuery ? hits : [];
-}
-
 export function spotlightResultIdentity(result: SpotlightResult): string {
   switch (result.kind) {
     case "command":

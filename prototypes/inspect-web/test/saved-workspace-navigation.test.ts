@@ -55,6 +55,10 @@ import {
   normalizeDocumentViewerSnapshot,
   type DocumentViewerState,
 } from "../src/document-inspection.ts";
+import {
+  normalizeSpotlightPackageSearchSnapshot,
+  type SpotlightPackageSearchResultState,
+} from "../src/spotlight-package-search.ts";
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
@@ -205,7 +209,10 @@ function harness() {
     methodBodyDiff: createMethodBodyDiffState(),
     sourceDiff: createSourceDiffState(),
     platformStack: [] as object[], platformRecent: [], recentPackages: [],
-    spotlightPkgHits: [], history: [],
+    spotlightPackageSearch: {
+      status: "idle",
+    } as SpotlightPackageSearchResultState,
+    history: [],
     spotlightOpen: false,
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
     memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
@@ -354,6 +361,7 @@ function harness() {
       value.status !== "closed",
     documentViewerIsOpen,
     normalizeDocumentViewerSnapshot,
+    normalizeSpotlightPackageSearchSnapshot,
     retainedWorkspaces: {
       get activeWorkspaceId() {
         return state.package ? "workspace-1" : null;
@@ -586,6 +594,42 @@ test("capture settles a loading document viewer without claiming ready content",
     error: "",
   });
   assert.equal(h.state.docViewer.status, "loading");
+});
+
+test("capture settles Spotlight package loading to cache or idle", () => {
+  const cached = {
+    status: "ready" as const,
+    query: "Existing",
+    hits: [{ id: "Existing.Package", version: "1.2.3" }],
+  };
+  for (const [name, loading, expected] of [
+    [
+      "cached",
+      { status: "loading" as const, query: "Pending", cached },
+      cached,
+    ],
+    [
+      "uncached",
+      { status: "loading" as const, query: "Pending", cached: null },
+      { status: "idle" as const },
+    ],
+  ] as const) {
+    const h = harness();
+    h.state.spotlightPackageSearch = loading;
+
+    const snapshot: unknown = runInNewContext(
+      "captureCanonicalWorkspaceRestoreSnapshot()",
+      h.context,
+    );
+    assert.ok(snapshot !== null && typeof snapshot === "object"
+      && "state" in snapshot);
+    const snapshotState = snapshot.state;
+    assert.ok(snapshotState !== null && typeof snapshotState === "object"
+      && "spotlightPackageSearch" in snapshotState);
+
+    assert.deepEqual(snapshotState.spotlightPackageSearch, expected, name);
+    assert.equal(h.state.spotlightPackageSearch, loading, name);
+  }
 });
 
 test("capture uses the original share projection and retains Workspace presentation without effects", () => {

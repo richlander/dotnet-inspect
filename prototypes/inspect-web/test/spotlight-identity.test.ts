@@ -871,7 +871,10 @@ test("platform inspection notices survive cumulative surface loads", () => {
 test("typed Spotlight owns search presentation and hosts commands", () => {
   assert.match(
     appSource,
-    /createSpotlight,[\s\S]*visibleSpotlightPackageHits,[\s\S]*from "\.\/spotlight\.ts"/);
+    /createSpotlight,[\s\S]*from "\.\/spotlight\.ts"/);
+  assert.match(
+    appSource,
+    /createSpotlightPackageSearch,[\s\S]*visibleSpotlightPackageHits,[\s\S]*from "\.\/spotlight-package-search\.ts"/);
   assert.match(appSource, /openSpotlight\("", "commands"\)/);
   assert.match(appSource, /state\.spotlightOpen \? spotlight\.modalHtml\(\)/);
   assert.match(
@@ -2266,22 +2269,22 @@ test("annotated source Escape and history ownership track the mounted surface", 
     /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
 });
 
-test("leaving package search clears its pending loading state", () => {
+test("package search state owner settles pending work and projects visible cache", () => {
   assert.match(
     spotlightPackageSearchSource,
-    /state\.spotlightScope !== "all"[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
+    /if \(!packageScopeIsActive\(\)\) \{\s*state\.spotlightPackageSearch = settledPackageSearch\(current\);\s*return;/);
   assert.match(
     appSource,
     /id: "workspace\.drill-out-escape"[\s\S]*key: "Escape"[\s\S]*!isTextEntry\(\)/);
   assert.match(
     spotlightPackageSearchSource,
-    /query === state\.spotlightPkgQuery[\s\S]*generation\+\+;[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
+    /if \(query === cached\?\.query\) \{\s*state\.spotlightPackageSearch = cached;\s*return;/);
   assert.match(
     appSource,
-    /visibleSpotlightPackageHits\(\s*query,\s*state\.spotlightPkgQuery,\s*state\.spotlightPkgHits,\s*\)/);
+    /visibleSpotlightPackageHits\(\s*state\.spotlightPackageSearch,\s*query,\s*\)/);
 });
 
-test("Spotlight async work is generation-gated and refreshes either mounted surface", () => {
+test("Spotlight async work is receipt-gated and refreshes either mounted surface", () => {
   assert.match(
     appSource,
     /createSpotlightPackageSearch\(\{[\s\S]*queryPackages: querySpotlightPackages,[\s\S]*updateResults: \(\) => spotlight\.updateResults\(\)/);
@@ -2290,8 +2293,10 @@ test("Spotlight async work is generation-gated and refreshes either mounted surf
     /schedule: \(callback, delay\) => setTimeout\(\(\) => void callback\(\), delay\),\s*cancelScheduled: handle => clearTimeout\(handle\),/);
   assert.match(
     spotlightPackageSearchSource,
-    /requestGeneration !== generation[\s\S]*state\.spotlightQuery\.trim\(\) !== query/);
-  assert.doesNotMatch(appSource, /spotlightPkgGeneration|spotlightPkgTimer/);
+    /state\.spotlightPackageSearch !== pending[\s\S]*state\.spotlightQuery\.trim\(\) !== query[\s\S]*!packageScopeIsActive\(\)/);
+  assert.doesNotMatch(
+    spotlightPackageSearchSource,
+    /generation|spotlightPkgGeneration|spotlightPkgTimer/);
   assert.match(
     appSource,
     /case "rtpack-suggest":[\s\S]*observeAsync\(activateRuntimePack\(\), "Loading the runtime pack"\)/);
