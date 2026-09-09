@@ -131,6 +131,15 @@ internal static class CliRowSelectionCommandRegistry
                 adoption!.Bindings,
                 adoption.Capabilities);
 
+        if (!adoption.IsActive(result.ParseResult))
+        {
+            return CliRowSelectionPreparation.Inactive(
+                result.ParseResult) with
+            {
+                Arguments = result.Arguments
+            };
+        }
+
         return PrepareLowering(result, adoption) with
         {
             Arguments = result.Arguments,
