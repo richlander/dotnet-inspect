@@ -7,6 +7,20 @@ namespace ILInspector.Decompiler.Tests;
 public class TypeOfRenderingTests
 {
     [Fact]
+    public void TypeOfFoldPreservesCallOrigin()
+    {
+        TypeRef target = TypeRef.CoreLib("System", "String");
+        var call = new Call(new MethodRef(TypeRef.CoreLib("System", "Type"), "GetTypeFromHandle",
+            TypeRef.CoreLib("System", "Type"), [TypeRef.CoreLib("System", "RuntimeTypeHandle")], false),
+            false, [new LoadToken(RuntimeTokenKind.Type, target, "string")]);
+        call.SetSourceOffset(25);
+        IrFunction function = Returning(call);
+        new TypeOfFoldingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Equal(25, Assert.Single(function.Descendants.OfType<TypeOf>()).SourceOffset);
+    }
+
+    [Fact]
     public void TypeGetTypeFromHandle_UserLookalike_IsNotFolded()
     {
         var owner = TypeRef.Definition("Synthetic", "Tests", "Owner");
