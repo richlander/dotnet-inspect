@@ -61,6 +61,7 @@ public sealed class PlatformTargetCurrencyTests
     [InlineData("net11.0-windows")]
     [InlineData("net11.*")]
     [InlineData("net11.0..net12.0")]
+    [InlineData("net１１.0")]
     public void NonCanonicalFrameworksAreRejected(string text)
     {
         Assert.False(PlatformTargetFramework.TryParse(text, out _));
@@ -116,6 +117,8 @@ public sealed class PlatformTargetCurrencyTests
     [InlineData("11.*")]
     [InlineData("[11.0.0]")]
     [InlineData("latest")]
+    [InlineData("１１.0.0")]
+    [InlineData("11.0.0-alphaβ")]
     public void NonExactVersionsAreRejected(string text)
     {
         Assert.False(PlatformVersion.TryParse(text, out _));
@@ -171,6 +174,29 @@ public sealed class PlatformTargetCurrencyTests
             "11.0.0-100000000000000000000000000000000000000");
 
         Assert.True(lower.ComparePrecedenceTo(higher) < 0);
+    }
+
+    [Theory]
+    [InlineData(
+        "99999999999999999999999999999999999999.0.0",
+        "100000000000000000000000000000000000000.0.0")]
+    [InlineData(
+        "11.99999999999999999999999999999999999999.0",
+        "11.100000000000000000000000000000000000000.0")]
+    [InlineData(
+        "11.0.99999999999999999999999999999999999999",
+        "11.0.100000000000000000000000000000000000000")]
+    public void LargeCoreComponentsCompareWithoutOverflow(
+        string lowerText,
+        string higherText)
+    {
+        var lower = PlatformVersion.Parse(lowerText);
+        var higher = PlatformVersion.Parse(higherText);
+
+        Assert.True(lower.ComparePrecedenceTo(higher) < 0);
+        Assert.True(higher.ComparePrecedenceTo(lower) > 0);
+        Assert.True(
+            PlatformVersion.SemanticPrecedenceComparer.Compare(lower, higher) < 0);
     }
 
     [Fact]
