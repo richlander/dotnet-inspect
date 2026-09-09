@@ -512,7 +512,9 @@ test("Package comparison targets survive Library, Type, and Member navigation", 
   await installFacades(page);
   await page.goto(root);
   await expect(page.locator("#package-diff-target-status"))
-    .toHaveText("Compare against 0.9.0 (previous version).");
+    .toHaveText("Previous listed release");
+  await expect(page.locator("#package-diff-target option:checked"))
+    .toHaveText("Automatic: 0.9.0");
   await page.locator("#package-diff-target").focus();
   await page.locator("#package-diff-target").selectOption("exact:1.0.0");
   await expect(page.locator("#package-diff-target")).toBeFocused();
@@ -527,7 +529,7 @@ test("Package comparison targets survive Library, Type, and Member navigation", 
   await expect(page.locator("#package-clone-target")).toHaveValue("package:0");
   await page.locator("#package-diff-target").selectOption("previous");
   await expect(page.locator("#package-diff-target-status"))
-    .toHaveText("Compare against 0.9.0 (previous version).");
+    .toHaveText("Previous listed release");
 });
 
 for (const initialWidth of [1440, 390]) {
@@ -1298,7 +1300,7 @@ for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) 
   });
 }
 
-for (const width of [1440, 390]) {
+for (const width of [1440, 800, 390]) {
   test(`production Package Overview fills its frame and opens Library at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await installFacades(page);
@@ -1318,9 +1320,36 @@ for (const width of [1440, 390]) {
     ]);
     await expect(overview.locator(".library-row")).toHaveCount(3);
     await expect(overview.locator('[data-lib-scope="asset:empty"]')).toContainText("0 types");
+    await expect(overview.locator(".comparison-target-row")).toHaveCount(2);
+    const diffTarget = overview.locator("#package-diff-target");
+    await expect(diffTarget.locator("option:checked")).toHaveText("Automatic: 0.9.0");
+    await expect(overview.locator(".comparison-target-policy"))
+      .toHaveText("Session only. Choosing a target does not run a comparison or change shared links.");
+    if (width === 1440) {
+      expect((await diffTarget.boundingBox())!.width).toBeGreaterThan(500);
+      expect(await diffTarget.evaluate(select => {
+        if (!(select instanceof HTMLSelectElement)) return false;
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        if (!context) return false;
+        context.font = getComputedStyle(select).font;
+        return context.measureText(select.selectedOptions[0]?.text ?? "").width + 48
+          <= select.clientWidth;
+      })).toBe(true);
+    } else {
+      const row = await overview.locator(".comparison-target-row").first().boundingBox();
+      const heading = await overview.locator(".comparison-target-heading").first().boundingBox();
+      const selection = await overview.locator(".comparison-target-selection").first().boundingBox();
+      expect(row).not.toBeNull();
+      expect(heading).not.toBeNull();
+      expect(selection).not.toBeNull();
+      expect(Math.abs(selection!.x - heading!.x)).toBeLessThan(1);
+      expect(selection!.y).toBeGreaterThan(heading!.y + heading!.height);
+    }
+    expect(await overview.locator(".overview-scroll").evaluate(scroll =>
+      scroll.scrollWidth - scroll.clientWidth)).toBe(0);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
-
     if (width === 390) {
       await page.getByRole("button", { name: "Libraries", exact: true }).click();
       await expect(page.locator(".library-subject-list")).toBeFocused();

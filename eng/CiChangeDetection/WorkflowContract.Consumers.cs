@@ -161,7 +161,7 @@ internal static partial class WorkflowContract
         RequireNamedRunStep(
             steps.Children[3],
             "Run repository line-ending guard",
-            "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +
+            "dotnet run --project tests/dotnet-inspect.Tests -c Release -- " +
                 "--filter-class \"DotnetInspector.Tests.RepositoryLineEndingTests\" " +
                 "--minimum-expected-tests 2\n",
             "jobs.repository-guards line-ending step");
