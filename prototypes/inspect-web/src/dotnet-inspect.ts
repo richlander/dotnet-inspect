@@ -431,7 +431,6 @@ import {
   type QueryAssemblyPatternDescriptor,
   type QueryFacetTerm,
   type QueryRequest,
-  type QuerySourceCatalog,
   type QuerySourceSelection,
 } from "./package-query.ts";
 import {
@@ -831,7 +830,6 @@ const initialState = {
   packageQueryState: initialQueryState(),
   packageQueryFacets: [],
   packageQueryAssemblyPatterns: [],
-  packageQuerySourceCatalog: null,
   platformIndex: null,
   queryNotice: "",
   queryNoticeRetryAction: null,
@@ -1043,7 +1041,6 @@ interface StateOverrides {
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
-  packageQuerySourceCatalog: QuerySourceCatalog | null;
   packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
@@ -3602,6 +3599,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "library" && state.libraryLens === "references";
   const libraryIntegrationsWorkingSurface =
     activeScope === "library" && state.libraryLens === "integrations";
+  const libraryOpportunitiesWorkingSurface =
+    activeScope === "library" && state.libraryLens === "opportunities";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -3641,6 +3640,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || libraryMetadataWorkingSurface
     || libraryReferencesWorkingSurface
     || libraryIntegrationsWorkingSurface
+    || libraryOpportunitiesWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -3735,7 +3735,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4326,6 +4326,7 @@ function renderLibraryView() {
   if (state.libraryLens === "overview"
     || state.libraryLens === "references"
     || state.libraryLens === "integrations"
+    || state.libraryLens === "opportunities"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -4767,9 +4768,7 @@ function packageScopeSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
-// The Opportunities and Analysis lenses run over one platform library at a time, so on the
-// Platform they render the same inline library picker as Integrations and prompt for a choice
-// when nothing is scoped. This mirrors renderPackageIntegrations' platform handling.
+// Analysis runs over one platform library at a time and keeps its picker with the result.
 function platformLensPicker(dataAttr: string) {
   const scopedLib = scopedPlatformLibrary();
   return `<section class="document-section"><div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml({ dataAttr, selected: scopedLib || "" })}</div></section>`;
@@ -4777,14 +4776,18 @@ function platformLensPicker(dataAttr: string) {
 
 function renderPackageOpportunities() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
-  const picker = isPlatform ? platformLensPicker("data-platform-opportunities-library") : "";
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
   const current = packageScopeSignature();
   return renderPackageOpportunitiesPure({
-    isPlatform,
-    scopedLibrary: selectedLibraryName() || null,
-    activeFramework: pkg.activeFramework,
-    picker,
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({ dataAttr: "data-platform-opportunities-library", selected: scopedLib || "" })
+      : "",
     fresh: state.packageOpportunitiesKey === current,
     loading: state.packageOpportunitiesLoading,
     error: state.packageOpportunitiesError,
@@ -9677,15 +9680,14 @@ function closePackageQueryRoute() {
 
 function preparePackageQueryRequest(
   text: string,
-  inputKind = state.packageQueryState.request?.inputKind ?? "package",
 ): QueryRequest {
   const validText = validPackageQuerySearchText(text);
   state.packageQueryPrefix = validText;
   state.packageQueryNavigationError = "";
   const request = state.packageQueryState.request
     ? withScopeQuery(state.packageQueryState.request, validText)
-    : createQueryRequest(validText, inputKind);
-  return withInputKind(request, inputKind);
+    : createQueryRequest(validText);
+  return withInputKind(request, "package");
 }
 
 function submitPackageQueryRequest(request: QueryRequest) {
@@ -9698,22 +9700,13 @@ function submitPackageQueryRequest(request: QueryRequest) {
 }
 
 function runPackageQuery(text: string) {
-  const request = preparePackageQueryRequest(text, "package");
-  submitPackageQueryRequest(request);
-}
-
-function discoverPackages() {
-  const request = preparePackageQueryRequest("", "gallery");
+  const request = preparePackageQueryRequest(text);
   submitPackageQueryRequest(request);
 }
 
 function preparePackageQueryControlRequest(
   text: string,
 ): QueryRequest {
-  if (state.packageQueryState.request?.inputKind === "gallery") {
-    state.packageQueryNavigationError = "";
-    return state.packageQueryState.request;
-  }
   return preparePackageQueryRequest(text);
 }
 
@@ -9791,7 +9784,6 @@ async function openPackageQueryRow(
 const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
-  onDiscover: discoverPackages,
   onAssemblyRun: request => {
     state.packageQueryNavigationError = "";
     packageQueryLiveAnnouncer.reset();
@@ -9867,7 +9859,6 @@ function renderPackageQueryPage() {
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
     availableAssemblyPatterns: state.packageQueryAssemblyPatterns,
-    sourceCatalog: state.packageQuerySourceCatalog,
     navigationError: [
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
@@ -13114,13 +13105,10 @@ async function bootstrap() {
     try {
       state.packageQueryFacets =
         packageQueryFacets(await engineClient.package.listPackageQueryFacets());
-      state.packageQuerySourceCatalog =
-        await engineClient.package.listGalleryDiscoveryCatalog();
     } catch (error) {
       state.packageQueryFacets = [];
-      state.packageQuerySourceCatalog = null;
       state.packageQueryCatalogError =
-        `Package-query catalogs are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package-query facets are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
       state.packageQueryAssemblyPatterns =

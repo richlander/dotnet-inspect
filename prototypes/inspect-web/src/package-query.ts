@@ -33,16 +33,6 @@ export interface QuerySourceSelection {
   includePrerelease: boolean;
 }
 
-export interface QuerySourceCatalog {
-  packageType: {
-    id: string;
-    label: string;
-    summary: string;
-    suggestions: readonly { value: string; label: string }[];
-  };
-  orders: readonly { id: string; label: string; summary: string }[];
-}
-
 export interface QueryAssemblyPatternDescriptor {
   id: string;
   label: string;
