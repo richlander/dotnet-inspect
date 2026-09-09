@@ -23,6 +23,8 @@ public sealed class BrowserCloneCandidateTransportTests
 {
     const string CloneAssembly =
         "DotnetInspector.CloneSearchFixtures.dll";
+    const string CloneTransportAssembly =
+        "InspectWeb.CloneTransportFixtures.dll";
     const string Framework = "net11.0";
 
     [Fact]
@@ -273,8 +275,8 @@ public sealed class BrowserCloneCandidateTransportTests
                 BrowserCloneCandidateBreadth.Self,
                 BrowserCloneCandidateDiscovery.All);
 
-        ArgumentException wrongType =
-            await Assert.ThrowsAsync<ArgumentException>(() =>
+        InvalidOperationException wrongType =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 fixture.Query(
                     valid with
                     {
@@ -283,7 +285,7 @@ public sealed class BrowserCloneCandidateTransportTests
                             TypeDefinitionId = "Cases.Other",
                         },
                     }));
-        Assert.Contains("member type", wrongType.Message);
+        Assert.Contains("does not contain", wrongType.Message);
 
         ArgumentOutOfRangeException wrongToken =
             await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
@@ -311,6 +313,49 @@ public sealed class BrowserCloneCandidateTransportTests
                         },
                     }));
         Assert.Contains("does not belong", wrongBody.Message);
+    }
+
+    [Fact]
+    public async Task ExportAcceptsOwnerIssuedGenericAndAccessorIdentities()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        Assert.NotEqual(
+            fixture.GenericCreate.TypeDefinitionId,
+            fixture.GenericCreate.Member.TypeFullName);
+
+        BrowserCloneCandidateResult generic =
+            await fixture.Query(
+                Seed(
+                    BrowserCloneCandidateSeedKind.Member,
+                    fixture.GenericCreate.TypeDefinitionId,
+                    fixture.GenericCreate.Member),
+                BrowserCloneCandidateBreadth.Self,
+                BrowserCloneCandidateDiscovery.All,
+                selectedPackageIndex: 1,
+                assembly: CloneTransportAssembly);
+        Assert.Equal(
+            BrowserCloneCandidateResultKind.Available,
+            generic.Kind);
+        Assert.Single(generic.Document!.Seeds);
+
+        BrowserCloneCandidateResult explicitAccessor =
+            await fixture.Query(
+                Seed(
+                    BrowserCloneCandidateSeedKind.Member,
+                    fixture.ExplicitValue.TypeDefinitionId,
+                    fixture.ExplicitValue.Member,
+                    fixture.ExplicitValue.Body),
+                BrowserCloneCandidateBreadth.Self,
+                BrowserCloneCandidateDiscovery.All,
+                selectedPackageIndex: 1,
+                assembly: CloneTransportAssembly);
+        Assert.Equal(
+            BrowserCloneCandidateResultKind.Available,
+            explicitAccessor.Kind);
+        Assert.Equal(
+            fixture.ExplicitValue.Body!.MetadataToken,
+            Assert.Single(explicitAccessor.Document!.Seeds)
+                .Seed.MethodDefinitionToken);
     }
 
     static BrowserCloneCandidateSeedRequest Seed(
@@ -341,7 +386,9 @@ public sealed class BrowserCloneCandidateTransportTests
             string widgetType,
             BrowserCloneMemberAnchor valueAnchor,
             BrowserCloneMemberAnchor tagAnchor,
-            BrowserCloneCandidateBodySelection valueGetter)
+            BrowserCloneCandidateBodySelection valueGetter,
+            MemberCase genericCreate,
+            MemberCase explicitValue)
         {
             PackageId = packageId;
             NeighborPackageId = neighborPackageId;
@@ -349,6 +396,8 @@ public sealed class BrowserCloneCandidateTransportTests
             ValueAnchor = valueAnchor;
             TagAnchor = tagAnchor;
             ValueGetter = valueGetter;
+            GenericCreate = genericCreate;
+            ExplicitValue = explicitValue;
         }
 
         internal string PackageId { get; }
@@ -357,6 +406,8 @@ public sealed class BrowserCloneCandidateTransportTests
         internal BrowserCloneMemberAnchor ValueAnchor { get; }
         internal BrowserCloneMemberAnchor TagAnchor { get; }
         internal BrowserCloneCandidateBodySelection ValueGetter { get; }
+        internal MemberCase GenericCreate { get; }
+        internal MemberCase ExplicitValue { get; }
 
         internal static async Task<Fixture> Open()
         {
@@ -370,7 +421,7 @@ public sealed class BrowserCloneCandidateTransportTests
                     FixtureCatalog.CloneSearchMembers.AssemblyPath());
             byte[] neighbor =
                 File.ReadAllBytes(
-                    FixtureCatalog.InspectWebMethodBodies.AssemblyPath());
+                    FixtureCatalog.InspectWebCloneTransport.AssemblyPath());
             using var primaryBytes = new MemoryStream();
             using (var archive =
                 new ZipArchive(
@@ -392,7 +443,7 @@ public sealed class BrowserCloneCandidateTransportTests
             {
                 Write(
                     archive,
-                    "lib/net11.0/InspectWeb.MethodBodyFixtures.dll",
+                    $"lib/{Framework}/{CloneTransportAssembly}",
                     neighbor);
             }
 
@@ -434,6 +485,40 @@ public sealed class BrowserCloneCandidateTransportTests
                     CallGraphMemberResolver
                         .CreateBodySelectors(widget, value),
                     selector => selector.MemberName == "get_Value");
+            using AssemblyInspectionSession neighborSession =
+                AssemblyInspectionSession.Open(
+                    FixtureCatalog.InspectWebCloneTransport.AssemblyPath());
+            ApiSurface neighborSurface =
+                neighborSession.ApiSurface(includeAll: true);
+            ApiType genericType =
+                Assert.Single(
+                    neighborSurface.Types,
+                    type =>
+                        type.DefinitionName?.ToMetadataFullName()
+                            == "InspectWeb.CloneTransportFixtures.GenericSeed`1");
+            ApiMember create =
+                Assert.Single(
+                    genericType.Members,
+                    member => member.Name == "Create");
+            ApiType bodyShapeType =
+                Assert.Single(
+                    neighborSurface.Types,
+                    type =>
+                        type.DefinitionName?.ToMetadataFullName()
+                            == "InspectWeb.CloneTransportFixtures.ExplicitSeed");
+            ApiMember explicitValue =
+                Assert.Single(
+                    bodyShapeType.Members,
+                    member =>
+                        member.Kind == "property"
+                        && member.Name.EndsWith(
+                            "IExplicitValue.Value",
+                            StringComparison.Ordinal));
+            CallGraphMemberBodySelector explicitGetter =
+                Assert.Single(
+                    CallGraphMemberResolver.CreateBodySelectors(
+                        bodyShapeType,
+                        explicitValue));
 
             return new Fixture(
                 packageId,
@@ -444,19 +529,43 @@ public sealed class BrowserCloneCandidateTransportTests
                 new BrowserCloneCandidateBodySelection(
                     getter.MemberName,
                     getter.SelectorKey,
-                    getter.BodyToken));
+                    getter.BodyToken),
+                new MemberCase(
+                    genericType.DefinitionName!.ToEscapedFullName(),
+                    Project(ApiMemberIdentity.GetMemberAnchor(
+                        genericType,
+                        create)),
+                    null),
+                new MemberCase(
+                    bodyShapeType.DefinitionName!.ToEscapedFullName(),
+                    Project(ApiMemberIdentity.GetMemberAnchor(
+                        bodyShapeType,
+                        explicitValue)),
+                    new BrowserCloneCandidateBodySelection(
+                        explicitGetter.MemberName,
+                        explicitGetter.SelectorKey,
+                        explicitGetter.BodyToken)));
         }
 
         internal async Task<BrowserCloneCandidateResult> Query(
             BrowserCloneCandidateSeedRequest seed,
             BrowserCloneCandidateBreadth breadth,
-            BrowserCloneCandidateDiscovery discovery)
-            => await Query(Request(seed, breadth, discovery));
+            BrowserCloneCandidateDiscovery discovery,
+            int selectedPackageIndex = 0,
+            string assembly = CloneAssembly)
+            => await Query(Request(
+                seed,
+                breadth,
+                discovery,
+                selectedPackageIndex,
+                assembly));
 
         internal BrowserCloneCandidateRequest Request(
             BrowserCloneCandidateSeedRequest seed,
             BrowserCloneCandidateBreadth breadth,
-            BrowserCloneCandidateDiscovery discovery) =>
+            BrowserCloneCandidateDiscovery discovery,
+            int selectedPackageIndex = 0,
+            string assembly = CloneAssembly) =>
             new(
                 1,
                 [
@@ -469,8 +578,8 @@ public sealed class BrowserCloneCandidateTransportTests
                         "1.0.0",
                         Framework),
                 ],
-                0,
-                CloneAssembly,
+                selectedPackageIndex,
+                assembly,
                 seed,
                 breadth,
                 discovery);
@@ -533,4 +642,9 @@ public sealed class BrowserCloneCandidateTransportTests
             entry.Write(content);
         }
     }
+
+    sealed record MemberCase(
+        string TypeDefinitionId,
+        BrowserCloneMemberAnchor Member,
+        BrowserCloneCandidateBodySelection? Body);
 }

@@ -18,6 +18,7 @@
     <Using Include="Xunit" />
     <ProjectReference Include="..\engine.Core\InspectWeb.Engine.Core.csproj" />
     <ProjectReference Include="..\engine\InspectWeb.Engine.csproj" />
+    <ProjectReference Include="..\..\..\fixtures\inspect-web\InspectWeb.CloneTransportFixtures\InspectWeb.CloneTransportFixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="..\..\..\fixtures\queries\DotnetInspector.CloneSearchFixtures\DotnetInspector.CloneSearchFixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="..\..\..\fixtures\inspect-web\InspectWeb.MethodBodyFixtures\InspectWeb.MethodBodyFixtures.csproj" />
     <ProjectReference Include="..\..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" ReferenceOutputAssembly="false" Private="false" />

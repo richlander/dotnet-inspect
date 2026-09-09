@@ -136,10 +136,28 @@ public static partial class AnalysisExports
                                 body.MemberName,
                                 body.SelectorKey,
                                 body.MetadataToken);
-                    if (ApiMemberIdentity.GetMemberAnchor(
-                            selected.Type,
-                            selected.Member)
-                        != logical)
+                    ApiMember[] logicalMembers =
+                    [
+                        .. selected.Type.Members
+                            .Where(member =>
+                                ApiMemberIdentity.GetMemberAnchor(
+                                    selected.Type,
+                                    member)
+                                == logical)
+                            .Take(2),
+                    ];
+                    if (logicalMembers.Length != 1
+                        || !CallGraphMemberResolver
+                            .CreateBodySelectors(
+                                selected.Type,
+                                logicalMembers[0])
+                            .Any(candidate =>
+                                candidate.BodyToken
+                                    == body.MetadataToken
+                                && candidate.MemberName
+                                    == body.MemberName
+                                && candidate.SelectorKey
+                                    == body.SelectorKey))
                     {
                         throw new ArgumentException(
                             "The selected body does not belong to the "
@@ -299,16 +317,6 @@ public static partial class AnalysisExports
                 throw new ArgumentException(
                     "The Clone Candidates member fingerprint does not match "
                         + "its canonical signature.",
-                    nameof(request));
-            }
-            if (!string.Equals(
-                    member.TypeFullName,
-                    request.Seed.TypeDefinitionId,
-                    StringComparison.Ordinal))
-            {
-                throw new ArgumentException(
-                    "The Clone Candidates member type does not match its "
-                        + "seed type.",
                     nameof(request));
             }
         }
