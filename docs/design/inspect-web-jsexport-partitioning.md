@@ -262,8 +262,9 @@ member surface selected from graph navigation. It consumes package or platform
 coordinates through `InspectWeb.Engine.Core`; it does not acquire artifacts
 independently.
 
-### Analysis facade: 7 exports
+### Analysis facade: 8 exports
 
+- `QueryCloneCandidates`
 - `QueryMemberFacts`
 - `QueryPackageIntegrations`
 - `QueryPackageOpportunities`
@@ -274,6 +275,9 @@ independently.
 
 The explicitly unavailable platform-performance operation stays in this facade
 so absence remains a visible capability result rather than a missing binding.
+`QueryCloneCandidates` belongs here because it adapts the Workspace structural
+Clone query and portable Presentation result without transferring candidate
+ranking or coverage semantics into the browser host.
 The module does not combine Analysis with call-graph topology; graph traversal
 has its own facade and product owner.
 
