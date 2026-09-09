@@ -132,7 +132,6 @@ import {
   type AppPackage,
   type AppTypeSurface,
   type InspectedMemberSurface,
-  type InspectedPackageDocument,
   type InspectedTypeSurface,
 } from "./package-acquisition.ts";
 import {
@@ -249,7 +248,12 @@ import {
   type InspectedCallGraphTarget,
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
-import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
+import {
+  createDocumentInspectionCoordinator,
+  documentViewerIsOpen,
+  normalizeDocumentViewerSnapshot,
+  type DocumentViewerState,
+} from "./document-inspection.ts";
 import { renderOverviewSurface } from "./overview-surface.ts";
 import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
@@ -335,7 +339,6 @@ import {
   bindDocViewer,
   renderDocViewer as renderDocViewerPure,
   renderPackageDocuments,
-  type DocViewerMeta,
 } from "./doc-viewer.ts";
 import {
   bindGraphSource,
@@ -977,13 +980,7 @@ const initialState = {
   runtimePackError: "",
   selectedBodyTarget: null,
   graphSource: { status: "closed" as const },
-  docViewerOpen: false,
-  docViewer: null,
-  docViewerLoading: false,
-  docViewerError: "",
-  docViewerHtml: "",
-  docViewerMeta: null,
-  docViewerSeq: 0,
+  docViewer: { status: "closed" as const },
   styleTiers: null,
   styleOptions: null,
   styleCatalogError: "",
@@ -1053,8 +1050,7 @@ interface StateOverrides {
   recentPackages: RecentPackage[];
   selectedBodyTarget: BodyTarget | null;
   graphSource: GraphSourceState;
-  docViewer: InspectedPackageDocument | null;
-  docViewerMeta: DocViewerMeta | null;
+  docViewer: DocumentViewerState;
   styleTiers: StyleTier[] | null;
   styleOptions: StyleOption[] | null;
   history: string[];
@@ -1222,14 +1218,14 @@ function normalizeWorkspaceAsyncSnapshotState(
       title: snapshotState.graphSource.title,
     };
   }
-  snapshotState.docViewerLoading = false;
+  snapshotState.docViewer =
+    normalizeDocumentViewerSnapshot(snapshotState.docViewer);
   snapshotState.workspaceOccurrenceLoading = false;
   snapshotState.workspaceDependencyLoads = new Set();
   snapshotState.sourceRequestGeneration++;
   snapshotState.typeMetadataGeneration++;
   snapshotState.memberCallGraphSeq++;
   snapshotState.graphMemberNavigationSeq++;
-  snapshotState.docViewerSeq++;
 
   if (memberSourceLoading) snapshotState.memberSourceKey = "";
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
@@ -1256,7 +1252,6 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   const typeMetadataGeneration = state.typeMetadataGeneration;
   const memberCallGraphSeq = state.memberCallGraphSeq;
   const graphMemberNavigationSeq = state.graphMemberNavigationSeq;
-  const docViewerSeq = state.docViewerSeq;
   const platformIndex = state.platformIndex ?? snapshot.state.platformIndex;
   clearWorkspaceOccurrenceView();
   clearWorkspacePackages();
@@ -1273,8 +1268,6 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
     Math.max(memberCallGraphSeq, snapshot.state.memberCallGraphSeq) + 1;
   state.graphMemberNavigationSeq =
     Math.max(graphMemberNavigationSeq, snapshot.state.graphMemberNavigationSeq) + 1;
-  state.docViewerSeq =
-    Math.max(docViewerSeq, snapshot.state.docViewerSeq) + 1;
   state.platformIndex = platformIndex;
   state.workspaceOccurrenceSignature = "";
   state.workspaceOccurrenceLoading = false;
@@ -2595,7 +2588,7 @@ function canRestoreWorkbenchFocus(
     && focusGeneration === documentFocusGeneration
     && !state.spotlightOpen
     && !graphSourceIsOpen(state.graphSource)
-    && !state.docViewerOpen
+    && !documentViewerIsOpen(state.docViewer)
     && !state.settings && !state.keyboardHelp
     && !applicationMenuOwnsFocus(document) && !isTextEntry();
 }
@@ -4384,7 +4377,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
       ${graphSourceIsOpen(state.graphSource) ? renderGraphSource() : ""}
-      ${state.docViewerOpen ? renderDocViewer() : ""}
+      ${documentViewerIsOpen(state.docViewer) ? renderDocViewer() : ""}
     </div>
     ${renderApplicationMenu(true)}
     ${state.settings ? renderSettingsViewHtml() : ""}
@@ -9076,7 +9069,7 @@ function workbenchOverlayOwnsFocus() {
 function workbenchModalOwnsFocus() {
   return state.spotlightOpen
     || graphSourceIsOpen(state.graphSource)
-    || state.docViewerOpen
+    || documentViewerIsOpen(state.docViewer)
     || state.memberAnnotatedModal !== null
     || state.methodBodyDiff.open
     || state.sourceDiff.open
@@ -12063,7 +12056,7 @@ function graphExplorerKey(): string | null {
   if (state.home || state.loading || state.error || state.packageQueryOpen
     || state.credits || state.settings || state.keyboardHelp || state.explorer?.open
     || state.spotlightOpen
-    || state.docViewerOpen
+    || documentViewerIsOpen(state.docViewer)
     || graphSourceIsOpen(state.graphSource)
     || state.memberAnnotatedModal) return null;
   if (scope() === "package" && state.packageLens === "dependencies") {
@@ -12957,12 +12950,9 @@ function closeDocViewer() {
 }
 
 function renderDocViewer() {
+  if (!documentViewerIsOpen(state.docViewer)) return "";
   return renderDocViewerPure({
-    doc: state.docViewer,
-    meta: state.docViewerMeta,
-    loading: state.docViewerLoading,
-    error: state.docViewerError,
-    html: state.docViewerHtml,
+    state: state.docViewer,
     escapeHtml,
   });
 }
@@ -14553,7 +14543,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !state.loading
     && !state.error
     && !graphSourceIsOpen(state.graphSource)
-    && !state.docViewerOpen
+    && !documentViewerIsOpen(state.docViewer)
     && state.memberAnnotatedModal === null
     && !state.methodBodyDiff.open
     && !state.sourceDiff.open
@@ -14576,7 +14566,7 @@ const annotatedSourceEscapeContextIsActive = () =>
   annotatedSourceContextIsActive()
   || embeddedAnnotatedSourceDetailContextIsActive();
 const documentViewerContextIsActive = () =>
-  workspaceModalContextIsAvailable() && state.docViewerOpen;
+  workspaceModalContextIsAvailable() && documentViewerIsOpen(state.docViewer);
 const spotlightContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.spotlightOpen;
 const workspaceDrillOutIsAvailable = () =>

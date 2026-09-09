@@ -44,7 +44,8 @@ The approved scope is:
 
 - `PlatformHouse` is the sole product-facing platform realization and
   reference-processing facade;
-- typed package references enter `PackageHouse`, which alone applies the
+- typed package references enter
+  [PackageHouse](package-house.md), which alone applies the
   pruning service when deciding whether to continue package processing or
   issue a typed platform delegation;
 - package, platform, and direct-library flows converge only after their owning
@@ -70,7 +71,7 @@ result, evidence-retention, and encapsulation contracts. It consumes the
 owner-issued inputs listed above without redefining their identities,
 algorithms, lifetimes, or failure semantics.
 
-The PackageHouse and direct-library paths below form a thin composition map,
+The [PackageHouse](package-house.md) and direct-library paths below form a thin composition map,
 not additional normative owners inside this document. Their focused designs
 own their complete requests, outcomes, and receipts. This document owns only
 the typed boundary into PlatformHouse and the evidence its library-focused
@@ -750,7 +751,8 @@ rejection, or incomplete work retain their existing terminal meaning.
 
 ## Typed platform delegation from PackageHouse
 
-Package-reference processing remains package-shaped. The package owner retains
+Package-reference processing remains package-shaped under the
+[PackageHouse](package-house.md) contract. The package owner retains
 the original typed `PackageRef`, target context, resolved or unresolved package
 version evidence, and the source from which that evidence was obtained.
 
@@ -1602,7 +1604,8 @@ This design does not:
 - create a package-to-assembly naming convention;
 - process a `PackageRef`, choose a package version, acquire a package payload,
   or apply package pruning;
-- define the complete PackageHouse request, outcome, or receipt contract;
+- redefine the complete PackageHouse request, outcome, or receipt contract
+  owned by [PackageHouse Composition](package-house.md);
 - make pruning an `AssemblyRef` classifier;
 - alter package dependency traversal or the assembly ladder's route order;
 - alter Metadata forwarding, binding, declaration, or terminal outcomes;

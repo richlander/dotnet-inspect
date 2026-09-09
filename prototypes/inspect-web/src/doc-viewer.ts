@@ -1,23 +1,14 @@
+import { assertNever } from "./data.ts";
+import type { OpenDocumentViewerState } from "./document-inspection.ts";
 import type { InspectedPackageDocument } from "./package-acquisition.ts";
 
-type DocViewerDocument = Pick<InspectedPackageDocument, "name" | "path">;
 type PackageDocumentSummary = Pick<
   InspectedPackageDocument,
   "kind" | "name" | "path" | "size"
 >;
 
-export interface DocViewerMeta {
-  name: string;
-  version: string;
-  descriptionHtml: string;
-}
-
 export interface RenderDocViewerOptions {
-  doc: DocViewerDocument | null;
-  meta: DocViewerMeta | null;
-  loading: boolean;
-  error: string;
-  html: string;
+  state: OpenDocumentViewerState;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -74,25 +65,38 @@ export function renderPackageDocuments(
 }
 
 export function renderDocViewer(options: RenderDocViewerOptions): string {
-  const { doc, meta, loading, error, html, escapeHtml } = options;
-  const title = doc ? doc.name : "Document";
-  const subtitle = doc ? doc.path : "";
-  const metaCard = meta
-    ? `<div class="doc-frontmatter">
-        <div class="doc-fm-head"><strong>${escapeHtml(meta.name)}</strong>${meta.version ? `<span class="doc-fm-version">v${escapeHtml(meta.version)}</span>` : ""}</div>
-        ${meta.descriptionHtml ? `<p class="doc-fm-desc">${meta.descriptionHtml}</p>` : ""}
+  const { state, escapeHtml } = options;
+  const { document } = state.request;
+  let body: string;
+  switch (state.status) {
+    case "loading":
+      body =
+        `<div class="doc-viewer-status">Loading ${escapeHtml(document.name)}…</div>`;
+      break;
+    case "ready": {
+      const metaCard = state.meta
+        ? `<div class="doc-frontmatter">
+        <div class="doc-fm-head"><strong>${escapeHtml(state.meta.name)}</strong>${state.meta.version ? `<span class="doc-fm-version">v${escapeHtml(state.meta.version)}</span>` : ""}</div>
+        ${state.meta.descriptionHtml ? `<p class="doc-fm-desc">${state.meta.descriptionHtml}</p>` : ""}
       </div>`
-    : "";
-  const body = loading
-    ? `<div class="doc-viewer-status">Loading ${escapeHtml(title)}…</div>`
-    : error
-      ? `<div class="doc-viewer-status error">${escapeHtml(error)}</div>`
-      : `${metaCard}<article class="markdown-body">${html}</article>`;
+        : "";
+      body =
+        `${metaCard}<article class="markdown-body">${state.html}</article>`;
+      break;
+    }
+    case "failed":
+      body = `<div class="doc-viewer-status error">${escapeHtml(
+        state.error || "The document could not be loaded.",
+      )}</div>`;
+      break;
+    default:
+      return assertNever(state, "open document viewer state");
+  }
   return `
     <div class="doc-viewer-backdrop" id="doc-viewer-backdrop">
       <div class="doc-viewer" role="dialog" aria-modal="true" aria-label="Package document">
         <div class="doc-viewer-head">
-          <span class="doc-viewer-title">${escapeHtml(title)}<small>${escapeHtml(subtitle)}</small></span>
+          <span class="doc-viewer-title">${escapeHtml(document.name)}<small>${escapeHtml(document.path)}</small></span>
           <button id="doc-viewer-close" type="button" aria-label="Close">esc</button>
         </div>
         <div class="doc-viewer-body">${body}</div>
