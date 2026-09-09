@@ -96,7 +96,8 @@ internal static class BrowserFrameworkText
                 .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
         string active = Active(coordinate);
-        return active.Length > 0
+        return coordinate.Selection.IsSelected
+            && active.Length > 0
             && !available.Contains(active, StringComparer.OrdinalIgnoreCase)
                 ? [active, .. available]
                 : available;
