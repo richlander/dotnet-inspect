@@ -390,9 +390,9 @@ output; interactive Browser rendering remains host-owned.
 
 [#5512](https://github.com/richlander/dotnet-inspect/issues/5512), route C of
 [#5865](https://github.com/richlander/dotnet-inspect/issues/5865), owns the
-counted path: 10 direct delivery milestones and six identified shared
-dependencies in its 2026-09-06 reconciliation, a lower bound rather than a
-promise of 16 PRs. This is its C2 vocabulary checkpoint, not completion of C2
+counted path: 10 direct delivery milestones and three identified shared
+dependencies in its 2026-09-09 reconciliation, a lower bound rather than a
+promise of 13 PRs. This is its C2 vocabulary checkpoint, not completion of C2
 runtime adoption. The first consumer group is C1 identity replacement, C2
 Registry adoption, C3 stateless projection, and C4 CLI adoption after the
 Scope floor. Browser prerequisites and their owners remain separate.
