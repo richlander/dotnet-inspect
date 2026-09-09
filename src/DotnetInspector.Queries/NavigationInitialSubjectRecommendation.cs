@@ -220,34 +220,12 @@ public static class NavigationInitialSubjectRecommendation
             allLibraries,
             libraries);
         StructuralSubjectIdentity subject =
-            FindType(basis, isPrimary: true, isDefault: true)
-            ?? FindType(basis, isPrimary: false, isDefault: true)
-            ?? FindType(basis, isPrimary: true, isDefault: false)
-            ?? FindType(basis, isPrimary: false, isDefault: false)
-            ?? (StructuralSubjectIdentity?)basis.AllLibraries
-            ?? (StructuralSubjectIdentity?)basis.Libraries.FirstOrDefault(
+            (StructuralSubjectIdentity?)basis.Libraries.FirstOrDefault(
                 library => library.IsPrimary)?.Subject
             ?? (StructuralSubjectIdentity?)basis.Libraries
                 .FirstOrDefault()?.Subject
+            ?? (StructuralSubjectIdentity?)basis.AllLibraries
             ?? basis.Root;
         return new NavigationInitialSubjectOutcome(basis, subject);
-    }
-
-    static StructuralSubjectIdentity.TypeSubject? FindType(
-        NavigationInitialSubjectBasis basis,
-        bool isPrimary,
-        bool isDefault)
-    {
-        foreach (NavigationInitialLibraryCandidate library in basis.Libraries)
-        {
-            if (library.IsPrimary != isPrimary)
-                continue;
-            foreach (NavigationInitialTypeCandidate type in library.Types)
-            {
-                if (type.Accessibility.IsDefault == isDefault)
-                    return type.Subject;
-            }
-        }
-        return null;
     }
 }

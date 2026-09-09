@@ -3722,7 +3722,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                     ?? new InMemoryPdbStore(),
                 new UniformPackageSourceAuthorization(
                     [NuGetFetch.PackageSource.NuGetOrg]),
-                new SourceFetcher(
+                new SourceFetch(
                     _sourceClient,
                     sourceContentStore
                         ?? new InMemorySourceContentStore()))

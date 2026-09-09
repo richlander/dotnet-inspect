@@ -524,7 +524,7 @@ the ones that produce no candidate.
 assembly the ledger reads the complete portable-PDB MethodDef-to-document
 mapping through `SourceLinkFindings.InspectMemberSources` and
 `InspectSourceDocuments`, selects each MethodDef's primary document exactly as
-`PdbSourceAcquisition.AcquireMemberAsync` does (`IsPrimaryDocument` descending,
+`PdbSourceHouse.AcquireMemberAsync` does (`IsPrimaryDocument` descending,
 then `DocumentRowId`), and intersects that mapping with the real-method targets.
 A file's denominator is therefore never inferred from the rows that happened to
 harvest successfully. That distinction is the reason this mode exists: a full

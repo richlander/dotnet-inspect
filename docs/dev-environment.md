@@ -140,6 +140,23 @@ inspected through its own assembly. Keep this suite distinct from the model-free
 `tests/CSharpText.Tests` suite. See
 [repository layout](fixture-governance.md#repository-layout).
 
+### Analysis tests
+
+Build the solution before running the analysis suite so every FixtureCatalog
+binary is available, and always use Release because compiler-generated IL is
+part of the evidence:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/ILInspector.Analysis.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Required PR lanes exclude
+`Speed=Slow` after `--`; Deep Inspect runs the complete suite. Compiler-produced
+runtime-async specimens remain inside the test assembly, while independently
+compiled analysis inputs remain under `fixtures/analysis/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
 ### Inspection query tests
 
 Build the solution before running the inspection-query suite so every
@@ -154,6 +171,22 @@ This is a Microsoft Testing Platform executable. Use `--filter-class` and
 `--filter-method` after `--` for focused selections. Its source and embedded
 resources live under `tests/`; the independently compiled binaries it inspects
 remain under `fixtures/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Shared services tests
+
+Build the solution before running the shared-services suite so its route-learning
+FixtureCatalog binaries are available:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/DotnetInspector.Services.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections. Its source lives under
+`tests/`; independently compiled route-learning inputs and static signed-package
+archives remain under `fixtures/services/`. See
 [repository layout](fixture-governance.md#repository-layout).
 
 ## Test tooling activation

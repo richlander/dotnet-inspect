@@ -685,7 +685,7 @@ public static class MemberCommand
                         FileSystemPdbStore.CreateDefault(),
                         new SourcePolicyPackageSourceAuthorization(
                             effectiveOptions.SourceOptions),
-                        new SourceFetcher(
+                        new SourceFetch(
                             DotnetInspector.Core.HttpClientFactory
                                 .SharedUntrustedFetch))
                     {

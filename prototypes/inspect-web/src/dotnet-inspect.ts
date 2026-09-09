@@ -428,9 +428,9 @@ import {
   withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
+  type QueryAssemblyPatternDescriptor,
   type QueryFacetTerm,
   type QueryRequest,
-  type QuerySourceCatalog,
   type QuerySourceSelection,
 } from "./package-query.ts";
 import {
@@ -439,6 +439,7 @@ import {
 } from "./package-query-announcements.ts";
 import {
   createBrowserPackageQueryDataSource,
+  packageQueryAssemblyPatterns,
   packageQueryFacets,
 } from "./package-query-source.ts";
 import {
@@ -512,6 +513,9 @@ let resolveDependencyVersion: PackageFacade["resolvePackageDependencyVersion"];
 let inspectRequestPackageQueryMatches:
   PackageFacade["requestPackageQueryMatches"];
 let inspectRunPackageQuery: PackageFacade["runPackageQuery"];
+let inspectRunPackageAssemblyQuery: PackageFacade["runPackageAssemblyQuery"];
+let inspectOpenPackageAssemblyQueryResult:
+  PackageFacade["openPackageAssemblyQueryResult"];
 let inspectSearchTypes: PackageFacade["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
   PackageFacade["queryWorkspacePackageOccurrences"];
@@ -596,6 +600,8 @@ async function loadEngineModule() {
     requestPackageQueryMatches: inspectRequestPackageQueryMatches,
     resolvePackageDependencyVersion: resolveDependencyVersion,
     runPackageQuery: inspectRunPackageQuery,
+    runPackageAssemblyQuery: inspectRunPackageAssemblyQuery,
+    openPackageAssemblyQueryResult: inspectOpenPackageAssemblyQueryResult,
     searchTypes: inspectSearchTypes,
     queryWorkspacePackageOccurrences:
       inspectQueryWorkspacePackageOccurrences,
@@ -826,7 +832,7 @@ const initialState = {
   packageQueryReturnFocusPending: false,
   packageQueryState: initialQueryState(),
   packageQueryFacets: [],
-  packageQuerySourceCatalog: null,
+  packageQueryAssemblyPatterns: [],
   platformIndex: null,
   queryNotice: "",
   queryNoticeRetryAction: null,
@@ -1037,7 +1043,7 @@ interface StateOverrides {
   packageCacheStats: BrowserPackageCacheStats | null;
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
-  packageQuerySourceCatalog: QuerySourceCatalog | null;
+  packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
   packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
@@ -1235,6 +1241,20 @@ const packageQueryController = createPackageQueryController(
     cancel: () => cancelPackageQuery(),
     requestMatches: additionalMatchCredit =>
       inspectRequestPackageQueryMatches(additionalMatchCredit),
+    runAssembly: (
+      patternId,
+      operand,
+      packageCoordinatesJson,
+      targetFramework,
+      initialMatchCredit,
+      eventSink,
+    ) => inspectRunPackageAssemblyQuery(
+      patternId,
+      operand,
+      packageCoordinatesJson,
+      targetFramework,
+      initialMatchCredit,
+      eventSink),
     run: (
       prefix,
       facetIdsJson,
@@ -2276,6 +2296,15 @@ function selectedLibraryRequest() {
   return state.package?.isRuntimePack ? library?.name ?? "" : library?.id ?? "";
 }
 
+function selectDefaultPackageSubject(pkg: AppPackage) {
+  state.workspaceSubjectOpen = false;
+  state.atLibraryRoot = Boolean(pkg.assemblyId);
+  state.atPackageRoot = !state.atLibraryRoot;
+  state.libraryScope = pkg.assemblyId ? new Set([pkg.assemblyId]) : null;
+  state.packageLens = "overview";
+  state.libraryLens = "overview";
+}
+
 function selectLibrarySubject(key: string, options: { preserveView?: boolean } = {}) {
   const descriptor = resolvePackageLibrary(state.package?.assemblies ?? [], key);
   const library = packageLibraries().find(candidate => candidate.id === descriptor?.id);
@@ -2499,8 +2528,12 @@ function selectWorkspacePackage(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  const firstLibrary = packageLibraries()[0];
-  state.libraryScope = firstLibrary ? new Set([firstLibrary.id]) : null;
+  if (packageModel.isRuntimePack) {
+    const firstLibrary = packageLibraries()[0];
+    state.libraryScope = firstLibrary ? new Set([firstLibrary.id]) : null;
+  } else {
+    selectDefaultPackageSubject(packageModel);
+  }
   state.selectedTypeId = defaultVisibleTypeId(packageModel);
   reconcileAccessibilityFilter(
     packageModel.types.find(item => item.id === state.selectedTypeId));
@@ -2509,8 +2542,10 @@ function selectWorkspacePackage(
   state.selectedOverloadIndex = null;
   resetMemberFilters();
   resetMemberSectionState();
-  state.atPackageRoot = true;
-  state.atLibraryRoot = false;
+  if (stayInWorkspace || packageModel.isRuntimePack) {
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+  }
   state.workspaceSubjectOpen = stayInWorkspace;
   render();
 }
@@ -9644,15 +9679,14 @@ function closePackageQueryRoute() {
 
 function preparePackageQueryRequest(
   text: string,
-  inputKind = state.packageQueryState.request?.inputKind ?? "package",
 ): QueryRequest {
   const validText = validPackageQuerySearchText(text);
   state.packageQueryPrefix = validText;
   state.packageQueryNavigationError = "";
   const request = state.packageQueryState.request
     ? withScopeQuery(state.packageQueryState.request, validText)
-    : createQueryRequest(validText, inputKind);
-  return withInputKind(request, inputKind);
+    : createQueryRequest(validText);
+  return withInputKind(request, "package");
 }
 
 function submitPackageQueryRequest(request: QueryRequest) {
@@ -9665,22 +9699,13 @@ function submitPackageQueryRequest(request: QueryRequest) {
 }
 
 function runPackageQuery(text: string) {
-  const request = preparePackageQueryRequest(text, "package");
-  submitPackageQueryRequest(request);
-}
-
-function discoverPackages() {
-  const request = preparePackageQueryRequest("", "gallery");
+  const request = preparePackageQueryRequest(text);
   submitPackageQueryRequest(request);
 }
 
 function preparePackageQueryControlRequest(
   text: string,
 ): QueryRequest {
-  if (state.packageQueryState.request?.inputKind === "gallery") {
-    state.packageQueryNavigationError = "";
-    return state.packageQueryState.request;
-  }
   return preparePackageQueryRequest(text);
 }
 
@@ -9710,6 +9735,7 @@ function togglePackageQueryFacet(facetKey: string, text: string) {
 async function openPackageQueryRow(
   packageId: string,
   version: string,
+  rootRequest?: string,
 ) {
   packageQueryViewport =
     capturePackageQueryViewport(document) ?? packageQueryViewport;
@@ -9723,7 +9749,7 @@ async function openPackageQueryRow(
     packageId,
     version,
     "",
-    { navigationSeq });
+    { navigationSeq, ...(rootRequest === undefined ? {} : { rootRequest }) });
   if (!navigationSequence.isCurrent(navigationSeq)) {
     if (packageQueryHandoffNavigationSeq === navigationSeq)
       packageQueryHandoffNavigationSeq = null;
@@ -9759,7 +9785,11 @@ async function openPackageQueryRow(
 const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
-  onDiscover: discoverPackages,
+  onAssemblyRun: request => {
+    state.packageQueryNavigationError = "";
+    packageQueryLiveAnnouncer.reset();
+    void packageQueryController.run(request);
+  },
   onFacetToggle: togglePackageQueryFacet,
   onSourceChange: changePackageQuerySource,
   onPrefixInput: prefix => {
@@ -9774,9 +9804,9 @@ const packageQueryActions: PackageQueryBindingActions = {
   },
   onResultPressure: () => packageQueryController.requestMore(),
   onResultViewportChange: schedulePackageQueryStreamRender,
-  onRowOpen: (packageId, version) => {
+  onRowOpen: (packageId, version, rootRequest) => {
     observeAsync(
-      openPackageQueryRow(packageId, version),
+      openPackageQueryRow(packageId, version, rootRequest),
       "Opening a queried package");
   },
   onRun: runPackageQuery,
@@ -9834,7 +9864,7 @@ function renderPackageQueryPage() {
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
-    sourceCatalog: state.packageQuerySourceCatalog,
+    availableAssemblyPatterns: state.packageQueryAssemblyPatterns,
     navigationError: [
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
@@ -12096,11 +12126,12 @@ async function loadSelectedMemberFacts() {
 }
 
 interface LoadPackageOptions {
+  rootRequest?: string;
   background?: boolean;
   navigationSeq?: number;
   queryNotice?: string;
   replacePackage?: AppPackage | null;
-  deepLink?: DeepLink | null;
+  location?: ParsedLocation;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
   failureHandler?: (message: string) => void;
@@ -12148,6 +12179,9 @@ async function loadPackage(
       packageId,
       version,
       framework,
+      ...(options.rootRequest === undefined
+        ? {}
+        : { rootRequest: options.rootRequest }),
       ...(options.replacePackage !== undefined
         ? { replacePackage: options.replacePackage }
         : {}),
@@ -12165,13 +12199,21 @@ async function loadPackage(
     state.kindFilter = "";
     state.libraryScope = null;
     state.accessibilityFilter = defaultAccessibilityFilter(packageModel);
-    const deep = options.deepLink;
-    if (!deep) {
+    const deep = options.location;
+    if (deep) {
+      const libraryFailure = applyLoadedPackageLibraryScope(
+        packageModel,
+        deep.library);
+      if (libraryFailure) appendQueryNotice(libraryFailure);
+      applyLocationView(deep);
+    } else if (!options.replacePackage) {
+      selectDefaultPackageSubject(packageModel);
+    } else {
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
       state.packageLens = "overview";
     }
-    if (deep && (deep.type || deep.member)) {
+    if (deep) {
       applyDeepLink(deep);
     } else {
       resetMemberFilters();
@@ -12339,6 +12381,8 @@ function isRuntimePackId(id: string | null | undefined) {
 const packageAcquisition = createPackageAcquisition({
   queryPackage: (packageId, version, framework) =>
     inspectPackage(packageId, version, framework),
+  queryPackageRoot: rootRequest =>
+    inspectOpenPackageAssemblyQueryResult(rootRequest),
   loadRuntimePack: (framework, platformVersion) =>
     inspectLoadRuntimePack(framework, platformVersion),
   loadRuntimePackAssembly: (
@@ -12818,7 +12862,7 @@ async function restoreWorkspaceFromLocation(
       target.version,
       target.framework,
       {
-        deepLink: deep,
+        location: loc,
         navigationSeq,
         queryNotice: state.queryNotice
       });
@@ -12943,6 +12987,15 @@ function applyLocationView(loc: ParsedLocation) {
     && (loc.atLibraryRoot || false);
   state.workspaceSubjectOpen =
     loc.workspaceSubjectOpen && state.atPackageRoot;
+  const pkg = state.package;
+  if (pkg && !pkg.isRuntimePack && !loc.hasWorkspaceState
+    && !loc.atPackageRoot && !loc.type && !loc.member && !loc.lens) {
+    if (loc.library) {
+      state.atLibraryRoot = true;
+    } else {
+      selectDefaultPackageSubject(pkg);
+    }
+  }
   state.packageLens = loc.packageLens || "overview";
   state.libraryLens = loc.libraryLens || "overview";
 }
@@ -13059,13 +13112,18 @@ async function bootstrap() {
     try {
       state.packageQueryFacets =
         packageQueryFacets(await engineClient.package.listPackageQueryFacets());
-      state.packageQuerySourceCatalog =
-        await engineClient.package.listGalleryDiscoveryCatalog();
     } catch (error) {
       state.packageQueryFacets = [];
-      state.packageQuerySourceCatalog = null;
       state.packageQueryCatalogError =
-        `Package-query catalogs are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package-query facets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+    }
+    try {
+      state.packageQueryAssemblyPatterns =
+        packageQueryAssemblyPatterns(
+          await engineClient.package.listPackageAssemblyQueryPatterns());
+    } catch (error) {
+      state.packageQueryAssemblyPatterns = [];
+      console.error("Package-query assembly patterns are unavailable.", error);
     }
     state.engineReady = true;
     state.engineStatus = "";
@@ -13869,10 +13927,10 @@ window.addEventListener("popstate", () => {
     activatePackage(target, { resetAccessibility: true });
   }
   state.home = false;
-  applyLocationView(loc);
   const samePackage = packageCoordinateMatchesLocation(state.package, loc);
   if (samePackage || !loc.package) {
     if (isRuntimePackId(state.package.id)) {
+      applyLocationView(loc);
       // Back/forward within the platform: re-scope to the target library (or the
       // aggregate) before restoring selection, since scope is part of the view.
       observeAsync(
@@ -13885,6 +13943,7 @@ window.addEventListener("popstate", () => {
       const libraryFailure = applyLoadedPackageLibraryScope(
         state.package,
         loc.library);
+      applyLocationView(loc);
       const viewFailure = loc.shareState
         ? canonicalViewRestorationFailure(state.package, loc, loc.lens, loc.libraryLens)
         : null;
@@ -13915,7 +13974,7 @@ window.addEventListener("popstate", () => {
   } else {
     observeAsync(
       loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
-        deepLink: deep,
+        location: loc,
         navigationSeq,
         queryNotice: loc.workspaceNotice
       }),

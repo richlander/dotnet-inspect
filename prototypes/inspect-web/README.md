@@ -1,6 +1,6 @@
 # dotnet-inspect browser prototype
 
-This prototype explores a type-first, keyboard-driven browser experience for
+This prototype explores a Library-first, keyboard-driven browser experience for
 `dotnet-inspect`. This branch is a **thin-engine rebuild on current `main`**, and
 its organising rule is:
 
@@ -9,6 +9,12 @@ its organising rule is:
 > is exported as explicitly unsupported and reported as a product API gap. It is
 > never answered by opening a session, a metadata source, an analysis index, or a
 > retained image descriptor.
+
+Opening a package without an explicit destination starts at Library Overview
+using the product-selected default Library. Package remains available one level
+up with its complete Library inventory. Explicit links and restored workspace
+history keep their selected subjects and inspectors; packages with no compile
+Libraries remain at Package with the reason visible.
 
 The previous browser host was a single 4,103-line `Program.cs` that re-derived
 package acquisition, target-framework ranking, symbol acquisition, and member
@@ -833,8 +839,9 @@ active version is a preview. An exact version can be selected instead.
 The current prototype also renders a Package-specific Clone selector. It is a
 temporary target placeholder: the shared
 [Structural Clone Search Scope](../../docs/design/structural-clone-search-scope.md)
-contract replaces it with `Self`, `Self + similar names`, and
-`Everything in scope`, using the middle mode by default. The Browser adoption
+contract replaces it with independent breadth (`Self`, `Self + registered
+ecosystems`, or `Everything`) and candidate discovery (`Similar names` or
+`All`), defaulting to `Everything` plus `Similar names`. The Browser adoption
 stage will remove the Package-specific state and selector.
 
 Subject navigation preserves these settings. Replacing or removing the Package
@@ -847,7 +854,7 @@ These controls prepare targets only: the Library Diff/Clone result inspectors
 remain follow-on work under #5083. The owner is
 [Browser Diff targets](../../docs/design/inspect-web-diff-targets.md) for the
 Diff baseline and Structural Clone Search Scope for the replacement Clone
-focal length.
+breadth and candidate discovery.
 
 ## Method Body Diff
 
@@ -1054,6 +1061,12 @@ compares all 21 artifacts and rejects extra or missing files. The SDK
 declaration is a compile-time input copied only into a temporary workspace and
 is never published.
 
+PR CI uses `--fast-check` for ordinary browser changes. It keeps the complete
+artifact inventory and per-root generation comparison while deferring the
+second, product-versioned regeneration to the daily Deep Inspect `inspect-web`
+lane. Changes to the generator or its owning contracts select `--check` in PR
+CI as well.
+
 `src/engine-facades.ts` owns runtime composition. Concurrent callers share one
 retained readiness promise. It calls the host module's `createRuntime()` once,
 then passes that same narrow runtime handle while the seven generated modules
@@ -1104,24 +1117,39 @@ credit policy. `npm run inspect-web-worker-protocol` covers this transport.
 Package Query's production adapter and the single-runtime cutover remain
 separate adoption work under #5987 and #5420.
 
+The Worker bootstrap also prepares the typed Type Source operation. Its
+page-side adapter posts only package ID, version, framework, assembly, type
+identity, and serialized taste; the Worker validates the generated managed
+result and keyed cancellation acknowledgment before translating them to the
+closed Worker protocol. Type Source publishes no progress and uses unbounded
+liveness. `inspect-web-worker-protocol` covers the host/realm/catalog path.
+The application still uses its direct page-runtime Source adapter: this
+prepared binding is not production activation and does not create a second
+managed runtime.
+
 After a Release publish, run the native binding gate:
 
 ```bash
 dotnet publish prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
   -c Release --output artifacts/inspect-web-publish
 cd prototypes/inspect-web
-npm run inspect-web-worker-browser-binding
+INSPECT_WEB_WORKER_SOURCE_DLL=\
+../../artifacts/bin/TsJsExport.Contracts/release/TsJsExport.Contracts.dll \
+  npm run inspect-web-worker-browser-binding
 ```
 
 The existing frontend build must precede the publish. Set
 `INSPECT_WEB_WORKER_SITE` to use another published `wwwroot` directory.
+`INSPECT_WEB_WORKER_SOURCE_DLL` remains the deterministic local package
+fixture even when the published site comes from another directory.
 The gate uses Firefox and the complete published artifact, covering cold and
 warm managed calls, reporter registration and generated cleanup exports,
 all five typed startup reads against their generated facade results, restart,
-bootstrap rejection, and input during stalled Wasm initialization.
-It does not yet prove responsiveness during managed CPU
-work or complete the Worker lifecycle gate; those and source-feature adoption
-remain focused follow-on slices under #5418 and #5420.
+one decompiled Type Source result through the prepared typed adapter, bootstrap
+rejection, and input during stalled Wasm initialization. It does not yet prove
+responsiveness during managed CPU work or complete the Worker lifecycle gate;
+lifecycle composition, production Source activation, and direct page-runtime
+retirement remain focused follow-on slices under #5418, #5987, and #5420.
 
 The purpose-built `multi-facade-canary` proves that this lifecycle composes
 across independently generated modules. Its Alpha and Beta assemblies
@@ -1152,6 +1180,11 @@ or dropped managed invocation. This canary does not split the production engine
 binding or expose raw `ILInspector` APIs; that production partition remains
 [#4497].
 
+Ordinary browser PRs use the canary's `--fast` mode: one generated-contract
+check and one Mono runtime execution. The complete mutation set and both
+runtimes run daily in the Deep Inspect `inspect-web` lane and on PRs that
+change the generator or canary owners.
+
 The purpose-built `managed-operation-bridge-canary` directly drives the product
 `BrowserManagedOperationBridge` through a generated `[JSExport]` facade. Its
 controlled feature bodies expose synchronous progress, keyed cancellation, and
@@ -1175,6 +1208,10 @@ Promises, and callback sequences witness the release boundaries. Six producers
 and eight waiters must finish with no remaining entries or subscriptions.
 Additional negative controls reject a split producer, premature physical
 finalization, and an omitted final-waiter scenario.
+
+Its `--fast` mode retains the generated-contract check and Mono execution for
+ordinary browser PRs. Deep Inspect and direct owner changes run the complete
+mutation and dual-runtime form.
 
 An explicit epoch-work phase exercises the real managed reporter and final-waiter
 handoff: five physical producers, seven waiters, and three registrations.
@@ -1204,24 +1241,37 @@ routes use the navigation fallback, while API, asset, and framework requests
 remain excluded.
 
 Search also exposes a `Package query` action that opens the routed `/query`
-surface. Leave search text empty to browse, then select a package type or
-source order from NuGetFetch's Gallery catalog. Basic discovery uses search
-metadata only; the separate inspection facets explicitly add manifest or
-bounded package-content evaluation. Browser Wasm streams shared product rows
+surface. Package Query accepts an exact package ID or terminal-star literal
+prefix and remains idle when blank; Spotlight remains the open-text NuGet
+discovery experience. The separate inspection facets explicitly add manifest
+or bounded package-content evaluation. Browser Wasm streams shared product rows
 and visible failures, then hands an exact result coordinate to the normal
-Workspace package-opening path. Results disclose one bounded Gallery response,
-not a globally exhaustive or exact top-N result; provider totals are estimates.
-The route keeps request and result state in the current session rather than in
-the URL; a direct load starts with empty search text.
+Workspace package-opening path. Prefix results disclose their source and client
+bounds rather than claiming globally exhaustive coverage. The route keeps
+request and result state in the current session rather than in the URL; a
+direct load starts with empty package input.
 
-The Gallery scenarios in `browser/package-adoption.spec.ts` drive the published
+The **Assembly patterns** disclosure is a separate explicit mode. Select
+**IL string literal contains**, enter one to five exact `ID@VERSION` packages,
+an unchanged literal operand, and a framework group. The shared evaluator
+searches only each selector-issued primary implementation assembly, not every
+assembly or the raw string heap. Semantic misses, unavailable roles, and
+failures remain distinct. **Open in workspace** passes the owner's exact Root
+request and reacquires under current source authorization; it does not retain
+the query candidate in the Workspace cache. RID selection and ecosystem-wide
+candidate discovery are outside this first assembly-pattern gesture.
+
+The Package Query scenarios in `browser/package-adoption.spec.ts` drive the published
 production page through the existing real-Wasm package-adoption harness.
-Deterministic search responses cover blank tool/template browse, text search,
-source ordering, metadata-only acquisition, and bounded completion. Set
-`INSPECT_WEB_GALLERY_LIVE=1` when running
-`eng/test-inspect-web-package-adoption-gate.sh` to include the opt-in live Gallery
-CORS observation and capture the tool-browse page. Live provider availability
-is point-in-time evidence, not a permanent guarantee.
+Deterministic responses cover blank idle behavior, exact-ID resource selection,
+literal-prefix boundaries, missing-ID non-fallback, metadata-only acquisition,
+and bounded completion.
+
+The same harness's **Assembly Package Query website over real Wasm** scenario
+uses the cataloged `analysis.string-literals` fixture to exercise all four
+dispositions and exact reopening from the real `/query` page. Run just that
+scenario with
+`eng/test-inspect-web-package-adoption-gate.sh --grep 'Assembly Package Query website'`.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
@@ -2256,13 +2306,17 @@ runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
-Successful main-push completion of `.github/workflows/deploy-inspect-web.yml`
-triggers `.github/workflows/deploy-inspect-web-coreclr.yml`, which checks out
-that run's exact head and downloads its exact `inspect-web-site` artifact before
-publishing the same commit to the isolated comparison site at
-`https://coreclr.dotnet-inspect.ca`. It uses a third Azure Static Web App, the
-main-only `inspect-web-coreclr-staging` environment, a distinct deployment
-token, and the non-promotable `inspect-web-coreclr-site` artifact. The site is
+After `.github/workflows/promote-inspect-web.yml` successfully deploys a staged
+artifact to production, it calls
+`.github/workflows/deploy-inspect-web-coreclr.yml` with that promotion's exact
+product SHA, staging run ID, and staged artifact ID. The CoreCLR workflow checks
+out that SHA and downloads the same `inspect-web-site` artifact before
+publishing the matching commit to the isolated comparison site at
+`https://coreclr.dotnet-inspect.ca`. It therefore advances at the production
+promotion cadence rather than for every `main` staging build. It uses a third
+Azure Static Web App, the main-only `inspect-web-coreclr-staging` environment, a
+distinct deployment token, and the non-promotable `inspect-web-coreclr-site`
+artifact. The site is
 interpreter-only while CoreCLR native relinking remains outside the comparison
 scope. Mono staging stays on the repository's .NET 11 Preview 7 SDK. The
 CoreCLR workflow instead installs the exact runtime-main daily cohort

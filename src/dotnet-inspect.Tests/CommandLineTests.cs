@@ -968,7 +968,7 @@ public class CommandLineTests
             : ["--versions", "-n", "1", option, "false"];
 
         Assert.Equal(
-            ["router", "false", .. args[..^1]],
+            ["package", .. args],
             CommandLineBuilder.PreprocessArgs(args));
     }
 
@@ -981,7 +981,7 @@ public class CommandLineTests
             ["--json", "false", "--versions", direction, "true", "-n", "1"]);
 
         Assert.Equal(
-            ["router", "true", "--json", "false", "--versions", direction, "-n", "1"],
+            ["package", "--json", "false", "--versions", direction, "true", "-n", "1"],
             result);
     }
 

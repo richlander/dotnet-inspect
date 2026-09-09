@@ -10,10 +10,11 @@ The target-settings implementation is tracked by
 
 Clone candidate scope moved to the shared
 [Structural Clone Search Scope](structural-clone-search-scope.md) owner under
-[#6282](https://github.com/richlander/dotnet-inspect/issues/6282). The current
-Package-specific Clone selector remains implemented only until that contract's
-Inspect Web adoption stage retires it. It is not a target contract or
-compatibility surface.
+[#6282](https://github.com/richlander/dotnet-inspect/issues/6282) and was
+revised under [#6289](https://github.com/richlander/dotnet-inspect/issues/6289).
+The current Package-specific Clone selector remains implemented only until
+that contract's Inspect Web adoption stage retires it. It is not a target
+contract or compatibility surface.
 
 ## Boundary
 
@@ -108,8 +109,9 @@ available exact candidates.
 `package-comparison-targets.test.ts` gates Diff defaults, exact choice
 admission, separate same-coordinate settings, rollback associations, and form
 rendering/binding. Its current Clone-selector cases characterize the
-implementation that #6282's Browser adoption will remove; they do not define
-the replacement focal-length contract. The production-root case
+implementation that the shared Clone Browser adoption will remove; they do not
+define the replacement breadth or candidate-discovery contract. The
+production-root case
 `Package comparison targets survive Library, Type, and Member navigation` in
 `browser/library-hierarchy.spec.ts` exercises the actual navigation and controls
 with deterministic facade responses, including retained keyboard focus.

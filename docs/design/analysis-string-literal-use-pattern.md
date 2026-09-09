@@ -312,7 +312,7 @@ owner.
 ## Gates
 
 The focused Release suite
-`dotnet run --project src/ILInspector.Analysis.Tests -c Release` owns:
+`dotnet run --project tests/ILInspector.Analysis.Tests -c Release` owns:
 
 - all matching physical `ldstr` sites, including repeated uses of one token;
 - completed miss versus text present only outside `ldstr`;

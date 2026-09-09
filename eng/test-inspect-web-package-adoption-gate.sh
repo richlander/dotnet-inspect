@@ -17,6 +17,10 @@ frontend="$repo_root/prototypes/inspect-web"
 resolver="$repo_root/tools/InspectWebFixtureResolver/InspectWebFixtureResolver.csproj"
 site="${INSPECT_WEB_PACKAGE_ADOPTION_SITE:-$repo_root/artifacts/inspect-web-publish/wwwroot}"
 dotnet=${DOTNET:-dotnet}
+resolver_command=("$dotnet" run --project "$resolver" -c Release)
+if [[ "${INSPECT_WEB_FIXTURE_RESOLVER_NO_BUILD:-}" == "1" ]]; then
+  resolver_command+=(--no-build)
+fi
 
 if [[ ! -f "$site/inspect-web-package.js" ]]; then
   echo "Published engine artifact not found at $site." >&2
@@ -27,15 +31,16 @@ fi
 # Building the resolver materializes the cataloged fixtures (build-only project
 # references) and prints "<id>\t<absolute-assembly-path>" for each requested ID.
 resolved=$(
-  "$dotnet" run --project "$resolver" -c Release -- \
-    diff-asm.lib-a diff-asm.lib-b
+  "${resolver_command[@]}" -- \
+    diff-asm.lib-a diff-asm.lib-b analysis.string-literals
 )
 
 liba_dll=$(awk -F'\t' '$1 == "diff-asm.lib-a" { print $2 }' <<<"$resolved")
 libb_dll=$(awk -F'\t' '$1 == "diff-asm.lib-b" { print $2 }' <<<"$resolved")
+literal_dll=$(awk -F'\t' '$1 == "analysis.string-literals" { print $2 }' <<<"$resolved")
 
-if [[ -z "$liba_dll" || -z "$libb_dll" ]]; then
-  echo "Fixture resolver did not return both cataloged fixture paths." >&2
+if [[ -z "$liba_dll" || -z "$libb_dll" || -z "$literal_dll" ]]; then
+  echo "Fixture resolver did not return all cataloged fixture paths." >&2
   echo "$resolved" >&2
   exit 1
 fi
@@ -44,8 +49,9 @@ cd "$frontend"
 INSPECT_WEB_PACKAGE_ADOPTION_SITE="$site" \
 INSPECT_WEB_PACKAGE_ADOPTION_LIBA_DLL="$liba_dll" \
 INSPECT_WEB_PACKAGE_ADOPTION_LIBB_DLL="$libb_dll" \
+INSPECT_WEB_PACKAGE_ADOPTION_LITERALS_DLL="$literal_dll" \
   node_modules/.bin/playwright test \
     --config playwright.package-adoption.config.ts \
-    --project=firefox
+    --project=firefox "$@"
 
 echo "Artifact-backed package scope adoption Browser/Wasm gate passed."
