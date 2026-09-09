@@ -145,6 +145,85 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
     }
 
     [Fact]
+    public async Task MissingFixedVersionMakesOnlyFixedEvidencePartial()
+    {
+        const string page =
+            """
+            [
+              {
+                "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+                "cve_id": "CVE-2026-1234",
+                "type": "reviewed",
+                "severity": "high",
+                "published_at": "2026-09-09T16:04:11Z",
+                "updated_at": "2026-09-09T18:00:00Z",
+                "withdrawn_at": null,
+                "vulnerabilities": [
+                  {
+                    "package": {
+                      "ecosystem": "nuget",
+                      "name": "Example.Client"
+                    },
+                    "vulnerable_version_range": "< 2.1.1"
+                  }
+                ]
+              }
+            ]
+            """;
+        using var handler = new RoutingHandler((_, _) => Json(page));
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "2.1.0")),
+                TestContext.Current.CancellationToken);
+
+        GitHubNuGetAdvisoryPackageEvidence package =
+            Assert.Single(result.Packages);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Complete,
+            package.CurrentContextAvailability);
+        Assert.Single(package.CurrentAdvisories);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Partial,
+            package.FixedVersionAvailability);
+        Assert.Empty(package.FixedVersionAdvisories);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.InvalidData,
+            result.Failures);
+    }
+
+    [Fact]
+    public async Task ExplicitNullFixedVersionRemainsComplete()
+    {
+        using var handler = new RoutingHandler((_, _) => Json(AdvisoryPage(
+            packageId: "Example.Client",
+            range: "< 2.1.1",
+            fixedVersion: null)));
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "2.1.0")),
+                TestContext.Current.CancellationToken);
+
+        GitHubNuGetAdvisoryPackageEvidence package =
+            Assert.Single(result.Packages);
+        Assert.True(result.Complete);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Complete,
+            package.CurrentContextAvailability);
+        Assert.Single(package.CurrentAdvisories);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Complete,
+            package.FixedVersionAvailability);
+        Assert.Empty(package.FixedVersionAdvisories);
+        Assert.Empty(result.Failures);
+    }
+
+    [Fact]
     public async Task RetainsPositiveEvidenceWhenContinuationFails()
     {
         using var handler = new RoutingHandler((request, call) =>
@@ -247,6 +326,43 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
         Assert.Equal(
             GitHubNuGetAdvisoryAvailability.Partial,
             Assert.Single(result.Packages).CurrentContextAvailability);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.InvalidContinuation,
+            result.Failures);
+    }
+
+    [Fact]
+    public async Task RejectsContinuationThatAddsAdvisoryFilter()
+    {
+        using var handler = new RoutingHandler((_, _) =>
+        {
+            HttpResponseMessage response = Json("[]");
+            response.Headers.TryAddWithoutValidation(
+                "Link",
+                "<https://api.github.com/advisories"
+                + "?ecosystem=nuget&type=reviewed&is_withdrawn=false"
+                + "&per_page=100&affects=Example.Client"
+                + "&severity=critical&after=cursor>; rel=\"next\"");
+            return response;
+        });
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "2.1.0")),
+                TestContext.Current.CancellationToken);
+
+        GitHubNuGetAdvisoryPackageEvidence package =
+            Assert.Single(result.Packages);
+        Assert.Equal(1, handler.Calls);
+        Assert.False(result.Complete);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Partial,
+            package.CurrentContextAvailability);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Partial,
+            package.FixedVersionAvailability);
         Assert.Contains(
             GitHubNuGetAdvisoryFailureKind.InvalidContinuation,
             result.Failures);
@@ -665,8 +781,12 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
     private static string AdvisoryPage(
         string packageId,
         string range,
-        string fixedVersion) =>
-        $$"""
+        string? fixedVersion)
+    {
+        string fixedValue = fixedVersion is null
+            ? "null"
+            : $"\"{fixedVersion}\"";
+        return $$"""
         [
           {
             "ghsa_id": "GHSA-aaaa-bbbb-cccc",
@@ -683,12 +803,13 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
                   "name": "{{packageId}}"
                 },
                 "vulnerable_version_range": "{{range}}",
-                "first_patched_version": "{{fixedVersion}}"
+                "first_patched_version": {{fixedValue}}
               }
             ]
           }
         ]
         """;
+    }
 
     private static HttpResponseMessage Json(string content) =>
         new(HttpStatusCode.OK)

@@ -649,7 +649,10 @@ public sealed class GitHubNuGetAdvisoryService
             && query.TryGetValue("per_page", out string? perPage)
             && perPage == "100"
             && query.TryGetValue("affects", out string? affects)
-            && affects.Equals(packageIds, StringComparison.OrdinalIgnoreCase);
+            && affects.Equals(packageIds, StringComparison.OrdinalIgnoreCase)
+            && query.TryGetValue("after", out string? after)
+            && !string.IsNullOrWhiteSpace(after)
+            && query.Count == 6;
     }
 
     private static bool TryReadQuery(
@@ -875,11 +878,12 @@ public sealed class GitHubNuGetAdvisoryService
             range = rangeElement.GetString();
         }
 
+        bool hasFirstPatched = element.TryGetProperty(
+            "first_patched_version",
+            out JsonElement firstPatchedElement);
         NuGetVersion? firstPatched = null;
-        bool malformedFirstPatched = false;
-        if (element.TryGetProperty(
-                "first_patched_version",
-                out JsonElement firstPatchedElement)
+        bool malformedFirstPatched = !hasFirstPatched;
+        if (hasFirstPatched
             && firstPatchedElement.ValueKind != JsonValueKind.Null)
         {
             string? identifier = firstPatchedElement.ValueKind

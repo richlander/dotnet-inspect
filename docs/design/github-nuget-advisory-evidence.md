@@ -69,8 +69,9 @@ malware, withdrawn, private, or not-yet-published advisories were examined.
 
 Package names are encoded as `affects` values and split by both count and URL
 length. A source-issued continuation may be followed only when it remains an
-HTTPS GitHub advisory-list URL. The request and response bounds apply across
-initial and continuation documents.
+HTTPS GitHub advisory-list URL, preserves every original query parameter, and
+adds only the forward paging cursor. The request and response bounds apply
+across initial and continuation documents.
 
 ## Evidence categories
 
@@ -89,8 +90,9 @@ Affected-range evaluation accepts the comparison expressions GitHub emits for
 NuGet advisories and ordinary NuGet interval notation. Comparison conjunctions
 and alternatives are evaluated with NuGet version precedence. An unsupported
 or malformed range cannot become a negative match: current-context availability
-for that package is partial. A malformed non-null fixed-version value likewise
-makes fixed-version availability partial.
+for that package is partial. A missing or malformed non-null fixed-version
+value likewise makes fixed-version availability partial; an explicit null
+remains valid evidence that the advisory declares no first patched version.
 
 Withdrawn advisories are excluded from this current reviewed snapshot. A
 withdrawal timestamp and advisory database history may support future,
