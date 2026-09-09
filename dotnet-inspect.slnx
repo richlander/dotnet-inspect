@@ -91,6 +91,8 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer/ILInspector.Metadata.TypeDependencyConsumer.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.TypeDependencyReference/ILInspector.Metadata.TypeDependencyReference.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.CloneSearchFixtures/DotnetInspector.CloneSearchFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj" />

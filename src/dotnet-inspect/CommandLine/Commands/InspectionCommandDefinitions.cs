@@ -72,6 +72,7 @@ public static class InspectionCommandDefinitions
             Description = "Include prerelease versions inside the range",
         };
         prereleaseOption.Aliases.Add("--prerelease");
+        var configDirectoryOption = NuGetConfigDirectoryOption.Create();
 
         command.Arguments.Add(argsArgument);
         command.Options.Add(packageOption);
@@ -85,6 +86,7 @@ public static class InspectionCommandDefinitions
         command.Options.Add(tfmOption);
         command.Options.Add(allOption);
         command.Options.Add(prereleaseOption);
+        command.Options.Add(configDirectoryOption);
         opts.AddTableOptionsTo(command);
         opts.AddJsonOptionTo(command);
         command.Options.Add(opts.Markdown);
@@ -126,6 +128,15 @@ public static class InspectionCommandDefinitions
                 return 1;
             }
 
+            if (!NuGetConfigDirectoryOption.TryApply(
+                    parseResult.GetValue(configDirectoryOption),
+                    opts.ParseNuGetSourceOptions(parseResult),
+                    out var sourceOptions, out string? sourceError))
+            {
+                CommandError.Write(sourceError!);
+                return 1;
+            }
+
             return await TimelineCommand.ExecuteAsync(new TimelineOptions
             {
                 PackageVersionRange = package ?? "",
@@ -150,7 +161,7 @@ public static class InspectionCommandDefinitions
                 SelectDefault = opts.ParseSelectDefault(parseResult),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+                SourceOptions = sourceOptions,
             });
         });
 

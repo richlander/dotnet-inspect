@@ -161,7 +161,8 @@ internal static class RenderAbSensor
     static DecompilerResult RenderProjection(MetadataSource source, IrFunction function)
         => CSharpPrinter.PrintRaised(
             function,
-            method => IrImporter.Import(source, method));
+            method => IrImporter.Import(source, method),
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
 
     internal static BaselineArtifact CreateBaseline(
         Dictionary<string, RenderedMethod> renders)

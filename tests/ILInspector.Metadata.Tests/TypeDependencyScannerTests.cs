@@ -1,5 +1,7 @@
 using CSharpText;
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
+using ILInspector.Metadata.TypeDependencyFixtures;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -109,12 +111,205 @@ public class TypeDependencyScannerTests
 
         // Each expanded name should appear exactly once
         var duplicates = expandedNames
-            .GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(n => n, StringComparer.Ordinal)
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
             .ToList();
 
         Assert.Empty(duplicates);
+    }
+
+    [Fact]
+    public void Relationships_RetainEverySharedDagEdge()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                "Int128",
+                RefAssemblies);
+
+        Assert.Equal(CountNodes(result.Tree), result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships
+                .GroupBy(
+                    static relationship => relationship.TargetTypeName,
+                    StringComparer.OrdinalIgnoreCase),
+            static incoming => incoming.Count() > 1);
+    }
+
+    [Fact]
+    public void Relationships_ExpandDistinctConstructedGenericTypes()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                typeof(TypeDependencyConstructedRoot).FullName!,
+                [typeof(TypeDependencyConstructedRoot).Assembly.Location]);
+
+        Assert.Equal(6, result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared<int>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase<int>",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared<string>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase<string>",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Relationships_PreserveCaseDistinctTypeIdentities()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                typeof(TypeDependencyCaseRoot).FullName!,
+                [typeof(TypeDependencyCaseRoot).Assembly.Location]);
+
+        Assert.Equal(4, result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyCaseBranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyCaseLeaf",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyCasebranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyCaseleaf",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExactLookup_PrefersCaseDistinctSemanticIdentity()
+    {
+        string target = typeof(TypeDependencyCasebranch).FullName!;
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                target,
+                [typeof(TypeDependencyCasebranch).Assembly.Location]);
+
+        Assert.Equal(target, result.MatchedType);
+        TypeDependencyRelationship relationship =
+            Assert.Single(result.Relationships);
+        Assert.EndsWith(
+            "TypeDependencyCaseleaf",
+            relationship.TargetTypeName,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Relationships_ExpandCaseDistinctConstructedGenericTypes()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                typeof(TypeDependencyCaseGenericRoot).FullName!,
+                [typeof(TypeDependencyCaseGenericRoot).Assembly.Location]);
+
+        Assert.Equal(6, result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCaseValue>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCaseValue>",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCasevalue>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCasevalue>",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Relationships_DoNotBorrowCaseDistinctDefinitionWhenExactTypeIsMissing()
+    {
+        const string root =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.Root";
+        FixtureDefinition consumer =
+            FixtureCatalog.MetadataTypeDependencyConsumer;
+        FixtureDefinition reference =
+            FixtureCatalog.MetadataTypeDependencyReference;
+
+        TypeDependencyResult missingReference =
+            TypeDependencyScanner.BuildDependencyTree(
+                root,
+                [consumer.AssemblyPath()]);
+
+        Assert.Contains(
+            missingReference.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    ".Root",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    ".Casebranch",
+                    StringComparison.Ordinal));
+        Assert.All(
+            missingReference.Relationships,
+            static relationship => Assert.EndsWith(
+                ".Root",
+                relationship.SourceTypeName,
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            missingReference.Relationships,
+            static relationship =>
+                relationship.TargetTypeName.EndsWith(
+                    ".UnrelatedLeaf",
+                    StringComparison.Ordinal));
+
+        TypeDependencyResult resolvedReference =
+            TypeDependencyScanner.BuildDependencyTree(
+                root,
+                [consumer.AssemblyPath(), reference.AssemblyPath()]);
+
+        Assert.Equal(2, resolvedReference.Relationships.Count);
+        Assert.Contains(
+            resolvedReference.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    ".Casebranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    ".ActualLeaf",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            resolvedReference.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    ".Casebranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    ".UnrelatedLeaf",
+                    StringComparison.Ordinal));
     }
 
     [Fact]
@@ -186,4 +381,8 @@ public class TypeDependencyScannerTests
             }
         }
     }
+
+    private static int CountNodes(IReadOnlyList<TypeDependencyNode> nodes) =>
+        nodes.Count
+        + nodes.Sum(static node => CountNodes(node.Children));
 }
