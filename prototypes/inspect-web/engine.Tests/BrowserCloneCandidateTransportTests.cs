@@ -341,6 +341,18 @@ public sealed class BrowserCloneCandidateTransportTests
             generic.Kind);
         Assert.Single(generic.Document!.Seeds);
 
+        BrowserCloneCandidateResult graphGeneric =
+            await fixture.QueryGraphMember(
+                fixture.GenericGraphCreate,
+                includeBody: true);
+        Assert.Equal(
+            BrowserCloneCandidateResultKind.Available,
+            graphGeneric.Kind);
+        Assert.Equal(
+            fixture.GenericGraphCreate.MetadataToken,
+            Assert.Single(graphGeneric.Document!.Seeds)
+                .Seed.MethodDefinitionToken);
+
         BrowserCloneCandidateResult explicitAccessor =
             await fixture.Query(
                 Seed(
@@ -442,6 +454,28 @@ public sealed class BrowserCloneCandidateTransportTests
         BrowserCloneCandidateBodySelection? body = null) =>
         new(kind, type, member, body);
 
+    static BrowserCloneCandidateSeedRequest Seed(
+        BrowserGraphMemberSurface graph,
+        bool includeBody)
+    {
+        BrowserMemberSurface member = Assert.Single(graph.Type.Api);
+        return Seed(
+            BrowserCloneCandidateSeedKind.Member,
+            graph.Type.DefinitionId,
+            new BrowserCloneMemberAnchor(
+                member.StableSelector,
+                member.CanonicalSignature,
+                member.AnchorDigest,
+                member.AnchorTypeFullName,
+                member.Name),
+            includeBody
+                ? new BrowserCloneCandidateBodySelection(
+                    graph.SelectedBody.MemberName,
+                    graph.SelectedBody.SelectorKey,
+                    graph.SelectedBody.Token)
+                : null);
+    }
+
     static BrowserCloneCandidateRequest ProjectionRequest() =>
         new(
             1,
@@ -465,6 +499,7 @@ public sealed class BrowserCloneCandidateTransportTests
             BrowserCloneMemberAnchor tagAnchor,
             BrowserCloneCandidateBodySelection valueGetter,
             MemberCase genericCreate,
+            GraphMemberCase genericGraphCreate,
             MemberCase explicitValue)
         {
             PackageId = packageId;
@@ -474,6 +509,7 @@ public sealed class BrowserCloneCandidateTransportTests
             TagAnchor = tagAnchor;
             ValueGetter = valueGetter;
             GenericCreate = genericCreate;
+            GenericGraphCreate = genericGraphCreate;
             ExplicitValue = explicitValue;
         }
 
@@ -484,6 +520,7 @@ public sealed class BrowserCloneCandidateTransportTests
         internal BrowserCloneMemberAnchor TagAnchor { get; }
         internal BrowserCloneCandidateBodySelection ValueGetter { get; }
         internal MemberCase GenericCreate { get; }
+        internal GraphMemberCase GenericGraphCreate { get; }
         internal MemberCase ExplicitValue { get; }
 
         internal static async Task<Fixture> Open()
@@ -576,6 +613,11 @@ public sealed class BrowserCloneCandidateTransportTests
                 Assert.Single(
                     genericType.Members,
                     member => member.Name == "Create");
+            CallGraphMemberBodySelector createBody =
+                Assert.Single(
+                    CallGraphMemberResolver.CreateBodySelectors(
+                        genericType,
+                        create));
             ApiType bodyShapeType =
                 Assert.Single(
                     neighborSurface.Types,
@@ -612,6 +654,11 @@ public sealed class BrowserCloneCandidateTransportTests
                         genericType,
                         create)),
                     null),
+                new GraphMemberCase(
+                    genericType.DefinitionName!.ToEscapedFullName(),
+                    createBody.MemberName,
+                    createBody.SelectorKey,
+                    createBody.BodyToken),
                 new MemberCase(
                     bodyShapeType.DefinitionName!.ToEscapedFullName(),
                     Project(ApiMemberIdentity.GetMemberAnchor(
@@ -684,6 +731,35 @@ public sealed class BrowserCloneCandidateTransportTests
                         .BrowserCloneCandidateResult)
                 ?? throw new InvalidOperationException(
                     "The Clone Candidates result was empty.");
+        }
+
+        internal async Task<BrowserCloneCandidateResult> QueryGraphMember(
+            GraphMemberCase selection,
+            bool includeBody)
+        {
+            string graphJson =
+                await MetadataExports.QueryGraphMemberSurface(
+                    NeighborPackageId,
+                    "1.0.0",
+                    Framework,
+                    CloneTransportAssembly,
+                    selection.TypeDefinitionId,
+                    selection.MemberName,
+                    selection.SelectorKey,
+                    selection.MetadataToken);
+            BrowserGraphMemberSurface graph =
+                JsonSerializer.Deserialize(
+                    graphJson,
+                    BrowserMetadataJsonContext.Default
+                        .BrowserGraphMemberSurface)
+                ?? throw new InvalidOperationException(
+                    "The Graph Member Surface transport returned no result.");
+            return await Query(
+                Seed(graph, includeBody),
+                BrowserCloneCandidateBreadth.Self,
+                BrowserCloneCandidateDiscovery.All,
+                selectedPackageIndex: 1,
+                assembly: CloneTransportAssembly);
         }
 
         public async ValueTask DisposeAsync()
@@ -904,25 +980,8 @@ public sealed class BrowserCloneCandidateTransportTests
                         .BrowserGraphMemberSurface)
                 ?? throw new InvalidOperationException(
                     "The Graph Member Surface transport returned no result.");
-            BrowserMemberSurface member = Assert.Single(graph.Type.Api);
-            var anchor = new BrowserCloneMemberAnchor(
-                member.StableSelector,
-                member.CanonicalSignature,
-                member.AnchorDigest,
-                graph.Type.QueryId,
-                member.Name);
-            BrowserCloneCandidateBodySelection? body = includeBody
-                ? new(
-                    graph.SelectedBody.MemberName,
-                    graph.SelectedBody.SelectorKey,
-                    graph.SelectedBody.Token)
-                : null;
             return await Query(
-                Seed(
-                    BrowserCloneCandidateSeedKind.Member,
-                    graph.Type.DefinitionId,
-                    anchor,
-                    body),
+                Seed(graph, includeBody),
                 BrowserCloneCandidateBreadth.Self,
                 BrowserCloneCandidateDiscovery.All);
         }

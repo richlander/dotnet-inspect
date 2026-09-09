@@ -6,6 +6,9 @@ import type {
   BrowserCloneCandidateResult,
   queryCloneCandidates,
 } from "../src/facades/inspect-web-analysis.d.ts";
+import type {
+  BrowserMemberSurface,
+} from "../src/facades/inspect-web-metadata.d.ts";
 
 const request = {
   schemaVersion: 1,
@@ -68,6 +71,19 @@ void generatedCloneTransportRejectsMutation;
 type GeneratedQueryResult = Awaited<ReturnType<typeof queryCloneCandidates>>;
 const typedResult: GeneratedQueryResult = rejected;
 void typedResult;
+
+function cloneAnchorFromGraphMember(
+  member: BrowserMemberSurface,
+): BrowserCloneCandidateRequest["seed"]["member"] {
+  return {
+    stableSelector: member.stableSelector,
+    canonicalSignature: member.canonicalSignature,
+    fingerprint: member.anchorDigest,
+    typeFullName: member.anchorTypeFullName,
+    memberName: member.name,
+  };
+}
+void cloneAnchorFromGraphMember;
 
 test("Clone Candidates generated transport carries typed request and closed outcome", () => {
   assert.equal(rejected.request.breadth, "Everything");

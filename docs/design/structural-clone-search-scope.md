@@ -517,7 +517,9 @@ The counted production-adoption path under #5083 has seven stages:
    or the implementation-backed Graph Member surface; it prefers an exact
    implementation identity, uses structural correspondence only for a
    reference-only match, and never compares MethodDef tokens across images.
-   The generated transport preserves
+   Browser member projections carry the complete owner-issued anchor, including
+   its declaring-type spelling, so consumers do not reconstruct it from the
+   TypeDef identity or display text. The generated transport preserves
    the validated request, every portable result field, and the `Available`,
    `Rejected`, `Failed`, and `Unrepresentable` outcomes. The browser Workspace
    snapshot marks the containing library explicitly and treats every other
