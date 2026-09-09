@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Text.Json;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Options;
 
 namespace DotnetInspector.Tests;
@@ -352,6 +353,51 @@ public sealed class MatchCommandTests
             producer => Assert.Equal("Exact", producer.GetProperty("native_verdict").GetString()));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_ForwardedBodies_RetainSelectedProjectContext(
+        bool includeUnselectedNeighbor)
+    {
+        using var project = new MatchBindingProjectFixture(
+            includeUnselectedNeighbor);
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(
+            () => MatchCommand.ExecuteAsync(new MatchOptions
+            {
+                LeftSelector =
+                    "DotnetInspector.MatchBinding.ComparisonApi.InvokePayload",
+                RightSelector =
+                    "DotnetInspector.MatchBinding.ComparisonApi.ReturnZero",
+                AssemblyPath = project.FacadePath,
+                ProjectAssetsPath = project.AssetsPath,
+                Tfm = "net11.0",
+                IncludeAll = true,
+                IncludeBody = true,
+                JsonOutput = true,
+            }));
+
+        Assert.True(exitCode == 0, $"Exit {exitCode}: {error}\n{output}");
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement body = document.RootElement.GetProperty("body");
+        Assert.False(body.GetProperty("has_failures").GetBoolean());
+        JsonElement csharp = Assert.Single(
+            body.GetProperty("producers").EnumerateArray(),
+            producer => producer.GetProperty("producer").GetString()
+                == "CSharp");
+        JsonElement removed = Assert.Single(
+            csharp.GetProperty("c_sharp")
+                .GetProperty("rows")
+                .EnumerateArray(),
+            row => row.GetProperty("kind").GetString() == "Remove");
+        Assert.Equal(
+            "return new Payload(ComparisonApi.Identity).Invoke(value);",
+            removed.GetProperty("text").GetString());
+        Assert.Equal(
+            "Full",
+            removed.GetProperty("fidelity").GetString());
+    }
+
     [Fact]
     public async Task ExecuteAsync_RawPrivateMethodToken_PreservesTheSelectedBody()
     {
@@ -552,4 +598,88 @@ public abstract class MatchSampleWithoutBody
 public static class MatchPrivateBodySample
 {
     private static int HiddenBody(int x) => x + 1;
+}
+
+sealed class MatchBindingProjectFixture : IDisposable
+{
+    readonly string _root = Directory.CreateTempSubdirectory(
+        "dotnet-inspect-match-binding-").FullName;
+    readonly string? _originalPackages;
+
+    internal MatchBindingProjectFixture(bool includeUnselectedNeighbor)
+    {
+        string packages = Path.Combine(_root, "packages");
+        FixtureDefinition[] fixtures =
+        [
+            FixtureCatalog.MatchBindingFacade,
+            FixtureCatalog.MatchBindingImplementation,
+            FixtureCatalog.MatchBindingDependency,
+        ];
+        string[] names = ["Facade", "Implementation", "Dependency"];
+        var targets = new Dictionary<string, object>();
+        var libraries = new Dictionary<string, object>();
+        for (int index = 0; index < fixtures.Length; index++)
+        {
+            FixtureDefinition fixture = fixtures[index];
+            string package = names[index];
+            string packagePath = $"{package.ToLowerInvariant()}/1.0.0";
+            string asset = $"lib/net11.0/{fixture.AssemblyFileName}";
+            string destination = Path.Combine(packages, packagePath, asset);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(fixture.AssemblyPath(), destination);
+            var assets = new Dictionary<string, object>
+            {
+                [asset] = new { },
+            };
+            targets.Add(
+                $"{package}/1.0.0",
+                new { type = "package", compile = assets, runtime = assets });
+            libraries.Add(
+                $"{package}/1.0.0",
+                new { type = "package", path = packagePath });
+
+            if (package == "Facade")
+                FacadePath = destination;
+        }
+
+        if (includeUnselectedNeighbor)
+        {
+            File.Copy(
+                FixtureCatalog.MatchBindingDecoy.AssemblyPath(),
+                Path.Combine(
+                    packages,
+                    "implementation",
+                    "1.0.0",
+                    "lib",
+                    "net11.0",
+                    FixtureCatalog.MatchBindingDecoy.AssemblyFileName));
+        }
+
+        AssetsPath = Path.Combine(_root, "project.assets.json");
+        File.WriteAllText(
+            AssetsPath,
+            JsonSerializer.Serialize(new
+            {
+                version = 3,
+                targets = new Dictionary<string, object>
+                {
+                    ["net11.0"] = targets,
+                },
+                libraries,
+            }));
+        _originalPackages = Environment.GetEnvironmentVariable(
+            "NUGET_PACKAGES");
+        Environment.SetEnvironmentVariable("NUGET_PACKAGES", packages);
+    }
+
+    internal string AssetsPath { get; }
+    internal string FacadePath { get; } = null!;
+
+    public void Dispose()
+    {
+        Environment.SetEnvironmentVariable(
+            "NUGET_PACKAGES",
+            _originalPackages);
+        Directory.Delete(_root, recursive: true);
+    }
 }

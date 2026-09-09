@@ -32,6 +32,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
 | [Library Family Boundaries](design/library-family-boundaries.md) | Meaning of the `Inspector`, `ILInspector`, `DotnetInspector`, independent-domain, and host namespace families, independent of dependency altitude and component role. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
+| [CLI Workspace Sharing](design/cli-workspace-sharing.md) | Common `--share` projection of an inspection command's effective resolved state to a canonical Workspace packet or Inspect Web URL, without a second Workspace-construction grammar. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
 | [CLI Option-Value Validation](design/cli-option-value-validation.md) | Shared zero-arity diagnostics that preserve positional ownership and command-owned capacity. |
@@ -148,6 +149,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Local Comparison Publication](design/local-comparison-publication.md) | Queries-owned result association and terminal evidence for the first borrowed-input, two-host method-comparison route. |
 | [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md) | Explicit same-assembly pair interaction, managed feature projection, and typed Browser Method Body Diff presentation. |
 | [Inspect Web Package Reference Result](design/inspect-web-package-reference-result.md) | Native C# reference-list or failure results, generated TypeScript consumption, and settled reference-view diagnostics. |
+| [Inspect Web Graph Source State](design/inspect-web-graph-source-state.md) | One feature-owned Graph Source modal state with distinct pending, available, failed, and cancelled outcomes. |
 | [Inspect Web Source Comparison](design/inspect-web-source-comparison.md) | Explicit package-version/member pair interaction, paired Source query adoption, and authored-source changes, moves, provenance, and non-success in the browser. |
 | [Analysis Universe Realization](design/analysis-universe-realization.md) | Operation-scoped binding from one exact finite analysis universe and validated plan to owner-issued executable capabilities, deterministic access, retained lifetimes, and visible failure. |
 | [Analysis String-Literal-Use Pattern](design/analysis-string-literal-use-pattern.md) | Bounded ordinal matching over decoded `ldstr` occurrences with durable instruction identity, contained literal evidence, and typed incomplete outcomes. |
