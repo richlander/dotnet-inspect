@@ -212,9 +212,9 @@ internal static class WorkspaceTypeResolutionProjectionManifest
     internal static readonly WorkspaceProjection<ResolvedAssemblyReference, E.Assembly> Assembly =
         new(nameof(Assembly), static (c, v) => new(
             Acquisition.Project(c, v.Registration), Identity.Project(c, v.Identity), InertOptional(v.Path),
-            Provenance!.Project(c, v.Provenance), v.LastWriteTimeUtc),
+            InertOptional(v.AssetFileName), Provenance!.Project(c, v.Provenance), v.LastWriteTimeUtc),
             Project("Registration", nameof(Acquisition)), Project("Identity", nameof(Identity)), Text("Path"),
-            Project("Provenance", nameof(Provenance)), Copy("LastWriteTimeUtc"),
+            Text("AssetFileName"), Project("Provenance", nameof(Provenance)), Copy("LastWriteTimeUtc"),
             new("OpenRead", null, WorkspaceProjectionDisposition.Exclude, OpenReadDenyRule));
 
     internal static readonly WorkspaceProjection<ResolvedAssemblyCandidate, E.Candidate> Candidate =
