@@ -244,7 +244,8 @@ Every operation carries:
 
 - one typed target demand;
 - one immutable source-plan identity and policy generation;
-- the exact Workspace revision or standalone operation identity;
+- the owner-issued Workspace revision identity or standalone operation
+  identity;
 - the typed platform-request origin, including an exact
   `PlatformLibraryPopulationDeclaration` or orchestration-owned delegation
   identity when one caused the operation;
@@ -441,8 +442,8 @@ platform family from a package prefix.
 When an operation selects registered ecosystems, its population planner
 processes every request-relevant contribution independently:
 
-1. it retains the exact Workspace revision, ecosystem registration, and lower
-   contribution;
+1. it retains the owner-issued Workspace revision identity, ecosystem
+   registration, and lower contribution;
 2. for each `PlatformLibraryPopulationDeclaration`, it issues one platform
    target demand whose family is exactly the declaration's `PlatformFamily`;
 3. it adds operation-owned target-framework and version policy, reference or
@@ -458,7 +459,7 @@ does not equal the retained platform population declaration. Successful target
 settlement preserves this correspondence:
 
 ```text
-Workspace revision
+Workspace revision identity
   -> ecosystem registration
   -> PlatformLibraryPopulationDeclaration(PlatformFamily)
   -> family-preserving target demand
@@ -468,15 +469,16 @@ Workspace revision
 
 The operation-level association retains the ecosystem registration that
 selected the lower declaration. The House request and receipt retain the exact
-Workspace revision and `PlatformLibraryPopulationDeclaration`; they do not
-depend on application ecosystem identity or display metadata.
+Workspace revision identity and `PlatformLibraryPopulationDeclaration`; they
+do not retain the complete revision snapshot or depend on application ecosystem
+identity or display metadata.
 
 ### Family mismatch example and continuation
 
 Suppose one selected ASP.NET Core registration retains:
 
 ```text
-Workspace revision: 42
+Workspace revision identity: ws-rev-a7
 ecosystem registration: ASP.NET Core
 population declaration: Platform(AspNetCore)
 ```
@@ -607,7 +609,7 @@ The analogous CLI subject scenarios are:
 | Subject | Entry domain | Native inspection | Library-focused handoff |
 | --- | --- | --- | --- |
 | `library` | Direct library coordinate | Library-shaped from entry | The entry already is a bare library. |
-| `package` | Typed package coordinate through PackageHouse | Package-shaped metadata, dependencies, and assets | Each explicitly selected compatible library unwraps with package provenance. |
+| `package` | Typed package coordinate through PackageHouse | Package-shaped metadata, dependencies, and assets | Each explicitly selected library unwraps with package provenance. |
 | `platform` | Typed target demand through PlatformHouse | Platform-shaped target, population, and view evidence | Each explicitly selected platform library unwraps with platform provenance. |
 
 These paths converge on shared Library inspection, not on another House. A
@@ -623,7 +625,7 @@ bare library is container-independent but not provenance-free. It retains:
 - visible acquisition failure, rejection, ambiguity, or incompleteness.
 
 The bare-library contract does not imply one library per package or one library
-per platform. A package or platform may produce zero, one, or many compatible
+per platform. A package or platform may produce zero, one, or many selected
 libraries, and retains its own non-library assets and container-shaped
 inspection. Unwrapping occurs only when a consumer explicitly requests a
 library-focused result.
@@ -638,6 +640,37 @@ The exact shared type name and project placement belong to the artifact and
 Library inspection owner, not this document. Its focused design must preserve
 the evidence above before any PackageHouse, PlatformHouse, or direct-library
 adoption ships.
+
+### Workspace admission and platform skew
+
+Workspace admission and bare-library construction do not require compatibility
+with the Workspace platform. A package-selected or direct library may be
+retained when its target is newer than the loaded platform. Its own metadata,
+API, IL, source, decompilation, comparison, and other same-participant
+inspection remain available. Admission records membership and provenance; it
+does not prove that every cross-participant traversal can succeed.
+
+`PlatformHouse` is not called merely to approve that admission or to acquire a
+complete matching platform. It participates only when a bounded operation
+issues a platform target demand or the assembly-reference ladder authorizes its
+applicable-platform rung.
+
+[Platform composition and overlays](platform-composition-and-overlays.md#overlay-compatibility-is-a-property-of-the-pair-and-request)
+owns the compatibility rule. At a platform traversal, ordinary binding must
+select an eligible assembly candidate and Metadata must resolve the exact
+requested member identity and signature. A same-named member, another overload,
+display-text match, or shape-compatible signature is not a substitute. A
+breaking signature change is therefore an unavailable member; known
+participant/platform skew turns that miss into the owner-defined attributed
+compatibility failure. Other participants and unrelated operations remain
+usable.
+
+Even a successful exact bind uses evidence from the loaded platform supplier.
+Its nullable annotations, attributes, documentation, source, bodies, and
+source-level `unsafe` placement may differ from the requesting library's build
+target. The House preserves exact target and supplier provenance so the
+compatibility owner and hosts can retain and present that downgrade context; it
+does not define the warning or its presentation.
 
 ## Assembly-reference processing
 
@@ -955,8 +988,9 @@ The settlement receipt binds:
   required;
 - source-plan identity and policy generation;
 - typed request origin and any orchestration-owned delegation association;
-- the exact Workspace revision and `PlatformLibraryPopulationDeclaration`
-  when a Workspace population caused the request;
+- the owner-issued Workspace revision identity and
+  `PlatformLibraryPopulationDeclaration` when a Workspace population caused
+  the request;
 - every selected or outcome-relevant source contribution;
 - reference and implementation view correspondence;
 - the physical identity, role, origin, and owner-issued content-lifetime
@@ -990,6 +1024,11 @@ For Workspace-bound resolution:
    correspondence; and
 5. the logical operation continues only after validating every generation and
    policy identity.
+
+Workspace may publish the requesting participant before any platform
+compatibility traversal occurs. A replacement that adds such a participant is
+a membership change, not a compatibility receipt; target skew neither blocks
+publication nor changes the meaning of the Workspace revision identity.
 
 For standalone platform inspection, the caller owns the operation lifetime and
 disposes every returned source lease. The same House request and settlement
@@ -1132,6 +1171,21 @@ A CLI path or project `HintPath` already identifies a physical library. The
 orchestration owner creates the provenance-retaining bare-library value and
 enters shared Library inspection directly. It does not wrap the file as a
 package or platform request merely to obtain command symmetry.
+
+### A newer-target package remains inspectable
+
+A Workspace retains a .NET 10 platform and loads a package library selected for
+.NET 12. The participant is admitted without acquiring or replacing a complete
+.NET 12 platform. Package Overview, metadata, API, IL, source, decompilation,
+and comparison against another explicitly selected library remain available.
+
+When one operation follows the package library's reference into the Workspace
+platform, the loaded .NET 10 candidate is usable only when normal assembly
+binding and the exact requested member signature both resolve. A member shared
+unchanged by .NET 10 and .NET 12 succeeds while retaining the platform-skew
+warning. A member whose signature changed, or which exists only in .NET 12,
+returns the attributed compatibility failure. Neither result removes the
+package participant or blocks unrelated inspection.
 
 ### .NET Standard facade resolves to runtime implementation
 
@@ -1302,7 +1356,7 @@ population planner
 
 completed
   one graph population retains:
-    exact Workspace revision and registrations
+    exact Workspace revision identity and registrations
     separate runtime and ASP.NET Core family targets
     every package-prefix request and outcome
     exact artifact correspondence for any coalesced library
@@ -1457,7 +1511,7 @@ The implementation and adoption slices own these Release gates:
 | Property | Required gate |
 | --- | --- |
 | Target settlement | An exact demand is retained unchanged; a selecting demand freezes one owner-issued exact `PlatformFamilyTarget` before acquisition, and every outcome retains the demand and selection evidence. |
-| Workspace population correspondence | The operation association retains the exact Workspace revision and ecosystem registration; the House request and receipt retain the exact revision, `PlatformLibraryPopulationDeclaration`, family-preserving target demand, and settled target. |
+| Workspace population correspondence | The operation association retains the owner-issued Workspace revision identity and ecosystem registration; the House request and receipt retain that identity, `PlatformLibraryPopulationDeclaration`, family-preserving target demand, and settled target. |
 | Workspace family mismatch | An `AspNetCore` population declaration paired with a `DotNetRuntime` target demand rejects before target or source work, remains associated with the selected registration, triggers no retry or relabeling, and prevents complete population coverage. |
 | Fresh-default realization | Selecting the three fresh ecosystem defaults issues independent `DotNetRuntime` and `AspNetCore` House requests plus the two authored package-prefix paths; registration alone performs no source work. |
 | Family separation | Equal TFM or version text and an ASP.NET Core runtime support closure cannot merge the runtime and ASP.NET Core registrations or their exact family targets. |
@@ -1470,6 +1524,8 @@ The implementation and adoption slices own these Release gates:
 | Delegation preserves identity boundaries | An upstream platform delegation retains its package decision receipt outside PlatformHouse and cannot establish a platform-library or assembly identity from package spelling. |
 | Bare-library provenance | Every one-library realization retains physical identity, platform origin, exact target, source generation, view role, correspondence, and content lifetime after unwrapping. |
 | Direct-library convergence | A direct path or project library enters the same Library inspection contract without PackageHouse or PlatformHouse mediation. |
+| Permissive Workspace admission | A participant targeting a newer platform remains admissible and usable for same-participant inspection without realizing a matching complete platform. |
+| Exact traversal compatibility | Under known skew, an exact Metadata member-signature match succeeds with downgrade context; a missing or changed signature returns the attributed compatibility failure without blocking unrelated work. |
 | Metadata ownership | Platform type resolution invokes the structured Metadata API and preserves its exact outcome and forwarding hops. |
 | Transparent .NET Standard | A `.NET Standard` facade can resolve through an exact runtime target without constructing a `NetStandard` family or implementation population. |
 | Physical supplier retention | A resolved implementation type or assembly retains its physical supplier rather than being relabeled as the reference facade. |

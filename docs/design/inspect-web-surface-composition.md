@@ -612,6 +612,7 @@ Overview identity.
 ```text
 Overview                                      type and member totals
 Version · Framework                         (Package only)
+platform compatibility warning              (when present)
 icon · subject name
 subject-specific identity details and content
 package@version                                    active framework
@@ -624,6 +625,19 @@ starts with a larger icon and readable name, the surface's single visible
 level-one heading. Both subjects reuse the package's existing icon selection and
 fallback. Library retains its own name, asset path and full assembly identity.
 The identity is part of the full-width content, not a new inset card.
+
+When the product retains known package/platform skew, Package Overview renders
+one warning immediately below the Version and Framework controls:
+
+> This package is incompatible with the Workspace platform. Some operations may
+> be blocked, and some results may differ from the package's build target.
+
+The warning consumes the owner-issued compatibility evidence defined by
+[Platform composition and overlays](platform-composition-and-overlays.md#client-disclosure).
+It is not duplicated on traversal source and target rows. An exact
+operation-level compatibility failure remains visible in that operation's
+surface; the Overview warning provides persistent package context rather than
+replacing the failure.
 
 Package content retains the admitted-library inventory and document links. The
 platform library picker remains with the Libraries section. Library rows enter

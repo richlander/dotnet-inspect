@@ -484,6 +484,13 @@ user named. The platform remains internally coherent; the overlay and base have
 a version-skew risk. Whether one traversal can succeed also depends on the
 member requested.
 
+The same compatibility shape applies when a package-selected or direct library
+is retained beside an older Workspace platform. That participant is not an
+overlay for designation or precedence purposes, but loading it is still valid
+and does not require a matching platform closure. Its own metadata, API, IL,
+source, decompilation, and comparison operations remain available until an
+operation asks it to compose with another participant.
+
 This is why compatibility cannot be folded into entitlement. Entitlement is
 computed per acquisition, at open, and both sides pass. Compatibility concerns
 the pair and a concrete traversal request. No hostile actor is required: the
@@ -497,24 +504,56 @@ platform for metadata that the platform does not contain.
   which is most of what the user opened it for; refusing at open would reject a
   session that mostly works.
 - **At traversal into the platform**, attempt the requested lookup. If the
-  loaded platform contains the member, return it; the skew warning remains
-  useful context but does not invalidate the result. If the member is
-  unavailable and the requesting overlay is known to target a newer platform,
-  return an attributed typed compatibility failure naming the request, overlay
-  target, and loaded platform. Without known skew, preserve the ordinary
-  missing or unresolved result.
+  normal assembly-binding policy selects a platform candidate and Metadata
+  resolves the exact requested member identity and signature, return it; the
+  skew warning remains useful context but does not invalidate the binding.
+  Resolution may not substitute a same-named member, another overload, a
+  display-text match, or a merely shape-compatible signature. A breaking
+  signature change therefore makes the requested member unavailable. When the
+  request is unavailable and the requesting participant is known to target a
+  newer platform, return an attributed typed compatibility failure naming the
+  request, participant target, and loaded platform. Without known skew,
+  preserve the ordinary missing or unresolved result.
 
 The failure mode this replaces is the one `AGENTS.md` forbids under *keep
 failure visible*: today an unavailable member under known skew surfaces as an
 unattributed missing type or member. A blanket refusal would be wrong in the
 other direction because many requests remain satisfiable.
 
+An exact member bind proves only that the loaded supplier satisfies Metadata's
+binding identity. It does not prove that every descriptive or implementation
+facet matches the participant's build target. Nullable annotations, custom
+attributes, XML documentation, PDB-mapped source, implementation bodies, and
+source-level `unsafe` placement may differ across platform versions without
+changing the bindable member identity. A pointer-type signature change does
+change that identity and therefore fails the exact lookup. Successful
+platform-derived documentation, source, decompilation, and analysis retain the
+loaded supplier and target so consumers can disclose that they describe the
+older Workspace platform.
+
 Expect a degree of incompatibility to remain even when everything is reported.
-Decompiled output on the far side of a reference into a skewed assembly may be
-wrong, and a type whose base declaration is unavailable will render
-incompletely. That is **inherent** to overlaying: the missing information does
-not exist in the workspace. The requirement is that it be attributed, not that
-it be avoided.
+Decompiled output on the far side of a reference into a skewed assembly may
+differ from the requesting participant's build environment, and a type whose
+base declaration is unavailable will render incompletely. That is **inherent**
+to overlaying: the missing or newer information does not exist in the
+Workspace. The requirement is that it be attributed, not that it be avoided.
+
+### Client disclosure
+
+The retained skew warning is participant-level context, not a decoration on
+every source and target of every traversal. For a package participant, Inspect
+Web presents it once on Package Overview beside the package version and
+framework controls:
+
+> This package is incompatible with the Workspace platform. Some operations may
+> be blocked, and some results may differ from the package's build target.
+
+The warning remains visible after an exact member lookup succeeds because the
+selected older supplier may still differ in documentation, annotations,
+source, or implementation. It does not replace an operation's exact
+compatibility failure, which remains visible where that operation reports its
+result. Direct-library and non-browser hosts project the same owner-issued skew
+evidence under their own presentation contracts.
 
 ## Precedence between entitled candidates
 
