@@ -86,7 +86,7 @@ success-shaped partial envelope.
 This owner consumes:
 
 - the producer-issued receipt/key pair and validation meaning from
-  `ILInspector.Findings`;
+  `Inspector.Findings`;
 - the single-census Facts and Annotated Source projection from Research;
 - exact implementation-body resolution and snapshot lifetime from the existing
   Inspect Web inspection scope; and

@@ -123,6 +123,62 @@ public static class SelectResolver
         bool sectionsPreResolved)
         => !sectionsPreResolved && IsActiveInfoSelector(selectDefault, includeSections);
 
+    public static (HashSet<string>? Sections, string? Error) NormalizeExactOnlySection(
+        string[]? select,
+        HashSet<string>? sections,
+        IReadOnlySet<string>? exactSections,
+        IReadOnlyList<string> knownSections,
+        string exactOnlySection)
+    {
+        if (sections?.Contains(exactOnlySection) != true
+            || exactSections?.Contains(exactOnlySection) == true)
+        {
+            return (sections, null);
+        }
+
+        bool hasNonExactSectionSelector =
+            select?.Any(selector =>
+            {
+                if (selector.StartsWith('@'))
+                    return false;
+                var (matches, _) = ResolveSingle(selector, knownSections);
+                return matches.Count == 1
+                       && matches[0].Equals(
+                           exactOnlySection,
+                           StringComparison.OrdinalIgnoreCase);
+            }) == true;
+        if (hasNonExactSectionSelector)
+        {
+            return (
+                sections,
+                $"section '{exactOnlySection}' requires an exact -S selector.");
+        }
+
+        bool hasBroadSectionSelector =
+            select?.Any(selector =>
+            {
+                if (selector.StartsWith('@'))
+                    return false;
+                var (matches, _) = ResolveSingle(selector, knownSections);
+                return matches.Count > 1
+                       && matches.Contains(
+                           exactOnlySection,
+                           StringComparer.OrdinalIgnoreCase);
+            }) == true;
+        if (!IsAllSelector(select) && !hasBroadSectionSelector)
+        {
+            return (
+                sections,
+                $"section '{exactOnlySection}' cannot be selected through a category.");
+        }
+
+        var normalized = new HashSet<string>(
+            sections,
+            StringComparer.OrdinalIgnoreCase);
+        normalized.Remove(exactOnlySection);
+        return (normalized, null);
+    }
+
     internal static bool TryResolveCategory(
         string value,
         IReadOnlyDictionary<string, string[]>? categories,

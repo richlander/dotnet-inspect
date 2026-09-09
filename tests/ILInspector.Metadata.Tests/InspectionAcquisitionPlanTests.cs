@@ -5,7 +5,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;

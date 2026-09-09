@@ -8,9 +8,12 @@ path tracked by
 Implementation is tracked by
 [#6306](https://github.com/richlander/dotnet-inspect/issues/6306).
 
-The immediate consumers are the planned CLI `Clone Candidates` section in
-stage 4 and the Inspect Web transport and master/detail experience in stages 5
-and 6. This owner defines neither host adoption.
+The CLI `Clone Candidates` section adopted this contract in stage 4 under
+[#6314](https://github.com/richlander/dotnet-inspect/issues/6314). The managed
+Inspect Web Analysis facade and generated transport adopted it in stage 5
+under [#6353](https://github.com/richlander/dotnet-inspect/issues/6353).
+The next consumer is the Inspect Web master/detail experience in stage 6.
+This owner defines neither host adoption.
 
 ## Authority and exact claim
 
@@ -97,9 +100,9 @@ actually evaluated.
 - per-participant coverage; and
 - the aggregate bounded-work receipt.
 
-The future canonical result-section name is `Clone Candidates`. Stage 4 owns
-CLI registration and the deterministic `Query: Clone Candidates` discovery
-companion.
+The canonical result-section name is `Clone Candidates`. The CLI registers it
+for exact Library, Type, and Member subjects and exposes the deterministic
+`Query: Clone Candidates` discovery companion.
 
 ### Candidate rows
 
@@ -185,5 +188,8 @@ The Presentation Release suite gates:
 - closed rejected, failed, and unrepresentable outcomes; and
 - deterministic value equality for independently projected documents.
 
-Stage 4 separately gates section/query discovery and CLI output. Stages 5 and 6
-separately gate Browser transport and interaction.
+`CloneCandidatesSectionTests` and `QueryDiscoveryTests` separately gate CLI
+section/query discovery, exact subject binding, logical-member expansion,
+portable JSON identity, row projection, stream formats, coverage, and
+finite-scope disclosure. Stages 5 and 6 separately gate Browser transport and
+interaction.

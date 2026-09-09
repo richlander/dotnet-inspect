@@ -184,6 +184,7 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
       "../browser/**/*.ts",
       "../playwright.config.ts",
       "../playwright.worker.config.ts",
+      "../playwright.worker-cpu.config.ts",
       "../playwright.package-adoption.config.ts",
       "../playwright.source-comparison.config.ts",
     ],
@@ -2882,6 +2883,7 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "managed-operation-bridge-canary/facades engine/facades "
       + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
       + "playwright.config.ts playwright.worker.config.ts "
+      + "playwright.worker-cpu.config.ts "
       + "playwright.package-adoption.config.ts playwright.source-comparison.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );

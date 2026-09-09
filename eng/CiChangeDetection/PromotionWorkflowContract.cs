@@ -38,12 +38,13 @@ internal static class PromotionWorkflowContract
         """;
     private const string RuntimeAsyncDeploymentCheck =
         """
-        eng/verify-inspect-web-async-deployment.sh \
-          runtime \
-          prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
-          artifacts/inspect-web-coreclr-publish/wwwroot \
-          artifacts/inspect-web-coreclr-publish/async-lowering.json \
-          artifacts/inspect-web-runtime-async-receipts
+        RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
+          eng/verify-inspect-web-async-deployment.sh \
+            runtime \
+            prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
+            artifacts/inspect-web-coreclr-publish/wwwroot \
+            artifacts/inspect-web-coreclr-publish/async-lowering.json \
+            artifacts/inspect-web-runtime-async-receipts
         """;
     private const string PairedAsyncDeploymentCheck =
         """
@@ -301,6 +302,24 @@ internal static class PromotionWorkflowContract
             "",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted workload installation without the daily feed.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "            --configfile \"$nuget_config\" \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted publish restore without its mapped cohort feeds.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "                <package pattern=\"Microsoft.DotNet.ILCompiler\" />\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted verifier restore without the daily NativeAOT compiler.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "          RestoreConfigFile=\"$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config\" \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted runtime verification without its mapped cohort feeds.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
             "            -p:PublishReadyToRun=false \\\n",
@@ -1444,12 +1463,40 @@ internal static class PromotionWorkflowContract
         const string ExpectedPublish =
             """
             rm -rf artifacts/inspect-web-coreclr-publish artifacts/inspect-web-runtime-async-receipts
+            nuget_config="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config"
+            cat > "$nuget_config" <<EOF
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="dotnet-workload" value="$DOTNET_ROOT/library-packs" />
+                <add key="dotnet12" value="$DOTNET_DAILY_FEED" />
+                <add key="nuget.org" value="$DOTNET_NUGET_FEED" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="dotnet-workload">
+                  <package pattern="Microsoft.NET.Sdk.WebAssembly.Pack" />
+                </packageSource>
+                <packageSource key="dotnet12">
+                  <package pattern="Microsoft.AspNetCore.App.*" />
+                  <package pattern="Microsoft.DotNet.ILCompiler" />
+                  <package pattern="Microsoft.NET.ILLink.Tasks" />
+                  <package pattern="Microsoft.NETCore.App.*" />
+                  <package pattern="runtime.*.Microsoft.DotNet.ILCompiler" />
+                </packageSource>
+                <packageSource key="nuget.org">
+                  <package pattern="*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            EOF
             version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
               prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
               -c Release \
               --output artifacts/inspect-web-coreclr-publish \
+              --configfile "$nuget_config" \
               -p:VersionPrefix="$version" \
               -p:SourceRevisionId="${{ inputs.source_sha }}" \
               -p:BuildTimestampUtc="$built_at" \

@@ -184,15 +184,17 @@ The version-1 population union is closed:
 
 ```text
 WorkspaceEcosystemPopulationDeclaration
-  = Platform(owner-issued PlatformLibraryPopulationDeclaration)
+  = Platform(PlatformLibraryPopulationDeclaration)
   | PackagePrefix(PackagePrefixDeclaration)
 ```
 
-The platform arm is a prerequisite owned by the platform source. It denotes a
-platform-source-owned library population such as the .NET runtime or ASP.NET
-Core shared framework. This document does not define its family grammar,
-target selection, library inventory, acquisition, realization, completion, or
-failure behavior.
+The platform arm retains the
+[Platform Library Population Declaration](platform-library-population-declaration.md)
+issued by Source Selection. The declaration retains the lower
+[Platform Family](platform-target-currency.md#platform-family) for the .NET
+runtime or ASP.NET Core logical library population. This document does not
+define target selection, reference or implementation view, library inventory,
+acquisition, realization, completion, or failure behavior.
 
 The package-prefix arm retains `PackagePrefixDeclaration`, not
 `PackagePrefixRequest`. The registration records literal source intent without
@@ -290,8 +292,8 @@ The initial target contributions are:
 
 | Default | Required population declarations |
 | --- | --- |
-| Platform | source-owned .NET runtime platform population |
-| ASP.NET Core | source-owned ASP.NET Core platform population and `Microsoft.AspNetCore.` package prefix |
+| Platform | `Platform(DotNetRuntime)` |
+| ASP.NET Core | `Platform(AspNetCore)` and `Microsoft.AspNetCore.` package prefix |
 | Microsoft.Extensions | `Microsoft.Extensions.` package prefix |
 
 Namespace roots and core-package priorities remain additional inert knowledge.
@@ -363,11 +365,12 @@ call-graph consumer cannot form.
 
 ### Shared-framework and package overlap
 
-ASP.NET Core contributes both the platform-source-owned shared-framework
-population and `Microsoft.AspNetCore.` package-prefix intent. The handoff
-retains both. It neither deduplicates by namespace nor treats one as fallback
-for the other. The consumer and assembly-reference resolution owners decide
-request-relevant population and binding from their typed evidence.
+ASP.NET Core contributes both `Platform(AspNetCore)` and
+`Microsoft.AspNetCore.` package-prefix intent. The handoff retains both. It
+neither deduplicates by namespace nor treats one as fallback for the other.
+The population owner distinguishes ASP.NET Core focus members from .NET
+runtime binding support; consumer and assembly-reference resolution owners
+decide request-relevant population and binding from their typed evidence.
 
 ### Prefix bound leakage
 
@@ -423,8 +426,8 @@ operation behavior.
 There are eight counted adoption steps:
 
 1. Lock this focused handoff design under #6307.
-2. Have the platform source owner issue the runtime and ASP.NET Core library
-   population declaration without defining it in the application catalog.
+2. Implement the Source-Selection-owned .NET runtime and ASP.NET Core library
+   population declarations defined by #6328.
 3. Implement the lower identity, declaration, validation, and public consumer
    canary in Queries.
 4. Add package-prefix slots, explicit lower projections, exact selection

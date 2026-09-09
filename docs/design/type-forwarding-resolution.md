@@ -1409,6 +1409,92 @@ fallback drift requires a fresh token and rejects retired continuations.
 Metadata composition: a caller forwarding to a different target definition
 must remain ruled out with either seed or policy-issued fallback occurrences.
 
+**Research publication-guard adoption (#6345).** The existing
+`DotnetInspector.ResearchQueries` publishers retain the
+`AssemblyContextAnalysisSource.BindingPolicyResolver` that supplies their
+policy-dependent evidence and validate it at the final query publication
+boundary. `DirectMemberComparisonQuery` validates each borrowed endpoint
+before its result leaves that endpoint's group callback.
+`AssemblyContextTypeProjectionQuery` and
+`AssemblyContextMemberProjectionQuery` validate the resolver immediately
+before returning their typed participant result; the member projection uses
+one resolver for both its Analysis index and Metadata source.
+
+This is one host-neutral production-adoption step under #5274. CLI
+`match --body` and Inspect Web method-body comparison consume
+`DirectMemberComparisonQuery`; Inspect Web type and annotated-source endpoints
+consume the Research projection queries. A policy replacement during Research
+work must therefore produce the existing query-level failure rather than
+publish a success derived from the retired group snapshot. The neighboring
+unchanged-policy behavior is preserved.
+
+`DirectMemberComparisonQueryTests` and
+`AssemblyContextResearchProjectionQueryTests` gate version replacement after
+the final ordinary binding selection and immediately before publication. They
+exercise the public production queries, not only the resolver guard. The
+existing selection/version model remains bounded supporting evidence for the
+consumed version transition; this adoption adds no new state transition,
+retry, workspace replacement, result arm, or host rendering path.
+
+#### Acquisition-free group selection
+
+`IAcquisitionFreeAssemblyBindingPolicy` is an explicit binding-owner capability.
+Its selection may inspect the caller's already-retained requesting image and
+return previously acquired descriptors, but may not discover candidates, open
+captured source descriptors, or delegate to an acquisition-capable policy.
+A stable version, a warmed selection cache, or a descriptor list does not
+establish this capability. `AssemblyDependencyResolver` does not implement it:
+selection can discover and acquire descriptors even before Metadata opens a
+returned candidate.
+
+`SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld` accepts exact
+retained participants and acquisition-free policies. Construction performs no
+delegated selection. Its binding rules remain the existing Services rules,
+including canonical-participant resolver lineage, explicit delegate identity
+policy, designated/platform arbitration, ambiguity, and typed missing,
+unavailable, and rejected answers. It does not infer a new general binding
+policy from the participant names or paths.
+
+Every selected, ambiguous, or shadow candidate must have an admitted
+acquisition registration. In-group descriptors are replaced by the canonical
+retained descriptor without changing the configured participant's continuation;
+an out-of-group candidate makes the selection
+`Unavailable(CandidateUnavailable)` without opening it. A foreign requesting
+registration is `Rejected(InvalidBindingOrigin)`, and intrinsic lookup reads
+the canonical retained requesting image. Foreign snapshots and retired
+lineages retain their existing rejection/version semantics.
+
+The workspace target-composition consumer requires this capability before
+Metadata resolution; an unsupported participant policy produces the public
+Queries `UnsupportedBindingPolicy` rejection rather than an inferred binding
+answer. Real context realization seals every admitted image under the group's
+retained-image budget before publication, seeds those exact snapshots into the
+group, and supplies the closed-group policy with the corresponding
+snapshot-backed descriptors and `NoResolverAssemblyBindingPolicy` delegates.
+An intrinsic request therefore cannot reopen a package entry, embedded-content
+provider, network source, or filesystem path. Custom policies can opt in only
+when their implementation meets the acquisition-free contract.
+
+This is not a second frozen-context API. Metadata still builds a request
+manifest before freezing, using the acquisition-free policy over retained
+images. Once frozen, `TypeResolutionContext.Resolve` performs neither policy
+selection nor acquisition, as specified below.
+
+`ClosedWorldAssemblyGroupBindingPolicyTests` gates canonical image replacement
+for selected, ambiguous, and shadow candidates, version-policy preservation,
+source-relative lineage, typed non-selections, foreign origins, and
+foreign/retired policy state. The Queries
+`WorkspaceResearchTarget_RejectsAcquiringPolicyBeforeDiscoveryOrOpen` and
+`WorkspaceResearchTarget_RejectsDependencyResolverBeforeItAcquiresOmittedSibling`
+gates exercise both composition paths with selection-side acquisition witnesses.
+`WorkspaceContextLoaderTests.Group_IntrinsicSelectionDoesNotReopenPackageContent`
+gates the production loader path after group publication, and
+`Group_RetentionBudgetFailureCreatesNoGroup` proves eager sealing remains
+bounded and atomic.
+`Group_DisposalRevokesItsSnapshotBackedDescriptors` proves the descriptor's
+image lease ends with quiescent group release even while an asynchronous
+workspace remains alive.
+
 #### Resolver-lineage continuations
 
 > **Status: implemented, with CLI and Browser endpoint evidence.**
@@ -1537,6 +1623,44 @@ for that work bound. Existing physical-candidate forwarder-cycle detection
 and hop budgets remain unchanged. This effort does not widen support for
 revisiting a candidate through a different context on one forwarding path.
 
+##### CLI match body continuation
+
+Issue #6391 applies this contract to the CLI `match --body` handoff. API selection
+retains the terminal occurrence and its issuing policy with each selected type.
+The body query starts from that occurrence; it does not construct another
+resolver from the terminal assembly path.
+
+The query workspace remains sealed. Before creating it, the CLI walks the
+selected occurrence's assembly references through the retained policy and
+continuations, bounded by Metadata's existing candidate limit. The resulting
+participants are the exact selected descriptors and shadows returned by that
+policy. Directly selected platform participants are included but not
+recursively expanded; the platform resolver remains their closure owner.
+Missing, ambiguous, unavailable, or rejected references add no participant,
+and the query does not synthesize a fallback candidate for them.
+
+The occurrence-rooted participant adapter is a transforming policy. It owns a
+distinct outer version, translates the selected initial occurrence to the
+delegate, retains delegated continuations inside its own lineage, and rejects a
+different seed origin. The sealed group composes one such route for every
+selected occurrence under one routing-only source-relative policy version;
+shadow-only participants have no invented continuation. The existing Research
+publication guard validates the resulting policy version before body evidence
+escapes.
+
+The pathological gate uses a facade-forwarded implementation whose body calls
+a dependency selected by project policy. An unselected same-name dependency
+beside the implementation advertises an incompatible delegate shape. Re-seeding
+from the implementation path produces partial reconstructed C# through the
+decoy or an unavailable dependency; continuing the selected occurrence produces
+the same full-fidelity body with and without that neighbor.
+
+This adoption does not change `match --similar`, broaden navigation or
+reference-tree discovery, define a Browser transport, retire
+`IAssemblyReferenceResolver`, or change candidate-domain finalization. The
+existing resolver-lineage model covers the retained occurrence and
+reconstruction negative control; no new state transition is introduced.
+
 ##### Both production hosts and retirement
 
 The counted adoption path in #5274 has **four steps**, including this design.
@@ -1592,6 +1716,10 @@ delegate-version refresh, and the compiled two-context case.
 `AssemblySetResolutionSessionTests` retain the original forwarded-constraint
 oracle; CLI `CommandLine_ForwardedConstraint_ReportsDependencyCompleteness`
 exercises the real command and its missing-dependency neighbor.
+CLI `ExecuteAsync_ForwardedBodies_RetainSelectedProjectContext` exercises the
+Issue #6391's facade, selected dependency, and same-name neighbor through production
+`match --body`; `AssemblyContextParticipantTests` enforce seed translation,
+continuation translation, distinct outer versions, and foreign-seed rejection.
 Existing `MemberCallGraphSessionTests` provide query-level regression coverage,
 not Browser endpoint adoption. Browser's Release `BrowserEngineBoundaryTests`
 provide that endpoint evidence:

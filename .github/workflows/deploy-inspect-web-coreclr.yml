@@ -195,12 +195,40 @@ jobs:
         shell: bash
         run: |
           rm -rf artifacts/inspect-web-coreclr-publish artifacts/inspect-web-runtime-async-receipts
+          nuget_config="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config"
+          cat > "$nuget_config" <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="dotnet-workload" value="$DOTNET_ROOT/library-packs" />
+              <add key="dotnet12" value="$DOTNET_DAILY_FEED" />
+              <add key="nuget.org" value="$DOTNET_NUGET_FEED" />
+            </packageSources>
+            <packageSourceMapping>
+              <packageSource key="dotnet-workload">
+                <package pattern="Microsoft.NET.Sdk.WebAssembly.Pack" />
+              </packageSource>
+              <packageSource key="dotnet12">
+                <package pattern="Microsoft.AspNetCore.App.*" />
+                <package pattern="Microsoft.DotNet.ILCompiler" />
+                <package pattern="Microsoft.NET.ILLink.Tasks" />
+                <package pattern="Microsoft.NETCore.App.*" />
+                <package pattern="runtime.*.Microsoft.DotNet.ILCompiler" />
+              </packageSource>
+              <packageSource key="nuget.org">
+                <package pattern="*" />
+              </packageSource>
+            </packageSourceMapping>
+          </configuration>
+          EOF
           version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
             prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
             -c Release \
             --output artifacts/inspect-web-coreclr-publish \
+            --configfile "$nuget_config" \
             -p:VersionPrefix="$version" \
             -p:SourceRevisionId="${{ inputs.source_sha }}" \
             -p:BuildTimestampUtc="$built_at" \
@@ -222,12 +250,13 @@ jobs:
       - name: Verify runtime-async deployment
         shell: bash
         run: |
-          eng/verify-inspect-web-async-deployment.sh \
-            runtime \
-            prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
-            artifacts/inspect-web-coreclr-publish/wwwroot \
-            artifacts/inspect-web-coreclr-publish/async-lowering.json \
-            artifacts/inspect-web-runtime-async-receipts
+          RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
+            eng/verify-inspect-web-async-deployment.sh \
+              runtime \
+              prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
+              artifacts/inspect-web-coreclr-publish/wwwroot \
+              artifacts/inspect-web-coreclr-publish/async-lowering.json \
+              artifacts/inspect-web-runtime-async-receipts
 
       - name: Publish MSDL managed API
         run: >

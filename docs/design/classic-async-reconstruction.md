@@ -257,7 +257,7 @@ The resulting matrix separates artifact availability from reconstruction:
 Run the slow Release fixture gate to build and prove all artifacts:
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
   -class '*ClassicAsyncArtifactMatrixTests*'
 ```
 

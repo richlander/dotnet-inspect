@@ -355,6 +355,45 @@ public sealed record FixedBufferFieldInfo(TypeRef ElementType, int Length);
 public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
 {
     /// <summary>
+    /// The generic field definition's type before substituting a TypeSpec
+    /// parent's type arguments. Retained for exact cross-assembly FieldDef
+    /// resolution when the effective <see cref="Type"/> contains constructed
+    /// types whose assembly aliases differ between reference and runtime
+    /// metadata.
+    /// </summary>
+    public TypeRef? DefinitionType { get; init; }
+
+    /// <summary>
+    /// Whether Metadata resolved this exact FieldDef through the defining
+    /// module's normalized memory-safety index. A resolved legacy no-contract
+    /// field can still have <see cref="RequiresUnsafeFact"/> unknown because
+    /// legacy compatibility is derived from field shape.
+    /// </summary>
+    public bool HasNormalizedMemorySafetyContract { get; init; }
+
+    /// <summary>
+    /// True when the normalized field contract is explicit. Updated callers
+    /// enforce explicit contracts; legacy callers do not.
+    /// </summary>
+    public bool RequiresUnsafe { get; init; }
+
+    /// <summary>
+    /// Whether the normalized field contract positively requires or excludes an
+    /// unsafe caller context. Legacy no-contract fields retain Unknown and use
+    /// their pointer shape only after normalized legacy rules are established.
+    /// </summary>
+    public MetadataFactState RequiresUnsafeFact { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
+    /// The defining module's normalized memory-safety model. Invalid and
+    /// unavailable states remain visible so fidelity cannot treat them as a
+    /// negative field contract.
+    /// </summary>
+    public MemorySafetyRulesState? MemorySafetyRulesState { get; init; }
+    public bool MemorySafetyRulesUnavailable { get; init; }
+    public bool MemorySafetyContractUnavailable { get; init; }
+
+    /// <summary>
     /// Positive metadata evidence that an auto-property backing-field-shaped name
     /// has a corresponding property. Null means no proof, not proof of absence.
     /// </summary>

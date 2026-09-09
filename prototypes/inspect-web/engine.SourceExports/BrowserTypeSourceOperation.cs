@@ -74,26 +74,8 @@ public sealed record BrowserTypeSourceCancellation(
         };
 
     internal static string FormatReason(BrowserManagedOperationCancelReason reason) =>
-        reason switch
-        {
-            BrowserManagedOperationCancelReason.User => "user",
-            BrowserManagedOperationCancelReason.Superseded => "superseded",
-            BrowserManagedOperationCancelReason.Disposed => "disposed",
-            BrowserManagedOperationCancelReason.FeatureObserverFailed => "feature-observer-failed",
-            BrowserManagedOperationCancelReason.Timeout => "timeout",
-            BrowserManagedOperationCancelReason.WorkerRestarted => "worker-restarted",
-            _ => throw new ArgumentOutOfRangeException(nameof(reason)),
-        };
+        BrowserManagedOperationCancelReasons.Format(reason);
 
     internal static BrowserManagedOperationCancelReason ParseReason(string reason) =>
-        reason switch
-        {
-            "user" => BrowserManagedOperationCancelReason.User,
-            "superseded" => BrowserManagedOperationCancelReason.Superseded,
-            "disposed" => BrowserManagedOperationCancelReason.Disposed,
-            "feature-observer-failed" => BrowserManagedOperationCancelReason.FeatureObserverFailed,
-            "timeout" => BrowserManagedOperationCancelReason.Timeout,
-            "worker-restarted" => BrowserManagedOperationCancelReason.WorkerRestarted,
-            _ => throw new ArgumentException("Unknown type-source cancellation reason.", nameof(reason)),
-        };
+        BrowserManagedOperationCancelReasons.Parse(reason);
 }

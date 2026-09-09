@@ -6,7 +6,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
 

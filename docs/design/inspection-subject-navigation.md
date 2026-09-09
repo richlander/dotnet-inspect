@@ -164,7 +164,7 @@ Inspection Subject Navigation owns:
 - same-occurrence and coordinate-variation reconciliation within one exact
   Workspace;
 - retained navigation-session authority; and
-- the subject-and-lens participant in canonical restoration.
+- subject-and-lens initialization in a fresh restored Workspace.
 
 The owner returns one internally consistent navigation snapshot. Interactive
 consumers render its descriptors and submit opaque commands from it. They do
@@ -219,14 +219,15 @@ The owner returns:
 ### Adjacent owners
 
 [Artifact acquisition and workspace
-composition](artifact-acquisition-and-workspaces.md) owns runtime Workspace
-identity, including the #5508 construction and close contract, isolation,
+composition](artifact-acquisition-and-workspaces.md) owns
+Workspace identity, including the #5508 construction and close contract,
+isolation,
 admitted artifacts and contexts, query authorization, and lifetime. [Workspace
 Scope and
 Expansion](workspace-scope-and-expansion.md) owns retained-coordinate
 membership and order, Workspace-bound occurrence construction, retention, and
 retirement, selective dependency expansion, revisions, and scope-operation
-results. Navigation consumes the runtime identity, complete ordered occurrence
+results. Navigation consumes the Workspace identity, complete ordered occurrence
 descriptors, the scope result's requested active/replacement occurrence, and
 typed correspondence without defining identity construction, equality, scope
 policy, replacement policy, or closure. Scope-operation production is the
@@ -333,10 +334,11 @@ The conceptual subject identity family is:
 
 Identity equality never uses display text, filename, list position, metadata
 token alone, portable package coordinate alone, browser cache key, or backend
-arrival order. Runtime Workspace and retained-coordinate occurrence identities
-are process-local and never serialized. Artifact Acquisition issues the runtime
-identity under #5508; Workspace Scope and Expansion constructs and retires the
-occurrence identity under that live runtime authority.
+arrival order. Workspace and retained-coordinate
+occurrence identities are process-local and never serialized. Artifact
+Acquisition issues the Workspace identity under #5508; Workspace Scope and
+Expansion constructs and retires the occurrence identity under that live
+Workspace authority.
 
 The current coordinate-rooted `StructuralSubjectIdentity` implementation is
 replaced in place rather than retained as a parallel identity family. Its
@@ -766,7 +768,8 @@ Standalone lens activation first requires the request's exact subject to equal
 the snapshot's active subject. A mismatch is `Rejected` with the complete
 request identity retained, before Registry resolution or fallback. It cannot
 change the active subject. Canonical restoration's separately validated atomic
-subject+lens pair remains governed by the restoration participant contract.
+subject+lens pair remains governed by the fresh Workspace initialization
+contract.
 
 After that precondition succeeds, exact lens activation maps the View Facet
 Registry result without fallback:
@@ -1046,12 +1049,14 @@ and variation under ordinary latest-admitted-intent supersession. Workspace
 scope-operation results are owned by Workspace Scope and Expansion; their
 protected Navigation consumption is #5584.
 
-## Canonical restoration participant
+## Fresh Workspace navigation initialization
 
-After packet decoding, Workspace and retained-coordinate realization, and
-portable identity resolution, the canonical-state owner supplies one exact
+After Definitions constructs a fresh unpublished Workspace and publishes its
+complete explicit Root membership, it supplies Navigation with that exact
 Workspace, zero or one exact retained occurrence context, and the optional
-exact active subject and navigation lens requested inside it.
+exact active subject and lens requested inside it. Every supplied identity was
+issued within the new Workspace, and Navigation validates only their internal
+consistency there.
 
 The retained occurrence context is independent from the active subject. It
 contains:
@@ -1081,21 +1086,33 @@ Root-only context permits initial recommendation inside that exact occurrence;
 no retained context selects Workspace. The lens identity's exact subject must
 equal the requested subject. A path/subject mismatch, subject-less lower path,
 internally inconsistent context, or subject/lens mismatch fails before Registry
-resolution and aborts preparation. Navigation then resolves its subject and
-lens halves and publishes one complete prepared snapshot only when both halves
-succeed. Any half-failure likewise aborts, and supersession prevents an older
-preparation from being published. The focused participant state machine is
+resolution and aborts initialization. Navigation then resolves its subject and
+lens halves and publishes one complete snapshot inside the new
+Workspace only when both halves succeed. Any half-failure closes the
+new Workspace through the Definitions coordinator, and supersession prevents
+an older attempt's Workspace from becoming active. The focused local state
+machine is
 [`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
-This owner does not install the prepared snapshot or coordinate other
-restoration participants. Complete Workspace restoration composition and
-atomic commit belong to [Workspace Definitions](workspace-definitions.md),
-whose current version-2 shape was established by #4787. That shape cannot yet
-represent an explicitly selected Workspace, distinguish Package from
-non-package Root, or carry an optional retained occurrence and descendant
-context independently from the active subject. #5525 owns that focused
-adoption. Section, body, source-target, and other portable state remain outside
-this owner.
+This owner does not install the new Workspace or coordinate its
+lifetime. Complete Workspace construction and result classification belong to
+[Workspace Definitions](workspace-definitions.md); the retained host owns the
+current-authority collection publication and active-identity selection.
+Navigation owns only the new Workspace's
+internally complete current snapshot.
+
+Selecting a loaded coordinate, Library, Type, or Member in Spotlight uses
+ordinary Navigation inside the active Workspace and never enters this
+construction path. Selecting an external package creates a fresh one-package
+Workspace; the full Workspace editor may create a Workspace with multiple
+explicit package Roots. In either case, subject focus remains independent from
+membership, and traversal-derived libraries do not become explicit Roots.
+
+The current version-2 shape cannot yet represent an explicitly selected
+Workspace, distinguish Package from non-package Root, or carry an optional
+retained occurrence and descendant context independently from the active
+subject. #5525 owns that focused adoption. Section, body, source-target, and
+other portable state remain outside this owner.
 
 ## Consumer contract
 
@@ -1135,7 +1152,7 @@ retaining a navigation session.
 | Model | Checked design properties |
 | --- | --- |
 | `NavigationSession.tla` | Latest admitted Navigation-local explicit intent wins; completed unavailable and failed revision behavior follows complete-snapshot change; Navigation preparation failure retains snapshot and revision with a distinct source and fresh retained authority; maintenance is request ordered; abort and acknowledgement preserve liveness; stale authority has no effect; consumer acknowledgement requires synchronization; abandoned lag can obtain the latest snapshot under fresh authority |
-| `AtomicRestoration.tla` | One exact requested subject+lens pair is prepared atomically; failed or superseded preparation is not published |
+| `AtomicRestoration.tla` | One exact requested subject+lens pair initializes atomically; failed or superseded initialization is not published |
 | `SnapshotAuthority.tla` | Retained state comes only from the installed snapshot; applied lens results equal the independently retained request; stale or foreign authority is rejected |
 
 The model README records the TLC commands and scope. Model checking validates
@@ -1303,7 +1320,7 @@ result identifies Navigation as the failure source.
 | Restoration omits active subject but supplies retained Library/Type/Member context | Preparation aborts before initial recommendation |
 | Workspace restoration retains Type in Library L2 | Type-inventory context is derived as L2; no independent Library context is decoded |
 | Package remains active with retained Type in Library L2 | Type-inventory context is derived as L2 before any root-only fallback |
-| Two Workspace-selected restorations share an occurrence but retain different Type contexts | Distinct prepared snapshots preserve the exact independently supplied descendant context |
+| Two Workspace-selected restorations retain different Type contexts | Distinct initialized snapshots preserve the exact independently supplied descendant context |
 | Retained Member disappears while Workspace is active | Retained context falls back to the containing Type while Workspace and its lens remain active |
 | Retained Member disappears while Package is active | Retained context falls back to the containing Type while Package and its lens remain active |
 | Package O1 with retained Type/Member context resolves exactly to replacement Package O2 | Correspondable retained descendants resolve under O2 before invalid descendants are discarded |
@@ -1336,7 +1353,7 @@ result identifies Navigation as the failure source.
 | Two lens requests complete out of order | Latest issued lens is final |
 | Refresh and reconciliation complete out of order | Maintenance request order determines final snapshot |
 | Coordinate acquisition fails | Prior snapshot retained; abort effect visible; maintenance eventually resumes |
-| Canonical subject plus non-default lens | One prepared snapshot returns the exact requested pair with no partial result |
+| Canonical subject plus non-default lens | One complete initialized snapshot returns the exact requested pair with no partial result |
 | Canonical subject plus lens bound to another subject | Preparation aborts before Registry resolution |
 | Applied result is abandoned before consumer install | Product retains the applied snapshot; consumer receipt remains behind |
 | Applied result is installed then abandoned before acknowledgement | Consumer-installed state advances, but the product-owned receipt and synchronization debt do not |

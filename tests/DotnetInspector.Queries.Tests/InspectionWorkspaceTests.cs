@@ -1,5 +1,5 @@
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using ILInspector.Metadata;
 using System.Collections.Immutable;
 using System.Reflection;

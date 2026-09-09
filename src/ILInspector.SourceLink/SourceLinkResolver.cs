@@ -89,7 +89,7 @@ public sealed class SourceLinkResolver
         return _exactTypesByDefinitionName!.TryGetValue(
             type,
             out PdbTypeDocumentInfo? match)
-                ? ResolveTypeSource(match, allowDocumentInference: false)
+                ? ResolveTypeSource(match)
                 : null;
     }
 
@@ -107,75 +107,68 @@ public sealed class SourceLinkResolver
             return null;
         }
 
-        return ResolveTypeSource(type, allowDocumentInference: true);
+        return ResolveTypeSource(type);
     }
 
     TypeSourceInfo? ResolveTypeSource(
-        PdbTypeDocumentInfo type,
-        bool allowDocumentInference)
+        PdbTypeDocumentInfo type)
     {
         string simpleName = type.TypeSimpleName;
-        Dictionary<string, PartialSourceFile> files =
-            new(
-                allowDocumentInference
-                    ? StringComparer.OrdinalIgnoreCase
-                    : StringComparer.Ordinal);
-
-        foreach (var documents in type.Documents.GroupBy(
-            static document => document.FilePath,
-            StringComparer.Ordinal))
+        if (type.Documents.Count > 0)
         {
-            var candidates = documents.Take(2).ToArray();
-            files.TryAdd(
-                documents.Key,
-                candidates.Length == 1
-                    ? Decorate(candidates[0])
-                    : Decorate(documents.Key));
-        }
+            Dictionary<string, PartialSourceFile> files =
+                new(StringComparer.Ordinal);
 
-        if (allowDocumentInference)
-        {
-            foreach (string path in FindDocumentsMatchingTypeName(simpleName))
-                files.TryAdd(path, Decorate(path));
-        }
+            foreach (var documents in type.Documents.GroupBy(
+                static document => document.FilePath,
+                StringComparer.Ordinal))
+            {
+                var candidates = documents.Take(2).ToArray();
+                files.TryAdd(
+                    documents.Key,
+                    candidates.Length == 1
+                        ? Decorate(candidates[0])
+                        : Decorate(documents.Key));
+            }
 
-        if (files.Count == 0)
-        {
-            if (!allowDocumentInference)
-                return null;
-
-            string? inferred = DocumentPaths
-                .FirstOrDefault(path => Path.GetFileNameWithoutExtension(path)
-                    .Equals(simpleName, StringComparison.OrdinalIgnoreCase));
-            if (inferred is null)
-                return null;
-
-            var file = Decorate(inferred);
+            PartialSourceFile correlatedPrimary =
+                SelectPrimarySourceFile(files.Values, simpleName);
             return new TypeSourceInfo(
-                file.FilePath,
-                file.SourceUrl,
+                correlatedPrimary.FilePath,
+                correlatedPrimary.SourceUrl,
                 LineNumber: null,
-                file.GitHubBrowseUrl,
-                SourceResolutionMethod.Inferred,
-                file.Checksum,
-                file.ChecksumAlgorithm);
+                correlatedPrimary.GitHubBrowseUrl,
+                SourceResolutionMethod.SourceLink,
+                Checksum: correlatedPrimary.Checksum,
+                ChecksumAlgorithm: correlatedPrimary.ChecksumAlgorithm)
+            {
+                AdditionalSourceFiles =
+                [
+                    .. files.Values
+                        .Where(file =>
+                            file.FilePath != correlatedPrimary.FilePath),
+                ],
+            };
         }
 
-        var primary = SelectPrimarySourceFile(files.Values, simpleName);
+        string[] inferredPaths =
+        [
+            .. FindDocumentsMatchingTypeName(simpleName)
+                .Distinct(StringComparer.Ordinal)
+                .Take(2),
+        ];
+        if (inferredPaths.Length != 1)
+            return null;
+
+        PartialSourceFile primary = Decorate(inferredPaths[0]);
         return new TypeSourceInfo(
             primary.FilePath,
             primary.SourceUrl,
             LineNumber: null,
             primary.GitHubBrowseUrl,
+            SourceResolutionMethod.Inferred,
             Checksum: primary.Checksum,
-            ChecksumAlgorithm: primary.ChecksumAlgorithm)
-        {
-            AdditionalSourceFiles =
-            [
-                .. files.Values
-                    .Where(file => file.FilePath != primary.FilePath),
-            ],
-        };
+            ChecksumAlgorithm: primary.ChecksumAlgorithm);
     }
 
     public MethodSourceInfo? ResolveMethodSource(
@@ -273,8 +266,17 @@ public sealed class SourceLinkResolver
         }
 
         return _docsByFirstSegment.TryGetValue(typeName, out var candidates)
-            ? candidates.Where(path => Path.GetFileName(path)
-                .EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            ? candidates.Where(path =>
+            {
+                string fileName = Path.GetFileName(path);
+                return fileName.EndsWith(
+                        ".cs",
+                        StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFileNameWithoutExtension(fileName)
+                        .Equals(
+                            typeName,
+                            StringComparison.OrdinalIgnoreCase);
+            })
             : [];
     }
 

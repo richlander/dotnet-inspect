@@ -30,9 +30,8 @@ function fixture() {
     memberSection: "overview", sourceRequestGeneration: 0,
     memberSource: null, memberSourceLoading: false, memberSourceError: "",
     memberSourceKey: "", typeSource: null, typeSourceLoading: false,
-    typeSourceError: "", typeSourceKey: "", graphSourceOpen: false,
-    graphSource: null, graphSourceLoading: false, graphSourceError: "",
-    graphSourceTitle: "", graphSourceRequest: null, graphSourceSeq: 0, taste: [],
+    typeSourceError: "", typeSourceKey: "",
+    graphSource: { status: "closed" }, taste: [],
   };
   const queries = new Map<OperationId, ReturnType<typeof deferred<BrowserTypeSourceResult>>>();
   const cancellations: Array<readonly [OperationId, OperationCancelReason]> = [];
@@ -208,11 +207,18 @@ test("legacy graph takeover preserves graph output and keyed type cancellation",
     selectorKey: "method", metadataToken: 42,
   }, "Example.Type.Build");
   assert.deepEqual(f.cancellations, [[type.id, "superseded"]]);
-  assert.equal(f.state.graphSource?.text, "graph");
+  assert.equal(
+    f.state.graphSource.status === "ready"
+      ? f.state.graphSource.source.text
+      : undefined,
+    "graph");
   type.query.reject(new Error("late type boundary failure"));
   await type.load;
-  assert.equal(f.state.graphSource?.text, "graph");
-  assert.equal(f.state.graphSourceError, "");
+  assert.equal(
+    f.state.graphSource.status === "ready"
+      ? f.state.graphSource.source.text
+      : undefined,
+    "graph");
   assert.equal(f.state.typeSource, null);
   assert.equal(f.diagnostics.length, 1);
   assert.equal(f.legacyCancellations(), 0);

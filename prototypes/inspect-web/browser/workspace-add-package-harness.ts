@@ -112,7 +112,9 @@ function render() {
     demos: [], demoError: "", loading: false, error: "", escapeHtml,
   });
   bindWorkspaceSubject(app, {
-    onSelect: () => {}, onActivate: () => {}, onDemo: () => {}, onRetry: () => {},
+    onSelect: () => {}, onActivateWorkspace: () => {},
+    onDeleteWorkspace: () => {}, onActivate: () => {},
+    onDemo: () => {}, onRetry: () => {},
     onAddPackage: () => spotlight.openForPackageAddition({
       pickResult: selectPackage,
       focusAfterDismiss: () => {

@@ -288,7 +288,7 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
     assert.match(html, /Source selection and order from the producer/);
     assert.equal((html.match(/Source selection and order from the producer/g)
       ?? []).length, 1);
-    assert.equal((html.match(/<article class="query-row">/g) ?? []).length, 2);
+    assert.equal((html.match(/<article class="query-row"/g) ?? []).length, 2);
     assert.equal((html.match(/<ul class="query-evidence">/g) ?? []).length, 1);
     if (totalDownloads === null) {
       assert.match(html, /Lifetime downloads unavailable/);
@@ -298,6 +298,40 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
       assert.doesNotMatch(html, /Lifetime downloads unavailable/);
     }
   }
+});
+
+test("a large outcome mounts only the scrolled row window while retaining total accounting", () => {
+  const rows = Array.from(
+    { length: 100 },
+    (_, index) => row(`Package.${index.toString().padStart(3, "0")}`));
+  const html = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("Package.*"),
+      outcome: appendRows(emptyOutcome(), rows),
+    },
+    viewport: {
+      scrollTop: 50 * 180,
+      clientHeight: 800,
+      surfaceTop: 0,
+      rowExtent: 180,
+      anchorRowIndex: null,
+      anchorOffsetTop: null,
+    },
+    availableFacets: [],
+    escapeHtml,
+  });
+
+  assert.equal((html.match(/<article/g) ?? []).length, 30);
+  assert.match(html, /<h2>Package\.045<\/h2>/);
+  assert.match(html, /<h2>Package\.074<\/h2>/);
+  assert.doesNotMatch(html, /<h2>Package\.044<\/h2>/);
+  assert.doesNotMatch(html, /<h2>Package\.075<\/h2>/);
+  assert.match(html, /aria-label="Packages 46 through 75 of 100"/);
+  assert.match(html, /aria-posinset="46"/);
+  assert.match(html, /aria-setsize="100"/);
+  assert.match(html, /100 packages · streaming…/);
+  assert.match(html, /style="height:8100\.00px"/);
+  assert.match(html, /style="height:4500\.00px"/);
 });
 
 test("query context renders once while package summaries remain on their cards", () => {
@@ -350,7 +384,7 @@ test("query context renders once while package summaries remain on their cards",
   assert.equal((html.match(/Selected by producer ranking\./g) ?? []).length, 1);
   assert.match(
     html,
-    /<section class="query-context"[\s\S]*Selected by producer ranking\.[\s\S]*<div class="query-list">/);
+    /<section class="query-context"[\s\S]*Selected by producer ranking\.[\s\S]*<div class="query-list"/);
   assert.equal((html.match(/4 dependencies: A, B, C \(\+1 more\)\./g)
     ?? []).length, 1);
   assert.equal((html.match(/2 skill documents:/g) ?? []).length, 1);
@@ -1113,13 +1147,7 @@ test("query scroll position survives streamed full renders", () => {
 });
 
 test("a vanished query control reports prefix fallback", () => {
-  const cases = [
-    new FakeElement({
-      queryRowOpen: "Vanished.Package",
-      queryRowVersion: "1.0.0",
-    }),
-    new FakeElement({}, "package-query-prerelease"),
-  ];
+  const cases = [new FakeElement({}, "package-query-prerelease")];
 
   for (const active of cases) {
     const prefix = new FakeElement({}, "package-query-prefix");
@@ -1135,6 +1163,44 @@ test("a vanished query control reports prefix fallback", () => {
     assert.equal(restoration, "fallback");
     assert.equal(prefix.focusCount, 1);
   }
+});
+
+test("a virtualized query row keeps results focus across later renders", () => {
+  const active = new FakeElement({
+    queryRowOpen: "Vanished.Package",
+    queryRowVersion: "1.0.0",
+  });
+  const firstResults = new FakeElement({}, "package-query-results");
+  const firstRoot = new FakeRoot(active);
+  firstRoot.add("#package-query-results", firstResults);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const firstDocument = firstRoot as unknown as Document;
+
+  const rowSnapshot = capturePackageQueryFocus(firstDocument);
+  const rowRestoration = restorePackageQueryFocus(firstDocument, rowSnapshot);
+
+  assert.equal(rowRestoration, "fallback");
+  assert.equal(firstResults.focusCount, 1);
+
+  const nextResults = new FakeElement({}, "package-query-results");
+  const prefix = new FakeElement({}, "package-query-prefix");
+  const nextRoot = new FakeRoot(firstResults);
+  nextRoot.add("#package-query-results", nextResults);
+  nextRoot.add("#package-query-prefix", prefix);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const nextDocument = nextRoot as unknown as Document;
+
+  const resultsSnapshot = capturePackageQueryFocus(nextDocument);
+  const resultsRestoration = restorePackageQueryFocus(
+    nextDocument,
+    resultsSnapshot);
+
+  assert.deepEqual(resultsSnapshot, { kind: "results" });
+  assert.equal(resultsRestoration, "restored");
+  assert.equal(nextResults.focusCount, 1);
+  assert.equal(prefix.focusCount, 0);
 });
 
 test("a CSS-hidden query control reports prefix fallback", () => {
@@ -1206,6 +1272,7 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
     onFacetToggle: key => calls.push(`facet:${key}`),
     onPrefixInput: () => {},
     onResultPressure: () => calls.push("pressure"),
+    onResultViewportChange: () => calls.push("viewport"),
     onRowOpen: (id, version) => calls.push(`open:${id}:${version}`),
     onRun: () => {},
     onSourceChange: () => {},
@@ -1257,6 +1324,7 @@ test("bindPackageQueryView clears corrected assembly input and preserves the ope
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
+    onResultViewportChange: () => {},
     onRowOpen: () => {},
     onRun: () => {},
     onSourceChange: () => {},
@@ -1304,6 +1372,7 @@ test("assembly row binding forwards the exact opaque Root request", () => {
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
+    onResultViewportChange: () => {},
     onRowOpen: (...args) => calls.push(args),
     onRun: () => {},
     onSourceChange: () => {},
@@ -1333,6 +1402,7 @@ test("prerelease changes forward the selection and current unmodified package te
     onFacetToggle: () => assert.fail("source controls are not inspection facets"),
     onPrefixInput: () => {},
     onResultPressure: () => {},
+    onResultViewportChange: () => {},
     onRowOpen: () => {},
     onRun: () => assert.fail("source changes use their own action"),
     onSourceChange: (selection, searchText) => calls.push({ selection, searchText }),
@@ -1374,6 +1444,7 @@ test("query form submits package text without a Gallery action", () => {
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
+    onResultViewportChange: () => {},
     onRowOpen: () => {},
     onRun: text => calls.push(text),
     onSourceChange: () => assert.fail("source controls are absent"),
@@ -1412,12 +1483,14 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
   main.scrollHeight = 1800;
   root.add(".query-main", main);
   let pressure = 0;
+  let viewportChanges = 0;
   const binding = bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => { pressure++; },
+    onResultViewportChange: () => { viewportChanges++; },
     onRowOpen: () => {},
     onRun: () => {},
     onSourceChange: () => {},
@@ -1426,10 +1499,12 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
   main.scrollTop = 401;
   main.dispatch("scroll");
   assert.equal(pressure, 1);
+  assert.equal(viewportChanges, 1);
 
   binding.disconnect();
   main.dispatch("scroll");
   assert.equal(pressure, 1);
+  assert.equal(viewportChanges, 1);
 });
 
 test("patchPackageQueryStream updates only dynamic query regions", () => {
@@ -1460,6 +1535,7 @@ test("patchPackageQueryStream updates only dynamic query regions", () => {
       onFacetToggle: () => {},
       onPrefixInput: () => {},
       onResultPressure: () => { pressure++; },
+      onResultViewportChange: () => {},
       onRowOpen: () => {},
       onRun: () => {},
       onSourceChange: () => {},

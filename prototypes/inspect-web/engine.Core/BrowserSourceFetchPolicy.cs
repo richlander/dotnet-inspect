@@ -20,8 +20,6 @@ internal sealed class BrowserSourceFetchPolicy : ISourceFetchPolicy
 
     public static BrowserSourceFetchPolicy Instance { get; } = new();
 
-    public bool FinalResponseUriIsReliable => true;
-
     public bool IsRequestAllowed(Uri requestUri)
     {
         ArgumentNullException.ThrowIfNull(requestUri);
@@ -39,7 +37,7 @@ internal sealed class BrowserSourceFetchPolicy : ISourceFetchPolicy
             StringComparer.Ordinal)
         {
             ["credentials"] = "omit",
-            ["redirect"] = "error",
+            ["redirect"] = "follow",
         };
         request.Options.Set(BrowserFetchOptions, options);
     }

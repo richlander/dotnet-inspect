@@ -36,11 +36,12 @@ public sealed class VocabularyCommandTests
         VocabularySection index =
             VocabularyCatalog.GetById("vocabulary.sections");
         Assert.Equal(
-            VocabularyCatalog.Document.Sections.Select(section => section.Id),
+            VocabularyCatalog.Document.Sections.Skip(1).Select(section => section.Id),
             index.Values.Select(ValueId));
         Assert.Equal(
-            VocabularyCatalog.Document.Sections.Length,
-            index.Values[0].GetRequired("values").Integer);
+            VocabularyCatalog.Document.Sections.Length - 1,
+            index.Values.Length);
+        Assert.DoesNotContain(index.Fields, field => field.Id == "categories");
 
         VocabularySection accessibility =
             VocabularyCatalog.GetById("api.accessibility");
@@ -85,12 +86,17 @@ public sealed class VocabularyCommandTests
         Assert.Empty(result.Error);
         Assert.Contains("# Vocabulary", result.Output);
         Assert.Contains("## Vocabulary Sections", result.Output);
-        Assert.Contains("csharp.style-choices", result.Output);
+        Assert.Contains("| Section | Summary | Values |", result.Output);
+        Assert.Contains("| C# Style Choices |", result.Output);
+        Assert.DoesNotContain("| ID |", result.Output);
+        Assert.DoesNotContain("Categories", result.Output);
+        Assert.DoesNotContain("Accepted By", result.Output);
+        Assert.DoesNotContain("| Vocabulary Sections |", result.Output);
         Assert.DoesNotContain("## C# Style Choices", result.Output);
     }
 
     [Fact]
-    public async Task Command_DiscoveryListsSectionsAndCategories()
+    public async Task Command_DiscoveryListsOnlySections()
     {
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
@@ -101,8 +107,23 @@ public sealed class VocabularyCommandTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Contains("| Accessibility | section |", result.Output);
-        Assert.Contains("| @Decompiler | category |", result.Output);
-        Assert.Contains("| @Vocabulary | category |", result.Output);
+        Assert.DoesNotContain("| category |", result.Output);
+    }
+
+    [Fact]
+    public async Task Command_CategorySelectorIsNoLongerAccepted()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = ["@Decompiler"],
+            })));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Select value '@Decompiler' not found.",
+            result.Error);
     }
 
     [Fact]
@@ -118,9 +139,11 @@ public sealed class VocabularyCommandTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(2, document.RootElement.GetProperty("schema_version").GetInt32());
         JsonElement section = Assert.Single(
             document.RootElement.GetProperty("sections").EnumerateArray());
         Assert.Equal("api.accessibility", section.GetProperty("id").GetString());
+        Assert.False(section.TryGetProperty("categories", out _));
         JsonElement values = section.GetProperty("values");
         Assert.Equal(4, values.GetArrayLength());
         Assert.True(values[0].GetProperty("default").GetBoolean());
@@ -192,12 +215,12 @@ public sealed class VocabularyCommandTests
     }
 
     [Fact]
-    public async Task Command_CategoryCountRendersPerSectionMap()
+    public async Task Command_GlobCountRendersPerSectionMap()
     {
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = ["@Decompiler"],
+                Select = ["C#*"],
                 Count = true,
             })));
         VocabularySection tiers = VocabularyCatalog.GetById("csharp.style-tiers");
@@ -253,7 +276,7 @@ public sealed class VocabularyCommandTests
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [SelectResolver.AllSelector],
+                Select = ["*"],
                 Count = true,
             })));
 
@@ -353,7 +376,7 @@ public sealed class VocabularyCommandTests
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = ["@Decompiler"],
+                Select = ["C#*"],
                 Count = true,
                 Format = OutputFormat.PlainText,
                 PlainText = true,
@@ -400,7 +423,7 @@ public sealed class VocabularyCommandTests
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = ["@Decompiler"],
+                Select = ["C#*"],
                 Count = true,
                 Format = OutputFormat.Json,
                 JsonOutput = true,

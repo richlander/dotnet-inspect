@@ -1,4 +1,4 @@
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 
 namespace ILInspector.Metadata;
 

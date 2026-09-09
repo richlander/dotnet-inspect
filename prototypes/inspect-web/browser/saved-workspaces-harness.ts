@@ -78,7 +78,9 @@ function render(focus?: SavedWorkspaceFocus) {
     },
   });
   bindWorkspaceSubject(app, {
-    onSelect: () => {}, onActivate: () => {}, onDemo: () => {}, onRetry: () => {},
+    onSelect: () => {}, onActivateWorkspace: () => {},
+    onDeleteWorkspace: () => {}, onActivate: () => {},
+    onDemo: () => {}, onRetry: () => {},
     onRemove: key => removal.removeLoaded(key),
   });
   bindSavedWorkspaces(app, saves);
