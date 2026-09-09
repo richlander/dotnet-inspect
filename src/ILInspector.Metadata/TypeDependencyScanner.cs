@@ -121,7 +121,7 @@ public static class TypeDependencyScanner
         IReadOnlyList<string> assemblyPaths)
     {
         var typeIndex = new Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)>(
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         var peReaders = new List<PEReader>();
         var rejections = new List<TypeDependencyRejection>();
         var admittedAny = false;
@@ -168,7 +168,7 @@ public static class TypeDependencyScanner
                         // wrong rather than merely incomplete.
                         var staged =
                             new Dictionary<string, (PEReader, MetadataReader, TypeDefinition)>(
-                                StringComparer.OrdinalIgnoreCase);
+                                StringComparer.Ordinal);
                         foreach (var typeDefHandle in mdReader.TypeDefinitions)
                         {
                             var typeDef = mdReader.GetTypeDefinition(typeDefHandle);
@@ -312,16 +312,21 @@ public static class TypeDependencyScanner
 
             // Find the target type
             var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
-            var matchKey = typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalizedTarget));
+            // User lookup stays fuzzy, but exact casing selects the exact CLR
+            // identity when metadata contains case-distinct type names.
+            string? matchKey = typeIndex.ContainsKey(normalizedTarget)
+                ? normalizedTarget
+                : typeIndex.Keys.FirstOrDefault(k =>
+                    TypeMatcher.Matches(k, normalizedTarget));
             if (matchKey == null)
                 return new TypeDependencyResult(null, []) { Rejections = rejections };
 
             var match = typeIndex[matchKey];
-            var treeSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var treeSeen = new HashSet<string>(StringComparer.Ordinal);
             var relationshipSeen =
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                new HashSet<string>(StringComparer.Ordinal);
             var activeDefinitions =
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                new HashSet<string>(StringComparer.Ordinal)
                 {
                     matchKey,
                 };
@@ -446,14 +451,14 @@ public static class TypeDependencyScanner
             return [];
 
         // Compute transitive closure for each dep to find which are redundant
-        var transitivelyReachable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var transitivelyReachable = new HashSet<string>(StringComparer.Ordinal);
         foreach (var dep in allDeps)
         {
             CollectTransitive(
                 dep.Name,
                 typeIndex,
                 transitivelyReachable,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                new HashSet<string>(StringComparer.Ordinal));
         }
 
         // A dep is "direct" if it's not transitively reachable through another dep

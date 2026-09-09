@@ -335,7 +335,7 @@ internal static class DependencyGraphProjection
             identity switch
             {
                 DependencyGraphNodeIdentity.Type type =>
-                    "type\0" + type.Name.ToUpperInvariant(),
+                    "type\0" + type.Name,
                 DependencyGraphNodeIdentity.Library library =>
                     LibraryKey(library.Identity),
                 DependencyGraphNodeIdentity.Package package =>

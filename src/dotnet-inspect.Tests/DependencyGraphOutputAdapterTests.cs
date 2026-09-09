@@ -6,6 +6,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
 using InertText;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -253,6 +254,52 @@ public sealed class DependencyGraphOutputAdapterTests
             DependencyGraphNodeIdentity.Package>(
                 root.Identity);
         Assert.Equal("1.0.0", identity.Version);
+    }
+
+    [Fact]
+    public void TypeProjection_PreservesCaseDistinctSemanticNodes()
+    {
+        var result = new TypeDependencyResult(
+            "IdentityFixture.CaseRoot",
+            [])
+        {
+            Relationships =
+            [
+                new(
+                    "IdentityFixture.CaseRoot",
+                    "IdentityFixture.IFoo",
+                    TypeDependencyRelationshipKind.Interface,
+                    0),
+                new(
+                    "IdentityFixture.CaseRoot",
+                    "IdentityFixture.Ifoo",
+                    TypeDependencyRelationshipKind.Interface,
+                    1),
+            ],
+        };
+
+        DependencyGraphDocument document =
+            DependencyGraphProjection.Type(result);
+
+        Assert.Equal(3, document.Nodes.Length);
+        Assert.Equal(2, document.Edges.Length);
+        Assert.NotEqual(
+            document.Edges[0].TargetNodeId,
+            document.Edges[1].TargetNodeId);
+        Assert.Contains(
+            document.Nodes,
+            static node =>
+                node.Identity is DependencyGraphNodeIdentity.Type
+                {
+                    Name: "IdentityFixture.IFoo",
+                });
+        Assert.Contains(
+            document.Nodes,
+            static node =>
+                node.Identity is DependencyGraphNodeIdentity.Type
+                {
+                    Name: "IdentityFixture.Ifoo",
+                });
     }
 
     [Fact]

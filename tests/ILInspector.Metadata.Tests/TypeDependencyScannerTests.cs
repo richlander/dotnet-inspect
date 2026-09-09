@@ -110,7 +110,7 @@ public class TypeDependencyScannerTests
 
         // Each expanded name should appear exactly once
         var duplicates = expandedNames
-            .GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(n => n, StringComparer.Ordinal)
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
             .ToList();
@@ -161,6 +161,90 @@ public class TypeDependencyScannerTests
                     StringComparison.Ordinal)
                 && relationship.TargetTypeName.EndsWith(
                     "TypeDependencyGenericBase<string>",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Relationships_PreserveCaseDistinctTypeIdentities()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                typeof(TypeDependencyCaseRoot).FullName!,
+                [typeof(TypeDependencyCaseRoot).Assembly.Location]);
+
+        Assert.Equal(4, result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyCaseBranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyCaseLeaf",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyCasebranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyCaseleaf",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExactLookup_PrefersCaseDistinctSemanticIdentity()
+    {
+        string target = typeof(TypeDependencyCasebranch).FullName!;
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                target,
+                [typeof(TypeDependencyCasebranch).Assembly.Location]);
+
+        Assert.Equal(target, result.MatchedType);
+        TypeDependencyRelationship relationship =
+            Assert.Single(result.Relationships);
+        Assert.EndsWith(
+            "TypeDependencyCaseleaf",
+            relationship.TargetTypeName,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Relationships_ExpandCaseDistinctConstructedGenericTypes()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                typeof(TypeDependencyCaseGenericRoot).FullName!,
+                [typeof(TypeDependencyCaseGenericRoot).Assembly.Location]);
+
+        Assert.Equal(6, result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCaseValue>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCaseValue>",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCasevalue>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCasevalue>",
                     StringComparison.Ordinal));
     }
 
