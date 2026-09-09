@@ -94,7 +94,7 @@
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
-    <ProjectReference Include="..\DotnetInspector.CSharpBodySlicer\DotnetInspector.CSharpBodySlicer.csproj" />
+    <ProjectReference Include="..\CSharpText.MemberSlicing\CSharpText.MemberSlicing.csproj" />
     <ProjectReference Include="..\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
