@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-This document defines the `ILInspector.Findings`-owned
+This document defines the `Inspector.Findings`-owned
 `ComparisonDocument<T>` composition format for
 [#5499](https://github.com/richlander/dotnet-inspect/issues/5499), implemented
 in [#5550](https://github.com/richlander/dotnet-inspect/issues/5550).
@@ -22,7 +22,7 @@ The normative claim is:
 > basis, while moving exceptional rename and move coordinates into a complete
 > referenced description population.
 
-`ILInspector.Findings` owns:
+`Inspector.Findings` owns:
 
 - the root and child-subject composition;
 - portable primary-identifier and display separation;
@@ -1036,6 +1036,11 @@ data values; no consumer must parse `display` or the human mockup's punctuation.
 
 This mockup uses
 `ComparisonDocument<StructuralCloneComparisonDocument>`.
+It describes one explicitly selected reference method and its candidate
+subjects. A multi-seed Workspace search instead uses the
+[Clone Candidates document](clone-candidate-presentation.md), because forcing
+one global pair ranking into this one-root topology would invent a privileged
+reference method or split the ranking.
 
 ```text
 Root
@@ -1187,8 +1192,10 @@ prerequisites must prove:
 - a clone payload adopter does not assume Before/After text semantics and
   preserves root-to-LeftToken and subject-to-RightToken orientation across
   same-type and distinct-type same-module fixtures;
-- cross-assembly clone retrieval preserves root/candidate module identities
-  until the clone owner supplies a portable cross-module payload; and
+- cross-assembly clone retrieval remains outside this one-root checked
+  comparison envelope; `CloneCandidateDocument` preserves retrieval endpoint
+  identities without presenting
+  `StructuralCloneComparisonDocument` as a cross-module checked payload; and
 - each producer's identifier portability, assertions, payload completeness,
   subject-coordinate-basis application, transformation classification, and
   presentation.

@@ -108,6 +108,12 @@ public sealed record Parameter(
             ArrayElementIsDynamic);
 }
 
+/// <summary>Imported generic-parameter flags and exact constraint types in their declaring context.</summary>
+public sealed record GenericParameterConstraintInfo(
+    int Index,
+    System.Reflection.GenericParameterAttributes Attributes,
+    ImmutableArray<TypeRef> Types);
+
 /// <summary>A method signature with symbolic types throughout.</summary>
 public sealed record MethodSignature(
     TypeRef ReturnType,
@@ -122,6 +128,7 @@ public sealed record MethodSignature(
     /// unqualified call to that member would bind to the type parameter (CS0119).
     /// </summary>
     public ImmutableArray<string> GenericParameterNames { get; init; } = [];
+    public ImmutableArray<GenericParameterConstraintInfo> GenericParameters { get; init; } = [];
 }
 
 /// <summary>
@@ -144,4 +151,5 @@ public sealed record ImportedMethod(
     internal RequiresUnsafeContractResult RequiresUnsafeContract
         { get; init; }
     internal bool IsMetadataBacked { get; init; }
+    internal ImmutableArray<GenericParameterConstraintInfo> DeclaringTypeParameters { get; init; } = [];
 }

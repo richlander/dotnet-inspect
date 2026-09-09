@@ -49,6 +49,19 @@ public static class MemberCommand
             return 1;
         }
 
+        if (MemberShareProjection.ValidateOptions(options) is { } shareOptionError)
+        {
+            CommandError.Write(shareOptionError);
+            return 1;
+        }
+        if (options.ShareFormat is not null
+            && !options.RouterDeferredTypeOrMember
+            && !HasExactMemberSelector(options))
+        {
+            MemberShareProjection.WriteExactSelectorRequired();
+            return 1;
+        }
+
         bool mayResolveImpliedMember =
             options.MemberFilter.Count == 0
             && options.TypeName is { } unresolvedTarget
@@ -334,6 +347,13 @@ public static class MemberCommand
                 };
             }
 
+            if (options.ShareFormat is not null
+                && !HasExactMemberSelector(options))
+            {
+                MemberShareProjection.WriteExactSelectorRequired();
+                return 1;
+            }
+
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
             {
@@ -378,6 +398,7 @@ public static class MemberCommand
             // A Name~digest selector resolves its own overload below, so skip auto-select
             // here to avoid a spurious "digest cannot be combined with --index" conflict.
             bool autoSelectedOverload = false;
+            int? exactCloneMethodToken = null;
             if (!effectiveOptions.OverloadIndex.HasValue
                 && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
                 && ShouldAutoSelectSingleOverload(
@@ -480,10 +501,21 @@ public static class MemberCommand
                 var target = memberResolution.Target!;
                 var selected = target.ApiMember.Member;
                 bool explicitAccessorSelector =
-                    target.Kind is MemberTargetKind.Property or MemberTargetKind.Event
+                    !autoSelectedOverload
+                    && target.Kind is MemberTargetKind.Property or MemberTargetKind.Event
                     && target.OverloadIndex.HasValue
                     && (target.DigestPrefix is not null
                         || memberResolution.Candidates.Count == 1);
+                if (explicitAccessorSelector)
+                {
+                    if (target.Body?.MetadataToken is not { } methodToken)
+                    {
+                        CommandError.Write(
+                            $"Member selector '{target.NormalizedSelector}' has no exact accessor method identity.");
+                        return 1;
+                    }
+                    exactCloneMethodToken = methodToken;
+                }
                 if (effectiveOptions.BodyKindQuery.HasFilter
                     && BodyAccessorCount(selected) > 1
                     && !explicitAccessorSelector)
@@ -498,6 +530,16 @@ public static class MemberCommand
                     DllPath = detailDllPath,
                     OverloadIndex = target.Body?.DeclaringOverloadIndex ?? target.DeclaringOverloadIndex
                 };
+
+                if (effectiveOptions.ShareFormat is { } shareFormat)
+                {
+                    return MemberShareProjection.Write(
+                        source,
+                        loaded,
+                        apiType,
+                        selected,
+                        shareFormat);
+                }
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -554,6 +596,63 @@ public static class MemberCommand
                 }
 
                 apiType.Members = arityCandidates;
+            }
+
+            if (!CloneCandidatesCommand.ValidatePredicateSelection(
+                    effectiveOptions.CloneCandidateQuery,
+                    effectiveOptions.IncludeSections))
+            {
+                return 1;
+            }
+
+            if (CloneCandidatesCommand.IsSelected(
+                    effectiveOptions.IncludeSections))
+            {
+                if (apiType.Members.Count != 1)
+                {
+                    CommandError.Write(
+                        $"Section '{SectionNames.CloneCandidates}' requires one exact logical member.");
+                    return 1;
+                }
+                string? clonePath =
+                    apiType.SourceAssemblyPath
+                    ?? sourceAssembly?.Path
+                    ?? runtimeAssemblyPath
+                    ?? apiDllPath;
+                if (clonePath is null)
+                {
+                    CommandError.Write(
+                        $"Member '{apiType.Members[0].Name}' has no resolved assembly path for Clone Candidates.");
+                    return 1;
+                }
+                if (!CloneCandidatesCommand.TryCreateMemberSeed(
+                        clonePath,
+                        apiType,
+                        apiType.Members[0],
+                        exactCloneMethodToken,
+                        out StructuralCloneSearchSeed.Member? seed,
+                        out string? seedError))
+                {
+                    CommandError.Write(seedError!);
+                    return 1;
+                }
+                ResolvedAssemblyReference cloneAssembly =
+                    sourceAssembly
+                    ?? ResolvedAssemblyReference.CreateFromPath(
+                        clonePath,
+                        AssemblyResolutionProvenance.Local(
+                            "member Clone Candidates"));
+                return await CloneCandidatesCommand.ExecuteAsync(
+                    cloneAssembly,
+                    clonePath,
+                    seed!,
+                    effectiveOptions.CloneCandidateQuery,
+                    CloneCandidateOutputOptions.From(effectiveOptions),
+                    new CloneCandidateWorkspaceOptions(
+                        source.PackageExtractPath,
+                        effectiveOptions.ProjectAssetsPath,
+                        effectiveOptions.Tfm,
+                        effectiveOptions.SourceOptions));
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -685,7 +784,7 @@ public static class MemberCommand
                         FileSystemPdbStore.CreateDefault(),
                         new SourcePolicyPackageSourceAuthorization(
                             effectiveOptions.SourceOptions),
-                        new SourceFetcher(
+                        new SourceFetch(
                             DotnetInspector.Core.HttpClientFactory
                                 .SharedUntrustedFetch))
                     {
@@ -1218,6 +1317,7 @@ public static class MemberCommand
         SectionNames.BodyShapeSummary,
         SectionNames.TopLeverage,
         SectionNames.PerformanceTriage,
+        SectionNames.CloneCandidates,
         SectionNames.Facts,
         SectionNames.IL,
     ];
@@ -1314,6 +1414,10 @@ public static class MemberCommand
                 : "Exact-member section selection requires exactly one member name.");
         return true;
     }
+
+    private static bool HasExactMemberSelector(MemberOptions options) =>
+        options.OverloadIndex.HasValue
+        || !string.IsNullOrWhiteSpace(options.MemberDigest);
 
     private static bool HasPotentialImpliedMember(string target)
     {

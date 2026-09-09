@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <!-- The parse-validity gate compiles each slice to prove it is syntactically
+         valid C#. Roslyn is a test-only oracle; the product stays Roslyn-free. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="ILInspector.SourceLink" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
+    <!-- The corpus gate drives PdbContext end to end over real assemblies. -->
+    <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
+    <!-- Fixture assemblies land in the test output directory, which is what
+         SliceCorpus() scans. They are corpus inputs, not references in code;
+         LastMemberOfAType_ExtractsThroughItsOwnClosingBraceOnly names a member
+         of DiffAsmFixtures.Target directly. -->
+    <ProjectReference Include="../../fixtures/diff/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
+    <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
+  </ItemGroup>
+
+</Project>

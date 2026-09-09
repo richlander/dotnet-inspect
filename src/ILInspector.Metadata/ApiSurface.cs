@@ -4,7 +4,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Text.Json.Serialization;
 using CSharpText;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Metadata;
 
@@ -670,6 +670,20 @@ public class ApiParameter
         : $"{Modifier} {EffectiveCanonicalType}";
 }
 
+[Flags]
+[JsonConverter(typeof(JsonStringEnumConverter<ApiMethodSemanticsKind>))]
+public enum ApiMethodSemanticsKind
+{
+    None = 0,
+    PropertyGetter = 1 << 0,
+    PropertySetter = 1 << 1,
+    PropertyOther = 1 << 2,
+    EventAdder = 1 << 3,
+    EventRemover = 1 << 4,
+    EventRaiser = 1 << 5,
+    EventOther = 1 << 6,
+}
+
 public class ApiAccessor
 {
     public string Kind { get; set; } = "";
@@ -1003,6 +1017,15 @@ public class ApiMember
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";  // method, property, field, event, constructor, operator, explicit-interface-implementation, extension-method
     public List<string> Attributes { get; set; } = [];
+
+    /// <summary>
+    /// The property or event MethodSemantics role for this MethodDef.
+    /// <see cref="ApiMethodSemanticsKind.None"/> is a positive full-extraction
+    /// result; null means the relationship was not retained or could not be
+    /// trusted.
+    /// </summary>
+    [JsonIgnore]
+    public ApiMethodSemanticsKind? MethodSemantics { get; set; }
 
     /// <summary>Raw field-layout observation; null means unavailable or not a field.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

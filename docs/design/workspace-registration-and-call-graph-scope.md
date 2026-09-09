@@ -75,7 +75,7 @@ The version-1 registration vocabulary is a closed typed union:
 
 ```text
 WorkspaceRegistration
-  = ExactLibrary(owner-issued source-native library coordinate)
+  = ExactLibrary(source-owner-issued library coordinate)
   | PackagePrefix(owner-issued validated package-prefix declaration)
   | Ecosystem(owner-issued Workspace ecosystem declaration)
 ```
@@ -86,17 +86,17 @@ or an acquired package.
 
 The ecosystem arm is not `DotnetInspector.Ecosystems.EcosystemPackId`.
 Ecosystem Packs is an application catalog above Queries and browser Core, so
-its type cannot flow into reusable Workspace state. A focused prerequisite
-must define a lower-layer-consumable ecosystem-registration declaration and a
-catalog projection from one selected pack onto that declaration. Scope retains
-the projected declaration without referencing or rediscovering the application
-catalog.
+its type cannot flow into reusable Workspace state. The
+[Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
+defines the lower-layer-consumable declaration and explicit catalog projection
+from one selected pack. Scope retains the projected declaration without
+referencing or rediscovering the application catalog.
 
 ### Exact library
 
-An exact-library registration names one source-native library coordinate. It
-may identify a platform or package-origin library without converting either
-into the other's identity model.
+An exact-library registration names one source-owner-issued library
+coordinate. It may identify a platform or package-origin library without
+converting either into the other's identity model.
 
 A Package may contribute one or more admitted libraries, but Package
 membership and exact-library registration remain distinct. Opening or
@@ -241,11 +241,12 @@ because this mode is broad.
 Focal length selects relevance scope. It does not define call edges, binding,
 resolution, package discovery, or physical acquisition.
 
-The call-graph consumer uses the owner-issued assembly-reference resolution
-ladder tracked by #6228. Exact in-context binding, applicable platform
-resolution, and package-derived resolution retain their own typed outcomes.
-The graph never manufactures a package coordinate from an assembly name,
-namespace, ecosystem hint, or display label.
+The call-graph consumer uses the owner-issued
+[Assembly Reference Resolution Ladder](assembly-reference-resolution-ladder.md)
+tracked by #6288. Exact in-context binding, applicable platform resolution,
+and package-derived resolution retain their own typed outcomes. The graph
+never manufactures a package coordinate from an assembly name, namespace,
+ecosystem hint, or display label.
 
 Every request has finite depth, node, candidate, byte, and acquisition-work
 bounds appropriate to its host. Retiring the permission gate makes the
@@ -347,7 +348,8 @@ and per-operation bounds keep that broader model explicit.
 | --- | --- |
 | [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Committed Package membership, registration revision, complete snapshots, and scope-operation results |
 | [Static Ecosystem Packs](ecosystem-packs.md) | Ecosystem identity, product default manifest, static contributions, and projection onto a lower registration declaration; not reusable Workspace state or call-graph scope |
-| Source and resolution owners | Exact library, package-prefix, platform, and package-derived candidate outcomes |
+| [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md) | Lower ecosystem declaration, explicit pack correspondence, projection outcomes, and product-default validation |
+| [Platform Library Population Declaration](platform-library-population-declaration.md) and other source owners | Platform relevance values, exact-library and package-prefix declarations, and later source-specific candidate outcomes |
 | [Inspection Graph Modes](inspection-graph-modes.md) | Single-seed versus induced-set request meaning, focus roles, endpoint admission, and disconnected-input retention |
 | [Call Graph projection](call-graph-projection.md) and Queries | Focal-length request, participant population, call traversal or induction, bounds, completeness, and typed graph result |
 | [Workspace Definitions](workspace-definitions.md) | Portable registrations, opt-outs, and view-intent projection |
@@ -361,9 +363,10 @@ There are nine counted production-adoption stages, tracked by #6012:
 2. Land the owner-issued assembly-reference resolution ladder and finite
    per-operation acquisition-budget contract tracked by #6228.
 3. Define the lower-layer ecosystem-registration declaration and Ecosystem
-   Packs projection, then extend catalog and source owners with the exact typed
-   contributions and one product default manifest for Platform, ASP.NET Core,
-   Microsoft.Extensions, exact libraries, and package prefixes.
+   Packs projection under #6307, then extend catalog and source owners with the
+   exact typed platform, exact-library, and package-prefix contributions and
+   one product default manifest for Platform, ASP.NET Core, and
+   Microsoft.Extensions.
 4. Revise Workspace Scope from expansion permission to inert registration,
    including the shared three-ecosystem fresh-construction default.
 5. Add the three typed focal lengths to the host-neutral call-graph request and
@@ -410,8 +413,8 @@ restoration. The design remains unverified until those focused adoptions land.
 
 This design does not define:
 
-- simultaneous live Workspaces, Workspace switching, tabs, or cross-Workspace
-  operations;
+- simultaneous active-Workspace composition, host collection presentation, or
+  cross-Workspace queries;
 - a security boundary based on registrations;
 - an eager import or continuously maintained package-prefix population;
 - a global NuGet, SDK, or filesystem crawl;

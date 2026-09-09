@@ -23,7 +23,9 @@ internal sealed record ApiSourceResult(
     string? TypeName,
     IReadOnlyList<string>? PackageReplaySourceUrls,
     bool PackageReplayUsesOriginalSources,
-    CommandContext Context);
+    CommandContext Context,
+    ConfiguredPackageAuthority? PackageAuthority = null,
+    string? PackageProducerKey = null);
 
 internal static class ApiSourceResolver
 {
@@ -47,6 +49,8 @@ internal static class ApiSourceResolver
         IReadOnlyList<string>? packageReplaySourceUrls = null;
         string? packageReplaySourcePackageName = null;
         bool packageReplayUsesOriginalSources = false;
+        ConfiguredPackageAuthority? packageAuthority = null;
+        string? packageProducerKey = null;
         var typeName = options.TypeName;
         var packagePath = options.PackagePath;
 
@@ -138,6 +142,8 @@ internal static class ApiSourceResolver
                 return (null!, 1);
             }
             var extracted = outcome.Result!;
+            packageAuthority = extracted.Authority;
+            packageProducerKey = extracted.ProducerKey;
             if (extracted.SelectedVersionSourceUrls is not null)
             {
                 packageReplaySourceUrls =
@@ -403,6 +409,7 @@ internal static class ApiSourceResolver
 
         return (new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion, packagePath,
             packageExtractPath, apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath,
-            tempDir, typeName, packageReplaySourceUrls, packageReplayUsesOriginalSources, context), null);
+            tempDir, typeName, packageReplaySourceUrls, packageReplayUsesOriginalSources, context,
+            packageAuthority, packageProducerKey), null);
     }
 }

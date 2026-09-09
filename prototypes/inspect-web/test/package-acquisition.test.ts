@@ -99,6 +99,7 @@ function memberSurface(): BrowserMemberSurface {
     stableSelector: "Value",
     anchorDigest: "value",
     canonicalSignature: "int Example.Widget.Value",
+    anchorTypeFullName: "Example.Widget",
     graphSelectorKey: "Value",
     bodySelectors: [{
       token: 0x06000001,
@@ -157,12 +158,12 @@ function generatedPackageSurfaceRejectsMutation(
 }
 void generatedPackageSurfaceRejectsMutation;
 
-test("root-only package surfaces preserve typed unavailability at the UI boundary", () => {
-  assert.throws(
-    () => createNuGetPackageModel(packageSurface({
+test("root-only package surfaces remain inspectable without inventing a Library", () => {
+  for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
+    const model = createNuGetPackageModel(packageSurface({
       defaultAssemblyId: null,
       compileLibrary: {
-        status: "NoCompileAssets",
+        status,
         targetFramework: null,
         message: null,
       },
@@ -170,9 +171,25 @@ test("root-only package surfaces preserve typed unavailability at the UI boundar
       types: [],
       accessibility: [],
       totalMembers: 0,
-    })),
-    /NoCompileAssets/,
-  );
+    }));
+    assert.equal(model.id, "Example.Package");
+    assert.equal(model.assemblyId, "");
+    assert.deepEqual(model.assemblies, []);
+    assert.match(model.inspectionError ?? "", new RegExp(status));
+  }
+});
+
+test("failed compile-library selection remains a visible acquisition failure", () => {
+  for (const status of ["NoMatchingTargetFramework", "InvalidImplementationAssets"] as const) {
+    assert.throws(
+      () => createNuGetPackageModel(packageSurface({
+        defaultAssemblyId: null,
+        compileLibrary: { status, targetFramework: null, message: null },
+        assemblies: [],
+        types: [],
+      })),
+      new RegExp(status));
+  }
 });
 
 test("NuGet package models retain the product-issued icon descriptor", () => {
@@ -331,6 +348,97 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+test("query results open through the exact opaque Root request", async () => {
+  const rootRequest = "owner-issued-root-request";
+  const opened: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackage: async () => {
+      assert.fail("Exact Root opening must not use display coordinates.");
+    },
+    queryPackageRoot: async request => {
+      opened.push(request);
+      return packageSurface({ activeFramework: "net9.0" });
+    },
+  }));
+
+  const result = await acquisition.loadPackage({
+    packageId: "Display.Only",
+    version: "0.0.0",
+    framework: "",
+    rootRequest,
+  });
+
+  assert.deepEqual(opened, [rootRequest]);
+  assert.equal(result?.id, "Example.Package");
+  assert.equal(result?.version, "1.2.3");
+  assert.equal(result?.activeFramework, "net9.0");
+});
+
+test("missing exact Root capability never falls back to coordinate opening", async () => {
+  let coordinateCalls = 0;
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackage: async () => {
+      coordinateCalls++;
+      return packageSurface();
+    },
+  }));
+
+  await assert.rejects(acquisition.loadPackage({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "",
+    rootRequest: "owner-issued-root-request",
+  }), /Exact package Root opening is unavailable/);
+  assert.equal(coordinateCalls, 0);
+});
+
+test("exact Root opening failure remains visible without coordinate retry", async () => {
+  const failure = new Error("The recorded package producer is not authorized.");
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackage: async () => {
+      assert.fail("A rejected Root must not be retried with display coordinates.");
+    },
+    queryPackageRoot: async () => {
+      throw failure;
+    },
+  }));
+
+  await assert.rejects(acquisition.loadPackage({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "",
+    rootRequest: "owner-issued-root-request",
+  }), error => error === failure);
+});
+
+test("stale exact Root responses do not publish after navigation changes", async () => {
+  const response = deferred<BrowserPackageSurface>();
+  const events: string[] = [];
+  let current = true;
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackage: async () => {
+      assert.fail("Exact Root opening must not use display coordinates.");
+    },
+    queryPackageRoot: async () => response.promise,
+    retainPackage: () => events.push("retain"),
+    recordRecentPackage: () => events.push("recent"),
+    refreshPackageStats: () => events.push("stats"),
+  }));
+
+  const request = acquisition.loadPackage({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "",
+    rootRequest: "owner-issued-root-request",
+    isCurrent: () => current,
+  });
+  current = false;
+  response.resolve(packageSurface());
+
+  assert.equal(await request, null);
+  assert.deepEqual(events, []);
+});
 
 test("NuGet projection selects the declared assembly and preserves package totals", () => {
   const secondary = assembly("secondary", "Example.Secondary", 4);

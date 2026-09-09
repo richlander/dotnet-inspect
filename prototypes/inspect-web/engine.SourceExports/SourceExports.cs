@@ -306,7 +306,7 @@ public static partial class SourceExports
             BrowserPackageWorkspace.NetworkClient,
             new InMemoryPdbStore(maxRetainedBytes: 24 * MiB),
             BrowserPackageWorkspace.PackageSourceAuthorization,
-            new SourceFetcher(
+            new SourceFetch(
                 BrowserPackageWorkspace.NetworkClient,
                 sourceStore,
                 BrowserSourceFetchPolicy.Instance))
@@ -421,12 +421,12 @@ public static partial class SourceExports
         + $"{participant.Coordinate.Version} {participant.Asset.Path}";
 
     static string? PdbSourceLimitation(
-        ILInspector.Findings.FindingInspection<string> inspection) =>
+        Inspector.Findings.FindingInspection<string> inspection) =>
         inspection.Value switch
         {
-            ILInspector.Findings.FindingInspection<string>.Absent absent =>
+            Inspector.Findings.FindingInspection<string>.Absent absent =>
                 absent.Detail,
-            ILInspector.Findings.FindingInspection<string>.Failed failed =>
+            Inspector.Findings.FindingInspection<string>.Failed failed =>
                 failed.Error.Reason,
             _ => null,
         };

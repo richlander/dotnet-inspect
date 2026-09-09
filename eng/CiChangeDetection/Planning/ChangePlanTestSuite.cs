@@ -95,7 +95,7 @@ internal static class ChangePlanTestSuite
                 "code"),
             ("tests/ILInspector.MetadataPrimitives.PlatformProbe/P.cs",
                 "code,web"),
-            ("tests/DotnetInspector.Artifacts.Local.PlatformProbe/P.cs",
+            ("tests/Inspector.Artifacts.Local.PlatformProbe/P.cs",
                 "code,web"),
             ("fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/F.ts",
                 "code,web"),
@@ -145,14 +145,23 @@ internal static class ChangePlanTestSuite
             ("eng/test-runtime-flavor.sh", "code"),
             ("eng/run-method-semantics-platform-probe.sh", "code,web"),
             ("eng/run-local-path-admission-platform-probe.sh", "code,web"),
-            ("eng/test-ts-jsexport-typescript.sh", "web"),
-            ("eng/generate-inspect-web-multi-facade-canary.sh", "web"),
-            ("eng/test-inspect-web-multi-facade-canary.sh", "web"),
-            ("eng/generate-inspect-web-managed-operation-bridge-canary.sh", "web"),
-            ("eng/test-inspect-web-managed-operation-bridge-canary.sh", "web"),
+            ("eng/test-ts-jsexport-typescript.sh",
+                "web,web-comprehensive"),
+            ("eng/generate-inspect-web-multi-facade-canary.sh",
+                "web,web-comprehensive"),
+            ("eng/test-inspect-web-multi-facade-canary.sh",
+                "web,web-comprehensive"),
+            ("eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+                "web,web-comprehensive"),
+            ("eng/test-inspect-web-managed-operation-bridge-canary.sh",
+                "web,web-comprehensive"),
+            ("eng/test-inspect-web-package-adoption-gate.sh", "web"),
+            ("eng/test-inspect-web-published-application.sh", "web"),
+            ("eng/test-inspect-web-source-comparison-gate.sh", "web"),
             ("eng/validate-inspect-web-promotion.cs", "web"),
             ("eng/validate-inspect-web-promotion.sh", "web"),
-            ("eng/generate-inspect-web-engine-facade.sh", "web"),
+            ("eng/generate-inspect-web-engine-facade.sh",
+                "web,web-comprehensive"),
             ("eng/InspectWebAsyncLoweringReceipt.targets",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,web"),
             ("eng/verify-inspect-web-async-deployment.sh", "web"),
@@ -183,7 +192,9 @@ internal static class ChangePlanTestSuite
             ("global.json", "decompiler,packaging,shipped"),
             (".github/workflows/ci.yml",
                 "code,csharpdiff,decompiler,ildiff,packaging,shipped,web,"
-                + "skills,tla"),
+                + "web-comprehensive,skills,tla"),
+            (".github/workflows/deep-inspect.yml",
+                "code,web,web-comprehensive"),
             (".github/workflows/release.yml",
                 "code,packaging"),
             (".github/workflows/deploy-inspect-web.yml",
@@ -221,6 +232,30 @@ internal static class ChangePlanTestSuite
                 throw new InvalidOperationException(
                     $"Routing canary {path} selected [{rendered}], "
                     + $"expected [{selected}].");
+            }
+        }
+
+        foreach (string path in new[]
+        {
+            "src/ts-jsexport/Program.cs",
+            "src/ILInspector.JsExportSurface/JsExportSurface.cs",
+            "src/ILInspector.TypeScriptGeneration/TypeScriptGeneration.cs",
+            "prototypes/inspect-web/multi-facade-canary/Alpha/Exports.cs",
+            "prototypes/inspect-web/managed-operation-bridge-canary/Bridge/Exports.cs",
+            "prototypes/inspect-web/scripts/verify-multi-facade-canary.ts",
+            "prototypes/inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
+            "prototypes/inspect-web/engine/InspectWebJsExportContext.cs",
+            "prototypes/inspect-web/engine.Core/BrowserManagedOperationBridge.cs",
+            "prototypes/inspect-web/engine.Core/BrowserManagedSharedProducer.cs",
+            "prototypes/inspect-web/engine.Core/BrowserManagedEpochWorkReporter.cs",
+            "prototypes/inspect-web/engine.Core/BrowserManagedEpochWorkRegistration.cs",
+        })
+        {
+            RoutingSelections actual = policy.Route(Evidence(path));
+            if (!actual.Web || !actual.WebComprehensive)
+            {
+                throw new InvalidOperationException(
+                    $"{path} did not select comprehensive inspect-web validation.");
             }
         }
 
@@ -348,6 +383,7 @@ internal static class ChangePlanTestSuite
                 && selections.Pack
                 && selections.BuildNet10
                 && selections.InspectWeb
+                && selections.InspectWebComprehensive
                 && selections.SkillGate
                 && selections.Tla))
             {
@@ -374,10 +410,39 @@ internal static class ChangePlanTestSuite
                 "A push selected a pre-merge validation.");
         }
 
-        if (!pushed.Markdownlint || !pushed.InspectWeb || !pushed.Tla)
+        if (!pushed.Markdownlint
+            || !pushed.InspectWeb
+            || pushed.InspectWebComprehensive
+            || !pushed.Tla)
         {
             throw new InvalidOperationException(
                 "A push dropped an ungated validation.");
+        }
+
+        RoutingSelections directOwner = policy.Route(Evidence(
+            "prototypes/inspect-web/scripts/verify-managed-operation-bridge-canary.ts"));
+        foreach (PlanEventKind kind in new[]
+        {
+            PlanEventKind.PullRequestSyntheticCandidate,
+            PlanEventKind.MergeGroup,
+        })
+        {
+            ValidationSelections directPreMerge =
+                ValidationSelections.FromRouting(directOwner, kind);
+            if (!directPreMerge.InspectWeb
+                || !directPreMerge.InspectWebComprehensive)
+            {
+                throw new InvalidOperationException(
+                    $"Direct inspect-web owner change lost comprehensive {kind} validation.");
+            }
+        }
+
+        ValidationSelections directPush =
+            ValidationSelections.FromRouting(directOwner, PlanEventKind.Push);
+        if (!directPush.InspectWeb || directPush.InspectWebComprehensive)
+        {
+            throw new InvalidOperationException(
+                "Direct inspect-web owner push did not retain only the fast backstop.");
         }
 
         // A neighbouring documentation-only candidate selects documentation
@@ -450,6 +515,7 @@ internal static class ChangePlanTestSuite
                 pack: false,
                 buildNet10: false,
                 inspectWeb: false,
+                inspectWebComprehensive: false,
                 skillGate: false,
                 tla: false));
     }
@@ -549,7 +615,7 @@ internal static class ChangePlanTestSuite
             policy);
 
         const string Golden =
-            "{\"schemaVersion\":4,\"status\":\"planned\",\"provenance\":"
+            "{\"schemaVersion\":5,\"status\":\"planned\",\"provenance\":"
             + "{\"kind\":\"pullRequestSyntheticCandidate\",\"baseObjectId\":"
             + "\"1111111111111111111111111111111111111111\","
             + "\"candidateObjectId\":"
@@ -562,7 +628,8 @@ internal static class ChangePlanTestSuite
             + "\"csharpDiffSmoke\":false,\"decompilerGates\":false,"
             + "\"markdownlint\":true,\"ilDiffSmoke\":false,"
             + "\"ilRoundTrip\":false,\"pack\":false,\"buildNet10\":false,"
-            + "\"inspectWeb\":false,\"skillGate\":false,\"tla\":true},"
+            + "\"inspectWeb\":false,\"inspectWebComprehensive\":false,"
+            + "\"skillGate\":false,\"tla\":true},"
             + "\"scopes\":{\"tla\":{\"artifact\":\"ci-plan-tla-paths0\","
             + "\"framing\":\"pathBytesNulTerminated\",\"recordCount\":1,"
             + "\"sha256\":\"c2965478b65cc2a4d5329c0634d39a072c6d0adf0669a2"
@@ -658,12 +725,12 @@ internal static class ChangePlanTestSuite
                     "\"status\": \"planned\"")),
             ("non-canonical property order",
                 text.Replace(
-                    "{\"schemaVersion\":4,\"status\":\"planned\"",
-                    "{\"status\":\"planned\",\"schemaVersion\":4")),
+                    "{\"schemaVersion\":5,\"status\":\"planned\"",
+                    "{\"status\":\"planned\",\"schemaVersion\":5")),
             ("escaped member name",
                 text.Replace("schemaVersion", "schema\\u0056ersion")),
             ("non-canonical number",
-                text.Replace("\"schemaVersion\":4", "\"schemaVersion\":4e0")),
+                text.Replace("\"schemaVersion\":5", "\"schemaVersion\":5e0")),
             ("control character", $"\n{text}"),
             ("truncated document", text[..^1]),
             ("unknown member",
@@ -671,13 +738,13 @@ internal static class ChangePlanTestSuite
             ("missing member", text.Replace(",\"diagnostics\":[]", "")),
             ("duplicate member",
                 text.Replace(
-                    "\"schemaVersion\":4",
-                    "\"schemaVersion\":4,\"schemaVersion\":4")),
+                    "\"schemaVersion\":5",
+                    "\"schemaVersion\":5,\"schemaVersion\":5")),
             ("mistyped boolean", text.Replace("\"test\":false", "\"test\":0")),
             ("mistyped count",
                 text.Replace("\"recordCount\":1", "\"recordCount\":\"1\"")),
             ("unsupported version",
-                text.Replace("\"schemaVersion\":4", "\"schemaVersion\":5")),
+                text.Replace("\"schemaVersion\":5", "\"schemaVersion\":6")),
             ("unsupported status",
                 text.Replace("\"planned\"", "\"refused\"")),
             ("invalid digest",
@@ -688,6 +755,10 @@ internal static class ChangePlanTestSuite
                 text.Replace(BaseObjectId, new string('0', 40))),
             ("broken invariant",
                 text.Replace("\"ilRoundTrip\":false", "\"ilRoundTrip\":true")),
+            ("broken inspect-web invariant",
+                text.Replace(
+                    "\"inspectWebComprehensive\":false",
+                    "\"inspectWebComprehensive\":true")),
             ("unsupported diagnostic",
                 text.Replace("\"diagnostics\":[]", "\"diagnostics\":[\"x\"]")),
             ("malformed descriptor",
@@ -1473,6 +1544,11 @@ internal static class ChangePlanTestSuite
         if (selections.Web)
         {
             selected.Add("web");
+        }
+
+        if (selections.WebComprehensive)
+        {
+            selected.Add("web-comprehensive");
         }
 
         if (selections.Skills)

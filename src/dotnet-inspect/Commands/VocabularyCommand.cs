@@ -9,16 +9,21 @@ namespace DotnetInspector.Commands;
 public static class VocabularyCommand
 {
     public const string Name = "vocabulary";
+    private static readonly IReadOnlyDictionary<string, string[]> NoCategories =
+        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+    private static readonly string[] DefaultIndexColumns = ["Section", "Summary", "Values"];
 
     public static int Execute(VocabularyOptions options)
     {
         VocabularyDocument document = VocabularyCatalog.Document;
         string[] sectionNames = [.. document.Sections.Select(section => section.Name)];
-        IReadOnlyDictionary<string, string[]> categoryMap = CreateCategoryMap(document);
         DocumentSchema schema = CreateSchema(document);
         string[]? projectedColumns = ResolveProjectedColumns(options);
         string[]? discover = NormalizeSectionIds(options.Discover, document);
         string[]? select = NormalizeSectionIds(options.Select, document);
+        bool defaultSelection = options.Select is null && !options.SelectDefault;
+        string[]? renderedColumns = projectedColumns
+            ?? (defaultSelection && !options.JsonOutput ? DefaultIndexColumns : null);
 
         if (options.Schema && options.Discover is null)
         {
@@ -37,7 +42,6 @@ public static class VocabularyCommand
                 tsv: options.Tsv,
                 jsonl: options.Jsonl,
                 markdown: !options.Tabular && !options.JsonOutput && !options.PlainText,
-                sectionCategories: categoryMap,
                 plainText: options.PlainText);
         }
 
@@ -45,7 +49,7 @@ public static class VocabularyCommand
             select,
             sectionNames,
             infoSections: [VocabularyCatalog.SectionsSection],
-            categoryMap,
+            NoCategories,
             selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selection))
             return 1;
@@ -67,11 +71,11 @@ public static class VocabularyCommand
         {
             return 1;
         }
-        VocabularySection[] renderedSections = projectedColumns is { Length: > 0 }
+        VocabularySection[] renderedSections = renderedColumns is { Length: > 0 }
             ?
             [
                 .. sections.Where(section =>
-                    schema.ValidateProjection(section.Name, projectedColumns)
+                    schema.ValidateProjection(section.Name, renderedColumns)
                         .Resolved.Length > 0),
             ]
             : sections;
@@ -159,7 +163,7 @@ public static class VocabularyCommand
                 showHeader: !options.NoHeader,
                 options.Tsv,
                 options.Jsonl,
-                projectedColumns,
+                renderedColumns,
                 fields: null,
                 (writer, formatter, writerOptions) =>
                 {
@@ -172,7 +176,7 @@ public static class VocabularyCommand
         }
 
         var markdownOptions = OutputFormatter.CreateProjectedWriterOptions(
-            projectedColumns,
+            renderedColumns,
             fields: null,
             options.Rows);
         var markdown = new MarkoutWriter(
@@ -229,31 +233,6 @@ public static class VocabularyCommand
                 [.. section.Fields.Select(field => field.Label)]);
         }
         return schema;
-    }
-
-    private static IReadOnlyDictionary<string, string[]> CreateCategoryMap(
-        VocabularyDocument document)
-    {
-        var categories = new Dictionary<string, List<string>>(
-            StringComparer.OrdinalIgnoreCase);
-        foreach (VocabularySection section in document.Sections)
-        {
-            foreach (string category in section.Categories)
-            {
-                if (!categories.TryGetValue(category, out List<string>? members))
-                {
-                    members = [];
-                    categories.Add(category, members);
-                }
-                members.Add(section.Name);
-            }
-        }
-        categories[SelectResolver.AllSelector] =
-            [.. document.Sections.Select(section => section.Name)];
-        return categories.ToDictionary(
-            pair => pair.Key,
-            pair => pair.Value.ToArray(),
-            StringComparer.OrdinalIgnoreCase);
     }
 
     private static string[]? NormalizeSectionIds(

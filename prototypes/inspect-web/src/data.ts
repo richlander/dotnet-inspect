@@ -1430,7 +1430,7 @@ export interface SourceWorkbenchState {
   error?: string;
   home?: boolean;
   package?: unknown;
-  graphSourceOpen?: boolean;
+  graphSource?: GraphSourceStatusCarrier;
   atPackageRoot?: boolean;
   atLibraryRoot?: boolean;
   lens?: TypeLens;
@@ -1450,6 +1450,27 @@ function sourceWorkbenchIsVisible(state: SourceWorkbenchState): boolean {
   return true;
 }
 
+export interface GraphSourceStatusCarrier {
+  readonly status: "closed" | "loading" | "ready" | "failed" | "cancelled";
+}
+
+export function graphSourceStatusIsOpen(
+  state: GraphSourceStatusCarrier | null | undefined,
+): boolean {
+  if (state === null || state === undefined) return false;
+  switch (state.status) {
+    case "closed":
+      return false;
+    case "loading":
+    case "ready":
+    case "failed":
+    case "cancelled":
+      return true;
+    default:
+      return assertNever(state.status, "graph source status");
+  }
+}
+
 export type SourceOperationKind = "graph" | "type" | "member" | null;
 
 export function activeSourceOperationKind(
@@ -1457,7 +1478,7 @@ export function activeSourceOperationKind(
   memberSourceHasConcreteOverload = true,
 ): SourceOperationKind {
   if (!sourceWorkbenchIsVisible(state)) return null;
-  if (state.graphSourceOpen) return "graph";
+  if (graphSourceStatusIsOpen(state.graphSource)) return "graph";
   if (state.atPackageRoot || state.atLibraryRoot) return null;
   if (state.lens === "source") return "type";
   if (state.lens === "api"
@@ -1491,12 +1512,13 @@ export function sourceReloadKind(
   if (!sourceWorkbenchIsVisible(state)
     || state.atPackageRoot
     || state.atLibraryRoot
-    || state.graphSourceOpen) {
+    || graphSourceStatusIsOpen(state.graphSource)) {
     return null;
   }
   if (state.lens === "api"
     && state.selectedMemberKey
-    && state.memberSection === "annotated"
+    && (state.memberSection === "annotated"
+      || state.memberSection === "facts")
     && memberSourceHasConcreteOverload) {
     return "annotated";
   }
@@ -1520,9 +1542,6 @@ export interface SourceRequestState {
   typeSourceLoading?: boolean;
   typeSourceKey?: string;
   typeSourceError?: string;
-  graphSourceLoading?: boolean;
-  graphSourceError?: string;
-  graphSourceSeq?: number;
 }
 
 export function beginSourceRequestState(state: SourceRequestState): number {
@@ -1533,8 +1552,7 @@ export function beginSourceRequestState(state: SourceRequestState): number {
 
 export function cancelSourceRequestState(state: SourceRequestState): boolean {
   if (!state.memberSourceLoading
-    && !state.typeSourceLoading
-    && !state.graphSourceLoading) {
+    && !state.typeSourceLoading) {
     return false;
   }
   state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
@@ -1552,11 +1570,6 @@ function clearInFlightSourceState(state: SourceRequestState): void {
     state.typeSourceLoading = false;
     state.typeSourceKey = "";
     state.typeSourceError = "";
-  }
-  if (state.graphSourceLoading) {
-    state.graphSourceLoading = false;
-    state.graphSourceError = "";
-    state.graphSourceSeq = (state.graphSourceSeq ?? 0) + 1;
   }
 }
 

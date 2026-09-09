@@ -22,9 +22,24 @@ public class DemoCommandTests
     {
         return await ConsoleCapture.RunAsync(async () =>
         {
-            args = CommandLineBuilder.PreprocessArgs(args);
             var root = CommandLineBuilder.CreateRootCommand();
-            return await root.Parse(args).InvokeAsync();
+            args = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeAsync(
+                root.Parse(args),
+                args);
+        });
+    }
+
+    private static async Task<(int ExitCode, string Output, string Error)> RunCliWithLineWindowAsync(
+        params string[] args)
+    {
+        return await ConsoleCapture.RunAsync(async () =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            args = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                root.Parse(args),
+                args);
         });
     }
 
@@ -291,6 +306,342 @@ public class DemoCommandTests
         Assert.Contains(
             document.RootElement.EnumerateArray(),
             element => element.GetProperty("id").GetString() == "stj-serializer");
+    }
+
+    [Theory]
+    [InlineData("list")]
+    [InlineData(null)]
+    public async Task Cli_DemoList_LimitSelectsCompleteJsonRow(
+        string? subcommand)
+    {
+        string[] args =
+            subcommand is null
+                ? ["demo", "-n", "1", "--json"]
+                : ["demo", subcommand, "-n", "1", "--json"];
+        var (exitCode, output, error) =
+            await RunCliAsync(args);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            ProductDemos[0].ScenarioId,
+            row.GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_ParentBoundLimitSelectsCompleteJsonRow()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                "-n",
+                "1",
+                "list",
+                "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            ProductDemos[0].ScenarioId,
+            row.GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_BareShorthandSelectsCompleteJsonRow()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                "list",
+                "-1",
+                "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            ProductDemos[0].ScenarioId,
+            row.GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Cli_DemoBareList_OverflowShorthandUsesCountDiagnostic()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                "-2147483648",
+                "--json");
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Equal(
+            "Error: -n requires a positive whole number.",
+            error.Trim());
+    }
+
+    [Theory]
+    [InlineData("LIST", "-n", "1", "--json")]
+    [InlineData("-n", "1", "--json", "--", "list")]
+    public async Task Cli_DemoListAliasesUseSemanticRows(
+        params string[] arguments)
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(["demo", .. arguments]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            ProductDemos[0].ScenarioId,
+            row.GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_TailSelectsLastCompleteJsonRow()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                "list",
+                "-n",
+                "1",
+                "--tail",
+                "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            ProductDemos[^1].ScenarioId,
+            row.GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_WindowComposesBeforeJsonRendering()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                "list",
+                "-n",
+                "2",
+                "--rows",
+                "2..3",
+                "--json");
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Equal(
+            "Error: Demo row selection stage 2 requires row 3, but only "
+                + "2 demo rows are available.",
+            error.Trim());
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_WindowThenLimitPreservesArgumentOrder()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                "list",
+                "--rows",
+                "2..3",
+                "-n",
+                "1",
+                "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            ProductDemos[1].ScenarioId,
+            row.GetProperty("id").GetString());
+    }
+
+    [Theory]
+    [InlineData(
+        "Error: -n requires a positive whole number.",
+        "-n",
+        "0",
+        "-n",
+        "1")]
+    [InlineData(
+        "Error: --rows requires N..M, N.., or ..M with positive positions.",
+        "--rows",
+        "invalid",
+        "-n",
+        "bad")]
+    public async Task Cli_DemoList_RepeatedValuesPreserveFailureOrder(
+        string expectedError,
+        params string[] rowArguments)
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                [
+                    "demo",
+                    "list",
+                    .. rowArguments,
+                    "--json",
+                ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Equal(expectedError, error.Trim());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("--plaintext")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task Cli_DemoList_LimitSelectsSameMarkoutRow(
+        string formatOption)
+    {
+        string[] args =
+            string.IsNullOrEmpty(formatOption)
+                ? ["demo", "list", "-n", "1"]
+                : ["demo", "list", "-n", "1", formatOption];
+        var (exitCode, output, error) =
+            await RunCliAsync(args);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            ProductDemos[0].ScenarioId,
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            ProductDemos[1].ScenarioId,
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_LinesClipsRenderedOutput()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                "list",
+                "-n",
+                "2",
+                "--lines");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal(
+            "# Home demos\n\n",
+            output.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_LinesRejectsJson()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                "list",
+                "-n",
+                "2",
+                "--lines",
+                "--json");
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Equal(
+            "Error: --lines and --tail-lines cannot be combined with JSON "
+                + "output; use semantic -n to select complete JSON rows.",
+            error.Trim());
+    }
+
+    [Fact]
+    public void DemoScenarioDoesNotAdoptSemanticRows()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var parseResult =
+            root.Parse(
+                [
+                    "demo",
+                    ProductDemoIds.StjSerializer,
+                    "-n",
+                    "1",
+                ]);
+
+        Assert.False(
+            CliRowSelectionCommandRegistry.TryGetActiveAdoption(
+                parseResult,
+                out _));
+    }
+
+    [Fact]
+    public async Task Cli_DemoScenario_ShorthandBeforeScenarioRetainsLineLimit()
+    {
+        var (exitCode, output, error) =
+            await RunCliWithLineWindowAsync(
+                "demo",
+                "-1",
+                ProductDemoIds.StjSerializer);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                ['\r', '\n'],
+                StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Theory]
+    [InlineData("bad")]
+    [InlineData("2147483648")]
+    public async Task Cli_DemoScenario_InvalidLimitRetainsIntegerDiagnostic(
+        string value)
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                ProductDemoIds.StjSerializer,
+                "-n",
+                value);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: Cannot parse value '{value}' for option '-n' as an integer.",
+            error.Trim());
+    }
+
+    [Fact]
+    public async Task Cli_DemoScenarioRejectsListOnlyRowOptions()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                ProductDemoIds.StjSerializer,
+                "--rows",
+                "1..1");
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "available only when listing demos",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

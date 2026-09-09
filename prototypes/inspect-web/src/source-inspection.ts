@@ -1,6 +1,8 @@
 import {
+  assertNever,
   beginSourceRequestState,
   cancelSourceRequestState,
+  graphSourceStatusIsOpen,
   sourceRequestNeedsLoad,
   sourceSurfaceIsVisible,
   type SourceRequestState,
@@ -46,6 +48,65 @@ export interface GraphSourceRequest extends SourceCoordinates {
   metadataToken: number;
 }
 
+interface GraphSourceTarget {
+  readonly request: GraphSourceRequest;
+  readonly title: string;
+}
+
+export type GraphSourceState =
+  | { readonly status: "closed" }
+  | ({ readonly status: "loading" } & GraphSourceTarget)
+  | ({
+      readonly status: "ready";
+      readonly source: BrowserSource;
+    } & GraphSourceTarget)
+  | ({
+      readonly status: "failed";
+      readonly error: string;
+    } & GraphSourceTarget)
+  | ({ readonly status: "cancelled" } & GraphSourceTarget);
+
+export type OpenGraphSourceState =
+  Exclude<GraphSourceState, { readonly status: "closed" }>;
+
+export function graphSourceIsOpen(
+  state: GraphSourceState,
+): state is OpenGraphSourceState {
+  return graphSourceStatusIsOpen(state);
+}
+
+export function graphSourceRequest(
+  state: GraphSourceState,
+): GraphSourceTarget | null {
+  switch (state.status) {
+    case "closed":
+      return null;
+    case "loading":
+    case "ready":
+    case "failed":
+    case "cancelled":
+      return { request: state.request, title: state.title };
+    default:
+      return assertNever(state, "graph source state");
+  }
+}
+
+export function graphSourceAutoLoadRequest(
+  state: GraphSourceState,
+): GraphSourceTarget | null {
+  switch (state.status) {
+    case "cancelled":
+      return { request: state.request, title: state.title };
+    case "closed":
+    case "loading":
+    case "ready":
+    case "failed":
+      return null;
+    default:
+      return assertNever(state, "graph source state");
+  }
+}
+
 export interface MemberSourceLoadRequest extends MemberSourceQuery {
   signature: string;
   isCurrent(): boolean;
@@ -67,16 +128,7 @@ export interface SourceInspectionState
   typeSourceLoading: boolean;
   typeSourceError: string;
   typeSourceKey: string;
-  graphSourceOpen: boolean;
-  graphSource: BrowserSource | null;
-  graphSourceLoading: boolean;
-  graphSourceError: string;
-  graphSourceTitle: string;
-  graphSourceRequest: {
-    request: GraphSourceRequest;
-    title: string;
-  } | null;
-  graphSourceSeq: number;
+  graphSource: GraphSourceState;
   taste: string[];
 }
 
@@ -91,7 +143,7 @@ export interface SourceInspectionDependencies {
   queryGraphSource(
     request: GraphSourceRequest,
     taste: string,
-  ): Promise<BrowserSource>;
+  ): Promise<BrowserSource | null>;
   memberSourceHasConcreteOverload(): boolean;
   cancelEngineSourceRequest(): void;
   cancelTypeSourceRequest(
@@ -139,6 +191,22 @@ export function createSourceInspectionCoordinator(
     never
   >;
 
+  const cancelGraphSourceRequest = (): boolean => {
+    const current = state.graphSource;
+    if (current.status !== "loading") return false;
+    state.graphSource = {
+      status: "cancelled",
+      request: current.request,
+      title: current.title,
+    };
+    return true;
+  };
+  const beginSourceRequest = (): number => {
+    const generation = beginSourceRequestState(state);
+    cancelGraphSourceRequest();
+    return generation;
+  };
+
   const typeSourceOperations =
     new Map<OperationId, TypeSourceOperationContext>();
   const typeSourceContext = (
@@ -154,7 +222,7 @@ export function createSourceInspectionCoordinator(
       case "started":
       case "replaced": {
         const context = typeSourceContext(event.operation.id);
-        beginSourceRequestState(state);
+        beginSourceRequest();
         state.typeSourceKey = context.request.signature;
         state.typeSource = null;
         state.typeSourceError = "";
@@ -320,24 +388,27 @@ export function createSourceInspectionCoordinator(
   const beginLegacySourceRequest = (): number => {
     if (cancelTypeSource("superseded") === "rejected")
       throw new Error("Cannot replace source work during feature publication.");
-    return beginSourceRequestState(state);
+    return beginSourceRequest();
   };
   const cancelCurrentRequest = () => {
     const typeCancellation = cancelTypeSource("user");
     if (typeCancellation === "rejected") return false;
     const legacyCancellation = cancelSourceRequestState(state);
-    if (legacyCancellation && typeCancellation !== "applied")
+    const graphCancellation = cancelGraphSourceRequest();
+    if (graphCancellation && !legacyCancellation) {
+      state.sourceRequestGeneration++;
+    }
+    if ((legacyCancellation || graphCancellation)
+      && typeCancellation !== "applied") {
       dependencies.cancelEngineSourceRequest();
-    return typeCancellation === "applied" || legacyCancellation;
+    }
+    return typeCancellation === "applied"
+      || legacyCancellation
+      || graphCancellation;
   };
   const clearGraphSource = () => {
     cancelCurrentRequest();
-    state.graphSourceSeq++;
-    state.graphSourceOpen = false;
-    state.graphSource = null;
-    state.graphSourceError = "";
-    state.graphSourceLoading = false;
-    state.graphSourceRequest = null;
+    state.graphSource = { status: "closed" };
   };
 
   return {
@@ -418,32 +489,49 @@ export function createSourceInspectionCoordinator(
 
     async openGraphSource(request, title) {
       const generation = beginLegacySourceRequest();
-      const sequence = ++state.graphSourceSeq;
-      state.graphSourceOpen = true;
-      state.graphSourceTitle = title;
-      state.graphSourceRequest = { request, title };
-      state.graphSource = null;
-      state.graphSourceError = "";
-      state.graphSourceLoading = true;
+      const pending = {
+        status: "loading",
+        request,
+        title,
+      } as const;
+      state.graphSource = pending;
       dependencies.render();
       const isCurrent = () =>
         generation === state.sourceRequestGeneration
-        && sequence === state.graphSourceSeq
-        && state.graphSourceOpen;
+        && state.graphSource === pending;
+      let published = false;
       try {
         const source = await dependencies.queryGraphSource(
           request,
           JSON.stringify(state.taste));
-        if (isCurrent()) state.graphSource = source;
+        if (isCurrent()) {
+          state.graphSource = source
+            ? {
+                status: "ready",
+                request,
+                title,
+                source,
+              }
+            : {
+                status: "failed",
+                request,
+                title,
+                error: "",
+              };
+          published = true;
+        }
       } catch (error) {
         if (isCurrent()) {
-          state.graphSourceError = dependencies.describeError(error);
+          state.graphSource = {
+            status: "failed",
+            request,
+            title,
+            error: dependencies.describeError(error),
+          };
+          published = true;
         }
       } finally {
-        if (isCurrent()) {
-          state.graphSourceLoading = false;
-          dependencies.render();
-        }
+        if (published) dependencies.render();
       }
     },
 

@@ -125,6 +125,8 @@ public partial class CommandExecutionTests
             output,
             StringComparison.Ordinal);
         Assert.Contains("| Role |", output, StringComparison.Ordinal);
+        Assert.Contains("| R2R Format Version |", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Version |", output, StringComparison.Ordinal);
         Assert.Contains("ManagedNativeHeader", output, StringComparison.Ordinal);
         Assert.Contains("separate at 0x", output, StringComparison.Ordinal);
     }
