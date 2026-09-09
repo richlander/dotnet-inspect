@@ -19,6 +19,14 @@ public abstract record AssemblyContextTypeResolutionResult
         ResolvedAssemblyReference Assembly,
         CandidateOpenFailure Failure)
         : AssemblyContextTypeResolutionResult;
+
+    /// <summary>
+    /// The participant policy does not attest acquisition-free selection.
+    /// This query has neither opened a participant image nor begun Metadata resolution.
+    /// </summary>
+    public sealed record UnsupportedBindingPolicy(
+        ResolvedAssemblyReference Assembly)
+        : AssemblyContextTypeResolutionResult;
 }
 
 /// <summary>
@@ -54,6 +62,17 @@ public static class AssemblyContextTypeResolutionQuery
         }
 
         EnsureBindingPolicyVersion(policies, expectedVersion);
+        foreach (AssemblyContextParticipant participant in participants)
+        {
+            if (participant.BindingPolicy is not IAcquisitionFreeAssemblyBindingPolicy)
+            {
+                var rejected = new AssemblyContextTypeResolutionResult
+                    .UnsupportedBindingPolicy(participant.Assembly);
+                EnsureBindingPolicyVersion(policies, expectedVersion);
+                return rejected;
+            }
+        }
+
         var retained = new List<(
             AssemblyContextParticipant Participant,
             ResolvedAssemblyReference Assembly)>();
@@ -86,12 +105,11 @@ public static class AssemblyContextTypeResolutionQuery
             retained.Single(item => ReferenceEquals(
                 item.Participant.Assembly.Registration,
                 root.Assembly.Registration)).Assembly;
-        var policy = new RetainedGroupBindingPolicy(
-            new SourceRelativeAssemblyGroupBindingPolicy(
+        IAcquisitionFreeAssemblyBindingPolicy policy =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
                 retained.Select(item => (
                     item.Assembly,
-                    item.Participant.BindingPolicy))),
-            retained.Select(item => item.Assembly.Registration));
+                    (IAcquisitionFreeAssemblyBindingPolicy)item.Participant.BindingPolicy)));
         TypeResolutionRequest request =
             TypeResolutionRequest.FromAssembly(
                 retainedRoot,
@@ -122,36 +140,6 @@ public static class AssemblyContextTypeResolutionQuery
             if (!ReferenceEquals(policy.Version, expected))
                 throw new InvalidOperationException(
                     "A participant binding-policy snapshot changed during type resolution.");
-        }
-    }
-
-    // TypeResolutionContext discovers and opens policy-selected candidates. This
-    // query may consume retained group images, but must not acquire a new image.
-    sealed class RetainedGroupBindingPolicy(
-        IAssemblyBindingPolicy inner,
-        IEnumerable<AssemblyAcquisitionRegistration> registrations) : IAssemblyBindingPolicy
-    {
-        readonly HashSet<AssemblyAcquisitionRegistration> _registrations =
-            new(registrations, ReferenceEqualityComparer.Instance);
-
-        public AssemblyBindingPolicyVersion Version => inner.Version;
-
-        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
-        {
-            AssemblyBindingSelectionSnapshot snapshot = inner.Select(request);
-            bool outsideGroup = snapshot.Selection switch
-            {
-                AssemblyBindingSelection.Selected selected =>
-                    !_registrations.Contains(selected.Assembly.Registration)
-                    || selected.ShadowedAssemblies.Any(assembly => !_registrations.Contains(assembly.Registration)),
-                AssemblyBindingSelection.Ambiguous ambiguous =>
-                    ambiguous.Assemblies.Any(assembly => !_registrations.Contains(assembly.Registration)),
-                _ => false,
-            };
-            return outsideGroup
-                ? new(snapshot.Version, AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(AssemblyBindingFailureKind.CandidateUnavailable)))
-                : snapshot;
         }
     }
 }

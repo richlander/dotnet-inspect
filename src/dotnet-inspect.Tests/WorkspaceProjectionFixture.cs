@@ -483,6 +483,17 @@ internal static class WorkspaceProjectionFixture
             var availableInputs = Inputs([root]);
             var availableContext = new WorkspaceProjectionContext(availableInputs);
             audit.Compare(M.QueryResult, available, M.QueryResult.Project(availableContext, available), availableContext, availableInputs);
+
+            var unsupportedParticipant = new AssemblyContextParticipant(root, new UnattestedPolicy(policy));
+            using var unsupportedGroup = availableWorkspace.CreateAssemblyContextGroup([unsupportedParticipant]);
+            var unsupported = Assert.IsType<AssemblyContextTypeResolutionResult.UnsupportedBindingPolicy>(
+                AssemblyContextTypeResolutionQuery.Execute(
+                    unsupportedGroup, unsupportedParticipant, Name(), AssemblyResolutionScope.Any));
+            var unsupportedContext = new WorkspaceProjectionContext(availableInputs);
+            var unsupportedEvidence = Assert.IsType<WorkspaceTypeResolutionEvidence.UnsupportedBindingPolicy>(
+                M.QueryResult.Project(unsupportedContext, unsupported));
+            audit.Compare(M.QueryResult, unsupported, unsupportedEvidence, unsupportedContext, availableInputs);
+            Assert.Same(availableInputs[root.Registration], unsupportedEvidence.Input);
         }
     }
 
@@ -764,7 +775,7 @@ internal static class WorkspaceProjectionFixture
     }
 
     sealed class Policy(Func<AssemblyBindingRequest, AssemblyBindingSelection>? select = null)
-        : IAssemblyBindingPolicy, IAssemblyReferenceResolver
+        : IAcquisitionFreeAssemblyBindingPolicy, IAssemblyReferenceResolver
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
         internal List<AssemblyBindingRequest> Requests { get; } = [];
@@ -775,6 +786,13 @@ internal static class WorkspaceProjectionFixture
         }
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope) =>
             throw new InvalidOperationException("The projection fixture never performs ambient resolution.");
+    }
+
+    sealed class UnattestedPolicy(IAssemblyBindingPolicy inner) : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version => inner.Version;
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request) =>
+            throw new InvalidOperationException("The query must reject an unattested policy before selection.");
     }
 
     internal static void AssertCoverage(WorkspaceProjectionContractAudit audit)

@@ -493,7 +493,14 @@ internal static class WorkspaceTypeResolutionProjectionManifest
                     CandidateFailure.Project(c, v.Failure)),
                 [new("Assembly", "Input", WorkspaceProjectionDisposition.Derive,
                     "Exact side-local sealed acquisition-registration correspondence"),
-                    Project("Failure", nameof(CandidateFailure))]));
+                    Project("Failure", nameof(CandidateFailure))]),
+            new WorkspaceProjectionArm<AssemblyContextTypeResolutionResult, WorkspaceTypeResolutionEvidence,
+                AssemblyContextTypeResolutionResult.UnsupportedBindingPolicy, WorkspaceTypeResolutionEvidence.UnsupportedBindingPolicy>(
+                static (c, v) => new(
+                    c.Input(v.Assembly.Registration)
+                        ?? throw new InvalidOperationException("The unsupported participant has no sealed input.")),
+                [new("Assembly", "Input", WorkspaceProjectionDisposition.Derive,
+                    "Exact side-local sealed acquisition-registration correspondence")]));
 
     static E.Occurrence? OptionalOccurrence(WorkspaceProjectionContext context, AssemblyBindingOccurrence? value)
         => value is null ? null : Occurrence.Project(context, value);

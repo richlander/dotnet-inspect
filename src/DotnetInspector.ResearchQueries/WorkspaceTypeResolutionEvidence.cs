@@ -80,6 +80,12 @@ public abstract class WorkspaceTypeResolutionEvidence
         public QueryComparisonInputId Input { get; }
         public WorkspaceMetadataEvidence.CandidateFailure Failure { get; }
     }
+
+    public sealed class UnsupportedBindingPolicy : WorkspaceTypeResolutionEvidence
+    {
+        internal UnsupportedBindingPolicy(QueryComparisonInputId input) => Input = input;
+        public QueryComparisonInputId Input { get; }
+    }
 }
 
 /// <summary>

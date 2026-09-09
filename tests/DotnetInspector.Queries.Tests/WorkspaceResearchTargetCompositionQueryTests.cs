@@ -683,6 +683,7 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         Composed,
         MetadataUnavailable,
         QueryRejected,
+        UnsupportedBindingPolicy,
         TerminalAttemptMismatch,
         TerminalEvidenceMismatch,
         RootAttemptMismatch,
@@ -721,6 +722,7 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         ];
         Dictionary<PublicationPath, WorkspaceResearchTargetCompositionRejection> postQuery = new()
         {
+            [PublicationPath.UnsupportedBindingPolicy] = WorkspaceResearchTargetCompositionRejection.UnsupportedBindingPolicy,
             [PublicationPath.TerminalParticipantMismatch] = WorkspaceResearchTargetCompositionRejection.TerminalParticipantMismatch,
             [PublicationPath.TerminalInputMismatch] = WorkspaceResearchTargetCompositionRejection.TerminalInputMismatch,
             [PublicationPath.TerminalAttemptMismatch] = WorkspaceResearchTargetCompositionRejection.TerminalAttemptMismatch,
@@ -794,6 +796,14 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
                 plan = fixture.Plan();
                 fixture.Nodes[1].OnOpen = () => throw new IOException("final-publication-open-failure");
                 break;
+            case PublicationPath.UnsupportedBindingPolicy:
+                fixture = Direct();
+                plan = fixture.Plan();
+                var group = fixture.CreateGroup(fixture.Nodes.Select((node, index) =>
+                    new AssemblyContextParticipant(node.Assembly,
+                        index == 0 ? new UnattestedPolicy(node.Policy) : node.Policy)));
+                request = plan.Request(fixture, group: group);
+                return fixture;
             case PublicationPath.TerminalEvidenceMismatch:
                 fixture = Direct();
                 plan = fixture.Plan();
@@ -844,6 +854,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
                 break;
             case PublicationPath.TerminalAttemptMismatch:
                 AssertRejected(result, WorkspaceResearchTargetCompositionRejection.TerminalAttemptMismatch);
+                break;
+            case PublicationPath.UnsupportedBindingPolicy:
+                AssertRejected(result, WorkspaceResearchTargetCompositionRejection.UnsupportedBindingPolicy);
                 break;
             case PublicationPath.TerminalEvidenceMismatch:
                 AssertRejected(result, WorkspaceResearchTargetCompositionRejection.TerminalEvidenceMismatch);

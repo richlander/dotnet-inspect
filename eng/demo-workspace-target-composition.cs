@@ -216,7 +216,7 @@ sealed class DemoContext : IDisposable
     }
 }
 
-sealed class ClosedPopulationPolicy : IAssemblyBindingPolicy, IAssemblyReferenceResolver
+sealed class ClosedPopulationPolicy : IAcquisitionFreeAssemblyBindingPolicy, IAssemblyReferenceResolver
 {
     public AssemblyBindingPolicyVersion Version { get; } = new();
     public int AcquisitionRequests { get; private set; }

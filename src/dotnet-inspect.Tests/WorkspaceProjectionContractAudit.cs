@@ -424,6 +424,8 @@ internal sealed class WorkspaceProjectionContractAudit
             {
                 AssemblyAcquisitionRegistration acquisition => acquisition,
                 AssemblyContextTypeResolutionResult.Rejected rejected => rejected.Assembly.Registration,
+                AssemblyContextTypeResolutionResult.UnsupportedBindingPolicy unsupported =>
+                    unsupported.Assembly.Registration,
                 _ => throw new InvalidOperationException("Unknown sealed-input derivation."),
             };
             Assert.Same(inputs.GetValueOrDefault(registration), projected);

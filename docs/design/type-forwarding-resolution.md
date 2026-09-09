@@ -1436,6 +1436,54 @@ existing selection/version model remains bounded supporting evidence for the
 consumed version transition; this adoption adds no new state transition,
 retry, workspace replacement, result arm, or host rendering path.
 
+#### Acquisition-free group selection
+
+`IAcquisitionFreeAssemblyBindingPolicy` is an explicit binding-owner capability.
+Its selection may inspect the caller's already-retained requesting image and
+return previously acquired descriptors, but may not discover candidates, open
+captured source descriptors, or delegate to an acquisition-capable policy.
+A stable version, a warmed selection cache, or a descriptor list does not
+establish this capability. `AssemblyDependencyResolver` does not implement it:
+selection can discover and acquire descriptors even before Metadata opens a
+returned candidate.
+
+`SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld` accepts exact
+retained participants and acquisition-free policies. Construction performs no
+delegated selection. Its binding rules remain the existing Services rules,
+including canonical-participant resolver lineage, explicit delegate identity
+policy, designated/platform arbitration, ambiguity, and typed missing,
+unavailable, and rejected answers. It does not infer a new general binding
+policy from the participant names or paths.
+
+Every selected, ambiguous, or shadow candidate must have an admitted
+acquisition registration. In-group descriptors are replaced by the canonical
+retained descriptor without changing the configured participant's continuation;
+an out-of-group candidate makes the selection
+`Unavailable(CandidateUnavailable)` without opening it. A foreign requesting
+registration is `Rejected(InvalidBindingOrigin)`, and intrinsic lookup reads
+the canonical retained requesting image. Foreign snapshots and retired
+lineages retain their existing rejection/version semantics.
+
+The workspace target-composition consumer requires this capability before
+Metadata resolution; an unsupported participant policy produces the public
+Queries `UnsupportedBindingPolicy` rejection rather than an inferred binding
+answer. Real context realization supplies the closed-group policy with
+`NoResolverAssemblyBindingPolicy` delegates. Custom policies can opt in only
+when their implementation meets the acquisition-free contract.
+
+This is not a second frozen-context API. Metadata still builds a request
+manifest before freezing, using the acquisition-free policy over retained
+images. Once frozen, `TypeResolutionContext.Resolve` performs neither policy
+selection nor acquisition, as specified below.
+
+`ClosedWorldAssemblyGroupBindingPolicyTests` gates canonical image replacement
+for selected, ambiguous, and shadow candidates, version-policy preservation,
+source-relative lineage, typed non-selections, foreign origins, and
+foreign/retired policy state. The Queries
+`WorkspaceResearchTarget_RejectsAcquiringPolicyBeforeDiscoveryOrOpen` and
+`WorkspaceResearchTarget_RejectsDependencyResolverBeforeItAcquiresOmittedSibling`
+gates exercise both composition paths with selection-side acquisition witnesses.
+
 #### Resolver-lineage continuations
 
 > **Status: implemented, with CLI and Browser endpoint evidence.**

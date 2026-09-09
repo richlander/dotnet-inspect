@@ -34,6 +34,9 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
     internal AssemblyContextGroup CreateGroup(IEnumerable<int> members) =>
         _workspace.CreateAssemblyContextGroup(members.Select(index => Nodes[index].Participant));
 
+    internal AssemblyContextGroup CreateGroup(IEnumerable<AssemblyContextParticipant> participants) =>
+        _workspace.CreateAssemblyContextGroup(participants);
+
     internal QueryComparisonPopulation<ImplementationComparisonBinding> Population(
         int[]? before = null, int[]? after = null)
     {
@@ -177,7 +180,7 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
     internal sealed class ProbePolicy(
         ResearchPublicationBindingPolicy owner,
         AssemblyBindingPolicyVersion captured,
-        int participant) : IAssemblyBindingPolicy
+        int participant) : IAcquisitionFreeAssemblyBindingPolicy
     {
         internal int Reads { get; private set; }
         internal int Selections { get; private set; }
@@ -221,6 +224,13 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
             OnSelect = null;
             Trace = null;
         }
+    }
+
+    internal sealed class UnattestedPolicy(IAssemblyBindingPolicy inner) : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version => inner.Version;
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request) =>
+            throw new InvalidOperationException("An unattested policy must not be invoked.");
     }
 
     sealed class NoAcquisitionResolver : IAssemblyReferenceResolver

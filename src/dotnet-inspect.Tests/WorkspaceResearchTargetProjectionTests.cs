@@ -39,7 +39,7 @@ public sealed class WorkspaceResearchTargetProjectionTests
                 typeof(ResearchTargetRequestId), typeof(ResearchTargetAttemptId)],
             M.RetainedOwnerCurrency, "retained owner-issued currency");
         Assert.Equal(34, M.Materializers.Length);
-        Assert.Equal(79, M.Materializers.SelectMany(WorkspaceProjectionContractAudit.Flatten).Count());
+        Assert.Equal(80, M.Materializers.SelectMany(WorkspaceProjectionContractAudit.Flatten).Count());
     }
 
     [Fact]
@@ -129,6 +129,7 @@ public sealed class WorkspaceResearchTargetProjectionTests
         }
         Assert.Contains(typeof(WorkspaceTypeResolutionEvidence.Available), walker.Visited);
         Assert.Contains(typeof(WorkspaceTypeResolutionEvidence.QueryRejected), walker.Visited);
+        Assert.Contains(typeof(WorkspaceTypeResolutionEvidence.UnsupportedBindingPolicy), walker.Visited);
         foreach (Type union in walker.Visited.Where(type => type.IsAbstract))
             foreach (Type arm in WorkspaceProjectionContractAudit.Arms(union))
                 Assert.Contains(arm, walker.Visited);

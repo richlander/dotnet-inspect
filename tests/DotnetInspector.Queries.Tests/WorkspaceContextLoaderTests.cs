@@ -1207,6 +1207,7 @@ public sealed class WorkspaceContextLoaderTests
         AssemblyContextParticipant caller = Participant(loaded, CallerPath);
         AssemblyContextParticipant target = Participant(loaded, TargetPath);
 
+        Assert.IsAssignableFrom<IAcquisitionFreeAssemblyBindingPolicy>(caller.BindingPolicy);
         AssemblyBindingSelection selection = caller.BindingPolicy.Select(
             new AssemblyBindingRequest(
                 AssemblyBindingTarget.Reference(target.Assembly.Identity),

@@ -81,6 +81,7 @@ public enum WorkspaceResearchTargetCompositionRejection
     TerminalAttemptMismatch,
     TerminalEvidenceMismatch,
     RootAttemptMismatch,
+    UnsupportedBindingPolicy,
 }
 
 public enum WorkspaceResearchTargetCompositionUnavailability
@@ -268,6 +269,13 @@ public static class WorkspaceResearchTargetCompositionQuery
         {
             return new WorkspaceResearchTargetCompositionResult.Unavailable(
                 WorkspaceResearchTargetCompositionUnavailability.ParticipantImageUnavailable, queryRejected,
+                WorkspaceResearchTargetEvidenceProjection.Attempt(projection, rootAttempt));
+        }
+
+        if (projectedEvidence is WorkspaceTypeResolutionEvidence.UnsupportedBindingPolicy unsupportedPolicy)
+        {
+            return new WorkspaceResearchTargetCompositionResult.Rejected(
+                WorkspaceResearchTargetCompositionRejection.UnsupportedBindingPolicy, unsupportedPolicy,
                 WorkspaceResearchTargetEvidenceProjection.Attempt(projection, rootAttempt));
         }
 

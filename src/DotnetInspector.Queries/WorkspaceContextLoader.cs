@@ -134,7 +134,7 @@ public sealed record WorkspaceContextLoadOptions
 /// </para>
 /// <para>
 /// Participants share one binding-policy snapshot:
-/// <see cref="SourceRelativeAssemblyGroupBindingPolicy"/> over the realized
+/// <see cref="SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld"/> over the realized
 /// descriptors, with <see cref="NoResolverAssemblyBindingPolicy"/> beneath it.
 /// That is the correct contract here — the loader acquires no dependency
 /// outside the context, so an in-context identity binds to its own descriptor
@@ -1034,11 +1034,12 @@ public static class WorkspaceContextLoader
             return new WorkspaceContextLoadOutcome.Failed([collision]);
         }
 
-        var groupPolicy = new SourceRelativeAssemblyGroupBindingPolicy(
-            realized.Select(static entry =>
-                (entry.Assembly,
-                    (IAssemblyBindingPolicy)
-                        NoResolverAssemblyBindingPolicy.Instance)));
+        IAcquisitionFreeAssemblyBindingPolicy groupPolicy =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
+                realized.Select(static entry =>
+                    (entry.Assembly,
+                        (IAcquisitionFreeAssemblyBindingPolicy)
+                            NoResolverAssemblyBindingPolicy.Instance)));
         List<AssemblyContextParticipant> participants =
         [
             .. realized.Select(entry =>
