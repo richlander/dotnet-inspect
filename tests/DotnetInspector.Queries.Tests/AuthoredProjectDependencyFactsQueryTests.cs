@@ -804,6 +804,61 @@ public sealed class AuthoredProjectDependencyFactsQueryTests
     }
 
     [Fact]
+    public void Execute_UnsupportedTargetAncestryContributesToSemanticIdentity()
+    {
+        AuthoredProjectDependencyFactsResult.Incomplete direct = Incomplete(
+            """
+            <Project>
+              <TargetFramework>net8.0</TargetFramework>
+            </Project>
+            """);
+        AuthoredProjectDependencyFactsResult.Incomplete nested = Incomplete(
+            """
+            <Project>
+              <Choose>
+                <Otherwise>
+                  <PropertyGroup>
+                    <TargetFramework>net8.0</TargetFramework>
+                  </PropertyGroup>
+                </Otherwise>
+              </Choose>
+            </Project>
+            """);
+
+        Assert.NotEqual(direct.Value.Identity, nested.Value.Identity);
+    }
+
+    [Fact]
+    public void Execute_UnprojectedTargetContextContributesToSemanticIdentity()
+    {
+        AuthoredProjectDependencyFactsResult.Incomplete emptyDebug = Incomplete(
+            UnprojectedTargetProject(
+                "'$(Configuration)' == 'Debug'",
+                ""));
+        AuthoredProjectDependencyFactsResult.Incomplete emptyRelease = Incomplete(
+            UnprojectedTargetProject(
+                "'$(Configuration)' == 'Release'",
+                ""));
+        AuthoredProjectDependencyFactsResult.Incomplete nestedDebug = Incomplete(
+            UnprojectedTargetProject(
+                "'$(Configuration)' == 'Debug'",
+                "<Value>net8.0</Value>"));
+        AuthoredProjectDependencyFactsResult.Incomplete nestedRelease = Incomplete(
+            UnprojectedTargetProject(
+                "'$(Configuration)' == 'Release'",
+                "<Value>net8.0</Value>"));
+
+        Assert.Empty(emptyDebug.Value.TargetFrameworks);
+        Assert.Empty(nestedDebug.Value.TargetFrameworks);
+        Assert.NotEqual(
+            emptyDebug.Value.Identity,
+            emptyRelease.Value.Identity);
+        Assert.NotEqual(
+            nestedDebug.Value.Identity,
+            nestedRelease.Value.Identity);
+    }
+
+    [Fact]
     public void Execute_IncludeLessPackageOperationsContributeToIdentity()
     {
         AuthoredProjectDependencyFactsResult.Incomplete first = Incomplete(
@@ -1101,6 +1156,17 @@ public sealed class AuthoredProjectDependencyFactsQueryTests
           <PropertyGroup>
             <TargetFramework Condition="'$(Configuration)' == '{{net8Configuration}}'">net8.0</TargetFramework>
             <TargetFramework Condition="'$(Configuration)' == '{{net9Configuration}}'">net9.0</TargetFramework>
+          </PropertyGroup>
+        </Project>
+        """;
+
+    private static string UnprojectedTargetProject(
+        string condition,
+        string value) =>
+        $$"""
+        <Project>
+          <PropertyGroup>
+            <TargetFramework Condition="{{condition}}">{{value}}</TargetFramework>
           </PropertyGroup>
         </Project>
         """;

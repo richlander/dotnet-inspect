@@ -334,7 +334,7 @@ public static class AuthoredProjectDependencyFactsQuery
                 root,
                 projectNamespace,
                 limitations);
-            ImmutableArray<AuthoredProjectTargetFramework> targets =
+            TargetProjection targetProjection =
                 ProjectTargetFrameworks(
                     root,
                     projectNamespace,
@@ -348,14 +348,15 @@ public static class AuthoredProjectDependencyFactsQuery
                 projectedLimitations = limitations.ToImmutable();
             var identity = new AuthoredProjectIdentity(
                 ComputeFactsDigest(
-                    targets,
+                    targetProjection.Targets,
+                    targetProjection.UnresolvedSyntaxIdentities,
                     packageProjection.Declarations,
                     packageProjection.UnresolvedSyntax,
                     projectedLimitations));
             var facts = new AuthoredProjectDependencyFacts(
                 identity,
                 contentProvenance,
-                targets,
+                targetProjection.Targets,
                 packageProjection.Declarations,
                 packageProjection.UnresolvedSyntax);
             return projectedLimitations.IsEmpty
@@ -486,7 +487,7 @@ public static class AuthoredProjectDependencyFactsQuery
         }
     }
 
-    private static ImmutableArray<AuthoredProjectTargetFramework>
+    private static TargetProjection
         ProjectTargetFrameworks(
             XElement root,
             XNamespace projectNamespace,
@@ -495,6 +496,7 @@ public static class AuthoredProjectDependencyFactsQuery
         var observations =
             new Dictionary<string, AuthoredProjectTargetFramework>(
                 StringComparer.Ordinal);
+        var unresolvedSyntaxIdentities = new List<string>();
         var occurrenceSets = new List<string>();
         bool sawTargetFramework = false;
         bool sawTargetFrameworks = false;
@@ -538,7 +540,7 @@ public static class AuthoredProjectDependencyFactsQuery
                         [
                             supportedPlacement
                                 ? "direct-property-group"
-                                : "unsupported-placement",
+                                : UnsupportedAncestryIdentity(property, root),
                             conditions.AmbiguousElements.IsEmpty
                                 ? "unambiguous"
                                 : "ambiguous-attributes",
@@ -568,6 +570,18 @@ public static class AuthoredProjectDependencyFactsQuery
                 limitations.Add(
                     AuthoredProjectDependencyLimitationReason
                         .UnsupportedTargetDeclaration);
+                unresolvedSyntaxIdentities.Add(
+                    OpaqueDigest(
+                        "apdf-unresolved-target-syntax/1",
+                        [
+                            isMultiple
+                                ? "target-frameworks"
+                                : "target-framework",
+                            syntaxContextIdentity,
+                            CanonicalElementShapeIdentity(
+                                "apdf-target-shape/1",
+                                property),
+                        ]));
                 occurrenceSets.Add("");
                 continue;
             }
@@ -638,6 +652,16 @@ public static class AuthoredProjectDependencyFactsQuery
                     limitations.Add(
                         AuthoredProjectDependencyLimitationReason
                             .UnsupportedTargetDeclaration);
+                    unresolvedSyntaxIdentities.Add(
+                        OpaqueDigest(
+                            "apdf-unresolved-target-syntax/1",
+                            [
+                                isMultiple
+                                    ? "target-frameworks"
+                                    : "target-framework",
+                                syntaxContextIdentity,
+                                "empty-value",
+                            ]));
                     continue;
                 }
 
@@ -690,15 +714,18 @@ public static class AuthoredProjectDependencyFactsQuery
                     .ConflictingTargetDeclarations);
         }
 
-        return
-        [
-            .. observations.Values.OrderBy(
-                target => target.Identity.ComparisonIdentity,
-                StringComparer.Ordinal)
-                .ThenBy(
-                    target => target.SyntaxContextIdentity,
-                    StringComparer.Ordinal),
-        ];
+        return new TargetProjection(
+            [
+                .. observations.Values.OrderBy(
+                    target => target.Identity.ComparisonIdentity,
+                    StringComparer.Ordinal)
+                    .ThenBy(
+                        target => target.SyntaxContextIdentity,
+                        StringComparer.Ordinal),
+            ],
+            [
+                .. unresolvedSyntaxIdentities.Order(StringComparer.Ordinal),
+            ]);
     }
 
     private static PackageProjection
@@ -1374,13 +1401,14 @@ public static class AuthoredProjectDependencyFactsQuery
 
     private static string ComputeFactsDigest(
         ImmutableArray<AuthoredProjectTargetFramework> targets,
+        ImmutableArray<string> unresolvedTargetSyntaxIdentities,
         ImmutableArray<AuthoredProjectPackageDeclaration> declarations,
         ImmutableArray<AuthoredProjectUnresolvedDependencySyntax>
             unresolvedSyntax,
         ImmutableArray<AuthoredProjectDependencyLimitation> limitations)
     {
         var text = new StringBuilder();
-        Field(text, "apdf/1");
+        Field(text, "apdf/2");
         Count(text, targets.Length);
         foreach (AuthoredProjectTargetFramework target in targets)
         {
@@ -1388,6 +1416,10 @@ public static class AuthoredProjectDependencyFactsQuery
             Field(text, target.Identity.ComparisonIdentity);
             Field(text, target.SyntaxContextIdentity);
         }
+
+        Count(text, unresolvedTargetSyntaxIdentities.Length);
+        foreach (string identity in unresolvedTargetSyntaxIdentities)
+            Field(text, identity);
 
         Count(text, declarations.Length);
         foreach (AuthoredProjectPackageDeclaration declaration in declarations)
@@ -1791,6 +1823,10 @@ public static class AuthoredProjectDependencyFactsQuery
         ImmutableArray<AuthoredProjectPackageDeclaration> Declarations,
         ImmutableArray<AuthoredProjectUnresolvedDependencySyntax>
             UnresolvedSyntax);
+
+    private sealed record TargetProjection(
+        ImmutableArray<AuthoredProjectTargetFramework> Targets,
+        ImmutableArray<string> UnresolvedSyntaxIdentities);
 
     private sealed record VersionForm(
         string Kind,

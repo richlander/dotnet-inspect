@@ -120,6 +120,9 @@ syntax and does not itself make the result incomplete: targets may come from
 evaluation outside this basis. Each target observation also retains opaque
 syntax-context identity, so changing its unsupported placement or conditions
 changes semantic project identity without claiming their evaluated result.
+Target syntax that cannot produce an observation, such as an empty value or
+nested XML content, retains separate opaque syntax identity so its placement,
+conditions, and material shape still contribute to project identity.
 
 ## Package declarations
 
@@ -332,6 +335,8 @@ The implementation is gated by
 | `Execute_ItemAndMetadataExpressionsAreNotLiteralFrameworks` | Item and metadata expressions remain unresolved rather than opaque literal frameworks. |
 | `Execute_TargetFrameworkExpressionSemicolonsDoNotInventTargets` | Semicolons inside an unresolved MSBuild expression cannot create literal target observations. |
 | `Execute_TargetConditionsContributeToSemanticIdentity` | Material changes to unresolved target conditions change project identity. |
+| `Execute_UnsupportedTargetAncestryContributesToSemanticIdentity` | Distinct unsupported target placements remain identity-bearing without claiming evaluation. |
+| `Execute_UnprojectedTargetContextContributesToSemanticIdentity` | Empty and nested target syntax retains material condition context without producing target observations. |
 | `Execute_IncludeLessPackageOperationsContributeToIdentity` | Package item operations without Include remain typed opaque evidence and affect identity. |
 | `Execute_NuGetEquivalentPrereleaseConstraintsDoNotConflict` | NuGet-equivalent prerelease casing collapses into one declaration with exact occurrence count. |
 | `Execute_ConflictingDeclarationsAreIncomplete` | Conflicting constraints remain separate and cannot become a complete declaration. |
