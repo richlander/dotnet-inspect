@@ -499,10 +499,11 @@ platform for metadata that the platform does not contain.
 
 **Detect risk at load, attribute failure at traverse** (**#4592**):
 
-- **At load**, compute the skew and surface it as a warning. Do not block. An
-  assembly built for a newer framework still renders its own surface correctly,
-  which is most of what the user opened it for; refusing at open would reject a
-  session that mostly works.
+- **At load**, evaluate the target relation. An owner-classified unsupported
+  downgrade, such as a .NET 12 participant over a .NET 10 platform, surfaces a
+  warning but does not block. An assembly built for a newer framework still
+  renders its own surface correctly, which is most of what the user opened it
+  for; refusing at open would reject a session that mostly works.
 - **At traversal into the platform**, attempt the requested lookup. If the
   normal assembly-binding policy selects a platform candidate and Metadata
   resolves the exact requested member identity and signature, return it; the
@@ -515,28 +516,36 @@ platform for metadata that the platform does not contain.
   request, participant target, and loaded platform. Without known skew,
   preserve the ordinary missing or unresolved result.
 
+Different target text is not itself an incompatibility warning. A library
+selected for `net8.0` may compose with a .NET 10 Workspace platform under the
+ordinary supported upward-compatibility relation even though the supplying
+platform's documentation, annotations, source, and implementation differ from
+.NET 8. The warning requires the owner-issued incompatible relation; it is not
+triggered by target inequality or descriptive differences.
+
 The failure mode this replaces is the one `AGENTS.md` forbids under *keep
 failure visible*: today an unavailable member under known skew surfaces as an
 unattributed missing type or member. A blanket refusal would be wrong in the
 other direction because many requests remain satisfiable.
 
-An exact member bind proves only that the loaded supplier satisfies Metadata's
-binding identity. It does not prove that every descriptive or implementation
-facet matches the participant's build target. Nullable annotations, custom
-attributes, XML documentation, PDB-mapped source, implementation bodies, and
-source-level `unsafe` placement may differ across platform versions without
-changing the bindable member identity. Any change to Metadata's binding
-signature changes that identity and therefore fails the exact lookup.
-Successful platform-derived documentation, source, decompilation, and analysis
-retain the loaded supplier and target so consumers can disclose that they
-describe the older Workspace platform.
+Under an owner-classified unsupported downgrade, an exact member bind proves
+only that the loaded supplier satisfies Metadata's binding identity. It does
+not make the participant/platform composition compatible for every
+descriptive or implementation facet. Nullable annotations, custom attributes,
+XML documentation, PDB-mapped source, implementation bodies, and source-level
+`unsafe` placement may differ across platform versions without changing the
+bindable member identity. Any change to Metadata's binding signature changes
+that identity and therefore fails the exact lookup. Successful
+platform-derived documentation, source, decompilation, and analysis retain the
+loaded supplier, target, and incompatible relation so consumers can attribute
+potentially incorrect results to the unsupported downgrade.
 
 Expect a degree of incompatibility to remain even when everything is reported.
 Decompiled output on the far side of a reference into a skewed assembly may
-differ from the requesting participant's build environment, and a type whose
-base declaration is unavailable will render incompletely. That is **inherent**
-to overlaying: the missing or newer information does not exist in the
-Workspace. The requirement is that it be attributed, not that it be avoided.
+be incorrect for the unsupported composition, and a type whose base declaration
+is unavailable will render incompletely. That is **inherent** to overlaying:
+the missing or newer information does not exist in the Workspace. The
+requirement is that it be attributed, not that it be avoided.
 
 ### Client disclosure
 
@@ -546,14 +555,15 @@ Web presents it once on Package Overview beside the package version and
 framework controls:
 
 > This package is incompatible with the Workspace platform. Some operations may
-> be blocked, and some results may differ from the package's build target.
+> be blocked, and some results may be incorrect.
 
-The warning remains visible after an exact member lookup succeeds because the
-selected older supplier may still differ in documentation, annotations,
-source, or implementation. It does not replace an operation's exact
-compatibility failure, which remains visible where that operation reports its
-result. Direct-library and non-browser hosts project the same owner-issued skew
-evidence under their own presentation contracts.
+The warning remains visible after an exact member lookup succeeds because that
+binding does not make the owner-classified unsupported downgrade compatible for
+documentation, annotations, source, implementation, or other non-binding
+facets. It does not replace an operation's exact compatibility failure, which
+remains visible where that operation reports its result. Direct-library and
+non-browser hosts project the same owner-issued incompatibility evidence under
+their own presentation contracts.
 
 ## Precedence between entitled candidates
 

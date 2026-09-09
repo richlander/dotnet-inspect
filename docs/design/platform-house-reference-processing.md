@@ -666,11 +666,16 @@ compatibility failure. Other participants and unrelated operations remain
 usable.
 
 Even a successful exact bind uses evidence from the loaded platform supplier.
-Its nullable annotations, attributes, documentation, source, bodies, and
-source-level `unsafe` placement may differ from the requesting library's build
-target. The House preserves exact target and supplier provenance so the
-compatibility owner and hosts can retain and present that downgrade context; it
-does not define the warning or its presentation.
+Under an owner-classified unsupported downgrade, its nullable annotations,
+attributes, documentation, source, bodies, and source-level `unsafe` placement
+may make platform-derived documentation, source, decompilation, or analysis
+incorrect for that unsupported composition even though the member identity
+binds. The House preserves exact target, supplier provenance, and the
+compatibility result so the compatibility owner and hosts can retain and
+present that downgrade context; it does not define the warning or its
+presentation. A supported upward-compatible pairing does not become a warning
+merely because its platform target or descriptive evidence differs from the
+library's original target.
 
 ## Assembly-reference processing
 
@@ -1525,7 +1530,7 @@ The implementation and adoption slices own these Release gates:
 | Bare-library provenance | Every one-library realization retains physical identity, platform origin, exact target, source generation, view role, correspondence, and content lifetime after unwrapping. |
 | Direct-library convergence | A direct path or project library enters the same Library inspection contract without PackageHouse or PlatformHouse mediation. |
 | Permissive Workspace admission | A participant targeting a newer platform remains admissible and usable for same-participant inspection without realizing a matching complete platform. |
-| Exact traversal compatibility | Under known skew, an exact Metadata member-signature match succeeds with downgrade context; a missing or changed signature returns the attributed compatibility failure without blocking unrelated work. |
+| Exact traversal compatibility | Under an owner-classified unsupported downgrade, an exact Metadata member-signature match succeeds with downgrade context; a missing or changed signature returns the attributed compatibility failure without blocking unrelated work. Supported upward compatibility does not warn merely because targets differ. |
 | Metadata ownership | Platform type resolution invokes the structured Metadata API and preserves its exact outcome and forwarding hops. |
 | Transparent .NET Standard | A `.NET Standard` facade can resolve through an exact runtime target without constructing a `NetStandard` family or implementation population. |
 | Physical supplier retention | A resolved implementation type or assembly retains its physical supplier rather than being relabeled as the reference facade. |

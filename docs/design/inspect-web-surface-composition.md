@@ -626,14 +626,18 @@ level-one heading. Both subjects reuse the package's existing icon selection and
 fallback. Library retains its own name, asset path and full assembly identity.
 The identity is part of the full-width content, not a new inset card.
 
-When the product retains known package/platform skew, Package Overview renders
-one warning immediately below the Version and Framework controls:
+When the product classifies the package/platform target relation as
+incompatible, Package Overview renders one warning immediately below the
+Version and Framework controls:
 
 > This package is incompatible with the Workspace platform. Some operations may
-> be blocked, and some results may differ from the package's build target.
+> be blocked, and some results may be incorrect.
 
 The warning consumes the owner-issued compatibility evidence defined by
 [Platform composition and overlays](platform-composition-and-overlays.md#client-disclosure).
+Target inequality alone does not show it: a `net8.0` package over a compatible
+.NET 10 Workspace platform receives no warning merely because the selected
+platform is newer than the package's target.
 It is not duplicated on traversal source and target rows. An exact
 operation-level compatibility failure remains visible in that operation's
 surface; the Overview warning provides persistent package context rather than
