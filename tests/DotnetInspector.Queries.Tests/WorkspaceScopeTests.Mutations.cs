@@ -122,7 +122,9 @@ public sealed partial class WorkspaceScopeTests
         InspectionWorkspace.RootLifetime lifetime = Lifetimes(workspace)
             .Single(root => root.Projection.Correspondence.Equals(target.Occurrence.Correspondence));
         using InspectionWorkspace.ArtifactRootQueryLease query = ArtifactAvailable(
-            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, target.Occurrence.Correspondence, Ready(target)));
+            await workspace.EnterArtifactRootQueryAsync(
+                workspace.Identity, target.Occurrence.Correspondence, Ready(target),
+                cancellationToken: TestContext.Current.CancellationToken));
 
         var removed = Committed(await workspace.RemoveRootOccurrenceAsync(
             prior.Revision, target.Occurrence.Identity, Deadline, TestContext.Current.CancellationToken));
