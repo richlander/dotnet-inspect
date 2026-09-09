@@ -162,12 +162,15 @@ substrates, and inspection producers that will extend that space.
   exact-target source realization,
   provenance-retaining bare-library handoff, and transparent .NET Standard
   forwarding through Metadata. Package-reference processing and pruning
-  remain upstream in the package domain. The House also settles independent
-  reference-view XML and implementation-view PDB/SourceLink documentation
-  evidence against the same target and view correspondence. XML, PDB,
-  SourceLink, and source-comment algorithms, Workspace admission, the
-  assembly-reference ladder, and host presentation remain with their focused
-  owners.
+  remain upstream in the package domain. Selected Workspace ecosystem
+  populations lower through their retained platform-family declarations into
+  independent runtime and ASP.NET Core House target demands; package-prefix
+  contributions remain package-domain work. The House also settles
+  independent reference-view XML and implementation-view PDB/SourceLink
+  documentation evidence against the same target and view correspondence.
+  XML, PDB, SourceLink, and source-comment algorithms, Workspace admission,
+  the assembly-reference ladder, and host presentation remain with their
+  focused owners.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,

@@ -16,6 +16,11 @@ The design depends on:
   and ASP.NET Core family targets;
 - [Platform Library Population Declaration](platform-library-population-declaration.md)
   for target-independent Workspace relevance;
+- [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
+  for the product-default ecosystem projections and their lower population
+  declarations;
+- [Workspace registration and call-graph focal length](workspace-registration-and-call-graph-scope.md)
+  for selection of registered ecosystem populations by one bounded operation;
 - [Package dependency evidence](package-dependency-evidence.md) for typed
   package references and their source provenance;
 - [Platform/package pruning](platform-package-pruning.md) for exact-target
@@ -44,6 +49,8 @@ The approved scope is:
   issue a typed platform delegation;
 - package, platform, and direct-library flows converge only after their owning
   source has produced a provenance-retaining bare-library value;
+- selected Workspace ecosystem populations lower to family-preserving target
+  demands before `PlatformHouse` performs target settlement or realization;
 - platform XML documentation and SourceLink-backed documentation evidence are
   settled against the House's reference and implementation views;
 - .NET Standard remains transparent compatibility processing rather than a
@@ -98,6 +105,8 @@ It owns:
 - acceptance of ordinary platform requests issued from orchestration-owned
   typed delegations without interpreting the package reference that caused
   them;
+- validation and retention of Workspace population-declaration correspondence
+  carried by an operation-issued platform request;
 - target-bound settlement of compiled XML and SourceLink-backed documentation
   evidence without collapsing their provenance;
 - the House result envelope and settlement receipt;
@@ -109,6 +118,8 @@ It does not own:
 
 - platform family, target-framework, or version identity;
 - target-independent ecosystem registration;
+- Workspace registration defaults, revisions, focal-length selection,
+  population planning, or cross-population result composition;
 - package identity, package source authority, package dependency evidence,
   package candidate selection, package version resolution, package payload
   acquisition, or package asset selection;
@@ -234,8 +245,9 @@ Every operation carries:
 - one typed target demand;
 - one immutable source-plan identity and policy generation;
 - the exact Workspace revision or standalone operation identity;
-- the typed platform-request origin, including an orchestration-owned
-  delegation identity when one caused the operation;
+- the typed platform-request origin, including an exact
+  `PlatformLibraryPopulationDeclaration` or orchestration-owned delegation
+  identity when one caused the operation;
 - the requested reference and implementation views;
 - one-library or whole-population demand;
 - requested documentation channels and source-access authorization;
@@ -403,6 +415,89 @@ ASP.NET Core source realizations may retain a .NET runtime support closure.
 The source owner establishes that closure and its version behavior. The House
 preserves the focus target, support targets, members, and evidence rather than
 inventing one merged family target.
+
+## Workspace ecosystem realization
+
+Workspace ecosystem registration describes target-independent relevance. It
+does not select a platform target, authorize a source, acquire a library, or
+invoke `PlatformHouse`. Runtime work begins only when a bounded operation
+selects one registered population from one exact Workspace revision.
+
+The application-owned default manifest projects these lower contributions:
+
+| Fresh-Workspace ecosystem | Platform contribution | Package-prefix contribution |
+| --- | --- | --- |
+| Platform | `Platform(DotNetRuntime)` | None |
+| ASP.NET Core | `Platform(AspNetCore)` | `Microsoft.AspNetCore.` |
+| Microsoft.Extensions | None | `Microsoft.Extensions.` |
+
+The
+[Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
+owns this manifest and each application-to-lower-declaration correspondence.
+`PlatformHouse` does not recognize the display labels `Platform`,
+`ASP.NET Core`, or `Microsoft.Extensions`, and it does not reconstruct a
+platform family from a package prefix.
+
+When an operation selects registered ecosystems, its population planner
+processes every request-relevant contribution independently:
+
+1. it retains the exact Workspace revision, ecosystem registration, and lower
+   contribution;
+2. for each `PlatformLibraryPopulationDeclaration`, it issues one platform
+   target demand whose family is exactly the declaration's `PlatformFamily`;
+3. it adds operation-owned target-framework and version policy, reference or
+   implementation view, one-library or whole-population demand, source plan,
+   and finite work;
+4. it calls `PlatformHouse` with that typed request and retains the resulting
+   exact `PlatformFamilyTarget`, realization, receipt, or non-success; and
+5. it sends each package-prefix contribution through bounded package discovery
+   and package processing rather than through `PlatformHouse`.
+
+The House rejects a Workspace-origin request when the target demand's family
+does not equal the retained platform population declaration. Successful target
+settlement preserves this correspondence:
+
+```text
+Workspace revision
+  -> ecosystem registration
+  -> PlatformLibraryPopulationDeclaration(PlatformFamily)
+  -> family-preserving target demand
+  -> exact PlatformFamilyTarget
+  -> PlatformHouse realization receipt
+```
+
+The operation-level association retains the ecosystem registration that
+selected the lower declaration. The House request and receipt retain the exact
+Workspace revision and `PlatformLibraryPopulationDeclaration`; they do not
+depend on application ecosystem identity or display metadata.
+
+The registration does not choose the target framework or version. A Workspace
+operation may provide an already-settled target context or an explicit
+selection policy. Equal TFM or version text across `DotNetRuntime` and
+`AspNetCore` never merges their family identities.
+
+The default Platform and ASP.NET Core registrations therefore produce
+independent House requests when both populations are selected. An ASP.NET Core
+source may additionally return an explicit .NET runtime support closure. That
+closure does not replace the selected `DotNetRuntime` contribution or collapse
+the two exact family targets. The population-composition and Workspace
+admission owners may coalesce only owner-issued exact artifact
+correspondence, while retaining both registration and family-target paths.
+
+Call-graph focal length determines whether these registrations are selected:
+
+- `Self` selects only the focal registration or containing library;
+- `SelfAndRegisteredEcosystems` adds all ecosystem registrations in the exact
+  Workspace revision; and
+- `Everything` additionally admits every other Workspace population and
+  already-admitted participant available under the operation.
+
+The three fresh defaults participate in the latter two modes unless the user
+removed them. Selection still grants no source authority: each platform and
+package contribution uses its own explicit source policy and bounds. A missing,
+unauthorized, ambiguous, failed, or incomplete contribution remains visible;
+the planner cannot silently omit it and claim a complete ecosystem or graph
+population.
 
 ## Typed ingress and bare-library convergence
 
@@ -815,6 +910,8 @@ The settlement receipt binds:
   required;
 - source-plan identity and policy generation;
 - typed request origin and any orchestration-owned delegation association;
+- the exact Workspace revision and `PlatformLibraryPopulationDeclaration`
+  when a Workspace population caused the request;
 - every selected or outcome-relevant source contribution;
 - reference and implementation view correspondence;
 - the physical identity, role, origin, and owner-issued content-lifetime
@@ -927,6 +1024,12 @@ platform CLI or FrameworkReference --------> application orchestration
 application orchestration --ordinary platform request--> PlatformHouse
 
 direct library -----------------------------------------> shared Library inspection
+
+Workspace registration snapshot
+  -> bounded population planner
+     -> Platform(DotNetRuntime) -> target demand -> PlatformHouse
+     -> Platform(AspNetCore) ----> target demand -> PlatformHouse
+     -> package prefixes --------> package discovery and PackageHouse
 ```
 
 `DotnetInspector.Platforms` remains the lower resource-free contract floor. It
@@ -1103,8 +1206,9 @@ There are eleven counted production steps:
    without moving their parsing or acquisition owners.
 9. Adopt the House platform contribution in the assembly-reference ladder,
    add the PackageHouse-to-platform delegation handoff without a direct
-   House-to-House dependency, and integrate Queries, Workspace replacement,
-   and dependency traversal.
+   House-to-House dependency, lower selected Workspace platform-population
+   declarations into family-preserving House requests, and integrate Queries,
+   Workspace replacement, call-graph population, and dependency traversal.
 10. Adopt the same House requests and outcomes, including documentation
     evidence, in CLI and Inspect Web.
 11. Retire direct product reference-processing and platform-documentation
@@ -1121,6 +1225,49 @@ coordinates project to the shared target and House request, and unsupported
 legacy combinations fail visibly under the adopting command owner.
 
 ## Demo
+
+### Fresh Workspace realizes registered ecosystems
+
+```text
+fresh Workspace registrations
+  Platform
+    -> PlatformLibraryPopulationDeclaration(DotNetRuntime)
+  ASP.NET Core
+    -> PlatformLibraryPopulationDeclaration(AspNetCore)
+    -> PackagePrefix(Microsoft.AspNetCore.)
+  Microsoft.Extensions
+    -> PackagePrefix(Microsoft.Extensions.)
+
+call graph
+  focal length: Everything
+  target context: net11.0
+  source policy: installed platform + authorized package sources
+
+population planner
+  Platform registration
+    -> DotNetRuntime target demand
+    -> PlatformHouse
+    -> exact runtime target + realized runtime population
+  ASP.NET Core registration
+    -> AspNetCore target demand
+    -> PlatformHouse
+    -> exact ASP.NET Core target + explicit runtime support closure
+  ASP.NET Core and Microsoft.Extensions prefixes
+    -> bounded package discovery and PackageHouse
+
+completed
+  one graph population retains:
+    exact Workspace revision and registrations
+    separate runtime and ASP.NET Core family targets
+    every package-prefix request and outcome
+    exact artifact correspondence for any coalesced library
+    visible source, acquisition, and population completeness
+```
+
+What to notice: registration selected the relevant populations but did not
+authorize or perform acquisition. The operation supplied target and source
+policy, and no ecosystem label or package prefix was reinterpreted as platform
+identity.
 
 ### PackageRef exits to platform realization
 
@@ -1265,6 +1412,10 @@ The implementation and adoption slices own these Release gates:
 | Property | Required gate |
 | --- | --- |
 | Target settlement | An exact demand is retained unchanged; a selecting demand freezes one owner-issued exact `PlatformFamilyTarget` before acquisition, and every outcome retains the demand and selection evidence. |
+| Workspace population correspondence | The operation association retains the exact Workspace revision and ecosystem registration; the House request and receipt retain the exact revision, `PlatformLibraryPopulationDeclaration`, family-preserving target demand, and settled target. |
+| Fresh-default realization | Selecting the three fresh ecosystem defaults issues independent `DotNetRuntime` and `AspNetCore` House requests plus the two authored package-prefix paths; registration alone performs no source work. |
+| Family separation | Equal TFM or version text and an ASP.NET Core runtime support closure cannot merge the runtime and ASP.NET Core registrations or their exact family targets. |
+| Focal-length integration | `Self`, `SelfAndRegisteredEcosystems`, and `Everything` select the documented population sets without granting source authority or silently omitting a failed selected contribution. |
 | Explicit source authorization | No source capability, cache, installed root, or network route is used unless present in the captured source plan. |
 | Demand-bounded work | One-library demand does not become whole-population work unless the selected source reports an atomic larger realization unit. |
 | Reference and implementation separation | Reference-only success cannot satisfy implementation-body demand; a combined result retains explicit correspondence. |
@@ -1315,6 +1466,8 @@ This design does not:
 - claim that SourceLink provenance proves the physical syntax tree that
   produced a metadata definition;
 - define Workspace admission, replacement, or lease lifetime;
+- define Workspace ecosystem defaults, registration editing, call-graph focal
+  length, or cross-population composition;
 - require network access or desktop filesystem capabilities;
 - permit inspected-assembly loading or Roslyn;
 - add WinMD support; or
