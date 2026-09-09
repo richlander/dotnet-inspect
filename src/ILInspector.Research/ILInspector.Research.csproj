@@ -16,6 +16,7 @@
   <ItemGroup>
     <Using Include="ILInspector.SourceLink" />
     <InternalsVisibleTo Include="ILInspector.Research.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
   </ItemGroup>
 
   <ItemGroup>

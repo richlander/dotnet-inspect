@@ -4,8 +4,12 @@
 
 This is the target design for
 [#5676](https://github.com/richlander/dotnet-inspect/issues/5676).
-It is unimplemented and unverified until the named gates in
-[Implementation sequence and gates](#implementation-sequence-and-gates) land.
+The host-neutral composition, public planning facade, capability-free
+projections, correspondence handoff, and public file-based demo are
+implemented. The named Release gates in
+[Implementation sequence and gates](#implementation-sequence-and-gates)
+verify this owner claim. CLI and inspect-web adoption remain later host-owned
+slices.
 
 The L1 `DotnetInspector.Queries` component owns this contract. Its optional
 `DotnetInspector.ResearchQueries` project is the physical adapter that may
@@ -176,7 +180,19 @@ remains represented:
 
 The inert receipt retains materialized subjects, opaque ids, classification,
 a Queries-owned `WorkspaceTypeResolutionEvidence` projection, and the exact
-root and effective Research attempts. That projection is a closed union:
+root and effective `ResearchTargetAttemptId` values with Queries-owned inert
+attempt and census evidence. It never retains `ResearchTargetAttempt`,
+`ResearchTargetOutcome`, `ResearchTargetDomainSideCensus`, or the mutable
+Metadata target graph reachable from those objects. The attempt projection is
+a closed union that preserves request, input, scope, domain, side, request
+kind, outcome classification, bounded diagnostic kind, resolved durable
+address/role/module identity when present, and the distinctions this
+composition validates. The census projection preserves scope, domain, side,
+health, and the complete ordered input-id and attempt-id sets. These
+projections describe existing Research results; they do not mint or modify a
+Research attempt.
+
+The Metadata projection is a separate closed union:
 
 - `Available` preserves the Metadata outcome arm and the facts needed by this
   contract: terminal Queries input id and durable definition identity/address
@@ -282,6 +298,15 @@ The current materializers have these binding rules:
   to an operation-scoped Queries catalog id. These ids preserve equality and
   inequality only within the composition operation and cannot recover the
   owner object.
+- `AssemblyBindingLineage` is supporting-owner opaque continuation currency,
+  not a closed evidence union. Its projector preserves lineage equality through
+  an operation-scoped Queries lineage id and projects its nullable
+  `AssemblyBindingPolicyVersion` through an operation-scoped Queries policy
+  version id using exact reference identity. The projector does not enumerate
+  or inspect policy-defined derived payloads; this follows the binding owner's
+  rule that lineage is opaque outside its issuer while preserving the complete
+  public `AssemblyBindingOccurrence.Assembly`, `Lineage`, and
+  `AssemblyBindingLineage.Version` surface.
 - `ModuleFileReference.Hash` is the sole containment transform. ECMA-335
   permits an arbitrary-length blob rather than a fixed hash shape, so the
   projection publishes only the source byte length and a SHA-256 digest as
@@ -305,6 +330,13 @@ disposition-mapped field while the group is live. One `Rejected` or
 `Ambiguous` fixture cannot stand in for its nested arms, and one occurrence of
 a shared nested union cannot stand in for another occurrence unless both call
 the same projector.
+
+`ResolutionPlanRequest.Binding` is the sole declared but currently unissued
+arm: Metadata contains no construction site for it. The gate proves that owner
+invariant from the Metadata assembly, still requires the arm and complete
+property projection in the manifest, and fails when Metadata begins issuing
+the arm so an owner-produced fixture must then replace the reachability
+exclusion.
 
 Arm coverage is not value-shape coverage. For every disposition-mapped
 property, the fixture matrix uses two distinguishable owner-produced values
@@ -333,9 +365,10 @@ content. The `QueryRejected` arm likewise materializes failure detail rather
 than retaining a query or image-access capability.
 
 The receipt retains no group, participant, image opener, resolver, stream,
-callback, lease, or cleanup authority. Projection is semantic preservation of
-the owner-issued outcome, not retention or reconstruction of Metadata's
-capability-bearing object graph.
+callback, lease, cleanup authority, `ResearchTargetAttempt`,
+`ResearchTargetOutcome`, or `ResearchTargetDomainSideCensus`. Projection is
+semantic preservation of the owner-issued outcomes and identities, not
+retention or reconstruction of Metadata's capability-bearing object graph.
 
 This absence claim requires full structural coverage. The Release gate
 `WorkspaceResearchTarget_ResultSurfaceRetainsNoCapabilities` recursively walks
@@ -357,6 +390,14 @@ reaches:
   field-walked `AssemblyReferenceIdentity`; in particular, the receipt never
   retains `AssemblyAcquisitionRegistration`, which can transitively retain
   artifact-generation authority;
+- `ResearchTargetAttempt`, `ResearchTargetOutcome`,
+  `ResearchTargetDomainSideCensus`, `ResolvedMemberTarget`,
+  `MemberTargetCandidate`, or any mutable Metadata target graph reachable from
+  a Research result; owner-issued `ResearchTargetAttemptId`,
+  `ResearchTargetRequestId`, `ResearchTargetScopeId`,
+  `ResearchTargetDomainId`, and comparison input/question/operation ids remain
+  permitted only after their complete field closure passes the positive allow
+  list;
 - `AssemblyContextTypeResolutionResult`, `TypeResolutionOutcome`,
   `TypeResolutionFailure`, `TypeResolutionAmbiguity`,
   `ResolutionPlanRequest`, `TypeResolutionStart`, `AssemblyBindingTarget`,
@@ -525,7 +566,8 @@ either category.
 Two independently composed side receipts do not prove that their effective
 targets correspond. A correspondence-driven comparison must consume one
 existing `ResearchTargetCorrespondenceOutcome.Paired` whose Before and After
-targets contain the exact attempt identities retained by the two receipts.
+targets contain attempt ids reference-identical to the exact
+`ResearchTargetAttemptId` values retained by the two receipts.
 
 For that correspondence-driven request, if the terminal attempts occupy
 different Research domains, if either terminal domain is blocked, or if
@@ -555,11 +597,12 @@ The facade domain may remain blocked by its
 healthy implementation domain, but it also does not authorize Queries to
 manufacture correspondence across domains.
 
-The current executable model is side-local and proves neither later
-two-sided handoff. Divergent-domain strict correspondence remains
-**unverified** at this design head and is assigned to the named Release gate
-below. Designated-pair handoff remains **unverified** under #5877 and the
-direct-member adapter's outcome gates.
+The current executable model is side-local and proves neither later two-sided
+handoff. `WorkspaceResearchTarget_DivergentTerminalDomainsDoNotPair` supplies
+the implementation evidence that ordinary correspondence preserves separate
+`BeforeOnly` and `AfterOnly` outcomes and creates no work item. Designated-pair
+handoff remains **unverified** under #5877 and the direct-member adapter's
+outcome gates.
 
 ## Workspace and acquisition boundary
 
@@ -573,11 +616,11 @@ queries, but it does not:
 - reinterpret a path or assembly name as authority; or
 - reuse a participant from another group or side.
 
-The implementation evidence level for this no-new-acquisition boundary is
-currently **unverified**. Before implementation claims structural absence, the
-operator must choose full, partial, or no absence-claim coverage under
+The no-new-acquisition boundary uses **full structural absence coverage** under
 [Evidence and validation](../evidence-and-validation.md#absence-claims-choose-their-coverage).
-Behavioral pathological gates remain required regardless.
+`WorkspaceResearchTarget_ResultSurfaceRetainsNoCapabilities` recursively
+checks the complete published closure, and the behavioral gates verify that an
+out-of-group selected candidate is rejected without opening it.
 
 Supplemental admission is a separate workspace-owned effort. If it later
 lands, it must complete before population sealing and Research admission; it
@@ -712,19 +755,21 @@ Research inputs from file paths or replace a typed outcome with display text.
 
 ## Implementation sequence and gates
 
-1. Implement the Queries population sealer and bijective Research projection
-   designed by #4711. This composition must not reconstruct that receipt.
-2. Add live captured-version checks for every retained participant before and
-   after resolution in `AssemblyContextTypeResolutionQuery`.
-3. Add the Queries-owned composition request, result, receipt, and validator in
-   `DotnetInspector.ResearchQueries`, consuming
-   `AssemblyContextTypeResolutionQuery` and the complete Research target
-   result. Recheck every live participant version at the callback-free
-   publication point after all association validation.
-4. Add the public file-based app demo and focused Release gates.
-5. Let the later #4706 direct-member and publication efforts consume the inert
-   effective-target receipt.
-6. Wire CLI and inspect-web in their host-owned slices.
+1. **Complete:** the #4711 Queries population sealer and bijective Research
+   projection supply the exact receipt; composition does not reconstruct it.
+2. **Complete:** `AssemblyContextTypeResolutionQuery` checks every retained
+   participant's captured binding-policy version before, immediately after,
+   and at publication.
+3. **Complete:** `DotnetInspector.ResearchQueries` owns the composition
+   request, result, inert receipt, validators, Metadata and Research evidence
+   projections, public planning facade, and ordinary correspondence handoff.
+4. **Complete:** `eng/demo-workspace-target-composition.cs` exercises the
+   public API, and the focused Release gates cover the contract and full
+   structural absence claim.
+5. **Remaining:** later #4706 direct-member and publication efforts consume
+   the inert effective-target receipt.
+6. **Remaining:** CLI and inspect-web wire the shared query in host-owned
+   slices.
 
 The implementation is not complete until these Release gates exist:
 

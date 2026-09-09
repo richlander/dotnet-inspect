@@ -474,7 +474,7 @@ semantics under [Implementation Diff](implementation-diff.md). L1 may require
 Research-issued identities and retain their correspondence to query identities;
 it must not mint, infer, or reinterpret them.
 
-The later
+The implemented
 [workspace Research target composition](research-workspace-target-composition.md)
 consumes this receipt to associate Metadata's terminal forwarding definition
 with one exact existing Research attempt. That composition remains
@@ -677,8 +677,8 @@ closure and remains the dependency-direction proof.
 `ComparisonPopulation_Demo` exercises the product sealer, owner-issued Research
 admission, and receipt validator over an existing compiled fixture. Repeated
 borrowed values remain three distinct input occurrences; an incomplete map is
-rejected without a partial receipt. This internal-projection demo does not
-replace #5676's public workspace file-based demo or claim host adoption.
+rejected without a partial receipt. This internal-projection demo is distinct
+from #5676's public workspace file-based demo and does not claim host adoption.
 
 ### Population-boundary non-goals
 
