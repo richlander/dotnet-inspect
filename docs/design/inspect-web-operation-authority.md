@@ -609,10 +609,14 @@ no-op.
 Handle cancellation and session cancellation use one callout rule: the logical
 outcome, authority revocation, reason, and forwarding flag commit before the
 feature event publishes; the external cancellation endpoint is invoked only
-after that feature callout. Endpoint exceptions are caught at that boundary,
-emitted to the diagnostic observer, and do not escape, undo the transition, or
-permit another forwarding attempt. Reentrant producer events therefore observe
-the canceled outcome.
+after that feature callout. The producer adapter receives a read-only live
+cancellation state during preparation. Its reason changes in that same
+authority commit, before feature publication, so adapter-owned admission can
+close without moving the external cancellation endpoint ahead of the feature
+callout. Endpoint exceptions are caught at that boundary, emitted to the
+diagnostic observer, and do not escape, undo the transition, or permit another
+forwarding attempt. Reentrant producer events therefore observe the canceled
+outcome.
 Each handle remains bound to its originating operation record. Calling an old
 handle never delegates to the session's current operation and cannot change a
 replacement's outcome, authority, cancellation count, or producer endpoint.
@@ -836,7 +840,8 @@ under the ordinary inspect-web `npm test` gate and include:
 - exact `started`, `replaced`, `progress`, `durable`, `terminal`, `canceled`,
   and `disposed` feature events, including start/replacement publication before
   producer activation and cancellation/disposal publication before producer
-  cancellation, with no stacked cancellation/start events for replacement or
+  cancellation, with the read-only cancellation state updated before those
+  feature callouts and no stacked cancellation/start events for replacement or
   disposal;
 - terminal publication through its reserved event after logical completion,
   with no later authority write;

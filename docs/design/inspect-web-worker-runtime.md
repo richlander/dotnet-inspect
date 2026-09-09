@@ -849,12 +849,15 @@ arrive while the wire record is still accepted when managed settlement has
 sealed cancellation but has not yet crossed the release barrier. The main host
 retains the record until its `Rejected` or `Settled` closure also arrives.
 
-The main host closes feature-control admission when cancellation is requested,
-physical closure arrives, `not-active` is acknowledged, or the epoch closes.
-The Worker closes it when cancellation begins or operation settlement starts.
-Closure rejects later local requests without posting them. It does not erase a
-request already posted: that exact response remains mandatory and may arrive
-after `Settled`.
+The main host closes feature-control admission when the operation authority's
+read-only cancellation state records a reason, physical closure arrives,
+`not-active` is acknowledged, or the epoch closes. It rechecks that state both
+before encoding and before posting, so the authority commit closes admission
+even during its synchronous feature callout while actual cancellation
+forwarding still follows that callout. The Worker closes admission when
+cancellation begins or operation settlement starts. Closure rejects later
+local requests without posting them. It does not erase a request already
+posted: that exact response remains mandatory and may arrive after `Settled`.
 
 No cancellation acknowledgment can commit while the operation is still
 awaiting its `Accepted` or `Rejected` response.

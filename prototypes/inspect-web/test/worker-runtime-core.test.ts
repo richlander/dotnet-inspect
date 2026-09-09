@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createOperationAuthorityPage,
+  type OperationCancellationState,
   type OperationFeatureEvent,
   type OperationHandle,
   type OperationIdentity,
@@ -90,6 +91,8 @@ type TestSettlement = ManagedOperationSettlement<
   string,
   TestDiagnostic
 >;
+
+const uncanceledOperation: OperationCancellationState = { reason: null };
 
 interface Deferred<T> {
   readonly promise: Promise<T>;
@@ -621,6 +624,7 @@ function session(
       })(),
     },
   }),
+  publish?: (event: TestEvent) => undefined,
 ): {
   readonly session: TestSession;
   readonly events: TestEvent[];
@@ -636,6 +640,7 @@ function session(
     feature: {
       publish: event => {
         events.push(event);
+        publish?.(event);
         return undefined;
       },
     },
@@ -1748,10 +1753,13 @@ test("preparation rejects synchronously without posting or retaining a sink", ()
       return undefined;
     },
   };
-  assert.deepEqual(harness.adapter.prepare(identity, "input", sink), {
-    kind: "rejected",
-    error: { kind: "epoch-unavailable" },
-  });
+  assert.deepEqual(
+    harness.adapter.prepare(identity, "input", sink, uncanceledOperation),
+    {
+      kind: "rejected",
+      error: { kind: "epoch-unavailable" },
+    },
+  );
   assert.deepEqual(calls, []);
   assert.deepEqual(harness.workers[0]!.receivedMessages, []);
 });
@@ -1776,7 +1784,7 @@ test("abandonment is resource-free and activation installs before callout", asyn
     reportUnexpectedFailure: () => undefined,
   };
   const abandoned = preparedBinding(
-    harness.adapter.prepare(identity!, "input", sink),
+    harness.adapter.prepare(identity!, "input", sink, uncanceledOperation),
   );
   abandoned.abandon();
   abandoned.activate();
@@ -1784,7 +1792,12 @@ test("abandonment is resource-free and activation installs before callout", asyn
   assert.deepEqual(calls, []);
 
   const activated = preparedBinding(
-    harness.adapter.prepare(secondIdentity!, "input", sink),
+    harness.adapter.prepare(
+      secondIdentity!,
+      "input",
+      sink,
+      uncanceledOperation,
+    ),
   );
   activated.activate();
   assert.equal(harness.host.snapshot().activeOperations, 1);
@@ -2443,7 +2456,12 @@ test("closure before activation preserves planned and unexpected outcomes", asyn
         return undefined;
       },
     };
-    preparation = harness.adapter.prepare(identity, "input", sink);
+    preparation = harness.adapter.prepare(
+      identity,
+      "input",
+      sink,
+      uncanceledOperation,
+    );
     const binding = preparedBinding(preparation);
     if (planned) {
       harness.host.restart();
@@ -2524,7 +2542,12 @@ test("prepared abandonment completes deferred realm release", async () => {
     reportUnexpectedFailure: () => undefined,
   };
   const binding = preparedBinding(
-    harness.adapter.prepare(captureIdentity(), "input", sink),
+    harness.adapter.prepare(
+      captureIdentity(),
+      "input",
+      sink,
+      uncanceledOperation,
+    ),
   );
 
   harness.host.restart();
@@ -3006,7 +3029,12 @@ test("host operation high-water permits gaps, rejects replay after release, and 
     reportUnexpectedFailure: () => undefined,
   };
   assert.deepEqual(
-    harness.adapter.prepare(firstEvent.operation, "replay", sink),
+    harness.adapter.prepare(
+      firstEvent.operation,
+      "replay",
+      sink,
+      uncanceledOperation,
+    ),
     {
       kind: "rejected",
       error: { kind: "operation-sequence-replayed" },
@@ -3038,7 +3066,12 @@ test("host operation high-water permits gaps, rejects replay after release, and 
   });
 
   assert.deepEqual(
-    harness.adapter.prepare(firstEvent.operation, "replay", sink),
+    harness.adapter.prepare(
+      firstEvent.operation,
+      "replay",
+      sink,
+      uncanceledOperation,
+    ),
     {
       kind: "rejected",
       error: { kind: "operation-sequence-exhausted" },
@@ -3647,7 +3680,9 @@ test("Settled maps unexpected diagnostic, terminal, then quiescence atomically",
       return undefined;
     },
   };
-  preparedBinding(harness.adapter.prepare(identity, "input", sink)).activate();
+  preparedBinding(
+    harness.adapter.prepare(identity, "input", sink, uncanceledOperation),
+  ).activate();
   await harness.environment.flushAsync();
   settlement.resolve({
     kind: "failed",
@@ -4027,7 +4062,7 @@ for (const cutoff of [
       },
     };
     preparedBinding(
-      harness.adapter.prepare(identity, "input", sink),
+      harness.adapter.prepare(identity, "input", sink, uncanceledOperation),
     ).activate();
     await harness.environment.flushAsync();
     applyCutoff = () => cutoff.apply(harness);
@@ -4195,6 +4230,48 @@ test("cancellation closes control admission without discarding a posted response
     kind: "acknowledged",
     value: "granted-before-cancel",
   });
+  await handle.quiesced;
+});
+
+test("authority cancellation closes control admission before its feature callback", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    cancel: () => true,
+  });
+  await startReady(harness);
+  const observerMessages: Array<readonly string[]> = [];
+  const controlResults:
+    Array<ReturnType<TestAdapter["requestControl"]>> = [];
+  const operationSession = session(
+    harness.adapter,
+    undefined,
+    event => {
+      if (event.kind === "canceled") {
+        observerMessages.push(operationMessages(harness.workers[0]!));
+        controlResults.push(
+          harness.adapter.requestControl(event.operationId, "late"),
+        );
+      }
+      return undefined;
+    },
+  );
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(handle.cancel("user"), { kind: "applied" });
+  assert.deepEqual(observerMessages, [["initialize", "start"]]);
+  assert.deepEqual(await controlResults[0]!, { kind: "not-active" });
+  assert.deepEqual(operationMessages(harness.workers[0]!), [
+    "initialize",
+    "start",
+    "cancel",
+  ]);
+
+  settlement.resolve({ kind: "canceled", reason: "user" });
+  await harness.environment.flushAsync();
   await handle.quiesced;
 });
 
@@ -4882,7 +4959,7 @@ for (const sourceFailure of sourceFailureScenarios) {
       },
     };
     preparedBinding(
-      harness.adapter.prepare(identity, "input", sink),
+      harness.adapter.prepare(identity, "input", sink, uncanceledOperation),
     ).activate();
     await harness.environment.flushAsync();
 
@@ -4947,7 +5024,7 @@ for (const sourceFailure of sourceFailureScenarios) {
         reportQuiesced: () => undefined,
       };
       preparedBinding(
-        harness.adapter.prepare(identity, "input", sink),
+        harness.adapter.prepare(identity, "input", sink, uncanceledOperation),
       ).activate();
       await harness.environment.flushAsync();
 
@@ -5749,10 +5826,20 @@ test("epoch closure seals every assigned record before sink callbacks run", asyn
     reportQuiesced: () => undefined,
   };
   const firstBinding = preparedBinding(
-    harness.adapter.prepare(firstIdentity!, "first", firstSink),
+    harness.adapter.prepare(
+      firstIdentity!,
+      "first",
+      firstSink,
+      uncanceledOperation,
+    ),
   );
   secondBinding = preparedBinding(
-    harness.adapter.prepare(secondIdentity!, "second", secondSink),
+    harness.adapter.prepare(
+      secondIdentity!,
+      "second",
+      secondSink,
+      uncanceledOperation,
+    ),
   );
   firstBinding.activate();
   secondBinding.activate();
@@ -6568,7 +6655,9 @@ test("callback errors remain failure-complete and realm release is reported once
       throw new Error("quiescence callback failed");
     },
   };
-  preparedBinding(harness.adapter.prepare(identity, "input", sink)).activate();
+  preparedBinding(
+    harness.adapter.prepare(identity, "input", sink, uncanceledOperation),
+  ).activate();
   await harness.environment.flushAsync();
   harness.workers[0]!.emitRaw({ malformed: true });
   harness.environment.advanceActive(20);

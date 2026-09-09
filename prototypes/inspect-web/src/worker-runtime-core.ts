@@ -1,4 +1,5 @@
 import type {
+  OperationCancellationState,
   OperationCancelReason,
   OperationId,
   OperationIdentity,
@@ -399,6 +400,7 @@ interface MainOperationRecord<TDiagnostic> {
   readonly identity: OperationIdentity;
   readonly reference: WorkerWireOperationReference;
   readonly registration: MainOperationRegistration;
+  readonly authorityCancellation: OperationCancellationState;
   payload: unknown;
   phase: "held" | "awaiting-admission" | "accepted" | "physically-closed";
   cancelReason: OperationCancelReason | null;
@@ -891,8 +893,15 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       };
     }
     return {
-      prepare: (identity, input, sink) =>
-        this.#prepareOperation(registration, null, identity, input, sink),
+      prepare: (identity, input, sink, cancellation) =>
+        this.#prepareOperation(
+          registration,
+          null,
+          identity,
+          input,
+          sink,
+          cancellation,
+        ),
     };
   }
 
@@ -953,13 +962,14 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       };
     }
     return {
-      prepare: (identity, input, sink) =>
+      prepare: (identity, input, sink, cancellation) =>
         this.#prepareOperation(
           registration,
           controlOwner,
           identity,
           input,
           sink,
+          cancellation,
         ),
       requestControl: (operationId, input) =>
         this.#requestControl(
@@ -1395,6 +1405,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     identity: OperationIdentity,
     input: TInput,
     sink: OperationProducerSink<TValue, TError, TProgress, TDurable>,
+    cancellation: OperationCancellationState,
   ): OperationPreparation<TPreparationError> {
     const reject = (
       error: WorkerRuntimePreparationError,
@@ -1501,6 +1512,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
           identity,
           payload,
           assignedSink,
+          cancellation,
         );
         activatedRecord = record;
         this.#resolvePreparedOperation(
@@ -1590,6 +1602,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     identity: OperationIdentity,
     payload: unknown,
     sink: OperationProducerSink<TValue, TError, TProgress, TDurable>,
+    cancellation: OperationCancellationState,
   ): MainOperationRecord<TDiagnostic> {
     let retainedSink: OperationProducerSink<
       TValue,
@@ -1633,6 +1646,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         allowance: registration.allowance,
         controlOwner,
       },
+      authorityCancellation: cancellation,
       payload,
       phase: "held",
       cancelReason: null,
@@ -1954,6 +1968,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       return Promise.resolve(failedResult({ kind: "operation-mismatch" }));
     if (record.phase !== "accepted"
       || record.controlClosed
+      || record.authorityCancellation.reason !== null
       || record.cancelReason !== null
       || record.logicalClosureReported) {
       return Promise.resolve({ kind: "not-active" });
@@ -2051,6 +2066,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       || epoch.operations.get(record.reference.operationId) !== record
       || record.phase !== "accepted"
       || record.controlClosed
+      || record.authorityCancellation.reason !== null
       || record.cancelReason !== null
       || record.logicalClosureReported) {
       completeUnposted({ kind: "not-active" });

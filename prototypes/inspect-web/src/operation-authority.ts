@@ -170,6 +170,10 @@ export interface PreparedOperationProducer {
   readonly abandon: () => undefined;
 }
 
+export interface OperationCancellationState {
+  readonly reason: OperationCancelReason | null;
+}
+
 export type OperationPreparation<TPrepareError> =
   | {
       readonly kind: "prepared";
@@ -192,6 +196,7 @@ export interface OperationProducerAdapter<
     identity: OperationIdentity,
     input: TInput,
     sink: OperationProducerSink<TValue, TError, TProgress, TDurable>,
+    cancellation: OperationCancellationState,
   ) => OperationPreparation<TPrepareError>;
 }
 
@@ -290,6 +295,7 @@ interface OperationRecord<TValue, TError, TProgress, TDurable> {
   readonly outcomeDeferred: Deferred<OperationOutcome<TValue, TError>>;
   readonly quiescedDeferred: Deferred<void>;
   readonly handle: OperationHandle<TValue, TError>;
+  readonly cancellation: OperationCancellationState;
   readonly sink: OperationProducerSink<
     TValue,
     TError,
@@ -530,6 +536,12 @@ function createRecord<TValue, TError, TProgress, TDurable>(
   const outcomeDeferred = deferred<OperationOutcome<TValue, TError>>();
   const quiescedDeferred = deferred<void>();
   let record: OperationRecord<TValue, TError, TProgress, TDurable>;
+  const cancellation: OperationCancellationState = {
+    get reason() {
+      const outcome = record.outcome;
+      return outcome?.kind === "canceled" ? outcome.reason : null;
+    },
+  };
 
   const reserveTerminal = (
     outcome: OperationOutcome<TValue, TError>,
@@ -735,6 +747,7 @@ function createRecord<TValue, TError, TProgress, TDurable>(
     outcomeDeferred,
     quiescedDeferred,
     handle,
+    cancellation,
     sink,
     binding: null,
     outcome: null,
@@ -867,6 +880,7 @@ function createPage(
             allocation.identity,
             input,
             candidate.sink,
+            candidate.cancellation,
           );
           const sessionChanged = session.revision !== capturedRevision
             || (session.current?.identity.id ?? null) !== capturedCurrentId;
