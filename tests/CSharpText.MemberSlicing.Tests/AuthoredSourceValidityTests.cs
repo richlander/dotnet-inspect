@@ -7,11 +7,11 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
 
-namespace DotnetInspector.CSharpBodySlicer.Tests;
+namespace CSharpText.MemberSlicing.Tests;
 
 /// <summary>
 /// Parse-validity and declaration-correspondence gate for the authored-source slicer
-/// (<see cref="BodySlicer.ExtractMethodBody"/>).
+/// (<see cref="MemberTextSlicer.ExtractMemberText"/>).
 /// <para>
 /// The slicer selects one declaration-index row from a sequence-point line and emits that row's
 /// source span. Parse validity checks both boundaries at once; a member-identity round trip alone
@@ -424,7 +424,7 @@ public class AuthoredSourceValidityTests
                         continue;
                     }
 
-                    var text = BodySlicer.ExtractMethodBody(
+                    var text = MemberTextSlicer.ExtractMemberText(
                         sourceText,
                         member.StartLine,
                         member.EndLine,
@@ -666,7 +666,7 @@ public class AuthoredSourceValidityTests
                 member => member.Anchor.MemberName is "#ctor" or ".ctor");
             Assert.Equal(
                 "extension()\n{\n    int value = 1;\n}",
-                BodySlicer.ExtractMethodBody(
+                MemberTextSlicer.ExtractMemberText(
                     source,
                     constructor.StartLine,
                     constructor.EndLine,
@@ -754,7 +754,7 @@ public class AuthoredSourceValidityTests
                 Assert.Equal([expectedLine], method.SequencePointStartLines);
                 Assert.Equal(
                     expectedText,
-                    BodySlicer.ExtractMethodBody(
+                    MemberTextSlicer.ExtractMemberText(
                         source,
                         method.StartLine,
                         method.EndLine,
@@ -894,7 +894,7 @@ public class AuthoredSourceValidityTests
             var method = Assert.Single(
                 context.EnumerateMemberDocuments(),
                 member => member.Anchor.MemberName == "M");
-            Assert.Null(BodySlicer.ExtractMethodBody(
+            Assert.Null(MemberTextSlicer.ExtractMemberText(
                 source,
                 method.StartLine,
                 method.EndLine,
@@ -1002,7 +1002,7 @@ public class AuthoredSourceValidityTests
             "}",                        // 7
         ]);
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "M");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 6, methodName: "M");
 
         Assert.NotNull(body);
         Assert.Equal($"{signature}\n{{\n    Use();\n}}", body);
@@ -1039,7 +1039,7 @@ public class AuthoredSourceValidityTests
             "    int X = 1;",           // 2  <- EndLine
         ]);
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 2, methodName: ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, startLine: 1, endLine: 2, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1061,7 +1061,7 @@ public class AuthoredSourceValidityTests
             "}",                                            // 7
         ]);
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Ret");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 6, methodName: "Ret");
 
         Assert.Equal(
             "public unsafe delegate*<int, int> Ret()\n{\n    return null;\n}",
@@ -1093,7 +1093,7 @@ public class AuthoredSourceValidityTests
             "}",                                            // 8
         ]);
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 7, methodName: ".ctor");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 7, methodName: ".ctor");
 
         Assert.Equal(
             "Result(string name)\n{\n    Name = name;\n}",
@@ -1118,7 +1118,7 @@ public class AuthoredSourceValidityTests
             "}",                        // 4
         ]);
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 3, methodName: ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, startLine: 1, endLine: 3, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1150,7 +1150,7 @@ public class AuthoredSourceValidityTests
             "}",                        // 7
         ]);
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 5, methodName: "get_X"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, startLine: 1, endLine: 5, methodName: "get_X"));
     }
 
     /// <summary>
@@ -1181,7 +1181,7 @@ public class AuthoredSourceValidityTests
             "}",                                                 // 14
         ]);
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 13, methodName: ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, startLine: 1, endLine: 13, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1206,7 +1206,7 @@ public class AuthoredSourceValidityTests
             "}",                                    // 7
         ]);
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Ret");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 6, methodName: "Ret");
 
         Assert.Equal($"public static {returnType} Ret()\n{{\n    return null;\n}}", body);
     }
@@ -1226,7 +1226,7 @@ public class AuthoredSourceValidityTests
             header,                       // 1  <- StartLine
         ]);
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1244,7 +1244,7 @@ public class AuthoredSourceValidityTests
     [InlineData("public class C { void M() { } C() { } }")]
     public void ConstructorSharingItsDeclaringTypesLine_ReportsAbsent(string header)
     {
-        Assert.Null(BodySlicer.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(header, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1254,7 +1254,7 @@ public class AuthoredSourceValidityTests
     [Fact]
     public void ConstructorAfterItsDeclaringTypesOpeningBrace_ReportsAbsent()
     {
-        Assert.Null(BodySlicer.ExtractMethodBody(
+        Assert.Null(MemberTextSlicer.ExtractMemberText(
             "class C\n{ C() { } }",
             startLine: 2,
             endLine: 2,
@@ -1275,7 +1275,7 @@ public class AuthoredSourceValidityTests
     [InlineData("namespace N\n{\n    class Outer\n    {\n        class Inner\n        {\n            Inner()\n            {\n            }\n        }\n    }\n}", 8, 9)]
     public void ConstructorRecovery_FindsTheConstructorOfTheInnermostEnclosingType(string source, int startLine, int endLine)
     {
-        var slice = BodySlicer.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor");
+        var slice = MemberTextSlicer.ExtractMemberText(source, startLine, endLine, methodName: ".ctor");
 
         Assert.NotNull(slice);
         Assert.StartsWith(slice.Split('\n')[0].Trim(), slice.Trim(), StringComparison.Ordinal);
@@ -1295,7 +1295,7 @@ public class AuthoredSourceValidityTests
     [InlineData("public class C\n{\n    public C(\n        int x)\n    {\n    }\n}", 5, 6, "public C(\n    int x)\n{\n}")]
     public void ConstructorRecovery_StartsAtTheDeclaration_NotAtTheName(string source, int startLine, int endLine, string expected)
     {
-        Assert.Equal(expected, BodySlicer.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor"));
+        Assert.Equal(expected, MemberTextSlicer.ExtractMemberText(source, startLine, endLine, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1317,7 +1317,7 @@ public class AuthoredSourceValidityTests
     {
         var source = string.Join('\n', ["class Outer", "{", sibling, "    Outer()", "    {", "    }", "}"]);
 
-        Assert.Equal("Outer()\n{\n}", BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: ".ctor"));
+        Assert.Equal("Outer()\n{\n}", MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 5, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1328,7 +1328,7 @@ public class AuthoredSourceValidityTests
     {
         var source = "namespace N\n{\n    class Outer\n    {\n        record R(int X);\n        Outer()\n        {\n        }\n    }\n}";
 
-        Assert.Equal("Outer()\n{\n}", BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
+        Assert.Equal("Outer()\n{\n}", MemberTextSlicer.ExtractMemberText(source, startLine: 6, endLine: 7, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1338,7 +1338,7 @@ public class AuthoredSourceValidityTests
     [Fact]
     public void ConstructorSharingBothTypeBoundaries_ReportsAbsent()
     {
-        Assert.Null(BodySlicer.ExtractMethodBody(
+        Assert.Null(MemberTextSlicer.ExtractMemberText(
             "class C { C() { } }",
             startLine: 1,
             endLine: 1,
@@ -1354,7 +1354,7 @@ public class AuthoredSourceValidityTests
     {
         var source = "class Outer<T>\n    where T : new()\n{\n    Outer()\n    {\n    }\n}";
 
-        Assert.Equal("Outer()\n{\n}", BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: ".ctor"));
+        Assert.Equal("Outer()\n{\n}", MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 5, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1379,7 +1379,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = BodySlicer.ExtractMethodBody(source, startLine: 8, endLine: 9, methodName: ".ctor");
+        var slice = MemberTextSlicer.ExtractMemberText(source, startLine: 8, endLine: 9, methodName: ".ctor");
 
         Assert.Equal("public\nC()\n{\n}", slice);
     }
@@ -1404,7 +1404,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: ".ctor");
+        var slice = MemberTextSlicer.ExtractMemberText(source, startLine: 7, endLine: 8, methodName: ".ctor");
 
         Assert.Equal("public\nC()\n{\n}", slice);
     }
@@ -1429,7 +1429,7 @@ public class AuthoredSourceValidityTests
     [Fact]
     public void ATypeClosingOnTheConstructorsLine_ReportsAbsent_KnownGap()
     {
-        Assert.Null(BodySlicer.ExtractMethodBody("class Outer\n{\n    class Inner\n    {\n    } Outer() { }\n}", startLine: 5, endLine: 5, methodName: ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText("class Outer\n{\n    class Inner\n    {\n    } Outer() { }\n}", startLine: 5, endLine: 5, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1463,7 +1463,7 @@ public class AuthoredSourceValidityTests
 
         // Fixed by locating declarations structurally: there is no backward scan to be fooled
         // by a call spelled like the type name, so the constructor is returned on its own.
-        Assert.Equal("C() { }", BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 6, methodName: ".ctor"));
+        Assert.Equal("C() { }", MemberTextSlicer.ExtractMemberText(source, startLine: 6, endLine: 6, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1478,7 +1478,7 @@ public class AuthoredSourceValidityTests
         var source = "public class C\n{\n    C\n    (\n    )\n    {\n    }\n}";
 
         // Fixed. The index carries a declaration across lines, so the split costs nothing.
-        Assert.Equal("C\n(\n)\n{\n}", BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
+        Assert.Equal("C\n(\n)\n{\n}", MemberTextSlicer.ExtractMemberText(source, startLine: 6, endLine: 7, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1490,7 +1490,7 @@ public class AuthoredSourceValidityTests
     [InlineData("public record R(string s = \"{ R()\") ;")]
     public void ConstructorRecovery_IgnoresNamesThatAreNotMemberLevelDeclarations(string source)
     {
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1503,7 +1503,7 @@ public class AuthoredSourceValidityTests
     [InlineData("class A { } class B { B() { } }")]
     public void EverythingOnOneLine_ReportsAbsent(string source)
     {
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1515,7 +1515,7 @@ public class AuthoredSourceValidityTests
     [InlineData("public record R(int X);")]
     public void ConstructorRecovery_DoesNotReadARecordHeaderAsAConstructor(string header)
     {
-        Assert.Null(BodySlicer.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(header, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -1529,21 +1529,21 @@ public class AuthoredSourceValidityTests
     {
         // A tab-separated type header is still a type header, so a field-initializer
         // constructor above it is still absent rather than the whole type.
-        Assert.Null(BodySlicer.ExtractMethodBody(
+        Assert.Null(MemberTextSlicer.ExtractMemberText(
             "public\tclass C\n{\n    int X = Get();\n    static int Get() => 0;\n}",
             startLine: 1, endLine: 3, methodName: ".ctor"));
 
         // A commented gap does not turn a function-pointer return type into a delegate.
         Assert.Equal(
             "public static delegate /* gap */ *<int, int> Ret()\n{\n    return default;\n}",
-            BodySlicer.ExtractMethodBody(
+            MemberTextSlicer.ExtractMemberText(
                 "unsafe class C\n{\n    public static delegate /* gap */ *<int, int> Ret()\n    {\n        return default;\n    }\n}",
                 startLine: 4, endLine: 6, methodName: "Ret"));
 
         // A commented gap does not hide a constructor's parameter list.
         Assert.Equal(
             "C /* gap */ ()\n{\n}",
-            BodySlicer.ExtractMethodBody(
+            MemberTextSlicer.ExtractMemberText(
                 "class C\n{\n    C /* gap */ ()\n    {\n    }\n}",
                 startLine: 4, endLine: 5, methodName: ".ctor"));
     }
@@ -1561,7 +1561,7 @@ public class AuthoredSourceValidityTests
     {
         var source = "[System.Obsolete( // comment with ]\n    \"why\")] public record R(int X);";
 
-        var slice = BodySlicer.ExtractMethodBody(source, startLine: 2, endLine: 2, methodName: ".ctor");
+        var slice = MemberTextSlicer.ExtractMemberText(source, startLine: 2, endLine: 2, methodName: ".ctor");
 
         // Fixed: the right answer is null, and it is now the answer.
         Assert.Null(slice);
@@ -1588,7 +1588,7 @@ public class AuthoredSourceValidityTests
             "}",                                    // 7
         ]);
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: ".ctor");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 6, methodName: ".ctor");
 
         Assert.Equal(
             $"{declaration}(string name)\n{{\n    Name = name;\n}}",
@@ -1643,7 +1643,7 @@ public class AuthoredSourceValidityTests
 
         // The range ends on the statement, as a sequence-point range does; the declaration row
         // still owns the member's complete span.
-        var body = BodySlicer.ExtractMethodBody(
+        var body = MemberTextSlicer.ExtractMemberText(
             string.Join("\n", lines), startLine: 5, endLine: 5, methodName: "M");
 
         Assert.NotNull(body);
@@ -1678,7 +1678,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 4, 5, "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1711,7 +1711,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 5, 5, "get_P");
 
         // The slice is the whole property: the sibling accessor is inside it by definition,
         // so what this fixture now gates is that the shape below does not stop the slice
@@ -1742,7 +1742,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 4, 5, "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1770,7 +1770,7 @@ public class AuthoredSourceValidityTests
 
         // The scan must not claim to have found the member's closing brace by reading through
         // a literal it lost its place in.
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 4, 5, "M");
 
         Assert.DoesNotContain("int y = 2;", slice);
     }
@@ -1799,7 +1799,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 4, 5, "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1828,7 +1828,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 8, "M");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 4, 8, "M");
 
         // The index cannot vouch for a span once a conditional directive has been seen, so the
         // row is withheld and the member reports absent. That is the #3668 behavior reaching the
@@ -1858,7 +1858,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 6, "M");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 4, 6, "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1885,7 +1885,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 6, "M");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 4, 6, "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1921,7 +1921,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 7, 7, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 7, 7, "get_P");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1950,7 +1950,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 5, 5, "get_P");
 
         // The slice is the whole property: the sibling accessor is inside it by definition,
         // so what this fixture now gates is that the shape below does not stop the slice
@@ -1990,7 +1990,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 7, 7, "get_Property");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 7, 7, "get_Property");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -2024,7 +2024,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 5, 5, "get_P");
 
         Assert.Contains(statement, slice);
         Assert.Contains("return set;", slice);
@@ -2059,7 +2059,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 6, endLine, "get_Prop");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 6, endLine, "get_Prop");
 
         // The slice is the whole property. The sibling accessor is inside it by definition,
         // so what this fixture gates is that the shape below neither stops the slice short of
@@ -2098,7 +2098,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 5, endLine, "get_P");
 
         // The slice is the whole property. The sibling accessor is inside it by definition,
         // so what this fixture gates is that the shape below neither stops the slice short of
@@ -2132,7 +2132,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_Prop");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 5, endLine, "get_Prop");
 
         // The tail after the nested block is still kept -- that is what this fixture gates --
         // and the slice now runs on to the property's closing brace rather than stopping at the
@@ -2172,7 +2172,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(source, 5, 7, "get_P");
 
         // The slice is the whole property. The sibling accessor is inside it by definition,
         // so what this fixture gates is that the shape below neither stops the slice short of
@@ -2206,7 +2206,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = BodySlicer.ExtractMethodBody(source, 5, 5, "get_Tfm");
+        var slice = MemberTextSlicer.ExtractMemberText(source, 5, 5, "get_Tfm");
 
         // The slice is the whole property. The sibling accessor is inside it by definition,
         // so what this fixture gates is that the shape below neither stops the slice short of
@@ -2244,7 +2244,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = BodySlicer.ExtractMethodBody(source, 6, 8, "get_Prop");
+        var slice = MemberTextSlicer.ExtractMemberText(source, 6, 8, "get_Prop");
 
         // The slice is the whole property. The sibling accessor is inside it by definition,
         // so what this fixture gates is that the shape below neither stops the slice short of
@@ -2297,7 +2297,7 @@ public class AuthoredSourceValidityTests
     {
         _ = truncated;
 
-        var slice = BodySlicer.ExtractMethodBody(source, startLine, endLine, methodName);
+        var slice = MemberTextSlicer.ExtractMemberText(source, startLine, endLine, methodName);
 
         // Each of these shapes made the sibling question end the slice somewhere that is not a
         // member boundary, and every answer was a fragment. There is no sibling question now, so
@@ -2334,7 +2334,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = BodySlicer.ExtractMethodBody(source, 5, 8, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(source, 5, 8, "get_P");
 
         // The slice is the whole property, so the directive is inside it rather than ahead of
         // it. This fixture's source never closes the directive it opens -- there is no #endregion
@@ -2381,7 +2381,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 8, "get_P"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 5, 8, "get_P"));
     }
 
     /// <summary>
@@ -2409,7 +2409,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(source, 5, 7, "get_P");
 
         // The slice is the whole property. The sibling accessor is inside it by definition,
         // so what this fixture gates is that the shape below neither stops the slice short of
@@ -2444,7 +2444,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 7, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 5, 7, "get_P");
 
         // The slice is the whole property. The sibling accessor is inside it by definition,
         // so what this fixture gates is that the shape below neither stops the slice short of
@@ -2480,7 +2480,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 9, "get_Prop");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 5, 9, "get_Prop");
 
         // The slice is the whole property. The sibling accessor is inside it by definition,
         // so what this fixture gates is that the shape below neither stops the slice short of
@@ -2513,7 +2513,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 6, 6, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 6, 6, "get_P");
 
         // The slice is the whole property: the sibling accessor is inside it by definition,
         // so what this fixture now gates is that the shape below does not stop the slice
@@ -2550,7 +2550,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 5, 5, "get_P");
 
         Assert.Contains("void Local() { }", slice);
         Assert.Contains("return x;", slice);
@@ -2582,7 +2582,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 5, 5, "get_P");
 
         // The slice is the whole property: the sibling accessor is inside it by definition,
         // so what this fixture now gates is that the shape below does not stop the slice
@@ -2618,7 +2618,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = MemberTextSlicer.ExtractMemberText(string.Join("\n", lines), 5, 5, "get_P");
 
         // The slice is the whole property: the sibling accessor is inside it by definition,
         // so what this fixture now gates is that the shape below does not stop the slice
@@ -2656,7 +2656,7 @@ public class AuthoredSourceValidityTests
         var text = string.Join("\n", lines);
 
         // The range stops on the first statement; everything below it belongs to the member.
-        var slice = BodySlicer.ExtractMethodBody(text, startLine: 4, endLine: 5, methodName: "M");
+        var slice = MemberTextSlicer.ExtractMemberText(text, startLine: 4, endLine: 5, methodName: "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -2674,7 +2674,7 @@ public class AuthoredSourceValidityTests
     {
         var text = string.Join("\n", ["public class C", "{", "    " + member, "}"]);
 
-        var slice = BodySlicer.ExtractMethodBody(text, startLine: 3, endLine: 3, methodName: name);
+        var slice = MemberTextSlicer.ExtractMemberText(text, startLine: 3, endLine: 3, methodName: name);
 
         Assert.Equal(member, slice);
     }
@@ -2690,7 +2690,7 @@ public class AuthoredSourceValidityTests
     {
         var source = string.Join('\n', ["public class C", "{", "    public string R() => \"\"\";\";", "}"]);
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "R"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 3, methodName: "R"));
     }
 
     /// <summary>
@@ -2716,7 +2716,7 @@ public class AuthoredSourceValidityTests
             "}",                                            // 9
         ]);
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 8, methodName: ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, startLine: 6, endLine: 8, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -2742,6 +2742,6 @@ public class AuthoredSourceValidityTests
 
         Assert.Equal(
             "Result(string name)\n{\n    Name = name;\n}",
-            BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 9, methodName: ".ctor"));
+            MemberTextSlicer.ExtractMemberText(source, startLine: 7, endLine: 9, methodName: ".ctor"));
     }
 }

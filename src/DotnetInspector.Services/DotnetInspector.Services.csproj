@@ -21,7 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../CSharpText/CSharpText.csproj" />
-    <ProjectReference Include="../DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
+    <ProjectReference Include="../CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <ProjectReference Include="../ILInspector.SourceLink/ILInspector.SourceLink.csproj" />

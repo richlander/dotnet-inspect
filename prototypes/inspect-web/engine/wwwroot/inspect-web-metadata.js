@@ -42,9 +42,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "MetadataExports");
-        value = $ownDataProperty(value, "QueryPackageHeapEntries.1330709314");
+        value = $ownDataProperty(value, "QueryPackageHeapEntries.649160465");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027MetadataExports.QueryPackageHeapEntries.1330709314\u0027 is not callable.");
+            throw new Error("Managed export \u0027MetadataExports.QueryPackageHeapEntries.649160465\u0027 is not callable.");
         }
     }
     {
@@ -58,17 +58,17 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "MetadataExports");
-        value = $ownDataProperty(value, "QueryPackageMetadataTable.1509466830");
+        value = $ownDataProperty(value, "QueryPackageMetadataTable.1945598111");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027MetadataExports.QueryPackageMetadataTable.1509466830\u0027 is not callable.");
+            throw new Error("Managed export \u0027MetadataExports.QueryPackageMetadataTable.1945598111\u0027 is not callable.");
         }
     }
     {
         let value = exports;
         value = $ownDataProperty(value, "MetadataExports");
-        value = $ownDataProperty(value, "QueryPlatformHeapEntries.1330709314");
+        value = $ownDataProperty(value, "QueryPlatformHeapEntries.649160465");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027MetadataExports.QueryPlatformHeapEntries.1330709314\u0027 is not callable.");
+            throw new Error("Managed export \u0027MetadataExports.QueryPlatformHeapEntries.649160465\u0027 is not callable.");
         }
     }
     {
@@ -82,9 +82,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "MetadataExports");
-        value = $ownDataProperty(value, "QueryPlatformMetadataTable.1509466830");
+        value = $ownDataProperty(value, "QueryPlatformMetadataTable.1945598111");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027MetadataExports.QueryPlatformMetadataTable.1509466830\u0027 is not callable.");
+            throw new Error("Managed export \u0027MetadataExports.QueryPlatformMetadataTable.1945598111\u0027 is not callable.");
         }
     }
     {
@@ -125,8 +125,8 @@ export async function queryGraphMemberSurface(packageId, version, targetFramewor
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryPackageHeapEntries(packageId, version, targetFramework, assemblyFileName, heap) {
-    const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageHeapEntries.1330709314"](packageId, version, targetFramework, assemblyFileName, heap);
+export async function queryPackageHeapEntries(packageId, version, targetFramework, assemblyFileName, metadataRoot, heap) {
+    const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageHeapEntries.649160465"](packageId, version, targetFramework, assemblyFileName, metadataRoot, heap);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -135,13 +135,13 @@ export async function queryPackageMetadata(packageId, version, targetFramework, 
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryPackageMetadataTable(packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows) {
-    const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageMetadataTable.1509466830"](packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows);
+export async function queryPackageMetadataTable(packageId, version, targetFramework, assemblyFileName, metadataRoot, tableIndex, startRowId, maxRows) {
+    const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageMetadataTable.1945598111"](packageId, version, targetFramework, assemblyFileName, metadataRoot, tableIndex, startRowId, maxRows);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryPlatformHeapEntries(targetFramework, platformVersion, assemblyFileName, pack, heap) {
-    const $result = await $requireManagedExports()["MetadataExports"]["QueryPlatformHeapEntries.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, heap);
+export async function queryPlatformHeapEntries(targetFramework, platformVersion, assemblyFileName, pack, metadataRoot, heap) {
+    const $result = await $requireManagedExports()["MetadataExports"]["QueryPlatformHeapEntries.649160465"](targetFramework, platformVersion, assemblyFileName, pack, metadataRoot, heap);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -150,8 +150,8 @@ export async function queryPlatformMetadata(targetFramework, platformVersion, as
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryPlatformMetadataTable(targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows) {
-    const $result = await $requireManagedExports()["MetadataExports"]["QueryPlatformMetadataTable.1509466830"](targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows);
+export async function queryPlatformMetadataTable(targetFramework, platformVersion, assemblyFileName, pack, metadataRoot, tableIndex, startRowId, maxRows) {
+    const $result = await $requireManagedExports()["MetadataExports"]["QueryPlatformMetadataTable.1945598111"](targetFramework, platformVersion, assemblyFileName, pack, metadataRoot, tableIndex, startRowId, maxRows);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

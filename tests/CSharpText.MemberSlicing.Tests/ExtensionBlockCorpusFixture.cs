@@ -1,4 +1,4 @@
-namespace DotnetInspector.CSharpBodySlicer.Tests;
+namespace CSharpText.MemberSlicing.Tests;
 
 [AttributeUsage(AttributeTargets.GenericParameter)]
 internal sealed class ExtensionTypeParameterAttribute(bool condition) : Attribute
