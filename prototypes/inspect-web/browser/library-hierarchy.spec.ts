@@ -568,13 +568,13 @@ async function openIntegrations(page: Page, location = root) {
 async function openOpportunities(page: Page, location = root) {
   await page.goto(location);
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  if (await page.locator('[data-library-lens="references"]').count()) {
-    await page.keyboard.press("ArrowRight");
-  }
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("Enter");
-  await expect(page.locator('[data-library-lens="opportunities"]'))
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "opportunities",
+    "Opportunities",
+  );
+  await expect(inspectorTab(page, "data-library-lens", "opportunities"))
     .toHaveAttribute("aria-selected", "true");
 }
 
@@ -692,12 +692,14 @@ test("production Opportunities keeps deferred Library results out of the incomin
   await expect(page.locator(".library-opportunities-surface footer")).toContainText(core.asset);
   await page.evaluate(() => document.dispatchEvent(new Event("fixture-opportunities-ready:asset:core")));
   await expect(page.locator(".library-opportunities-scroll .opp-row")).toHaveCount(3);
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await chooseSubject(page, "package", "Package");
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("Enter");
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "opportunities",
+    "Opportunities",
+  );
   await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");
   await expect(page.locator(".library-opportunities-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-opportunities-surface")).not.toContainText(core.name);
