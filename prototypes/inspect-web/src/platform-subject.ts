@@ -30,6 +30,19 @@ export function platformAssemblyRequest(row: PlatformAssemblyRow): string {
   return `${row.assembly}.dll`;
 }
 
+export function platformGraphLibraryForTarget(
+  target: PlatformCatalogTarget,
+  assembly: string,
+  pack: PlatformAssemblyRow["pack"] | null,
+): PlatformAssemblyRow | null {
+  const name = assembly.replace(/\.dll$/i, "").toLowerCase();
+  const matches = target.rows.filter(row =>
+    row.hasImplementation
+    && (!pack || row.pack === pack)
+    && row.assembly.toLowerCase() === name);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
 export function platformLibraryMatchesDescriptor(
   row: PlatformAssemblyRow,
   descriptor: BrowserAssemblySurface,

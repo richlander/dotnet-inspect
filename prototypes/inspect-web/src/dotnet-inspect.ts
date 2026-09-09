@@ -409,7 +409,8 @@ import {
   bindPlatformSubject, renderPlatformSubject, platformInventory, platformLibraryKey,
   platformLibraryRole, platformTargetKey, parsePlatformVersions, requireMatchingPlatformTarget,
   platformSupportsRuntimeAcquisition,
-  platformAssemblyRequest, platformLibraryMatchesDescriptor,
+  platformAssemblyRequest, platformGraphLibraryForTarget,
+  platformLibraryMatchesDescriptor,
   type PlatformNavigationState, type PlatformSubjectStatus,
 } from "./platform-subject.ts";
 import {
@@ -12247,14 +12248,12 @@ async function navigateOrDrillPlatform(
         node.platformPack,
         runtimePackPackage(),
         framework);
-    const runtimeResult = await loadRuntimePackAssembly(
+    const runtimeResult = await loadRuntimeGraphAssembly(
       framework,
-      node.assembly.endsWith(".dll")
-        ? node.assembly
-        : `${node.assembly}.dll`,
-      targetPack ?? "",
-      navigationIsCurrent,
-      retainedPlatform?.version ?? "");
+      retainedPlatform?.version ?? "",
+      node.assembly,
+      targetPack,
+      navigationIsCurrent);
     pack = runtimeResult.packageModel;
     if (discardIfStale(preservedFocus)) return;
     if (pack && retainedPlatform) {
@@ -12304,14 +12303,12 @@ async function navigateOrDrillPlatform(
         node.platformPack,
         runtimePackPackage(),
         framework);
-    const runtimeResult = await loadRuntimePackAssembly(
+    const runtimeResult = await loadRuntimeGraphAssembly(
       framework,
-      node.assembly.endsWith(".dll")
-        ? node.assembly
-        : `${node.assembly}.dll`,
-      targetPack ?? "",
-      navigationIsCurrent,
-      pack.version);
+      pack.version,
+      node.assembly,
+      targetPack,
+      navigationIsCurrent);
     pack = runtimeResult.packageModel;
     if (!navigationIsCurrent()) {
       if (seq === state.memberCallGraphSeq) {
@@ -13211,6 +13208,37 @@ async function loadRuntimePackAssembly(
     packageModel: result.packageModel,
     failureMessage: result.error === null ? "" : errorMessage(result.error),
   };
+}
+
+async function loadRuntimeGraphAssembly(
+  framework: string,
+  platformVersion: string,
+  assembly: string,
+  pack: PlatformPack | null,
+  isCurrent: () => boolean,
+): Promise<RuntimeLoadResult> {
+  try {
+    const target = await ensurePlatformCatalog(framework, platformVersion);
+    if (!isCurrent()) return { packageModel: null, failureMessage: "" };
+    const row = platformGraphLibraryForTarget(target, assembly, pack);
+    if (!row) {
+      const family = pack ? ` in ${pack}` : "";
+      return {
+        packageModel: null,
+        failureMessage:
+          `The exact Platform catalog does not uniquely identify an implementation for ${assembly}${family}.`,
+      };
+    }
+    return loadRuntimePackAssembly(
+      target.tfm,
+      platformAssemblyRequest(row),
+      row.pack,
+      isCurrent,
+      target.version,
+      row.file);
+  } catch (error) {
+    return { packageModel: null, failureMessage: errorMessage(error) };
+  }
 }
 
 async function runCallGraphDemo(

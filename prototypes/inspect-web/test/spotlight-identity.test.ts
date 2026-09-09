@@ -113,6 +113,10 @@ import {
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
 } from "../src/graph-mermaid.ts";
+import {
+  platformAssemblyRequest,
+  platformGraphLibraryForTarget,
+} from "../src/platform-subject.ts";
 
 const packageAt = (version: string, framework: string, types = 1) => ({
   id: "Example.Package",
@@ -2629,7 +2633,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     ?? "";
   assert.match(
     platformNavigation,
-    /let owner = captureViewOperation\(seq\);[\s\S]*ownsViewOperation\(owner, state\.memberCallGraphSeq\)[\s\S]*const discardIfStale = \([\s\S]*loadRuntimePackAssembly\([\s\S]*navigationIsCurrent[\s\S]*runtimeResult\.failureMessage[\s\S]*state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+    /let owner = captureViewOperation\(seq\);[\s\S]*ownsViewOperation\(owner, state\.memberCallGraphSeq\)[\s\S]*const discardIfStale = \([\s\S]*loadRuntimeGraphAssembly\([\s\S]*navigationIsCurrent[\s\S]*runtimeResult\.failureMessage[\s\S]*state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     appSource,
     /function applyMemberSection\(id: MemberSection\) \{[\s\S]*state\.memberSection === "call-graph" && id !== "call-graph"[\s\S]*invalidateMemberCallGraphWork\(state\)/);
@@ -6546,6 +6550,76 @@ test("opportunity navigation uses exact source assembly and definition identity"
     /opportunity\.sourceIdentity === "legacy"[\s\S]*?openSpotlight\(shortTypeName\(opportunity\.typeId\)\)[\s\S]*?opportunity\.sourceIdentity !== "exact"[\s\S]*?!opportunity\.sourceDefinitionId[\s\S]*?exact identity is unavailable[\s\S]*?if \(candidate\.status !== "unique"\) \{[\s\S]*?appendQueryNotice\(\s*`The opportunity source could not be opened: \$\{reason\}\.`\);[\s\S]*?navigateToType\(candidate\.type\)/);
 });
 
+test("graph-first platform acquisition preserves catalog family and physical filename", async () => {
+  const row = {
+    tfm: "net11.0",
+    pack: "netcore.app" as const,
+    assembly: "Mixed",
+    file: "PhysicalName.dll",
+    kind: "impl" as const,
+    forwardsTo: null,
+    version: "11.0.0.0",
+    publicTypes: 1,
+    inReferencePack: true,
+    hasImplementation: true,
+    packVersion: "11.0.0",
+  };
+  const target = {
+    tfm: "net11.0",
+    version: "11.0.0",
+    rows: [row],
+  };
+  assert.equal(
+    platformGraphLibraryForTarget(target, "Mixed.dll", "netcore.app"),
+    row);
+
+  const loader =
+    appSource.match(/async function loadRuntimeGraphAssembly[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const navigation =
+    appSource.match(/async function navigateOrDrillPlatform[\s\S]*?(?=\n\})/)?.[0]
+    ?? "";
+  const requests: unknown[][] = [];
+  await runInNewContext(
+    stripTypeScriptTypes(`(async () => {
+      ${loader}
+      await loadRuntimeGraphAssembly(
+        "net11.0", "11.0.0", "Mixed", "netcore.app", () => true);
+    })()`),
+    {
+      ensurePlatformCatalog: async () => target,
+      platformGraphLibraryForTarget,
+      platformAssemblyRequest,
+      loadRuntimePackAssembly: async (...args: unknown[]) => {
+        requests.push(args);
+        return { packageModel: {}, failureMessage: "" };
+      },
+      errorMessage: (error: unknown) => String(error),
+    });
+  assert.equal(requests.length, 1);
+  const request = requests[0]!;
+  assert.deepEqual(
+    [request[0], request[1], request[2], request[4], request[5]],
+    [
+      "net11.0",
+      "Mixed.dll",
+      "netcore.app",
+      "11.0.0",
+      "PhysicalName.dll",
+    ]);
+  assert.equal(typeof request[3], "function");
+  assert.equal(
+    navigation.match(/loadRuntimeGraphAssembly\(/g)?.length,
+    2);
+  assert.match(
+    navigation,
+    /loadRuntimeGraphAssembly\(\s*framework,\s*retainedPlatform\?\.version \?\? "",\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
+  assert.match(
+    navigation,
+    /loadRuntimeGraphAssembly\(\s*framework,\s*pack\.version,\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
+  assert.doesNotMatch(navigation, /\bloadRuntimePackAssembly\(/);
+});
+
 test("cold platform graph navigation acquires the exact assembly before any default runtime", () => {
   const navigation =
     appSource.match(/async function navigateOrDrillPlatform[\s\S]*?(?=\n\})/)?.[0]
@@ -6556,7 +6630,7 @@ test("cold platform graph navigation acquires the exact assembly before any defa
 
   assert.match(
     coldLoad,
-    /platformPackForGraphAssembly\(\s*node\.assembly,\s*node\.platformPack,\s*runtimePackPackage\(\),\s*framework\)[\s\S]*?loadRuntimePackAssembly\([\s\S]*?targetPack \?\? ""/);
+    /platformPackForGraphAssembly\(\s*node\.assembly,\s*node\.platformPack,\s*runtimePackPackage\(\),\s*framework\)[\s\S]*?loadRuntimeGraphAssembly\([\s\S]*?targetPack/);
   assert.doesNotMatch(coldLoad, /\bloadRuntimePack\(/);
 });
 
