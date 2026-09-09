@@ -2,92 +2,102 @@ using System.Runtime.Versioning;
 
 namespace InspectWeb.Engine;
 
+internal abstract record BrowserPackageQueryMatchCreditRequestResult
+{
+    internal sealed record Granted(int AdditionalMatchCredit)
+        : BrowserPackageQueryMatchCreditRequestResult;
+
+    internal sealed record NotActive
+        : BrowserPackageQueryMatchCreditRequestResult;
+}
+
 /// <summary>
-/// Serializes Browser package-query streams and cancels work superseded by a newer request.
+/// Admits package-query operations by page-issued identity and routes
+/// feature-owned match credit to the exact active operation.
 /// </summary>
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageQueryOperationCoordinator
 {
-    static readonly SemaphoreSlim Gate = new(1, 1);
-    static PackageQueryOperation? _current;
+    static readonly BrowserManagedOperationBridge Operations = new();
+    static readonly object Sync = new();
+    static readonly Dictionary<
+        BrowserManagedOperationId,
+        BrowserPackageQueryMatchCredit> MatchCredits = [];
 
-    internal static async ValueTask<BrowserPackageQueryOperationLease> BeginAsync(
-        int initialMatchCredit)
+    internal static Task<
+        BrowserManagedOperationResult<TValue, string, string>> RunAsync<TValue, TEvent>(
+            BrowserManagedOperationId operationId,
+            int initialMatchCredit,
+            Action<TEvent>? eventCallback,
+            Func<
+                BrowserPackageQueryMatchCredit,
+                IBrowserManagedOperationEvents<TEvent>,
+                CancellationToken,
+                Task<TValue>> body)
     {
-        var operation = new PackageQueryOperation(initialMatchCredit);
-        PackageQueryOperation? superseded =
-            Interlocked.Exchange(ref _current, operation);
-        superseded?.Cancel();
+        ArgumentNullException.ThrowIfNull(body);
+        return Operations.RunAsync<TValue, string, string, TEvent>(
+            operationId,
+            eventCallback,
+            async (token, events) =>
+            {
+                using var matchCredit =
+                    new BrowserPackageQueryMatchCredit(initialMatchCredit);
+                lock (Sync)
+                {
+                    if (!MatchCredits.TryAdd(operationId, matchCredit))
+                    {
+                        throw new InvalidOperationException(
+                            $"Package query '{operationId}' already owns match credit.");
+                    }
+                }
 
-        bool entered = false;
-        try
-        {
-            await Gate.WaitAsync(operation.Token);
-            entered = true;
-            operation.Token.ThrowIfCancellationRequested();
-            return new BrowserPackageQueryOperationLease(
-                operation.Token,
-                operation.MatchCredit,
-                () => Complete(operation));
-        }
-        catch
-        {
-            if (entered)
-                Gate.Release();
-            _ = Interlocked.CompareExchange(ref _current, null, operation);
-            operation.Dispose();
-            throw;
-        }
+                try
+                {
+                    TValue value =
+                        await body(matchCredit, events, token).ConfigureAwait(false);
+                    return new BrowserManagedOperationBodyResult<
+                        TValue,
+                        string,
+                        string>.Succeeded(value);
+                }
+                finally
+                {
+                    lock (Sync)
+                    {
+                        if (!MatchCredits.TryGetValue(
+                                operationId,
+                                out BrowserPackageQueryMatchCredit? active)
+                            || !ReferenceEquals(active, matchCredit)
+                            || !MatchCredits.Remove(operationId))
+                        {
+                            throw new InvalidOperationException(
+                                $"Package query '{operationId}' no longer owns its match credit.");
+                        }
+                    }
+                }
+            },
+            exception => new(exception.Message, exception.ToString()));
     }
 
-    internal static void CancelCurrent() =>
-        Volatile.Read(ref _current)?.Cancel();
+    internal static BrowserManagedCancellationRequestResult RequestCancellation(
+        BrowserManagedOperationId operationId,
+        BrowserManagedOperationCancelReason reason) =>
+        Operations.RequestCancellation(operationId, reason);
 
-    internal static bool RequestCurrentMatches(int additionalMatchCredit) =>
-        Volatile.Read(ref _current)
-            ?.MatchCredit.TryAdd(additionalMatchCredit) == true;
-
-    static void Complete(PackageQueryOperation operation)
+    internal static BrowserPackageQueryMatchCreditRequestResult RequestMatches(
+        BrowserManagedOperationId operationId,
+        int additionalMatchCredit)
     {
-        Gate.Release();
-        _ = Interlocked.CompareExchange(ref _current, null, operation);
-        operation.Dispose();
-    }
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(additionalMatchCredit);
+        BrowserPackageQueryMatchCredit? matchCredit;
+        lock (Sync)
+            MatchCredits.TryGetValue(operationId, out matchCredit);
 
-    sealed class PackageQueryOperation : IDisposable
-    {
-        readonly object _sync = new();
-        readonly CancellationTokenSource _cancellation = new();
-        bool _disposed;
-
-        internal PackageQueryOperation(int initialMatchCredit)
-        {
-            MatchCredit = new BrowserPackageQueryMatchCredit(initialMatchCredit);
-        }
-
-        internal CancellationToken Token => _cancellation.Token;
-        internal BrowserPackageQueryMatchCredit MatchCredit { get; }
-
-        internal void Cancel()
-        {
-            lock (_sync)
-            {
-                if (!_disposed)
-                    _cancellation.Cancel();
-            }
-        }
-
-        public void Dispose()
-        {
-            lock (_sync)
-            {
-                if (_disposed)
-                    return;
-                _disposed = true;
-                _cancellation.Dispose();
-                MatchCredit.Dispose();
-            }
-        }
+        return matchCredit?.TryAdd(additionalMatchCredit) == true
+            ? new BrowserPackageQueryMatchCreditRequestResult.Granted(
+                additionalMatchCredit)
+            : new BrowserPackageQueryMatchCreditRequestResult.NotActive();
     }
 }
 
@@ -129,26 +139,4 @@ internal sealed class BrowserPackageQueryMatchCredit : IDisposable
             _available.Dispose();
         }
     }
-}
-
-[SupportedOSPlatform("browser")]
-internal sealed class BrowserPackageQueryOperationLease : IDisposable
-{
-    Action? _release;
-
-    internal BrowserPackageQueryOperationLease(
-        CancellationToken cancellationToken,
-        BrowserPackageQueryMatchCredit matchCredit,
-        Action release)
-    {
-        CancellationToken = cancellationToken;
-        MatchCredit = matchCredit;
-        _release = release;
-    }
-
-    internal CancellationToken CancellationToken { get; }
-    internal BrowserPackageQueryMatchCredit MatchCredit { get; }
-
-    public void Dispose() =>
-        Interlocked.Exchange(ref _release, null)?.Invoke();
 }

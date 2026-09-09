@@ -8,6 +8,9 @@ import type {
   BrowserPackageQueryProgress as BrowserPackageQueryProgressPayload,
   BrowserPackageQueryRow as BrowserPackageQueryRowPayload,
   BrowserPackageQueryEvent as BrowserPackageQueryEventPayload,
+  BrowserPackageQueryCancellation,
+  BrowserPackageQueryMatchCreditResponse,
+  BrowserPackageQueryResult,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   PackageQueryDataSource,
@@ -24,9 +27,16 @@ import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
 export type { BrowserPackageAssemblyQueryPattern } from "./facades/inspect-web-package.d.ts";
 
 export interface BrowserPackageQueryEngine {
-  cancel(): void;
-  requestMatches(additionalMatchCredit: number): boolean;
+  cancel(
+    operationId: string,
+    reason: string,
+  ): BrowserPackageQueryCancellation;
+  requestMatches(
+    operationId: string,
+    additionalMatchCredit: number,
+  ): BrowserPackageQueryMatchCreditResponse;
   run(
+    operationId: string,
     searchText: string,
     facetIdsJson: string,
     maximumCandidates: number,
@@ -37,15 +47,25 @@ export interface BrowserPackageQueryEngine {
     packageType: string | null,
     sourceOrderId: string | null,
     discovery: boolean,
-  ): Promise<BrowserPackageQueryEventPayload>;
+  ): Promise<BrowserPackageQueryResult>;
   runAssembly?(
+    operationId: string,
     patternId: string,
     operand: string,
     packageCoordinatesJson: string,
     targetFramework: string,
     initialMatchCredit: number,
     eventSink: unknown,
-  ): Promise<BrowserPackageQueryEventPayload>;
+  ): Promise<BrowserPackageQueryResult>;
+}
+
+export interface BrowserPackageQueryDataSourceOptions {
+  createOperationId?: () => string;
+  reportUnexpectedFailure?: (
+    operationId: string,
+    error: Error,
+    diagnostic: string | null,
+  ) => void;
 }
 
 export function packageQueryFacets(
@@ -84,11 +104,28 @@ function toQueryFacet(
 
 export function createBrowserPackageQueryDataSource(
   engine: BrowserPackageQueryEngine,
+  options: BrowserPackageQueryDataSourceOptions = {},
 ): PackageQueryDataSource {
+  let activeOperationId: string | null = null;
+  const createOperationId =
+    options.createOperationId ?? (() => globalThis.crypto.randomUUID());
+  const reportUnexpectedFailure =
+    options.reportUnexpectedFailure
+    ?? ((operationId, error, diagnostic) => {
+      console.error(
+        `Package Query managed operation '${operationId}' failed unexpectedly.`,
+        diagnostic ?? error);
+    });
   return {
     initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-    requestMore: additionalMatchCredit =>
-      engine.requestMatches(additionalMatchCredit),
+    requestMore: additionalMatchCredit => {
+      const operationId = activeOperationId;
+      if (operationId === null) return false;
+      const result =
+        engine.requestMatches(operationId, additionalMatchCredit);
+      return result.kind === "Granted"
+        && result.additionalMatchCredit === additionalMatchCredit;
+    },
     async run(
       request,
       onPage,
@@ -98,6 +135,12 @@ export function createBrowserPackageQueryDataSource(
       onAssessment,
     ) {
       if (abortSignal.aborted) return { kind: "cancelled" };
+      const operationId = createOperationId();
+      if (!operationId) {
+        throw new Error(
+          "The Browser package-query operation ID allocator returned no ID.");
+      }
+      activeOperationId = operationId;
 
       let completion: TerminalQueryCompletion | null = null;
       const flushState: {
@@ -143,7 +186,7 @@ export function createBrowserPackageQueryDataSource(
           flushState.failed = true;
           flushState.error = error;
           pendingEvents.length = 0;
-          engine.cancel();
+          engine.cancel(operationId, "feature-observer-failed");
         }
       };
       const scheduleFlush = () => {
@@ -168,12 +211,18 @@ export function createBrowserPackageQueryDataSource(
         },
       });
 
-      const cancel = () => engine.cancel();
+      const cancel = () =>
+        engine.cancel(operationId, cancellationReason(abortSignal.reason));
       abortSignal.addEventListener("abort", cancel, { once: true });
       try {
-        const finalEvent = request.assemblyPattern
-          ? await runAssemblyQuery(engine, request.assemblyPattern, eventSink)
+        const result = request.assemblyPattern
+          ? await runAssemblyQuery(
+              engine,
+              operationId,
+              request.assemblyPattern,
+              eventSink)
           : await engine.run(
+              operationId,
               request.scopeQuery,
               JSON.stringify(request.facets.map(facet => facet.key)),
               request.requestedLimit,
@@ -186,7 +235,35 @@ export function createBrowserPackageQueryDataSource(
               request.inputKind === "gallery");
         flushEvents();
         if (flushState.failed) throw flushState.error;
+        if (result.version !== 1) {
+          throw new Error(
+            "The Browser package-query result version is unsupported.");
+        }
+        if (result.kind === "Canceled") return { kind: "cancelled" };
+        if (result.kind === "Failed") {
+          const error = new Error(
+            result.error ?? "The Browser package query failed without an error.");
+          if (result.failureKind === "Unexpected") {
+            try {
+              reportUnexpectedFailure(
+                operationId,
+                error,
+                result.diagnostic);
+            } catch (reportingError: unknown) {
+              throw new AggregateError(
+                [error, reportingError],
+                "The Browser package query and its diagnostic observer failed.",
+                { cause: reportingError });
+            }
+          }
+          throw error;
+        }
+        if (result.kind !== "Succeeded" || result.value === null) {
+          throw new TypeError(
+            "The Browser package-query result was not a supported terminal result.");
+        }
         if (abortSignal.aborted) return { kind: "cancelled" };
+        const finalEvent = result.value;
         if (finalEvent.kind !== "Completed") {
           throw new TypeError(
             "The Browser package-query result was not a terminal event.");
@@ -211,6 +288,8 @@ export function createBrowserPackageQueryDataSource(
         throw error;
       } finally {
         abortSignal.removeEventListener("abort", cancel);
+        if (activeOperationId === operationId)
+          activeOperationId = null;
       }
     },
   };
@@ -218,20 +297,36 @@ export function createBrowserPackageQueryDataSource(
 
 async function runAssemblyQuery(
   engine: BrowserPackageQueryEngine,
+  operationId: string,
   request: QueryAssemblyPatternRequest,
   eventSink: unknown,
-): Promise<BrowserPackageQueryEventPayload> {
+): Promise<BrowserPackageQueryResult> {
   if (!engine.runAssembly) {
     throw new Error(
       "Assembly-pattern package queries are unavailable in this Browser engine.");
   }
   return await engine.runAssembly(
+    operationId,
     request.patternId,
     request.operand,
     JSON.stringify(request.packageCoordinates),
     request.targetFramework,
     PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
     eventSink);
+}
+
+function cancellationReason(reason: unknown): string {
+  switch (reason) {
+    case "user":
+    case "superseded":
+    case "disposed":
+    case "feature-observer-failed":
+    case "timeout":
+    case "worker-restarted":
+      return reason;
+    default:
+      return "user";
+  }
 }
 
 function parseBrowserEvent(json: string): BrowserPackageQueryEventPayload {
