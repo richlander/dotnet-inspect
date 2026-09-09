@@ -126,12 +126,15 @@ public static class FixtureIds
     public const string DecompilerVbFinalizer = "decompiler.vb-finalizer";
 
     public const string HostileLiterals = "hostile.literals";
+    public const string InspectWebCloneTransport =
+        "inspect-web.clone-transport";
     public const string InspectWebMethodBodies = "inspect-web.method-bodies";
     public const string InspectWebSourceComparisonV1 = "inspect-web.source-comparison.v1";
     public const string InspectWebSourceComparisonV2 = "inspect-web.source-comparison.v2";
     public const string SourceLinkMalformed = "sourcelink.malformed";
     public const string SourceLinkPartiallyMalformed = "sourcelink.partially-malformed";
     public const string SourceLinkNormalized = "sourcelink.normalized";
+    public const string SourceLinkVisualBasic = "sourcelink.visual-basic";
 
     public const string ResearchTargetSample = "research.target-sample";
     public const string ResearchTargetCorrespondenceV1 =
@@ -172,6 +175,13 @@ public static class FixtureCatalog
         "ILInspector.Metadata.AttributeEnumFixtures.dll",
         Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "metadata", "custom-attributes", "producer-truth");
+
+    public static readonly FixtureDefinition InspectWebCloneTransport = Fixture(
+        FixtureIds.InspectWebCloneTransport,
+        "InspectWeb.CloneTransportFixtures",
+        "InspectWeb.CloneTransportFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "inspect-web", "clone", "generic-identity", "explicit-interface");
 
     public static readonly FixtureDefinition InspectWebMethodBodies = Fixture(
         FixtureIds.InspectWebMethodBodies,
@@ -276,6 +286,13 @@ public static class FixtureCatalog
         "DotnetInspector.SourceLinkNormalizedFixtures.dll",
         Boundaries(FixtureBoundary.SourceLinkMap),
         "sourcelink", "normalized-map");
+
+    public static readonly FixtureDefinition SourceLinkVisualBasic = Fixture(
+        FixtureIds.SourceLinkVisualBasic,
+        "DotnetInspector.SourceLinkVisualBasicFixtures",
+        "DotnetInspector.SourceLinkVisualBasicFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "sourcelink", "vb", "bodyless-type");
 
     public static readonly FixtureDefinition DiffV1 = Fixture(
         FixtureIds.DiffV1,
@@ -832,6 +849,7 @@ public static class FixtureCatalog
         JsExportUnions,
         MetadataAttributeEnums,
         MetadataMemorySafety,
+        InspectWebCloneTransport,
         InspectWebMethodBodies,
         InspectWebSourceComparisonV1,
         InspectWebSourceComparisonV2,
@@ -840,6 +858,7 @@ public static class FixtureCatalog
         SourceLinkMalformed,
         SourceLinkPartiallyMalformed,
         SourceLinkNormalized,
+        SourceLinkVisualBasic,
         DiffV1,
         DiffV2,
         SourceDiffV1,
@@ -1215,6 +1234,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
+            "InspectWeb.CloneTransportFixtures" =>
+                "fixtures/inspect-web/InspectWeb.CloneTransportFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",
             "InspectWeb.SourceComparisonFixtures.V1" =>
                 "fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1",
@@ -1240,6 +1261,7 @@ public static class FixtureCatalog
             "DotnetInspector.SourceLinkMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures",
             "DotnetInspector.SourceLinkNormalizedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures",
             "DotnetInspector.SourceLinkPartiallyMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures",
+            "DotnetInspector.SourceLinkVisualBasicFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures",
             "DotnetInspector.Services.RouteLearning.Base" => "fixtures/services/DotnetInspector.Services.RouteLearning.Base",
             "DotnetInspector.Services.RouteLearning.Consumer" => "fixtures/services/DotnetInspector.Services.RouteLearning.Consumer",
             "DotnetInspector.Services.RouteLearning.Contract" => "fixtures/services/DotnetInspector.Services.RouteLearning.Contract",

@@ -5,7 +5,7 @@ namespace CiChangeDetection;
 internal static class DecompilerProjectGraphPolicy
 {
     private const string RootProjectDirectory =
-        "src/ILInspector.Decompiler.Tests";
+        "tests/ILInspector.Decompiler.Tests";
 
     internal static void Validate(string repository)
     {

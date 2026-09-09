@@ -47,6 +47,7 @@ const run: BrowserMemberSurface = {
   stableSelector: "Run",
   anchorDigest: "widget-run",
   canonicalSignature: "void Example.Widget.Run()",
+  anchorTypeFullName: "Example.Widget",
   graphSelectorKey: "Run",
   bodySelectors: [{ token: 0x06000001, memberName: "Run", selectorKey: "Run" }],
 };

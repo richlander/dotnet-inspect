@@ -38,7 +38,7 @@ connect it to these neighboring owners:
 | `ILInspector.ControlFlow` | Graph, dominance, and dataflow kernels. | Adapting IR terminators to edges and choosing structured replacements. |
 | `CSharpText` | Model-free textual grammars, identifiers, and layout. | Body recovery and model-bound expression spelling. |
 | `ILInspector.CSharp` | Typed declarations, signatures, type shells, and body/artifact contracts. | Supplying recovered bodies and declaration-relevant body facts. |
-| `Inspector.Findings`, `ILInspector.ILDiff`, and `ILInspector.Text` | Observation/comparison contracts and IL/text comparison services. | Decompiler-specific projections and C# structural comparison. |
+| `Inspector.Findings`, `ILInspector.ILDiff`, and `Inspector.Text` | Observation/comparison contracts and IL/text comparison services. | Decompiler-specific projections and C# structural comparison. |
 
 Analysis independently produces IL-body evidence. Research composes Analysis
 and Decompiler results rather than asking either producer to own the other's
@@ -204,7 +204,7 @@ its different questions separate.
 
 | Location | Role |
 | --- | --- |
-| [`src/ILInspector.Decompiler.Tests`](../src/ILInspector.Decompiler.Tests) | Executable xUnit suite: importer, IR, passes, proof atoms, printer, annotation/document contracts, body production, and harness regression tests. |
+| [`tests/ILInspector.Decompiler.Tests`](../tests/ILInspector.Decompiler.Tests) | Executable xUnit suite: importer, IR, passes, proof atoms, printer, annotation/document contracts, body production, and harness regression tests. |
 | [`fixtures/decompiler`](../fixtures/decompiler) | Independently compiled inputs where compiler features, module attributes, assembly identity, or cross-assembly relationships matter. |
 | [`tests/DotnetInspector.FixtureInfrastructure`](../tests/DotnetInspector.FixtureInfrastructure) | `FixtureCatalog` registration and resolution shared by tests and harnesses. |
 | [`tools/DecompilerHarness`](../tools/DecompilerHarness) | Single-method diagnostics, compile-back, generated-fixture catalog, source oracles, and corpus measurements. |
@@ -264,20 +264,20 @@ test host via `dotnet run`, not `dotnet test`.
 dotnet build dotnet-inspect.slnx -c Release
 
 # Discover the current named lanes.
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   --gate list
 
 # Iterate on one pass's positive and decline cases.
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -class ILInspector.Decompiler.Tests.UsingStatementPassTests
 
 # Run the fidelity area, including its slow tests.
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   --gate fidelity
 ```
 
 The current decompiler host's
-[`Program.cs`](../src/ILInspector.Decompiler.Tests/Program.cs) expands `--gate`
+[`Program.cs`](../tests/ILInspector.Decompiler.Tests/Program.cs) expands `--gate`
 before invoking xUnit. `Speed=Slow` is a cost classification; `Area` selects
 functional slices. Area tags are not an exhaustive inventory of all tests.
 The decompiler still uses its transitional native selectors such as `-class`
