@@ -1573,7 +1573,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PackageFrameworkUnavailability_DoesNotEmitArtifactFramework()
+    public async Task PackageFrameworkUnavailability_EmitsOnlyRequestedFramework()
     {
         const char bidi = '\u202E';
         const string packageId = "Bidi.Framework.Failure";
@@ -1612,8 +1612,8 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserCompileLibraryStatus.NoMatchingTargetFramework,
             surface.CompileLibrary.Status);
-        Assert.Empty(surface.Frameworks);
-        Assert.DoesNotContain(bidi, surface.ActiveFramework);
+        Assert.Equal(["net11.0"], surface.Frameworks);
+        Assert.Equal("net11.0", surface.ActiveFramework);
         Assert.DoesNotContain(
             bidi,
             surface.CompileLibrary.TargetFramework ?? "");
