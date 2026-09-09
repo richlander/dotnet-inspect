@@ -322,11 +322,12 @@ CLI gestures / browser controls
 ```
 
 The CLI should consume its existing semantic `-n` lowering, not forward the
-token to HTTP. The browser should express the equivalent typed selection.
-Both should disclose the bounded Gallery input independently of the selected
-row count. The approved first website consumer uses ordinary shared acquisition
-and local Package Query evaluation before the delegation/L2 stages in this
-eventual composition. The shared product binding owns its default capacity; the example
+token to HTTP. A future browser consumer should express the equivalent typed
+selection. Every consumer must disclose the bounded Gallery input independently
+of the selected row count. The first website consumer used ordinary shared
+acquisition and local Package Query evaluation before the delegation/L2 stages,
+then #6341 retired that host gesture to keep `/query` prefix-first. The shared
+product binding remains available and owns its default capacity; the example
 below uses 200, not a new CLI flag or a mandatory source default.
 CLI text/Markdown/JSON lowering uses the existing Markout/Sections path.
 Browser interactive controls and cards remain host-specific rendering over
@@ -418,11 +419,11 @@ curl --compressed --get \
 ```
 
 A subsequent GET with `Origin: https://dotnet-inspect.net` returned
-`Access-Control-Allow-Origin: *` on 2026-09-05 UTC. The opt-in live
-`Gallery Package Query website over real Wasm` scenario also exercises the
-published production page through Firefox and the actual Gallery CORS path.
-This observation is reproducible with `INSPECT_WEB_GALLERY_LIVE=1`; it is not
-a permanent provider-availability claim.
+`Access-Control-Allow-Origin: *` on 2026-09-05 UTC. The retired Browser consumer
+also exercised the published production page through Firefox and the actual
+Gallery CORS path. That historical observation is not a permanent
+provider-availability claim; no current Browser gate depends on live Gallery
+availability.
 
 ### Release gates
 
@@ -436,8 +437,7 @@ Delegation and L2 binding retain their separately owned, future gates.
 | `GalleryDiscoveryClientTests` | Lifetime versus version downloads, optional missing fields, required-field failures, source association, and provider ordering are preserved. Short/empty responses and approximate totals remain finite inputs; malformed/duplicate rows, truncated transport, cancellation, deadlines, and resource failures do not become successful inputs. |
 | `PackageQueryGalleryTests.MetadataSelectionEqualsHeadOverTheFullResponseIncludingTies` and `CapacityDependentRankingDoesNotReplaceHeadWithSmallerAcquisition` | Acquisition preserves K and the whole provider response; local selection matches `RowSelectionExecutor` over that exact finite input, including ties and zero/fewer/exactly/more-than-N rows. The fixed index/auxiliary divergence detects replacing K with N. |
 | Remaining `PackageQueryGalleryTests` | Explicit manifest/content predicates retain the same finite input and real manifest evidence; local Head stops additional enrichment, while failures and cancellation remain visible. |
-| `BrowserPackageQueryOperationsTests` and `package-query*.test.ts` | Catalog/request/row projection, finite completion, source controls, stale-generation rejection, and demand credit preserve the shared input and result meaning. |
-| `Gallery Package Query website over real Wasm` | The actual published page performs termless type-filtered browse and neighboring text search with K=200, nullable metadata, and honest finite completion. The live-provider case is opt-in. |
+| `BrowserPackageQueryOperationsTests` and `package-query*.test.ts` | Catalog/request/row projection, finite completion, stale-generation rejection, and demand credit preserve the shared input and result meaning independently of a Browser `/query` gesture. |
 | `GalleryDiscoveryDelegationBoundaries` (**unimplemented/unverified**) | Future protocol adoption must decline nonempty delegated prefixes, whole-population completion, and upstream Count before source work; accepted failures must not fall back. |
 
 The ordinary-acquisition path consumes RowSelection's reference semantics.

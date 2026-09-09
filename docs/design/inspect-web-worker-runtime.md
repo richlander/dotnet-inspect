@@ -14,8 +14,10 @@ module `Worker`, the current generated facade set, and native lifecycle inputs
 under `inspect-web-worker-browser-binding`. Its explicit diagnostic consumer
 uses the existing managed async-lowering canary. It does not route current UI
 features through the Worker. Bootstrap now registers the managed epoch-work
-reporter before readiness. Feature adoption, full lifecycle coverage,
-responsiveness evidence, and the
+reporter and the typed Type Source operation before readiness. The page-side
+Type Source producer adapter is prepared but has no production caller.
+Production feature adoption, full lifecycle coverage, responsiveness evidence,
+and the
 remaining browser gates named below are still required.
 
 Its finite state models establish only the abstract properties recorded with
@@ -484,6 +486,29 @@ Operation authority resolves every prepared binding through `activate()` or
 `abandon()` before the corresponding `start()` call returns. An intentionally
 unresolved prepared binding therefore blocks later assignments and realm
 release by contract rather than being force-abandoned by epoch termination.
+
+The prepared Type Source registration consumes the existing Source operation
+without changing its feature meaning. Its page encoder copies only package ID,
+version, framework, assembly, type identity, and serialized taste from the
+callback-bearing page request. The Worker invokes the generated
+`queryTypeSource` with the authority-issued operation ID and maps its versioned
+managed result to the protocol's succeeded, expected or unexpected failed, or
+canceled settlement. Keyed cancellation calls the generated
+`cancelTypeSourceQuery`; `Requested` and `AlreadyRequested` acknowledge a
+running operation, while `NotActive` does not. Every generated DTO is validated
+before use.
+
+The request codec admits at most 64 Ki characters across its six fields. The
+result codec admits 32,000,000 source-text characters, choosing the same
+magnitude as the browser API-surface retained-text budget, and 64 Ki characters
+across provenance, provider, URL, and PDB-limitation text. An oversized
+managed result becomes one unexpected operation failure rather than truncating
+the value or failing the Worker realm. Malformed generated result structure
+likewise becomes one unexpected operation failure; a malformed cancellation
+acknowledgment cannot be represented by the control protocol and fails the
+Worker boundary. Type Source has no nonterminal payload, so its progress codec
+rejects every value and its liveness allowance is unbounded. These are protocol
+and liveness bounds, not a responsiveness claim.
 
 Abandoning a prepared binding synchronously releases its retained state and
 prepared lifetime without assigning Worker work. Once an activated binding
@@ -1385,11 +1410,12 @@ deterministic scheduling rather than a real browser worker. It includes:
 `inspect-web-worker-browser-binding` is the first Release browser sub-gate. It
 uses the product-published client, module Worker, seven generated facades, and
 actual .NET runtime. It covers cold and warm managed calls, idle heartbeats,
-explicit replacement with a new epoch, native termination, failed bootstrap,
-and a stalled Wasm initialization while page input remains available. Its
-focused TypeScript cases cover overlapping lifecycle suspensions, initial
-hidden state, scheduling-gap recovery before deadline reads, and subscription
-cleanup. It is not the complete lifecycle or managed CPU responsiveness gate.
+one decompiled Type Source result through the prepared typed adapter, explicit
+replacement with a new epoch, native termination, failed bootstrap, and a
+stalled Wasm initialization while page input remains available. Its focused
+TypeScript cases cover overlapping lifecycle suspensions, initial hidden state,
+scheduling-gap recovery before deadline reads, and subscription cleanup. It is
+not the complete lifecycle or managed CPU responsiveness gate.
 
 `inspect-web-worker-lifecycle` is the complete Release browser gate and must include:
 
@@ -1481,7 +1507,8 @@ into the runtime host:
    complete managed nonterminal handoff in #5826 under #5419, before moving the
    existing Package Query stream;
 5. prepare the existing source operation's typed worker adapter for the
-   [single-runtime client cutover](inspect-web-jsexport-partitioning.md#page-facing-engine-client);
+   [single-runtime client cutover](inspect-web-jsexport-partitioning.md#page-facing-engine-client)
+   (**implemented** without a production caller);
 6. connect keyed cancellation, progress, managed settlement, and epoch-work
    reporting through their existing owners;
 7. prove real-browser responsiveness and hard realm release; and

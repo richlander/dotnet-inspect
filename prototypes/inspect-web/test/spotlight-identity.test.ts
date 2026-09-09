@@ -3359,19 +3359,20 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function submitPackageQueryRequest\(request: QueryRequest\) \{\s*packageQueryLiveAnnouncer\.reset\(\);\s*if \(!shouldExecuteQuery\(request\)\) \{\s*packageQueryController\.configure\(request\);\s*return;\s*\}\s*void packageQueryController\.run\(request\)/);
   assert.match(
     appSource,
-    /function runPackageQuery\(text: string\) \{\s*const request = preparePackageQueryRequest\(text, "package"\);\s*submitPackageQueryRequest\(request\)/);
+    /function runPackageQuery\(text: string\) \{\s*const request = preparePackageQueryRequest\(text\);\s*submitPackageQueryRequest\(request\)/);
+  assert.doesNotMatch(appSource, /function discoverPackages\(/);
   assert.match(
     appSource,
-    /function discoverPackages\(\) \{\s*const request = preparePackageQueryRequest\("", "gallery"\);\s*submitPackageQueryRequest\(request\)/);
+    /function preparePackageQueryControlRequest\(\s*text: string,\s*\): QueryRequest \{\s*return preparePackageQueryRequest\(text\)/);
   assert.match(
     appSource,
-    /state\.packageQueryState\.request\?\.inputKind === "gallery"[\s\S]*return state\.packageQueryState\.request/);
+    /state\.packageQueryCatalogError =\s*`Package-query facets are unavailable/);
   assert.match(
     appSource,
-    /state\.packageQueryCatalogError =\s*`Package-query catalogs are unavailable/);
-  assert.match(
+    /try \{\s*state\.packageQueryFacets =\s*packageQueryFacets\(await engineClient\.package\.listPackageQueryFacets\(\)\);\s*\} catch \(error\) \{[\s\S]*state\.packageQueryCatalogError =[\s\S]*\}\s*try \{\s*state\.packageQueryAssemblyPatterns =\s*packageQueryAssemblyPatterns\(\s*await engineClient\.package\.listPackageAssemblyQueryPatterns\(\)\);\s*\} catch \(error\) \{\s*state\.packageQueryAssemblyPatterns = \[\];\s*console\.error\("Package-query assembly patterns are unavailable\.", error\);\s*\}/);
+  assert.doesNotMatch(
     appSource,
-    /try \{\s*state\.packageQueryFacets =[\s\S]*state\.packageQuerySourceCatalog =\s*await engineClient\.package\.listGalleryDiscoveryCatalog\(\);\s*\} catch \(error\) \{[\s\S]*state\.packageQueryCatalogError =[\s\S]*\}\s*try \{\s*state\.packageQueryAssemblyPatterns =\s*packageQueryAssemblyPatterns\(\s*await engineClient\.package\.listPackageAssemblyQueryPatterns\(\)\);\s*\} catch \(error\) \{\s*state\.packageQueryAssemblyPatterns = \[\];\s*console\.error\("Package-query assembly patterns are unavailable\.", error\);\s*\}/);
+    /state\.packageQuerySourceCatalog|listGalleryDiscoveryCatalog\(\)/);
   assert.match(
     appSource,
     /navigationError: \[\s*state\.packageQueryCatalogError,\s*state\.packageQueryNavigationError/);
@@ -5392,7 +5393,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "opportunities"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
