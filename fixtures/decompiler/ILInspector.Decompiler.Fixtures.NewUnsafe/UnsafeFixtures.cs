@@ -715,5 +715,6 @@ public sealed class AccessorContractFixtures
     public int Property
     {
         unsafe get => 42;
+        set { }
     }
 }
