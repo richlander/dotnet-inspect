@@ -142,7 +142,7 @@ tracked by #4718 is not defined by this Finding-identity slice.
 
 ## Evidence
 
-Release gates in `src/dotnet-inspect.Tests` verify:
+Release gates in `tests/dotnet-inspect.Tests` verify:
 
 - one Finding Census invocation exposes one receipt across Facts and the
   Annotated Source sidecar;

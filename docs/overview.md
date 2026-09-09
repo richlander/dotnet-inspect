@@ -401,7 +401,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
 - [Workspace scope and expansion](design/workspace-scope-and-expansion.md):
-  committed logical Root membership and order, closed-by-default selective
+  committed logical Package membership and order, closed-by-default selective
   dependency expansion, scope revisions, logical limits, and complete
   scope-operation results.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
@@ -521,7 +521,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   population, and Integration contributions, typed projection outcomes, and
   one shared Platform/ASP.NET Core/Microsoft.Extensions default sequence.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
-  host-neutral Workspace, Package or non-package Root, Library, Type, and
+  host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
   reconciliation, and model-checked retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
