@@ -1328,7 +1328,7 @@ public class DiffCommand
             return new FindingInspection<string>.Failed(
                 new InspectionError(
                     new FindingSubject(subject.Id, subject.Display),
-                    ILInspector.Text.TextFindings.LineDescriptor,
+                    Inspector.Text.TextFindings.LineDescriptor,
                     $"PDB-source target indexing failed for the {side} endpoint: "
                     + string.Join("; ", batch.IndexingFailures)));
         }
@@ -1434,7 +1434,7 @@ public class DiffCommand
                     results[subject.Id] = new FindingInspection<string>.Failed(
                         new InspectionError(
                             new FindingSubject(subject.Id, subject.Display),
-                            ILInspector.Text.TextFindings.LineDescriptor,
+                            Inspector.Text.TextFindings.LineDescriptor,
                             $"PDB-source acquisition failed ({ex.GetType().Name}): {ex.Message}"));
                 }
             }

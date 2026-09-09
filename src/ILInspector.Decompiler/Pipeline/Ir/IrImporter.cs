@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 using ILReader = ILInspector.Instructions.ILReader;
 
 namespace ILInspector.Decompiler.Pipeline;

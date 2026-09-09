@@ -130,6 +130,7 @@
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
     <Project Path="src/Inspector.Findings/Inspector.Findings.csproj" />
+    <Project Path="src/Inspector.Text/Inspector.Text.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
     <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <Project Path="src/ILInspector.CallGraph/ILInspector.CallGraph.csproj" />
@@ -145,7 +146,6 @@
     <Project Path="src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <Project Path="src/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
     <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
-    <Project Path="src/ILInspector.Text/ILInspector.Text.csproj" />
     <Project Path="src/ILInspector.TypeScriptGeneration/ILInspector.TypeScriptGeneration.csproj" />
     <Project Path="src/InertText/InertText.csproj" />
     <Project Path="src/mdi/mdi.csproj" />
@@ -169,7 +169,7 @@
     <Project Path="tests/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
-    <Project Path="tests/ILInspector.Text.Tests/ILInspector.Text.Tests.csproj" />
+    <Project Path="tests/Inspector.Text.Tests/Inspector.Text.Tests.csproj" />
     <Project Path="tests/InertText.Tests/InertText.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
     <Project Path="tests/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />

@@ -7,7 +7,7 @@ using CSharpText;
 using CSharpText.MemberSlicing;
 using Inspector.Findings;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace DotnetInspector.Services;
 
