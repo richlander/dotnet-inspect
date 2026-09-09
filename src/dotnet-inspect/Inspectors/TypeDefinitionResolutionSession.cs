@@ -1,5 +1,3 @@
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -42,22 +40,19 @@ internal sealed record SelectedTypeBindingContext(
                 continue;
             Retain(current.Assembly, current);
 
-            using Stream stream = current.Assembly.OpenRead();
-            using var peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
+            using AssemblyInspectionSession inspection =
+                AssemblyInspectionSession.Open(current.Assembly);
+            if (!inspection.HasMetadata)
             {
                 throw new BadImageFormatException(
                     $"The selected assembly "
                     + $"'{current.Assembly.Identity.Name}' has no metadata.");
             }
 
-            MetadataReader reader = peReader.GetMetadataReader();
-            foreach (AssemblyReferenceHandle handle
-                in reader.AssemblyReferences)
+            foreach (AssemblyReferenceIdentity identity
+                in inspection.AssemblyReferenceIdentities())
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                AssemblyReferenceIdentity identity =
-                    AssemblyReferenceIdentity.From(reader, handle);
                 var request = new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(identity),
                     AssemblyBindingOrigin.FromOccurrence(current),
