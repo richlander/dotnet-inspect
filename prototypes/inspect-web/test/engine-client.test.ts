@@ -4,7 +4,6 @@ import { createMainThreadEngineClient } from "../src/engine-client.ts";
 import type { BrowserBuildIdentity } from "../src/facades/inspect-web-host.d.ts";
 import type {
   BrowserHomeDemoCatalog,
-  BrowserHomeDemoResolveResult,
   BrowserVocabularyDocument,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
@@ -27,7 +26,6 @@ const vocabulary: BrowserVocabularyDocument = {
 const demos: BrowserHomeDemoCatalog = {
   demos: [{ id: "example", title: "Example", summary: "A startup catalog entry." }],
 };
-const missingDemo: BrowserHomeDemoResolveResult = { found: false, demo: null };
 const noDependencyMatch: BrowserDependencyCoordinateMatch = { outcome: "NoMatch", candidateKey: null };
 const facets: BrowserPackageQueryFacetCatalog = { facets: [] };
 const assemblyPatterns: BrowserPackageAssemblyQueryPattern[] = [];
@@ -57,10 +55,6 @@ function createFacades(calls: string[] = []) {
       listHomeDemos() {
         calls.push("listHomeDemos");
         return demos;
-      },
-      resolveHomeDemo(scenarioId: string) {
-        calls.push(`resolveHomeDemo:${scenarioId}`);
-        return missingDemo;
       },
     },
     package: {
@@ -117,7 +111,7 @@ test("each client binding turns a thrown failure into the same Promise rejection
     const fail = (): never => { throw failure; };
     const client = createMainThreadEngineClient({
       host: { buildIdentity: fail },
-      catalog: { listVocabulary: fail, listHomeDemos: fail, resolveHomeDemo: fail },
+      catalog: { listVocabulary: fail, listHomeDemos: fail },
       package: {
         listPackageQueryFacets: fail,
         listGalleryDiscoveryCatalog: fail,
@@ -132,7 +126,6 @@ test("each client binding turns a thrown failure into the same Promise rejection
       () => client.package.listPackageQueryFacets(),
       () => client.package.listGalleryDiscoveryCatalog(),
       () => client.package.listPackageAssemblyQueryPatterns(),
-      () => client.catalog.resolveHomeDemo("missing"),
       () => client.package.matchPackageDependencyCoordinate("Example", null, "[]"),
     ];
     for (const read of reads) {
@@ -154,16 +147,6 @@ test("a rejected startup read does not poison neighboring catalog bindings", asy
   assert.equal(await client.package.listPackageQueryFacets(), facets);
   assert.equal(await client.package.listGalleryDiscoveryCatalog(), gallery);
   assert.equal(await client.package.listPackageAssemblyQueryPatterns(), assemblyPatterns);
-});
-
-test("demo resolution forwards the generated argument and result without replacing not-found", async () => {
-  const calls: string[] = [];
-  const client = createMainThreadEngineClient(createFacades(calls));
-  assert.deepEqual(calls, []);
-  const result = client.catalog.resolveHomeDemo("missing");
-  assert.ok(result instanceof Promise);
-  assert.equal(await result, missingDemo);
-  assert.deepEqual(calls, ["resolveHomeDemo:missing"]);
 });
 
 test("dependency matching forwards generated arguments and every outcome unchanged", async () => {

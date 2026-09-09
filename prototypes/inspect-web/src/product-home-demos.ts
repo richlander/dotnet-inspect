@@ -1,40 +1,45 @@
 import type {
   BrowserHomeDemoCatalogEntry,
-  BrowserHomeDemoMember,
-  BrowserHomeDemoResolved,
-  BrowserWorkspaceShareTab,
+  BrowserHomeDemoRunResult,
+  BrowserPackageSurface,
 } from "./facades/inspect-web-catalog.d.ts";
 import {
-  encodeWorkspaceShareState,
-  type WorkspaceShareEncoder,
-  type WorkspaceUrlState,
-} from "./workspace-navigation.ts";
+  createNuGetPackageModel,
+  createRuntimePackageModel,
+  mergeRuntimePackageSurface,
+  type AppPackage,
+} from "./package-acquisition.ts";
+import {
+  platformPackToken,
+  type PlatformPack,
+} from "./data.ts";
 import {
   isRoutedEntryPath,
   ROUTED_ENTRY_PATHS,
 } from "./entry-routes.ts";
 
 /**
- * Browser host adapters over product home demos exported by the Wasm engine
- * (`ListHomeDemos` / `ResolveHomeDemo` -> `EcosystemPackCatalog`).
- *
- * Catalog ids/titles/summaries and resolved coordinates come from C#. This
- * module owns only the Browser projection into the long-form share transport.
- * The engine owns packet validation, transposition, and canonical encoding.
+ * Browser host adapters over product home demos exported by the Wasm engine.
+ * Catalog metadata and execution results remain product-owned; this module
+ * validates and adapts their source-native surfaces into Browser models.
  */
 
 export type ProductHomeDemoId = string;
 
 export type ProductHomeDemoCatalogEntry = BrowserHomeDemoCatalogEntry;
 
-export type ProductHomeDemoResolved = BrowserHomeDemoResolved;
-
-/** Residual Browser target for the product's unversioned `runtime` platform. */
-export const PLATFORM_RUNTIME_PACK = {
-  source: ":Platform",
-  version: "10.0.10",
-  framework: "net10.0",
-} as const;
+export type PreparedProductHomeDemoSource =
+  | {
+    kind: "package";
+    packages: AppPackage[];
+    focusPackage: AppPackage;
+  }
+  | {
+    kind: "platform";
+    package: AppPackage;
+    focusAssembly: string;
+    focusPack: PlatformPack;
+  };
 
 let catalogEntries: readonly ProductHomeDemoCatalogEntry[] = [];
 const catalogIdSet = new Set<string>();
@@ -49,13 +54,9 @@ export function setProductHomeDemoCatalog(
     catalogIdSet.add(entry.id);
 }
 
-function getProductHomeDemoCatalog(): readonly ProductHomeDemoCatalogEntry[] {
-  return catalogEntries;
-}
-
 export function productHomeDemoCatalog():
   readonly ProductHomeDemoCatalogEntry[] {
-  return getProductHomeDemoCatalog();
+  return catalogEntries;
 }
 
 export function isProductHomeDemoId(
@@ -68,115 +69,106 @@ export function isProductHomeDemosPath(pathname: string): boolean {
   return isRoutedEntryPath(pathname, ROUTED_ENTRY_PATHS.demos);
 }
 
-function locationHref(
-  state: WorkspaceUrlState,
-  encode: WorkspaceShareEncoder,
-): string {
-  const params = new URLSearchParams();
-  params.set("package", state.package);
-  params.set("w", encodeWorkspaceShareState(state, encode));
-  return `/?${params.toString()}`;
+function focusPlatformSurface(
+  surfaces: readonly BrowserPackageSurface[],
+  focusAssembly: string,
+): BrowserPackageSurface {
+  const matches = surfaces.filter(surface =>
+    surface.defaultAssemblyId === focusAssembly);
+  if (matches.length !== 1) {
+    throw new Error(
+      `The engine-run Platform demo focus '${focusAssembly}' matched ${matches.length} returned surfaces.`);
+  }
+  return matches[0]!;
 }
 
-const BROWSER_RUNTIME_PACKAGE = "Microsoft.NETCore.App";
+function platformPackForFamily(family: string): PlatformPack | null {
+  return family === "runtime"
+    ? "netcore.app"
+    : family === "aspnetcore"
+      ? "aspnetcore.app"
+      : null;
+}
 
-function packageTab(
-  member: BrowserHomeDemoMember,
-  index: number,
-): BrowserWorkspaceShareTab {
-  if (member.kind === "package") {
-    if (!member.version || !member.framework) {
+export function prepareProductHomeDemoSource(
+  result: BrowserHomeDemoRunResult,
+): PreparedProductHomeDemoSource {
+  const activation = result.activation;
+  if (!activation) {
+    throw new Error("The engine returned a product home demo without activation.");
+  }
+  if (result.packages.length === 0) {
+    throw new Error("The engine returned a product home demo without inspection surfaces.");
+  }
+
+  if (activation.focusKind === "package") {
+    const packages = result.packages.map(createNuGetPackageModel);
+    const matches = packages.filter(item =>
+      item.id === activation.focusId
+      && item.version === activation.focusVersion
+      && item.activeFramework === activation.focusFramework);
+    if (matches.length !== 1) {
       throw new Error(
-        `Product home demo package '${member.id}' is missing version/framework pins.`);
+        "The engine-run demo package focus was not uniquely present in its returned surfaces.");
     }
     return {
-      id: `t${index}`,
       kind: "package",
-      source: member.id,
-      version: member.version,
-      framework: member.framework,
-      runtimeIdentifier: null,
+      packages,
+      focusPackage: matches[0]!,
     };
   }
 
-  if (member.kind === "platform" && member.id === "runtime") {
-    // Residual only for the product unversioned `runtime` shape. Explicit pins
-    // are not silently rewritten to the browser runtime-pack defaults.
-    if (member.version || member.framework || member.assembly) {
-      throw new Error(
-        "Product home demo platform 'runtime' is pinned; browser residual maps only the unversioned shape.");
+  if (activation.focusKind === "platform") {
+    const focusAssembly = activation.focusAssembly;
+    if (!focusAssembly) {
+      throw new Error("The engine-run Platform demo omitted its focus assembly.");
     }
-    // Residual until WorkspaceContextLoader platform groups are the browser substrate.
+    for (const surface of result.packages) {
+      if (surface.version !== activation.focusVersion
+        || surface.activeFramework !== activation.focusFramework) {
+        throw new Error(
+          "The engine-run Platform demo returned surfaces from different exact targets.");
+      }
+    }
+
+    const focusSurface = focusPlatformSurface(
+      result.packages,
+      focusAssembly);
+    const descriptors = focusSurface.assemblies.filter(assembly =>
+      assembly.id === focusSurface.defaultAssemblyId
+      && assembly.name.toLowerCase() === focusAssembly.toLowerCase());
+    if (descriptors.length !== 1) {
+      throw new Error(
+        "The engine-run Platform demo focus did not retain one exact assembly descriptor.");
+    }
+    const focusPack = platformPackToken(descriptors[0]!.platformPack);
+    if (!focusPack) {
+      throw new Error(
+        "The engine-run Platform demo focus did not retain its Platform family.");
+    }
+    const activationPack = platformPackForFamily(activation.focusId);
+    if (!activationPack || activationPack !== focusPack) {
+      throw new Error(
+        "The engine-run Platform demo focus family did not match its assembly descriptor.");
+    }
+
+    const ordered = [
+      focusSurface,
+      ...result.packages.filter(surface => surface !== focusSurface),
+    ];
+    const packageModel = createRuntimePackageModel(ordered[0]!);
+    for (const surface of ordered.slice(1))
+      mergeRuntimePackageSurface(packageModel, surface);
     return {
-      id: `t${index}`,
-      kind: "group",
-      source: PLATFORM_RUNTIME_PACK.source,
-      version: PLATFORM_RUNTIME_PACK.version,
-      framework: PLATFORM_RUNTIME_PACK.framework,
-      runtimeIdentifier: null,
+      kind: "platform",
+      package: packageModel,
+      focusAssembly,
+      focusPack,
     };
   }
 
   throw new Error(
-    `Product home demo member '${member.kind}:${member.id}' has no browser tab mapping.`);
-}
-
-/**
- * Deep-link for demos that restore via workspace location.
- * Returns null when the demo runs through an engine operation instead
- * (member-bound Call Graph today).
- */
-export function productHomeDemoLocationHref(
-  demo: ProductHomeDemoResolved,
-  encode: WorkspaceShareEncoder,
-): string | null {
-  const section = demo.view.section;
-  if (section === "Call Graph" && demo.view.memberAnchor) {
-    return null;
-  }
-
-  const tabs = demo.tabs.map((tab, index) => packageTab(tab.member, index));
-  if (tabs.length === 0) {
-    throw new Error(`Product home demo '${demo.id}' has no navigation tabs.`);
-  }
-
-  const active = Math.min(
-    Math.max(demo.focusTabIndex, 0),
-    tabs.length - 1);
-  const focusTab = tabs[active];
-  if (!focusTab) {
-    throw new Error(`Product home demo '${demo.id}' has no active navigation tab.`);
-  }
-  const groupTabs = tabs.filter(tab => tab.kind === "group");
-  if (groupTabs.length > 1) {
-    throw new Error(
-      `Product home demo '${demo.id}' has multiple platform group tabs.`);
-  }
-  const contextTabIds = [
-    ...groupTabs.map(tab => tab.id),
-    ...tabs.filter(tab => tab.kind === "package").map(tab => tab.id),
-  ];
-  return locationHref({
-    package: focusTab.kind === "group"
-      ? BROWSER_RUNTIME_PACKAGE
-      : focusTab.source,
-    subject: null,
-    tabs,
-    contexts: [{
-      id: "g0",
-      tabIds: contextTabIds,
-    }],
-    activeTabId: focusTab.id,
-    selectedContextId: "g0",
-    view: {
-      lens: "api",
-      type: demo.view.type,
-      memberAnchor: null,
-      memberSignature: null,
-      section: null,
-      libraries: demo.view.library ? [demo.view.library] : [],
-    },
-  }, encode);
+    `The engine returned unsupported product home demo focus '${activation.focusKind}'.`);
 }
 
 export function homeDemosEntryHtml(
@@ -184,7 +176,7 @@ export function homeDemosEntryHtml(
   catalogError: string,
   escapeHtml: (value: string) => string,
 ): string {
-  const catalog = getProductHomeDemoCatalog();
+  const catalog = productHomeDemoCatalog();
   const disabled = enginePending || Boolean(catalogError) || catalog.length === 0;
   const count = enginePending
     ? "Loading catalog"

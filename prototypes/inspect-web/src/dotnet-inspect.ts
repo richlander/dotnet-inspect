@@ -172,9 +172,10 @@ import {
 import {
   homeDemosEntryHtml,
   isProductHomeDemosPath,
+  prepareProductHomeDemoSource,
   productHomeDemoCatalog,
-  productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
+  type PreparedProductHomeDemoSource,
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
 import { createSavedWorkspaces, type SavedWorkspace } from "./saved-workspaces.ts";
@@ -333,6 +334,7 @@ import {
   deleteRetainedWorkspace as deleteRetainedWorkspaceState,
   MAX_RETAINED_WORKSPACES,
   publishRetainedWorkspace,
+  type RetainedWorkspaceCollection,
 } from "./retained-workspaces.ts";
 import {
   bindDocViewer,
@@ -520,7 +522,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
 import type {
-  BrowserHomeDemoResolveResult,
+  BrowserHomeDemoRunActivation,
   BrowserHomeDemoRunResult,
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
@@ -1566,15 +1568,37 @@ function publishInitialLoadedWorkspace(
   }
 }
 
+interface StagedWorkspacePublication {
+  collection: RetainedWorkspaceCollection<CanonicalWorkspaceRestoreSnapshot>;
+  url: string;
+}
+
+function stageCurrentWorkspacePublication(
+  previousSnapshot: CanonicalWorkspaceRestoreSnapshot | null,
+  url = projectCurrentWorkspaceUrl(),
+): StagedWorkspacePublication {
+  return {
+    collection: publishRetainedWorkspace(
+      retainedWorkspaces,
+      previousSnapshot),
+    url,
+  };
+}
+
+function commitCurrentWorkspacePublication(
+  publication: StagedWorkspacePublication,
+): void {
+  retainedWorkspaces = publication.collection;
+  activeWorkspaceUrl = publication.url;
+  pendingWorkspaceConstruction = null;
+  setWorkspaceConstructionPending(false);
+}
+
 function publishCurrentWorkspace(
   previousSnapshot: CanonicalWorkspaceRestoreSnapshot | null,
 ): void {
-  retainedWorkspaces = publishRetainedWorkspace(
-    retainedWorkspaces,
-    previousSnapshot);
-  activeWorkspaceUrl = projectCurrentWorkspaceUrl();
-  pendingWorkspaceConstruction = null;
-  setWorkspaceConstructionPending(false);
+  commitCurrentWorkspacePublication(
+    stageCurrentWorkspacePublication(previousSnapshot));
 }
 
 function retainedWorkspaceCapacityMessage(): string {
@@ -2458,8 +2482,22 @@ function stageDemoNavigation(
 function commitDemoNavigation(navigationSeq: number): boolean {
   if (!navigationSequence.isCurrent(navigationSeq)
     || pendingDemoNavigation?.navigationSeq !== navigationSeq) return false;
-  workspaceLocation.push(pendingDemoNavigation.destination);
+  if (!workspaceLocation.push(pendingDemoNavigation.destination)) return false;
   pendingDemoNavigation = null;
+  return true;
+}
+
+function commitStagedWorkspaceNavigation(
+  navigationSeq: number,
+  publication: StagedWorkspacePublication,
+): boolean {
+  const previousCollection = retainedWorkspaces;
+  retainedWorkspaces = publication.collection;
+  if (!commitDemoNavigation(navigationSeq)) {
+    retainedWorkspaces = previousCollection;
+    return false;
+  }
+  commitCurrentWorkspacePublication(publication);
   return true;
 }
 
@@ -10495,10 +10533,8 @@ function openProductDemos(): void {
 }
 
 // Workspace demo actions use product ids from engine `listHomeDemos` /
-// `resolveHomeDemo` (`EcosystemPackCatalog` / CLI `demo <id>`). Type views
-// restore via share deep links built from the resolved projection;
-// member-bound Call Graph demos execute through one generated engine operation
-// over the product-resolved workspace and view.
+// `RunHomeDemo` (`EcosystemPackCatalog` / CLI `demo <id>`). Every demo executes
+// through the product-resolved workspace and typed activation result.
 function openDefaultWorkspace(): void {
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
@@ -10524,84 +10560,26 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
   const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
   try {
     state.loading = true;
-    state.loadingMessage = "Resolving product demo…";
-    state.loadingSubtitle = "Reading the product workspace and view…";
+    state.loadingMessage = "Loading product demo…";
+    state.loadingSubtitle = "Resolving the product workspace and view…";
     render();
-    let resolveResult: BrowserHomeDemoResolveResult;
-    try {
-      resolveResult = await engineClient.catalog.resolveHomeDemo(kind);
-    } catch (error) {
-      if (!navigationSequence.isCurrent(navigationSeq)) return;
-      failDemoWorkspaceOpen(
-        kind,
-        errorMessage(error),
-        snapshot,
-        true);
-      return;
-    }
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
-    const resolved = resolveResult.found ? resolveResult.demo : null;
-    if (!resolved) {
-      failDemoWorkspaceOpen(
-        kind,
-        `Unknown product home demo '${kind}'.`,
-        snapshot,
-        false);
-      return;
-    }
-    let link: string | null;
-    try {
-      link = productHomeDemoLocationHref(
-        resolved,
-        inspectEncodeWorkspaceShareState);
-    } catch (error) {
-      failDemoWorkspaceOpen(
-        kind,
-        errorMessage(error),
-        snapshot,
-        false);
-      return;
-    }
-    if (!link) {
-      const construction =
-        captureWorkspaceConstructionSnapshots(navigationSeq);
-      state.home = false;
-      prepareUnpublishedWorkspace();
-      await runCallGraphDemo(
-        kind,
-        construction.rollbackSnapshot ?? snapshot,
-        construction.retainedSnapshot,
-        navigationSeq);
-      return;
-    }
-    let destination: string;
-    let loc: ParsedLocation;
-    try {
-      destination = new URL(link, location.href).toString();
-      loc = parseWorkspaceHref(destination);
-    } catch (error) {
-      failDemoWorkspaceOpen(
-        kind,
-        errorMessage(error),
-        snapshot,
-        false);
-      return;
-    }
-    stageDemoNavigation(navigationSeq, destination);
     const construction =
       captureWorkspaceConstructionSnapshots(navigationSeq);
     state.home = false;
     prepareUnpublishedWorkspace();
-    await restoreWorkspaceCatalogEntry(
-      loc,
-      navigationSeq,
+    await runEngineHomeDemo(
+      kind,
       construction.rollbackSnapshot ?? snapshot,
       construction.retainedSnapshot,
-      message => failDemoWorkspaceOpen(
-        kind,
-        message,
-        construction.rollbackSnapshot ?? snapshot,
-        true));
+      navigationSeq,
+    );
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    failDemoWorkspaceOpen(
+      kind,
+      errorMessage(error),
+      snapshot,
+      true);
   } finally {
     cancelDemoNavigation(navigationSeq);
   }
@@ -10776,9 +10754,14 @@ async function restoreWorkspaceCatalogEntry(
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
-      void buildStateUrl().toString();
-      publishCurrentWorkspace(previousSnapshot);
-      if (!commitDemoNavigation(navigationSeq)) return;
+      const destination = buildStateUrl().toString();
+      const publication = stageCurrentWorkspacePublication(
+        previousSnapshot,
+        destination);
+      if (!commitStagedWorkspaceNavigation(navigationSeq, publication)) {
+        fail("The saved Workspace could not commit its destination.");
+        return;
+      }
       syncUrl();
       render({ synchronizeUrl: false });
       focusInspectionResult(navigationSeq);
@@ -14162,7 +14145,220 @@ async function loadRuntimeGraphAssembly(
   }
 }
 
-async function runCallGraphDemo(
+interface ProductHomeDemoSelection {
+  type: AppTypeSurface;
+  member: AppMemberGroup | null;
+  overloadIndex: number | null;
+  overload: AppMemberSurface | null;
+}
+
+function selectProductHomeDemoTarget(
+  packageModel: AppPackage,
+  activation: BrowserHomeDemoRunActivation,
+  focusAssembly: string | null,
+  focusPack: PlatformPack | null,
+): ProductHomeDemoSelection {
+  const types = packageModel.types.filter(item =>
+    item.id === activation.typeId
+    && (!focusAssembly
+      || (item.assemblyName.toLowerCase() === focusAssembly.toLowerCase()
+        && item.platformPack === focusPack)));
+  if (types.length !== 1) {
+    throw new Error(
+      `The engine-run demo type '${activation.typeId}' matched ${types.length} returned rows.`);
+  }
+  const type = types[0]!;
+  if (activation.memberSection === null) {
+    if (activation.memberName !== null
+      || activation.memberKind !== null
+      || activation.memberAnchorDigest !== null) {
+      throw new Error(
+        "The engine-run Methods demo returned an unexpected member selection.");
+    }
+    return {
+      type,
+      member: null,
+      overloadIndex: null,
+      overload: null,
+    };
+  }
+
+  if (!activation.memberName
+    || !activation.memberKind
+    || !activation.memberAnchorDigest) {
+    throw new Error(
+      "The engine-run Call Graph demo returned an incomplete member selection.");
+  }
+  const members = memberGroups(type).filter(item =>
+    item.name === activation.memberName
+    && item.kind === activation.memberKind);
+  if (members.length !== 1) {
+    throw new Error(
+      "The engine-run demo member was not uniquely present in its returned surface.");
+  }
+  const member = members[0]!;
+  const overloads = member.overloads
+    .map((overload, index) => ({ overload, index }))
+    .filter(item =>
+      item.overload.anchorDigest === activation.memberAnchorDigest);
+  if (overloads.length !== 1) {
+    throw new Error(
+      "The engine-run demo overload was not uniquely present in its returned surface.");
+  }
+  return {
+    type,
+    member,
+    overloadIndex: overloads[0]!.index,
+    overload: overloads[0]!.overload,
+  };
+}
+
+function installPackageHomeDemoSource(
+  source: Extract<PreparedProductHomeDemoSource, { kind: "package" }>,
+) {
+  clearWorkspacePackages();
+  for (const packageModel of source.packages) {
+    retainPackageModel(packageModel);
+    recordRecentPackage(
+      packageModel.id,
+      packageModel.version,
+      packageModel.activeFramework);
+  }
+  if (state.packages.length !== source.packages.length
+    || !state.packages.every((packageModel, index) =>
+      packageIdentityEquals(packageModel, source.packages[index]))) {
+    throw new Error(
+      "The product demo package workspace did not retain its exact returned coordinates.");
+  }
+  refreshPackageStats();
+  activatePackage(source.focusPackage, { resetAccessibility: true });
+}
+
+async function installPlatformHomeDemoSource(
+  source: Extract<PreparedProductHomeDemoSource, { kind: "platform" }>,
+  activation: BrowserHomeDemoRunActivation,
+  demoId: ProductHomeDemoId,
+  navigationSeq: number,
+) {
+  const target = await ensurePlatformCatalog(
+    activation.focusFramework,
+    activation.focusVersion);
+  if (!navigationSequence.isCurrent(navigationSeq)) return false;
+  const row = platformGraphLibraryForTarget(
+    target,
+    source.focusAssembly,
+    source.focusPack);
+  if (!row) {
+    throw new Error(
+      "The exact Platform catalog did not retain the engine-run demo focus.");
+  }
+  const descriptors = source.package.assemblies.filter(item =>
+    platformLibraryMatchesDescriptor(row, item));
+  if (descriptors.length !== 1) {
+    throw new Error(
+      "The engine-run Platform demo focus did not match one exact catalog Library.");
+  }
+
+  clearWorkspacePackages();
+  retainPackageModel(source.package);
+  const opened = await openPlatformLibrary(
+    source.focusAssembly,
+    source.focusPack,
+    {
+      scopeOnly: true,
+      navigationSeq,
+      tfm: target.tfm,
+      version: target.version,
+      retryAction: () => runHomeDemo(demoId),
+    });
+  if (!navigationSequence.isCurrent(navigationSeq)) return false;
+  if (!opened || opened !== source.package) {
+    throw new Error(
+      "The native Platform Library path did not retain the engine-run demo surface.");
+  }
+  return true;
+}
+
+function applyProductHomeDemoSelection(
+  selection: ProductHomeDemoSelection,
+  result: BrowserHomeDemoRunResult,
+) {
+  const { type, member, overloadIndex, overload } = selection;
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = new Set([libraryKey(type)]);
+  revealTypeInFilters(type);
+  state.selectedTypeId = type.id;
+  state.typeCursor = Math.max(
+    0,
+    filteredTypes().findIndex(item => item === type));
+  state.atPackageRoot = false;
+  state.atLibraryRoot = false;
+  state.workspaceSubjectOpen = false;
+  state.lens = "api";
+  state.packageLens = "overview";
+  resetMemberFilters();
+  resetMemberSectionState();
+  state.platformStack = [];
+  state.memberBrowseTypeId = member ? type.id : "";
+  state.selectedMemberKey = member?.key ?? "";
+  state.selectedOverloadIndex = overloadIndex;
+
+  if (!member || !overload) return;
+  state.memberSection = "call-graph";
+  state.memberCallGraph = result.callGraph;
+  state.memberCallGraphError = "";
+  state.memberCallGraphLoading = false;
+  state.memberCallGraphExpanding = false;
+  state.memberCallGraphKey = memberRequestSignature(
+    type,
+    overload,
+    true);
+}
+
+function retainPackageHomeDemoShareBasis(
+  source: Extract<PreparedProductHomeDemoSource, { kind: "package" }>,
+  selection: ProductHomeDemoSelection,
+) {
+  const captured = capturedShareTabs();
+  const activeIndex = state.packages.indexOf(source.focusPackage);
+  const participantTabIds = source.packages.map(packageModel => {
+    const index = state.packages.findIndex(candidate =>
+      packageIdentityEquals(candidate, packageModel));
+    const tab = captured.tabs[index];
+    if (!tab) {
+      throw new Error(
+        "The product demo package is no longer part of the Browser workspace.");
+    }
+    return tab.id;
+  });
+  const topology = callGraphCaptureTopology(
+    captured.tabs,
+    activeIndex,
+    participantTabIds);
+  const activeTab = captured.tabs[activeIndex];
+  if (!activeTab) {
+    throw new Error(
+      "The product demo focus is no longer part of the Browser workspace.");
+  }
+  state.workspaceShareBasis = {
+    tabs: captured.tabs,
+    contexts: topology.contexts,
+    activeTabId: activeTab.id,
+    selectedContextId: topology.selectedContextId,
+    view: {
+      lens: "api",
+      type: selection.type.id,
+      memberAnchor: selection.overload?.anchorDigest ?? null,
+      memberSignature: null,
+      section: selection.member ? "call-graph" : null,
+      libraries: [],
+    },
+  };
+}
+
+async function runEngineHomeDemo(
   demoId: ProductHomeDemoId,
   snapshot: CanonicalWorkspaceRestoreSnapshot,
   previousSnapshot: CanonicalWorkspaceRestoreSnapshot | null,
@@ -14172,9 +14368,9 @@ async function runCallGraphDemo(
   state.error = "";
   state.errorDetail = "";
   state.retryAction = null;
-  state.loadingMessage = "Loading call graph demo…";
+  state.loadingMessage = "Loading product demo…";
   state.loadingSubtitle =
-    "Resolving the product workspace and anchored member…";
+    "Resolving the product workspace and selected view…";
   render();
 
   const fail = (error: unknown) => {
@@ -14201,134 +14397,85 @@ async function runCallGraphDemo(
       false);
     return;
   }
-  if (!result.activation || !result.callGraph) {
+  if (!result.activation) {
     fail("The engine returned an incomplete product home demo result.");
     return;
   }
-  if (result.activation.memberSection !== "call-graph") {
+  const activation = result.activation;
+  const isMethods = activation.section === "Methods";
+  const isCallGraph = activation.section === "Call Graph";
+  if (!isMethods && !isCallGraph) {
     fail(
-      `The engine returned unsupported demo section '${result.activation.memberSection}'.`,
+      `The engine returned unsupported demo section '${activation.section}'.`,
     );
     return;
   }
+  if (isMethods
+    && (activation.memberSection !== null || result.callGraph !== null)) {
+    fail("The engine returned member or graph state for a Methods demo.");
+    return;
+  }
+  if (isCallGraph
+    && (activation.memberSection !== "call-graph" || !result.callGraph)) {
+    fail("The engine returned an incomplete Call Graph demo result.");
+    return;
+  }
   try {
-    const activation = result.activation;
-    if (activation.focusKind !== "package") {
-      fail(
-        `Product home demo Platform activation '${activation.focusId}' is not yet wired to Browser navigation.`);
-      return;
+    const source = prepareProductHomeDemoSource(result);
+    let selection: ProductHomeDemoSelection;
+    if (source.kind === "package") {
+      selection = selectProductHomeDemoTarget(
+        source.focusPackage,
+        activation,
+        null,
+        null);
+      installPackageHomeDemoSource(source);
+    } else {
+      selection = selectProductHomeDemoTarget(
+        source.package,
+        activation,
+        source.focusAssembly,
+        source.focusPack);
+      if (!await installPlatformHomeDemoSource(
+        source,
+        activation,
+        demoId,
+        navigationSeq)) return;
     }
-    const packages = result.packages.map(createNuGetPackageModel);
-    const targetPackage = packages.find(item =>
-      item.id === activation.focusId
-      && item.version === activation.focusVersion
-      && item.activeFramework === activation.focusFramework);
-    const type = targetPackage?.types.find(item =>
-      item.id === activation.typeId);
-    const member = type && memberGroups(type).find(item =>
-      item.name === activation.memberName
-      && item.kind === activation.memberKind);
-    const overloadIndex = member?.overloads.findIndex(item =>
-      item.anchorDigest === activation.memberAnchorDigest) ?? -1;
-    const overload = member?.overloads[overloadIndex];
-    if (!targetPackage || !type || !member || !overload) {
-      throw new Error(
-        "The engine-run demo selection was not present in its returned package surfaces.");
-    }
-
-    clearWorkspacePackages();
-    for (const packageModel of packages) {
-      retainPackageModel(packageModel);
-      recordRecentPackage(
-        packageModel.id,
-        packageModel.version,
-        packageModel.activeFramework);
-    }
-    refreshPackageStats();
-
-    activatePackage(targetPackage, { resetAccessibility: true });
-    state.typeFilter = "";
-    state.namespaceFilter = "";
-    state.kindFilter = "";
-    state.libraryScope = new Set([libraryKey(type)]);
-    state.selectedTypeId = type.id;
-    state.atPackageRoot = false;
-    state.atLibraryRoot = false;
-    state.lens = "api";
-    state.packageLens = "overview";
-    resetMemberFilters();
-    resetMemberSectionState();
-    state.platformStack = [];
-    state.memberBrowseTypeId = type.id;
-    state.selectedMemberKey = member.key;
-    state.selectedOverloadIndex = overloadIndex;
-    state.memberSection = "call-graph";
-    const captured = capturedShareTabs();
-    const activeIndex = state.packages.indexOf(targetPackage);
-    const participantTabIds = packages.map(packageModel => {
-      const index = state.packages.findIndex(candidate =>
-        packageIdentityEquals(candidate, packageModel));
-      const tab = captured.tabs[index];
-      if (!tab) {
-        throw new Error(
-          "The product demo package is no longer part of the Browser workspace.");
-      }
-      return tab.id;
-    });
-    const topology = callGraphCaptureTopology(
-      captured.tabs,
-      activeIndex,
-      participantTabIds);
-    const activeTab = captured.tabs[activeIndex]!;
-    state.workspaceShareBasis = {
-      tabs: captured.tabs,
-      contexts: topology.contexts,
-      activeTabId: activeTab.id,
-      selectedContextId: topology.selectedContextId,
-      view: {
-        lens: "api",
-        type: type.id,
-        memberAnchor: overload.anchorDigest,
-        memberSignature: null,
-        section: "call-graph",
-        libraries: [],
-      },
-    };
-    // This graph is scoped to the product-defined demo workspace, not any
-    // unrelated tabs the user may already have open.
-    state.memberCallGraph = result.callGraph;
-    state.memberCallGraphError = "";
-    state.memberCallGraphLoading = false;
-    state.memberCallGraphExpanding = false;
-    state.memberCallGraphKey = memberRequestSignature(
-      type,
-      overload,
-      true);
+    applyProductHomeDemoSelection(selection, result);
+    if (source.kind === "package")
+      retainPackageHomeDemoShareBasis(source, selection);
+    else
+      state.workspaceShareBasis = null;
     state.loading = false;
     stageDemoNavigation(navigationSeq, buildStateUrl().toString());
     render();
-    let renderResult = await renderMermaidCallGraph();
-    while (renderResult.status === "superseded"
-      && navigationSequence.isCurrent(navigationSeq)
-      && currentCallGraph()?.mermaid === result.callGraph.mermaid
-      && document.querySelector("#call-graph-diagram")) {
-      renderResult = await renderMermaidCallGraph();
+    if (isCallGraph && result.callGraph) {
+      let renderResult = await renderMermaidCallGraph();
+      while (renderResult.status === "superseded"
+        && navigationSequence.isCurrent(navigationSeq)
+        && currentCallGraph()?.mermaid === result.callGraph.mermaid
+        && document.querySelector("#call-graph-diagram")) {
+        renderResult = await renderMermaidCallGraph();
+      }
+      if (!navigationSequence.isCurrent(navigationSeq)) {
+        cancelDemoNavigation(navigationSeq);
+        return;
+      }
+      if (renderResult.status === "superseded") {
+        fail("The call graph demo was superseded before publication.");
+        return;
+      }
+      if (renderResult.status === "failed") {
+        throw new Error(renderResult.message);
+      }
     }
-    if (!navigationSequence.isCurrent(navigationSeq)) {
-      cancelDemoNavigation(navigationSeq);
-      return;
-    }
-    if (renderResult.status === "superseded") {
-      fail("The call graph demo was superseded before publication.");
-      return;
-    }
-    if (renderResult.status === "failed") {
-      throw new Error(renderResult.message);
-    }
-    publishCurrentWorkspace(previousSnapshot);
-    if (!commitDemoNavigation(navigationSeq)) {
+    const publication = stageCurrentWorkspacePublication(
+      previousSnapshot,
+      buildStateUrl().toString());
+    if (!commitStagedWorkspaceNavigation(navigationSeq, publication)) {
       if (navigationSequence.isCurrent(navigationSeq)) {
-        fail("The call graph demo could not commit its destination.");
+        fail("The product demo could not commit its destination.");
       }
       return;
     }
@@ -14344,7 +14491,7 @@ async function runCallGraphDemo(
 
 // Loads the full open-tab set described by a parsed location (opaque workspace bucket, or a
 // lone target), then restores the active tab's platform library scope and deep-link
-// selection. Shared by boot restore, refreshed/shared links, and the in-app demo buttons.
+// selection. Shared by boot restore and refreshed/shared links.
 async function restoreWorkspaceFromLocation(
   loc: ParsedLocation,
   deep: DeepLink,

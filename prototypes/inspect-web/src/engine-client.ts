@@ -12,7 +12,7 @@ interface ClientFacades {
   >;
   readonly catalog: Pick<
     CatalogFacade,
-    "listVocabulary" | "listHomeDemos" | "resolveHomeDemo"
+    "listVocabulary" | "listHomeDemos"
   >;
 }
 
@@ -47,9 +47,6 @@ export function createMainThreadEngineClient(facades: ClientFacades) {
       },
       async listHomeDemos() {
         return facades.catalog.listHomeDemos();
-      },
-      async resolveHomeDemo(...args: Parameters<CatalogFacade["resolveHomeDemo"]>) {
-        return facades.catalog.resolveHomeDemo(...args);
       },
     },
   };

@@ -1291,7 +1291,7 @@ test("location persistence contains sync failures but leaves direct build failur
   });
 
   persistence.sync(workspaceState(), { entry: "workspace" });
-  persistence.push("/", { route: "query" });
+  assert.equal(persistence.push("/", { route: "query" }), true);
   assert.equal(persistence.replace("/valid"), true);
   const replacedEntry = replaced[0];
   assert.ok(replacedEntry);
@@ -1321,7 +1321,7 @@ test("location persistence contains sync failures but leaves direct build failur
   });
   assert.doesNotThrow(() => blocked.sync(workspaceState()));
   assert.equal(blocked.replace("/valid"), false);
-  assert.doesNotThrow(() => blocked.push("/"));
+  assert.equal(blocked.push("/"), false);
   assert.throws(
     () => persistence.build(workspaceState()),
     /selected context is not projectable/);

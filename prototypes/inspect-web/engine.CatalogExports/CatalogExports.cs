@@ -375,7 +375,8 @@ public static partial class CatalogExports
                 return BrowserPlatformSurfaceProjection.Project(
                     resolution.Scope,
                     participant,
-                    coordinate);
+                    coordinate,
+                    participant.Participant.Assembly.AssetFileName);
             }),
         ];
         if (projections

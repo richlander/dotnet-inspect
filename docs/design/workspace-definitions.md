@@ -14,8 +14,11 @@ This is a design proposal. Implementation has begun: the `package`,
 selected context into exactly one `AssemblyContextGroup` now exist in product
 code. Product code also selects and realizes exact already-acquired package
 content into coordinated surface and implementation roles for Browser package
-workspaces. Schema version 2, packet format 2, complete view binding, and the
-restoration coordinator defined here are not yet implemented.
+workspaces. Browser home demos execute every selected preset through
+`RunHomeDemo`, apply its typed package or Platform activation, and publish the
+ordinary canonical Browser workspace only after the selected result is ready.
+Schema version 2, packet format 2, complete view binding, and the restoration
+coordinator defined here are not yet implemented.
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
@@ -826,24 +829,23 @@ their exact canonical facet IDs before Registry resolution.
 output from the existing pipelines; multi-package workspaces encode extra
 package members as `--caller-package` for the call-graph demo. **inspect-web** loads home-demo metadata and exact scenario IDs from the
 ecosystem catalog through the browser engine (`ListHomeDemos` /
-`ResolveHomeDemo` / `RunHomeDemo`). The transfer replaced only the
-application-inventory source with flattened descriptors and exact selection;
-Workspace Definitions execution remains unchanged. `RunHomeDemo` accepts both
-type-only `Methods` and member-bound
-`Call Graph` presets: the engine resolves the workspace, focus, section, and
-optional member anchor, opens one aggregate browser workspace, and returns its
-ordinary browsable surfaces plus exact source-owner-issued activation identity.
-Package runs retain package identity; Platform runs retain family, assembly,
-version, and target-framework identity while using the shared Platform
-workspace, API-surface projection, and progressively acquired Call Graph path.
-Mixed package/Platform contexts remain unsupported until a product demo needs
-that composition. The focused
-`BrowserTypeSurface.Api` rows are the browser's ordinary Methods-section
-output; a member-bound run additionally returns the ordinary Call Graph
-projection. The engine rejects other product sections,
-library-scoped views, and runtime-identifier-scoped package workspaces until
-Browser has explicit execution support rather than silently dropping those
-bindings. These properties are gated by
+`RunHomeDemo`; `ResolveHomeDemo` remains a tooling/debug projection).
+Every selected home demo executes through `RunHomeDemo`; the host does not
+construct a share packet, rebuild package coordinates, or lower a Platform
+family to a package ID. `RunHomeDemo` accepts both type-only `Methods` and
+member-bound `Call Graph` presets: the engine resolves the workspace, focus,
+section, and optional member anchor, opens one aggregate browser workspace, and
+returns its ordinary browsable surfaces plus exact source-owner-issued
+activation identity. Package runs retain package identity; Platform runs
+retain family, assembly, version, and target-framework identity while using the
+shared Platform workspace, API-surface projection, and progressively acquired
+Call Graph path. Mixed package/Platform contexts remain unsupported until a
+product demo needs that composition. The focused `BrowserTypeSurface.Api` rows
+are the browser's ordinary Methods-section output; a member-bound run
+additionally returns the ordinary Call Graph projection. The engine rejects
+other product sections, library-scoped views, and runtime-identifier-scoped
+package workspaces until Browser has explicit execution support rather than
+silently dropping those bindings. These properties are gated by
 `ToRunPlan_AllProductHomeDemosHaveSupportedBrowserShape`,
 `StjSerializer_RunPlanOwnsTypeOnlyMethodsSelection`,
 `ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`,
@@ -864,29 +866,39 @@ bindings. These properties are gated by
 `PlatformHomeDemoRunCore_ProjectsMethodsWithSourceNativeActivation`, and
 `PlatformHomeDemoRunCore_PreservesContextAcrossEquivalentVersionSpellings`.
 
-This engine capability does not yet change the home buttons. The current
-TypeScript still restores STJ through a share deep link built from the resolved
-projection and invokes `RunHomeDemo` for Call Graph. The frontend follow-up
-must apply the typed Methods result and then push a canonical shareable
-location; calling the engine without updating location would regress refresh
-and sharing. That follow-up can then delete the host-owned share encoding and
-the residual platform → `Microsoft.NETCore.App` runtime-pack mapping (for
-future platform members) from
-`prototypes/inspect-web/src/product-home-demos.ts`. TypeScript applies the
-current Call Graph result without parsing definition member keys or
-reconstructing package/query inputs. Until that native Platform navigation
-adoption lands, the frontend rejects a Platform activation explicitly; no
-shipped demo emits one yet.
+The Browser host validates the complete typed result before replacing the
+current workspace. Package activation retains the returned coordinates and
+selected context in their declared order. Platform activation requires one
+exact target and one focus Library whose descriptor agrees with both the
+source family and the exact Platform catalog, then enters the ordinary native
+Platform Library path without reacquiring an already returned surface.
+Methods clears member and graph state; Call Graph requires one exact member
+anchor and the returned graph. The host derives the canonical shareable
+location from the resulting ordinary Browser state and publishes the retained
+workspace only after selection and any graph rendering succeed. Failure or
+supersession publishes no partial replacement. These frontend boundaries are
+gated by `product-home-demos.test.ts`,
+`saved-workspace-navigation.test.ts`, the home-demo source contract in
+`spotlight-identity.test.ts`, and the package/Platform Methods and Call Graph
+production-composition cases in `library-hierarchy.spec.ts`.
+
+This activation slice deliberately does not change the shipped demo
+coordinates. System.Text.Json and Microsoft.Extensions demos move from package
+pins to exact Platform coordinates only after the package-supply inventory,
+Platform catalog, and package discovery are joined into an exact
+classification. Demos requesting a version newer than the selected Platform
+ceiling remain package-backed; Aspire demos remain package-backed because
+their libraries are not supplied by the Platform.
 Browser package scopes now adapt product-selected, product-realized package
 participants into Browser coordinate/asset provenance; Browser still owns Wasm
 transport, cache/deadline/lifetime policy, and its resource-limit values.
 Residual: (1) bind minted facet IDs to replace the display-name allow list;
 (2) realize definitions via `WorkspaceContextLoader` instead of CLI package/
-`--caller-package` encoding; (3) canonical frontend activation of every home
-demo, including share-location projection and deletion of browser-owned packet
-construction; (4) Call Graph / Callers structured JSON projection remains the
-shared member-pipeline gap (Markdown/Mermaid are the faithful graph formats
-today).
+`--caller-package` encoding; (3) migrate shipped package coordinates that are
+supplied by an exact Platform target only after inventory, Platform catalog,
+and package discovery jointly establish that classification; (4) Call Graph /
+Callers structured JSON projection remains the shared member-pipeline gap
+(Markdown/Mermaid are the faithful graph formats today).
 
 ### Member coordinates
 
@@ -2082,9 +2094,13 @@ Definition records and product demos (this slice):
   independent; the selected context bounds cross-package Call Graph expansion.
   Browser-created Call Graph contexts compose only package tabs with the active
   tab's framework and RID; incompatible targets remain separate contexts.
-  Product-run Call Graph demos install their exact executed package order as the
-  selected context, and expanded queries send that complete ordered context to
-  the product engine.
+  Product-run home demos install their exact returned source set and typed
+  focus before publishing. Package demos retain the executed package order as
+  the selected context; expanded Call Graph queries send that complete ordered
+  context to the product engine. Platform demos retain one exact target and
+  enter the native Platform Library/type/member path without reacquiring the
+  returned surface. Methods and Call Graph both publish through the ordinary
+  Browser share projection.
   Exact `:Platform` versions remain exact through initial and lazy acquisition,
   while an absent pin remains floating. Browser activation accepts at most one
   Platform tab and is atomic: an unavailable coordinate, selected library,
