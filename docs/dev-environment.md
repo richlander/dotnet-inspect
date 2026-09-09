@@ -157,6 +157,23 @@ runtime-async specimens remain inside the test assembly, while independently
 compiled analysis inputs remain under `fixtures/analysis/`. See
 [repository layout](fixture-governance.md#repository-layout).
 
+### Research tests
+
+Build the solution before running the Research suite so every FixtureCatalog
+binary is available:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/ILInspector.Research.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections. Its compiler-produced
+sample types stay with the host under `tests/`; independently compiled Research,
+analysis, and diff inputs remain under `fixtures/`. Deep Inspect adds
+`--fail-skips on` so platform certification cannot silently lose coverage. See
+[repository layout](fixture-governance.md#repository-layout).
+
 ### Decompiler tests
 
 Build the solution before running the decompiler suite so its cataloged fixture

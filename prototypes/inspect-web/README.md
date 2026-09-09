@@ -1794,7 +1794,7 @@ The shared product paths are gated by:
   participant minted from in-memory content is acquired by the group, and one
   minted with a placeholder identity is rejected — which is why acquisition must
   decode identity first.
-- `ContentShapedMemberProjectionTests` in `src/ILInspector.Research.Tests` gates
+- `ContentShapedMemberProjectionTests` in `tests/ILInspector.Research.Tests` gates
   the two product seams the Research queries stand on: projecting a member from a
   path-less, stream-backed assembly reference, and supplying the whole-assembly
   analysis context that path-keyed resolution cannot provide.
