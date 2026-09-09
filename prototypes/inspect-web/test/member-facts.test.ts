@@ -162,7 +162,11 @@ test("Finding rows preserve display-identical instances and exact selection", ()
     memberFindingSelectionError: "",
   });
 
-  assert.match(html, /<h2 id="finding-facts-title">Findings<\/h2><span>3 Findings<\/span>/);
+  assert.match(html, /<h2 id="finding-facts-title">Findings<\/h2><span>3 findings<\/span>/);
+  assert.match(
+    html,
+    /Research observations for this member\. Body findings can open their exact occurrence in Annotated Source\./,
+  );
   assert.equal((html.match(/data-finding-instance=/g) ?? []).length, 2);
   assert.match(
     html,
@@ -172,11 +176,15 @@ test("Finding rows preserve display-identical instances and exact selection", ()
     html,
     /class="finding-row selected">\s*<button[^>]*data-finding-instance="42"[^>]*aria-pressed="true"/,
   );
-  assert.equal((html.match(/<strong>allocation<\/strong>/g) ?? []).length, 2);
-  assert.match(html, /#41/);
-  assert.match(html, /#42/);
+  assert.equal((html.match(/class="finding-id">allocation<\/code>/g) ?? []).length, 2);
+  assert.equal((html.match(/class="finding-property-label">Category<\/span><code>Cost<\/code>/g) ?? []).length, 3);
+  assert.equal((html.match(/class="finding-property-label">Conditionality<\/span><code>Always<\/code>/g) ?? []).length, 3);
+  assert.equal((html.match(/class="finding-property-label">Anchor<\/span>/g) ?? []).length, 3);
+  assert.equal((html.match(/<span>Annotated source<\/span>/g) ?? []).length, 2);
+  assert.doesNotMatch(html, />#41<|>#42</);
+  assert.match(html, /finding-selected-label">Selected/);
   assert.match(html, /member-header/);
-  assert.match(html, /Source identity unavailable/);
+  assert.match(html, /No annotated source target/);
 });
 
 test("Finding census failures and selection mismatches remain visible", () => {
@@ -203,6 +211,55 @@ test("Finding census failures and selection mismatches remain visible", () => {
   });
   assert.match(selectionFailure, /role="alert"/);
   assert.match(selectionFailure, /stale census/);
+});
+
+test("Finding rows retain successful empty state and escape every display field", () => {
+  const emptyHtml = renderMemberFacts({
+    memberFacts: memberFactsFixture(),
+    memberFactsLoading: false,
+    memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "",
+    memberFindingInteraction: memberFindingInteractionFixture("empty"),
+    memberFindingSelectionError: "",
+  });
+  assert.match(emptyHtml, /<span>0 findings<\/span>/);
+  assert.match(emptyHtml, /No Research findings were reported for this member\./);
+  assert.doesNotMatch(emptyHtml, /class="finding-row/);
+
+  const interaction = memberFindingInteractionFixture();
+  const display = interaction.census.facts[0]!;
+  const html = renderMemberFacts({
+    memberFacts: memberFactsFixture(),
+    memberFactsLoading: false,
+    memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "",
+    memberFindingInteraction: {
+      ...interaction,
+      census: {
+        ...interaction.census,
+        factCensusReceipt: '"><receipt>',
+        facts: [{
+          ...display,
+          id: "<id>",
+          detail: "<detail>",
+          category: "<category>",
+          conditionality: "<conditionality>",
+          anchor: "<anchor>",
+        }],
+      },
+    },
+    memberFindingSelectionError: "<selection-error>",
+  });
+  for (const value of [
+    "id", "detail", "category", "conditionality", "anchor",
+    "receipt", "selection-error",
+  ]) {
+    assert.ok(html.includes(`&lt;${value}&gt;`));
+    assert.ok(!html.includes(`<${value}>`));
+  }
+  assert.match(html, /data-finding-receipt="&quot;&gt;&lt;receipt&gt;"/);
 });
 
 test("member Facts escapes summary evidence and all relocated detail sections", () => {
