@@ -5,6 +5,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 using DotnetInspector.Views;
 using Markout;
 
@@ -52,7 +53,8 @@ public static class DemoCommand
     public static int ExecuteList(
         OutputFormat format = OutputFormat.Markdown,
         bool noHeader = false,
-        bool mermaidRequested = false)
+        bool mermaidRequested = false,
+        RowSelectionIntent<string>? rowSelection = null)
     {
         if (format is OutputFormat.Mermaid || mermaidRequested)
         {
@@ -62,9 +64,38 @@ public static class DemoCommand
             return 1;
         }
 
+        IReadOnlyList<EcosystemDemoDescriptor> demos =
+            EcosystemPackCatalog.DiscoverDemos();
+        if (rowSelection is not null)
+        {
+            RowsCohortResult<string, EcosystemDemoDescriptor> result =
+                RowsCohortExecutor.ApplyUnordered(
+                    [
+                        RowsCohortSequence<string, EcosystemDemoDescriptor>
+                            .Create(
+                                "Home demos",
+                                demos)
+                    ],
+                    rowSelection);
+            if (!result.IsSuccess)
+            {
+                RowsCohortSemanticFailure<string> failure =
+                    result.Failure!;
+                CommandError.Write(
+                    $"Demo row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} demo rows are "
+                    + "available.");
+                return 1;
+            }
+
+            demos = result.RowSets[0].Values;
+        }
+
         if (format == OutputFormat.Json)
         {
-            var rows = EcosystemPackCatalog.DiscoverDemos()
+            var rows = demos
                 .Select(entry => new DemoListJsonRow(entry.ScenarioId, entry.Title, entry.Summary))
                 .ToList();
             Console.WriteLine(JsonSerializer.Serialize(rows, DemoJsonContext.Default.ListDemoListJsonRow));
@@ -73,7 +104,7 @@ public static class DemoCommand
 
         var view = new DemoListView
         {
-            Demos = EcosystemPackCatalog.DiscoverDemos()
+            Demos = demos
                 .Select(entry => new DemoListRow
                 {
                     Id = entry.ScenarioId,

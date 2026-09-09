@@ -539,6 +539,7 @@ dotnet-inspect workspace-state encode --file workspace-state.json
 dotnet-inspect workspace-state encode --file workspace-state.json --url
 dotnet-inspect skill list
 dotnet-inspect demo list
+dotnet-inspect demo list -n 3 --json
 ```
 
 `workspace-state encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
