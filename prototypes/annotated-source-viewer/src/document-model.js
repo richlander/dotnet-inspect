@@ -63,7 +63,6 @@ export function validateDocument(document) {
     validateSpans(region.spans, document.text.length, `regions[${index}].spans`);
   });
 
-  const factIdentities = new Set();
   document.facts.forEach((fact, index) => {
     if (fact?.id !== index) {
       throw new TypeError(`Fact ids must be contiguous; slot ${index} has id ${fact?.id}.`);
@@ -96,18 +95,6 @@ export function validateDocument(document) {
       throw new TypeError(`Member-header fact ${index} must have source offset -1.`);
     }
 
-    const identity = JSON.stringify([
-      fact.descriptor,
-      fact.category,
-      fact.conditionality,
-      fact.detail ?? null,
-      fact.source_offset,
-      fact.origin,
-    ]);
-    if (factIdentities.has(identity)) {
-      throw new TypeError(`Fact ${index} repeats an existing semantic identity.`);
-    }
-    factIdentities.add(identity);
   });
 
   const seenTargets = new Set();

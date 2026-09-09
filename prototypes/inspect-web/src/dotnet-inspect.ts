@@ -186,7 +186,10 @@ import {
   type GraphSourceRequest,
 } from "./source-inspection.ts";
 import { renderMemberContractSections } from "./member-overview.ts";
-import { renderMemberFacts } from "./member-facts.ts";
+import {
+  bindMemberFacts,
+  renderMemberFacts,
+} from "./member-facts.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMethodBodyComparisonCoordinator,
@@ -225,10 +228,16 @@ import {
   type AppExplorerState,
 } from "./metadata-inspection.ts";
 import {
-  cancelAnnotatedSourceRequest,
+  cancelFindingCensusRequest,
   createMemberDetailInspectionCoordinator,
   type MemberFacts,
 } from "./member-detail-inspection.ts";
+import {
+  clearFindingSelection,
+  selectAnnotatedSourceFact,
+  selectFindingInstance,
+  type MemberFindingInteraction,
+} from "./finding-interaction.ts";
 import {
   callGraphErrorForView,
   createCallGraphInspectionCoordinator,
@@ -542,9 +551,9 @@ let cancelMethodBodyComparisonQuery:
 let inspectMethodBodyComparison: SourceFacade["queryMethodBodyComparison"];
 let inspectMethodBodyComparisonTargets:
   SourceFacade["queryMethodBodyComparisonTargets"];
+let inspectMemberFindingCensus: SourceFacade["queryMemberFindingCensus"];
 let inspectMemberSourceComparison: SourceFacade["queryMemberSourceComparison"];
 let cancelMemberSourceComparisonQuery: SourceFacade["cancelMemberSourceComparison"];
-let inspectMemberAnnotatedSource: SourceFacade["queryMemberAnnotatedSource"];
 let inspectMemberSource: SourceFacade["queryMemberSource"];
 let inspectTypeMemberSource: SourceFacade["queryTypeMemberSource"];
 let inspectTypeSource: SourceFacade["queryTypeSource"];
@@ -632,9 +641,9 @@ async function loadEngineModule() {
     cancelMethodBodyComparison: cancelMethodBodyComparisonQuery,
     queryMethodBodyComparison: inspectMethodBodyComparison,
     queryMethodBodyComparisonTargets: inspectMethodBodyComparisonTargets,
+    queryMemberFindingCensus: inspectMemberFindingCensus,
     queryMemberSourceComparison: inspectMemberSourceComparison,
     cancelMemberSourceComparison: cancelMemberSourceComparisonQuery,
-    queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
     queryMemberSource: inspectMemberSource,
     queryTypeMemberSource: inspectTypeMemberSource,
     queryTypeSource: inspectTypeSource,
@@ -858,6 +867,8 @@ const initialState = {
   memberAnnotatedKey: "",
   memberAnnotatedEmbedded: null,
   memberAnnotatedModal: null,
+  memberFindingInteraction: null,
+  memberFindingSelectionError: "",
   methodBodyDiff: createMethodBodyDiffState(),
   sourceDiff: createSourceDiffState(),
   typeSource: null,
@@ -996,6 +1007,7 @@ interface StateOverrides {
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
+  memberFindingInteraction: MemberFindingInteraction | null;
   methodBodyDiff: MethodBodyDiffState;
   sourceDiff: SourceDiffState;
   typeSource: BrowserSource | null;
@@ -1075,7 +1087,7 @@ interface CanonicalWorkspaceRestoreSnapshot {
 function captureCanonicalWorkspaceRestoreSnapshot():
 CanonicalWorkspaceRestoreSnapshot {
   sourceInspection.cancelCurrentRequest();
-  cancelAnnotatedSourceRequest(state);
+  cancelFindingCensusRequest(state);
   methodBodyComparison.dispose();
   sourceComparison.dispose();
   const packages = structuredClone(state.packages);
@@ -1342,8 +1354,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       request.framework,
       request.assembly,
       documentationId),
-  queryAnnotated: async request => {
-    const result = await inspectMemberAnnotatedSource(
+  queryFindingCensus: async request => {
+    const result = await inspectMemberFindingCensus(
       request.packageId,
       request.version,
       request.framework,
@@ -1355,9 +1367,15 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       request.selectorKey,
       request.metadataToken,
       request.taste);
-    const document = result.document;
+    const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
-    return { ...result, document };
+    return {
+      ...result,
+      annotatedSource: {
+        ...result.annotatedSource,
+        document,
+      },
+    };
   },
   queryFacts: request =>
     inspectMemberFacts(
@@ -1536,6 +1554,8 @@ function applyView(view: WorkspaceView) {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.selectedBodyTarget = memberHistory.selectedBodyTarget;
   if (!state.atPackageRoot && !state.atLibraryRoot) revealTypeInFilters(type);
@@ -1598,7 +1618,7 @@ function applyView(view: WorkspaceView) {
     else if (section === "call-graph")
       observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
     else if (section === "facts")
-      observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+      observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
     else if (section === "overview")
       observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
     else
@@ -3058,6 +3078,8 @@ function clearMemberContentCache() {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.selectedBodyTarget = null;
 }
@@ -3082,7 +3104,7 @@ function loadMemberSectionContent(id: MemberSection) {
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
   else if (id === "facts")
-    observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+    observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
   else if (id === "overview")
     observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
   else
@@ -3599,6 +3621,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "library" && state.libraryLens === "references";
   const libraryIntegrationsWorkingSurface =
     activeScope === "library" && state.libraryLens === "integrations";
+  const libraryOpportunitiesWorkingSurface =
+    activeScope === "library" && state.libraryLens === "opportunities";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -3638,6 +3662,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || libraryMetadataWorkingSurface
     || libraryReferencesWorkingSurface
     || libraryIntegrationsWorkingSurface
+    || libraryOpportunitiesWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -3732,7 +3757,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4323,6 +4348,7 @@ function renderLibraryView() {
   if (state.libraryLens === "overview"
     || state.libraryLens === "references"
     || state.libraryLens === "integrations"
+    || state.libraryLens === "opportunities"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -4764,9 +4790,7 @@ function packageScopeSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
-// The Opportunities and Analysis lenses run over one platform library at a time, so on the
-// Platform they render the same inline library picker as Integrations and prompt for a choice
-// when nothing is scoped. This mirrors renderPackageIntegrations' platform handling.
+// Analysis runs over one platform library at a time and keeps its picker with the result.
 function platformLensPicker(dataAttr: string) {
   const scopedLib = scopedPlatformLibrary();
   return `<section class="document-section"><div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml({ dataAttr, selected: scopedLib || "" })}</div></section>`;
@@ -4774,14 +4798,18 @@ function platformLensPicker(dataAttr: string) {
 
 function renderPackageOpportunities() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
-  const picker = isPlatform ? platformLensPicker("data-platform-opportunities-library") : "";
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
   const current = packageScopeSignature();
   return renderPackageOpportunitiesPure({
-    isPlatform,
-    scopedLibrary: selectedLibraryName() || null,
-    activeFramework: pkg.activeFramework,
-    picker,
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({ dataAttr: "data-platform-opportunities-library", selected: scopedLib || "" })
+      : "",
     fresh: state.packageOpportunitiesKey === current,
     loading: state.packageOpportunitiesLoading,
     error: state.packageOpportunitiesError,
@@ -5742,7 +5770,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     const destinationError = state.annotatedDestinationError
       ? `<div id="annotated-destination-error" class="graph-drill-error" role="alert">${escapeHtml(state.annotatedDestinationError)}</div>`
       : "";
-    content = destinationError + (state.memberAnnotatedLoading
+    const selectionError = state.memberFindingSelectionError
+      ? `<div id="finding-selection-error" class="graph-drill-error" role="alert">${escapeHtml(state.memberFindingSelectionError)}</div>`
+      : "";
+    content = destinationError + selectionError + (state.memberAnnotatedLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Annotating member…</h2><p>Raising the selected overload to C#, interleaving its IL, and collecting the facts observed about it.</p></section>`
       : state.memberAnnotated
         ? renderAnnotatedSource(state.memberAnnotated)
@@ -6481,6 +6512,7 @@ function openAnnotatedSourceModal() {
   const opened = openModalSession(model, embedded);
   state.memberAnnotatedEmbedded = opened.embedded;
   state.memberAnnotatedModal = opened.modal;
+  syncFindingSelectionFromAnnotatedSession(opened.modal);
   spotlight.reset();
   sourceInspection.clearGraphSource();
   documentInspection.clear();
@@ -6504,8 +6536,28 @@ function dismissAnnotatedSourceModal(restoreExploreFocus: boolean) {
   state.memberAnnotatedEmbedded =
     dismissModalSession(model, state.memberAnnotatedModal);
   state.memberAnnotatedModal = null;
+  syncFindingSelectionFromAnnotatedSession(state.memberAnnotatedEmbedded);
   if (restoreExploreFocus) renderAndFocusAnnotated({ kind: "explore" }, "embedded");
   return true;
+}
+
+function syncFindingSelectionFromAnnotatedSession(
+  session: AnnotatedSourceSession,
+) {
+  const interaction = state.memberFindingInteraction;
+  if (!interaction) return;
+  const factId =
+    session.primary?.kind === "finding" ? session.primary.id : null;
+  if (factId === null) {
+    state.memberFindingInteraction = clearFindingSelection(interaction);
+    state.memberFindingSelectionError = "";
+    return;
+  }
+  const transition = selectAnnotatedSourceFact(interaction, factId);
+  state.memberFindingInteraction = transition.accepted
+    ? transition.interaction
+    : clearFindingSelection(interaction);
+  state.memberFindingSelectionError = transition.error ?? "";
 }
 
 function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
@@ -6538,17 +6590,23 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       renderAndFocusAnnotated(closed.focus, surface);
       return;
     }
-    case "annotation-open":
-      setSession(selectFinding(session, action.opener));
+    case "annotation-open": {
+      const next = selectFinding(session, action.opener);
+      setSession(next);
+      syncFindingSelectionFromAnnotatedSession(next);
       renderAndFocusAnnotated("#annotated-detail-title", surface, true);
       return;
-    case "inspector-open":
-      setSession(selectFinding(session, {
+    }
+    case "inspector-open": {
+      const next = selectFinding(session, {
         kind: "inspector",
         factId: action.factId,
-      }));
+      });
+      setSession(next);
+      syncFindingSelectionFromAnnotatedSession(next);
       renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
       return;
+    }
     case "annotation-set": {
       const transition = action.value === "Default"
         ? selectDefaultAnnotations(model, session)
@@ -6556,6 +6614,7 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
           ? selectAllAnnotations(model, session)
           : clearAnnotations(session);
       setSession(transition.state);
+      syncFindingSelectionFromAnnotatedSession(transition.state);
       renderAndFocusAnnotated(transition.focus);
       return;
     }
@@ -6563,6 +6622,7 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       const transition =
         toggleFindingAnnotation(model, session, action.factId);
       setSession(transition.state);
+      syncFindingSelectionFromAnnotatedSession(transition.state);
       renderAndFocusAnnotated(transition.focus);
       return;
     }
@@ -6597,15 +6657,20 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       binding.onSelect();
       return;
     }
-    case "node-select":
-      setSession(selectAnnotatedNode(session, action.nodeId));
+    case "node-select": {
+      const next = selectAnnotatedNode(session, action.nodeId);
+      setSession(next);
+      syncFindingSelectionFromAnnotatedSession(next);
       renderAndFocusAnnotated({ kind: "node", nodeId: action.nodeId });
       return;
+    }
     case "source-select": {
       const node =
         hitTestAnnotatedNode(model, action.offset, action.medium);
       if (!node) return;
-      setSession(selectAnnotatedNode(session, node.id));
+      const next = selectAnnotatedNode(session, node.id);
+      setSession(next);
+      syncFindingSelectionFromAnnotatedSession(next);
       renderAndFocusAnnotated({ kind: "node", nodeId: node.id });
       return;
     }
@@ -6797,6 +6862,48 @@ function bindMethodBodyDiffEvents() {
   bindMethodBodyDiff(document, { onAction: applyMethodBodyDiffAction });
 }
 
+function openFindingInstanceFromFacts(receipt: string, instanceKey: number) {
+  const interaction = state.memberFindingInteraction;
+  if (!interaction || !state.memberAnnotated) {
+    state.memberFindingSelectionError =
+      "The active Finding census is unavailable.";
+    renderPreservingMemberFocus();
+    return;
+  }
+  const transition = selectFindingInstance(
+    interaction,
+    receipt,
+    instanceKey,
+  );
+  if (!transition.accepted) {
+    state.memberFindingSelectionError = transition.error;
+    renderPreservingMemberFocus();
+    return;
+  }
+
+  state.memberFindingInteraction = transition.interaction;
+  state.memberFindingSelectionError = "";
+  const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
+  const embedded = state.memberAnnotatedEmbedded
+    ?? createEmbeddedSession(model);
+  const opened = openModalSession(model, embedded);
+  const modal = selectFinding(opened.modal, {
+    kind: "inspector",
+    factId: transition.factId,
+  });
+  state.memberAnnotatedEmbedded = opened.embedded;
+  state.memberAnnotatedModal = modal;
+  state.memberSection = "annotated";
+  contentFramePane = "detail";
+  renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
+}
+
+function bindMemberFactsEvents() {
+  bindMemberFacts(document, {
+    onSelectFinding: openFindingInstanceFromFacts,
+  });
+}
+
 function sourceComparisonAvailability(): SourceComparisonAvailability {
   if (!state.package || state.atPackageRoot || scope() !== "member")
     return { available: false, reason: "Select a package method before comparing authored source." };
@@ -6946,6 +7053,7 @@ function bindEvents() {
   bindPackageOpportunitiesEvents();
   bindGraphSourceEvents();
   bindDocViewerEvents();
+  bindMemberFactsEvents();
   bindAnnotatedSourceEvents();
   bindMethodBodyDiffEvents();
   bindSourceDiff(document, { onAction: applySourceDiffAction });
@@ -8073,6 +8181,8 @@ async function pickSpotlight(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.typeFilter = "";
   state.namespaceFilter = "";
@@ -8615,6 +8725,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberSourceKey = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.memberAnnotatedKey = "";
   state.memberFacts = null;
@@ -8845,7 +8957,7 @@ function loadSelectionData() {
     case "source": return loadSelectedMemberSource();
     case "annotated": return loadSelectedMemberAnnotatedSource();
     case "call-graph": return loadSelectedMemberCallGraph();
-    case "facts": return loadSelectedMemberFacts();
+    case "facts": return loadSelectedMemberFactsSurface();
     case "overview": return loadSelectedMemberDocumentation();
     default: return assertNever(state.memberSection, "member section");
   }
@@ -10032,7 +10144,7 @@ async function loadSelectedMemberAnnotatedSource() {
   }
   const signature = memberRequestSignature(type, overload, true, true);
   const pkg = currentPackage();
-  return memberDetailInspection.loadAnnotated({
+  return memberDetailInspection.loadFindingCensus({
     signature,
     packageId: pkg.id,
     version: pkg.version,
@@ -11753,6 +11865,8 @@ function navigateToRuntimeMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.selectedBodyTarget = bodyTarget;
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === type.id));
@@ -11878,6 +11992,8 @@ function invalidateSourceCaches() {
   state.memberAnnotated = null;
   state.memberAnnotatedKey = "";
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.memberAnnotatedEmbedded = null;
   state.memberAnnotatedModal = null;
@@ -12063,6 +12179,8 @@ function navigateToMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.selectedBodyTarget = selectedBodyTarget;
   if (section === "source") {
@@ -12110,6 +12228,13 @@ async function loadSelectedMemberFacts() {
     implementationBodySelected,
     isCurrent: () => memberRequestIsCurrent(signature, true),
   });
+}
+
+async function loadSelectedMemberFactsSurface() {
+  await Promise.all([
+    loadSelectedMemberFacts(),
+    loadSelectedMemberAnnotatedSource(),
+  ]);
 }
 
 interface LoadPackageOptions {
