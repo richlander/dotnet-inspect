@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 
 using Inspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 
 namespace DotnetInspector.Queries;
@@ -599,7 +600,8 @@ public static class WorkspaceImplementationComparisonQuery
                 MetadataFindings.InspectTypeForwarders(
                     [
                         new(
-                            declaringType.ToMetadataFullName(),
+                            TypeResolver.FormatDisplayName(
+                                declaringType.ToMetadataFullName()),
                             hop.TargetReference.Name),
                     ],
                     new FindingSubject(

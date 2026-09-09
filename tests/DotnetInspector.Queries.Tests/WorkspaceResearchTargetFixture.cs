@@ -254,8 +254,11 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
     internal static byte[] BuildAssembly(
         string name, bool definesType = true, AssemblyReferenceIdentity? forwardsTo = null,
         Guid? mvid = null, bool leadingType = false, string methodName = "Value",
-        Version? version = null, int methodResult = 42)
+        Version? version = null, int methodResult = 42, int typeGenericArity = 0)
     {
+        string typeName = typeGenericArity == 0
+            ? "Type"
+            : $"Type`{typeGenericArity}";
         var metadata = new MetadataBuilder();
         metadata.AddModule(0, metadata.GetOrAddString(name + ".dll"),
             metadata.GetOrAddGuid(mvid ?? Guid.NewGuid()), default, default);
@@ -270,9 +273,20 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
         var bodies = new BlobBuilder();
         if (definesType)
         {
-            metadata.AddTypeDefinition(TypeAttributes.Public, metadata.GetOrAddString("N"),
-                metadata.GetOrAddString("Type"), default,
+            TypeDefinitionHandle type = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(typeName),
+                default,
                 MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+            for (int index = 0; index < typeGenericArity; index++)
+            {
+                metadata.AddGenericParameter(
+                    type,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString($"T{index}"),
+                    index);
+            }
             var signature = new BlobBuilder();
             new BlobEncoder(signature).MethodSignature().Parameters(0,
                 result => result.Type().Int32(), _ => { });
@@ -290,7 +304,7 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
             AssemblyReferenceHandle reference = metadata.AddAssemblyReference(
                 metadata.GetOrAddString(forwardsTo.Name), forwardsTo.Version!, default, default, default, default);
             metadata.AddExportedType(TypeAttributes.Public | (TypeAttributes)0x00200000,
-                metadata.GetOrAddString("N"), metadata.GetOrAddString("Type"), reference, 0);
+                metadata.GetOrAddString("N"), metadata.GetOrAddString(typeName), reference, 0);
         }
         var builder = new ManagedPEBuilder(PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata), bodies, flags: CorFlags.ILOnly);

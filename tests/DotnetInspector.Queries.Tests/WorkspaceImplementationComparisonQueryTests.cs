@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection.PortableExecutable;
 
+using Inspector.Findings;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -10,6 +12,9 @@ public sealed class WorkspaceImplementationComparisonQueryTests
 {
     static readonly MetadataTypeDefinitionName s_type =
         WorkspaceResearchTargetFixture.TypeName;
+    static readonly MetadataTypeDefinitionName s_genericType =
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("N", ["Type`1"])).Name;
     static readonly MemberTargetSelector s_member =
         WorkspaceResearchTargetFixture.Selector;
 
@@ -157,6 +162,73 @@ public sealed class WorkspaceImplementationComparisonQueryTests
         Assert.Equal(
             opens.Select(count => count + 1),
             fixture.Nodes.Select(node => node.Opens));
+    }
+
+    [Fact]
+    public void GenericForwarders_PreserveNativeFindingPayloadAndKey()
+    {
+        byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Terminal",
+            mvid: new("00000000-0000-0000-0000-000000000352"),
+            methodResult: 1,
+            typeGenericArity: 1);
+        byte[] beforeFacade = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardsTo: WorkspaceResearchTargetFixture.Identity(beforeTerminal),
+            mvid: new("00000000-0000-0000-0000-000000000351"),
+            typeGenericArity: 1);
+        byte[] afterTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Terminal",
+            mvid: new("00000000-0000-0000-0000-000000000354"),
+            methodResult: 2,
+            typeGenericArity: 1);
+        byte[] afterFacade = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardsTo: WorkspaceResearchTargetFixture.Identity(afterTerminal),
+            mvid: new("00000000-0000-0000-0000-000000000353"),
+            typeGenericArity: 1);
+
+        using var fixture = new WorkspaceResearchTargetFixture(
+            beforeFacade,
+            beforeTerminal,
+            afterFacade,
+            afterTerminal);
+        using AssemblyContextGroup beforeGroup = fixture.CreateGroup([0, 1]);
+        using AssemblyContextGroup afterGroup = fixture.CreateGroup([2, 3]);
+
+        WorkspaceImplementationComparisonPublication publication = Published(
+            Execute(
+                fixture,
+                beforeGroup,
+                afterGroup,
+                beforeBindings: [0, 1],
+                afterBindings: [2, 3],
+                declaringType: s_genericType));
+
+        WorkspaceTypeForwarderUse use = publication.Forwarders[0];
+        AssemblyReferenceIdentity identity =
+            WorkspaceResearchTargetFixture.Identity(beforeFacade);
+        using var peReader = new PEReader(
+            new MemoryStream(beforeFacade, writable: false));
+        FindingInspection<TypeForwarderInfo> nativeInspection =
+            MetadataFindings.InspectTypeForwarders(
+                AssemblyDetailScanner.ScanTypeForwarders(peReader),
+                new FindingSubject(
+                    (identity with { Version = null }).ToString(),
+                    identity.Name));
+        Finding<TypeForwarderInfo> native = Assert.IsType<
+            FindingInspection<TypeForwarderInfo>.Complete>(
+                nativeInspection.Value)
+            .Findings
+            .Single();
+
+        Assert.Equal("N.Type<T>", native.Payload.TypeName);
+        Assert.Equal(native.Subject, use.Finding.Subject);
+        Assert.Same(native.Descriptor, use.Finding.Descriptor);
+        Assert.Equal(native.Key, use.Finding.Key);
+        Assert.Equal(native.Payload, use.Finding.Payload);
     }
 
     [Fact]
@@ -370,20 +442,23 @@ public sealed class WorkspaceImplementationComparisonQueryTests
         AssemblyContextGroup beforeGroup,
         AssemblyContextGroup afterGroup,
         int[] beforeBindings,
-        int[] afterBindings)
+        int[] afterBindings,
+        MetadataTypeDefinitionName? declaringType = null)
         => WorkspaceImplementationComparisonQuery.Execute(Request(
             fixture,
             beforeGroup,
             afterGroup,
             beforeBindings,
-            afterBindings));
+            afterBindings,
+            declaringType));
 
     static WorkspaceImplementationComparisonRequest Request(
         WorkspaceResearchTargetFixture fixture,
         AssemblyContextGroup beforeGroup,
         AssemblyContextGroup afterGroup,
         int[] beforeBindings,
-        int[] afterBindings)
+        int[] afterBindings,
+        MetadataTypeDefinitionName? declaringType = null)
         => new(
                 new(
                     beforeGroup,
@@ -393,7 +468,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
                     afterGroup,
                     afterGroup.Participants[0],
                     afterBindings.Select(fixture.Binding)),
-                s_type,
+                declaringType ?? s_type,
                 s_member,
                 ResearchProducerCatalog.Kinds);
 
