@@ -86,7 +86,6 @@ src/DotnetInspect.Cli
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
-src/DotnetInspector.Platforms
 src/DotnetInspector.Presentation
 src/DotnetInspector.Sections
 src/DotnetInspector.SourceDelegation

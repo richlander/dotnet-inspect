@@ -595,12 +595,13 @@ dotnet-inspect workspace --root-request TOKEN
   `ProducerNotAuthorized`, `SelectionRequestNotReproduced`) is reported as
   itself. There is no fallback to opening the package by id and version.
 - The acquired binding is committed through the Workspace Scope owner's
-  `AddRootsAsync` and rendered from the returned snapshot, exactly as
+  `AddPackagesAsync` and rendered from the returned snapshot, exactly as
   `workspace --package` does (see
   [Workspace scope and expansion](workspace-scope-and-expansion.md)). The
-  binding is handed over as acquired, so no Root is reconstructed from archive
-  bytes or a store path, and root-only and explicit-empty compile selections
-  remain reportable Roots rather than a refusal.
+  binding is handed over as acquired, so no physical Artifact Root is
+  reconstructed from archive bytes or a store path, and root-only and
+  explicit-empty compile selections remain reportable Packages rather than a
+  refusal.
 
 Its Release gates are `PackageAssemblyQueryOutputTests` (row shaping, ordinal
 substring semantics, inert rendering, section ordering, JSON token presence,

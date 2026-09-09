@@ -81,6 +81,15 @@ moving a skill into or out of it, is a product-surface change and needs the
 repository owner's explicit approval before landing — do not add or relocate a
 shipped skill unilaterally while doing routine release reconciliation.
 
+Reconcile the bootstrap skill in the peer `richlander/dotnet-skills` repository
+against the release's `VersionPrefix` and generated `dotnet-inspect skill list`.
+Keep it at or below 60 lines: explain the basic command UX and advertise every
+embedded focused skill, while deferring detailed guidance to the version-matched
+tool. When content or version changes, set every peer skill and plugin manifest
+version to the release version and publish that repository's update. If the
+peer repository is already current and no files change, do not make a no-op
+peer release.
+
 ## Publish package and site together
 
 Open `release.yml` and `promote-inspect-web.yml` together:
