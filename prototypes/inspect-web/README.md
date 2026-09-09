@@ -850,6 +850,12 @@ visibly unavailable. Settings are not included in shared links. The first
 version-selector adopter is the existing Gallery path, not custom sources or
 platform inputs.
 
+Package Overview presents the two settings as task rows: each row keeps its
+label, available-width native selector, effective state, and recovery action
+together. At narrow widths the row stacks without changing focus order. One
+shared note explains that target selection is session-local and does not run a
+comparison.
+
 These controls prepare targets only: the Library Diff/Clone result inspectors
 remain follow-on work under #5083. The owner is
 [Browser Diff targets](../../docs/design/inspect-web-diff-targets.md) for the
