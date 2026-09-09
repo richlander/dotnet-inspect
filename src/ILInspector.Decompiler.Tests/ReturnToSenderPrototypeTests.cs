@@ -1649,6 +1649,42 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CreateCompilationClosure_AcceptsUnreferencedByteIdenticalPlatformSibling()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { public int Value => 1; }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        File.Copy(
+            platformPath,
+            Path.Combine(fixtureDir, "System.Text.Json.dll"));
+        try
+        {
+            using ReturnToSender.CompilationClosure closure =
+                ReturnToSender.CreateCompilationClosure(assemblyPath);
+            AssemblyReferenceIdentity platformIdentity = Identity(platformPath);
+
+            Assert.True(closure.Use(context =>
+                context.CompilerReferences.Count(reference =>
+                {
+                    var metadata =
+                        Assert.IsType<AssemblyMetadata>(reference.GetMetadata());
+                    MetadataReader reader =
+                        Assert.Single(metadata.GetModules()).GetMetadataReader();
+                    return AssemblyReferenceIdentity
+                        .FromAssemblyDefinition(reader)
+                        .IsEquivalentTo(platformIdentity);
+                }) == 1));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");

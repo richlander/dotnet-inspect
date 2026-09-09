@@ -2543,6 +2543,26 @@ static class ReturnToSender
                 }
             }
         }
+
+        foreach (ResolvedAssemblyReference platform in candidates.Where(candidate =>
+            candidate.Provenance is AssemblyResolutionProvenance.PlatformAsset))
+        {
+            if (requests.Any(request =>
+                    request.Target is AssemblyBindingTarget.AssemblyReference target
+                    && IsPlatformFamily(target.Identity, [platform.Identity]))
+                || !candidates.Any(candidate =>
+                    candidate.Provenance is not AssemblyResolutionProvenance.PlatformAsset
+                    && candidate.Identity.IsEquivalentTo(platform.Identity)))
+            {
+                continue;
+            }
+
+            requests.Add(new(
+                AssemblyBindingTarget.Reference(platform.Identity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform));
+        }
+
         return [.. requests];
     }
 

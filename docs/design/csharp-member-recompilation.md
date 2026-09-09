@@ -799,17 +799,26 @@ the platform policy's single capture map and artifact-registration pass, so
 platform preparation and ordinary inventory admission cannot register parallel
 artifacts for one Services acquisition.
 
-Platform preparation is finite and reachability-based. Starting at the target,
-RTS follows exact full-identity references through captured candidates. A
-reference becomes a platform request only when a captured Services
-`PlatformAsset` establishes the same name, culture, and key-token family;
-version remains the owner-authorized substitution. Metadata then owns
-forwarder traversal from those requests. Selection requests every captured
-candidate except identities in a prepared platform family; unprepared platform
-assets therefore remain ordinary exact compiler references rather than
-receiving implicit compatibility authority. Distinct registrations with
-equivalent full identities remain a typed `ReferenceSelectionAmbiguous`
-failure rather than regaining first-wins behavior.
+Platform preparation is finite and driven by target reachability or an exact
+captured collision. Starting at the target, RTS follows exact full-identity
+references through captured candidates. A reference becomes a platform request
+only when a captured Services `PlatformAsset` establishes the same name,
+culture, and key-token family; version remains the owner-authorized
+substitution. Metadata then owns forwarder traversal from those requests. When
+one exact full identity also appears as both a platform and non-platform
+candidate, RTS prepares one global platform request even if that identity is
+not target-reachable. This handles the ordinary case where the harness process
+TPA and the inspected output directory contain byte-identical copies: Services
+selects both sides and the existing platform-agreement gate verifies their
+identity, MVID, and retained digest rather than letting unrelated duplicate
+host dependencies make the compiler set ambiguous.
+
+Selection requests every captured candidate except identities in a prepared
+platform family; unprepared platform assets therefore remain ordinary exact
+compiler references rather than receiving implicit compatibility authority.
+Distinct equivalent registrations without platform authority remain a typed
+`ReferenceSelectionAmbiguous` failure rather than regaining first-wins
+behavior.
 
 One RTS compilation closure owns the sealed artifact session, query lease, and
 selected set. Initial decompiler compilation, external-interface Metadata
