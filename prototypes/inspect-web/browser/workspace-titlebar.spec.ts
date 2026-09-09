@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { SlideStripPolicy } from "../src/slide-strip.ts";
 import { analysisDiagnosticsFixture, callFactsFixture, exceptionRegionsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
+import { memberFindingCensusFixture } from "../test/member-finding-census-fixture.ts";
 
 async function box(page: Page, selector: string) {
   const value = await page.locator(selector).boundingBox();
@@ -1000,6 +1001,165 @@ test("Member Facts diagnostics reflow by pane width without hiding long values",
     await expect(page.locator(".analysis-diagnostic-value"))
       .toHaveText(facts.diagnostics);
   }
+});
+
+test("Member Facts Findings preserve fields, actions, and exact selected state", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&finding-facts=populated");
+  const census = memberFindingCensusFixture();
+  await expect(page.locator(".finding-facts > header > span"))
+    .toHaveText("3 findings");
+  await expect(page.locator(".finding-context")).toHaveText(
+    "Research observations for this member. Body findings can open their exact occurrence in Annotated Source.",
+  );
+  await expect(page.locator(".finding-row")).toHaveCount(3);
+  await expect(page.locator(".finding-row > button")).toHaveCount(2);
+  await expect(page.locator(".finding-row-unkeyed > div")).toHaveCount(1);
+  for (const [index, fact] of census.facts.entries()) {
+    const row = page.locator(".finding-row").nth(index);
+    await expect(row.locator(".finding-location > *")).toHaveText([
+      fact.ilOffset === null
+        ? "Member"
+        : `IL_${fact.ilOffset.toString(16).padStart(4, "0").toUpperCase()}`,
+      ...(fact.cSharpLine === null ? [] : [`line ${fact.cSharpLine}`]),
+    ]);
+    await expect(row.locator(".finding-id")).toHaveText(fact.id);
+    await expect(row.locator(".finding-detail")).toHaveText(fact.detail ?? "");
+    await expect(row.locator(".finding-property-label"))
+      .toHaveText(["Category", "Conditionality", "Anchor"]);
+    await expect(row.locator(".finding-property code"))
+      .toHaveText([fact.category, fact.conditionality, fact.anchor]);
+  }
+  await expect(page.locator(".finding-source-action"))
+    .toHaveText(["Annotated source→", "Annotated source→"]);
+  await expect(page.locator(".finding-source-unavailable"))
+    .toHaveText("No annotated source target");
+  await expect(page.locator(".finding-facts")).not.toContainText("#41");
+  await expect(page.locator(".finding-facts")).not.toContainText("#42");
+  await expect(page.locator('[data-finding-instance="41"]'))
+    .toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator('[data-finding-instance="42"]'))
+    .toHaveAttribute("aria-pressed", "false");
+
+  await page.goto("/browser/workspace-titlebar.html?member=1&finding-facts=selected");
+  const first = page.locator('[data-finding-instance="41"]');
+  const second = page.locator('[data-finding-instance="42"]');
+  await expect(first).toHaveAttribute("aria-pressed", "false");
+  await expect(second).toHaveAttribute("aria-pressed", "true");
+  await expect(second.locator(".finding-selected-label")).toHaveText("Selected");
+  expect(await first.locator(".finding-main").textContent()).toBe(
+    await second.locator(".finding-main").textContent(),
+  );
+  expect(await second.evaluate(element =>
+    getComputedStyle(element.closest(".finding-row")!, "::before")
+      .backgroundColor)).toBe("rgb(157, 140, 255)");
+  expect(await second.evaluate(element =>
+    getComputedStyle(element).backgroundImage))
+    .toContain("rgb(40, 32, 68)");
+});
+
+test("Member Facts Findings reflow without hiding long values", async ({
+  page,
+}) => {
+  const facts = memberFindingCensusFixture("long").facts;
+  for (const width of [1440, 900, 600, 360]) {
+    await page.setViewportSize({ width, height: 1200 });
+    await page.goto(
+      "/browser/workspace-titlebar.html?member=1&finding-facts=long");
+    const location = await box(
+      page,
+      ".finding-row:first-child .finding-location",
+    );
+    const main = await box(page, ".finding-row:first-child .finding-main");
+    const action = await box(
+      page,
+      ".finding-row:first-child .finding-source-action",
+    );
+    if (width === 1440) {
+      expect(main.x).toBeGreaterThan(location.x + location.width);
+      expect(action.x).toBeGreaterThan(main.x);
+    } else if (width === 360) {
+      expect(main.y).toBeGreaterThanOrEqual(location.y + location.height);
+      expect(action.y).toBeGreaterThanOrEqual(main.y + main.height);
+      const properties = await page.locator(
+        ".finding-row:first-child .finding-property",
+      ).evaluateAll(elements => elements.map(element => {
+        const rect = element.getBoundingClientRect();
+        return { y: rect.y };
+      }));
+      expect(properties[1]!.y).toBeGreaterThan(properties[0]!.y);
+      expect(properties[2]!.y).toBeGreaterThan(properties[1]!.y);
+    } else {
+      expect(action.y).toBeCloseTo(location.y, 0);
+      expect(main.y).toBeGreaterThanOrEqual(location.y + location.height);
+    }
+    for (const selector of [
+      ".finding-facts", ".finding-context", ".finding-row",
+      ".finding-location", ".finding-main", ".finding-id", ".finding-detail",
+      ".finding-properties", ".finding-property",
+      ".finding-property code", ".finding-source-action",
+      ".finding-source-unavailable", ".member-surface-scroll",
+    ]) {
+      expect(await page.locator(selector).evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth)),
+      `${selector} at ${width}px`).toBe(true);
+    }
+    await expect(page.locator(".finding-id").first())
+      .toHaveText(facts[0]!.id);
+    await expect(page.locator(".finding-detail").first())
+      .toHaveText(facts[0]!.detail!);
+    await expect(page.locator(".finding-properties").first().locator("code"))
+      .toHaveText([
+        facts[0]!.category,
+        facts[0]!.conditionality,
+        facts[0]!.anchor,
+      ]);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+});
+
+test("Member Facts Findings keep empty and failure outcomes distinct", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 700, height: 1000 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&finding-facts=empty");
+  await expect(page.locator(".facts-summary")).toBeVisible();
+  await expect(page.locator(".finding-facts > header > span"))
+    .toHaveText("0 findings");
+  await expect(page.locator(".finding-empty"))
+    .toHaveText("No Research findings were reported for this member.");
+  await expect(page.locator(".finding-row")).toHaveCount(0);
+
+  await page.goto("/browser/workspace-titlebar.html?member=1&finding-facts=loading");
+  await expect(page.locator(".facts-summary")).toBeVisible();
+  await expect(page.getByRole("heading", {
+    name: "Collecting Findings…",
+    exact: true,
+  })).toBeVisible();
+  await expect(page.locator(".finding-facts")).toHaveCount(0);
+
+  await page.goto("/browser/workspace-titlebar.html?member=1&finding-facts=error");
+  await expect(page.locator(".facts-summary")).toBeVisible();
+  await expect(page.locator(".finding-facts-failure")).toHaveAttribute(
+    "role",
+    "alert",
+  );
+  await expect(page.locator(".finding-facts-failure p"))
+    .toHaveText("The Finding census could not be projected.");
+  await expect(page.locator(".finding-facts")).toHaveCount(0);
+
+  await page.goto(
+    "/browser/workspace-titlebar.html?member=1&finding-facts=selection-error");
+  await expect(page.locator(".finding-selection-error")).toHaveAttribute(
+    "role",
+    "alert",
+  );
+  await expect(page.locator(".finding-selection-error"))
+    .toHaveText("Finding instance 73 is not present in the active census.");
+  await expect(page.locator(".finding-row")).toHaveCount(3);
 });
 
 test("Member Overview anchors its declaration below the quiet header", async ({

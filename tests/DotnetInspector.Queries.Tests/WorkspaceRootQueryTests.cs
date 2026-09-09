@@ -1,6 +1,6 @@
 using System.IO.Compression;
 
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.QueriesConsumer;
