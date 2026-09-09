@@ -382,7 +382,7 @@ public sealed class PackageSourceCustomClientTests
 
         Assert.Equal(inner.CapabilityValue, adapter.Capabilities);
         Assert.Equal(inner.CapabilityValue, adapter.Capabilities);
-        Assert.Equal(2, inner.CapabilityReads);
+        Assert.Equal(3, inner.CapabilityReads);
         Assert.Same(factory.Source, adapter.Source);
         Assert.Equal(1, inner.SourceReads);
 
