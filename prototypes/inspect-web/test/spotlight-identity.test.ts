@@ -2656,10 +2656,10 @@ test("shared member views use portable product identity and omit UI-local filter
     /memberAnchor = overload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
   assert.match(
     capture,
-    /const library = selectedLibraryRequest\(\);\s*const libraries = workspaceSubjectOpen \|\| !library \? \[\] : \[library\]/);
+    /const library = selectedLibraryRequest\(\);\s*const libraries =\s*workspaceSubjectOpen \|\| packageSubjectOpen \|\| !library\s*\? \[\]\s*: \[library\]/);
   assert.match(
     capture,
-    /state\.libraryScope && state\.libraryScope\.size > 1[\s\S]*Select one library/);
+    /!packageSubjectOpen\s*&& state\.libraryScope\s*&& state\.libraryScope\.size > 1[\s\S]*Select one library/);
   assert.match(
     capture,
     /overload\.bodySelectors\.length > 1[\s\S]*accessor-specific section/);
@@ -2739,7 +2739,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /canonicalTabCountPreserved[\s\S]*canonicalTabsPreserved[\s\S]*failedTabCount > 0 \|\| !canonicalTabsPreserved[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     restore,
-    /canonicalViewRestorationFailure\(targetModel, deep, loc\.lens, loc\.libraryLens\)[\s\S]*failCanonicalWorkspaceRestore/);
+    /canonicalViewRestorationFailure\(\s*targetModel,\s*deep,\s*loc\.lens,\s*loc\.libraryLens,\s*loc\.atPackageRoot && !loc\.workspaceSubjectOpen\s*\? loc\.packageLens\s*: null\)[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     restore,
     /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
