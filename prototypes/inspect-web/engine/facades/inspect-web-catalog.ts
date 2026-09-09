@@ -266,7 +266,6 @@ export interface BrowserVocabularySection {
   readonly id: string;
   readonly name: string;
   readonly summary: string;
-  readonly categories: ReadonlyArray<string>;
   readonly accepted_by: ReadonlyArray<string>;
   readonly fields: ReadonlyArray<BrowserVocabularyField>;
   readonly values: ReadonlyArray<unknown>;

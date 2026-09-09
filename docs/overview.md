@@ -36,6 +36,11 @@ substrates, and inspection producers that will extend that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options,
   output views, section descriptors, and inspectors. Its
+  [CLI Workspace Sharing](design/cli-workspace-sharing.md) owns the common
+  `--share` gesture that projects an inspection command's effective resolved
+  source, context, subject, facet, and query state to a canonical Workspace
+  packet or Inspect Web URL without a second construction grammar.
+  Its
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
   operation-intent lowering at the L3 boundary. Its
