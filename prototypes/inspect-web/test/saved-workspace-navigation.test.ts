@@ -354,6 +354,7 @@ function harness() {
     pendingWorkspaceConstruction: null,
     activeWorkspaceUrl: null as string | null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
+    platformLibraryRetry: null, platformCatalogRetry: null,
     spotlightMemberCache: null as object | null,
     spotlightFocusGeneration: 0, documentFocusGeneration: 0, workspaceOccurrenceRevision: 0,
     HTMLElement: class { isContentEditable = false; },
