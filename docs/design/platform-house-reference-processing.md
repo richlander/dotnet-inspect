@@ -670,13 +670,16 @@ Forwarder-only facades require the same distinction. For platform population,
 type listing, and member traversal, a facade with only `ExportedType`
 forwarders contributes no independent type definitions: the
 [structured type-forwarding owner](type-forwarding-resolution.md) follows its
-metadata evidence to the physical implementation supplier. The facade does not
-become an additional implementation library merely because it was present in a
-runtime or reference pack. The artifact itself has not disappeared, however.
-Direct Library inspection may still select the facade, report that it is a
-facade, and show its forwarding evidence. "Collapse" means zero independent
-definition contribution after forwarding, not deletion or an inability to
-inspect the file.
+metadata evidence to the terminal definition authorized by the selected view.
+A reference-view terminal does not prove an implementation supplier;
+House-owned reference-to-implementation correspondence and a second Metadata
+resolution establish that bridge when implementation evidence is required.
+The facade does not become an additional implementation library merely because
+it was present in a runtime or reference pack. The artifact itself has not
+disappeared, however. Direct Library inspection may still select the facade,
+report that it is a facade, and show its forwarding evidence. "Collapse" means
+zero independent definition contribution after forwarding, not deletion or an
+inability to inspect the file.
 
 ### Workspace admission and platform skew
 
