@@ -15,6 +15,9 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     static readonly MetadataTypeDefinitionName s_genericType =
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create("N", ["Type`1"])).Name;
+    static readonly MetadataTypeDefinitionName s_nestedType =
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("N", ["Type", "Inner"])).Name;
     static readonly MemberTargetSelector s_member =
         WorkspaceResearchTargetFixture.Selector;
 
@@ -207,28 +210,59 @@ public sealed class WorkspaceImplementationComparisonQueryTests
                 afterBindings: [2, 3],
                 declaringType: s_genericType));
 
-        WorkspaceTypeForwarderUse use = publication.Forwarders[0];
-        AssemblyReferenceIdentity identity =
-            WorkspaceResearchTargetFixture.Identity(beforeFacade);
-        using var peReader = new PEReader(
-            new MemoryStream(beforeFacade, writable: false));
-        FindingInspection<TypeForwarderInfo> nativeInspection =
-            MetadataFindings.InspectTypeForwarders(
-                AssemblyDetailScanner.ScanTypeForwarders(peReader),
-                new FindingSubject(
-                    (identity with { Version = null }).ToString(),
-                    identity.Name));
-        Finding<TypeForwarderInfo> native = Assert.IsType<
-            FindingInspection<TypeForwarderInfo>.Complete>(
-                nativeInspection.Value)
-            .Findings
-            .Single();
+        AssertNativeForwarderFinding(
+            publication.Forwarders[0],
+            beforeFacade,
+            "N.Type<T>");
+    }
 
-        Assert.Equal("N.Type<T>", native.Payload.TypeName);
-        Assert.Equal(native.Subject, use.Finding.Subject);
-        Assert.Same(native.Descriptor, use.Finding.Descriptor);
-        Assert.Equal(native.Key, use.Finding.Key);
-        Assert.Equal(native.Payload, use.Finding.Payload);
+    [Fact]
+    public void NestedForwarders_PreserveOuterNativeFindingPayloadAndKey()
+    {
+        byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Terminal",
+            mvid: new("00000000-0000-0000-0000-000000000362"),
+            methodResult: 1,
+            nestedType: true);
+        byte[] beforeFacade = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardsTo: WorkspaceResearchTargetFixture.Identity(beforeTerminal),
+            mvid: new("00000000-0000-0000-0000-000000000361"),
+            nestedType: true);
+        byte[] afterTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Terminal",
+            mvid: new("00000000-0000-0000-0000-000000000364"),
+            methodResult: 2,
+            nestedType: true);
+        byte[] afterFacade = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardsTo: WorkspaceResearchTargetFixture.Identity(afterTerminal),
+            mvid: new("00000000-0000-0000-0000-000000000363"),
+            nestedType: true);
+
+        using var fixture = new WorkspaceResearchTargetFixture(
+            beforeFacade,
+            beforeTerminal,
+            afterFacade,
+            afterTerminal);
+        using AssemblyContextGroup beforeGroup = fixture.CreateGroup([0, 1]);
+        using AssemblyContextGroup afterGroup = fixture.CreateGroup([2, 3]);
+
+        WorkspaceImplementationComparisonPublication publication = Published(
+            Execute(
+                fixture,
+                beforeGroup,
+                afterGroup,
+                beforeBindings: [0, 1],
+                afterBindings: [2, 3],
+                declaringType: s_nestedType));
+
+        AssertNativeForwarderFinding(
+            publication.Forwarders[0],
+            beforeFacade,
+            "N.Type");
     }
 
     [Fact]
@@ -487,6 +521,34 @@ public sealed class WorkspaceImplementationComparisonQueryTests
         Assert.Equal(hopIndex, use.HopIndex);
         Assert.Same(MetadataFindings.TypeForwarderDescriptor, use.Finding.Descriptor);
         Assert.Equal(target, use.Finding.Payload.TargetAssembly);
+    }
+
+    static void AssertNativeForwarderFinding(
+        WorkspaceTypeForwarderUse use,
+        byte[] facade,
+        string expectedTypeName)
+    {
+        AssemblyReferenceIdentity identity =
+            WorkspaceResearchTargetFixture.Identity(facade);
+        using var peReader = new PEReader(
+            new MemoryStream(facade, writable: false));
+        FindingInspection<TypeForwarderInfo> nativeInspection =
+            MetadataFindings.InspectTypeForwarders(
+                AssemblyDetailScanner.ScanTypeForwarders(peReader),
+                new FindingSubject(
+                    (identity with { Version = null }).ToString(),
+                    identity.Name));
+        Finding<TypeForwarderInfo> native = Assert.IsType<
+            FindingInspection<TypeForwarderInfo>.Complete>(
+                nativeInspection.Value)
+            .Findings
+            .Single();
+
+        Assert.Equal(expectedTypeName, native.Payload.TypeName);
+        Assert.Equal(native.Subject, use.Finding.Subject);
+        Assert.Same(native.Descriptor, use.Finding.Descriptor);
+        Assert.Equal(native.Key, use.Finding.Key);
+        Assert.Equal(native.Payload, use.Finding.Payload);
     }
 
 }

@@ -254,7 +254,8 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
     internal static byte[] BuildAssembly(
         string name, bool definesType = true, AssemblyReferenceIdentity? forwardsTo = null,
         Guid? mvid = null, bool leadingType = false, string methodName = "Value",
-        Version? version = null, int methodResult = 42, int typeGenericArity = 0)
+        Version? version = null, int methodResult = 42, int typeGenericArity = 0,
+        bool nestedType = false)
     {
         string typeName = typeGenericArity == 0
             ? "Type"
@@ -273,7 +274,7 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
         var bodies = new BlobBuilder();
         if (definesType)
         {
-            TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeDefinitionHandle outerType = metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString("N"),
                 metadata.GetOrAddString(typeName),
@@ -282,10 +283,21 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
             for (int index = 0; index < typeGenericArity; index++)
             {
                 metadata.AddGenericParameter(
-                    type,
+                    outerType,
                     GenericParameterAttributes.None,
                     metadata.GetOrAddString($"T{index}"),
                     index);
+            }
+            if (nestedType)
+            {
+                TypeDefinitionHandle innerType = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("Inner"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                metadata.AddNestedType(innerType, outerType);
             }
             var signature = new BlobBuilder();
             new BlobEncoder(signature).MethodSignature().Parameters(0,
@@ -303,8 +315,18 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
         {
             AssemblyReferenceHandle reference = metadata.AddAssemblyReference(
                 metadata.GetOrAddString(forwardsTo.Name), forwardsTo.Version!, default, default, default, default);
-            metadata.AddExportedType(TypeAttributes.Public | (TypeAttributes)0x00200000,
+            ExportedTypeHandle outerType = metadata.AddExportedType(
+                TypeAttributes.Public | (TypeAttributes)0x00200000,
                 metadata.GetOrAddString("N"), metadata.GetOrAddString(typeName), reference, 0);
+            if (nestedType)
+            {
+                metadata.AddExportedType(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("Inner"),
+                    outerType,
+                    0);
+            }
         }
         var builder = new ManagedPEBuilder(PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata), bodies, flags: CorFlags.ILOnly);

@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using Inspector.Findings;
 using ILInspector.Metadata;
-using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 
 namespace DotnetInspector.Queries;
@@ -376,7 +378,7 @@ public static class WorkspaceImplementationComparisonQuery
                         Forwarders(
                             QueryComparisonSide.Before,
                             beforeUnavailable.Evidence,
-                            request.DeclaringType));
+                            population));
             }
             if (beforeResult is WorkspaceResearchTargetCompositionResult.Rejected beforeRejected)
             {
@@ -388,7 +390,7 @@ public static class WorkspaceImplementationComparisonQuery
                         Forwarders(
                             QueryComparisonSide.Before,
                             beforeRejected.Evidence,
-                            request.DeclaringType));
+                            population));
             }
 
             WorkspaceResearchTargetCompositionReceipt before =
@@ -397,7 +399,7 @@ public static class WorkspaceImplementationComparisonQuery
                 Forwarders(
                     QueryComparisonSide.Before,
                     before.Evidence,
-                    request.DeclaringType);
+                    population);
             WorkspaceResearchTargetCompositionResult afterResult = plan.Compose(
                 request.After.Group,
                 request.After.Root,
@@ -416,7 +418,7 @@ public static class WorkspaceImplementationComparisonQuery
                             .. Forwarders(
                                 QueryComparisonSide.After,
                                 afterUnavailable.Evidence,
-                                request.DeclaringType),
+                                population),
                         ]);
             }
             if (afterResult is WorkspaceResearchTargetCompositionResult.Rejected afterRejected)
@@ -431,7 +433,7 @@ public static class WorkspaceImplementationComparisonQuery
                             .. Forwarders(
                                 QueryComparisonSide.After,
                                 afterRejected.Evidence,
-                                request.DeclaringType),
+                                population),
                         ]);
             }
 
@@ -443,7 +445,7 @@ public static class WorkspaceImplementationComparisonQuery
                 .. Forwarders(
                     QueryComparisonSide.After,
                     after.Evidence,
-                    request.DeclaringType),
+                    population),
             ];
             ImmutableArray<ResearchTargetCorrespondenceOutcome> correspondences =
             [
@@ -575,7 +577,7 @@ public static class WorkspaceImplementationComparisonQuery
     static ImmutableArray<WorkspaceTypeForwarderUse> Forwarders(
         QueryComparisonSide side,
         WorkspaceTypeResolutionEvidence? evidence,
-        MetadataTypeDefinitionName declaringType)
+        QueryComparisonPopulation<ImplementationComparisonBinding> population)
     {
         if (evidence is not WorkspaceTypeResolutionEvidence.Available available)
             return [];
@@ -596,14 +598,12 @@ public static class WorkspaceImplementationComparisonQuery
 
             AssemblyReferenceIdentity identity =
                 hop.SourceAssembly.Assembly.Identity;
+            ImplementationComparisonBinding binding = population.Inputs
+                .Single(candidate => ReferenceEquals(candidate.Id, input))
+                .Binding;
             FindingInspection<TypeForwarderInfo> inspection =
                 MetadataFindings.InspectTypeForwarders(
-                    [
-                        new(
-                            TypeResolver.FormatDisplayName(
-                                declaringType.ToMetadataFullName()),
-                            hop.TargetReference.Name),
-                    ],
+                    [NativeForwarder(binding.Assembly, hop.Declarations)],
                     new FindingSubject(
                         (identity with { Version = null }).ToString(),
                         identity.Name));
@@ -620,6 +620,48 @@ public static class WorkspaceImplementationComparisonQuery
             uses.Add(new(side, index, input, complete.Findings[0]));
         }
         return uses.ToImmutable();
+    }
+
+    static TypeForwarderInfo NativeForwarder(
+        ResolvedAssemblyReference assembly,
+        ImmutableArray<WorkspaceMetadataEvidence.ExportToken> declarations)
+    {
+        using Stream stream = assembly.OpenRead();
+        using var peReader = new PEReader(stream);
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
+        {
+            throw new InvalidOperationException(
+                "A forwarding hop source must remain a managed metadata image.");
+        }
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
+        TypeForwarderInfo? native = null;
+        foreach (WorkspaceMetadataEvidence.ExportToken declaration in declarations)
+        {
+            EntityHandle entity = MetadataTokens.EntityHandle(declaration.Value);
+            if (entity.Kind != HandleKind.ExportedType)
+            {
+                throw new InvalidOperationException(
+                    "A forwarding declaration token must identify an ExportedType row.");
+            }
+
+            TypeForwarderInfo? candidate =
+                AssemblyDetailScanner.ScanTypeForwarder(
+                    reader,
+                    (ExportedTypeHandle)entity);
+            if (candidate is null)
+                continue;
+            if (native is not null)
+            {
+                throw new InvalidOperationException(
+                    "A forwarding hop must identify exactly one native declaration.");
+            }
+            native = candidate;
+        }
+
+        return native
+            ?? throw new InvalidOperationException(
+                "A forwarding hop must identify one native declaration.");
     }
 
     static void EnsurePublishedPair(
