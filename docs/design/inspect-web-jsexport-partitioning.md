@@ -670,27 +670,75 @@ Worker scope; it is not a CLI runtime migration. Feature-specific lifecycle
 adoption may continue after placement, but direct page managed dispatch does
 not.
 
-Milestone 4 registers the generated Type Source facade in the Worker catalog
-and exposes its operation-authority-compatible producer adapter from the
-page-facing Worker entry. The adapter projects the six clone-safe Source
-fields, validates bounded Source and terminal DTOs, forwards keyed
-cancellation, preserves expected versus unexpected failure, rejects progress,
-and declares unbounded liveness. `test/engine-worker-source.test.ts`, included
-in `inspect-web-worker-protocol`, exercises the real host, realm, catalog, and
+The Type Source portion of milestone 4 registers the generated Source facade
+in the Worker catalog and exposes its operation-authority-compatible producer
+adapter from the page-facing Worker entry. The adapter projects the six
+clone-safe Source fields, validates bounded Source and terminal DTOs, forwards
+keyed cancellation, preserves expected versus unexpected failure, rejects
+progress, and declares unbounded liveness.
+`test/engine-worker-source.test.ts`, included in
+`inspect-web-worker-protocol`, exercises the real host, realm, catalog, and
 operation-authority path plus malformed boundary data. The published Firefox
 Worker gate additionally returns decompiled Source from a deterministic local
 package through the generated facade. The production `source-inspection.ts`
-adapter and `dotnet-inspect.ts` dependencies remain unchanged. Milestone 5
-still owns lifecycle composition, production bootstrap, all required
-neighboring bindings, direct page-runtime retirement, and the real-browser
-Source responsiveness demonstration.
+adapter and `dotnet-inspect.ts` dependencies remain unchanged.
 
-All new runtime claims are **unverified** until implementation. Extend the
-existing published facade-composition gate to exercise the actual client
-bootstrap, one SDK creation across the page/Worker composition, all required
-bindings, and visible startup failure. Its neighboring case uses package and
-metadata through the same runtime. This is behavioral evidence for that
-consumer path, not a repository-wide source absence audit.
+The Package Query portion of milestone 4 composes the already landed durable
+event, acknowledged control, and operation-keyed managed boundaries in a
+Worker-only adapter. `engine-worker-package-query.ts` projects the existing
+`QueryRequest` into one closed prefix-or-assembly input while preserving the
+page authority's operation ID for Worker correlation and generated managed
+admission. It rejects a callback `Completed` event, publishes the four
+nonterminal generated event kinds as ordered durable events, and accepts
+completion only from the versioned managed terminal result. Expected and
+unexpected failures retain their classification and diagnostic; cancellation
+retains its authoritative reason.
+
+The same adapter routes cancellation to the exact generated operation ID.
+Positive match credit uses the Worker control channel and becomes granted only
+after `Granted` returns the exact requested amount and the correlated Worker
+acknowledgment reaches the page. `NotActive` remains `not-active`; malformed or
+mismatched managed responses fail visibly. Settlement closes later control
+admission while the Worker runtime retains the response obligation for a
+control posted before settlement.
+
+Request and event payloads allow at most 1,048,576 UTF-16 code units and 4,096
+total collection entries. Error and diagnostic text allows 65,536 code units.
+All DTO readers require closed own data properties and reject accessors. The
+Worker bootstrap awaits both the generated Source and Package facades before
+advertising readiness. `test/engine-worker-package-query.test.ts`, also in
+`inspect-web-worker-protocol`, exercises the actual fake host, realm, catalog,
+operation authority, durable-event path, and controlled adapter. Its cases
+cover both request forms, exact identity, event order, all terminal mappings,
+keyed cancellation, exact and inactive credit, overlap rejection, delayed
+credit acknowledgment across settlement, terminal-callback rejection,
+malformed managed results, payload bounds, and continued realm health after an
+operation-local failure.
+
+This is preparation, not production activation. The production
+`PackageQueryDataSource`, `dotnet-inspect.ts` Package facade binding, UI
+generation policy, credit thresholds, batching, rendering, Worker protocol,
+managed bridge, and TLA+ models remain unchanged. Package Query's remaining
+production path has four total steps:
+
+1. Worker operation-addressed controls, completed through #6376 and #6385.
+2. Operation-keyed managed controls, completed through #6390 and #6393.
+3. The typed Worker adapter with durable events and acknowledged credit,
+   implemented here.
+4. Atomic activation of the single Worker runtime, retirement of direct page
+   managed dispatch, and the #5816 responsiveness evidence.
+
+Milestone 5 still owns lifecycle composition, production bootstrap, all
+required neighboring bindings, direct page-runtime retirement, and the
+real-browser Source and Package Query responsiveness demonstrations.
+
+Outstanding production-runtime and responsiveness claims remain **unverified**
+until milestone 5. Extend the existing published facade-composition gate to
+exercise the actual client bootstrap, one SDK creation across the page/Worker
+composition, all required bindings, and visible startup failure. Its
+neighboring case uses package and metadata through the same runtime. This is
+behavioral evidence for that consumer path, not a repository-wide source
+absence audit.
 
 Worker protocol/lifecycle and durable ordering remain covered by their owner's
 gates; managed lifetime remains covered by #5419. Consumer adoption gates must
