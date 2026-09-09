@@ -628,6 +628,27 @@ test("Platform opens its catalog before warm-up, with reference membership and r
     JSON.stringify(["net11.0", platformVersion, "System.Private.Empty.dll", "netcore.app", "System.Private.Empty.dll"]));
 });
 
+test("Platform catalog occupies the full workspace at every responsive breakpoint", async ({ page }) => {
+  await openPlatform(page);
+  const workspace = page.locator(".platform-workspace");
+
+  for (const width of [1440, 900, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const layout = await workspace.evaluate(element => {
+      const detail = element.querySelector<HTMLElement>(":scope > .detail-pane");
+      if (!detail) throw new Error("Platform detail pane is missing.");
+      return {
+        columns: getComputedStyle(element).gridTemplateColumns.trim().split(/\s+/),
+        detailWidth: detail.getBoundingClientRect().width,
+        workspaceWidth: element.getBoundingClientRect().width,
+      };
+    });
+
+    expect(layout.columns).toHaveLength(1);
+    expect(Math.abs(layout.workspaceWidth - layout.detailWidth)).toBeLessThan(1);
+  }
+});
+
 test("Platform warm-up failure preserves inventory and has an independent retry", async ({ page }) => {
   await openPlatform(page, { warmup: "fail-once", discoveryFailure: true });
   await expect(page.locator("#inspector-panel")).toContainText("Archive offline");
