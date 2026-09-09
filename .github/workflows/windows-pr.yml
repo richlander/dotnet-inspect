@@ -90,7 +90,7 @@ jobs:
 
       - name: Run decompiler tests
         if: inputs.suite == 'decompiler'
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run metadata tests
         if: inputs.suite == 'metadata'

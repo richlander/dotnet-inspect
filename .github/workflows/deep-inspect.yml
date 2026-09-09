@@ -141,7 +141,7 @@ jobs:
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
       - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 
       - name: Run analysis tests (including slow)
         run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release
@@ -256,7 +256,7 @@ jobs:
 
       - name: Run decompiler unit tests (fast)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run NuGetFetch tests (offline)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -333,7 +333,7 @@ jobs:
         run: dotnet build dotnet-inspect.slnx -c Release
 
       - name: Run decompiler corpus sweep
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate corpus
 
   release-certification:
     name: Release certification
@@ -681,7 +681,7 @@ jobs:
         run: dotnet build dotnet-inspect.slnx -c Release --no-restore
 
       - name: Run unsafe decompiler tests with nightly SDK
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
 
       - name: Gate net11 opt-in feature corpus
         shell: bash

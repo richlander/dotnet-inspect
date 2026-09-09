@@ -333,7 +333,7 @@ threshold, placement convention, and existing consumers.
 | Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
 | Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
 | Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |
-| Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
+| Decompiler | `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
 | Additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
 | Inspection queries | `dotnet run --project tests/DotnetInspector.Queries.Tests -c Release` |

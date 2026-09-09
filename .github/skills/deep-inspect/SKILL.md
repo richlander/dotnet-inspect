@@ -59,11 +59,11 @@ For the test lane:
 dotnet build dotnet-inspect.slnx -c Release
 dotnet run --project src/dotnet-inspect.Tests -c Release
 source eng/activate-iltools.sh
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 dotnet run --project tests/ILInspector.Analysis.Tests -c Release
 bash eng/restore-ilassembler.sh
 dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate corpus
 ```
 
 The corpus command runs as a separate workflow job and can take hours. Omit it
