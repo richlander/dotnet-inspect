@@ -1519,27 +1519,28 @@ One restoration attempt proceeds in this order:
    `ProjectionFailed`.
 7. Return one immutable `CompleteWorkspaceActivation` containing the fresh
    Workspace, complete snapshot, request basis, projection classification, and
-   owner evidence. The retained host may install it only while the exact
-   intent and effect authority remain current. Installation is one active
-   Workspace reference change; history, URL, focus, and announcement remain
-   host-owned effects of that same authorized result.
-8. After installation, close the previously active Workspace, when one
-   existed, outside the pointer-swap path. On decode, resolution, construction,
-   Navigation, query, projection, cancellation, expiry, or supersession
-   failure, close the unpublished Workspace and retain the prior host state:
-   the prior active Workspace or no active Workspace. A late completion for a
-   settled token is discarded and cannot install.
+   owner evidence. The retained host may activate it only while the exact
+   intent and effect authority remain current.
+8. Activate through one non-yielding exchange of the host's nullable
+   active-Workspace slot. The exchange's before-value is either a Workspace or
+   null and is not interpreted. When non-null, close it outside the exchange.
+   History, URL, focus, and announcement remain host-owned effects of the same
+   authorized result.
+9. On decode, resolution, construction, Navigation, query, projection,
+   cancellation, expiry, or supersession failure, close the unpublished
+   Workspace and leave the active-Workspace slot unchanged. A late completion
+   for a settled token is discarded and cannot activate.
 
-At most one unpublished new Workspace may coexist with the active Workspace.
-The new Workspace is not selectable, rendered, addressable through ordinary
-host actions, or recorded in history before installation. A newer attempt
-closes the older attempt's Workspace before beginning another.
+At most one unpublished new Workspace may exist. It is not selectable,
+rendered, addressable through ordinary host actions, or recorded in history
+before activation. A newer attempt closes the older attempt's Workspace before
+beginning another.
 
-Fresh construction may temporarily duplicate resources present in the active
-Workspace. Shared immutable storage and package caches may avoid repeated
-network or byte acquisition, but they do not transfer Workspace-owned state.
-The Browser/Wasm host must define a combined-resource admission policy before
-adoption; this design makes no process-wide peak-memory safety claim.
+The Browser/Wasm host must define a construction admission policy before
+adoption. A non-null slot value may remain live while the unpublished Workspace
+is constructed and while the exchanged-out value drains after activation.
+Per-Workspace budgets do not bound that peak; this design makes no process-wide
+peak-memory safety claim.
 
 Failure remains source-identifying throughout the pipeline:
 `InvalidPacket`, `UnsupportedFormat`, `LegacyLoweringFailed`,
@@ -1554,7 +1555,7 @@ The owner-issued result is a closed union:
 
 ```text
 CompleteRestorationResult
-  Installed
+  Activated
     IntentToken          opaque exact owner-issued token
     RequestBasis         PacketInput | DefinitionInput
     WorkspaceIdentity    exact fresh installed Workspace
@@ -1568,25 +1569,24 @@ CompleteRestorationResult
     IntentToken
     RequestBasis
     Failure              RestorationFailure
-    PriorSnapshot        complete previously active snapshot, when present
   Superseded
 ```
 
 `RequestBasis` distinguishes retained packet input from an immutable
 definition request; it never invents packet bytes for a definition. Owner
 evidence follows deterministic plan order, not asynchronous completion order.
-`Installed` is the only arm carrying a new Workspace. `Failed` leaves the
-prior Workspace active, and `Superseded` produces no consumer value.
+`Activated` is the only arm carrying a new Workspace. `Failed` does not change
+the active-Workspace slot, and `Superseded` produces no consumer value.
 
 The existing
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
 models the retired in-place participant protocol and is not evidence for this
 fresh-Workspace contract. Before implementation, either retire it or replace
-it with the smallest model needed for current-intent installation and
-superseded-replacement cleanup. Required integration gates must show that
-failure retains the active Workspace, installation publishes the exact prepared
-replacement once, supersession closes abandoned replacements, and no
-Workspace-owned identity or resource transfers between old and new.
+it with the smallest model needed for current-intent activation and
+superseded-Workspace cleanup. Required integration gates must show that failure
+leaves the nullable active-Workspace slot unchanged, activation exchanges in
+the exact prepared Workspace once, a non-null before-value is closed outside
+the exchange, and supersession closes abandoned Workspaces.
 
 ### Files and bundles
 
@@ -1644,10 +1644,10 @@ two persisted contracts are isomorphic.
   restore inline; the loader introduced here should absorb it so every
   restore path is the same code.
 - **Retained-host new-Workspace admission.** Inspect Web needs one owner for the
-  active Workspace reference, at most one unpublished new Workspace, exact
-  current-intent installation, prompt close of every non-installed
-  Workspace, and a combined-resource policy for the period when old and new
-  Workspaces coexist. Per-Workspace budgets do not supply that host-level bound.
+  nullable active-Workspace slot, at most one unpublished new Workspace, exact
+  current-intent activation, prompt close of every non-installed Workspace,
+  cleanup of a non-null exchanged-out value, and a host-level construction
+  resource policy.
 
 ## Open questions
 
@@ -1854,12 +1854,12 @@ Implementation must add, at minimum:
   projection failure; supersession before installation; late completion; and
   initial failure with no active Workspace. Unauthorized input must reserve,
   acquire, and publish nothing. Every non-install outcome must close the
-  unpublished Workspace, retain the prior host state and its exact snapshot
-  when one exists, and carry the source-identifying failure evidence.
-  Successful installation must publish the exact prepared Workspace once,
-  preserve the request's packet or definition basis and projection
-  classification, and remain reachable only through current host effect
-  authority;
+  unpublished Workspace, leave the nullable active-Workspace slot unchanged,
+  and carry the source-identifying failure evidence. Successful installation
+  must exchange the exact prepared Workspace into that slot once, close a
+  non-null before-value outside the exchange, preserve the request's packet or
+  definition basis and projection classification, and remain reachable only
+  through current host effect authority;
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
@@ -1899,10 +1899,10 @@ Implementation must add, at minimum:
 The existing
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
 checks the retired in-place participant protocol and is not evidence for fresh
-Workspace replacement. The current target remains unverified until focused
-evidence covers current-intent installation, replacement cleanup after every
-non-install outcome, exact prepared-Workspace publication, and the adopting
-host's combined-resource policy.
+Workspace activation. The current target remains unverified until focused
+evidence covers current-intent slot exchange, unpublished-Workspace cleanup
+after every non-activation outcome, exact prepared-Workspace activation, and
+the adopting host's construction resource policy.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified

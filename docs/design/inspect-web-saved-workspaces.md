@@ -47,13 +47,12 @@ operation. It does not change the storage or Save/Open/Forget behavior below.
 - The compact saved list appears on the Workspace page, including when no
   packages are loaded. Listing saved entries performs no acquisition or packet
   decoding. Entries retain their insertion order.
-- Open is an explicit replacement through the existing transactional
-  restore path. It constructs a fresh unpublished Workspace rather than
-  modifying or reusing the active Workspace. The canonical decoder remains
-  authoritative; unsupported or unavailable saved packets close the
-  replacement, retain the prior Workspace and source history entry, and keep
-  the saved entry available. Successful Open installs the replacement and uses
-  the existing result-focus and history classification.
+- Open constructs a fresh unpublished Workspace through the existing
+  transactional restore path. The canonical decoder remains authoritative;
+  unsupported or unavailable saved packets close that Workspace and leave the
+  nullable active-Workspace slot unchanged. Successful Open exchanges the new
+  Workspace into the slot, closes a non-null before-value outside the exchange,
+  and uses the existing result-focus and history classification.
 - The saved entry's close control is separate from Open. It forgets only the
   named definition, not the active Workspace, recent packages, or browser history.
   Focus moves to the next close control, then the preceding one, then Save

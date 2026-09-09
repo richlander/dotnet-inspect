@@ -305,13 +305,11 @@ owners.
 
 Inspect Web exposes at most one active Workspace. Activating a demo, share
 packet, imported definition, saved definition, or external package **Open**
-constructs a fresh Workspace independently from any active one. An active
-Workspace remains usable until construction is complete, then the host makes
-the new Workspace active and closes the prior Workspace when one existed.
-At most one unpublished new Workspace may exist; when another Workspace is
-active, the two may coexist during construction. The unpublished Workspace is
-not selectable or independently presented. With no active Workspace, the same
-construction path performs initial activation rather than a switch.
+constructs a fresh Workspace solely from that input. The host owns a nullable
+active-Workspace slot. Activation exchanges the new Workspace into that slot;
+the returned before-value is either a Workspace or null and is used only for
+optional cleanup outside the exchange. At most one unpublished new Workspace
+may exist, and it is not selectable or independently presented.
 
 This component exposes no Workspace collection, switcher, name, or
 cross-Workspace operation. Each Workspace has one current scope

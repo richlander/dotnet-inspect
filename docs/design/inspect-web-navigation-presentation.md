@@ -425,10 +425,10 @@ product demo catalog, in product order. Listing carries its owner-issued stable
 ID as action identity, renders its title and summary, and starts no demo
 resolution, acquisition, inspection, or graph work. Each entry exposes a
 separate explicit **Open demo** action. Activating that action resolves only the
-selected definition and uses its existing replace-and-restore or product-run
-path to replace the sole active Workspace. A failed Open demo action keeps the
-catalog and prior Workspace available, surfaces a retryable failure there, and
-returns focus to the selected demo action.
+selected definition and uses its existing restore or product-run path to
+construct a new Workspace and exchange it into the nullable active-Workspace
+slot. A failed Open demo action leaves the slot unchanged, surfaces a retryable
+failure in the catalog, and returns focus to the selected demo action.
 
 Available definitions and loaded state remain separate. A demo title does not
 rename the Workspace, claim that the definition uniquely owns the loaded

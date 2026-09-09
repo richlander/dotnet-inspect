@@ -3642,26 +3642,22 @@ Navigation, and query paths inside it:
 5. close it on every failure, refusal, cancellation, expiry, or supersession
    path.
 
-The active Workspace remains usable throughout preparation. Successful
-activation switches the host's active Workspace reference once, then closes
-the old Workspace outside that non-yielding pointer change. Old operations may
-drain under their existing leases, but their late effects are rejected by the
-consumer's existing intent and effect authority.
+The retained host owns one nullable active-Workspace slot. Successful
+activation is a VIP-style switch: replace that slot with the new Workspace in
+one non-yielding action, then close the returned before-value outside the switch
+when it is non-null. Construction never reads or interprets the before-value.
 
-##### Isolation and reuse boundary
+##### Ordinary Workspace construction
 
-The new Workspace shares no Workspace-owned Root, occurrence identity, artifact
-session, context group, query lease, budget reservation, Navigation session,
-or mutable owner state with the active Workspace. Equal package coordinates do
-not transfer resources. Storage and package caches may independently return the
-same immutable bytes to both Workspaces; cache reuse does not make either
-Workspace own the other's resources.
-
-Because the new Workspace is ordinary, its published Roots use the
-ordinary current-query path. Artifact Acquisition needs no candidate identity,
-candidate-specific query admission, retained-current Root borrowing,
-`CandidateOwned` receipt state, or complete-restoration publication adapter.
-Ordinary Root preparation/publication and Workspace close remain sufficient.
+The new Workspace is ordinary. It owns its Roots, occurrence identities,
+artifact sessions, context groups, query leases, budget reservations,
+Navigation session, and mutable owner state under the existing Workspace
+contract. Its published Roots use the ordinary current-query path. Artifact
+Acquisition needs no candidate identity, candidate-specific query admission,
+retained-current Root borrowing, `CandidateOwned` receipt state, or
+complete-restoration publication adapter. Ordinary Root
+preparation/publication and Workspace close remain sufficient. Shared immutable
+storage and package caches remain ordinary implementation details.
 
 Platform/package pruning runs before exact package Root construction. For
 example, `NETStandard.Library@2.0.3` contributes no package Root when the
@@ -3673,10 +3669,9 @@ pruning and becomes one ordinary Root in the fresh multi-package Workspace.
 
 Definitions owns the complete new-Workspace value and restoration result.
 Artifact Acquisition owns construction, ordinary operation, close, and
-resource drainage for each Workspace. The retained host owns the active
-Workspace reference and changes it only under current owner-issued effect
-authority. The CLI normally has no prior Workspace, so its installation is the
-same construction path without switching from a prior active Workspace.
+resource drainage for each Workspace. The retained host owns the nullable
+active-Workspace slot and changes it only under current owner-issued effect
+authority. The CLI starts with a null slot and uses the same activation path.
 
 A retained host admits at most one unpublished new Workspace at a time. A newer
 restoration supersedes and closes the older attempt's Workspace before
@@ -3684,29 +3679,21 @@ beginning another. The product exposes at most one active Workspace; the
 unpublished Workspace is not selectable, rendered, placed in history, or
 available to ordinary host actions.
 
-Fresh construction means the old and new Workspaces coexist during
-preparation, and old resources may continue draining after installation.
-Per-Workspace budgets do not bound that combined peak. Browser/Wasm adoption
-must define and gate a host-level new-Workspace admission policy before this path
-is implemented. This document makes no process-wide peak-memory safety claim.
+Browser/Wasm adoption must define and gate a host-level construction admission
+policy. When the active slot is non-null, its Workspace may remain live while
+the unpublished Workspace is constructed and while the exchanged-out value
+drains after activation. Per-Workspace budgets do not bound that peak. This
+document makes no process-wide peak-memory safety claim.
 
 The required integration evidence is limited to:
 
 - a failed or superseded restoration closes the new Workspace and leaves the
-  active Workspace usable;
-- a successful restoration switches to the exact prepared Workspace once and
-  closes the old Workspace without awaiting drainage on the swap path;
-- no Workspace-owned identity or resource transfers between old and new
-  Workspaces;
+  active-Workspace slot unchanged;
+- a successful restoration places the exact prepared Workspace in the slot
+  once;
+- the switch does not await closure or drainage of a non-null before-value;
 - at most one unpublished new Workspace is admitted; and
-- the adopting host enforces its declared combined-resource policy.
-
-The proposed coverage for the no-transfer absence claim is **partial**:
-owner-level tests prove distinct Workspace, Root, occurrence, session, context,
-lease, and budget identities for representative package restorations, while
-integration tests prove independent close and drainage. Design review, not a
-source-policing gate, owns the broader architectural boundary. Immutable cache
-reuse is explicitly outside the absence claim.
+- the adopting host enforces its declared construction resource policy.
 
 These claims remain **unverified**. They require the Definitions and retained
 host designs before implementation; they do not extend the ordinary Artifact

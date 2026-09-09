@@ -1055,8 +1055,8 @@ After Definitions constructs a fresh unpublished Workspace and publishes its
 complete explicit Root membership, it supplies Navigation with that exact
 Workspace, zero or one exact retained occurrence context, and the optional
 exact active subject and lens requested inside it. Every supplied identity was
-issued within the new Workspace; Navigation does not reconcile it with
-the active Workspace or retain an identity from that Workspace.
+issued within the new Workspace, and Navigation validates only their internal
+consistency there.
 
 The retained occurrence context is independent from the active subject. It
 contains:
@@ -1090,7 +1090,8 @@ resolution and aborts initialization. Navigation then resolves its subject and
 lens halves and publishes one complete snapshot inside the new
 Workspace only when both halves succeed. Any half-failure closes the
 new Workspace through the Definitions coordinator, and supersession prevents
-an older attempt's Workspace from becoming active. The focused local state machine is
+an older attempt's Workspace from becoming active. The focused local state
+machine is
 [`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
 This owner does not install the new Workspace or coordinate its
@@ -1101,8 +1102,8 @@ internally complete current snapshot.
 
 Selecting a loaded coordinate, Library, Type, or Member in Spotlight uses
 ordinary Navigation inside the active Workspace and never enters this
-replacement path. Selecting an external package creates a fresh one-package
-Workspace; the full Workspace editor may create a replacement with multiple
+construction path. Selecting an external package creates a fresh one-package
+Workspace; the full Workspace editor may create a Workspace with multiple
 explicit package Roots. In either case, subject focus remains independent from
 membership, and traversal-derived libraries do not become explicit Roots.
 
