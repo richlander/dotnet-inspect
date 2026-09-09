@@ -12,7 +12,7 @@ environment.
 | Model | Mechanism |
 | --- | --- |
 | `NavigationSession.tla` | Retained session: intent, supersession, maintenance order, effect authority, consumer synchronization |
-| `AtomicRestoration.tla` | Canonical restoration participant: one exact requested subject+lens pair published as a prepared snapshot |
+| `AtomicRestoration.tla` | Fresh Workspace initialization: one exact requested subject+lens pair published as one complete Navigation snapshot |
 | `SnapshotAuthority.tla` | Retained versus stateless execution and the prior state each may read |
 
 ## What these models cover
@@ -61,11 +61,11 @@ read that way:
   TypeScript implementation conforms to these specifications. Conformance is
   the job of the named implementation gates in the owning document.
 - **Complete restoration coordination.** `AtomicRestoration.tla` covers only
-  the navigation participant's subject+lens preparation. Other participants,
-  transaction commit, and installation belong to
-  [Workspace Definitions](../../workspace-definitions.md). #4787 established
-  the current version-2 shape; #5525 tracks Workspace/Package subject and
-  retained-context adoption.
+  atomic subject+lens initialization inside one fresh Workspace. Replacement
+  Workspace construction, cleanup, and active-reference installation belong to
+  [Workspace Definitions](../../workspace-definitions.md) and the retained
+  host. #4787 established the current version-2 shape; #5525 tracks
+  Workspace/Package subject and retained-context adoption.
 - **Retained occurrence context.** `AtomicRestoration.tla` does not model the
   exact retained occurrence or descendant Library/Type/Member path supplied
   independently from an active Workspace subject. It also does not model the
@@ -168,11 +168,15 @@ bounded, so TLC can show that the queue drains once intents stop arriving.
 
 ## `AtomicRestoration.tla`
 
-Canonical restoration gives Inspection Subject Navigation one exact requested
-subject+lens payload. The owner retains that request independently while its
-subject and lens halves resolve, then publishes one prepared snapshot only
-when both halves are ready. Complete restoration coordination and installation
-are deliberately absent.
+Fresh Workspace initialization gives Inspection Subject Navigation one exact
+requested subject+lens payload. The owner retains that request independently
+while its subject and lens halves resolve, then publishes one complete snapshot
+only when both halves are ready. Replacement construction and active-Workspace
+installation are deliberately absent.
+
+The model retains its historical `prepared` state names. They now describe a
+Navigation snapshot prepared for ordinary publication inside the unpublished
+Workspace, not a fragment of an in-place multi-owner restoration transaction.
 
 The two halves are each working, ready, or failed. A half-failure settles as
 aborted, including after the other half became ready. A newer intent prevents

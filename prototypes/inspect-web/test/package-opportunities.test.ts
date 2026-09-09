@@ -180,10 +180,12 @@ function escapeHtml(value: unknown) {
 }
 
 const baseOptions = {
-  isPlatform: false,
-  scopedLibrary: "Test.Assembly",
-  activeFramework: "net10.0",
-  picker: "",
+  libraryName: "Test.Assembly",
+  assemblyIdentity: "Test.Assembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+  assetPath: "lib/net10.0/Test.Assembly.dll",
+  coordinate: "net10.0 · Test.Package@1.0.0",
+  requireLibrary: false,
+  pickerHtml: "",
   fresh: true,
   loading: false,
   error: "",
@@ -208,20 +210,21 @@ function opportunity(
 test("a platform package with no scoped library prompts to pick one, before any scan runs", () => {
   const html = renderPackageOpportunities({
     ...baseOptions,
-    isPlatform: true,
-    scopedLibrary: null,
-    picker: "<PICKER>",
+    requireLibrary: true,
+    pickerHtml: "<select><option>PICKER</option></select>",
     fresh: false,
   });
 
-  assert.match(html, /^<PICKER>/);
+  assert.match(html, /library-opportunities-controls/);
+  assert.match(html, /<select><option>PICKER<\/option><\/select>/);
   assert.match(html, /Pick a library to scan/);
+  assert.match(html, /Select a library/);
 });
 
 test("a fresh scan in progress shows the scanning status", () => {
   const html = renderPackageOpportunities({ ...baseOptions, loading: true });
 
-  assert.match(html, /Scanning opportunities…/);
+  assert.match(html, /Scanning opportunities/);
 });
 
 test("a loading flag from a stale (non-fresh) scope does not show the scanning status", () => {
@@ -247,23 +250,39 @@ test("no data yet (fresh, no error, no data) shows a generic loading placeholder
 test("empty categories render the no-opportunities message with the scan scope", () => {
   const html = renderPackageOpportunities({
     ...baseOptions,
-    data: { categories: [], totalOpportunities: 0, inspectionError: null },
+    data: { categories: [], totalOpportunities: 0, isComplete: true, inspectionError: null },
   });
 
   assert.match(html, /No integration opportunities/);
   assert.match(html, /Test\.Assembly/);
-  assert.match(html, /net10\.0/);
+  assert.match(html, /Test\.Package@1\.0\.0/);
 });
 
-test("a platform scan scope names the scoped library and framework", () => {
+test("an incomplete empty scan does not claim that no opportunities exist", () => {
   const html = renderPackageOpportunities({
     ...baseOptions,
-    isPlatform: true,
-    scopedLibrary: "System.Text.Json",
-    data: { categories: [], totalOpportunities: 0, inspectionError: null },
+    data: {
+      categories: [],
+      totalOpportunities: 0,
+      isComplete: false,
+      inspectionError: null,
+    },
   });
 
-  assert.match(html, /System\.Text\.Json · net10\.0/);
+  assert.match(html, /Opportunity scan incomplete/);
+  assert.match(html, /partial/);
+  assert.doesNotMatch(html, /No integration opportunities/);
+});
+
+test("the full-area frame retains Library identity and package coordinates", () => {
+  const html = renderPackageOpportunities({
+    ...baseOptions,
+    data: { categories: [], totalOpportunities: 0, isComplete: true, inspectionError: null },
+  });
+
+  assert.match(html, /lib\/net10\.0\/Test\.Assembly\.dll/);
+  assert.match(html, /Test\.Assembly, Version=1\.0\.0\.0/);
+  assert.match(html, /net10\.0 · Test\.Package@1\.0\.0/);
 });
 
 test("an inspection error renders a warning banner alongside categories", () => {
@@ -272,15 +291,17 @@ test("an inspection error renders a warning banner alongside categories", () => 
     data: {
       categories: [{ integration: "Auth", items: [] }],
       totalOpportunities: 0,
+      isComplete: false,
       inspectionError: "<bad> assembly",
     },
   });
 
   assert.match(html, /This library could not be scanned completely/);
   assert.match(html, /&lt;bad&gt; assembly/);
+  assert.match(html, /partial/);
 });
 
-test("categories render a summary with area/suggestion counts and a chip per category", () => {
+test("categories render quiet counts, guidance, and full-width category groups", () => {
   const html = renderPackageOpportunities({
     ...baseOptions,
     data: {
@@ -289,13 +310,16 @@ test("categories render a summary with area/suggestion counts and a chip per cat
         { integration: "Database", items: [] },
       ],
       totalOpportunities: 1,
+      isComplete: true,
       inspectionError: null,
     },
   });
 
-  assert.match(html, /2 areas · 1 suggestion · Test\.Assembly · net10\.0/);
-  assert.match(html, /<span class="type-chip">Auth <span class="ns-count">1<\/span><\/span>/);
-  assert.match(html, /<span class="type-chip">Database <span class="ns-count">0<\/span><\/span>/);
+  assert.match(html, /2 areas · 1 suggestion/);
+  assert.match(html, /Types open in this package/);
+  assert.match(html, /<h2 id="opportunity-category-0">Auth<\/h2>/);
+  assert.match(html, /<h2 id="opportunity-category-1">Database<\/h2>/);
+  assert.doesNotMatch(html, /type-chip-list/);
 });
 
 test("an opportunity row splits the API into short name and qualifier", () => {
@@ -316,6 +340,7 @@ test("an opportunity row splits the API into short name and qualifier", () => {
         }],
       }],
       totalOpportunities: 1,
+      isComplete: true,
       inspectionError: null,
     },
   });
@@ -348,6 +373,7 @@ test("an explicitly unknown source identity remains distinct from a legacy row",
         }],
       }],
       totalOpportunities: 1,
+      isComplete: true,
       inspectionError: null,
     },
   });
@@ -365,6 +391,7 @@ test("an explicitly unknown source identity remains distinct from a legacy row",
         items: [legacyItem],
       }],
       totalOpportunities: 1,
+      isComplete: true,
       inspectionError: null,
     },
   });
@@ -383,6 +410,7 @@ test("an integration kind with a leading dotted namespace renders a load-on-dema
         items: [opportunity({ api: "Widget", integrationType: "Microsoft.Extensions.AI IChatClient extension", lookFor: "" })],
       }],
       totalOpportunities: 1,
+      isComplete: true,
       inspectionError: null,
     },
   });
@@ -400,6 +428,7 @@ test("an integration kind with no dotted namespace renders as plain muted text",
         items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })],
       }],
       totalOpportunities: 1,
+      isComplete: true,
       inspectionError: null,
     },
   });
@@ -417,6 +446,7 @@ test("look-for tokens render as spotlight-seeded chips, one per comma-separated 
         items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "AddChatClient, AddEmbeddingGenerator" })],
       }],
       totalOpportunities: 1,
+      isComplete: true,
       inspectionError: null,
     },
   });
@@ -434,6 +464,7 @@ test("a wildcard look-for pattern renders as a muted, non-interactive hint", () 
         items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "Add*" })],
       }],
       totalOpportunities: 1,
+      isComplete: true,
       inspectionError: null,
     },
   });
@@ -451,6 +482,7 @@ test("an empty look-for hint renders a generic any-registration-surface hint", (
         items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })],
       }],
       totalOpportunities: 1,
+      isComplete: true,
       inspectionError: null,
     },
   });
@@ -467,6 +499,7 @@ test("API and integration-type text is escaped", () => {
         items: [opportunity({ api: "<Widget>", integrationType: "<bad> kind", lookFor: "<bad>" })],
       }],
       totalOpportunities: 1,
+      isComplete: true,
       inspectionError: null,
     },
   });

@@ -11,7 +11,7 @@ owner through the bounded one-donor transfer allowed by
 [Design scope and composition](../design-scope.md#one-owner-per-focused-design).
 The donor is
 [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md).
-That owner retains runtime Workspace identity, artifact realization, admission
+That owner retains Workspace identity, artifact realization, admission
 and query authorization, assembly-context construction, physical publication,
 budgets, and resource lifetime. Its existing concepts table assigns logical
 Workspace composition to that owner. This effort transfers that one cohesive
@@ -156,7 +156,7 @@ sections are historical design context, not an implementation claim.
 ## Authority and exact claim
 
 Workspace Scope and Expansion is the product authority for the committed
-logical inspection scope of one exact runtime Workspace.
+logical inspection scope of one exact Workspace.
 
 It owns:
 
@@ -173,7 +173,7 @@ It owns:
 
 It does not own:
 
-- runtime Workspace identity construction, close, or resource lifetime;
+- Workspace identity construction, close, or resource lifetime;
 - package, platform, project, local, or embedded coordinate construction;
 - source authorization, package resolution, acquisition, caching, or
   realization;
@@ -204,30 +204,44 @@ The named production consumers are:
 - the stateless agent-oriented CLI Workspace surface tracked by
   [#5513](https://github.com/richlander/dotnet-inspect/issues/5513).
 
-The concrete Browser scenario is one current inspection scope containing one
-or more exact package, platform, and later non-package Roots. A user can replace
-that scope, add to it, remove from it, clear it, inspect its admitted
-assemblies, and selectively permit dependency following. The CLI consumes the
-same snapshot and results without adding retained terminal navigation.
+The concrete Browser scenario is a retained collection of independently
+constructed Workspaces with one active Workspace. Each Workspace's explicit
+membership contains one or more exact package Roots and ecosystem
+registrations. The Workspace editor can replace that membership, add to it,
+remove from it, or clear it. Navigation independently selects one current
+subject through the subject strip. On Package, Type, or Member surfaces, one
+package is active in that strip without becoming the whole Workspace.
+Query-owned traversal may realize Platform and package dependencies without
+adding those libraries to explicit Root membership. The CLI consumes the same
+per-Workspace snapshot and results without adding retained terminal navigation.
 
 This infrastructure is warranted only to support that scenario. It deliberately
 does not add:
 
-- a Workspace collection, switcher, tab model, or simultaneous live Workspace
-  composition;
+- simultaneous active-Workspace composition or queries spanning Workspaces;
 - a generalized transaction framework for unrelated product state;
 - an extensible plugin vocabulary for expansion policy; or
 - a universal source-realization protocol.
 
-The first complex proof is the 44-package `Microsoft.Extensions` set from the
+The first complex per-Workspace proof is the 44-package
+`Microsoft.Extensions` set from the
 [Package Set Registry](package-set-registry.md). The scope owner therefore
 needs atomic multi-Root edits, visible failures, and a capacity above the
-current 12-package Browser limit. It does not need a multi-Workspace manager.
+current 12-package Browser limit. The retained Workspace collection remains a
+host concern, not a Scope composition primitive.
 
 ## Design demo
 
-Inspect Web exposes one Workspace subject rather than a list containing one
-named Workspace:
+The Workspace subject first exposes the retained Workspaces:
+
+```text
+Workspaces
+  Humanizer.Core                         Active    [Delete]
+  Newtonsoft.Json                                  [Activate] [Delete]
+```
+
+Selecting one changes the active Workspace without reconstructing it. The
+selected Workspace then exposes its own scope:
 
 ```text
 Workspace
@@ -256,10 +270,10 @@ Dependency expansion
   Dependencies outside the admitted scope remain visible but are not acquired.
 ```
 
-Global Search and Package inspection use **Open** to replace the current
-Workspace. The Workspace editor uses **Add** for explicit accumulation. Opening
-an exact Root that is already present returns that existing occurrence without
-reacquisition.
+Global Search and Package inspection use **Open** to create and activate a new
+Workspace. The Workspace editor uses **Add** for explicit accumulation inside
+one Workspace. Opening an exact Root that is already present in the active
+Workspace returns that existing occurrence without reacquisition.
 
 The neighboring package-set case prepares all 44
 `package-set.microsoft-extensions` coordinates and commits one revision. A
@@ -269,54 +283,60 @@ set.
 
 ## Problem
 
-The product currently has several partially overlapping meanings of
-Workspace:
+The product currently has several partially overlapping meanings of Workspace:
 
 - a physical owner of artifact sessions and assembly-context groups;
 - a Browser-retained package array;
 - a portable definition or share packet;
 - a Navigation subject;
-- a proposed collection of several simultaneously live Workspaces; and
+- a retained Browser collection with one active Workspace; and
 - a possible dependency-discovery boundary.
 
 Those meanings have begun to produce independent lifecycle, history,
-membership, and identity protocols. Inspect Web instead needs one ordinary
-current scope with explicit editing and persistence as a separate concern.
+membership, and identity protocols. Inspect Web needs each retained Workspace
+to own one ordinary scope, while the host separately owns collection,
+activation, and deletion.
 
 The current Browser package list also weakens the contract in important ways:
 
-- ordinary package opens accumulate while canonical restoration replaces;
+- ordinary package opens accumulate instead of creating independent
+  Workspaces;
 - exceeding 12 packages silently evicts older members;
 - a demo can arrive through either canonical restoration or a special engine
   operation;
 - dependency references do not have one explicit closed/open boundary; and
-- the visible Workspace previously rendered as `WORKSPACES 1` and
-  `Default Workspace`, implying a multi-Workspace manager.
+- retained Workspaces lack one product-owned activation and deletion contract.
 
-The missing product concept is not a Workspace manager. It is one authoritative
-logical scope over physical acquisition and binding resources that already have
-owners.
+The missing Scope concept remains one authoritative logical scope over physical
+acquisition and binding resources. The Browser host separately needs the small
+retained collection described below.
 
-## One live Workspace
+## Retained Workspaces and one active Workspace
 
-Inspect Web holds exactly one live runtime Workspace. Activating a demo, share
-packet, imported definition, saved definition, or ordinary **Open** request
-means replacing the scope in that Workspace; none creates a second live
-Workspace object. An ordinary scope-only **Open** can perform that replacement
-now. An input that also restores canonical Navigation, view, query, or history
-state remains blocked on the focused complete-restoration participant described
-below.
+Inspect Web retains zero or more published Workspaces and identifies one as
+active whenever the collection is nonempty. Activating a demo, share packet,
+imported definition, saved definition, or external package **Open** constructs
+a fresh Workspace solely from that input, publishes it into the collection,
+and makes it active. Any previously active Workspace remains published and
+open. At most one unpublished new Workspace may exist, and it is not selectable
+or independently presented.
 
-This component exposes no Workspace collection, switcher, name, or
-cross-Workspace operation. Each runtime Workspace has one current scope
-revision. A host may retain portable definitions or browser-history entries as
-data, but activating one prepares a replacement revision rather than reviving a
-simultaneously live instance. A packet is serialization input and output, not a
-user-visible packet Workspace.
+The Workspace subject lists the published collection. Selecting a listed
+Workspace changes the active identity and restores its retained Navigation
+snapshot without reconstructing the Workspace. Deleting a listed Workspace
+removes and closes it. Deleting the active Workspace selects the next entry in
+collection order, otherwise the previous entry, otherwise no Workspace. The
+host changes collection and active identity before closing the removed
+Workspace.
 
-The CLI normally creates one ephemeral runtime Workspace for one invocation.
-Future service hosts may independently create runtime Workspaces for separate
-requests, but this owner does not compose, compare, or present them together.
+Each Workspace has one current scope revision. A host may also retain portable
+definitions or browser-history entries as data, but activating one constructs a
+fresh Workspace rather than reviving a historical Workspace identity. A packet
+is serialization input and output, not a published Workspace.
+
+The CLI normally creates one ephemeral Workspace for one invocation. Future
+service hosts may independently create Workspaces for separate requests, but
+this owner does not compose, compare, or present them together.
 
 ## Analogous designs
 
@@ -359,26 +379,26 @@ InspectionWorkspaceIdentity              artifact owner
               Optional preparation
 ```
 
-### Runtime Workspace identity
+### Workspace identity
 
 The artifact owner issues the exact process-local
-`InspectionWorkspaceIdentity` and decides whether its runtime is accepting
+`InspectionWorkspaceIdentity` and decides whether the Workspace is accepting
 operations, closing, or closed. This owner cannot construct, compare by value,
 serialize, reopen, or prolong that identity.
 
 Every scope revision carries that exact identity. Equal definitions, package
 coordinates, context addresses, URLs, labels, or member sequences do not make
-two runtime Workspaces equal.
+two Workspaces equal.
 
 User-facing **closed** and **selectively open** describe dependency-expansion
-eligibility. They do not rename or replace the artifact owner's runtime
-accepting/closing/closed lifetime states.
+eligibility. They do not rename or replace the artifact owner's
+accepting/closing/closed Workspace lifecycle.
 
 Every new scope operation and current snapshot refresh first consumes
-Artifact Acquisition's gate-observing runtime and physical-composition status.
-An absent runtime for a retained scope identity is an invariant or stale-
-composition failure, not an empty Workspace. Closing or closed rejects new
-scope operations. Snapshot refresh returns a typed
+Artifact Acquisition's gate-observing Workspace lifecycle and
+physical-composition status. If no Workspace exists for a retained scope
+identity, that is an invariant or stale-composition failure, not an empty
+Workspace. Closing or closed rejects new scope operations. Snapshot refresh returns a typed
 `Unavailable(RuntimeCompositionUnavailable)` result and may expose the last
 retained resource-free snapshot only as historical diagnostic evidence; it
 does not fabricate `Pending`, `Failed`, an empty Root sequence, or another
@@ -516,7 +536,7 @@ published current scope snapshot refreshes each occurrence through
 `GetCurrentRootScopeProjection` or consumes a projection returned atomically by
 the adjacent operation.
 
-A current snapshot read observes the shared runtime composition gate and
+A current snapshot read observes the shared Workspace composition gate and
 compares the snapshot's physical-composition identity with
 `GetCurrentArtifactRootCompositionGeneration`. Equal identity permits the
 already complete snapshot. Different identity requires one complete projection
@@ -740,13 +760,11 @@ WorkspaceScopeOperation
   | ExpandDependencies
 ```
 
-Package **Open**, resolved package-set **Open**, and an explicitly scope-only
-demo or definition action that resets rather than restores Navigation, view,
-query, and history state lower to `ReplaceScope`. Workspace-editor **Add
-package** and resolved **Add package set** lower to `AddRoots`.
-Source-selection owners resolve their inputs before this owner receives exact
-Root requests. Canonical restoration inputs do not lower to `ReplaceScope`;
-they remain blocked on the #5525 participant described below.
+Inside a fresh unpublished Workspace, package **Open**, resolved package-set
+**Open**, and canonical restoration lower their complete explicit Root set to
+`ReplaceScope`. Workspace-editor **Add package** and resolved **Add package
+set** on the active Workspace lower to `AddRoots`. Source-selection owners
+resolve their inputs before this owner receives exact Root requests.
 
 ```text
 WorkspaceScopeReplacement
@@ -757,9 +775,9 @@ WorkspaceScopeReplacement
 An ordinary package Open supplies an empty expansion-scope sequence and is
 therefore closed. An explicitly scope-only demo or definition action may
 supply its own complete typed expansion policy. The previous Workspace's
-expansion scopes are never inherited by omission. Canonical restoration will
-supply the same complete sequences through its future uncommitted Scope
-participant rather than this publishing operation.
+expansion scopes are never inherited by omission. Canonical restoration
+supplies the complete sequences to ordinary `ReplaceScope` in the fresh
+Workspace before that Workspace becomes active.
 
 Package-set Browser adoption is not enabled by this transfer alone.
 [Static Ecosystem Packs](ecosystem-packs.md) may expose an **Add curated
@@ -775,7 +793,7 @@ state or Artifact publication.
 
 Every operation carries:
 
-- the exact runtime Workspace identity;
+- the exact Workspace identity;
 - the exact current base revision identity;
 - one operation identity;
 - one complete requested effect;
@@ -797,7 +815,8 @@ WorkspaceScopeOperationResult
 
 Every arm other than `Unavailable` carries the complete current scope snapshot
 observed when the result settles. `Unavailable` is returned only when Artifact
-Acquisition reports the exact runtime Workspace absent, closing, or closed. It
+Acquisition reports no Workspace with that exact identity, or reports it
+closing or closed. It
 may carry the last retained resource-free snapshot as historical diagnostic
 evidence, explicitly not as current authority. No result requires Navigation
 or a host to reconstruct membership from an effect delta.
@@ -974,7 +993,7 @@ Clear commits one empty revision:
 - no Roots;
 - no expansion scopes;
 - `ClosedBoundary` with empty observed and producer-bound evidence; and
-- the same exact runtime Workspace identity.
+- the same exact Workspace identity.
 
 Clear supersedes pending preparation. Physical generations are retired and
 drain under Artifact Acquisition's lifetime contract; Clear does not wait for
@@ -1270,214 +1289,32 @@ focus command. Navigation owns subject recommendation, reconciliation,
 retained intent, and active-snapshot publication.
 
 [Workspace Definitions](workspace-definitions.md) owns portable schema,
-projection, and complete restoration. An ordinary `ReplaceScope` publishes
-Scope state and therefore cannot act as the uncommitted Scope fragment required
-by that owner's prepare-and-commit protocol. The focused contract below,
-tracked by [#6190](https://github.com/richlander/dotnet-inspect/issues/6190),
-defines Scope's contribution toward
-[#5525](https://github.com/richlander/dotnet-inspect/issues/5525).
-It is not implemented or model-checked. Canonical demo, share, import,
-saved-definition, and history restoration through this Scope remains
-unsupported; those inputs cannot be approximated by invoking `ReplaceScope`
-before or after the other participants.
+projection, and complete restoration. It constructs a fresh Workspace and
+supplies the complete ordered Root and registration intent to ordinary Scope
+operations there. Scope may publish normally because the new Workspace is not
+yet active or observable through host navigation. This owner needs no
+uncommitted restoration fragment, candidate occurrence identity, or
+multi-owner commit participant.
 
-An ordinary **Open** that intentionally replaces only Scope and resets rather
-than restores Navigation, view, query, and history state may use
-`ReplaceScope`. Workspace Definitions and the Browser owners retain the
-portable and presentation semantics; the future Scope participant must not
-transfer those semantics here or become a generalized transaction framework.
+Every occurrence in the new Workspace is issued under that
+Workspace's fresh identity. Scope constructs only from the new Workspace's
+requested membership. No other Workspace or Workspace definition participates;
+Scope does not retain occurrence identities or transfer revisions between
+Workspaces.
+Definitions and the retained host own whether the fully prepared Workspace
+becomes active; failure or supersession closes it and leaves the active
+Workspace's current Scope unchanged.
 
-After the complete-restoration participant lands, Browser Back/Forward may
-restore prior committed data into a new current revision. It does not
-reactivate the old runtime revision identity or make several Workspaces live
-simultaneously.
-
-### Uncommitted Scope restoration fragment
-
-The claim is limited to this owner:
-
-> Prepare one complete candidate Scope with exact occurrence identities for
-> adjacent preparation, without making it current; install exactly that Scope
-> contribution only within the complete restoration commit, or publish none of
-> it.
-
-The immediate consumer is the Definitions coordinator, which supplies candidate
-occurrences to Navigation's
-[canonical restoration participant](inspection-subject-navigation.md#canonical-restoration-participant).
-Definitions owns the complete request and result. Navigation owns the attempt
-token, intent ordering, prepared subject/lens snapshot, and effect authority.
-Artifact Acquisition owns candidate physical facts, provisional inspection,
-publication, and resource lifetime. This section neither creates a second
-coordinator nor changes those contracts.
-
-The first runtime profile remains exact-package, closed Scope with at most 64
-distinct Roots. A restoration must supply the complete Root and expansion-policy
-intent; unsupported non-package Roots or nonempty expansion registrations fail
-visibly rather than being dropped. It does not reapply fresh-Workspace defaults.
-Wider Scope profiles require their own implementation and evidence.
-
-#### Complete candidate and exact association
-
-Scope consumes one exact accepting runtime Workspace, the expected current
-Scope revision, a finite deadline, cancellation, and the complete owner-resolved
-replacement request. It carries the coordinator's opaque Navigation-issued
-attempt token unchanged. That token correlates the participant with the complete
-attempt; Scope neither issues another intent token nor interprets its ordering.
-
-The resource-free fragment identifies one complete candidate revision and its
-ordered Root occurrences, descriptors, closed policy, and logical limits. It
-also preserves the association between each requested Root and its exact
-candidate occurrence. Request reduction and retention use the existing
-[Replace scope](#replace-scope) correspondence rules, not portable coordinate
-text, display names, or list positions. Multiple reduced requests may map to
-one occurrence; every request must still have its exact mapping.
-
-An exactly corresponding current occurrence keeps its identity. Each unmatched
-Root gets a fresh Scope-issued occurrence identity. The candidate revision is
-new even when its logical contents equal an earlier revision; successful
-restoration never reactivates a historical revision. Navigation can bind its
-private prepared state to those candidate occurrences. The committed revision
-must use those same identities, not freshly mint equal-looking replacements
-after Navigation has prepared.
-
-Candidate facts carry their exact attempt association and expected Scope and
-Artifact publication bases. Equality proves correspondence within that
-preparation, not current membership. The fragment is not a
-`WorkspaceScopeSnapshot` returned by a current-state read, and its occurrence
-identities grant neither ordinary query admission nor activation authority.
-Any inspection needed before publication must use Artifact-owned provisional
-access, not temporarily install a Root to make current queries work.
-
-Provisional bindings, receipts, contexts, leases, and reservations remain in
-private preparation authority under their existing owners. They are not
-retained by the resource-free fragment, historical snapshots, Navigation state,
-or portable projections. Holding an abandoned or terminal fragment cannot
-prolong physical preparation; the existing finite deadline and release
-contracts remain applicable.
-
-#### Admission, invalidation, and publication
-
-A restoration preparation is a complete replacement for Scope mutation
-admission. Common validation and the full logical request validation precede
-admission or supersession. A valid current restoration may supersede an earlier
-preparation; an invalid, stale, or foreign request may not. Ordinary Add/Remove
-remain Busy while it prepares, and valid Replace/Clear can supersede it.
-This does not give Navigation-local activation authority to undo a committed
-Scope effect; that separate consumption boundary remains #5584.
-
-Preparation does not publish a new current Scope snapshot, including an
-ordinary `Preparing` snapshot. Its progress and exact cancellation action
-belong to the unpublished participant outcome. This differs from ordinary
-Scope progress because Definitions requires preparation to leave the complete
-installed state unchanged. Current membership and revision remain unchanged by
-the attempt until complete commit. The shared admission slot is not a second
-current Workspace or a second intent scheduler.
-
-Before contributing to commit, Scope must still be preparing that exact
-candidate against its unchanged expected Scope publication base and
-Artifact-owned physical basis. A newer Scope publication, physical movement,
-supersession, cancellation, expiry, or runtime unavailability prevents stale
-publication under the applicable owner contract. A candidate cannot silently
-refresh its bases, replace its occurrences, or reacquire material while keeping
-the earlier ready fragment; that would invalidate the other participants'
-association with it.
-
-Scope readiness is necessary, not sufficient, for complete commit. Its final
-contribution must pair its exact candidate revision and occurrence sequence
-with the Artifact owner's exact candidate composition and projected Roots.
-The complete snapshot, initial closure observation, and fresh publication base
-must describe that same association. The contribution cannot independently
-make the candidate current while Navigation, queries, or canonical projection
-can still refuse the complete attempt.
-
-A non-success or abandoned preparation releases its provisional authority and
-publishes none of its candidate. If another valid operation has since changed
-Scope, settlement leaves that newer state current; it must not restore the
-attempt's cached old snapshot. Scope preserves exact owner failure evidence
-for Definitions rather than manufacturing an empty successful fragment.
-Definitions alone classifies the complete restoration result. After complete
-publication becomes irrevocable, late cancellation cannot retract Scope's
-committed contribution.
-
-#### Physical prerequisite and evidence boundary
-
-The existing Artifact publication protocol is a useful comparison, not a
-complete-restoration implementation. It stages physical Roots privately and
-accepts a sealed Scope-only no-fail pointer swap. Its current operation does
-not return a privately inspectable candidate for arbitrary later participant
-preparation, and its token cannot implicitly become a multi-owner commit hook.
-[#6189](https://github.com/richlander/dotnet-inspect/issues/6189) owns the
-required Artifact design and implementation. This section does not choose its
-staging, query-access, locking, or complete-publication mechanism.
-
-Likewise, the existing Scope revision model checks ordinary Scope/Artifact
-publication, and Definitions'
-[restoration model](models/workspace-definitions-restoration/README.md) checks
-its abstract coordinator. Neither proves their composition with candidate
-occurrences. Before implementing this participant, compose the resolved
-owner-issued behaviors through named model instances, preserving the live
-attempt/candidate/occurrence and publication-base associations. Recheck imported
-properties in that composition; do not manufacture model-local equivalents of
-owner-issued publication or Navigation authority.
-
-The new interaction and implementation claims are **unverified**. Required
-future gates, tracked by
-[#6194](https://github.com/richlander/dotnet-inspect/issues/6194), are
-deliberately limited to the participant's observable outcomes:
-
-| Claim | Required evidence |
-| --- | --- |
-| Candidate occurrence identity survives complete installation | Composed model plus a Release case preparing Navigation under a new occurrence and observing that exact occurrence after commit |
-| Preparation and later participant refusal publish no candidate Scope | Composed model plus a Release case failing after physical and Scope preparation, with prior membership retained and provisional resources released even while the fragment is retained |
-| An obsolete candidate cannot replace newer current Scope | Composed model plus Release cases for valid Replace/Clear, physical movement, cancellation, deadline, and close during preparation |
-| Complete empty replacement is not an early Clear | Release case retaining nonempty current Scope until the complete empty restoration commits |
-
-These are not additional gates on today's ordinary Add/Remove/Replace/Clear.
-Model-checking precedes runtime implementation; runtime delivery must include
-the real coordinator/host adoption path, not an independently unused participant.
-
-#### Mock restoration and delivery
-
-```text
-Current Scope: JSON occurrence A
-Definition: JSON, NETStandard; inspect a descendant under NETStandard
-
-Prepared Scope: A, new occurrence B       Current Scope: still A
-Navigation prepares its exact view under B
-
-Required participant refuses            Current Scope: still A
-  or complete restoration commits       Current Scope: A,B; view still names B
-```
-
-An empty definition is the neighboring case: its candidate is empty, but the
-current nonempty Scope is not cleared until complete restoration succeeds.
-Neither path saves editor state, selects a successor, or writes browser history
-through this participant.
-
-The production hosts are Browser saved/share/history restoration
-(#5511/#5697) and CLI canonical replay (#4647). The immediate coordinator is
-Definitions #5525 and the Navigation fragment is #6112. The counted adoption plan in
-[#6190](https://github.com/richlander/dotnet-inspect/issues/6190), linked from
-overall tracker #5865, expands the previously grouped restoration milestone:
-six landed milestones, then eight remaining milestones for this contract,
-Artifact support, Scope model/runtime, Navigation support, Definitions
-composition, Browser adoption, CLI replay, and migrated Browser retirement.
-The total is fourteen delivery milestones, not fourteen mandatory PRs.
-Independent owners may work in parallel; CLI replay is not a prerequisite for
-Browser delivery. The shared runtime must stay within the existing near-term
-consumer lead bound. No host is replaced until its corresponding adoption is
-complete.
-
-This fragment adds no rendering path. Hosts retain their existing typed
-result-to-Markout or interactive Browser presentation boundaries. The separate
-CLI packet/full-URL idea #6150 does not change this contract.
+Browser Back/Forward may construct the historical definition as a fresh
+replacement. It does not reactivate an old Scope revision or expose several
+active Workspaces.
 
 ## Concurrency model
 
 Before implementation, a focused TLA+ model under
 `docs/design/models/workspace-scope-revisions/` must check:
 
-- one current revision per accepting runtime Workspace;
+- one current revision per accepting Workspace;
 - one current closure observation over that revision and its evaluated
   physical bindings;
 - one fresh process-lifetime non-reused Scope publication base per current
@@ -1578,7 +1415,7 @@ or artifact evidence later claimed by those owners.
 
 | Gate | Property |
 | --- | --- |
-| `InitialSnapshot_IsEmptyClosedAndBoundToExactWorkspace` | One exact runtime Workspace starts with one empty revision and closed observation, and no portable or display identity aliases it. |
+| `InitialSnapshot_IsEmptyClosedAndBoundToExactWorkspace` | One exact Workspace starts with one empty revision and closed observation, and no portable or display identity aliases it. |
 | `LogicalRevision_IsCompleteImmutableAndDistinct` | Every logical membership or expansion-policy publication returns one immutable complete revision with a fresh revision identity. |
 | `ScopePublicationBase_IsFreshDistinctAndNonReusable` | Initial state and every current-snapshot pointer swap issue one fresh process-lifetime non-reused base; refused candidate bases never become current or reusable. |
 | `ClosureObservation_IsExactAndDistinct` | Every closure publication or invalidation carries a fresh identity, exact source revision, and exact evaluated Artifact Root generation references. |
@@ -1623,8 +1460,8 @@ or artifact evidence later claimed by those owners.
 | `ExpansionRetry_IsStateIdempotent` | A retry after committed closure movement is stale, while an unchanged current batch after `NoEffect` may repeat only the same state-based `NoEffect`. |
 | `ProductProfile_AdmitsRegisteredMicrosoftExtensionsWithoutEviction` | The resolved current package-set membership fits the 64-Root profile and no existing Root is evicted. |
 | `RootCapacity_RejectionPreservesCurrentRevision` | A sixty-fifth distinct Root fails visibly without truncation or replacement. |
-| `RuntimeClose_RejectsNewScopeOperations` | Scope authority cannot outlive the artifact owner's runtime Workspace lifetime. |
-| `RuntimeUnavailable_DoesNotFabricateCurrentScope` | Absent, closing, or closed Artifact runtime state rejects current refresh or mutation and never becomes an empty or success-shaped Workspace result. |
+| `RuntimeClose_RejectsNewScopeOperations` | Scope authority cannot outlive the artifact owner's Workspace lifetime. |
+| `RuntimeUnavailable_DoesNotFabricateCurrentScope` | An absent, closing, or closed Workspace rejects current refresh or mutation and never becomes an empty or success-shaped Workspace result. |
 | `ScopePublication_UsesArtifactRootPublicationPlan` | Membership, policy, and closure evaluation publication supplies one complete parent-owned physical plan and sealed Scope participant carrying exact current and fresh candidate Scope bases; the parent gate changes both current states or neither. Observation of an already-published physical epoch instead uses the complete Scope-only refresh under the Artifact read lease and does not submit a physical plan. |
 | `EveryOperationResultCarriesCompleteCurrentSnapshot` | Committed, no-effect, rejected, failed, cancelled, and superseded results require no host reconstruction; Unavailable is explicitly historical and carries no current authority. |
 | `CurrentSnapshot_BindsOnePhysicalCompositionEpoch` | One returned current snapshot carries the owner-issued composition identity and complete Root projections from that epoch; physical movement causes complete refresh or typed refusal, never a mixed-epoch view. |
@@ -1682,8 +1519,8 @@ action, and receipt identities.
    presentation and consumer owners.
 10. Have Workspace Definitions #5525 decide portable capacity and projection
    for the larger reachable scope under its own contract. Adopt browser history
-   through its focused owner, then remove the packet inventory and
-   multi-live-Workspace paths.
+   through its focused owner, then remove the transitional packet-backed
+   membership paths.
 
 Each slice names its one adopting owner. This design does not authorize one PR
 spanning core scope, acquisition, Navigation, Browser presentation, history,
@@ -1693,9 +1530,9 @@ and portable schema.
 
 This design does not define:
 
-- simultaneous live Workspaces, Workspace switching, or cross-Workspace
-  operations;
-- Workspace names, tabs, recents, or saved-definition storage;
+- simultaneous active-Workspace composition or cross-Workspace queries;
+- host collection storage, Workspace display labels, permanent row-one tabs,
+  recents, or saved-definition storage;
 - a complete dependency graph or an automatic expansion recommendation;
 - eager expansion merely from registering a package prefix;
 - package ownership inferred from assembly metadata or display text;
