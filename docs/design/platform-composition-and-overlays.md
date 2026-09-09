@@ -549,21 +549,24 @@ requirement is that it be attributed, not that it be avoided.
 
 ### Client disclosure
 
-The retained skew warning is participant-level context, not a decoration on
-every source and target of every traversal. For a package participant, Inspect
-Web presents it once on Package Overview beside the package version and
-framework controls:
+The retained incompatibility warning is participant-level context, not a
+decoration on every source and target of every traversal. Its projection must
+communicate that the package/platform relation is unsupported, that some
+operations may be blocked, and that non-binding results may be incorrect. It
+must not imply that every exact member traversal fails.
 
-> This package is incompatible with the Workspace platform. Some operations may
-> be blocked, and some results may be incorrect.
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-overview)
+owns the exact browser copy and its single Package Overview placement beside
+the package version and framework controls. This document does not duplicate
+that user-facing string.
 
-The warning remains visible after an exact member lookup succeeds because that
-binding does not make the owner-classified unsupported downgrade compatible for
-documentation, annotations, source, implementation, or other non-binding
-facets. It does not replace an operation's exact compatibility failure, which
-remains visible where that operation reports its result. Direct-library and
-non-browser hosts project the same owner-issued incompatibility evidence under
-their own presentation contracts.
+The warning remains applicable after an exact member lookup succeeds because
+that binding does not make the owner-classified unsupported downgrade
+compatible for documentation, annotations, source, implementation, or other
+non-binding facets. It does not replace an operation's exact compatibility
+failure, which remains visible where that operation reports its result.
+Direct-library and non-browser hosts project the same owner-issued
+incompatibility evidence under their own presentation contracts.
 
 ## Precedence between entitled candidates
 
