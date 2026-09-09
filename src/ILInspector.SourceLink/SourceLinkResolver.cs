@@ -89,10 +89,7 @@ public sealed class SourceLinkResolver
         return _exactTypesByDefinitionName!.TryGetValue(
             type,
             out PdbTypeDocumentInfo? match)
-                ? ResolveTypeSource(
-                    match,
-                    allowDocumentInference: true,
-                    filePathComparer: StringComparer.Ordinal)
+                ? ResolveTypeSource(match, StringComparer.Ordinal)
                 : null;
     }
 
@@ -112,78 +109,69 @@ public sealed class SourceLinkResolver
 
         return ResolveTypeSource(
             type,
-            allowDocumentInference: true,
-            filePathComparer: StringComparer.OrdinalIgnoreCase);
+            StringComparer.OrdinalIgnoreCase);
     }
 
     TypeSourceInfo? ResolveTypeSource(
         PdbTypeDocumentInfo type,
-        bool allowDocumentInference,
         StringComparer filePathComparer)
     {
         string simpleName = type.TypeSimpleName;
-        bool hasCorrelatedDocuments = type.Documents.Count > 0;
-        Dictionary<string, PartialSourceFile> files =
-            new(filePathComparer);
-
-        foreach (var documents in type.Documents.GroupBy(
-            static document => document.FilePath,
-            StringComparer.Ordinal))
+        if (type.Documents.Count > 0)
         {
-            var candidates = documents.Take(2).ToArray();
-            files.TryAdd(
-                documents.Key,
-                candidates.Length == 1
-                    ? Decorate(candidates[0])
-                    : Decorate(documents.Key));
-        }
+            Dictionary<string, PartialSourceFile> files =
+                new(filePathComparer);
 
-        if (allowDocumentInference)
-        {
-            foreach (string path in FindDocumentsMatchingTypeName(simpleName))
-                files.TryAdd(path, Decorate(path));
-        }
+            foreach (var documents in type.Documents.GroupBy(
+                static document => document.FilePath,
+                StringComparer.Ordinal))
+            {
+                var candidates = documents.Take(2).ToArray();
+                files.TryAdd(
+                    documents.Key,
+                    candidates.Length == 1
+                        ? Decorate(candidates[0])
+                        : Decorate(documents.Key));
+            }
 
-        if (files.Count == 0)
-        {
-            if (!allowDocumentInference)
-                return null;
-
-            string? inferredPath = DocumentPaths
-                .FirstOrDefault(path => Path.GetFileNameWithoutExtension(path)
-                    .Equals(simpleName, StringComparison.OrdinalIgnoreCase));
-            if (inferredPath is null)
-                return null;
-
-            var file = Decorate(inferredPath);
+            PartialSourceFile correlatedPrimary =
+                SelectPrimarySourceFile(files.Values, simpleName);
             return new TypeSourceInfo(
-                file.FilePath,
-                file.SourceUrl,
+                correlatedPrimary.FilePath,
+                correlatedPrimary.SourceUrl,
                 LineNumber: null,
-                file.GitHubBrowseUrl,
-                SourceResolutionMethod.Inferred,
-                file.Checksum,
-                file.ChecksumAlgorithm);
+                correlatedPrimary.GitHubBrowseUrl,
+                SourceResolutionMethod.SourceLink,
+                Checksum: correlatedPrimary.Checksum,
+                ChecksumAlgorithm: correlatedPrimary.ChecksumAlgorithm)
+            {
+                AdditionalSourceFiles =
+                [
+                    .. files.Values
+                        .Where(file =>
+                            file.FilePath != correlatedPrimary.FilePath),
+                ],
+            };
         }
 
-        var primary = SelectPrimarySourceFile(files.Values, simpleName);
+        string[] inferredPaths =
+        [
+            .. FindDocumentsMatchingTypeName(simpleName)
+                .Distinct(filePathComparer)
+                .Take(2),
+        ];
+        if (inferredPaths.Length != 1)
+            return null;
+
+        PartialSourceFile primary = Decorate(inferredPaths[0]);
         return new TypeSourceInfo(
             primary.FilePath,
             primary.SourceUrl,
             LineNumber: null,
             primary.GitHubBrowseUrl,
-            hasCorrelatedDocuments
-                ? SourceResolutionMethod.SourceLink
-                : SourceResolutionMethod.Inferred,
+            SourceResolutionMethod.Inferred,
             Checksum: primary.Checksum,
-            ChecksumAlgorithm: primary.ChecksumAlgorithm)
-        {
-            AdditionalSourceFiles =
-            [
-                .. files.Values
-                    .Where(file => file.FilePath != primary.FilePath),
-            ],
-        };
+            ChecksumAlgorithm: primary.ChecksumAlgorithm);
     }
 
     public MethodSourceInfo? ResolveMethodSource(

@@ -246,6 +246,55 @@ public sealed partial class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task AmbiguousBodylessTypeSourceInferenceFallsBackToDecompiler()
+    {
+        Type selectedType =
+            typeof(
+                global::DotnetInspector.Queries.EmbeddedFixtures
+                    .BodylessSourceCollision.Right
+                    .AmbiguousBodylessFixture);
+        byte[] image = File.ReadAllBytes(selectedType.Assembly.Location);
+        TestAssembly assembly = TestAssembly.Create(image);
+        using var host =
+            QueryHost.WithUnavailableSource(HttpStatusCode.NotFound);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+        MetadataTypeDefinitionName typeName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    selectedType.Namespace!,
+                    [selectedType.Name]))
+            .Name;
+
+        AssemblyTypeSourceEntry result =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                new AssemblyTypeSourceRequest(typeName),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var source =
+            Assert.IsType<AssemblyTypeSource.Decompiled>(
+                Assert.IsType<AssemblyTypeSourceEntry.Available>(
+                        result)
+                    .Source);
+        Assert.Contains(
+            "interface AmbiguousBodylessFixture",
+            source.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "no portable-PDB source mapping",
+            Assert.IsType<FindingInspection<string>.Absent>(
+                    source.PdbAttempt.Lines.Value)
+                .Detail,
+            StringComparison.Ordinal);
+        Assert.Empty(host.SourceRequests);
+    }
+
+    [Fact]
     public async Task UnresolvedPdbSource_FallsBackToDecompiler()
     {
         TestAssembly assembly = TestAssembly.Create();

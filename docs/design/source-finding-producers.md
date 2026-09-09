@@ -136,19 +136,26 @@ mapping, document, and checksum verdict. The PDB correlation retains that
 structured name rather than indexing its non-injective dotted projection, and
 duplicate exact identities are rejected instead of selecting the first row.
 After that exact TypeDef match, SourceLink may use its case-insensitive filename
-inference over the PDB document census. This covers bodyless interfaces and
-other declarations that produce no sequence points; when no method-correlated
-document exists, the mapping retains `Inferred` as the resolution method. It
+inference over the PDB document census only when the type has no
+method-correlated document and exactly one matching document path exists. This
+covers unambiguous bodyless interfaces and other declarations that produce no
+sequence points. A correlated document remains primary regardless of unrelated
+filename matches, while multiple inferred matches decline to decompiler
+fallback. An inferred mapping retains `Inferred` as the resolution method. It
 does not let a simple-name type lookup replace the exact identity, and exact
 document-path deduplication remains ordinal.
 `MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinal`,
 `MetadataSourceFindingsTests.ExactBodylessTypeSourceResolution_InfersDocumentAfterExactTypeMatch`,
+`MetadataSourceFindingsTests.ExactCorrelatedTypeSourceResolution_DoesNotAddFilenameInference`,
+`MetadataSourceFindingsTests.ExactBodylessTypeSourceResolution_DeclinesAmbiguousFilenameInference`,
 and
 `MetadataSourceFindingsTests.ExactTypeIndexes_PreserveStructuredSegmentsAndRejectDuplicateIdentity`
 gate that boundary. The shared resolution reaches CLI source-file projection
 and browser/Wasm type-source acquisition; the latter additionally proves
 checksum-verified acquisition through
-`AssemblyContextSourceQueryTests.BodylessType_AcquiresInferredChecksumVerifiedPdbSource`.
+`AssemblyContextSourceQueryTests.BodylessType_AcquiresInferredChecksumVerifiedPdbSource`
+and ambiguous-inference fallback through
+`AssemblyContextSourceQueryTests.AmbiguousBodylessTypeSourceInferenceFallsBackToDecompiler`.
 Request conversion uses `ApiType.DefinitionName` when available; an older
 surface's string `MetadataName` is accepted only for an unambiguous top-level
 name, because `+` cannot distinguish nesting from a literal metadata character.

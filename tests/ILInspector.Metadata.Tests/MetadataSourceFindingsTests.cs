@@ -410,6 +410,38 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void ExactCorrelatedTypeSourceResolution_DoesNotAddFilenameInference()
+    {
+        Type selectedType =
+            typeof(DotnetInspector.Queries.EmbeddedFixtures
+                .CorrelatedSourceCollision.Left.SharedNameFixture);
+        using var context = PdbContext.Open(selectedType.Assembly.Location);
+        var map = SourceLinkDocumentMap.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    selectedType.Namespace!,
+                    [selectedType.Name]))
+            .Name;
+
+        var source = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(name));
+
+        Assert.EndsWith(
+            Path.Combine(
+                "CorrelatedSourceCollision",
+                "Definitions.cs"),
+            source.SourceFilePath,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            SourceLinkResolver.SourceResolutionMethod.SourceLink,
+            source.ResolutionMethod);
+        Assert.Empty(source.AdditionalSourceFiles);
+    }
+
+    [Fact]
     public void ExactBodylessTypeSourceResolution_InfersDocumentAfterExactTypeMatch()
     {
         using var context = PdbContext.Open(
@@ -435,6 +467,26 @@ public sealed class MetadataSourceFindingsTests
             SourceLinkResolver.SourceResolutionMethod.Inferred,
             source.ResolutionMethod);
         Assert.Empty(source.AdditionalSourceFiles);
+    }
+
+    [Fact]
+    public void ExactBodylessTypeSourceResolution_DeclinesAmbiguousFilenameInference()
+    {
+        Type selectedType =
+            typeof(DotnetInspector.Queries.EmbeddedFixtures
+                .BodylessSourceCollision.Right.AmbiguousBodylessFixture);
+        using var context = PdbContext.Open(selectedType.Assembly.Location);
+        var map = SourceLinkDocumentMap.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    selectedType.Namespace!,
+                    [selectedType.Name]))
+            .Name;
+
+        Assert.Null(resolver.ResolveTypeSource(name));
     }
 
     [Fact]
