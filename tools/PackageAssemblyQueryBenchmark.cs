@@ -166,6 +166,36 @@ static async Task<BenchmarkSample> RunCliAsync(
             json.SemanticProjection)
         ?? throw new InvalidOperationException(
             $"Package Query trial {trial} returned an empty document.");
+    ProjectionSummary validated = ValidateProjection(
+        projection,
+        expectedFingerprint,
+        manifest.Packages.Count,
+        trial,
+        json);
+    int requests = ParseRequestCount(measured.StandardError);
+
+    return new(
+        trial,
+        measured.ElapsedMilliseconds,
+        measured.CpuMilliseconds,
+        measured.PeakWorkingSetBytes,
+        validated.Candidates,
+        validated.Matches,
+        validated.SemanticMisses,
+        validated.NotApplicable,
+        validated.Failures,
+        requests,
+        validated.Candidates / (measured.ElapsedMilliseconds / 1000d),
+        validated.Fingerprint);
+}
+
+static ProjectionSummary ValidateProjection(
+    SemanticProjection projection,
+    string expectedFingerprint,
+    int expectedCandidates,
+    int trial,
+    BenchmarkJsonContext json)
+{
     string fingerprint = Fingerprint(
         JsonSerializer.Serialize(projection, json.SemanticProjection));
     if (fingerprint != expectedFingerprint)
@@ -183,26 +213,18 @@ static async Task<BenchmarkSample> RunCliAsync(
     int notApplicable = projection.Candidates.Count(
         static candidate => candidate.Outcome == "not-applicable");
     int failures = candidates - matched - misses - notApplicable;
-    int requests = ParseRequestCount(measured.StandardError);
-    if (candidates != manifest.Packages.Count || failures != 0)
+    if (candidates != expectedCandidates || failures != 0)
     {
         throw new InvalidOperationException(
             $"Package Query trial {trial} completed {candidates} of "
-            + $"{manifest.Packages.Count} candidates with {failures} failures.");
+            + $"{expectedCandidates} candidates with {failures} failures.");
     }
-
     return new(
-        trial,
-        measured.ElapsedMilliseconds,
-        measured.CpuMilliseconds,
-        measured.PeakWorkingSetBytes,
         candidates,
         matched,
         misses,
         notApplicable,
         failures,
-        requests,
-        candidates / (measured.ElapsedMilliseconds / 1000d),
         fingerprint);
 }
 
@@ -397,16 +419,51 @@ static async Task SelfTestAsync(BenchmarkJsonContext json)
                 measured.StandardOutput,
                 json.SemanticProjection)
             ?? throw new InvalidOperationException("The fake child returned no projection.");
+        string expectedFingerprint = Fingerprint(
+            JsonSerializer.Serialize(expected, json.SemanticProjection));
+        ProjectionSummary projection = ValidateProjection(
+            actual,
+            expectedFingerprint,
+            expectedCandidates: 1,
+            trial: 1,
+            json);
         if (measured.ElapsedMilliseconds <= 0
             || measured.CpuMilliseconds < 0
             || measured.PeakWorkingSetBytes <= 0
-            || Fingerprint(JsonSerializer.Serialize(actual, json.SemanticProjection))
-                != Fingerprint(
-                    JsonSerializer.Serialize(expected, json.SemanticProjection)))
+            || projection != new ProjectionSummary(
+                1,
+                0,
+                1,
+                0,
+                0,
+                expectedFingerprint))
         {
             throw new InvalidOperationException(
                 "The fake child process did not produce one complete measured projection.");
         }
+
+        bool mismatchRejected = false;
+        try
+        {
+            ValidateProjection(
+                actual with
+                {
+                    Candidates =
+                    [
+                        actual.Candidates[0] with { Detail = "different" },
+                    ],
+                },
+                expectedFingerprint,
+                expectedCandidates: 1,
+                trial: 2,
+                json);
+        }
+        catch (InvalidOperationException)
+        {
+            mismatchRejected = true;
+        }
+        if (!mismatchRejected)
+            throw new InvalidOperationException("A semantic mismatch was accepted.");
 
         MetricSummary summary = Statistics([3, 1, 2, 5, 4]);
         if (summary != new MetricSummary(3, 3, 1, 5, 5))
@@ -470,6 +527,14 @@ readonly record struct ChildMeasurement(
     double ElapsedMilliseconds,
     double CpuMilliseconds,
     long PeakWorkingSetBytes);
+
+readonly record struct ProjectionSummary(
+    int Candidates,
+    int Matches,
+    int SemanticMisses,
+    int NotApplicable,
+    int Failures,
+    string Fingerprint);
 
 sealed record BenchmarkSample(
     int Trial,
