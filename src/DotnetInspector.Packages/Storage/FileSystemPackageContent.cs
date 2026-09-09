@@ -87,23 +87,44 @@ public sealed class FileSystemPackageContent :
         PackageContentDigest? digest = generation.GetOrCreateDigest(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Stream? stream;
             try
             {
-                if (!TryOpenArchive(out Stream? stream))
+                if (!TryOpenArchive(out stream))
                     return null;
-
-                using (stream)
-                {
-                    chargeWork(stream.Length);
-                    return new PackageContentDigest(
-                        generation,
-                        Convert.ToHexStringLower(SHA256.HashData(stream)));
-                }
             }
             catch (Exception exception) when (
                 exception is IOException or UnauthorizedAccessException)
             {
                 return null;
+            }
+
+            using (stream)
+            {
+                long archiveLength;
+                try
+                {
+                    archiveLength = stream.Length;
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException)
+                {
+                    return null;
+                }
+
+                chargeWork(archiveLength);
+
+                try
+                {
+                    return new PackageContentDigest(
+                        generation,
+                        Convert.ToHexStringLower(SHA256.HashData(stream)));
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException)
+                {
+                    return null;
+                }
             }
         });
         cancellationToken.ThrowIfCancellationRequested();

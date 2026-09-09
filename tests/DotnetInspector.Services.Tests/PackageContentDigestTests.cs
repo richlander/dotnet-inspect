@@ -56,7 +56,7 @@ public sealed class PackageContentDigestTests
     }
 
     [Fact]
-    public void PackageContentDigest_ChargeFailureDoesNotPublish()
+    public async Task PackageContentDigest_ChargeFailureDoesNotPublish()
     {
         byte[] archive = Archive([4, 5, 6]);
         AcquiredPackageSourcePayload payload = Payload(
@@ -76,6 +76,41 @@ public sealed class PackageContentDigestTests
             digest,
             Digest(payload, _ => Assert.Fail("Failed charge published a value.")));
         Assert.Equal([archive.LongLength], charges);
+
+        string root = Directory.CreateTempSubdirectory(
+            "package-content-digest-charge-").FullName;
+        try
+        {
+            IPackageContent fileSystem =
+                await CommitFileSystemAsync(archive, root);
+            AcquiredPackageSourcePayload acquired =
+                Assert.IsType<AcquiredPackageSourcePayload>(
+                    await AcquireCachedAsync(fileSystem));
+            var ioFailure = new IOException("Charging failed.");
+            var accessFailure = new UnauthorizedAccessException(
+                "Charging failed.");
+
+            Assert.Same(
+                ioFailure,
+                Assert.Throws<IOException>(
+                    () => acquired.GetContentDigest(
+                        _ => throw ioFailure,
+                        TestContext.Current.CancellationToken)));
+            Assert.Same(
+                accessFailure,
+                Assert.Throws<UnauthorizedAccessException>(
+                    () => acquired.GetContentDigest(
+                        _ => throw accessFailure,
+                        TestContext.Current.CancellationToken)));
+
+            Assert.NotNull(acquired.GetContentDigest(
+                _ => { },
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
