@@ -1859,8 +1859,8 @@ public class SourceForwarderResolutionTests
             Assert.DoesNotContain("Error:", error);
             Assert.Contains("builder", output);
             Assert.True(
-                opens >= 1,
-                "Whole-type source acquisition must use the selected supplier.");
+                opens > 1,
+                "Whole-type projection must reopen the selected supplier after PDB acquisition.");
             Assert.Empty(handler.RequestUris);
         }
         finally
@@ -1876,12 +1876,14 @@ public class SourceForwarderResolutionTests
         bool invalidImage)
     {
         int opens = 0;
+        byte[] image = File.ReadAllBytes(typeof(BodyShapeFixture).Assembly.Location);
         var fixture = CreateTypeSourceFixture(
             AssemblyResolutionProvenance.Local("failed-type-whole-type-decompiler"),
             isForwarded: true,
             () =>
             {
-                opens++;
+                if (++opens == 1)
+                    return new MemoryStream(image, writable: false);
                 return invalidImage
                     ? new MemoryStream([1, 2, 3], writable: false)
                     : throw new IOException("Selected whole-type image could not be opened.");
@@ -1911,12 +1913,14 @@ public class SourceForwarderResolutionTests
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains("Error:", error);
+            Assert.Contains("DEC0001", error);
             Assert.Contains(
                 invalidImage
-                    ? "metadata root is malformed"
-                    : "Selected whole-type image could not be opened.",
+                    ? "InvalidImage: The selected image has a malformed metadata root "
+                        + "(UnmappableMetadataDirectory)."
+                    : "Unreadable: The selected image could not be read.",
                 error);
-            Assert.Equal(1, opens);
+            Assert.Equal(2, opens);
         }
         finally
         {
