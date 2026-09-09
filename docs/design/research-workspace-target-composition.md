@@ -655,8 +655,12 @@ An arbitrary policy, including `AssemblyDependencyResolver`, cannot be
 converted to one by inspecting names, paths, or cached answers. Such callers
 must supply an owner-attested acquisition-free policy before composition or
 receive the explicit typed rejection. Real workspace context realization
-supplies the Services closed-group policy over its admitted descriptors and
+seals every admitted image under the group's retained-image budget, seeds those
+snapshots into the published group, and supplies the Services closed-group
+policy over the snapshot-backed descriptors and
 `NoResolverAssemblyBindingPolicy`; it does not perform a late policy cutover.
+The loader-level intrinsic-selection gate counts package-entry opens and proves
+that selection after publication performs none.
 
 Supplemental admission is a separate workspace-owned effort. If it later
 lands, it must complete before population sealing and Research admission; it

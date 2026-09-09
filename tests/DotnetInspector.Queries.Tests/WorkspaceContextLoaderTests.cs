@@ -905,7 +905,7 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
-    public async Task RealizedPlatformCoordinates_ScanSharedPackOnce()
+    public async Task RealizedPlatformCoordinates_OpenAndSealEachSelectedImage()
     {
         var inner = new InMemoryPackageStore();
         await inner.CommitAsync(
@@ -945,7 +945,9 @@ public sealed class WorkspaceContextLoaderTests
                 Assert.IsType<RealizedMemberCoordinate.Platform>(
                     member.Realized).Assembly,
                 member.Participant.Assembly.Identity.Name));
-        Assert.Equal(2, store.EntryOpens);
+        // Each selected entry is opened once to establish its descriptor and
+        // once to seal the immutable image published with the group.
+        Assert.Equal(4, store.EntryOpens);
     }
 
     [Fact]
@@ -1232,6 +1234,111 @@ public sealed class WorkspaceContextLoaderTests
                 AssemblyBindingOrigin.FromAssembly(caller.Assembly),
                 AssemblyResolutionScope.Any)).Selection;
         Assert.IsType<AssemblyBindingSelection.Missing>(outside);
+    }
+
+    [Fact]
+    public async Task Group_IntrinsicSelectionDoesNotReopenPackageContent()
+    {
+        var inner = new InMemoryPackageStore();
+        await inner.CommitAsync(
+            PackageId,
+            Version,
+            Producer(NuGetOrg),
+            new MemoryStream(LibraryPackage()),
+            TestContext.Current.CancellationToken);
+        var store = new EntryCountingPackageStore(inner);
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(new FailingHandler());
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+        int opensAfterLoad = store.EntryOpens;
+        Assert.True(opensAfterLoad > 0);
+
+        AssemblyContextParticipant caller =
+            Participant(loaded, CallerPath);
+        _ = caller.BindingPolicy.Select(
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromAssembly(caller.Assembly),
+                AssemblyResolutionScope.Any));
+
+        Assert.Equal(opensAfterLoad, store.EntryOpens);
+    }
+
+    [Fact]
+    public async Task Group_DisposalRevokesItsSnapshotBackedDescriptors()
+    {
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        try
+        {
+            IPackageStore store = await CachedStoreAsync(
+                Version,
+                LibraryPackage());
+            using var client = new HttpClient(new FailingHandler());
+            var loaded = Loaded(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken));
+            ResolvedAssemblyReference assembly =
+                Participant(loaded, CallerPath).Assembly;
+
+            using Stream activeStream = assembly.OpenRead();
+            loaded.Group.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(
+                () => assembly.OpenRead());
+            Assert.NotEqual(-1, activeStream.ReadByte());
+        }
+        finally
+        {
+            await workspace.CloseAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Group_RetentionBudgetFailureCreatesNoGroup()
+    {
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            LibraryPackage());
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store) with
+                {
+                    MaxRetainedImageBytes = 1,
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind
+                .ImageRetentionBudgetExceeded,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
     }
 
     [Fact]

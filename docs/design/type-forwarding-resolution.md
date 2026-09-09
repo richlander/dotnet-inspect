@@ -1467,8 +1467,12 @@ lineages retain their existing rejection/version semantics.
 The workspace target-composition consumer requires this capability before
 Metadata resolution; an unsupported participant policy produces the public
 Queries `UnsupportedBindingPolicy` rejection rather than an inferred binding
-answer. Real context realization supplies the closed-group policy with
-`NoResolverAssemblyBindingPolicy` delegates. Custom policies can opt in only
+answer. Real context realization seals every admitted image under the group's
+retained-image budget before publication, seeds those exact snapshots into the
+group, and supplies the closed-group policy with the corresponding
+snapshot-backed descriptors and `NoResolverAssemblyBindingPolicy` delegates.
+An intrinsic request therefore cannot reopen a package entry, embedded-content
+provider, network source, or filesystem path. Custom policies can opt in only
 when their implementation meets the acquisition-free contract.
 
 This is not a second frozen-context API. Metadata still builds a request
@@ -1483,6 +1487,13 @@ foreign/retired policy state. The Queries
 `WorkspaceResearchTarget_RejectsAcquiringPolicyBeforeDiscoveryOrOpen` and
 `WorkspaceResearchTarget_RejectsDependencyResolverBeforeItAcquiresOmittedSibling`
 gates exercise both composition paths with selection-side acquisition witnesses.
+`WorkspaceContextLoaderTests.Group_IntrinsicSelectionDoesNotReopenPackageContent`
+gates the production loader path after group publication, and
+`Group_RetentionBudgetFailureCreatesNoGroup` proves eager sealing remains
+bounded and atomic.
+`Group_DisposalRevokesItsSnapshotBackedDescriptors` proves the descriptor's
+image lease ends with quiescent group release even while an asynchronous
+workspace remains alive.
 
 #### Resolver-lineage continuations
 

@@ -93,7 +93,10 @@ public sealed record WorkspaceContextLoadOptions
     public PackagePayloadLimits PayloadLimits { get; init; } =
         PackagePayloadLimits.Default;
 
-    /// <summary>The created group's cumulative retained-image budget.</summary>
+    /// <summary>
+    /// The created group's cumulative retained-image budget. Every realized
+    /// image is sealed under this budget before the group is published.
+    /// </summary>
     public long MaxRetainedImageBytes { get; init; } =
         AssemblyContextGroupOptions.DefaultMaxRetainedImageBytes;
 
@@ -133,13 +136,15 @@ public sealed record WorkspaceContextLoadOptions
 /// Cancellation remains an exception rather than an outcome.
 /// </para>
 /// <para>
-/// Participants share one binding-policy snapshot:
-/// <see cref="SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld"/> over the realized
-/// descriptors, with <see cref="NoResolverAssemblyBindingPolicy"/> beneath it.
+/// Before publication, every realized image is sealed into the group's
+/// retained-image budget. Participants then share one binding-policy snapshot:
+/// <see cref="SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld"/>
+/// over those snapshot-backed descriptors, with
+/// <see cref="NoResolverAssemblyBindingPolicy"/> beneath it.
 /// That is the correct contract here — the loader acquires no dependency
 /// outside the context, so an in-context identity binds to its own descriptor
-/// while every other reference is a typed non-selection instead of a
-/// filesystem probe.
+/// while intrinsic inspection and every other reference remain free of package,
+/// embedded-content, network, or filesystem acquisition.
 /// </para>
 /// <para>
 /// Gated by <c>WorkspaceContextLoaderTests</c>:
@@ -252,6 +257,8 @@ public static class WorkspaceContextLoader
         ArgumentNullException.ThrowIfNull(options.SourceAuthorization);
         ArgumentNullException.ThrowIfNull(options.PackageStore);
         ArgumentNullException.ThrowIfNull(options.PayloadLimits);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            options.MaxRetainedImageBytes);
         ArgumentOutOfRangeException.ThrowIfNegative(
             options.MaxEmbeddedContentBytes);
         cancellationToken.ThrowIfCancellationRequested();
@@ -389,6 +396,8 @@ public static class WorkspaceContextLoader
         ArgumentNullException.ThrowIfNull(options.SourceAuthorization);
         ArgumentNullException.ThrowIfNull(options.PackageStore);
         ArgumentNullException.ThrowIfNull(options.PayloadLimits);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            options.MaxRetainedImageBytes);
         ArgumentOutOfRangeException.ThrowIfNegative(
             options.MaxEmbeddedContentBytes);
         cancellationToken.ThrowIfCancellationRequested();
@@ -1034,39 +1043,102 @@ public static class WorkspaceContextLoader
             return new WorkspaceContextLoadOutcome.Failed([collision]);
         }
 
+        long retainedImageBytes = 0;
+        var retainedSnapshots = new Dictionary<
+            AssemblyAcquisitionRegistration,
+            AssemblyImageSnapshot>(
+                ReferenceEqualityComparer.Instance);
+        var retainedReferenceLeases = new Dictionary<
+            AssemblyAcquisitionRegistration,
+            AssemblyImageReferenceLease>(
+                ReferenceEqualityComparer.Instance);
+        var retained = ImmutableArray.CreateBuilder<RealizedMember>(
+            realized.Count);
+        foreach (RealizedMember entry in realized)
+        {
+            AssemblyImageSnapshotResult snapshotResult =
+                AssemblyImageSnapshot.Open(
+                    entry.Assembly,
+                    imageBytes =>
+                    {
+                        if (imageBytes
+                            > options.MaxRetainedImageBytes
+                                - retainedImageBytes)
+                        {
+                            return false;
+                        }
+
+                        retainedImageBytes += imageBytes;
+                        return true;
+                    },
+                    imageBytes => retainedImageBytes -= imageBytes);
+            if (snapshotResult
+                is AssemblyImageSnapshotResult.Rejected rejected)
+            {
+                foreach (AssemblyImageReferenceLease lease
+                    in retainedReferenceLeases.Values)
+                {
+                    lease.Dispose();
+                }
+                WorkspaceContextLoadFailure failure =
+                    RetentionFailure(entry, rejected.Failure);
+                return new WorkspaceContextLoadOutcome.Failed([failure]);
+            }
+
+            AssemblyImageSnapshot snapshot =
+                ((AssemblyImageSnapshotResult.Ready)snapshotResult)
+                    .Snapshot;
+            retainedSnapshots.Add(
+                entry.Assembly.Registration,
+                snapshot);
+            AssemblyImageReferenceLease referenceLease =
+                snapshot.LeaseAssemblyReference(entry.Assembly);
+            retainedReferenceLeases.Add(
+                entry.Assembly.Registration,
+                referenceLease);
+            retained.Add(entry with
+            {
+                Assembly = referenceLease.Assembly,
+            });
+        }
+
         IAcquisitionFreeAssemblyBindingPolicy groupPolicy =
             SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
-                realized.Select(static entry =>
+                retained.Select(static entry =>
                     (entry.Assembly,
                         (IAcquisitionFreeAssemblyBindingPolicy)
                             NoResolverAssemblyBindingPolicy.Instance)));
         List<AssemblyContextParticipant> participants =
         [
-            .. realized.Select(entry =>
+            .. retained.Select(entry =>
                 new AssemblyContextParticipant(entry.Assembly, groupPolicy)),
         ];
-        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
-            participants,
-            new AssemblyContextGroupOptions
-            {
-                MaxRetainedImageBytes = options.MaxRetainedImageBytes,
-            });
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroupWithRetainedImages(
+                participants,
+                retainedSnapshots,
+                retainedReferenceLeases,
+                new AssemblyContextGroupOptions
+                {
+                    MaxRetainedImageBytes =
+                        options.MaxRetainedImageBytes,
+                });
 
         var members =
             ImmutableArray.CreateBuilder<WorkspaceContextMember>(
-                realized.Count);
-        for (int index = 0; index < realized.Count; index++)
+                retained.Count);
+        for (int index = 0; index < retained.Count; index++)
         {
             members.Add(
                 new WorkspaceContextMember(
-                    realized[index].Declared,
-                    realized[index].Realized,
+                    retained[index].Declared,
+                    retained[index].Realized,
                     participants[index]));
         }
 
         ImmutableArray<PackageRootBinding> packageRoots =
         [
-            .. realized
+            .. retained
                 .Select(static entry => entry.PackageRoot)
                 .OfType<PackageRootBinding>()
                 .Distinct(),
@@ -1085,6 +1157,31 @@ public static class WorkspaceContextLoader
             ],
             framework,
             runtimeIdentifier);
+    }
+
+    static WorkspaceContextLoadFailure RetentionFailure(
+        RealizedMember entry,
+        CandidateOpenFailure failure)
+    {
+        WorkspaceContextLoadFailureKind kind = failure.Kind switch
+        {
+            CandidateOpenFailureKind.ResourceBudget =>
+                WorkspaceContextLoadFailureKind
+                    .ImageRetentionBudgetExceeded,
+            CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                WorkspaceContextLoadFailureKind
+                    .UnsupportedMetadataFormat,
+            _ => WorkspaceContextLoadFailureKind.InvalidImage,
+        };
+        string message = failure.Kind
+            == CandidateOpenFailureKind.ResourceBudget
+                ? "The workspace context exceeds its immutable image-retention budget."
+                : "A realized workspace image could not be sealed for acquisition-free inspection.";
+        return Failure(
+            kind,
+            entry.Declared,
+            message,
+            failure.MetadataRootReason);
     }
 
     static ImmutableArray<WorkspaceContextLoadFailure> Validate(
