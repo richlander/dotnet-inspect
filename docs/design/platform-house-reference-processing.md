@@ -67,7 +67,10 @@ contract in separately reviewed slices.
 Production-adoption step 3 is implemented by the resource-free request,
 operation, source-plan, contribution, outcome, and receipt contracts in
 `DotnetInspector.PlatformHouse`. No source implementation or product consumer
-moved in that slice.
+moved in that slice. After the PackageHouse contract floor landed, the request
+origin also gained an orchestration-owned delegation association. It retains
+no PackageHouse type or receipt; orchestration keeps the package and platform
+receipts separate.
 
 This is one owner claim. Documentation evidence is another facet of the same
 exact-target, reference-to-implementation settlement rather than a second

@@ -219,6 +219,34 @@ public class PlatformHouseContractTests
     }
 
     [Fact]
+    public void DelegatedOrigin_RetainsOnlyOrchestrationAssociation()
+    {
+        PlatformDelegationAssociationIdentity association =
+            PlatformDelegationAssociationIdentity.Create(
+                "package-decision-to-platform-request");
+        var origin = new PlatformHouseRequestOrigin.Delegated(association);
+        var request = new PlatformHouseRequest(
+            PlatformHouseRequestIdentity.Create("delegated-request"),
+            new PlatformTargetDemand.Exact(Target()),
+            origin,
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformViewDemand.Reference),
+            EmptyPlan(),
+            Work());
+
+        Assert.Same(origin, request.Snapshot.Origin);
+        Assert.Same(
+            association,
+            Assert.IsType<PlatformHouseRequestOrigin.Delegated>(
+                request.Snapshot.Origin).Association);
+        Assert.DoesNotContain(
+            typeof(PlatformHouseRequestOrigin.Delegated).GetProperties(),
+            property => property.PropertyType.Namespace
+                == "DotnetInspector.Packages");
+    }
+
+    [Fact]
     public void SelectingDemand_RejectsUnauthorizedDiscoveryCapability()
     {
         PlatformSourceCapabilityIdentity discovery =

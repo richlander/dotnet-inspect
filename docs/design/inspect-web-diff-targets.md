@@ -76,6 +76,25 @@ This is deliberately host-specific rather than a Markout lowering: it edits
 typed interaction state, not comparison evidence. Actual diff presentation
 continues to consume the shared comparison and presentation owners.
 
+Package Overview composes the settings as one task-oriented **Comparison
+targets** work area, not as prose interrupted by a generic coordinate form.
+Diff baseline and Clone search scope each occupy one row that keeps its
+persistent task label, native selector, effective selection or failure state,
+and any recovery action together. A wide row gives the selector the available
+content width instead of inheriting the shell coordinate control's compact
+maximum. A narrow row stacks that same label, selector, and state without
+changing their DOM or focus order. Long selected values may elide only when
+the viewport cannot contain them; the native control retains the complete
+accessible option text.
+
+The work area has no introductory paragraph that restates its labels and no
+separate result-style paragraphs below the controls. One quiet policy line
+states the two facts shared by both rows: settings belong to the browser
+session, and choosing one neither executes a comparison nor changes a shared
+link. Loading, no-predecessor, partial-listing, unsupported-source, removed
+Clone target, and failed-inventory outcomes remain visible in their owning row
+rather than becoming general section prose.
+
 The initial target-settings slice does not advertise working result inspectors.
 Its Package controls identify that limitation. The immediate successor adds
 the shared presentation adapter, then the feature facade and Library API Diff

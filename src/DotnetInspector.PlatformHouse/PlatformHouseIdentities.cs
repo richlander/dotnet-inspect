@@ -26,6 +26,22 @@ public sealed class PlatformStandaloneOperationIdentity
     public override string ToString() => Name;
 }
 
+/// <summary>
+/// Opaque orchestration-owned association between a package delegation and
+/// one ordinary PlatformHouse request.
+/// </summary>
+public sealed class PlatformDelegationAssociationIdentity
+{
+    private PlatformDelegationAssociationIdentity(string name) => Name = name;
+
+    public string Name { get; }
+
+    public static PlatformDelegationAssociationIdentity Create(string name) =>
+        new(PlatformHouseIdentityName.Validate(name));
+
+    public override string ToString() => Name;
+}
+
 /// <summary>Opaque identity for one host-authorized source plan.</summary>
 public sealed class PlatformSourcePlanIdentity
 {
