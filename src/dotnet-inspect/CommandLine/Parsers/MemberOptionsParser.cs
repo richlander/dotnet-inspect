@@ -166,6 +166,7 @@ public static class MemberOptionsParser
             typeScoped: false,
             typeName: null,
             out BodyKindQueryOptions bodyKindQuery,
+            out _,
             out _);
         if (error is not null)
             return true;
@@ -568,13 +569,20 @@ public static class MemberOptionsParser
                 typeScoped: false,
                 typeName: null,
                 out BodyKindQueryOptions bodyKindQuery,
-                out PerformanceTriageOptions performanceTriage);
+                out PerformanceTriageOptions performanceTriage,
+                out CloneCandidateQueryOptions cloneCandidateQuery);
         if (analysisError is not null)
             return new VersionError(analysisError.Value);
         // Only surface Performance Triage from row filters when the user did not select sections
         // with -S; an explicit selection must not silently gain a second section.
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
+        if (cloneCandidateQuery.HasPredicates
+            && !opts.IsDiscoveryMode(parseResult)
+            && !hasExplicitSelect)
+        {
+            select = [.. select ?? [], SectionNames.CloneCandidates];
+        }
 
         OptionError? mermaidError =
             GetMermaidOptionError(parseResult, opts);
@@ -651,6 +659,7 @@ public static class MemberOptionsParser
             Rows = opts.ParseRows(parseResult),
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
+            CloneCandidateQuery = cloneCandidateQuery,
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
