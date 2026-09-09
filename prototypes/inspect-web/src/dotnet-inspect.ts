@@ -1213,6 +1213,7 @@ CanonicalWorkspaceRestoreSnapshot {
       memberAnnotatedModal: state.memberAnnotatedModal
         ? structuredClone(state.memberAnnotatedModal)
         : null,
+      cloneCandidates: structuredClone(state.cloneCandidates),
       platformStack: structuredClone(state.platformStack),
       platformRecent: structuredClone(state.platformRecent),
       recentPackages: structuredClone(state.recentPackages),
@@ -1253,6 +1254,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
   const memberFactsLoading = snapshotState.memberFactsLoading;
   const memberDocumentationLoading = snapshotState.memberDocumentationLoading;
+  const cloneCandidatesLoading = snapshotState.cloneCandidates.loading;
 
   snapshotState.loading = false;
   snapshotState.memberSourceLoading = false;
@@ -1274,6 +1276,16 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.docViewerLoading = false;
   snapshotState.workspaceOccurrenceLoading = false;
   snapshotState.workspaceDependencyLoads = new Set();
+  snapshotState.cloneCandidates.loading = false;
+  snapshotState.cloneCandidates.navigationLoading = false;
+  snapshotState.cloneCandidates.navigationError = "";
+  snapshotState.cloneCandidates.revision++;
+  if (cloneCandidatesLoading) {
+    snapshotState.cloneCandidates.request = null;
+    snapshotState.cloneCandidates.result = null;
+    snapshotState.cloneCandidates.error = "";
+    snapshotState.cloneCandidates.selectedRank = null;
+  }
   snapshotState.sourceRequestGeneration++;
   snapshotState.typeMetadataGeneration++;
   snapshotState.memberCallGraphSeq++;
@@ -1300,6 +1312,7 @@ function normalizeWorkspaceAsyncSnapshotState(
 function restoreCanonicalWorkspaceRestoreSnapshot(
   snapshot: CanonicalWorkspaceRestoreSnapshot,
 ) {
+  const cloneCandidates = state.cloneCandidates;
   const methodBodyDiff = state.methodBodyDiff;
   const sourceDiff = state.sourceDiff;
   const sourceRequestGeneration = state.sourceRequestGeneration;
@@ -1308,12 +1321,19 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   const graphMemberNavigationSeq = state.graphMemberNavigationSeq;
   const graphSourceSeq = state.graphSourceSeq;
   const docViewerSeq = state.docViewerSeq;
+  const cloneCandidateRevision = cloneCandidates.revision;
   const platformIndex = state.platformIndex ?? snapshot.state.platformIndex;
   clearWorkspaceOccurrenceView();
   clearWorkspacePackages();
   Object.assign(state, snapshot.state);
+  Object.assign(cloneCandidates, snapshot.state.cloneCandidates);
   Object.assign(methodBodyDiff, snapshot.state.methodBodyDiff);
   Object.assign(sourceDiff, snapshot.state.sourceDiff);
+  cloneCandidates.revision =
+    Math.max(
+      cloneCandidateRevision,
+      snapshot.state.cloneCandidates.revision) + 1;
+  state.cloneCandidates = cloneCandidates;
   state.methodBodyDiff = methodBodyDiff;
   state.sourceDiff = sourceDiff;
   state.sourceRequestGeneration =
@@ -1390,6 +1410,7 @@ CanonicalWorkspaceRestoreSnapshot {
 
 function invalidateWorkspaceAsyncOwners(): void {
   memberDetailInspection.invalidate();
+  cloneCandidateInspection.invalidate();
   invalidateGraphMemberNavigation();
   invalidateMemberCallGraphWork(state);
   packageInspection.invalidatePackageResults();
@@ -12528,6 +12549,7 @@ async function openCloneCandidateEndpoint(
   action: Extract<CloneCandidateViewAction, { kind: "navigate" }>,
 ) {
   const navigationGeneration = ++cloneEndpointNavigationGeneration;
+  const cloneRevision = state.cloneCandidates.revision;
   const cloneRequest = state.cloneCandidates.request;
   const document = state.cloneCandidates.result?.kind === "Available"
     ? state.cloneCandidates.result.document
@@ -12569,6 +12591,7 @@ async function openCloneCandidateEndpoint(
   const requestJson = JSON.stringify(cloneRequest);
   const navigationIsCurrent = () =>
     navigationGeneration === cloneEndpointNavigationGeneration
+    && cloneRevision === state.cloneCandidates.revision
     &&
     cloneCandidateSurfaceIsActive()
     && state.cloneCandidates.request !== null

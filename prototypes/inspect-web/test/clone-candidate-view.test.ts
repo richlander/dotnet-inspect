@@ -94,7 +94,19 @@ const document: BrowserCloneCandidateDocument = {
     maximumNameCharacters: 256,
     maximumNameComparisonWork: 1_000_000,
     maximumNameCacheCells: 10_000,
-    comparisonLimits: null,
+    comparisonLimits: {
+      maximumInstructions: 1000,
+      maximumBlocks: 100,
+      maximumEdges: 200,
+      maximumLocals: 50,
+      maximumVerificationSteps: 10_000,
+      maximumBodyBytes: 100_000,
+      maximumNearAlignmentIndexSteps: 20_000,
+      maximumNearAlignmentCandidates: 300,
+      maximumNearAlignmentVerificationSteps: 40_000,
+      maximumNearAlignmentAlternatives: 5,
+      maximumNearBlockElements: 500,
+    },
   },
   scopeChangedDuringSearch: false,
   coverageIsComplete: true,
@@ -193,6 +205,13 @@ test("master-detail preserves global rank and exposes evidence without overclaim
   assert.match(html, /98\.8%/);
   assert.match(html, /Structural similarity/);
   assert.match(html, /Search receipt/);
+  assert.match(html, /Retrieval calls<\/dt><dd>1/);
+  assert.match(html, /Retrieval chunk methods<\/dt><dd>500/);
+  assert.match(html, /Name comparison work<\/dt><dd>1000000/);
+  assert.match(html, /Near block elements<\/dt><dd>500/);
+  assert.match(html, /1 retrieval pairs/);
+  assert.match(html, /2 name comparisons/);
+  assert.match(html, /ContainingLibrary, admitted;[\s\S]*complete/);
   assert.match(html, /do not establish clone identity/);
   assert.match(html, /&lt;script>candidate&lt;\/script>/);
   assert.doesNotMatch(html, /<script>candidate<\/script>/);
@@ -240,6 +259,7 @@ test("empty rankings retain incomplete coverage and seed failures", () => {
   assert.match(html, /Coverage is incomplete/);
   assert.match(html, /3 ranked pairs were omitted/);
   assert.match(html, /Seed metadata could not be read/);
+  assert.match(html, /MetadataInspectionFailed: Seed metadata could not be read/);
   assert.match(html, /Example\.Widget\.Build/);
 });
 

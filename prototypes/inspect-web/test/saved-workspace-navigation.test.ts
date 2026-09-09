@@ -50,6 +50,10 @@ import {
 } from "../src/workspace-navigation.ts";
 import { createMethodBodyDiffState } from "../src/method-body-comparison.ts";
 import { createSourceDiffState } from "../src/source-comparison.ts";
+import {
+  createCloneCandidateInspectionCoordinator,
+  createCloneCandidateInspectionState,
+} from "../src/clone-candidate-inspection.ts";
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
@@ -197,6 +201,7 @@ function harness() {
     dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
+    cloneCandidates: createCloneCandidateInspectionState(),
     methodBodyDiff: createMethodBodyDiffState(),
     sourceDiff: createSourceDiffState(),
     platformStack: [] as object[], platformRecent: [], recentPackages: [],
@@ -406,6 +411,9 @@ function harness() {
     methodBodyComparison: { dispose: () => {} },
     sourceComparison: { dispose: () => {} },
     memberDetailInspection: { invalidate: () => {} },
+    cloneCandidateInspection: {
+      invalidate: () => invalidations.push("clone-candidates"),
+    },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},
@@ -520,12 +528,25 @@ function harness() {
 
 test("canonical restoration preserves coordinator-owned comparison state identities", () => {
   const h = harness();
+  const cloneCandidates = h.state.cloneCandidates;
+  const cloneCandidateInspection = createCloneCandidateInspectionCoordinator({
+    state: cloneCandidates,
+    query: () => {
+      throw new Error("State restoration must not start Clone analysis.");
+    },
+    isCurrent: () => true,
+    describeError: String,
+    render: () => {},
+  });
   const methodBodyDiff = h.state.methodBodyDiff;
   const sourceDiff = h.state.sourceDiff;
   const snapshot: unknown = runInNewContext(
     "cloneCanonicalWorkspaceSnapshotForRetention(captureCanonicalWorkspaceRestoreSnapshot())",
     h.context);
 
+  assert.equal(cloneCandidates.revision, 0);
+  cloneCandidates.breadth = "Self";
+  cloneCandidates.revision = 7;
   methodBodyDiff.open = true;
   sourceDiff.open = true;
   h.state.sourceRequestGeneration = 7;
@@ -538,6 +559,11 @@ test("canonical restoration preserves coordinator-owned comparison state identit
     "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
     { ...h.context, snapshot });
 
+  assert.equal(h.state.cloneCandidates, cloneCandidates);
+  assert.equal(cloneCandidates.breadth, "Everything");
+  assert.equal(cloneCandidates.revision, 8);
+  assert.equal(cloneCandidateInspection.setBreadth("Self"), true);
+  assert.equal(h.state.cloneCandidates.breadth, "Self");
   assert.equal(h.state.methodBodyDiff, methodBodyDiff);
   assert.equal(h.state.sourceDiff, sourceDiff);
   assert.equal(methodBodyDiff.open, false);

@@ -3563,10 +3563,10 @@ test("browser history reuses available identities and publishes only unavailable
     /if \(snapshot\.state\.packages\.length === 0\) \{\s*snapshot\.state\.workspaceSubjectOpen = true;\s*snapshot\.state\.atPackageRoot = true;\s*snapshot\.state\.atLibraryRoot = false;/);
   assert.match(
     appSource,
-    /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const methodBodyDiff = state\.methodBodyDiff;\s*const sourceDiff = state\.sourceDiff;[\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);\s*Object\.assign\(methodBodyDiff, snapshot\.state\.methodBodyDiff\);\s*Object\.assign\(sourceDiff, snapshot\.state\.sourceDiff\);\s*state\.methodBodyDiff = methodBodyDiff;\s*state\.sourceDiff = sourceDiff;[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);
+    /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const cloneCandidates = state\.cloneCandidates;\s*const methodBodyDiff = state\.methodBodyDiff;\s*const sourceDiff = state\.sourceDiff;[\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);\s*Object\.assign\(cloneCandidates, snapshot\.state\.cloneCandidates\);\s*Object\.assign\(methodBodyDiff, snapshot\.state\.methodBodyDiff\);\s*Object\.assign\(sourceDiff, snapshot\.state\.sourceDiff\);[\s\S]*state\.cloneCandidates = cloneCandidates;\s*state\.methodBodyDiff = methodBodyDiff;\s*state\.sourceDiff = sourceDiff;[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);
   assert.match(
     appSource,
-    /function cloneCanonicalWorkspaceSnapshotForRetention\([\s\S]*const platformIndex = snapshot\.state\.platformIndex;\s*const cloned = structuredClone\(\{\s*\.\.\.snapshot\.state,\s*platformIndex: null,[\s\S]*const retainedState: AppState = \{\s*\.\.\.cloned,\s*platformIndex,/);
+    /function captureCanonicalWorkspaceRestoreSnapshot\([\s\S]*cloneCandidates: structuredClone\(state\.cloneCandidates\),[\s\S]*function cloneCanonicalWorkspaceSnapshotForRetention\([\s\S]*const platformIndex = snapshot\.state\.platformIndex;\s*const cloned = structuredClone\(\{\s*\.\.\.snapshot\.state,\s*platformIndex: null,[\s\S]*const retainedState: AppState = \{\s*\.\.\.cloned,\s*platformIndex,/);
   assert.match(
     appSource,
     /function retainedWorkspaceItems\(\) \{\s*const publishedActiveSnapshot = pendingWorkspaceConstruction\s*\? pendingWorkspaceConstruction\.retainedSnapshot\s*\?\? pendingWorkspaceConstruction\.supersessionSnapshot[\s\S]*packageCount: workspace\.id === retainedWorkspaces\.activeWorkspaceId\s*\? publishedActiveSnapshot\?\.state\.packages\.length \?\? state\.packages\.length/);
@@ -3576,6 +3576,9 @@ test("browser history reuses available identities and publishes only unavailable
   assert.match(
     appSource,
     /function invalidateWorkspaceAsyncOwners\(\): void \{\s*memberDetailInspection\.invalidate\(\);/);
+  assert.match(
+    appSource,
+    /async function openCloneCandidateEndpoint\([\s\S]*const cloneRevision = state\.cloneCandidates\.revision;[\s\S]*navigationGeneration === cloneEndpointNavigationGeneration[\s\S]*cloneRevision === state\.cloneCandidates\.revision/);
   assert.match(
     appSource,
     /const workspaceModalContextIsAvailable = \(\) =>\s*pendingWorkspaceConstruction === null/);

@@ -120,6 +120,7 @@ test("runtime and missing Workspace subjects remain visibly unavailable", () => 
 
 test("control replacement suppresses a late result from the old request", async () => {
   const state = createCloneCandidateInspectionState();
+  const initialRevision = state.revision;
   const pending = deferred<BrowserCloneCandidateResult>();
   let renders = 0;
   let current = true;
@@ -148,7 +149,53 @@ test("control replacement suppresses a late result from the old request", async 
   assert.equal(state.result, null);
   assert.equal(state.loading, false);
   assert.equal(state.breadth, "Self");
+  assert.ok(state.revision > initialRevision);
   assert.ok(renders >= 1);
+});
+
+test("invalidation suppresses pending work without replacing coordinator state", async () => {
+  const state = createCloneCandidateInspectionState();
+  const pending = deferred<BrowserCloneCandidateResult>();
+  const coordinator = createCloneCandidateInspectionCoordinator({
+    state,
+    query: () => pending.promise,
+    isCurrent: () => true,
+    describeError: String,
+    render: () => {},
+  });
+  const loading = coordinator.load(input);
+  const request = state.request;
+  assert.ok(request);
+  const revision = state.revision;
+
+  coordinator.invalidate();
+  assert.equal(state.loading, false);
+  assert.equal(state.revision, revision + 1);
+  pending.resolve(result(request));
+  await loading;
+
+  assert.equal(state.result, null);
+});
+
+test("request revision stays monotonic when controls return to prior values", () => {
+  const state = createCloneCandidateInspectionState();
+  const coordinator = createCloneCandidateInspectionCoordinator({
+    state,
+    query: () => {
+      throw new Error("Control replacement must not start a query.");
+    },
+    isCurrent: () => true,
+    describeError: String,
+    render: () => {},
+  });
+  const initialRevision = state.revision;
+
+  assert.equal(coordinator.setBreadth("Self"), true);
+  const selfRevision = state.revision;
+  assert.equal(coordinator.setBreadth("Everything"), true);
+
+  assert.ok(selfRevision > initialRevision);
+  assert.ok(state.revision > selfRevision);
 });
 
 test("subject reconciliation clears stale evidence before replacement", () => {

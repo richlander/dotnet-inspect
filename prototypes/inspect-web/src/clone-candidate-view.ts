@@ -1,5 +1,7 @@
 import type {
+  BrowserCloneCandidateAnalysisBlocker,
   BrowserCloneCandidateDocument,
+  BrowserCloneCandidateFailure,
   BrowserCloneCandidateMethod,
   BrowserCloneCandidateResult,
   BrowserCloneCandidateRow,
@@ -196,12 +198,13 @@ function renderSearchEvidence(
       : "",
   ].filter(Boolean);
   const coverageDetails = (
-    failures: readonly { readonly detail: string }[],
-    blockers: readonly { readonly detail: string }[],
+    failures: readonly BrowserCloneCandidateFailure[],
+    blockers: readonly BrowserCloneCandidateAnalysisBlocker[],
   ) => [
-    ...failures.map(failure => failure.detail),
-    ...blockers.map(blocker => blocker.detail),
+    ...failures.map(failure => `${failure.kind}: ${failure.detail}`),
+    ...blockers.map(blocker => `${blocker.kind}: ${blocker.detail}`),
   ];
+  const comparisonLimits = document.limits.comparisonLimits;
   return `
     <section class="clone-candidate-receipt">
       <h4>Search receipt</h4>
@@ -217,15 +220,38 @@ function renderSearchEvidence(
         <div><dt>Returned pairs</dt><dd>${receipt.returnedPairs}</dd></div>
         <div><dt>Name comparisons</dt><dd>${receipt.nameComparisonWork}</dd></div>
         <div><dt>Retrieval pairs</dt><dd>${receipt.retrievalPairs}</dd></div>
+        <div><dt>Retrieval calls</dt><dd>${receipt.retrievalCalls}</dd></div>
       </dl>
       <details>
         <summary>Coverage and work limits</summary>
-        <p>Threshold ${similarity(document.nameSimilarityThreshold)}
-          · at most ${document.limits.maximumSeedMethods} seeds
-          · ${document.limits.maximumCandidateMethods} candidates
-          · ${document.limits.maximumParticipants} participants
-          · ${document.limits.maximumRetrievalPairs} retrieval pairs
-          · ${document.limits.maximumResults} results.</p>
+        <dl>
+          <div><dt>Name threshold</dt><dd>${similarity(document.nameSimilarityThreshold)}</dd></div>
+          <div><dt>Results</dt><dd>${document.limits.maximumResults}</dd></div>
+          <div><dt>Seed methods</dt><dd>${document.limits.maximumSeedMethods}</dd></div>
+          <div><dt>Candidate methods</dt><dd>${document.limits.maximumCandidateMethods}</dd></div>
+          <div><dt>Participants</dt><dd>${document.limits.maximumParticipants}</dd></div>
+          <div><dt>Retrieval pairs</dt><dd>${document.limits.maximumRetrievalPairs}</dd></div>
+          <div><dt>Retrieval chunk methods</dt><dd>${document.limits.maximumRetrievalChunkMethods}</dd></div>
+          <div><dt>Name characters</dt><dd>${document.limits.maximumNameCharacters}</dd></div>
+          <div><dt>Name comparison work</dt><dd>${document.limits.maximumNameComparisonWork}</dd></div>
+          <div><dt>Name cache cells</dt><dd>${document.limits.maximumNameCacheCells}</dd></div>
+        </dl>
+        ${comparisonLimits
+          ? `<h5>Structural comparison limits</h5>
+            <dl>
+              <div><dt>Instructions</dt><dd>${comparisonLimits.maximumInstructions}</dd></div>
+              <div><dt>Blocks</dt><dd>${comparisonLimits.maximumBlocks}</dd></div>
+              <div><dt>Edges</dt><dd>${comparisonLimits.maximumEdges}</dd></div>
+              <div><dt>Locals</dt><dd>${comparisonLimits.maximumLocals}</dd></div>
+              <div><dt>Verification steps</dt><dd>${comparisonLimits.maximumVerificationSteps}</dd></div>
+              <div><dt>Body bytes</dt><dd>${comparisonLimits.maximumBodyBytes}</dd></div>
+              <div><dt>Near alignment index steps</dt><dd>${comparisonLimits.maximumNearAlignmentIndexSteps}</dd></div>
+              <div><dt>Near alignment candidates</dt><dd>${comparisonLimits.maximumNearAlignmentCandidates}</dd></div>
+              <div><dt>Near alignment verification steps</dt><dd>${comparisonLimits.maximumNearAlignmentVerificationSteps}</dd></div>
+              <div><dt>Near alignment alternatives</dt><dd>${comparisonLimits.maximumNearAlignmentAlternatives}</dd></div>
+              <div><dt>Near block elements</dt><dd>${comparisonLimits.maximumNearBlockElements}</dd></div>
+            </dl>`
+          : ""}
         <h5>Seed retrieval</h5>
         <ul>
           ${document.seeds.map(seed => {
@@ -255,7 +281,10 @@ function renderSearchEvidence(
             return `<li>
               <strong>${escapeHtml(label)}</strong>:
               ${escapeHtml(library.membership)}, ${library.admitted ? "admitted" : "excluded"};
-              ${library.discoveredMethods} discovered of ${library.candidateMethods} candidates
+              ${library.discoveredMethods} discovered of ${library.candidateMethods} candidates,
+              ${library.retrievalPairs} retrieval pairs,
+              ${library.nameComparisonWork} name comparisons,
+              ${library.isComplete ? "complete" : "incomplete"}
               ${failures.length
                 ? `<small>${failures.map(escapeHtml).join("; ")}</small>`
                 : ""}

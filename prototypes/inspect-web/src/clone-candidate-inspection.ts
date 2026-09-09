@@ -37,6 +37,7 @@ export interface CloneCandidateRequestAvailability {
 export interface CloneCandidateInspectionState {
   breadth: CloneCandidateBreadth;
   discovery: CloneCandidateDiscovery;
+  revision: number;
   request: BrowserCloneCandidateRequest | null;
   result: BrowserCloneCandidateResult | null;
   loading: boolean;
@@ -51,6 +52,7 @@ CloneCandidateInspectionState {
   return {
     breadth: DEFAULT_CLONE_BREADTH,
     discovery: DEFAULT_CLONE_DISCOVERY,
+    revision: 0,
     request: null,
     result: null,
     loading: false,
@@ -134,6 +136,7 @@ export interface CloneCandidateInspectionCoordinator {
   load(input: CloneCandidateRequestInput): Promise<void>;
   showUnavailable(reason: string): void;
   selectRank(rank: number): boolean;
+  invalidate(): void;
   clear(): void;
   dispose(): void;
 }
@@ -156,6 +159,7 @@ export function createCloneCandidateInspectionCoordinator(
 
   const replace = () => {
     generation++;
+    state.revision++;
     clearResult();
   };
 
@@ -211,6 +215,7 @@ export function createCloneCandidateInspectionCoordinator(
       const request = availability.request;
       const requestJson = JSON.stringify(request);
       const requestGeneration = ++generation;
+      state.revision++;
       state.request = request;
       state.result = null;
       state.loading = true;
@@ -262,6 +267,13 @@ export function createCloneCandidateInspectionCoordinator(
       state.navigationError = "";
       dependencies.render();
       return true;
+    },
+
+    invalidate() {
+      generation++;
+      state.revision++;
+      state.loading = false;
+      state.navigationLoading = false;
     },
 
     clear() {
