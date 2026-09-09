@@ -362,6 +362,8 @@ public partial class CommandExecutionTests
     [InlineData("--json")]
     [InlineData("--markdown")]
     [InlineData("--mermaid")]
+    [InlineData("--tree")]
+    [InlineData("--no-headers")]
     [InlineData("--count")]
     [InlineData("--rows", "5")]
     [InlineData("-n", "1")]

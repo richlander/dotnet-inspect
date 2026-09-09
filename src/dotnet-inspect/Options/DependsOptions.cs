@@ -60,6 +60,9 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public bool JsonOutput { get; init; }
 
+    /// <summary>The selected output format for the graph projection.</summary>
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+
     /// <summary>
     /// Minified JSON output.
     /// </summary>
@@ -75,15 +78,21 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public bool EmbeddedMermaid { get; init; }
 
+    /// <summary>Render the graph as a standalone plain-text tree.</summary>
+    public bool Tree { get; init; }
+
     /// <summary>
     /// Limit data rows per rendered table.
     /// </summary>
     public RowWindow? Rows { get; init; }
 
     /// <summary>
-    /// Output the number of dependency nodes in the rendered tree.
+    /// Output the number of selected logical dependency edges.
     /// </summary>
     public bool Count { get; init; }
+
+    /// <summary>Suppress table and TSV headers.</summary>
+    public bool NoHeader { get; init; }
 
     /// <summary>
     /// Show progress messages on stderr.
@@ -120,7 +129,15 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || ShareFormat is not null;
+    public bool IsRawOutput =>
+        JsonOutput
+        || ShareFormat is not null
+        || Tree
+        || Format is OutputFormat.PlainText
+            or OutputFormat.Mermaid
+            or OutputFormat.Table
+            or OutputFormat.Tsv
+            or OutputFormat.Jsonl;
 
     /// <summary>
     /// True when in type dependency mode (default when no --library/--package).
