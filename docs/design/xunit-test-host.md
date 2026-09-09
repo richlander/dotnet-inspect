@@ -232,6 +232,12 @@ signature, declaration, conditional-recovery, or layout evidence. Manual
 decompiler fixture probes continue to inspect the built test assembly rather
 than invoke its test host.
 
+`DotnetInspector.RowSelection.Tests` is the fourteenth migrated adopter. Its
+required PR and developer commands remain unfiltered. These paths reuse the
+pinned outcome-level host gate without changing the suite's typed-language,
+reference-evaluator, failure, or separately compiled non-friend consumer
+evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
