@@ -9,6 +9,7 @@ using DotnetInspector.Services;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using System.Buffers.Binary;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -940,9 +941,8 @@ public class ReturnToSenderPrototypeTests
             Assert.False(all.UsedCompileBackFloor, all.Detail);
             Assert.NotNull(cluster.Compilation);
             Assert.NotNull(all.Compilation);
-            Assert.Same(
-                cluster.FinalRequest!.CompilationClosure,
-                all.FinalRequest!.CompilationClosure);
+            Assert.Null(cluster.FinalRequest!.CompilationClosure);
+            Assert.Null(all.FinalRequest!.CompilationClosure);
             Assert.NotNull(cluster.DonorPe);
             Assert.NotNull(all.DonorPe);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, all.Status);
@@ -1425,7 +1425,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DeclinesDirectSignedInterfaceSpoof()
+    public void CreateCompilationClosure_RejectsDirectSignedInterfaceSpoof()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
         string platformPath = typeof(System.Text.Json.Serialization.IJsonOnDeserialized)
@@ -1449,21 +1449,11 @@ public class ReturnToSenderPrototypeTests
                 "OnDeserialized"));
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
-                assemblyPath,
-                [new ReturnToSender.RequestedTarget(
-                    "SpoofedImpl",
-                    "System.Text.Json.Serialization.IJsonOnDeserialized.OnDeserialized",
-                    0)]));
-
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+                () => ReturnToSender.CreateCompilationClosure(assemblyPath));
             Assert.Contains(
-                "System_Text_Json_Serialization_IJsonOnDeserialized_OnDeserialized",
-                result.Source,
-                StringComparison.Ordinal);
-            Assert.DoesNotContain(
-                "IJsonOnDeserialized.OnDeserialized()",
-                result.Source,
-                StringComparison.Ordinal);
+                nameof(CompileReferenceFailureKind.ReferencePlatformAgreementMismatch),
+                error.Message);
         }
         finally
         {
@@ -1484,15 +1474,89 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
+            using ReturnToSender.CompilationClosure closure =
+                ReturnToSender.CreateCompilationClosure(assemblyPath);
             IReadOnlyList<ReturnToSender.Result> results =
                 ReturnToSender.CompileBackPropertyGetters(
                     assemblyPath,
-                    maxTargets: 2);
+                    maxTargets: 2,
+                    closure);
 
             Assert.Equal(2, results.Count);
-            Assert.Same(
-                results[0].FinalRequest!.CompilationClosure,
-                results[1].FinalRequest!.CompilationClosure);
+            Assert.All(
+                results,
+                result => Assert.Same(
+                    closure,
+                    result.FinalRequest!.CompilationClosure));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_ReleasesOwnedCompilationClosure()
+    {
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { public int Value => 1; }");
+        try
+        {
+            ReturnToSender.Result result =
+                ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.NotNull(result.FinalRequest);
+            Assert.Null(result.FinalRequest.CompilationClosure);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompilationClosure_DisposeRevokesScopedUse()
+    {
+        string assemblyPath = CompileFixture("public sealed class Fixture { }");
+        try
+        {
+            ReturnToSender.CompilationClosure closure =
+                ReturnToSender.CreateCompilationClosure(assemblyPath);
+
+            closure.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(
+                () => closure.Use(static _ => true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CreateCompilationClosure_RejectsDuplicateFullIdentityCandidates()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string dependencyPath = CompileFixture(
+            "public sealed class Duplicate { }",
+            directory: fixtureDir,
+            assemblyName: "RtsDuplicateReference");
+        File.Copy(
+            dependencyPath,
+            Path.Combine(fixtureDir, "RtsDuplicateReference.Copy.dll"));
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        try
+        {
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+                () => ReturnToSender.CreateCompilationClosure(assemblyPath));
+
+            Assert.Contains(
+                nameof(CompileReferenceFailureKind.ReferenceSelectionAmbiguous),
+                error.Message);
         }
         finally
         {
@@ -1517,50 +1581,66 @@ public class ReturnToSenderPrototypeTests
             assemblyName: "fixture");
         try
         {
-            var closure = ReturnToSender.CreateCompilationClosure(assemblyPath);
+            using var closure = ReturnToSender.CreateCompilationClosure(assemblyPath);
 
             CompileFixture(
                 "public interface IAfter { void M(); }",
                 directory: fixtureDir,
                 assemblyName: "RtsSnapshotDependency");
 
-            ResolvedAssemblyReference frozen = Assert.IsType<ResolvedAssemblyReference>(
-                closure.Resolver.Resolve(
-                    dependency.Identity,
-                    AssemblyResolutionScope.Any));
-            using Stream frozenStream = frozen.OpenRead();
-            using var frozenPe = new PEReader(frozenStream);
-            Assert.True(
-                ContainsType(
-                    frozenPe.GetMetadataReader(),
-                    "IBefore"));
-            Assert.False(
-                ContainsType(
-                    frozenPe.GetMetadataReader(),
-                    "IAfter"));
+            closure.Use(context =>
+            {
+                Assert.False(
+                    context.CompilerReferences.Any(reference =>
+                        AssemblyReferenceIdentity
+                            .FromAssemblyDefinition(
+                                Assert.Single(
+                                    Assert.IsType<AssemblyMetadata>(
+                                        reference.GetMetadata()).GetModules())
+                                    .GetMetadataReader())
+                        == context.Source.Identity));
+                ResolvedAssemblyReference frozen = Assert.IsType<ResolvedAssemblyReference>(
+                    context.Resolve(
+                        dependency.Identity,
+                        AssemblyResolutionScope.Any));
+                using Stream frozenStream = frozen.OpenRead();
+                using var frozenPe = new PEReader(frozenStream);
+                Assert.True(
+                    ContainsType(
+                        frozenPe.GetMetadataReader(),
+                        "IBefore"));
+                Assert.False(
+                    ContainsType(
+                        frozenPe.GetMetadataReader(),
+                        "IAfter"));
 
-            PortableExecutableReference roslynReference =
-                Assert.Single(
-                    closure.References.OfType<PortableExecutableReference>(),
-                    reference =>
-                    {
-                        var metadata =
-                            Assert.IsType<AssemblyMetadata>(
-                                reference.GetMetadata());
-                        var module = Assert.Single(metadata.GetModules());
-                        var reader = module.GetMetadataReader();
-                        return AssemblyReferenceIdentity
-                            .FromAssemblyDefinition(reader)
-                            == dependency.Identity;
-                    });
-            var roslynMetadata =
-                Assert.IsType<AssemblyMetadata>(
-                    roslynReference.GetMetadata());
-            var roslynReader =
-                Assert.Single(roslynMetadata.GetModules())
-                    .GetMetadataReader();
-            Assert.True(ContainsType(roslynReader, "IBefore"));
-            Assert.False(ContainsType(roslynReader, "IAfter"));
+                PortableExecutableReference roslynReference =
+                    Assert.Single(
+                        context.CompilerReferences,
+                        reference =>
+                        {
+                            var metadata =
+                                Assert.IsType<AssemblyMetadata>(
+                                    reference.GetMetadata());
+                            var module = Assert.Single(metadata.GetModules());
+                            var reader = module.GetMetadataReader();
+                            return AssemblyReferenceIdentity
+                                .FromAssemblyDefinition(reader)
+                                == dependency.Identity;
+                        });
+                Assert.Equal(
+                    Path.GetFullPath(dependencyPath),
+                    roslynReference.FilePath);
+                var roslynMetadata =
+                    Assert.IsType<AssemblyMetadata>(
+                        roslynReference.GetMetadata());
+                var roslynReader =
+                    Assert.Single(roslynMetadata.GetModules())
+                        .GetMetadataReader();
+                Assert.True(ContainsType(roslynReader, "IBefore"));
+                Assert.False(ContainsType(roslynReader, "IAfter"));
+                return true;
+            });
         }
         finally
         {
@@ -1577,31 +1657,30 @@ public class ReturnToSenderPrototypeTests
             """
             using System.Runtime.CompilerServices;
             [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            public sealed class RtsPlatformFacadeMarker { }
             """,
             directory: fixtureDir,
             assemblyName: "RtsPlatformFacade");
         string assemblyPath = CompileFixture(
-            "public sealed class Fixture { }",
+            "public sealed class Fixture { public RtsPlatformFacadeMarker Value => null; }",
             directory: fixtureDir,
-            assemblyName: "fixture");
+            assemblyName: "fixture",
+            [MetadataReference.CreateFromFile(facadePath)]);
         File.Copy(
             platformPath,
             Path.Combine(fixtureDir, "System.Text.Json.dll"));
-        var facade = ResolvedAssemblyReference.CreateFromPath(
-            facadePath,
-            AssemblyResolutionProvenance.Local("test"));
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ExcludeTargetAssembly = true,
-            });
         try
         {
-            Assert.NotNull(
+            using ReturnToSender.CompilationClosure closure =
+                ReturnToSender.CreateCompilationClosure(assemblyPath);
+            AssemblyReferenceIdentity facadeIdentity =
+                Identity(facadePath);
+            Assert.NotNull(closure.Use(context =>
                 CompileBackSourceComposer.ResolveExternalTypeDefinition(
-                    facade,
+                    Assert.IsType<ResolvedAssemblyReference>(
+                        context.Resolve(facadeIdentity, AssemblyResolutionScope.Any)),
                     "System.Text.Json.JsonSerializer",
-                    resolver));
+                    context)));
         }
         finally
         {
@@ -1612,33 +1691,46 @@ public class ReturnToSenderPrototypeTests
     [Fact]
     public void ResolveExternalTypeDefinition_RollsOlderPlatformFacadeIntoCompilationClosure()
     {
-        string assemblyPath = CompileFixture("public sealed class Fixture { }");
-        string runtimePath = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Single(path => Path.GetFileName(path).Equals("System.Runtime.dll", StringComparison.OrdinalIgnoreCase));
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        AssemblyReferenceIdentity platformIdentity = Identity(platformPath);
+        Assert.NotNull(platformIdentity.Version);
+        Assert.True(platformIdentity.Version.Major > 0);
+        AssemblyReferenceIdentity priorPlatformIdentity = platformIdentity with
+        {
+            Version = new Version(platformIdentity.Version.Major - 1, 0, 0, 0),
+        };
+        string facadePath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            public sealed class RtsPlatformFacadeMarker { }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsPlatformFacade");
+        RewriteAssemblyReferenceVersion(
+            facadePath,
+            priorPlatformIdentity.Name,
+            priorPlatformIdentity.Version);
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { public RtsPlatformFacadeMarker Value => null; }",
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            [MetadataReference.CreateFromFile(facadePath)]);
         try
         {
-            using var stream = File.OpenRead(runtimePath);
-            using var pe = new PEReader(stream);
-            AssemblyReferenceIdentity runtimeIdentity =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(pe.GetMetadataReader());
-            Assert.NotNull(runtimeIdentity.Version);
-            Assert.True(runtimeIdentity.Version.Major > 0);
-            AssemblyReferenceIdentity priorRuntimeIdentity = runtimeIdentity with
-            {
-                Version = new Version(runtimeIdentity.Version.Major - 1, 0, 0, 0),
-            };
-            ReturnToSender.CompilationClosure closure =
+            using ReturnToSender.CompilationClosure closure =
                 ReturnToSender.CreateCompilationClosure(assemblyPath);
 
-            var resolved = CompileBackSourceComposer.ResolveExternalTypeDefinition(
-                closure.TargetAssembly,
-                priorRuntimeIdentity,
-                "System.IConvertible",
-                closure.Resolver);
+            var resolved = closure.Use(context =>
+                CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    Assert.IsType<ResolvedAssemblyReference>(
+                        context.Resolve(Identity(facadePath), AssemblyResolutionScope.Any)),
+                    "System.Text.Json.JsonSerializer",
+                    context));
 
             Assert.NotNull(resolved);
-            Assert.Equal("System.Private.CoreLib", resolved.Value.Assembly.Identity.Name);
+            Assert.Equal(platformIdentity.Name, resolved.Value.Assembly.Identity.Name);
         }
         finally
         {
@@ -1655,34 +1747,28 @@ public class ReturnToSenderPrototypeTests
             """
             using System.Runtime.CompilerServices;
             [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            public sealed class RtsPlatformFacadeMarker { }
             """,
             directory: fixtureDir,
             assemblyName: "RtsPlatformFacade");
         string assemblyPath = CompileFixture(
-            "public sealed class Fixture { }",
+            "public sealed class Fixture { public RtsPlatformFacadeMarker Value => null; }",
             directory: fixtureDir,
-            assemblyName: "fixture");
+            assemblyName: "fixture",
+            [MetadataReference.CreateFromFile(facadePath)]);
         File.WriteAllBytes(
             Path.Combine(fixtureDir, "System.Text.Json.dll"),
             BuildSpoofedDefinitionAddressAssemblyImage(
                 platformPath,
                 "System.Text.Json",
                 "JsonSerializer"));
-        var facade = ResolvedAssemblyReference.CreateFromPath(
-            facadePath,
-            AssemblyResolutionProvenance.Local("test"));
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ExcludeTargetAssembly = true,
-            });
         try
         {
-            Assert.Null(
-                CompileBackSourceComposer.ResolveExternalTypeDefinition(
-                    facade,
-                    "System.Text.Json.JsonSerializer",
-                    resolver));
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+                () => ReturnToSender.CreateCompilationClosure(assemblyPath));
+            Assert.Contains(
+                nameof(CompileReferenceFailureKind.ReferencePlatformAgreementMismatch),
+                error.Message);
         }
         finally
         {
@@ -1699,31 +1785,25 @@ public class ReturnToSenderPrototypeTests
             """
             using System.Runtime.CompilerServices;
             [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            public sealed class RtsPlatformFacadeMarker { }
             """,
             directory: fixtureDir,
             assemblyName: "RtsPlatformFacade");
         string assemblyPath = CompileFixture(
-            "public sealed class Fixture { }",
+            "public sealed class Fixture { public RtsPlatformFacadeMarker Value => null; }",
             directory: fixtureDir,
-            assemblyName: "fixture");
+            assemblyName: "fixture",
+            [MetadataReference.CreateFromFile(facadePath)]);
         File.WriteAllBytes(
             Path.Combine(fixtureDir, "System.Text.Json.dll"),
             BuildConfusableAssemblyImage(platformPath));
-        var facade = ResolvedAssemblyReference.CreateFromPath(
-            facadePath,
-            AssemblyResolutionProvenance.Local("test"));
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ExcludeTargetAssembly = true,
-            });
         try
         {
-            Assert.Null(
-                CompileBackSourceComposer.ResolveExternalTypeDefinition(
-                    facade,
-                    "System.Text.Json.JsonSerializer",
-                    resolver));
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+                () => ReturnToSender.CreateCompilationClosure(assemblyPath));
+            Assert.Contains(
+                nameof(CompileReferenceFailureKind.ReferencePlatformAgreementMismatch),
+                error.Message);
         }
         finally
         {
@@ -1732,7 +1812,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void ResolveExternalTypeDefinition_DeclinesWhenVersionSkewedSiblingShadowsPlatform()
+    public void CreateCompilationClosure_RejectsVersionSkewedPlatformSibling()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
         string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
@@ -1740,13 +1820,15 @@ public class ReturnToSenderPrototypeTests
             """
             using System.Runtime.CompilerServices;
             [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            public sealed class RtsPlatformFacadeMarker { }
             """,
             directory: fixtureDir,
             assemblyName: "RtsPlatformFacade");
         string assemblyPath = CompileFixture(
-            "public sealed class Fixture { }",
+            "public sealed class Fixture { public RtsPlatformFacadeMarker Value => null; }",
             directory: fixtureDir,
-            assemblyName: "fixture");
+            assemblyName: "fixture",
+            [MetadataReference.CreateFromFile(facadePath)]);
         using (var stream = File.OpenRead(platformPath))
         using (var pe = new PEReader(stream))
         {
@@ -1757,21 +1839,13 @@ public class ReturnToSenderPrototypeTests
                     platformPath,
                     new Version(platformVersion.Major - 1, 0, 0, 0)));
         }
-        var facade = ResolvedAssemblyReference.CreateFromPath(
-            facadePath,
-            AssemblyResolutionProvenance.Local("test"));
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ExcludeTargetAssembly = true,
-            });
         try
         {
-            Assert.Null(
-                CompileBackSourceComposer.ResolveExternalTypeDefinition(
-                    facade,
-                    "System.Text.Json.JsonSerializer",
-                    resolver));
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+                () => ReturnToSender.CreateCompilationClosure(assemblyPath));
+            Assert.Contains(
+                nameof(CompileReferenceFailureKind.ReferencePlatformSelectionUnavailable),
+                error.Message);
         }
         finally
         {
@@ -6992,6 +7066,44 @@ public class ReturnToSenderPrototypeTests
                         reader.GetTypeDefinition(handle)),
                     typeName,
                     StringComparison.Ordinal));
+
+    static AssemblyReferenceIdentity Identity(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(pe.GetMetadataReader());
+    }
+
+    static void RewriteAssemblyReferenceVersion(
+        string path,
+        string assemblyName,
+        Version version)
+    {
+        byte[] image = File.ReadAllBytes(path);
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        AssemblyReferenceHandle handle = Assert.Single(
+            reader.AssemblyReferences,
+            handle => reader.GetString(reader.GetAssemblyReference(handle).Name) == assemblyName);
+        int rowOffset =
+            pe.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.AssemblyRef)
+            + ((MetadataTokens.GetRowNumber(handle) - 1)
+                * reader.GetTableRowSize(TableIndex.AssemblyRef));
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(rowOffset),
+            checked((ushort)version.Major));
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(rowOffset + 2),
+            checked((ushort)version.Minor));
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(rowOffset + 4),
+            checked((ushort)version.Build));
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(rowOffset + 6),
+            checked((ushort)version.Revision));
+        File.WriteAllBytes(path, image);
+    }
 
     [Fact]
     public void CompileBackTargets_EmitsNestedTargetMemberRequirement()
