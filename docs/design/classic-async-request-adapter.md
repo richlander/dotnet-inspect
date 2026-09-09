@@ -16,7 +16,8 @@ and reconstruction proof.
 
 ## Input
 
-For each async-classified imported MethodDef, the adapter receives:
+For each async-classified MethodDef, and for each generated
+`MoveNext`/`SetStateMachine` candidate imported directly, the adapter receives:
 
 - its durable `MetadataMethodAddress`;
 - Metadata's exact `MethodClassification?`;
@@ -63,19 +64,28 @@ first would erase that owner failure.
 
 ## Import and consumption
 
-`MethodImporter` materializes the adapter result for methods classified
-`RuntimeAsync` or `StateMachineAsync` while the source is live, and
-`IrImporter` carries it unchanged onto `IrFunction`. Synchronous methods do not
-force the module-wide relationship index and remain outside this boundary. The
-immutable Metadata addresses and relationship result remain inspectable after
-reader disposal; the acquisition guard is an opaque provenance token, not a
-reader reference.
+`MethodImporter` materializes the adapter result while the source is live for
+methods classified `RuntimeAsync` or `StateMachineAsync`. It also uses the
+`MoveNext` or `SetStateMachine` name, or declaration as a `MethodImpl` body, only
+as candidate-discovery gates for directly imported implementation methods. The
+Metadata relationship index remains the sole role authority; an uncorrelated
+candidate is `Ordinary`, never execution or support. Other synchronous methods
+do not force the module-wide relationship index and remain outside this
+boundary. `IrImporter` carries the result unchanged onto `IrFunction`.
+
+The immutable Metadata addresses and relationship result remain inspectable
+after reader disposal; the acquisition guard is an opaque provenance token,
+not a reader reference.
 
 For `RequestAvailable`, `ClassicAsyncReconstructionPass` imports the certified
 execution MethodDef by its exact address and matching acquisition guard. The
-generated name remains only a display label. The pass also requires the kickoff
-body's decoded state-machine local to carry the same module and TypeDef token
-as the certificate. A name-equal sibling cannot replace either identity.
+generated name remains only a display label. The pass also requires the
+kickoff body's decoded state-machine local to carry the same module and TypeDef
+token as the certificate. A name-equal sibling cannot replace either identity.
+When a direct generated-name candidate maps to a resolved classic
+implementation role, the
+[stage-application owner](classic-async-stage-application.md) consumes that
+exact role and preserves the imported body.
 
 Synthetic IR continues to exercise recipe recognition without claiming
 Metadata identity. Product imports carry an explicit `IsMetadataBacked` fact
@@ -89,6 +99,11 @@ The following gates enforce the boundary:
   classification, relationship, and post-disposal materialization;
 - `ClassicPass_ImportsCertifiedExecutionMethod` proves the cross-method import
   uses the certified `MoveNext` address;
+- `ExactClassicExecutionRole_PreservesImportedStageSnapshot` and
+  `ExactClassicSupportRole_PreservesImportedStageSnapshot` prove direct
+  implementation imports retain the exact role for stage application;
+- `ExplicitMethodImplRole_PreservesImportedStageSnapshot` proves noncanonical
+  explicit implementation names retain their Metadata-issued role;
 - `RuntimeAsyncBudgetFailureSurvivesProductionImport` proves budget failure
   precedes runtime filtering on the production import path;
 - `InvalidModuleIdentityRemainsVisibleAcquisitionFailure` proves nil,

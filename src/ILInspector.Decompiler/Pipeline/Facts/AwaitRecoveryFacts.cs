@@ -19,6 +19,6 @@ internal sealed class AwaitRecoveryFacts : ILoweringFactProvider
             ],
             PositiveCoverage: "CfgSampleClass direct runtime-async await fixtures; RuntimeAsyncAwaiterFixtures compiled Task.Yield call/parameter, class call/parameter, extension, sequential, and branch scaffolds exercise both safe and unsafe helpers; synthetic safe/unsafe helper identities; Fixtures.ClassicAsync overlay single, sequential, branch, loop, ValueTask, and try/finally awaits",
             AdversarialCoverage: "AwaitAdversarialTests namespace/type/assembly/instance lookalikes; RuntimeAsyncAwaiterPassTests independently break defining-method metadata, helper assembly/signature, extension evidence, each same-local correlation, reference ownership, and CFG ownership; ClassicAsyncReconstructionPassTests pin the classic recognition matrix",
-            MissingDiscriminator: "classic async reconstruction still trusts compiler-reserved names plus DeclaringTypeCompilerGenerated; Start and .Task-named return remain name-matched rather than builder-correlated"),
+            MissingDiscriminator: "classic async stage application requires an owner-issued exact role; within an authenticated declared kickoff, Start and .Task-named return remain name-matched rather than builder-correlated"),
     ];
 }

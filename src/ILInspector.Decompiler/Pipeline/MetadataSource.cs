@@ -45,6 +45,8 @@ public sealed class MetadataSource : IDisposable
     readonly object _crossLock = new();
     readonly object _acquisitionGuard = new();
     readonly Lazy<StateMachineRelationshipIndex> _stateMachineRelationships;
+    readonly Lazy<ImmutableHashSet<MethodDefinitionHandle>>
+        _methodImplementationBodies;
     readonly Lazy<MemorySafetyMetadataIndex> _memorySafety;
 
     MetadataSource(string path, string? filePath, Stream? stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
@@ -62,6 +64,8 @@ public sealed class MetadataSource : IDisposable
         _suppliedContext = context;
         _stateMachineRelationships =
             new(() => StateMachineRelationshipIndex.Create(reader));
+        _methodImplementationBodies =
+            new(() => MethodImplementationBodies(reader));
         _memorySafety = new(() => MemorySafetyMetadataIndex.Create(reader));
     }
 
@@ -105,6 +109,10 @@ public sealed class MetadataSource : IDisposable
 
     internal MemorySafetyMetadataIndex MemorySafety => _memorySafety.Value;
 
+    internal bool IsMethodImplementationBody(
+        MethodDefinitionHandle method) =>
+        _methodImplementationBodies.Value.Contains(method);
+
     internal ClassicAsyncRequestAdapterResult AdaptClassicAsyncRequest(
         MethodDefinitionHandle method,
         MethodClassification? classification) =>
@@ -114,6 +122,29 @@ public sealed class MetadataSource : IDisposable
             method,
             classification,
             _acquisitionGuard);
+
+    static ImmutableHashSet<MethodDefinitionHandle>
+        MethodImplementationBodies(MetadataReader reader)
+    {
+        var bodies =
+            ImmutableHashSet.CreateBuilder<MethodDefinitionHandle>();
+        int count = reader.GetTableRowCount(TableIndex.MethodImpl);
+        for (int row = 1; row <= count; row++)
+        {
+            MethodImplementation implementation =
+                reader.GetMethodImplementation(
+                    MetadataTokens.MethodImplementationHandle(row));
+            if (implementation.MethodBody.Kind
+                == HandleKind.MethodDefinition)
+            {
+                bodies.Add(
+                    (MethodDefinitionHandle)
+                        implementation.MethodBody);
+            }
+        }
+
+        return bodies.ToImmutable();
+    }
 
     /// <summary>
     /// The symbol source consulted for local names so far: <see cref="DecompilerSymbolSource.None"/>

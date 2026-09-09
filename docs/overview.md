@@ -252,7 +252,12 @@ substrates, and inspection producers that will extend that space.
   Packages, Services, and the CLI. Its cache, networking, untrusted-document,
   CLI telemetry, and single-consumer helpers move to subject owners under
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
-- `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
+- `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural
+  annotated IL from method bodies.
+  [Classic async stage application](design/classic-async-stage-application.md)
+  owns whether one imported classic host may be edited: exact execution and
+  support roles preserve their physical bodies, while only a declared kickoff
+  may consume the inverse core's terminal decision.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
   and Decompiler: its registry orders fact producers, joins R1 analysis
   occurrences with R2 decompiler projections, and projects facts into the

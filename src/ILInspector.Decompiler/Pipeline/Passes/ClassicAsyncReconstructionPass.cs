@@ -10,9 +10,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// async bodies. The source logic lives in <c>&lt;M&gt;d__N.MoveNext</c>; the public
 /// kickoff only initializes the state machine and returns the builder's task.
 /// <para>
-/// The pass owns acquisition and application only. It seeds a request from
-/// Metadata's authenticated relationship and the exact execution MethodDef,
-/// imports that body, and hands the request to
+/// The pass coordinates stage application and acquisition. It preserves exact
+/// execution/support hosts under
+/// <c>docs/design/classic-async-stage-application.md</c>, seeds a kickoff
+/// request from Metadata's authenticated relationship and exact execution
+/// MethodDef, imports that body, and hands the request to
 /// <see cref="ClassicInverseCore"/>. Every reconstruction decision — and every
 /// proof that licenses one — belongs to the core
 /// (<c>docs/design/classic-async-reconstruction.md</c>). The pass never
@@ -25,18 +27,31 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        if (TryAcknowledgeSupportMethod(function, context))
-            return;
+        ClassicAsyncStageApplicationKind application =
+            ClassicAsyncStageApplication.Decide(
+                function.ClassicAsyncRequest);
+        switch (application)
+        {
+            case ClassicAsyncStageApplicationKind.PreserveImportedBody:
+            case ClassicAsyncStageApplicationKind.NoOpinion:
+                return;
+
+            case ClassicAsyncStageApplicationKind.EvaluateDeclaredKickoff:
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown classic async stage application.");
+        }
 
         if (context.ImportMethodBody is null)
             return;
-        ClassicAsyncRequestSeed? seed =
-            (function.ClassicAsyncRequest as
-                ClassicAsyncRequestAdapterResult.RequestAvailable)?.Request;
+        var available = (ClassicAsyncRequestAdapterResult.RequestAvailable)
+            function.ClassicAsyncRequest!;
+        ClassicAsyncRequestSeed seed = available.Request;
         if (!TryGetKickoff(function, out var kickoff))
             return;
-        if (seed is not null
-            && !MatchesStateMachine(
+        if (!MatchesStateMachine(
                 kickoff.StateMachineType,
                 seed.Relationship.StateMachineType))
         {
@@ -49,15 +64,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             TypeRef.CoreLib("System", "Void"),
             [],
             HasThis: true);
-        if (seed is not null)
+        moveNextMethod = moveNextMethod with
         {
-            moveNextMethod = moveNextMethod with
-            {
-                ExactDefinitionAddress = seed.ExecutionMethod,
-                ExactDefinitionAcquisitionGuard =
-                    seed.AcquisitionGuard,
-            };
-        }
+            ExactDefinitionAddress = seed.ExecutionMethod,
+            ExactDefinitionAcquisitionGuard =
+                seed.AcquisitionGuard,
+        };
 
         if (!context.TryEnterCrossMethodPipeline(moveNextMethod, out var scope))
             return;
@@ -67,8 +79,6 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             IrFunction? rawMoveNext = scope.Import();
             if (rawMoveNext is null)
-                return;
-            if (seed is null)
                 return;
 
             IrFunction rawKickoff = context.ImportMethodBody!(new MethodRef(
@@ -182,34 +192,6 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             && MetadataTokens.GetToken(observed.DefinitionHandle)
                 == expected.Definition.Value;
     }
-
-    static bool TryAcknowledgeSupportMethod(IrFunction function, PassContext context)
-    {
-        if (function.Name is not ("MoveNext" or "SetStateMachine"))
-            return false;
-        if (function.DeclaringTypeCompilerGenerated != MetadataFactState.Yes)
-            return false;
-        if (!LooksLikeClassicAsyncStateMachine(function))
-            return false;
-
-        context.Stepper.StepOver($"acknowledge generated classic async support method '{function.DeclaringType.Name}.{function.Name}'");
-        function.ResetLocals([], []);
-        function.Body.DetachChildren();
-        var block = new Block(0);
-        block.Add(new Return(null));
-        function.Body.Add(block);
-        return true;
-    }
-
-    static bool LooksLikeClassicAsyncStateMachine(IrFunction function)
-        => IsStateMachineType(function.DeclaringType)
-            && function.Descendants.Any(static node => node switch
-            {
-                LoadField { Field.Name: "<>t__builder" } => true,
-                LoadFieldAddress { Field.Name: "<>t__builder" } => true,
-                StoreField { Field.Name: "<>t__builder" } => true,
-                _ => false,
-            });
 
     static bool TryGetKickoff(IrFunction function, out Kickoff kickoff)
     {

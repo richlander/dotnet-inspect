@@ -63,7 +63,6 @@ fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld
 fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures
 fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
-fixtures/metadata/ILInspector.Metadata.StateMachineFixtures
 fixtures/presentation/LibraryApiDiff.V1
 fixtures/presentation/LibraryApiDiff.V2
 fixtures/queries/DotnetInspector.CloneSearchFixtures
@@ -111,6 +110,7 @@ tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.Platforms.Tests
 tests/DotnetInspector.Presentation.Tests
+tests/DotnetInspector.Queries.Consumer
 tests/DotnetInspector.Queries.Tests
 tests/DotnetInspector.RowSelection.Consumer
 tests/DotnetInspector.RowSelection.Tests
