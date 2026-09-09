@@ -108,6 +108,58 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task MemberShare_UsesBrowserCompileAssetsInsteadOfRuntimeCopies()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "CodePagesEncodingProvider",
+            "--package",
+            "System.Text.Encoding.CodePages@10.0.0",
+            "GetEncoding:1",
+            "--tfm",
+            "net10.0",
+            "--share",
+            "packet",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            result.Output.Trim(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            "System.Text.CodePagesEncodingProvider",
+            packet.Type);
+        Assert.Equal(
+            "System.Text.Encoding.CodePages",
+            Assert.Single(packet.Libraries));
+    }
+
+    [Fact]
+    public async Task MemberShare_RejectsToolsOnlyPackageSurface()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "Mono.Cecil.AssemblyDefinition",
+            "--package",
+            "dotnet-ildasm@0.12.2",
+            "ReadAssembly:1",
+            "--tfm",
+            "netcoreapp3.0",
+            "--share",
+            "packet",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Browser compile-asset set",
+            result.Error);
+    }
+
+    [Fact]
     public async Task MemberShare_RequiresExactMemberBeforeAcquisition()
     {
         var result = await RunAppAsync(

@@ -128,33 +128,50 @@ internal static class MemberShareProjection
                 + "restored by the Browser.");
         }
 
-        TfmSelector.PackageLibraryResolution libraries =
-            TfmSelector.SelectPackageLibraries(
-                source.PackageExtractPath,
+        var content = new FileSystemPackageContent(
+            source.PackageExtractPath,
+            nupkgPath: null,
+            fromCache: true,
+            source.PackageProducerKey ?? "member-share-projection");
+        PackageCompileAssetSelection compileAssets =
+            PackageCompileAssetSelector.Select(
+                content,
+                source.PackageName,
                 source.SelectedTfm);
-        if (!libraries.IsSelected)
+        if (!compileAssets.IsSelected)
         {
             return NonProjectable(
-                $"The Browser library set for target framework "
-                + $"'{source.SelectedTfm}' could not be determined.");
+                $"The Browser compile-asset set for target framework "
+                + $"'{source.SelectedTfm}' could not be determined "
+                + $"({compileAssets.Status}).");
         }
 
         var pathComparer =
             LibraryMetadataService.ReferenceTreePathComparer(
                 OperatingSystem.IsWindows());
         string selectedPath = Path.GetFullPath(sourceAssembly.Path);
-        if (!libraries.Paths.Any(path =>
+        string[] browserPaths =
+        [
+            .. compileAssets.Assets.Select(asset =>
+                Path.GetFullPath(
+                    Path.Combine(
+                        source.PackageExtractPath,
+                        asset.Path.Replace(
+                            '/',
+                            Path.DirectorySeparatorChar)))),
+        ];
+        if (!browserPaths.Any(path =>
                 pathComparer.Equals(
-                    Path.GetFullPath(path),
+                    path,
                     selectedPath)))
         {
             return NonProjectable(
                 "The selected member is implemented outside the package's "
-                + "Browser-visible library set.");
+                + "Browser compile-asset set.");
         }
 
         int matchingTypeCount = 0;
-        foreach (string libraryPath in libraries.Paths)
+        foreach (string libraryPath in browserPaths)
         {
             ApiSurface? surface = AssemblyReader.ExtractApiSurface(
                 libraryPath,
