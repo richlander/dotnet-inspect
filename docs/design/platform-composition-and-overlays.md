@@ -523,10 +523,10 @@ platform's documentation, annotations, source, and implementation differ from
 .NET 8. The warning requires the owner-issued incompatible relation; it is not
 triggered by target inequality or descriptive differences.
 
-The failure mode this replaces is the one `AGENTS.md` forbids under *keep
-failure visible*: today an unavailable member under known skew surfaces as an
-unattributed missing type or member. A blanket refusal would be wrong in the
-other direction because many requests remain satisfiable.
+The failure mode this replaces is an unavailable member under known skew
+surfacing as an unattributed missing type or member. The traversal result must
+retain and expose the compatibility cause. A blanket refusal would be wrong in
+the other direction because many requests remain satisfiable.
 
 Under an owner-classified unsupported downgrade, an exact member bind proves
 only that the loaded supplier satisfies Metadata's binding identity. It does
