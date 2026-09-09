@@ -23,11 +23,15 @@ export function renderLibraryReferencesSurface(options: LibraryReferencesOptions
   } else if (!data) {
     status = "Loading\u2026";
     content = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
-  } else if (data.assemblyReferenceError) {
+  } else if (data.assemblyReferences === null
+    || typeof data.assemblyReferences === "string") {
+    const message = data.assemblyReferences === null
+      ? "The engine returned no assembly-reference result."
+      : data.assemblyReferences || "No failure details were provided.";
     status = "Inspection failed";
-    content = `<section class="document-section empty-document"><h2>Reference inspection failed</h2><p>${escapeHtml(data.assemblyReferenceError)}</p></section>`;
+    content = `<section class="document-section empty-document"><h2>Reference inspection failed</h2><p>${escapeHtml(message)}</p></section>`;
   } else {
-    const references = data.assemblyReferences;
+    const references = data.assemblyReferences.references;
     status = `${references.length.toLocaleString()} direct reference${references.length === 1 ? "" : "s"}`;
     content = references.length
       ? `<ul class="dep-list" aria-label="Assembly references">${references.map(reference =>
