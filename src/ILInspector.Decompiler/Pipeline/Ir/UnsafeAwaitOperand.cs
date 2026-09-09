@@ -74,8 +74,18 @@ internal static class UnsafeAwaitOperand
 
             evidence.Clear();
             ConsumedMemberEvidence.AddFrom(node, evidence);
-            if (evidence.Any(item => item.Method is { } method
-                && MethodRequiresUnsafe(method, usesUpdatedMemorySafetyRules)))
+            if (evidence.Any(item =>
+                (item.Method is { } method
+                    && MethodRequiresUnsafe(
+                        method,
+                        usesUpdatedMemorySafetyRules))
+                || (item.Field is { } field
+                    && FieldMemorySafetyContract.RequiresUnsafe(
+                        field,
+                        usesUpdatedMemorySafetyRules,
+                        legacyShapeRequiresUnsafe:
+                            field.FixedBuffer is null
+                            && ContainsPointer(field.Type)))))
             {
                 return true;
             }
