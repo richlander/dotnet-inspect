@@ -14,6 +14,8 @@ using InspectWeb.Engine.AnalysisFacade;
 [SupportedOSPlatform("browser")]
 public static partial class AnalysisExports
 {
+    const int MaximumBrowserCloneSeedMethods = 1_000;
+
     /// <summary>
     /// Runs one Library, Type, or Member Clone Candidates search over the exact
     /// package participants supplied for the browser Workspace.
@@ -72,7 +74,11 @@ public static partial class AnalysisExports
                 containingLibrary,
                 seed,
                 Parse(request.Breadth),
-                Parse(request.Discovery));
+                Parse(request.Discovery),
+                new WorkspaceStructuralCloneSearchLimits(
+                    MaximumSeedMethods: MaximumBrowserCloneSeedMethods,
+                    MaximumParticipants:
+                        BrowserInspectionScope.MaxAssembliesPerRole));
         return BrowserCloneCandidateWireProjection.Project(
             request,
             CloneCandidatePresentation.Create(queryResult));

@@ -21,8 +21,11 @@ Stage 4 is implemented under
 Stage 5 is implemented under
 [#6353](https://github.com/richlander/dotnet-inspect/issues/6353) by the
 managed Inspect Web Analysis facade and generated TypeScript/JavaScript
-transport. Stages 6 and 7 are **not implemented**, so the Browser interaction
-and deployment acceptance scenarios below remain **unverified**.
+transport. Stage 6 is implemented under
+[#6401](https://github.com/richlander/dotnet-inspect/issues/6401) by the
+Inspect Web Library, Type, and Member Clone inspectors. Stage 7 is **not
+implemented**, so product release and website deployment remain
+**unverified**.
 
 Clone separates two request dimensions:
 
@@ -542,12 +545,11 @@ representation.
 
 ## Acceptance and evidence
 
-The following outcome-level scenarios are required across the remaining
-adoption path. Stage 5 gates managed request binding, Library/Type/Member seed
-selection, logical and exact-accessor Member behavior, breadth/discovery
-transport, participant coverage, and all closed outcomes. Stage 6 must still
-gate the browser controls, interaction, navigation, and visible rendering
-scenarios.
+The following outcome-level scenarios are required across the adoption path.
+Stage 5 gates managed request binding, Library/Type/Member seed selection,
+logical and exact-accessor Member behavior, breadth/discovery transport,
+participant coverage, and all closed outcomes. Stage 6 gates the browser
+controls, interaction, navigation, and visible rendering scenarios.
 
 | Scenario | Required observation |
 | --- | --- |
@@ -558,6 +560,7 @@ scenarios.
 | Run one Member seed at all three breadths with `All` | `Self` stays in the containing library, the middle breadth adds registered ecosystems, and `Everything` admits every available Workspace participant |
 | Run all six breadth/discovery combinations | Breadth changes only the Workspace population and discovery changes only method admission inside that population |
 | Run a Library search | Results are one global ranking across all admitted seeds, not N rows per method or library |
+| Change the selected Library, Type, or Member while Clone is open | Prior-subject evidence disappears before the replacement request starts, and a late prior result cannot publish |
 | Encounter the same same-library pair from both seed orientations | One deterministic result row is returned |
 | Encounter the selected physical method in its candidate population | It is excluded rather than ranked as a perfect self hit |
 | Use similar member names on dissimilar types, or similar types with dissimilar member names | `SimilarNames` excludes the method at every breadth; `All` admits it without changing breadth |
@@ -583,10 +586,21 @@ coverage, failure, suppression, and receipt projection.
 section/query discovery, all request combinations, exact Type and logical
 Member seeds, property/event expansion, the field bodyless outcome, portable
 JSON identity, projection, row windows, stream formats, and finite-scope
-disclosure. Browser original-host and Firefox suites gate the breadth and
-discovery controls, subject narrowing, stale-result exclusion, master/detail
-navigation, and retirement of the Package-specific selector. The design
-remains unverified until those focused Browser adoptions land.
+disclosure. `clone-candidate-inspection.test.ts` and
+`clone-candidate-view.test.ts` gate the browser defaults, request binding,
+prior-subject replacement, stale-result exclusion, global master/detail
+rendering, empty-ranking coverage evidence, all closed outcomes, and exact
+endpoint action coordinates. `engine-worker-analysis.test.ts` gates bounded
+worker transport, compatibility between browser production bounds and the
+transport envelope, all four result outcomes, cancellation publication
+suppression, and disposal. Release `BrowserCloneCandidateTransportTests` and
+`CallGraphMemberResolverTests` gate full assembly-identity plus MVID and
+MethodDef endpoint resolution, MVID-drift rejection, and projection into the
+existing browser Member surface. The original-host Firefox
+`Library Clone preserves all target combinations when analysis is
+unavailable` scenario gates all six control combinations and visible Worker
+unavailability; `library-hierarchy.spec.ts` also gates retirement of the
+Package-specific selector.
 
 ## Non-claims
 

@@ -42,6 +42,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "MetadataExports");
+        value = $ownDataProperty(value, "QueryGraphMemberSurfaceByMethodAddress.642387634");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027MetadataExports.QueryGraphMemberSurfaceByMethodAddress.642387634\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "MetadataExports");
         value = $ownDataProperty(value, "QueryPackageHeapEntries.649160465");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027MetadataExports.QueryPackageHeapEntries.649160465\u0027 is not callable.");
@@ -122,6 +130,11 @@ export function runEntryPoint(mainAssemblyName, args) {
 }
 export async function queryGraphMemberSurface(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken) {
     const $result = await $requireManagedExports()["MetadataExports"]["QueryGraphMemberSurface.1542089313"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryGraphMemberSurfaceByMethodAddress(packageId, version, targetFramework, assemblyName, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, moduleVersionId, metadataToken) {
+    const $result = await $requireManagedExports()["MetadataExports"]["QueryGraphMemberSurfaceByMethodAddress.642387634"](packageId, version, targetFramework, assemblyName, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, moduleVersionId, metadataToken);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

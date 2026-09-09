@@ -259,6 +259,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
             StructuralCloneSearchSeed seed,
             StructuralCloneCandidateBreadth breadth,
             StructuralCloneCandidateDiscovery discovery,
+            WorkspaceStructuralCloneSearchLimits? limits = null,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(containingLibrary);
@@ -320,7 +321,8 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
                 snapshot,
                 seed,
                 breadth,
-                discovery),
+                discovery,
+                limits),
             cancellationToken);
     }
 

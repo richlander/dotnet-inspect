@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using Analysis = ILInspector.Analysis;
 
 namespace InspectWeb.Engine;
@@ -107,6 +108,111 @@ internal static class BrowserMemberResolution
                 resolved.SurfaceParticipant,
                 resolved.ImplementationParticipant,
                 resolved.Member);
+        }
+        catch
+        {
+            await lease.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    internal static async Task<ScopedResolution> ImplementationMethodAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        AssemblyReferenceIdentity assemblyIdentity,
+        Guid moduleVersionId,
+        int metadataToken,
+        CancellationToken cancellationToken = default)
+    {
+        BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework,
+                cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            BrowserInspectionScope scope = lease.Scope;
+            BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+            BrowserWorkspaceParticipant[] exactParticipants =
+            [
+                .. scope.ImplementationParticipants.Where(participant =>
+                    ReferenceEquals(
+                        participant.Coordinate.Root.Identity,
+                        coordinate.Root.Identity)
+                    && participant.Assembly.Identity.IsEquivalentTo(
+                        assemblyIdentity)
+                    && participant.Assembly.Registration.ModuleVersionId
+                        == moduleVersionId),
+            ];
+            BrowserWorkspaceParticipant implementationParticipant =
+                exactParticipants.Length switch
+                {
+                    1 => exactParticipants[0],
+                    0 => throw new InvalidOperationException(
+                        $"Assembly '{assemblyIdentity.Name}' with MVID "
+                        + $"'{moduleVersionId:D}' is no longer available in "
+                        + "the selected package workspace."),
+                    _ => throw new InvalidOperationException(
+                        $"Assembly '{assemblyIdentity.Name}' with MVID "
+                        + $"'{moduleVersionId:D}' is ambiguous in the "
+                        + "selected package workspace."),
+                };
+            BrowserWorkspaceParticipant surfaceParticipant =
+                scope.TryGetSurfaceParticipant(implementationParticipant)
+                ?? implementationParticipant;
+            Analysis.CallGraphMemberResolution resolution =
+                scope.UseImplementationParticipant(
+                    implementationParticipant,
+                    (group, participant) =>
+                    {
+                        MetadataMethodAddress address =
+                            AssemblyContextMethodAddressQuery
+                                .ExecuteParticipant(
+                                    group,
+                                    participant,
+                                    metadataToken)
+                            switch
+                            {
+                                AssemblyContextEntry<MetadataMethodAddress>
+                                    .Available available =>
+                                        available.Value,
+                                AssemblyContextEntry<MetadataMethodAddress>
+                                    .Rejected rejected =>
+                                        throw new InvalidOperationException(
+                                            $"{rejected.Failure.Kind}: "
+                                            + rejected.Failure.Detail),
+                                AssemblyContextEntry<MetadataMethodAddress>
+                                    .Failed failed =>
+                                        throw failed.Error,
+                                _ => throw new InvalidOperationException(
+                                    "The method address query returned an "
+                                    + "unsupported outcome."),
+                            };
+                        if (address.ModuleVersionId != moduleVersionId)
+                        {
+                            throw new InvalidOperationException(
+                                "The Clone candidate module is no longer "
+                                + "available at its original identity.");
+                        }
+                        return Analysis.CallGraphMemberResolver
+                            .ResolveMethodDefinition(
+                                ImplementationSurface(
+                                    group,
+                                    participant),
+                                metadataToken)
+                            ?? throw new InvalidOperationException(
+                                $"MethodDef 0x{metadataToken:X8} is not "
+                                + "available in the selected implementation "
+                                + "surface.");
+                    });
+            return new ScopedResolution(
+                lease,
+                surfaceParticipant,
+                implementationParticipant,
+                resolution);
         }
         catch
         {

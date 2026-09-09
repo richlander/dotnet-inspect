@@ -8,6 +8,10 @@ import {
 import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
 import { registerEngineWorkerCpuOperation } from "./engine-worker-cpu.ts";
 import {
+  registerEngineWorkerCloneCandidateOperation,
+  type EngineWorkerCloneCandidateFacade,
+} from "./engine-worker-analysis.ts";
+import {
   registerEngineWorkerTypeSourceOperation,
   type EngineWorkerTypeSourceFacade,
 } from "./engine-worker-source.ts";
@@ -37,6 +41,12 @@ registerEngineWorkerStartupOperations(operations, {
   },
 });
 let sourceFacade: EngineWorkerTypeSourceFacade | undefined;
+let analysisFacade: EngineWorkerCloneCandidateFacade | undefined;
+registerEngineWorkerCloneCandidateOperation(operations, () => {
+  if (analysisFacade === undefined)
+    throw new Error("Analysis facade is unavailable before Worker readiness.");
+  return analysisFacade;
+});
 registerEngineWorkerTypeSourceOperation(operations, () => {
   if (sourceFacade === undefined)
     throw new Error("Type Source facade is unavailable before Worker readiness.");
@@ -69,6 +79,7 @@ const bootstrap = createEngineWorkerBootstrap(
 );
 const bootstrapWorker = async (value: string): Promise<void> => {
   await bootstrap.bootstrap(value);
+  analysisFacade = await import("/inspect-web-analysis.js");
   sourceFacade = await import("/inspect-web-source.js");
 };
 const realm = new WorkerRuntimeRealm({

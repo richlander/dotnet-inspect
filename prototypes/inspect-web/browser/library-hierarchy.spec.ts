@@ -492,7 +492,6 @@ test("Package comparison targets survive Library, Type, and Member navigation", 
   await page.locator("#package-diff-target").focus();
   await page.locator("#package-diff-target").selectOption("exact:1.0.0");
   await expect(page.locator("#package-diff-target")).toBeFocused();
-  await page.locator("#package-clone-target").selectOption("package:0");
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();
   await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
   await page.locator("#type-list [data-type]").click();
@@ -500,10 +499,43 @@ test("Package comparison targets survive Library, Type, and Member navigation", 
   await expect(page.locator('[data-scope="member"]')).toHaveAttribute("aria-selected", "true");
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await expect(page.locator("#package-diff-target")).toHaveValue("exact:1.0.0");
-  await expect(page.locator("#package-clone-target")).toHaveValue("package:0");
+  await expect(page.locator("#package-clone-target")).toHaveCount(0);
   await page.locator("#package-diff-target").selectOption("previous");
   await expect(page.locator("#package-diff-target-status"))
     .toHaveText("Compare against 0.9.0 (previous version).");
+});
+
+test("Library Clone preserves all target combinations when analysis is unavailable", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.locator('[data-library-lens="clone"]').click();
+
+  await expect(page.locator(
+    '[data-clone-breadth][value="Everything"]')).toBeChecked();
+  await expect(page.locator(
+    '[data-clone-discovery][value="SimilarNames"]')).toBeChecked();
+  await expect(page.locator(".clone-candidate-failure"))
+    .toHaveText("Clone Candidates Worker is unavailable.");
+
+  for (const breadth of [
+    "Self",
+    "SelfAndRegisteredEcosystems",
+    "Everything",
+  ]) {
+    for (const discovery of ["SimilarNames", "All"]) {
+      await page.locator(
+        `[data-clone-breadth][value="${breadth}"]`).check();
+      await page.locator(
+        `[data-clone-discovery][value="${discovery}"]`).check();
+      await expect(page.locator(
+        `[data-clone-breadth][value="${breadth}"]`)).toBeChecked();
+      await expect(page.locator(
+        `[data-clone-discovery][value="${discovery}"]`)).toBeChecked();
+      await expect(page.locator(".clone-candidate-failure"))
+        .toHaveText("Clone Candidates Worker is unavailable.");
+    }
+  }
 });
 
 for (const initialWidth of [1440, 390]) {

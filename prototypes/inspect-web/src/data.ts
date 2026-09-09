@@ -18,6 +18,7 @@ export function assertNever(value: never, vocabulary: string): never {
 // runtime-pack filter. A direct export would be a way to skip it.
 const lenses = [
   ["api", "API"],
+  ["clone", "Clone"],
   ["metadata", "Metadata"],
   ["source", "Source"]
 ] as const;
@@ -42,6 +43,7 @@ export const libraryLenses = [
   ["integrations", "Integrations"],
   ["opportunities", "Opportunities"],
   ["analysis", "Analysis"],
+  ["clone", "Clone"],
   ["metadata", "Metadata"]
 ] as const;
 
@@ -66,6 +68,7 @@ export function isLibraryLens(
 export const memberSectionDefinitions = [
   ["overview", "Overview"],
   ["call-graph", "Call graph"],
+  ["clone", "Clone"],
   ["facts", "Facts"],
   ["source", "Source"],
   ["annotated", "Annotated source"],
@@ -1573,7 +1576,7 @@ const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["facts", "source", "annotated"]);
+  new Set<MemberSection>(["clone", "facts", "source", "annotated"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
@@ -1582,7 +1585,7 @@ export function memberSectionIdsFor(
 ): MemberSection[] {
   if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
     && !hasSelectedBody) {
-    return ["overview"];
+    return isRuntimePack ? ["overview"] : ["overview", "clone"];
   }
   const sections = isRuntimePack
     ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))

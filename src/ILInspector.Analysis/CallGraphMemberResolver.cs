@@ -189,6 +189,24 @@ public static class CallGraphMemberResolver
     }
 
     /// <summary>
+    /// Resolves the logical member projection that owns one exact MethodDef in
+    /// a single-assembly API surface.
+    /// </summary>
+    public static CallGraphMemberResolution? ResolveMethodDefinition(
+        ApiSurface surface,
+        int metadataToken)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        var matches = surface.Types
+            .SelectMany(type => type.Members.SelectMany(
+                member => CandidateBodies(type, member)))
+            .Where(candidate =>
+                candidate.Resolution.BodyToken == metadataToken)
+            .ToArray();
+        return UniqueBody(matches);
+    }
+
+    /// <summary>
     /// Resolves an exact method or accessor. A MethodDef token wins within the already
     /// selected type; structural fallback succeeds only for one unique body. An
     /// explicit-interface accessor may appear as both a method row and a property

@@ -399,7 +399,7 @@ test("paired regions carry side labels that survive stacking", () => {
   const responsive = styles.slice(styles.lastIndexOf("@media (max-width: 820px)"));
   assert.match(
     responsive,
-    /\.method-body-pair,\s*\.method-body-endpoints,\s*\.method-body-row-values \{ grid-template-columns: 1fr; \}/);
+    /\.method-body-pair,\s*\.method-body-endpoints,\s*\.method-body-row-values,\s*\.clone-candidate-workbench,\s*\.clone-candidate-endpoints \{ grid-template-columns: 1fr; \}/);
 });
 
 test("the app hosts the action, dialog and its release points", () => {

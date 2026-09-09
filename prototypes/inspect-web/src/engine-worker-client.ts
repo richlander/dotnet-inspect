@@ -18,6 +18,13 @@ import {
   createEngineWorkerTypeSourceHostRegistration,
 } from "./engine-worker-source.ts";
 import {
+  createEngineWorkerCloneCandidateHostRegistration,
+  type EngineWorkerCloneCandidateAdapter,
+} from "./engine-worker-analysis.ts";
+import type {
+  BrowserCloneCandidateResult,
+} from "./facades/inspect-web-analysis.d.ts";
+import {
   bindEngineWorkerCpuProbe,
 } from "./engine-worker-cpu.ts";
 import type {
@@ -58,6 +65,14 @@ export function registerEngineWorkerTypeSourceAdapter(
   );
 }
 
+export function registerEngineWorkerCloneCandidateAdapter(
+  host: EngineWorkerHost,
+): EngineWorkerCloneCandidateAdapter {
+  return host.registerOperation(
+    createEngineWorkerCloneCandidateHostRegistration(),
+  );
+}
+
 function createHost(options: EngineWorkerProbeOptions) {
   return createBrowserWorkerRuntimeHost(createEngineWorker, {
     ...engineWorkerPolicy,
@@ -87,6 +102,8 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
     boundaryErrors: engineWorkerBoundaryErrors,
   });
   const typeSourceAdapter = registerEngineWorkerTypeSourceAdapter(host);
+  const cloneCandidateAdapter =
+    registerEngineWorkerCloneCandidateAdapter(host);
   const page = createOperationAuthorityPage();
   const cpu = bindEngineWorkerCpuProbe(host, page, options.operationDiagnostic);
   const session = page.createSession<
@@ -105,16 +122,93 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
     feature: { publish: () => undefined },
     diagnostic: { report: options.operationDiagnostic },
   });
+  const cloneCandidateSession = page.createSession<
+    string,
+    BrowserCloneCandidateResult,
+    string,
+    never,
+    WorkerRuntimePreparationError
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: options.operationDiagnostic },
+  });
   return {
     host,
     probe: () => session.start("", adapter),
     cpuProbe: () => cpu.start(),
     typeSource: (request: TypeSourceLoadRequest) =>
       typeSourceSession.start(request, typeSourceAdapter),
+    cloneCandidates: (requestJson: string) =>
+      cloneCandidateSession.start(requestJson, cloneCandidateAdapter),
     dispose: () => {
       session.dispose();
       typeSourceSession.dispose();
+      cloneCandidateSession.dispose();
       cpu.dispose();
+      host.dispose();
+    },
+  };
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise(resolve => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+export function createEngineWorkerCloneCandidateClient(
+  origin: string,
+  options: EngineWorkerProbeOptions,
+) {
+  const host = createHost(options);
+  const adapter = registerEngineWorkerCloneCandidateAdapter(host);
+  const page = createOperationAuthorityPage();
+  const session = page.createSession<
+    string,
+    BrowserCloneCandidateResult,
+    string,
+    never,
+    WorkerRuntimePreparationError
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: options.operationDiagnostic },
+  });
+  const started = host.start(origin);
+  if (started.kind === "rejected") {
+    session.dispose();
+    host.dispose();
+    throw new Error(`Worker could not start: ${started.reason}.`, {
+      cause: started.detail,
+    });
+  }
+  const ready = async (): Promise<void> => {
+    const deadline = performance.now()
+      + (options.startupBudgetMilliseconds
+        ?? engineWorkerPolicy.startupBudgetMilliseconds);
+    while (host.snapshot().phase === "starting") {
+      if (performance.now() >= deadline)
+        throw new Error("Clone Candidates Worker startup timed out.");
+      await delay(10);
+    }
+    if (host.snapshot().phase !== "ready")
+      throw new Error("Clone Candidates Worker is unavailable.");
+  };
+  return {
+    async query(requestJson: string): Promise<BrowserCloneCandidateResult> {
+      await ready();
+      const operation = session.start(requestJson, adapter);
+      if (operation.kind === "rejected") {
+        throw new Error(
+          `Clone Candidates Worker rejected the operation: ${operation.reason.kind}.`,
+        );
+      }
+      const outcome = await operation.handle.outcome;
+      if (outcome.kind === "succeeded") return outcome.value;
+      if (outcome.kind === "failed") throw new Error(outcome.error);
+      throw new Error(`Clone Candidates operation was ${outcome.reason}.`);
+    },
+    dispose() {
+      session.dispose();
       host.dispose();
     },
   };

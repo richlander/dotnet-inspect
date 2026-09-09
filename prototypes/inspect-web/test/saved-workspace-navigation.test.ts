@@ -627,7 +627,7 @@ for (const failure of ["decode", "decoder-throw", "empty", "acquisition", "view"
 }
 
 for (const failure of ["acquisition", "selection"] as const) {
-  test(`failed ${failure} Open restores comparison choices and their Package associations`, async () => {
+  test(`failed ${failure} Open restores the Diff comparison choice`, async () => {
     const h = harness();
     const other = { ...sourcePackage, id: "Comparison.Target" };
     h.state.packages.push(other);
@@ -635,8 +635,6 @@ for (const failure of ["acquisition", "selection"] as const) {
     const inventory = h.catalogRequests.packageVersions(sourcePackage);
     h.packageComparisonTargets.selectDiff(
       sourcePackage, { kind: "exact", version: sourcePackage.version }, inventory);
-    h.packageComparisonTargets.selectClone(
-      sourcePackage, { kind: "package", package: other });
     if (failure === "acquisition")
       h.controls.acquisition = async id => id !== "Beta";
     else
@@ -646,18 +644,12 @@ for (const failure of ["acquisition", "selection"] as const) {
     await h.settle();
 
     const restored = h.state.packages.find(pkg => pkg.id === sourcePackage.id);
-    const restoredTarget = h.state.packages.find(pkg => pkg.id === other.id);
     assert.ok(restored);
-    assert.ok(restoredTarget);
     assert.notEqual(restored, sourcePackage);
-    assert.notEqual(restoredTarget, other);
     assert.equal(h.state.package, restored);
     assert.deepEqual(h.packageComparisonTargets.get(restored).diff, {
       kind: "exact", version: sourcePackage.version,
     });
-    const clone = h.packageComparisonTargets.get(restored).clone;
-    assert.equal(clone.kind, "package");
-    if (clone.kind === "package") assert.equal(clone.package, restoredTarget);
     assert.deepEqual(h.catalogRequests.packageVersions(restored), inventory);
     assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
   });
@@ -674,7 +666,7 @@ test("successful saved Open retires comparison settings with the discarded Packa
 
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" },
+    diff: { kind: "previous" },
   });
   assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
   assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });

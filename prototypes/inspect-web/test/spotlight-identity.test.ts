@@ -630,10 +630,10 @@ test("platform type and member navigation hides package-only operations", () => 
     ["overview", "call-graph"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
-    ["overview", "call-graph", "facts", "source", "annotated"]);
+    ["overview", "call-graph", "clone", "facts", "source", "annotated"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "annotated"]);
+    ["overview", "call-graph", "clone", "facts", "annotated"]);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
@@ -1734,7 +1734,13 @@ test("typed scope bar owns its rendered control bindings", () => {
     [
       'assign:contentFramePane = "detail"',
       "assign:state.libraryLens = lens",
-      "call:render()",
+      {
+        if: 'lens === "clone"',
+        whenTrue: [
+          'call:observeAsync(loadCloneCandidateInspection(), "Searching Library Clone Candidates")',
+        ],
+        whenFalse: ["call:render()"],
+      },
     ]);
 
   const scope = callbackProperty(actions, "onScopeSelect");
@@ -1816,7 +1822,13 @@ test("typed scope bar owns its rendered control bindings", () => {
       "assign:state.lens = lens",
       'assign:state.selectedMemberKey = ""',
       'assign:state.memberBrowseTypeId = ""',
-      "call:render()",
+      {
+        if: 'lens === "clone"',
+        whenTrue: [
+          'call:observeAsync(loadCloneCandidateInspection(), "Searching Type Clone Candidates")',
+        ],
+        whenFalse: ["call:render()"],
+      },
     ]);
   assert.match(
     scopeBarSource,
@@ -4249,11 +4261,11 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   for (const kind of ["property", "field", "event", "constant"]) {
     assert.deepEqual(
       memberSectionIdsFor({ kind }),
-      ["overview"]);
+      ["overview", "clone"]);
   }
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
-    ["overview", "call-graph", "facts", "source", "annotated"]);
+    ["overview", "call-graph", "clone", "facts", "source", "annotated"]);
 });
 
 // Arrowing between members keeps the active section (e.g. Source) sticky, the same way
@@ -4913,7 +4925,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "annotated"]);
+    ["overview", "call-graph", "clone", "facts", "annotated"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -5420,7 +5432,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "opportunities"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "opportunities"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "clone"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);

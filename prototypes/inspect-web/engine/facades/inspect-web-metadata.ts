@@ -291,6 +291,7 @@ export interface BrowserTypeSurface {
 type $ManagedExports = {
   readonly "MetadataExports": {
     readonly "QueryGraphMemberSurface.1542089313": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
+    readonly "QueryGraphMemberSurfaceByMethodAddress.642387634": (packageId: string, version: string, targetFramework: string, assemblyName: string, assemblyVersion: string, assemblyCulture: string, assemblyPublicKeyToken: string, moduleVersionId: string, metadataToken: number) => Promise<string>;
     readonly "QueryPackageHeapEntries.649160465": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, heap: string) => Promise<string>;
     readonly "QueryPackageMetadata.1579276339": (packageId: string, version: string, targetFramework: string, assemblyFileName: string) => Promise<string>;
     readonly "QueryPackageMetadataTable.1945598111": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
@@ -349,6 +350,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryGraphMemberSurface.1542089313");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027MetadataExports.QueryGraphMemberSurface.1542089313\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "QueryGraphMemberSurfaceByMethodAddress.642387634");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027MetadataExports.QueryGraphMemberSurfaceByMethodAddress.642387634\u0027 is not callable.");
     }
   }
   {
@@ -446,6 +455,12 @@ export function runEntryPoint(
 
 export async function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserGraphMemberSurface> {
   const $result = await $requireManagedExports()["MetadataExports"]["QueryGraphMemberSurface.1542089313"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserGraphMemberSurface;
+}
+
+export async function queryGraphMemberSurfaceByMethodAddress(packageId: string, version: string, targetFramework: string, assemblyName: string, assemblyVersion: string, assemblyCulture: string, assemblyPublicKeyToken: string, moduleVersionId: string, metadataToken: number): Promise<BrowserGraphMemberSurface> {
+  const $result = await $requireManagedExports()["MetadataExports"]["QueryGraphMemberSurfaceByMethodAddress.642387634"](packageId, version, targetFramework, assemblyName, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, moduleVersionId, metadataToken);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserGraphMemberSurface;
 }

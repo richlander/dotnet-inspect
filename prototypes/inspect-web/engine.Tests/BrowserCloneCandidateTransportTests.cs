@@ -58,6 +58,8 @@ public sealed class BrowserCloneCandidateTransportTests
         Assert.Equal(
             BrowserCloneCandidateDiscovery.SimilarNames,
             broadDocument.Discovery);
+        Assert.Equal(1_000, broadDocument.Limits.MaximumSeedMethods);
+        Assert.Equal(256, broadDocument.Limits.MaximumParticipants);
         Assert.Equal(0.6, broadDocument.NameSimilarityThreshold);
         Assert.Equal(2, broadDocument.Libraries.Length);
         Assert.Equal(2, broadDocument.Receipt.AdmittedLibraries);
@@ -85,6 +87,41 @@ public sealed class BrowserCloneCandidateTransportTests
         Assert.Equal(
             broadDocument.Receipt.ResultLimitReached,
             broadDocument.ResultLimitReached);
+
+        BrowserCloneCandidateMethod endpoint =
+            Assert.Single(broadDocument.Rows.Take(1)).Right;
+        BrowserCloneCandidateProvenance provenance =
+            endpoint.Participant.Provenance;
+        string endpointJson =
+            await MetadataExports.QueryGraphMemberSurfaceByMethodAddress(
+                provenance.PackageId!,
+                provenance.PackageVersion!,
+                provenance.Tfm!,
+                endpoint.Participant.Assembly.Name,
+                endpoint.Participant.Assembly.Version ?? "",
+                endpoint.Participant.Assembly.Culture ?? "",
+                endpoint.Participant.Assembly.PublicKeyToken ?? "",
+                endpoint.ModuleVersionId,
+                endpoint.MethodDefinitionToken);
+        BrowserGraphMemberSurface endpointSurface =
+            JsonSerializer.Deserialize(
+                endpointJson,
+                BrowserMetadataJsonContext.Default
+                    .BrowserGraphMemberSurface)!;
+        Assert.Equal(
+            endpoint.MethodDefinitionToken,
+            endpointSurface.SelectedBody.Token);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            MetadataExports.QueryGraphMemberSurfaceByMethodAddress(
+                provenance.PackageId!,
+                provenance.PackageVersion!,
+                provenance.Tfm!,
+                endpoint.Participant.Assembly.Name,
+                endpoint.Participant.Assembly.Version ?? "",
+                endpoint.Participant.Assembly.Culture ?? "",
+                endpoint.Participant.Assembly.PublicKeyToken ?? "",
+                Guid.NewGuid().ToString("D"),
+                endpoint.MethodDefinitionToken));
 
         BrowserCloneCandidateResult repeated =
             await fixture.Query(
