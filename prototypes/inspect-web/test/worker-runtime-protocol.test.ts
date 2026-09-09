@@ -7,6 +7,8 @@ import type {
 } from "../src/operation-authority.ts";
 import {
   decodeBoundMainToWorkerEnvelope,
+  decodeControlAcknowledgedPayload,
+  decodeControlPayload,
   decodeEpochFailedPayload,
   decodeEventsPayload,
   decodeInitializePayload,
@@ -185,6 +187,16 @@ const mainToWorkerFixtures: readonly {
     },
   },
   {
+    name: "Control",
+    envelope: {
+      ...header,
+      kind: "control",
+      operation,
+      controlSequence: 3,
+      payload: "credit",
+    },
+  },
+  {
     name: "Probe",
     envelope: {
       ...header,
@@ -197,6 +209,42 @@ const mainToWorkerFixtures: readonly {
 function eventBatch(entries: unknown): unknown {
   return { ...header, kind: "events", operation, entries };
 }
+
+test("control acknowledgment shape follows its status", () => {
+  const acknowledged = requireKind(decoded(decodeWorker({
+    ...header,
+    kind: "control-acknowledged",
+    operation,
+    controlSequence: 1,
+    status: "acknowledged",
+    payload: "granted",
+  })), "control-acknowledged");
+  assert.deepEqual(
+    decoded(
+      decodeControlAcknowledgedPayload(
+        acknowledged,
+        boundedStringDecoder(),
+      ),
+    ),
+    acknowledged,
+  );
+
+  assertDecodeFailure(decodeWorker({
+    ...header,
+    kind: "control-acknowledged",
+    operation,
+    controlSequence: 1,
+    status: "acknowledged",
+  }), "missing-property", "$.payload");
+  assertDecodeFailure(decodeWorker({
+    ...header,
+    kind: "control-acknowledged",
+    operation,
+    controlSequence: 1,
+    status: "not-active",
+    payload: "unexpected",
+  }), "unexpected-property", "$.payload");
+});
 
 test("event batches keep the complete nonterminal order and separate payload codecs", () => {
   const envelope = requireKind(decoded(decodeWorker(eventBatch([
@@ -389,6 +437,27 @@ const workerToMainFixtures: readonly {
       ...header,
       kind: "cancel-acknowledged",
       operation,
+      status: "not-active",
+    },
+  },
+  {
+    name: "ControlAcknowledged",
+    envelope: {
+      ...header,
+      kind: "control-acknowledged",
+      operation,
+      controlSequence: 3,
+      status: "acknowledged",
+      payload: "granted",
+    },
+  },
+  {
+    name: "ControlNotActive",
+    envelope: {
+      ...header,
+      kind: "control-acknowledged",
+      operation,
+      controlSequence: 4,
       status: "not-active",
     },
   },
@@ -632,6 +701,58 @@ test("operation-specific codecs are selected after raw lookup", () => {
   assert.equal(sourceTyped.payload, "System.Text.Json");
   assert.equal(countTyped.payload, 42);
 
+  const sourceControl = requireKind(decoded(decodeBoundMain({
+    ...header,
+    kind: "control",
+    operation: sourceOperation,
+    controlSequence: 1,
+    payload: "credit",
+  })), "control");
+  const countControl = requireKind(decoded(decodeBoundMain({
+    ...header,
+    kind: "control",
+    operation: countOperation,
+    controlSequence: 1,
+    payload: 42,
+  })), "control");
+  assert.equal(
+    decoded(decodeControlPayload(sourceControl, sourceDecoder)).payload,
+    "credit",
+  );
+  assert.equal(
+    decoded(decodeControlPayload(countControl, countDecoder)).payload,
+    42,
+  );
+
+  const sourceAcknowledged = requireKind(decoded(decodeWorker({
+    ...header,
+    kind: "control-acknowledged",
+    operation: sourceOperation,
+    controlSequence: 1,
+    status: "acknowledged",
+    payload: "granted",
+  })), "control-acknowledged");
+  const countAcknowledged = requireKind(decoded(decodeWorker({
+    ...header,
+    kind: "control-acknowledged",
+    operation: countOperation,
+    controlSequence: 1,
+    status: "acknowledged",
+    payload: 7,
+  })), "control-acknowledged");
+  assert.equal(
+    decoded(
+      decodeControlAcknowledgedPayload(sourceAcknowledged, sourceDecoder),
+    ).status,
+    "acknowledged",
+  );
+  assert.equal(
+    decoded(
+      decodeControlAcknowledgedPayload(countAcknowledged, countDecoder),
+    ).status,
+    "acknowledged",
+  );
+
   const sourceProgress = requireKind(decoded(decodeWorker({
     ...header,
     kind: "progress",
@@ -644,7 +765,14 @@ test("operation-specific codecs are selected after raw lookup", () => {
     operation: countOperation,
     payload: 17,
   })), "progress");
-  assert.deepEqual(events, ["source", "count"]);
+  assert.deepEqual(events, [
+    "source",
+    "count",
+    "source",
+    "count",
+    "source",
+    "count",
+  ]);
 
   const activeProgressDecoders =
     new Map<string, BoundedPayloadDecoder<unknown>>([
@@ -675,7 +803,16 @@ test("operation-specific codecs are selected after raw lookup", () => {
   );
   assert.equal(decodedSourceProgress.payload, "reading PDB");
   assert.equal(decodedCountProgress.payload, 17);
-  assert.deepEqual(events, ["source", "count", "source", "count"]);
+  assert.deepEqual(events, [
+    "source",
+    "count",
+    "source",
+    "count",
+    "source",
+    "count",
+    "source",
+    "count",
+  ]);
 });
 
 test("payload codecs are not invoked for malformed structural envelopes", () => {
@@ -960,6 +1097,26 @@ test("validates every sequence and millisecond field as a positive safe integer"
         probeSequence: 0,
       }),
       path: "$.probeSequence",
+    },
+    {
+      decode: () => decodeBoundMain({
+        ...header,
+        kind: "control",
+        operation,
+        controlSequence: 0,
+        payload: "credit",
+      }),
+      path: "$.controlSequence",
+    },
+    {
+      decode: () => decodeWorker({
+        ...header,
+        kind: "control-acknowledged",
+        operation,
+        controlSequence: 0,
+        status: "not-active",
+      }),
+      path: "$.controlSequence",
     },
     {
       decode: () => decodeUnboundInitializationEnvelope({

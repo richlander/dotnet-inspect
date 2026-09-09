@@ -63,13 +63,18 @@ development model and rationale. The binding summary:
 - **Use extraordinary pre-work for complicated features.** Corpus evidence,
   an established oracle, a TLA+ model, or a closely developed specification
   should bound the contract before implementation.
+- **Use only approved OpenAI GPT configurations.** In agent harnesses that
+  advertise GPT models, all other models, every `Fast` model or mode, and
+  extra-high (`xhigh`) reasoning are prohibited. Default to GPT-5.6 Sol for both
+  coding and review. Use GPT-6 Astra for complex reviews, or GPT-5.6 Terra or
+  Luna for relatively simple changes that still require review.
 - **Hot-start requested work through PR and review.** Agents may branch,
   commit, push, open the PR, and dispatch eligible rounds without separate
   approval; merge remains separately authorized.
 - **Use the Markdown fast path.** For Markdown-only PRs at non-boundary rounds,
   `markdownlint` replaces `ci-required` as the pre-review and per-round gate.
 - **Use bounded adversarial review to find design and implementation gaps.**
-  Every non-trivial change gets one seat, GPT-6 Astra; repeated findings are
+  Every non-trivial change gets one GPT reviewer; repeated findings are
   evidence to revisit design, and six rounds ends the current review block.
 - **Keep security work inside the repository threat model.** Focus on
   untrusted internet-origin data and construction-time containment, not local
@@ -333,13 +338,13 @@ threshold, placement convention, and existing consumers.
 | Area | Command |
 | --- | --- |
 | CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
-| Artifact contracts | `dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release` |
+| Artifact contracts | `dotnet run --project tests/Inspector.Artifacts.Tests -c Release` |
 | Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
 | Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
 | Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |
-| Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
+| Decompiler | `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
-| Additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
+| Research and additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
 | Inspection queries | `dotnet run --project tests/DotnetInspector.Queries.Tests -c Release` |
 | Shared services | `dotnet run --project tests/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
@@ -491,15 +496,12 @@ as a normal round), and **merge conflict requiring semantic resolution**
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-6 Astra**, one seat. |
+| Everything else | **GPT-5.6 Sol** by default, one seat. |
 
-When uncertain, use the standard round. Substitution when GPT-6 Astra is
-unavailable lives in
-[Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch IDs live
-in [Agent model mapping](docs/agent-models.md). A MAI-Code
-quick read on unsettled work is neither tier: it gets no isolated worktree or
-fixed head and satisfies no review tier — label its findings as early
-feedback, since the settled PR still requires its full round.
+Use GPT-6 Astra for complex changes. GPT-5.6 Terra or Luna may review relatively
+simple changes that still require review. Full selection and substitution rules
+live in [Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch
+IDs live in [Agent model mapping](docs/agent-models.md).
 
 ### Running the round
 

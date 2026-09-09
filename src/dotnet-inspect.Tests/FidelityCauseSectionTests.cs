@@ -1,7 +1,7 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
 using ILInspector.Decompiler;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace DotnetInspector.Tests;
 

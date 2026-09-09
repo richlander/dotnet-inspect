@@ -288,9 +288,9 @@ commit refs for resolved findings}.
 ## Validation
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -method "*{FocusedTest}*"
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -class "*{FocusedTestClass}*"
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -method "*{FocusedTest}*"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -class "*{FocusedTestClass}*"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 dotnet build src/dotnet-inspect -c Release --nologo --verbosity quiet
 dotnet build tools/DecompilerHarness -c Release --nologo --verbosity quiet
 

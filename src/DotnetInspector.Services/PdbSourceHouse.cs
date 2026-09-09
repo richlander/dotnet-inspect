@@ -4,10 +4,10 @@ using System.Security.Cryptography;
 using System.Text;
 
 using CSharpText;
-using DotnetInspector.CSharpBodySlicer;
-using ILInspector.Findings;
+using CSharpText.MemberSlicing;
+using Inspector.Findings;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace DotnetInspector.Services;
 
@@ -260,8 +260,6 @@ public static class PdbSourceHouse
                 {
                     SourceFetchFailureKind.RequestNotAuthorized =>
                         "The host does not authorize this SourceLink destination.",
-                    SourceFetchFailureKind.AttributedOriginUnverified =>
-                        "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.ValidationFailed =>
                         "Fetched PDB source does not match the portable-PDB checksum.",
                     SourceFetchFailureKind.StorageFailed =>
@@ -465,8 +463,6 @@ public static class PdbSourceHouse
                 {
                     SourceFetchFailureKind.RequestNotAuthorized =>
                         "The host does not authorize this SourceLink destination.",
-                    SourceFetchFailureKind.AttributedOriginUnverified =>
-                        "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.StorageFailed =>
                         "The source-content store failed.",
                     _ => "Could not fetch PDB source.",
@@ -557,8 +553,6 @@ public static class PdbSourceHouse
                 {
                     SourceFetchFailureKind.RequestNotAuthorized =>
                         "The host does not authorize this SourceLink destination.",
-                    SourceFetchFailureKind.AttributedOriginUnverified =>
-                        "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.ValidationFailed =>
                         "Fetched source does not match the portable-PDB checksum.",
                     SourceFetchFailureKind.StorageFailed =>
@@ -670,7 +664,7 @@ public static class PdbSourceHouse
         try
         {
             string sourceText = DecodeSourceText(content);
-            string? memberText = BodySlicer.ExtractMethodBody(
+            string? memberText = MemberTextSlicer.ExtractMemberText(
                 sourceText,
                 mapping.StartLine,
                 mapping.EndLine,
@@ -711,7 +705,7 @@ public static class PdbSourceHouse
                 document,
                 verification);
         }
-        catch (InvalidSequencePointCoordinatesException ex)
+        catch (InvalidMemberTextCoordinatesException ex)
         {
             return Failed(
                 subject,

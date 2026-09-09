@@ -135,6 +135,7 @@ public static class ApiMemberSectionDescriptors
             .Add<SourceFiles>()
             .Add<DecompiledSource>()
             .Add<PdbSource>()
+            .Add<CloneCandidates>()
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>()
             .Add<ILBody>()
             .Add<Facts>()
@@ -343,6 +344,16 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
+    }
+
+    public sealed class CloneCandidates : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.CloneCandidates;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(ApiType model) => true;
     }
 
     public sealed class ExceptionRegions : ISectionDescriptor<ApiType>
@@ -634,6 +645,8 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
             .Add<ApiMemberDetailSectionDescriptors.BodyShapes>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.BodyShapeSummary>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.CloneCandidates>(
+                model => model.Members.Count == 1)
             .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleBodyBackedMember)
@@ -712,6 +725,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<UnsafeOperations>()
             .Add<BodyShapes>()
             .Add<BodyShapeSummary>()
+            .Add<ApiMemberSectionDescriptors.CloneCandidates>()
             .Add<ApiMemberSectionDescriptors.TopLeverage>()
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
             .Add<Facts>()

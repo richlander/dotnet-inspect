@@ -67,13 +67,13 @@ public sealed class LayeringTests
             path => Path.GetFileNameWithoutExtension(path) == "ILInspector.Metadata");
         Assert.Contains(
             closure,
-            path => Path.GetFileNameWithoutExtension(path) == "DotnetInspector.Artifacts");
+            path => Path.GetFileNameWithoutExtension(path) == "Inspector.Artifacts");
         Assert.Contains(
             closure,
-            path => Path.GetFileNameWithoutExtension(path) == "DotnetInspector.Artifacts.Local");
+            path => Path.GetFileNameWithoutExtension(path) == "Inspector.Artifacts.Local");
         Assert.Contains(
             closure,
-            path => Path.GetFileNameWithoutExtension(path) == "DotnetInspector.Artifacts.Workspaces");
+            path => Path.GetFileNameWithoutExtension(path) == "Inspector.Artifacts.Workspaces");
         Assert.Contains(
             closure,
             path => Path.GetFileNameWithoutExtension(path) == "CSharpText");
@@ -104,7 +104,7 @@ public sealed class LayeringTests
             path => Path.GetFileNameWithoutExtension(path) == "ILInspector.MetadataPrimitives");
         Assert.Contains(
             closure,
-            path => Path.GetFileNameWithoutExtension(path) == "DotnetInspector.Artifacts");
+            path => Path.GetFileNameWithoutExtension(path) == "Inspector.Artifacts");
         AssertNoForbiddenImplementations(root, closure, PackageOrStorageImplementationProjects);
     }
 
@@ -115,8 +115,8 @@ public sealed class LayeringTests
         string project = Path.Combine(
             root,
             "src",
-            "DotnetInspector.Artifacts",
-            "DotnetInspector.Artifacts.csproj");
+            "Inspector.Artifacts",
+            "Inspector.Artifacts.csproj");
         Assert.True(
             File.Exists(project),
             $"Artifact contracts project not found: {project}");
@@ -142,8 +142,8 @@ public sealed class LayeringTests
         string project = Path.Combine(
             root,
             "src",
-            "DotnetInspector.Artifacts.Workspaces",
-            "DotnetInspector.Artifacts.Workspaces.csproj");
+            "Inspector.Artifacts.Workspaces",
+            "Inspector.Artifacts.Workspaces.csproj");
         HashSet<string> closure =
             CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
 
@@ -153,8 +153,8 @@ public sealed class LayeringTests
                 Path.Combine(
                     root,
                     "src",
-                    "DotnetInspector.Artifacts",
-                    "DotnetInspector.Artifacts.csproj"),
+                    "Inspector.Artifacts",
+                    "Inspector.Artifacts.csproj"),
             ],
             closure.Order(StringComparer.Ordinal));
         AssertNoForbiddenImplementations(
@@ -177,8 +177,8 @@ public sealed class LayeringTests
         string project = Path.Combine(
             root,
             "src",
-            "DotnetInspector.Artifacts.Local",
-            "DotnetInspector.Artifacts.Local.csproj");
+            "Inspector.Artifacts.Local",
+            "Inspector.Artifacts.Local.csproj");
         HashSet<string> closure =
             CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
 
@@ -188,8 +188,8 @@ public sealed class LayeringTests
                 Path.Combine(
                     root,
                     "src",
-                    "DotnetInspector.Artifacts",
-                    "DotnetInspector.Artifacts.csproj"),
+                    "Inspector.Artifacts",
+                    "Inspector.Artifacts.csproj"),
             ],
             closure.Order(StringComparer.Ordinal));
         AssertNoForbiddenImplementations(
@@ -253,7 +253,7 @@ public sealed class LayeringTests
             .ToArray();
 
         Assert.Contains("ILInspector.MetadataPrimitives", closure);
-        Assert.DoesNotContain("ILInspector.Text", closure);
+        Assert.DoesNotContain("Inspector.Text", closure);
     }
 
     [Fact]
@@ -504,7 +504,7 @@ public sealed class LayeringTests
         string probeDirectory = Path.Combine(
             root,
             "tests",
-            "DotnetInspector.Artifacts.Local.PlatformProbe");
+            "Inspector.Artifacts.Local.PlatformProbe");
         string probe = File.ReadAllText(
             Path.Combine(probeDirectory, "Program.cs"));
         string nativeProject = File.ReadAllText(
@@ -930,8 +930,8 @@ public sealed class LayeringTests
             .ToArray();
 
         Assert.DoesNotContain("ILInspector.ILDiff", closure);
-        Assert.DoesNotContain("ILInspector.Findings", closure);
-        Assert.DoesNotContain("ILInspector.Text", closure);
+        Assert.DoesNotContain("Inspector.Findings", closure);
+        Assert.DoesNotContain("Inspector.Text", closure);
     }
 
     [Fact]

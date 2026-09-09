@@ -5,7 +5,7 @@ using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -306,7 +306,7 @@ public class MemberSourceDiffPresentationTests
         string before,
         string after)
         => MemberSourceDiffStatistics.Create(
-            ILInspector.Text.TextFindings.CreateAnalysisDiff(
+            Inspector.Text.TextFindings.CreateAnalysisDiff(
                 before,
                 after,
                 new FindingSubject(

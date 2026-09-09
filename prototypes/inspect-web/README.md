@@ -1063,6 +1063,12 @@ compares all 21 artifacts and rejects extra or missing files. The SDK
 declaration is a compile-time input copied only into a temporary workspace and
 is never published.
 
+The package facade's assembly-reference result adopts a native C# union through
+this generated handoff. The Library References view consumes an available list
+or failure message rather than parallel list/error fields, while its request
+lifecycle stays separate. The focused contract and outcome gates live in
+[Package reference result](../../docs/design/inspect-web-package-reference-result.md).
+
 PR CI uses `--fast-check` for ordinary browser changes. It keeps the complete
 artifact inventory and per-root generation comparison while deferring the
 second, product-versioned regeneration to the daily Deep Inspect `inspect-web`
@@ -1109,15 +1115,23 @@ cleanup stops admission, drains retained work, and unregisters only after
 drainage; hard Worker termination remains a separate release boundary.
 Feature brokers still need to opt into this source as part of their migration.
 
-Worker protocol version 2 additionally carries nonempty batches of at most 64
-progress or durable events. Each operation registers its own bounded payload
-decoders; the whole batch is validated before any entry reaches operation
-authority. Batches are posted immediately and preserve order before managed
-settlement, while authority still decides whether each entry can update the
-current view. The Worker does not buffer partial batches or implement feature
-credit policy. `npm run inspect-web-worker-protocol` covers this transport.
-Package Query's production adapter and the single-runtime cutover remain
-separate adoption work under #5987 and #5420.
+Worker protocol version 3 retains version 2's nonempty batches of at most 64
+progress or durable events and adds operation-addressed typed feature control.
+Each operation registers its own bounded payload decoders; a whole event batch
+is validated before any entry reaches operation authority. Batches are posted
+immediately and preserve order before managed settlement, while authority
+still decides whether each entry can update the current view.
+
+A control-capable adapter permits one outstanding request for its own retained
+operation. The Worker returns the feature handler's explicit acknowledgment or
+`not-active`; concurrent requests fail visibly as busy rather than entering a
+queue. Cancellation, settlement, and `not-active` close later control
+admission, while a request already posted remains a response obligation and
+may be acknowledged after settlement. The protocol owns that transport and
+correlation, not feature credit policy. `npm run inspect-web-worker-protocol`
+covers the event and control transport. Package Query's production adapter and
+the single-runtime cutover remain separate adoption work under issues #5987
+and #5420.
 
 The Worker bootstrap also prepares the typed Type Source operation. Its
 page-side adapter posts only package ID, version, framework, assembly, type
@@ -1148,10 +1162,26 @@ The gate uses Firefox and the complete published artifact, covering cold and
 warm managed calls, reporter registration and generated cleanup exports,
 all five typed startup reads against their generated facade results, restart,
 one decompiled Type Source result through the prepared typed adapter, bootstrap
-rejection, and input during stalled Wasm initialization. It does not yet prove
-responsiveness during managed CPU work or complete the Worker lifecycle gate;
-lifecycle composition, production Source activation, and direct page-runtime
-retirement remain focused follow-on slices under #5418, #5987, and #5420.
+rejection, and input during stalled Wasm initialization. It does not itself
+prove responsiveness during managed CPU work or complete the Worker lifecycle
+gate.
+
+The focused managed CPU sub-gate reuses that published artifact:
+
+```bash
+npm run inspect-web-worker-cpu-isolation
+```
+
+It runs a fixed-count deterministic managed checksum in the Worker and proves
+that real page input and a two-animation-frame render opportunity occur before
+managed completion. It also covers an untuned neighboring operation,
+same-epoch diagnostic cache retention, planned restart cancellation, native
+old-Worker closure, watchdog detection of silent Worker loss, explicit
+replacement, and replacement-epoch cache reset. It does not claim painted
+pixels, feature progress, cooperative cancellation, supersession, or production
+activation. Lifecycle composition, production Source activation, and direct
+page-runtime retirement remain focused follow-on slices under #5418, #5987,
+and #5420.
 
 The purpose-built `multi-facade-canary` proves that this lifecycle composes
 across independently generated modules. Its Alpha and Beta assemblies
@@ -1778,7 +1808,7 @@ The shared product paths are gated by:
   participant minted from in-memory content is acquired by the group, and one
   minted with a placeholder identity is rejected — which is why acquisition must
   decode identity first.
-- `ContentShapedMemberProjectionTests` in `src/ILInspector.Research.Tests` gates
+- `ContentShapedMemberProjectionTests` in `tests/ILInspector.Research.Tests` gates
   the two product seams the Research queries stand on: projecting a member from a
   path-less, stream-backed assembly reference, and supplying the whole-assembly
   analysis context that path-keyed resolution cannot provide.
@@ -1798,6 +1828,16 @@ The `eng/CiChangeDetection` gate, invoked through
 
 ## Interaction model
 
+Inspect Web retains up to four Workspaces in the current browser session and
+identifies one as active.
+Opening an external package from Spotlight or Package Query, opening a saved
+definition, or opening a demo constructs and activates a new Workspace while
+keeping earlier Workspaces available. The Workspace subject lists every live
+Workspace; inactive rows expose **Activate**, and each row has a trailing
+**x** that deletes that Workspace. Deleting the active Workspace selects the
+next row, then the previous row, or leaves no active Workspace when the
+collection becomes empty.
+
 On Workspace, **Add package** opens package search as a focused picker. Choose a
 NuGet or recent result to append its resolved coordinate while staying on
 Workspace; existing packages and the active inspection are retained. Already
@@ -1810,12 +1850,13 @@ Version/framework editing and prefixes are separate from this focused
 The Workspace page offers **Save Workspace** for the current nonempty scope.
 Enter a unique name to save its canonical packet locally on this browser;
 resolved versions and frameworks are pinned without changing the live share
-intent. **Open** on a saved entry replaces the live Workspace through the
-existing transactional restoration path. The trailing **x** forgets only the
-saved definition and leaves the live Workspace unchanged. Saving does not
-copy to the clipboard or change the URL. Storage and projection failures stay
-visible, and failed opening retains the previous Workspace and URL.
-Names are unique case-insensitively; saving does not overwrite an existing name.
+intent. **Open** on a saved entry constructs and activates a new live Workspace
+through the existing transactional restoration path. The trailing **x**
+forgets only the saved definition and leaves every retained Workspace
+unchanged. Saving does not copy to the clipboard or change the URL. Storage and
+projection failures stay visible, and failed opening retains the previous
+Workspace and URL. Names are unique case-insensitively; saving does not
+overwrite an existing name.
 These origin-local entries survive refresh, not browser-data deletion, and do
 not provide cloud synchronization. The focused contract is
 [Saved Workspaces](../../docs/design/inspect-web-saved-workspaces.md).
@@ -1985,14 +2026,15 @@ routing, stale publication, and explicit Platform library scope;
 
 `src/source-inspection.ts` owns the mutually exclusive member, type, and
 call-graph source request lifecycle: shared cancellation, generation and
-per-surface identity checks, loading/error/result transitions, graph-modal
-open/close state, and focus-preserving completion. `dotnet-inspect.ts`
+per-surface identity checks, loading/error/result transitions, the graph
+modal's request-shaped state union, and focus-preserving completion.
+`dotnet-inspect.ts`
 validates the active selection, builds typed engine requests, supplies mutable
 state and rendering ports, and retains source presentation.
 `test/source-inspection.test.ts` gates hidden cancellation, stale member
 selection, visible failure, hidden type completion, graph close/cancellation,
-and graph failure; `test/spotlight-identity.test.js` gates engine and
-composition-root wiring.
+settled empty graph failure, and graph auto-load eligibility;
+`test/spotlight-identity.test.js` gates engine and composition-root wiring.
 
 `src/member-detail-inspection.ts` owns member XML-documentation, annotated
 source, and Facts request lifecycles: cache and request identity, current-member
@@ -2203,31 +2245,36 @@ inspector.
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
 opened from a package's documents list) and that list's markup, including its
 open, close, and bare-backdrop bindings. `src/document-inspection.ts` owns its
-sequence-guarded async load/close lifecycle, visible failure, and frontmatter
-projection.
+closed/loading/ready/failed feature state, current-loading publication guard,
+snapshot settlement, visible failure, and frontmatter projection.
 `dotnet-inspect.ts` validates the selected package document and supplies the
-engine, sanitized Markdown-rendering, state, and render ports.
-`test/doc-viewer.test.ts` gates the closed/no-document fallback, loading and
-error presentation, the
+engine, sanitized Markdown-rendering, state, and render ports, consuming the
+typed open-state predicate for modal, focus, keyboard, and graph-explorer
+composition. `test/doc-viewer.test.ts` gates loading and failed presentation,
+including the empty-failure fallback, the
 frontmatter card's presence and fields, and title/subtitle/frontmatter-name
 escaping, package-document list output, open dispatch, and button/backdrop
 close dispatch;
 `test/document-inspection.test.ts` gates exact request coordinates,
 frontmatter projection, stale-stage suppression, visible failures, and close
-invalidation (the rendered document body is trusted, pre-sanitized Markdown
-HTML and is not escaped).
+invalidation; `test/saved-workspace-navigation.test.ts` gates loading-snapshot
+settlement (the rendered document body is trusted, pre-sanitized Markdown HTML
+and is not escaped). The focused state contract is
+[Inspect Web Document Viewer State](../../docs/design/inspect-web-document-viewer-state.md).
 
 `src/graph-source.ts` owns the member source modal (the code viewer opened
 from a call graph node), including its rendered close and bare-backdrop
 bindings.
-`source-inspection.ts` owns its sequence-guarded async lifecycle;
+`source-inspection.ts` owns its closed/loading/ready/failed/cancelled feature
+state and current-loading publication guard;
 `dotnet-inspect.ts` supplies `state`, the typed engine port, and the
-`highlightCSharp` Prism wrapper, and passes each computed slice explicitly.
+`highlightCSharp` Prism wrapper, and passes the narrowed open state.
 `test/graph-source.test.ts` gates the loading state, the
 original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
 escaping in both the header and loading status, plus button/backdrop close
-dispatch.
+dispatch. The focused state contract is
+[Inspect Web Graph Source State](../../docs/design/inspect-web-graph-source-state.md).
 
 `src/annotated-source.ts` owns the annotated source result (the
 fact-annotated C#/IL dual view shown for a member overload), including its

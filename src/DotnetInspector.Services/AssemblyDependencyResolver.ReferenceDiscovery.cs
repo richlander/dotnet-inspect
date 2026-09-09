@@ -619,17 +619,22 @@ public sealed partial class AssemblyDependencyResolver
 
             if (strict && asset.Value.ValueKind != JsonValueKind.Object)
                 throw new JsonException("A dependency asset entry must be an object.");
+            string? resolvedLocalPath = null;
             if (asset.Value.ValueKind == JsonValueKind.Object
                 && asset.Value.TryGetProperty("localPath", out var localPathElement))
             {
                 if (localPathElement.ValueKind == JsonValueKind.String
                     && localPathElement.GetString() is { Length: > 0 } localPath
-                    && StorePath.TryResolveUnderRoot(targetDirectory, localPath, out string? resolvedLocalPath))
-                    addReference(resolvedLocalPath);
+                    && StorePath.TryResolveUnderRoot(targetDirectory, localPath, out resolvedLocalPath))
+                {
+                    if (!strict)
+                        addReference(resolvedLocalPath);
+                }
                 else if (strict)
                     throw new JsonException("A declared dependency local asset path was rejected.");
             }
 
+            string? resolvedAssetPath = null;
             if (libraryPaths.TryGetValue(library.Name, out var packagePath))
             {
                 if (StorePath.TryResolveUnderRoot(
@@ -639,10 +644,29 @@ public sealed partial class AssemblyDependencyResolver
                     && StorePath.TryResolveUnderRoot(
                     packageDirectory,
                     asset.Name,
-                    out string? resolvedAssetPath))
-                    addReference(resolvedAssetPath);
+                    out resolvedAssetPath))
+                {
+                    if (!strict)
+                        addReference(resolvedAssetPath);
+                }
                 else if (strict)
                     throw new JsonException("A declared dependency package asset path was rejected.");
+            }
+
+            if (strict)
+            {
+                string? selectedPath;
+                if (resolvedLocalPath is not null
+                    && DiscoveryFileExists(resolvedLocalPath, strict: true))
+                    selectedPath = resolvedLocalPath;
+                else if (resolvedAssetPath is not null
+                    && DiscoveryFileExists(resolvedAssetPath, strict: true))
+                    selectedPath = resolvedAssetPath;
+                else
+                    selectedPath = resolvedLocalPath ?? resolvedAssetPath;
+
+                if (selectedPath is not null)
+                    addReference(selectedPath);
             }
         }
     }

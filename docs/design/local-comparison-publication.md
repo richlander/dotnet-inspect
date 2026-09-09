@@ -187,9 +187,9 @@ first-adopter exception in
 Browser adoption follows as its own immediate owner effort, not after a new
 unconsumed infrastructure chain.
 
-The CLI now consumes the public query instead of its former direct
+The CLI consumes the public query instead of its former direct
 `ImplementationDiff.CompareMembers` dispatch and synthetic `ResearchComparison`
-wrapper. After both hosts work, focused Queries and Research cleanups remove
-the unused remainder established by the actual caller inventory. Existing
-Source and assembly-comparison behavior must remain supported; a future issue
-alone does not justify retaining otherwise unused substrate.
+wrapper. After both hosts and comparison tools adopted the query, focused
+Queries cleanup landed in #6047 and the Research member-wrapper cleanup in
+issue #6283. Existing Source and assembly-comparison behavior remains
+supported.

@@ -92,6 +92,7 @@ internal static class BrowserMetadataWireProjection
             member.StableSelector,
             member.AnchorDigest,
             member.CanonicalSignature,
+            member.AnchorTypeFullName,
             member.GraphSelectorKey,
             [.. member.BodySelectors.Select(Project)]);
 

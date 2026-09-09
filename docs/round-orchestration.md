@@ -286,16 +286,18 @@ snapshot satisfies the prerequisite. The duration context comes from
 ### Reviewer roster
 
 [How many reviewers, and from which models](../AGENTS.md#how-many-reviewers-and-from-which-models)
-states the binding tier table and roster name. Review is one seat, GPT-6 Astra,
-for every non-trivial change; there is no second seat and no clean-count-based
-selection. Use [Agent model mapping](agent-models.md) to resolve the name to a
-dispatch ID.
+states the binding tier table and roster name. Every non-trivial change gets one
+review seat; there is no second seat and no clean-count-based selection. Use
+[Agent model mapping](agent-models.md) to resolve the name to a dispatch ID.
 
-If GPT-6 Astra is unavailable, substitute another model at its highest
-available quality, preferring a different family than the author, report the
-substitution and its reasoning on the PR, and proceed without approval — a
-substituted seat still counts as filled. One round evaluates one settled head
-with its required reviewer.
+Select GPT-5.6 Sol by default. Use GPT-6 Astra for complex changes; GPT-5.6
+Terra or Luna may fill the seat for relatively simple changes that still
+require review. If the selected model is unavailable, choose another non-Fast
+GPT model sufficient for the change's complexity, report the substitution and
+its reasoning on the PR, and proceed without approval. Non-GPT models, Fast
+models or modes, and extra-high (`xhigh`) reasoning are prohibited when the
+harness advertises GPT models. One round evaluates one settled head with its
+required reviewer.
 
 ### Dispatch
 
@@ -403,7 +405,7 @@ than one handed a list of strings to retry.
 
 When a reviewer returns empty or near-empty, suspect the prompt before the
 model. Check the worktree for artifacts, then re-dispatch the same work to a
-model from a different family: filters differ, and one may state the reason
+different non-Fast GPT model: filters may differ, and one may state the reason
 where another fails silently. Do not propose repinning a roster seat on
 empty-response evidence alone.
 

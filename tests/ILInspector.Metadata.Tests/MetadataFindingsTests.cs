@@ -3,7 +3,7 @@ extern alias extensionold;
 
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 

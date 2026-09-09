@@ -262,3 +262,81 @@ export function exceptionRegionsFixture(
     exceptionRegions: long ? regions.slice(0, 2) : regions,
   };
 }
+
+export function performanceOpportunitiesFixture(
+  mode: "populated" | "long" = "populated",
+): MemberFacts {
+  const facts = memberFactsFixture();
+  const long = mode === "long";
+  const opportunities: MemberFacts["performanceOpportunities"] = [
+    {
+      shape: long
+        ? "generic-parameter-object-box-in-nested-collection-materializer"
+        : "box-value-type",
+      evidence: long
+        ? "box Example.Serialization.BufferedDocumentReader<System.Collections.Generic.Dictionary<System.String,System.Collections.Generic.List<System.Text.Json.JsonElement>>>.NestedValue"
+        : "box System.Int32",
+      fix: long
+        ? "Prefer a value-typed generic path that preserves the complete nested value without routing it through System.Object or an intermediate collection materializer."
+        : "Use a generic API, string interpolation, or a value-typed overload to avoid the heap allocation.",
+      confidence: "high",
+      offset: long ? "IL_12345678" : "IL_0048",
+      inLoop: true,
+      caveat: long
+        ? "The JIT can remove some non-escaping boxing after inlining; confirm the allocation and end-to-end effect with a representative Release workload before changing the API shape."
+        : null,
+      finding: long
+        ? "analysis.allocation.with-an-intentionally-long-descriptor-for-containment"
+        : "analysis.allocation",
+      provenance: long
+        ? "exact-with-an-intentionally-long-provenance-value"
+        : "exact",
+    },
+    {
+      shape: "sync-call-in-async",
+      evidence: "System.IO.Stream.Read(System.Span<System.Byte>) is called from an async method; a matching ReadAsync overload is available.",
+      fix: "Use the asynchronous sibling with await when its ordering, exception, cancellation, and buffering behavior matches.",
+      confidence: "medium",
+      offset: "IL_0074",
+      inLoop: false,
+      caveat: "Name and signature shape establish the sibling relationship; confirm behavioral equivalence before changing the call.",
+      finding: "analysis.call-site",
+      provenance: "exact",
+    },
+    {
+      shape: "allocation-hotspot",
+      evidence: "12 heap allocations occur in a loop (newobj/newarr/box).",
+      fix: "Inspect the repeated allocations and measured lifecycle before pooling, caching, or replacing transient buffers.",
+      confidence: "medium",
+      offset: null,
+      inLoop: true,
+      caveat: "This is static IL evidence, not a runtime cost measurement or proof that pooling is beneficial.",
+      finding: null,
+      provenance: "aggregate",
+    },
+  ];
+  return {
+    ...facts,
+    performanceOpportunities: long
+      ? [opportunities[0]!, opportunities[2]!]
+      : opportunities,
+  };
+}
+
+export function analysisDiagnosticsFixture(
+  mode: "populated" | "long" = "populated",
+): MemberFacts {
+  const facts = memberFactsFixture();
+  return {
+    ...facts,
+    diagnostics: mode === "long"
+      ? [
+          "Example.Serialization.BufferedDocumentReader<System.Collections.Generic.Dictionary<System.String,System.Collections.Generic.List<System.Text.Json.JsonElement>>>.<ReadDocumentAsync>d__123456.MoveNext(): BadImageFormatException: The method body contains an intentionally long malformed local signature that cannot be decoded while preserving the complete generic context.",
+          "Example.Serialization.BufferedDocumentReader.<ReadAsync>d__12.MoveNext(): InvalidOperationException: Could not resolve metadata token 0x0A000123.",
+        ]
+      : [
+          "Example.Serialization.BufferedDocumentReader.Read(): BadImageFormatException: Invalid local signature.",
+          "Example.Serialization.BufferedDocumentReader.<ReadAsync>d__12.MoveNext(): InvalidOperationException: Could not resolve metadata token 0x0A000123.",
+        ],
+  };
+}

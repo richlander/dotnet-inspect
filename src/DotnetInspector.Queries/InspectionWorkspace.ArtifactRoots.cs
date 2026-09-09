@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
@@ -210,7 +210,7 @@ public sealed partial class InspectionWorkspace
         catch (Exception failure) when (failure is IOException or InvalidOperationException
             or ArgumentException or BadImageFormatException)
         {
-            if (failure.Data["DotnetInspector.Artifacts.Workspaces.CleanupFailures"]
+            if (failure.Data["Inspector.Artifacts.Workspaces.CleanupFailures"]
                 is IReadOnlyList<Exception> cleanup)
             {
                 lock (_gate) _rootCleanupFailures.AddRange(cleanup);
@@ -359,6 +359,15 @@ public sealed partial class InspectionWorkspace
             }
         }
         return root.Released.Task;
+    }
+
+    void CloseArtifactRootGroupAdmission()
+    {
+        foreach (RootLifetime root in _rootLifetimes)
+        {
+            foreach (AssemblyContextGroup group in DependentGroups(root.Resources.Realization))
+                group.CloseAdmissionFromWorkspace(captureFailure: true);
+        }
     }
 
     ArtifactRootFailure? RootWorkspaceFailure(InspectionWorkspaceIdentity workspace) =>

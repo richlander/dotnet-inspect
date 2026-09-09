@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-using ILInspector.Findings;
+using Inspector.Findings;
 using Markout;
 
 namespace DotnetInspector.Views;

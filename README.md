@@ -56,6 +56,15 @@ and repository-specific guidance.
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
+Platform packs have distinct package, Platform, and direct-library views. For
+example, `package Microsoft.NETCore.App.Ref@10.0.0` inspects the targeting-pack
+container as an exact NuGet package, while
+`library ./packs/Microsoft.NETCore.App.Ref/10.0.0/ref/net10.0/System.Runtime.dll`
+inspects one manually downloaded or extracted DLL directly. A Platform
+selection unwraps authorized pack DLLs without publishing its source pack as a
+Package participant. These entry paths preserve different provenance and do
+not infer Platform identity from a package or file name.
+
 Windows Metadata (`.winmd`) is not a supported input format, and rejection is
 only partially enforced. Directory and package scans select `*.dll`, so a
 `.winmd` beside them is skipped without comment. A `.winmd` named explicitly —
@@ -143,6 +152,7 @@ stderr rather than mixed into structured output.
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL and selected-member authored-source evidence. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
+| Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, package dependencies, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `dependency-evidence` | One normalized snapshot of the direct dependencies declared by named package, nuspec, restored-project, or package-prefix roots, with framework scopes, version constraints, restored resolution evidence, and root-set completion. Unlike `depends`, it does not walk the transitive tree. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
@@ -174,7 +184,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
-| `workspace` | Render the committed ordered package Roots of one runtime Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact package Root a `find --literal` result names. |
+| `workspace` | Render the committed ordered package Roots of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact package Root a `find --literal` result names. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
@@ -419,6 +429,35 @@ dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Te
 
 ### Structural matching
 
+Use the `Clone Candidates` section for a globally ranked search from an exact
+Library, Type, or logical Member seed. Breadth and candidate admission are
+independent; the default is `Everything` plus `SimilarNames`.
+
+```bash
+dotnet-inspect type Cases.Widget --library ./app.dll -S "Clone Candidates"
+dotnet-inspect member Cases.Widget --library ./app.dll -m Value \
+  -S "Clone Candidates" \
+  --where "Breadth=Self" \
+  --where "Discovery=All"
+dotnet-inspect type -Q "Clone Candidates"
+```
+
+`Breadth` accepts `Self`, `SelfAndRegisteredEcosystems`, or `Everything`;
+`Discovery` accepts `SimilarNames` or `All`. The current CLI supplies the
+selected exact library as its finite Workspace participant snapshot and
+discloses that scope in tabular diagnostics and structured coverage. It does
+not infer registered-ecosystem membership or silently narrow the requested
+breadth.
+
+Rows are retrieval candidates, not checked clone relations. They retain rank,
+both exact method endpoints, the 0-10,000 total and component scores, and the
+optional type/member name-similarity evidence. Plain `--json` also retains the
+portable seed, participant identity and provenance, coverage, failures, limits,
+and work receipt. `--rows`, `--columns`, `--fields`, `--count`, `--table`,
+`--tsv`, and `--jsonl` operate at the declared candidate-row output seam.
+
+Pairwise `match` remains the checked comparison path:
+
 ```bash
 dotnet-inspect match Left.Compute Right.Compute --library ./app.dll
 dotnet-inspect match Left.Compute Right.Compute --library ./app.dll --body
@@ -507,14 +546,27 @@ dotnet-inspect workspace-state decode "$w"
 dotnet-inspect workspace-state decode "$w" | jq
 dotnet-inspect workspace-state encode --file workspace-state.json
 dotnet-inspect workspace-state encode --file workspace-state.json --url
+dotnet-inspect member JsonConvert \
+  --package Newtonsoft.Json@13.0.4 \
+  SerializeObject:1 \
+  --tfm net6.0 \
+  --share url
 dotnet-inspect skill list
 dotnet-inspect demo list
+dotnet-inspect demo list -n 3 --json
 ```
 
 `workspace-state encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
 for the existing share-packet JSON shape. Packet-only output remains the default.
 This is not an encoder for `workspace --json` inventory output. The packet's
 existing limits and the browser's supported restoration shapes still apply.
+
+`member --share packet|url` projects one explicitly selected public member
+overload from an exact NuGet.org package version and target framework. The URL
+opens that member's API Overview in the published browser. Select an overload
+with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
+private-feed, non-public, multi-library, and other rendering or analysis modes
+fail visibly rather than producing a link the browser cannot restore.
 
 ## Requirements
 

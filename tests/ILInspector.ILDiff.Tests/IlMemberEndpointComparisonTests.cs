@@ -3,7 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.ILDiff.Tests;
 

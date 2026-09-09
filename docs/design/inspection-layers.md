@@ -188,17 +188,15 @@ query's required closure, transitive cost, and single-query execution plan, and
 passes that cost into the host execution scope. Commands compile multi-query
 plans once and may reuse them across assembly contexts.
 
-`DotnetInspector.Artifacts` provides the source-neutral floor below these
+`Inspector.Artifacts` provides the source-neutral floor below these
 layers: generation-scoped identity and registration, adapter-owned typed
 provenance and diagnostics, acquisition outcomes, and owner-issued guarded
 admission/query access. It references no project.
-Despite its historical `DotnetInspector.*` project-name prefix, this contract
-floor is not tool-tier composition: `ILInspector.Metadata` may reference this
-project, and no other `DotnetInspector.*` project. The
-`EngineProjectsReferenceOnlyTheSourceNeutralArtifactFloor` architecture gate
-enforces that exception and rejects every wider engine-to-tool edge.
-`DotnetInspector.Artifacts.Workspaces` composes bounded immutable contributions
-into a sealed `ArtifactSetSession`, and `DotnetInspector.Artifacts.Local`
+`ILInspector.Metadata` consumes this subject-neutral contract without crossing
+into tool-tier composition. The `EngineProjectsDoNotReferenceToolProjects`
+architecture gate rejects every production engine-to-tool edge.
+`Inspector.Artifacts.Workspaces` composes bounded immutable contributions
+into a sealed `ArtifactSetSession`, and `Inspector.Artifacts.Local`
 snapshots explicit files before registration. The package-free host fixture
 passes a guarded session snapshot to Metadata. Core Queries, retained workspaces,
 directory acquisition, and Metadata trust-role consumption remain later
@@ -294,6 +292,18 @@ incomplete)/`Unavailable`/`Failed` outcome with a typed, content-free failure
 reason. This query has no CLI or section adoption yet; it is gated by
 `RestoredProjectDependencyFactsQueryTests` and the
 `restored-project.dependency-facts` fixture in `DotnetInspector.Fixtures`.
+
+`RestoredProjectDependencyTraversalQuery` implements the contract in
+[`restored-project-dependency-traversal.md`](restored-project-dependency-traversal.md)
+over the same bytes and target request. It consumes one internal projection
+issued by the facts query — there is no second assets parse or target-selection
+rule — and projects the root, project-reference, and package relationship set
+with minimum root-relative distance, explicit depth boundaries, depth-scoped
+typed failures, stated completion, and a topology identity scoped to the facts
+owner's unchanged selection identity. Package relationships carry the facts
+owner's exact graph edges rather than reminted evidence. This query also has no
+CLI or section adoption yet; it is gated by
+`RestoredProjectDependencyTraversalQueryTests`.
 
 L1 does not reference Markout.
 
@@ -412,7 +422,7 @@ scanning and is not called a scanner.
 
 **Result** names what a query returns (`XxxQuery` -> `XxxResult`).
 "Inspection" stays reserved for composed aggregates and "Finding" for the
-[`ILInspector.Findings`](../../src/ILInspector.Findings) spine, so the three
+[`Inspector.Findings`](../../src/Inspector.Findings) spine, so the three
 nouns remain distinguishable.
 
 ## Seam rules
@@ -462,7 +472,7 @@ semantics under [Implementation Diff](implementation-diff.md). L1 may require
 Research-issued identities and retain their correspondence to query identities;
 it must not mint, infer, or reinterpret them.
 
-The later
+The implemented
 [workspace Research target composition](research-workspace-target-composition.md)
 consumes this receipt to associate Metadata's terminal forwarding definition
 with one exact existing Research attempt. That composition remains
@@ -665,8 +675,8 @@ closure and remains the dependency-direction proof.
 `ComparisonPopulation_Demo` exercises the product sealer, owner-issued Research
 admission, and receipt validator over an existing compiled fixture. Repeated
 borrowed values remain three distinct input occurrences; an incomplete map is
-rejected without a partial receipt. This internal-projection demo does not
-replace #5676's public workspace file-based demo or claim host adoption.
+rejected without a partial receipt. This internal-projection demo is distinct
+from #5676's public workspace file-based demo and does not claim host adoption.
 
 ### Population-boundary non-goals
 
@@ -694,7 +704,7 @@ companion so core assembly Queries can reach its source-neutral inputs without
 retaining a package implementation dependency. That physical split does not
 create a second architectural owner.
 
-`DotnetInspector.Artifacts` remains the adjacent source-neutral owner. It owns
+`Inspector.Artifacts` remains the adjacent source-neutral owner. It owns
 artifact generations, identities, acquisition registrations and outcomes,
 diagnostics, guarded content access, and acquisition leases under
 [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md).

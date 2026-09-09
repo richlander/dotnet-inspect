@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
@@ -26,6 +27,8 @@ using InspectWeb.Engine;
 [SupportedOSPlatform("browser")]
 public static partial class InspectionEngine
 {
+    const uint ManagedCpuCanaryRounds = 150_000_000;
+
     /// <summary>
     /// A deterministic awaited operation used by the paired deployment smoke.
     /// </summary>
@@ -34,6 +37,23 @@ public static partial class InspectionEngine
     {
         await Task.Yield();
         return "inspect-web-async-lowering-ok";
+    }
+
+    /// <summary>
+    /// Fixed synchronous managed work used to prove that Worker placement isolates the DOM event
+    /// loop. The returned checksum keeps the loop observable without using elapsed time to size it.
+    /// </summary>
+    [JSExport]
+    public static string ManagedCpuCanary()
+    {
+        uint state = 0x811C9DC5;
+        for (uint index = 0; index < ManagedCpuCanaryRounds; index++)
+        {
+            state = unchecked((state ^ (index + 0x9E3779B9)) * 0x01000193);
+            state = (state << 7) | (state >> 25);
+        }
+
+        return state.ToString("x8", CultureInfo.InvariantCulture);
     }
 
     /// <summary>Version, source revision, and build time embedded in this browser engine.</summary>

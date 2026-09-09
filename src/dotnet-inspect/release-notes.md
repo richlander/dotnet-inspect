@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Breaking:** Simplifies `vocabulary` into a flat section catalog. Bare
+  output now shows only section name, summary, and value count; `-D` lists
+  sections without category doors; exact names, stable section IDs, and globs
+  replace category selectors such as `@Decompiler`. Structured vocabulary
+  schema version 2 removes each section's `categories` member (#6404).
 - Adds explicit `Body Shape Summary` output to `library`, `type`, and `member`,
   grouping identical rendered Kind/Match values with occurrence counts.
   `Body Shapes` retains individual member/token/rendered-C# locations.

@@ -311,6 +311,12 @@ public record LibraryOptions : IProjectionOptions
     public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
 
     /// <summary>
+    /// Candidate-population controls for the Clone Candidates section.
+    /// </summary>
+    public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
+        CloneCandidateQueryOptions.Default;
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

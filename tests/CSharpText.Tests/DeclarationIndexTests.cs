@@ -571,7 +571,7 @@ public class DeclarationIndexTests
     }
 
     [Fact]
-    public void TheBodySlicerCannotAccessLexerInternals()
+    public void MemberSlicingCannotAccessLexerInternals()
     {
         Assert.DoesNotContain(
             typeof(DeclarationIndex).Assembly.GetCustomAttributesData(),
@@ -579,7 +579,7 @@ public class DeclarationIndexTests
                 attribute.AttributeType == typeof(System.Runtime.CompilerServices.InternalsVisibleToAttribute)
                 && attribute.ConstructorArguments[0].Value is string assemblyName
                 && assemblyName.StartsWith(
-                    "DotnetInspector.CSharpBodySlicer",
+                    "CSharpText.MemberSlicing",
                     StringComparison.Ordinal));
     }
 

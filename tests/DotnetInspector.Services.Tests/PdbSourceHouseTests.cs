@@ -6,7 +6,7 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Core;
 
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;
@@ -459,7 +459,7 @@ public class PdbSourceHouseTests
     }
 
     [Fact]
-    public async Task FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin()
+    public async Task FetchSourceBytes_AcceptsChecksumVerifiedBodyAfterRedirect()
     {
         string cachePath = Path.Combine(
             Path.GetTempPath(),
@@ -484,9 +484,9 @@ public class PdbSourceHouseTests
                 bytes => bytes.Span.SequenceEqual(source),
                 TestContext.Current.CancellationToken);
 
-            Assert.Null(result);
+            Assert.Equal(source, result);
             Assert.Equal(1, handler.RequestCount);
-            Assert.Equal(0, content.ReadCount);
+            Assert.Equal(1, content.ReadCount);
         }
         finally
         {
@@ -785,7 +785,6 @@ public class PdbSourceHouseTests
     sealed class RejectingSourceFetchPolicy : ISourceFetchPolicy
     {
         public int ConfiguredRequests { get; private set; }
-        public bool FinalResponseUriIsReliable => true;
         public bool IsRequestAllowed(Uri requestUri) => false;
         public void ConfigureRequest(HttpRequestMessage request) =>
             ConfiguredRequests++;

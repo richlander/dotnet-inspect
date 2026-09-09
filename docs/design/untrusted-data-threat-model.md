@@ -1358,14 +1358,12 @@ that changing them is visible:
   repository segment ends. Gated by
   `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
 
-Attribution is decided from the URL's text, offline; the fetch that follows is
-a separate step. That fetch must compare where it *landed* with what was
-attributed.
+Attribution is decided from the URL's text, offline; selected-source
+acquisition does not turn the response destination into new provenance.
 `CreateUntrustedFetchClient` follows redirects (five hops, SSRF-guarded per hop)
 and an HTTP client otherwise accepts any 2xx, so a syntactically valid but
-nonexistent, private, or
-unauthenticated Azure route redirects to a sign-in page on another host and
-answers 203:
+nonexistent, private, or unauthenticated Azure route can redirect to a sign-in
+page on another host and answer 203:
 
 ```text
 final=https://spsprodeus27.vssps.visualstudio.com/_signin?realm=dev.azure.com&...
@@ -1373,15 +1371,20 @@ code=203
 type=text/html; charset=utf-8
 ```
 
-`SourceLinkProvenance.ValidateFetchOrigin` now compares the complete attributed
-origin tuple from the requested URL with the tuple read from
+Selected-source acquisition admits that response only if its body matches the
+portable-PDB document checksum; the sign-in body therefore cannot become
+source. An unsuccessful final response, transport failure, or checksum mismatch
+leaves PDB source unavailable and permits the shared query's decompiler
+fallback. Browser/Wasm authorizes the initial HTTPS SourceLink host and omits
+credentials before allowing ordinary Fetch redirect handling.
+
+Availability and integrity audits make the different claim that the attributed
+endpoint itself remains reachable. They compare the complete attributed origin
+tuple from the requested URL with the tuple read from
 `HttpResponseMessage.RequestMessage.RequestUri`. A final URL with no
-attributable origin, or one naming another repository or revision, is rejected
-before its body is read or cached. Browser/Wasm's HTTP transport does not expose
-the final URL after an automatic redirect, so attributed SourceLink fetches fail
-closed there; unattributed URLs remain fetchable because no repository is
-reported for them, and checksum verification remains their
-content-authenticity boundary.
+attributable origin, or one naming another repository or revision, is rejected.
+Browser/Wasm's HTTP transport does not expose the final URL after an automatic
+redirect, so attributed audit results fail closed there.
 
 Header-first source fetches keep the untrusted-fetch timeout active through the
 body read, retry transient mid-body failures, and count decoded bytes against
@@ -1403,10 +1406,11 @@ uses `PdbSourceHouse.FetchVerifiedSourceTextAsync`. PDB Source,
 printed Source Files and Source Locations, IL-offset source lines, and
 documentation/sample enrichment all require the portable-PDB checksum before
 using network content. `SourceAvailabilityService` and
-`SourceIntegrityService` apply the same final-origin check before recording
+`SourceIntegrityService` retain the final-origin check before recording
 reachability or reading bytes. The source-byte, availability, and integrity
-cache categories were versioned when this rule landed, so entries created
-without final-origin evidence cannot satisfy the new path.
+cache categories were versioned when the stricter audit rule landed;
+source-byte reuse remains checksum-gated, while entries without final-origin
+evidence cannot satisfy the audit paths.
 
 Checksum evidence follows the portable-PDB document row rather than a display
 or canonical path. Direct member, type, and IL-offset projections join on row
@@ -1420,16 +1424,16 @@ The fetch-origin grammar is gated by
 `SourceLinkProvenanceTests.FetchOrigin_AttributedResponseMustPreserveTheCompleteOrigin`,
 `...FetchOrigin_AzureSignInRedirectIsNotTheAttributedRepository`, and
 `...FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim`. The Services gate
-exercises the response boundary, pre-fix cache invalidation, and the
-availability/integrity projections in
-`PdbSourceHouseTests.FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin`,
+exercises selected-source redirect admission, pre-fix cache invalidation, and
+the availability/integrity projections in
+`PdbSourceHouseTests.FetchSourceBytes_AcceptsChecksumVerifiedBodyAfterRedirect`,
 `...FetchSourceBytes_IgnoresPreOriginValidationCache`,
 `HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`,
 `...HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes`,
 `...HeaderFirstBodyRead_RetriesAMidBodyIoFailure`,
 `...HeaderFirstBodyRead_RequiresBrowserStreamingResponse`,
 `SourceLinkQueryServiceTests.Availability_DoesNotCountCrossOriginRedirectAsReachable`,
-`...BrowserTransport_FailsClosedOnlyForAttributedSourceUrls`,
+`...UnreliableFinalUrl_FailsClosedOnlyForAttributedSourceAudits`,
 and
 `...Integrity_DoesNotAcceptMatchingBytesFromCrossOriginRedirect`.
 
@@ -1459,13 +1463,17 @@ replace it with the general shared client.
 Browser-Wasm cannot perform the DNS-level checks that
 `SharedUntrustedFetch` performs. Its source host instead supplies an
 `ISourceFetchPolicy` that authorizes a narrow set of HTTPS source hosts before
-dispatch, omits credentials, and configures Fetch to reject redirects. A
-destination outside that set is a PDB-source acquisition limitation and may
-fall back to decompilation; it is never probed. The shared `SourceFetch`
-applies that host policy before its memory or content-store caches and before
-creating the request. `PdbSourceHouseTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`
+dispatch and omits credentials. Selected source acquisition follows redirects
+under the browser's ordinary Fetch behavior; the allow-listed source service
+controls that redirect, and the response is admitted only when it matches the
+portable-PDB checksum. A requested destination outside the initial host set is
+a PDB-source acquisition limitation and may fall back to decompilation; it is
+never probed directly. The shared `SourceFetch` applies that host policy before
+its memory or content-store caches and before creating the request.
+`PdbSourceHouseTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`,
+`PdbSourceHouseTests.FetchSourceBytes_AcceptsChecksumVerifiedBodyAfterRedirect`,
 and
-`BrowserEngineBoundaryTests.SourceFetchPolicy_OmitsCredentialsAndRefusesRedirects`
+`BrowserEngineBoundaryTests.SourceFetchPolicy_OmitsCredentialsAndFollowsRedirects`
 gate those rules.
 
 Checksums from portable PDB documents authenticate source content when the
@@ -1513,12 +1521,12 @@ materialize one retained line entry per byte before tokenization begins.
 the source. CR, LF, CRLF, NEL, line separator, and paragraph separator each
 follow the same physical-line accounting.
 `DeclarationIndex` carries the declaration's starting column so
-`BodySlicer` consumes that bounded token stream once rather than tokenizing the
-same untrusted file again.
+`MemberTextSlicer` consumes that bounded token stream once rather than
+tokenizing the same untrusted file again.
 
 Conditional branch projection remains within those bounds. Metadata partitions
 visible sequence-point start lines by PDB document and sorts and deduplicates
-each set. `BodySlicer` accepts only a positive, ordered PDB range within the
+each set. `MemberTextSlicer` accepts only a positive, ordered PDB range within the
 verified source and positive, strictly increasing point lines within that
 range's physical file, uses binary range queries rather than a group-by-point
 cross product, and refuses PDB correlation when a recognized `#line` directive
@@ -1534,11 +1542,11 @@ could expose unmatched directives or an unrelated dead-branch member. These
 boundaries are gated by
 `DeclarationIndexTests.ConditionalProjection_RejectsABranchFromAnotherIndex`,
 `DeclarationIndexTests.ConditionalProjection_ManySelectionsAllocateLinearly`,
-`ExtractMethodBodyTests.InvalidSequencePointCoordinates_FailVisibly`,
-`ExtractMethodBodyTests.InvalidSequencePointRange_FailsVisibly`,
-`ExtractMethodBodyTests.UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling`,
-`ExtractMethodBodyTests.TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings`,
-`ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
+`ExtractMemberTextTests.InvalidActiveLineCoordinates_FailVisibly`,
+`ExtractMemberTextTests.InvalidMemberTextRange_FailsVisibly`,
+`ExtractMemberTextTests.UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling`,
+`ExtractMemberTextTests.TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings`,
+`ExtractMemberTextTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
 and
 `AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe`.
 The binary-search complexity itself is unverified by a dedicated performance
@@ -1576,7 +1584,7 @@ pre-allocation line boundary, and
 gates the Findings-facing result, while
 `CommandExecutionTests.PdbSource_TokenDenseInputCarriesAVisibleFailureState`
 gates the member-command result.
-`DeclarationIndexTests.TheBodySlicerCannotAccessLexerInternals` gates the
+`DeclarationIndexTests.TheMemberTextSlicerCannotAccessLexerInternals` gates the
 one-pass ownership boundary.
 
 ## Resource extraction contract
@@ -2048,7 +2056,7 @@ only ordinary compiler output.
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
 | Archive extraction | Zip-slip fixture; Browser-Wasm declared/observed expanded-size rejection; bounded symbol-response, central-directory entry-count, expanded-PDB, and retained-store rejection; product-wide default expanded-size and entry-count policy tests once those budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
-| SourceLink | Private/loopback targets rejected per hop; attributed redirects must preserve the complete repository/revision origin; rendered network source requires the portable-PDB checksum; pre-origin-validation caches are ignored; allowed public targets and checksum paths retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
+| SourceLink | Desktop private/loopback targets rejected per hop; Browser/Wasm initial source hosts allow-listed with credentials omitted; selected-source redirects admitted only through the portable-PDB checksum; availability/integrity audits require attributed redirects to preserve the complete repository/revision origin; allowed public targets and checksum paths retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
 | Structured output | Untrusted non-graphic scalars cannot escape the selected format. `MdiContainmentTests` splices a payload reaching past any single predicate's notion of "control" (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, a C1 control, the bidi override `U+202E`, the line separator `U+2028`, the zero-width space `U+200B`, and the supplementary tag character `U+E0074`) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly in every format through the three views that carry artifact text — table, heap, and overview — asserting no raw non-graphic scalar survives and every contained form is present. The `--references` view carries no artifact text, so it is asserted only against raw scalars, as a regression net. Mutation-checked by restoring the pre-#3628 range predicate (dies naming `U+202E`) and by a category-correct but `char`-based predicate (dies naming `U+E0074`). Until #3628 this row named a payload that was `Cc` only, so a bidi override would not have been noticed; the payload and the assertion helper had both been scoped to the projector's own predicate, which is why the gate stayed green while `U+202E` reached the terminal. Both now classify by Unicode general category over scalars. Two limits remain: the assertion deliberately permits raw `CR`/`LF`/`TAB`, and format *delimiters* are not covered by this gate at all |

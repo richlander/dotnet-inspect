@@ -14,6 +14,33 @@ using System.Threading.Tasks;
 /// </summary>
 public static class LibraryB
 {
+    public static int ReadContractField()
+    {
+        unsafe
+        {
+            return LibraryA.ContractField;
+        }
+    }
+
+    public static void WriteContractField(int value)
+    {
+        unsafe
+        {
+            LibraryA.ContractField = value;
+        }
+    }
+
+    public static ref int AddressContractField()
+    {
+        unsafe
+        {
+            return ref LibraryA.ContractField;
+        }
+    }
+
+    public static int ReadSafeField()
+        => LibraryA.SafeField;
+
     public static async Task<int> AwaitSafePointer(nint value)
         => await LibraryA.SafePointerTask((int*)value);
 

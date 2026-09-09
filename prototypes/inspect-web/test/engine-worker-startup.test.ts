@@ -38,9 +38,9 @@ const identity: BrowserBuildIdentity = {
   version: "1.0", commit: null, builtAtUtc: "2026-09-06T00:00:00Z", commitUrl: null,
 };
 const vocabulary: BrowserVocabularyDocument = {
-  schema_version: 1,
+  schema_version: 2,
   sections: [{
-    id: "api", name: "API", summary: "API vocabulary", categories: ["metadata"],
+    id: "api", name: "API", summary: "API vocabulary",
     accepted_by: ["type"],
     fields: [{ id: "name", label: "Name", summary: "Member name", type: "string", operators: ["="] }],
     values: [{ value: "public", extensions: [null, 42, { label: "\u03BB" }] }],
