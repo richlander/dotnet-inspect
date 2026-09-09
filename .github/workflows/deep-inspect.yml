@@ -588,6 +588,9 @@ jobs:
             --untracked \
             --set-default-install false \
             --interactive false
+          nightly_sdk="$("$DOTNET_ROOT/dotnet" --list-sdks | awk 'END { print $1 }')"
+          test -n "$nightly_sdk"
+
           pinned_sdk="$(bash eng/prepare-decompiler-opt-in-corpus.sh print-pinned-sdk)"
           "$dotnetup_dir/dotnetup" sdk install "$pinned_sdk" \
             --install-path "$DOTNET_ROOT" \
@@ -595,8 +598,19 @@ jobs:
             --set-default-install false \
             --interactive false
 
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$nightly_sdk",
+              "rollForward": "disable",
+              "allowPrerelease": true
+            }
+          }
+          EOF
+
           echo "$dotnetup_dir" >> "$GITHUB_PATH"
           echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
+          test "$("$DOTNET_ROOT/dotnet" --version)" = "$nightly_sdk"
           "$DOTNET_ROOT/dotnet" --info
 
       - name: Cache NuGet packages
