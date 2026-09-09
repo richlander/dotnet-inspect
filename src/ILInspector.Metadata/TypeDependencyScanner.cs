@@ -317,7 +317,14 @@ public static class TypeDependencyScanner
                 return new TypeDependencyResult(null, []) { Rejections = rejections };
 
             var match = typeIndex[matchKey];
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var treeSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var relationshipSeen =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var activeDefinitions =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    matchKey,
+                };
             var relationships = new List<TypeDependencyRelationship>();
             string matchedType = TypeResolver.FormatDisplayName(matchKey);
             var tree = BuildNode(
@@ -325,8 +332,12 @@ public static class TypeDependencyScanner
                 match.MdReader,
                 match.TypeDef,
                 typeIndex,
-                seen,
-                relationships);
+                treeSeen,
+                relationshipSeen,
+                activeDefinitions,
+                relationships,
+                includeTree: true,
+                collectRelationships: true);
             return new TypeDependencyResult(TypeResolver.FormatDisplayName(matchKey), tree)
             {
                 Relationships = relationships,
@@ -395,8 +406,12 @@ public static class TypeDependencyScanner
         MetadataReader reader,
         TypeDefinition typeDef,
         Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
-        HashSet<string> seen,
-        List<TypeDependencyRelationship> relationships)
+        HashSet<string> treeSeen,
+        HashSet<string> relationshipSeen,
+        HashSet<string> activeDefinitions,
+        List<TypeDependencyRelationship> relationships,
+        bool includeTree,
+        bool collectRelationships)
     {
         var context = GenericContext.ForType(reader, typeDef);
 
@@ -451,26 +466,43 @@ public static class TypeDependencyScanner
         var results = new List<TypeDependencyNode>();
         foreach (var dep in directDeps)
         {
-            relationships.Add(
-                new TypeDependencyRelationship(
-                    sourceTypeName,
-                    dep.Name,
-                    dep.Kind,
-                    relationships.Count));
+            if (collectRelationships)
+            {
+                relationships.Add(
+                    new TypeDependencyRelationship(
+                        sourceTypeName,
+                        dep.Name,
+                        dep.Kind,
+                        relationships.Count));
+            }
 
             var normalized = FqnParser.NormalizeTypeName(dep.Name);
-            if (!seen.Add(normalized))
+            bool expandTree = includeTree && treeSeen.Add(normalized);
+            bool expandRelationships = collectRelationships
+                && relationshipSeen.Add(dep.Name.Trim());
+            List<TypeDependencyNode> children =
+                expandTree || expandRelationships
+                    ? ResolveChildren(
+                        dep.Name,
+                        typeIndex,
+                        treeSeen,
+                        relationshipSeen,
+                        activeDefinitions,
+                        relationships,
+                        expandTree,
+                        expandRelationships)
+                    : [];
+
+            if (!includeTree)
+                continue;
+
+            if (!expandTree)
             {
                 // Already shown at a shallower level — include as leaf
                 results.Add(new TypeDependencyNode(dep.Name, []));
                 continue;
             }
 
-            var children = ResolveChildren(
-                dep.Name,
-                typeIndex,
-                seen,
-                relationships);
             results.Add(new TypeDependencyNode(dep.Name, children));
         }
 
@@ -525,23 +557,40 @@ public static class TypeDependencyScanner
     private static List<TypeDependencyNode> ResolveChildren(
         string typeName,
         Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
-        HashSet<string> seen,
-        List<TypeDependencyRelationship> relationships)
+        HashSet<string> treeSeen,
+        HashSet<string> relationshipSeen,
+        HashSet<string> activeDefinitions,
+        List<TypeDependencyRelationship> relationships,
+        bool includeTree,
+        bool collectRelationships)
     {
         var normalizedName = FqnParser.NormalizeTypeName(typeName);
 
         var matchKey = ResolveTransitiveKey(typeIndex, normalizedName);
         if (matchKey == null)
             return [];
+        if (!activeDefinitions.Add(matchKey))
+            return [];
 
-        var match = typeIndex[matchKey];
-        return BuildNode(
-            typeName,
-            match.MdReader,
-            match.TypeDef,
-            typeIndex,
-            seen,
-            relationships);
+        try
+        {
+            var match = typeIndex[matchKey];
+            return BuildNode(
+                typeName,
+                match.MdReader,
+                match.TypeDef,
+                typeIndex,
+                treeSeen,
+                relationshipSeen,
+                activeDefinitions,
+                relationships,
+                includeTree,
+                collectRelationships);
+        }
+        finally
+        {
+            activeDefinitions.Remove(matchKey);
+        }
     }
 
     /// <summary>

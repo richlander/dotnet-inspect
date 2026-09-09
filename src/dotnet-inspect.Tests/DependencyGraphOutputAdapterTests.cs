@@ -128,6 +128,24 @@ public sealed class DependencyGraphOutputAdapterTests
     }
 
     [Fact]
+    public async Task RowWindow_MarksDetachedCycleAsFragment()
+    {
+        DependencyGraphDocument document = DetachedCycle();
+        IReadOnlyList<DependencyGraphEdgeRow> rows =
+            DependencyGraphOutputAdapter.EdgeRows(document)
+                .Skip(1)
+                .ToArray();
+
+        string tree = await RenderAsync(
+            document,
+            rows,
+            OutputFormat.PlainText);
+
+        Assert.Contains("(fragment) A", tree, StringComparison.Ordinal);
+        Assert.Contains("(revisit)", tree, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SourceAuthoredLabelsRemainInertAcrossSinks()
     {
         const string Hazard = "Shared\u202Ename";
@@ -340,6 +358,36 @@ public sealed class DependencyGraphOutputAdapterTests
             [new DependencyGraphRootOccurrence(1, 0)],
             nodes,
             edges);
+    }
+
+    private static DependencyGraphDocument DetachedCycle()
+    {
+        static InertString Label(string value) =>
+            new(TextPolicy.Field, value);
+
+        return new DependencyGraphDocument(
+            [new DependencyGraphRootOccurrence(1, 0)],
+            [
+                new(
+                    0,
+                    new DependencyGraphNodeIdentity.Package(
+                        "owner",
+                        "1.0.0"),
+                    Label("Owner")),
+                new(
+                    1,
+                    new DependencyGraphNodeIdentity.Package("a", "1.0.0"),
+                    Label("A")),
+                new(
+                    2,
+                    new DependencyGraphNodeIdentity.Package("b", "1.0.0"),
+                    Label("B")),
+            ],
+            [
+                Edge(0, 0, 1, 1),
+                Edge(1, 1, 2, 2),
+                Edge(2, 2, 1, 3),
+            ]);
     }
 
     private static DependencyGraphEdge Edge(

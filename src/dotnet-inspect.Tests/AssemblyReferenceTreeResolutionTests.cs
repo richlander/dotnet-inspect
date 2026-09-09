@@ -184,18 +184,27 @@ public class AssemblyReferenceTreeResolutionTests
                 new Version(2, 0, 0, 0),
                 target.Identity.Version);
 
-            DependencyGraphEdge edge = Assert.Single(
+            DependencyGraphDocument document =
                 DependencyGraphProjection.Library(
                     new LibraryDependencyGraphResult.Graph(
                         "Owner",
-                        graph))
-                    .Edges);
+                        graph));
+            DependencyGraphEdge edge = Assert.Single(document.Edges);
             var evidence = Assert.IsType<
                 DependencyGraphEvidenceIdentity.AssemblyReference>(
                     edge.EvidenceIdentity);
             Assert.Equal(
                 relationship.RequestedTarget,
                 evidence.Identity);
+            DependencyGraphEdgeRow row = Assert.Single(
+                DependencyGraphOutputAdapter.EdgeRows(document));
+            Assert.Equal(
+                "Sibling, Version=2.0.0.0, Culture=neutral, PublicKeyToken=null",
+                row.TargetIdentity);
+            Assert.Equal("Sibling 2.0.0.0", row.Target);
+            Assert.Equal(
+                "Sibling, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+                row.EvidenceIdentity);
         }
         finally
         {

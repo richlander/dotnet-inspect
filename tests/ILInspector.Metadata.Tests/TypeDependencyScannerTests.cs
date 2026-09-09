@@ -1,5 +1,6 @@
 using CSharpText;
 using ILInspector.Metadata;
+using ILInspector.Metadata.TypeDependencyFixtures;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -132,6 +133,35 @@ public class TypeDependencyScannerTests
                     static relationship => relationship.TargetTypeName,
                     StringComparer.OrdinalIgnoreCase),
             static incoming => incoming.Count() > 1);
+    }
+
+    [Fact]
+    public void Relationships_ExpandDistinctConstructedGenericTypes()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                typeof(TypeDependencyConstructedRoot).FullName!,
+                [typeof(TypeDependencyConstructedRoot).Assembly.Location]);
+
+        Assert.Equal(6, result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared<int>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase<T>",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared<string>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase<T>",
+                    StringComparison.Ordinal));
     }
 
     [Fact]

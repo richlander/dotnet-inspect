@@ -367,21 +367,8 @@ internal static class DependencyGraphOutputAdapter
         [
             .. document.Roots.Select(static root => root.NodeId),
         ];
-        HashSet<int> selectedTargetIds =
-        [
-            .. rows.Select(static row => row.TargetNodeId),
-        ];
         HashSet<int> fragmentNodeIds = markWindowedFragments
-            ?
-            [
-                .. rows
-                    .Select(static row => row.SourceNodeId)
-                    .Where(nodeId =>
-                        !rootNodeIds.Contains(nodeId)
-                        && !selectedTargetIds.Contains(nodeId)
-                        && document.Edges.Any(edge =>
-                            edge.TargetNodeId == nodeId)),
-            ]
+            ? WindowedFragmentNodeIds(document, rows, rootNodeIds)
             : [];
         bool labelRelationships =
             document.Edges.Select(static edge => edge.Relationship)
@@ -411,6 +398,87 @@ internal static class DependencyGraphOutputAdapter
                         : null,
                 }),
             ]);
+    }
+
+    private static HashSet<int> WindowedFragmentNodeIds(
+        DependencyGraphDocument document,
+        IReadOnlyList<DependencyGraphEdgeRow> rows,
+        HashSet<int> rootNodeIds)
+    {
+        HashSet<int> selectedEdgeIds =
+        [
+            .. rows.Select(static row => row.EdgeId),
+        ];
+        HashSet<int> selectedSourceIds =
+        [
+            .. rows.Select(static row => row.SourceNodeId),
+        ];
+        HashSet<int> selectedTargetIds =
+        [
+            .. rows.Select(static row => row.TargetNodeId),
+        ];
+        var adjacency = new Dictionary<int, HashSet<int>>();
+        foreach (DependencyGraphEdgeRow row in rows)
+        {
+            AddNeighbor(row.SourceNodeId, row.TargetNodeId);
+            AddNeighbor(row.TargetNodeId, row.SourceNodeId);
+        }
+
+        var fragments = new HashSet<int>();
+        var remaining = new HashSet<int>(adjacency.Keys);
+        while (remaining.Count > 0)
+        {
+            int start = remaining.First();
+            var component = new HashSet<int>();
+            var pending = new Stack<int>();
+            pending.Push(start);
+            while (pending.TryPop(out int current))
+            {
+                if (!remaining.Remove(current))
+                    continue;
+                component.Add(current);
+                foreach (int neighbor in adjacency[current])
+                    pending.Push(neighbor);
+            }
+
+            if (component.Overlaps(rootNodeIds))
+                continue;
+
+            int[] naturalRoots =
+            [
+                .. component.Where(nodeId =>
+                    selectedSourceIds.Contains(nodeId)
+                    && !selectedTargetIds.Contains(nodeId)
+                    && document.Edges.Any(edge =>
+                        edge.TargetNodeId == nodeId)),
+            ];
+            if (naturalRoots.Length > 0)
+            {
+                fragments.UnionWith(naturalRoots);
+                continue;
+            }
+
+            DependencyGraphEdge? omittedIncoming = document.Edges
+                .FirstOrDefault(edge =>
+                    component.Contains(edge.TargetNodeId)
+                    && !selectedEdgeIds.Contains(edge.Id));
+            fragments.Add(
+                omittedIncoming?.TargetNodeId
+                    ?? rows.First(row =>
+                        component.Contains(row.SourceNodeId)).SourceNodeId);
+        }
+
+        return fragments;
+
+        void AddNeighbor(int source, int target)
+        {
+            if (!adjacency.TryGetValue(source, out HashSet<int>? neighbors))
+            {
+                neighbors = [];
+                adjacency.Add(source, neighbors);
+            }
+            neighbors.Add(target);
+        }
     }
 
     private static string Key(int id) =>

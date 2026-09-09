@@ -197,9 +197,18 @@ internal static class DependencyGraphProjection
         var assembly = identity as ManagedMetadataIdentity.Assembly
             ?? throw new InvalidOperationException(
                 "Unknown managed metadata identity.");
-        string label = node is null
-            ? AssemblyIdentityFormatter.Format(assembly.Identity)
-            : LibraryInspectionView.ReferenceTreeText(node);
+        if (node is null)
+            return Field(AssemblyIdentityFormatter.Format(assembly.Identity));
+
+        string version = assembly.Identity.Version?.ToString() ?? "";
+        string label = !string.IsNullOrEmpty(node.Company)
+            ? $"{assembly.Identity.Name} {version} [{node.Company}]"
+            : $"{assembly.Identity.Name} {version}";
+        if (node.ResolutionFailure is { } failure)
+        {
+            label +=
+                $" ({failure.ToString().ToLowerInvariant()})";
+        }
         return Field(label);
     }
 
