@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
@@ -400,7 +400,7 @@ public sealed partial class InspectionWorkspace
         if (publication.Failures.Count > 0)
         {
             failure.Data[
-                "DotnetInspector.Artifacts.Workspaces.AdmissionFailures"] =
+                "Inspector.Artifacts.Workspaces.AdmissionFailures"] =
                 publication.Failures;
         }
 
@@ -445,11 +445,11 @@ public sealed partial class InspectionWorkspace
         if (failures.Count > 0)
         {
             if (primary.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]
+                    "Inspector.Artifacts.Workspaces.CleanupFailures"]
                 is IEnumerable<Exception> previous)
                 failures.InsertRange(0, previous);
             primary.Data[
-                "DotnetInspector.Artifacts.Workspaces.CleanupFailures"] =
+                "Inspector.Artifacts.Workspaces.CleanupFailures"] =
                 failures.AsReadOnly();
         }
     }

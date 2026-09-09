@@ -4,7 +4,7 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Emit;
 
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts.Workspaces;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -72,7 +72,7 @@ public sealed class SparsePackageAssemblyProjectionTests
             await ProjectAsync(workspace, binding, image.LongLength);
 
         var registration =
-            Assert.IsType<DotnetInspector.Artifacts.ArtifactAcquisitionRegistration>(
+            Assert.IsType<Inspector.Artifacts.ArtifactAcquisitionRegistration>(
                 realization.Participant.Assembly.Registration
                     .ArtifactRegistration);
         var provenance =

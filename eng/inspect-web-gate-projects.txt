@@ -1,8 +1,8 @@
 src/CSharpText
 src/CSharpText.MemberSlicing
-src/DotnetInspector.Artifacts
-src/DotnetInspector.Artifacts.Local
-src/DotnetInspector.Artifacts.Workspaces
+src/Inspector.Artifacts
+src/Inspector.Artifacts.Local
+src/Inspector.Artifacts.Workspaces
 src/DotnetInspector.Core
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.PackageQueries

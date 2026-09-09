@@ -98,9 +98,7 @@ function renderAnalysisFacts(state: MemberFactsRenderState): string {
     ${renderSafetyFacts(facts.safety)}
     ${renderExceptionRegions(facts.exceptionRegions)}
     ${renderPerformanceOpportunities(facts.performanceOpportunities)}
-    ${facts.diagnostics.length
-      ? `<section class="document-section fact-group"><div class="section-title"><h2>Analysis diagnostics</h2><span>${facts.diagnostics.length}</span></div><ul>${facts.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul></section>`
-      : ""}`;
+    ${renderAnalysisDiagnostics(facts.diagnostics)}`;
 }
 
 function renderFindingFacts(state: MemberFactsRenderState): string {
@@ -289,6 +287,21 @@ function renderPerformanceOpportunities(
           </div>
         </li>`).join("")}</ol>`
       : '<p class="performance-empty">No curated performance opportunities were found for this method.</p>'}
+  </section>`;
+}
+
+function renderAnalysisDiagnostics(
+  diagnostics: MemberFacts["diagnostics"],
+) {
+  if (!diagnostics.length) return "";
+  return `<section class="analysis-diagnostics" aria-labelledby="analysis-diagnostics-title">
+    <header><h2 id="analysis-diagnostics-title">Analysis diagnostics</h2><span>${diagnostics.length} ${diagnostics.length === 1 ? "diagnostic" : "diagnostics"}</span></header>
+    <p class="analysis-diagnostics-context">Some method analysis could not complete. Available evidence remains shown above.</p>
+    <ol class="analysis-diagnostic-rows">${diagnostics.map((diagnostic, index) => `
+      <li class="analysis-diagnostic-row">
+        <span class="analysis-diagnostic-label">Diagnostic ${index + 1}</span>
+        <code class="analysis-diagnostic-value">${escapeHtml(diagnostic)}</code>
+      </li>`).join("")}</ol>
   </section>`;
 }
 

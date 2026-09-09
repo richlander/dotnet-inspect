@@ -95,7 +95,7 @@ internal static class ChangePlanTestSuite
                 "code"),
             ("tests/ILInspector.MetadataPrimitives.PlatformProbe/P.cs",
                 "code,web"),
-            ("tests/DotnetInspector.Artifacts.Local.PlatformProbe/P.cs",
+            ("tests/Inspector.Artifacts.Local.PlatformProbe/P.cs",
                 "code,web"),
             ("fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/F.ts",
                 "code,web"),
