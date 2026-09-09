@@ -22,6 +22,14 @@ handoff tracked by
 slice. The logical Workspace Scope contract is the upper slice in
 [#5701](https://github.com/richlander/dotnet-inspect/pull/5701).
 
+Fresh Workspace construction and switching, tracked by
+[#6189](https://github.com/richlander/dotnet-inspect/issues/6189), deliberately
+adds no private Artifact candidate. Definitions constructs a new Workspace,
+populates and inspects it through ordinary owner APIs while the active
+Workspace remains usable, and returns it for one host-owned switch or
+close. Artifact Acquisition owns each Workspace independently; another
+Workspace or Workspace definition does not participate in its construction.
+
 See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
 [assembly-inspection-query.md](assembly-inspection-query.md) for the
@@ -122,12 +130,19 @@ package dependency closure.
 | `ArtifactSetSession` | One sealed artifact generation admitted to a workspace | child acquisition leases and artifact handles | source-specific resolution or assembly binding |
 | Root scope projection | Resource-free facts about one admitted or replacing Root | logical correspondence, current-generation freshness, typed realization status | logical membership, Root order, scope policy, or physical access authority |
 | Root preparation receipt | One complete provisional physical Root batch | prepared resources, candidate correspondence, budget reservation, one-shot publication or release | logical membership, order, expansion policy, Navigation, or portable state |
-| Inspection Workspace runtime | Physical inspection composition | runtime identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Root membership, dependency-expansion eligibility, or scope-operation policy |
-| Workspace scope | One committed logical inspection scope | [Root membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or runtime lifetime |
+| Workspace | One live physical inspection composition | process-local identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Root membership, dependency-expansion eligibility, or scope-operation policy |
+| Workspace scope | One committed logical inspection scope | [Root membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or Workspace lifetime |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
 | Assembly inspection session | One opened PE inspection lifetime | [reader/image lifetime and session-scoped operations](assembly-image-lifetime.md) | artifact acquisition |
 | Inspection producer | Computes one family of facts | metadata, IL, source, or comparison evidence | source discovery |
+
+A **Workspace** is the live physical inspection composition: its artifact
+sessions, assembly contexts, query infrastructure, admission budgets, and
+`Open`/`Closing`/`Closed` lifecycle. A Workspace definition, saved Workspace,
+URL, or history entry is portable data used to construct a Workspace; it
+carries none of the Workspace's process-local identity, resources, or
+admission state.
 
 An artifact is broader than an assembly. An artifact set may contain assemblies,
 portable PDBs, XML documentation, manifests, source archives, or other content.
@@ -616,7 +631,7 @@ transfers directly to cleanup, after which the call throws
 A late `Unavailable`, `Rejected`, or `Failed` outcome has no lease to clean and
 cannot be returned through seal after disposal. The call therefore attaches
 the exact `ArtifactSetAdmissionFailure` to the `ObjectDisposedException` under
-`DotnetInspector.Artifacts.Workspaces.AdmissionFailures`; it must not discard
+`Inspector.Artifacts.Workspaces.AdmissionFailures`; it must not discard
 the adapter's kind or diagnostic. Previously accepted supplemental leases
 remain governed by the session's ordinary retained-lease lifetime.
 
@@ -1591,7 +1606,7 @@ dependencies. The explicit-file implementation exists; the directory contract
 below is target design tracked by
 [#4999](https://github.com/richlander/dotnet-inspect/issues/4999).
 
-Before registration, `DotnetInspector.Artifacts.Local` opens an explicit file
+Before registration, `Inspector.Artifacts.Local` opens an explicit file
 once, copies it under a loop-enforced byte limit, and records path, exact copied
 length, and last-write observation from that handle as typed local provenance.
 The artifact session then copies the adapter-private snapshot into
@@ -1607,7 +1622,7 @@ separate authorized query over those retained bytes.
 
 #### Shared local-path admission
 
-`DotnetInspector.Artifacts.Local` owns one package-free admission contract for
+`Inspector.Artifacts.Local` owns one package-free admission contract for
 every path coordinate it consumes. The contract is internal to the local
 adapter; it does not add filesystem policy to source-neutral artifact
 contracts. It has two stages over one classifier:
@@ -3243,10 +3258,65 @@ occurrence identity or order, Add/Replace/Remove/Clear, dependency-expansion
 eligibility, closure evidence, Navigation focus, browser history, packet
 schema, source authorization, or a new preparation/adoption transaction.
 
+### Scoped execution over a committed package Root
+
+Issue [#6168](https://github.com/richlander/dotnet-inspect/issues/6168) exposes
+`InspectionWorkspace.ExecutePackageRootQueryAsync` for ordinary consumers of
+the existing Package producer. This owner makes one claim:
+
+> A consumer may execute against one exact committed package Root generation
+> while the Workspace holds its existing query lease for the complete awaited
+> operation.
+
+The operation consumes the existing package correspondence, generation
+freshness precondition, and optional expected surface binding-policy version.
+The receiving Workspace's ordinary admission gate remains authoritative:
+generation mismatch precedes policy mismatch, closing/closed outcomes remain
+distinct, and a rejected admission does not invoke the consumer. No acquisition
+or new realization is requested by this operation.
+
+The consumer borrows the existing `PackageAssemblyContextRealization` only
+during its callback. It may choose the appropriate existing role and run
+ordinary typed group queries; it neither disposes nor retains the realization
+or groups as a Workspace handle. Returned values are materialized query
+results, not borrowed resource access. Root-only and explicit-empty packages
+still admit a callback with no assembly contexts. The query owner decides the
+meaning of that disposition; this boundary does not substitute an empty group
+or conflate it with an unavailable Root.
+
+Removal or replacement stops new admission without retracting an admitted
+callback's lease. Existing group-close semantics still apply: retaining a
+Root lease is not permission to start new group work after Workspace close
+begins. Close waits for the callback to return or fail before releasing its
+Root resources. Consumer exceptions propagate unchanged; cancellation can
+interrupt admission and is passed through for cooperative use during the
+callback. Cancellation after a successful callback does not retroactively
+discard its result.
+
+This scoped borrowing follows the existing guarded-content callback and
+group-query conventions. It adds no query-selection policy, Workspace-wide
+snapshot transaction, population union, or alternative lease protocol.
+
+The Release gate is `WorkspaceRootQueryTests`, including an ordinary
+non-friend consumer in `tests/DotnetInspector.Queries.Consumer`. Its cases
+cover real committed package queries and provenance, shared/separate roles,
+no-assembly dispositions, admission rejection, callback failure and
+cancellation, and removal/close while a callback is admitted. The existing
+`ArtifactRootPublicationTests` and `WorkspaceScopeTests` remain the adjacent
+owner regression gates.
+
+The immediate production consumer is the four-command configured-Workspace
+search adoption in [#6170](https://github.com/richlander/dotnet-inspect/issues/6170).
+Parent [#6167](https://github.com/richlander/dotnet-inspect/issues/6167) counts
+four delivery milestones, including the separate dependency query and
+Browser/Wasm adoption. This access slice supplies the shared prerequisite;
+its consumer harness does not complete CLI or Browser production adoption.
+Ordinary source-option acquisition remains unchanged.
+
 ### Artifact Root preparation and scope publication
 
 Artifact Acquisition owns one focused handoff from provisional physical Root
-preparation to current runtime Workspace composition:
+preparation to current Workspace composition:
 
 ```text
 ArtifactRootPreparationReceipt
@@ -3394,7 +3464,7 @@ The participant exposes two owner-defined steps:
    not acquire, allocate, call a source, wait, yield, invoke user code, render,
    or perform another validation.
 
-The runtime Workspace composition gate is one asynchronous exclusion boundary
+The Workspace composition gate is one asynchronous exclusion boundary
 shared by Root publication, scope current-state publication, and new artifact
 query entry. Owner-internal current Root retirement and replacement publication
 also observe this gate and advance the physical-composition identity. Waiting
@@ -3410,7 +3480,7 @@ Browser/Wasm. The final commit region is synchronous and non-yielding.
    every listed receipt exactly once, is malformed. Rejection leaves every
    matching `Prepared` receipt and the unused participant under caller
    ownership.
-2. Enter the exact runtime Workspace composition gate. Revalidate that the
+2. Enter the exact Workspace composition gate. Revalidate that the
    plan still applies in this order: listed receipt states in plan order, the
    open Workspace, cancellation and deadline, expected composition generation,
    every retained generation reference, then admission budgets for the complete
@@ -3599,35 +3669,128 @@ membership or order, expansion policy, closure, Navigation focus, browser
 effects, portable schema, arbitrary transaction participants, durable recovery,
 or a second query-access protocol.
 
-### Runtime Workspace identity
+#### Fresh Workspace construction and switching
 
-`InspectionWorkspace` owns one opaque `InspectionWorkspaceIdentity` for its
-exact runtime instance. The identity is stable for that instance and differs
+##### Problem and strategy
+
+A saved definition describes one Workspace with `Newtonsoft.Json` and
+`Humanizer.Core` as explicit package Roots and a member from `Humanizer.dll`
+selected. Opening that definition constructs exactly that Workspace. The
+new Workspace is constructed solely from that definition; no other Workspace
+or Workspace definition participates. Once construction succeeds, the host
+makes the new Workspace active and Navigation makes `Humanizer.Core` active in
+the subject strip for the selected member. If another Workspace was active,
+the host has switched from it; otherwise this is initial activation. Failure
+retains the prior host state, including the absence of an active Workspace.
+
+Restoration constructs the new Workspace with a fresh
+`InspectionWorkspaceIdentity` and uses the ordinary Artifact, Scope,
+Navigation, and query paths inside it:
+
+1. create one fresh Workspace under the restoration attempt's cancellation and
+   deadline;
+2. resolve and publish the complete requested multi-package Root set into that
+   Workspace through ordinary Scope and Artifact publication;
+3. establish the requested subject focus and validate any saved view or query
+   state using ordinary operations in the new Workspace;
+4. return the complete new Workspace for one current-authority switch; or
+5. close it on every failure, refusal, cancellation, expiry, or supersession
+   path.
+
+The retained host owns a collection of published Workspaces and one nullable
+active-Workspace pointer. Successful activation is a VIP-style switch: publish
+the new Workspace into that collection and point the active identity to it in
+one non-yielding action. Any previously active Workspace remains published,
+open, viewable through the Workspace subject, and available for a later switch
+back. Construction completes before this publication and does not consult the
+retained collection.
+
+##### Ordinary Workspace construction
+
+The new Workspace is ordinary. It owns its Roots, occurrence identities,
+artifact sessions, context groups, query leases, budget reservations,
+Navigation session, and mutable owner state under the existing Workspace
+contract. Its published Roots use the ordinary current-query path. Artifact
+Acquisition needs no candidate identity, candidate-specific query admission,
+retained-current Root borrowing, `CandidateOwned` receipt state, or
+complete-restoration publication adapter. Ordinary Root
+preparation/publication and Workspace close remain sufficient. Shared immutable
+storage and package caches remain ordinary implementation details.
+
+Platform/package pruning runs before exact package Root construction. For
+example, `NETStandard.Library@2.0.3` contributes no package Root when the
+registered Platform target subsumes it; its selected API resolves through the
+Platform reference surface and type forwarders. `Humanizer.Core` survives
+pruning and becomes one ordinary Root in the fresh multi-package Workspace.
+
+##### Ownership and bounded coexistence
+
+Definitions owns the complete new-Workspace value and restoration result.
+Artifact Acquisition owns construction, ordinary operation, close, and
+resource drainage for each Workspace. The retained host owns the published
+Workspace collection and nullable active identity, and changes them only under
+current owner-issued effect authority. The CLI creates one ephemeral Workspace
+for one invocation and needs no retained collection.
+
+A retained host admits at most one unpublished new Workspace at a time. A newer
+restoration supersedes and closes the older attempt's Workspace before
+beginning another. The product exposes at most one active Workspace; the
+published collection may contain multiple inactive Workspaces. An unpublished
+Workspace is not selectable, rendered, placed in history, or available to
+ordinary host actions.
+
+Browser/Wasm adoption must define and gate a host-level construction admission
+and retained-Workspace capacity policy. Published Workspaces remain live until
+the user deletes them; deleting a Workspace removes it from the host collection
+and closes it under the ordinary Artifact lifecycle. Per-Workspace budgets do
+not bound the aggregate retained set. This document makes no process-wide
+peak-memory safety claim.
+
+The required integration evidence is limited to:
+
+- a failed or superseded restoration closes the new Workspace and leaves the
+  published collection and active pointer unchanged;
+- a successful restoration publishes the exact prepared Workspace once and
+  points the active identity to it;
+- switching back selects an already-published Workspace without reconstructing
+  it;
+- deleting a published Workspace is the operation that removes and closes it;
+- at most one unpublished new Workspace is admitted; and
+- the adopting host enforces its declared retained-Workspace resource policy.
+
+These claims remain **unverified**. They require the Definitions and retained
+host designs before implementation; they do not extend the ordinary Artifact
+Root publication model or require a restoration-candidate TLA+ model.
+
+### Workspace identity
+
+Artifact Acquisition issues one opaque `InspectionWorkspaceIdentity` when it
+creates a Workspace. The identity remains stable for that Workspace and differs
 from every replacement or independently opened Workspace, even when both were
 activated from equal portable
 `WorkspaceContextAddress` values. Definition IDs, context names, URLs, cache
-keys, and display text do not participate in runtime identity.
+keys, and display text do not participate in Workspace identity.
 
 While its state is `Open`, the Workspace supplies live operation authority to
 the [Workspace Scope and Expansion](workspace-scope-and-expansion.md) owner.
 That owner may issue Workspace-bound occurrence identities only while the
 authority remains valid. Synchronous `Dispose()` and asynchronous
 `CloseAsync()` stop new scope-operation authority in the same critical section
-that changes the runtime state to `Closing`. Existing identities remain
+that changes the Workspace state to `Closing`. Existing identities remain
 comparable after close, but neither identity nor equality authorizes later
 scope operations, package-content access, or query entry.
 
-The runtime identity currency is:
+The Workspace identity currency is:
 
 | Property | Contract |
 | --- | --- |
-| Authority | Issued once by the exact `InspectionWorkspace` instance |
-| Scope | One runtime Workspace occurrence |
+| Authority | Issued once when Artifact Acquisition creates the Workspace |
+| Scope | One Workspace |
 | Lifetime | Equality remains meaningful after close; operations still require a live owner |
 | Portability | Process-local and never serialized |
 | Erasure | Carries no definition, context, inventory, membership, or presentation facts |
 | Rebinding | No value can reconstruct or rebind it in another Workspace |
-| Correspondence | Reference equality proves the same runtime Workspace |
+| Correspondence | Reference equality proves the same Workspace |
 
 The current `PackageRootOccurrenceBinding`,
 `NonPackageRootOccurrenceIdentity`, and
@@ -3644,7 +3807,7 @@ package content, contexts, sessions, leases, or access authority. The scope
 owner separately composes its typed resource-free Root descriptor from the
 exact coordinate-owner facts returned by the source composition.
 
-The runtime-identity and close gates remain
+The identity and close gates remain
 `WorkspaceIdentity_IsStableAndExactPerInstance`,
 `SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity`, and
 `AsynchronousClose_StopsOccurrenceIssuanceImmediately`. Existing
@@ -3664,7 +3827,7 @@ open and the action belongs to that view. A foreign-view action returns
 `ViewMismatch`; an action whose Workspace has closed returns
 `WorkspaceClosed`.
 
-The action and both runtime identities remain process-local. Browser/Wasm
+The action and its Workspace and view identities remain process-local. Browser/Wasm
 lowers an action to an opaque random transport token and resolves that token
 back to the product action before selecting or projecting a package. The CLI
 lowers the same ordered descriptors through Markout. Neither host derives
@@ -3681,8 +3844,8 @@ package acquisition is not yet a supported CLI input.
 
 ### Workspace composition and query execution
 
-The Workspace runtime owns one or more artifact set sessions and one or more
-assembly context groups. Its
+The Workspace owns one or more artifact set sessions and one or more assembly
+context groups. Its
 [logical scope owner](workspace-scope-and-expansion.md) decides which exact
 Root composition a candidate revision requests. When an authorized query plan
 first demands a context, the
@@ -3752,9 +3915,9 @@ full host --> core Queries + selected optional adapters/companions
 local host --> core Queries + local adapter
 ```
 
-`DotnetInspector.Artifacts` owns the source-neutral contract floor,
-`DotnetInspector.Artifacts.Workspaces` owns artifact-session composition, and
-`DotnetInspector.Artifacts.Local` owns explicit local-file acquisition. The
+`Inspector.Artifacts` owns the source-neutral contract floor,
+`Inspector.Artifacts.Workspaces` owns artifact-session composition, and
+`Inspector.Artifacts.Local` owns explicit local-file acquisition. The
 remaining adapter and companion project names are deferred, but the split must
 produce these compile-time properties:
 
@@ -3848,10 +4011,10 @@ The migration is intentionally incremental:
    guarded content access, provenance marker, acquisition registration and
    outcome, admission/query authorization, quiescent lifetime, and lease
    contracts in a package- and Metadata-free project. Implemented by
-   `DotnetInspector.Artifacts`; no existing acquisition path consumes the new
+   `Inspector.Artifacts`; no existing acquisition path consumes the new
    contracts yet.
 3. **Prove local acquisition.** Explicit local files now enter
-   `DotnetInspector.Artifacts.Local`, freeze before registration, publish through
+   `Inspector.Artifacts.Local`, freeze before registration, publish through
    `ArtifactSetSession`, and feed the package-free Metadata fixture through a
    current query lease. Explicit caller designation is assigned by workspace
    admission as a role rather than local provenance. Metadata trust does not yet

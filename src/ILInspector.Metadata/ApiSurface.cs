@@ -4,7 +4,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Text.Json.Serialization;
 using CSharpText;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Metadata;
 

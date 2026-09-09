@@ -534,16 +534,39 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.BrowserGalleryDiscoveryCatalog);
 
     [JSExport]
-    public static void CancelPackageQuery() =>
-        BrowserPackageQueryOperationCoordinator.CancelCurrent();
+    public static string CancelPackageQuery(
+        string operationId,
+        string reason)
+    {
+        BrowserPackageQueryCancellation result =
+            BrowserPackageQueryCancellation.From(
+                BrowserPackageQueryOperationCoordinator.RequestCancellation(
+                    BrowserManagedOperationId.From(operationId),
+                    BrowserManagedOperationCancelReasons.Parse(reason)));
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageQueryCancellation);
+    }
 
     [JSExport]
-    public static bool RequestPackageQueryMatches(int additionalMatchCredit) =>
-        BrowserPackageQueryOperationCoordinator.RequestCurrentMatches(
-            additionalMatchCredit);
+    public static string RequestPackageQueryMatches(
+        string operationId,
+        int additionalMatchCredit)
+    {
+        BrowserPackageQueryMatchCreditResponse result =
+            BrowserPackageQueryMatchCreditResponse.From(
+                BrowserPackageQueryOperationCoordinator.RequestMatches(
+                    BrowserManagedOperationId.From(operationId),
+                    additionalMatchCredit));
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default
+                .BrowserPackageQueryMatchCreditResponse);
+    }
 
     [JSExport]
     public static async Task<string> RunPackageAssemblyQuery(
+        string operationId,
         string patternId,
         string operand,
         string packageCoordinatesJson,
@@ -557,18 +580,32 @@ public static partial class PackageExports
             ?? throw new ArgumentException("Exact package coordinates are required.", nameof(packageCoordinatesJson));
         PackageAssemblyQueryPlan plan = PackageAssemblyQuery.Plan(
             patternId, operand, coordinates, targetFramework);
-        using BrowserPackageQueryOperationLease operation =
-            await BrowserPackageQueryOperationCoordinator.BeginAsync(initialMatchCredit);
-        BrowserPackageQueryEvent completed = await BrowserPackageWorkspace.RunPackageOperationAsync(
-            deadline => BrowserPackageQueryOperations.ExecuteAssemblyAsync(
-                plan, operation.MatchCredit,
+        BrowserManagedOperationResult<
+            BrowserPackageQueryEvent,
+            string,
+            string> result =
+            await BrowserPackageQueryOperationCoordinator.RunAsync<
+                BrowserPackageQueryEvent,
+                BrowserPackageQueryEvent>(
+                BrowserManagedOperationId.From(operationId),
+                initialMatchCredit,
                 queryEvent => eventSink.SetProperty(
-                    "event", BrowserPackageQueryOperations.Serialize(queryEvent)),
-                deadline.Token, deadline),
-            BrowserPackageWorkspace.PackageOperationTimeout,
-            operation.CancellationToken);
+                    "event",
+                    BrowserPackageQueryOperations.Serialize(queryEvent)),
+                (matchCredit, events, token) =>
+                    BrowserPackageWorkspace.RunPackageOperationAsync(
+                        deadline =>
+                            BrowserPackageQueryOperations.ExecuteAssemblyAsync(
+                                plan,
+                                matchCredit,
+                                events.Report,
+                                deadline.Token,
+                                deadline),
+                        BrowserPackageWorkspace.PackageOperationTimeout,
+                        token));
         return JsonSerializer.Serialize(
-            completed, BrowserPackageJsonContext.Default.BrowserPackageQueryEvent);
+            BrowserPackageQueryResult.From(result),
+            BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
     }
 
     [JSExport]
@@ -593,6 +630,7 @@ public static partial class PackageExports
 
     [JSExport]
     public static async Task<string> RunPackageQuery(
+        string operationId,
         string prefix,
         string facetIdsJson,
         int maximumCandidates,
@@ -609,37 +647,44 @@ public static partial class PackageExports
             facetIdsJson,
             BrowserPackageJsonContext.Default.StringArray) ?? [];
 
-        using BrowserPackageQueryOperationLease operation =
-            await BrowserPackageQueryOperationCoordinator.BeginAsync(
-                initialMatchCredit);
-        BrowserPackageQueryEvent completed =
-            await BrowserPackageWorkspace.RunPackageOperationAsync(
-            async deadline =>
-            {
-                var contentProvider =
-                    new BrowserPackageQueryContentProvider(deadline);
-                return await BrowserPackageQueryOperations.ExecuteAsync(
-                    prefix,
-                    facetIds,
-                    maximumCandidates,
-                    maximumMatches,
-                    includePrerelease,
-                    contentProvider,
-                    operation.MatchCredit,
-                    queryEvent => eventSink.SetProperty(
-                        "event",
-                        BrowserPackageQueryOperations.Serialize(queryEvent)),
-                    deadline.Token,
-                    deadline,
-                    packageType,
-                    sourceOrderId,
-                    discovery);
-            },
-            BrowserPackageWorkspace.PackageOperationTimeout,
-            operation.CancellationToken);
+        BrowserManagedOperationResult<
+            BrowserPackageQueryEvent,
+            string,
+            string> result =
+            await BrowserPackageQueryOperationCoordinator.RunAsync<
+                BrowserPackageQueryEvent,
+                BrowserPackageQueryEvent>(
+                BrowserManagedOperationId.From(operationId),
+                initialMatchCredit,
+                queryEvent => eventSink.SetProperty(
+                    "event",
+                    BrowserPackageQueryOperations.Serialize(queryEvent)),
+                async (matchCredit, events, token) =>
+                    await BrowserPackageWorkspace.RunPackageOperationAsync(
+                        async deadline =>
+                        {
+                            var contentProvider =
+                                new BrowserPackageQueryContentProvider(deadline);
+                            return await BrowserPackageQueryOperations.ExecuteAsync(
+                                prefix,
+                                facetIds,
+                                maximumCandidates,
+                                maximumMatches,
+                                includePrerelease,
+                                contentProvider,
+                                matchCredit,
+                                events.Report,
+                                deadline.Token,
+                                deadline,
+                                packageType,
+                                sourceOrderId,
+                                discovery);
+                        },
+                        BrowserPackageWorkspace.PackageOperationTimeout,
+                        token));
         return JsonSerializer.Serialize(
-            completed,
-            BrowserPackageJsonContext.Default.BrowserPackageQueryEvent);
+            BrowserPackageQueryResult.From(result),
+            BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
     }
 }
 

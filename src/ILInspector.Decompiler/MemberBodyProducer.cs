@@ -9,7 +9,7 @@ using ILInspector.CSharp;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Decompiler;
 

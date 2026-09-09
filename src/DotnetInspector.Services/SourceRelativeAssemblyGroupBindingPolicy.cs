@@ -17,6 +17,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         AssemblyRoute> _routes;
     readonly ImmutableArray<IAssemblyBindingPolicy> _delegates;
     readonly bool _composeParticipantSelections;
+    readonly bool _restrictToParticipants;
     BindingPolicyState _state;
 
     public SourceRelativeAssemblyGroupBindingPolicy(
@@ -38,14 +39,41 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             IAssemblyBindingPolicy Policy)> participants) =>
         new(participants, composeParticipantSelections: false);
 
+    /// <summary>
+    /// Composes acquisition-free participant policies over an exact retained
+    /// assembly group, preserving source-relative selection and lineage.
+    /// </summary>
+    /// <remarks>
+    /// Construction does not select through a participant policy. All supplied
+    /// descriptors must be backed by retained images. Selected, ambiguous, and
+    /// shadow descriptors are replaced by their canonical group registrations;
+    /// any out-of-group candidate makes the answer unavailable without opening
+    /// it. Ordinary acquisition-capable policies cannot supply this capability.
+    /// </remarks>
+    public static IAcquisitionFreeAssemblyBindingPolicy CreateClosedWorld(
+        IEnumerable<(
+            ResolvedAssemblyReference Assembly,
+            IAcquisitionFreeAssemblyBindingPolicy Policy)> participants)
+    {
+        ArgumentNullException.ThrowIfNull(participants);
+        return new ClosedWorldBindingPolicy(
+            new SourceRelativeAssemblyGroupBindingPolicy(
+                participants.Select(participant =>
+                    (participant.Assembly, (IAssemblyBindingPolicy)participant.Policy)),
+                composeParticipantSelections: true,
+                restrictToParticipants: true));
+    }
+
     SourceRelativeAssemblyGroupBindingPolicy(
         IEnumerable<(
             ResolvedAssemblyReference Assembly,
             IAssemblyBindingPolicy Policy)> participants,
-        bool composeParticipantSelections)
+        bool composeParticipantSelections,
+        bool restrictToParticipants = false)
     {
         ArgumentNullException.ThrowIfNull(participants);
         _composeParticipantSelections = composeParticipantSelections;
+        _restrictToParticipants = restrictToParticipants;
         var roots = ImmutableArray.CreateBuilder<
             ResolvedAssemblyReference>();
         var routes = ImmutableDictionary.CreateBuilder<
@@ -92,14 +120,51 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         BindingPolicyState state = CurrentState();
         try
         {
+            AssemblyBindingSelection selection = Select(state, request);
             return new AssemblyBindingSelectionSnapshot(
                 state.Version,
-                Select(state, request));
+                _restrictToParticipants
+                    ? RestrictSelection(selection)
+                    : selection);
         }
         catch (ForeignSnapshotException foreign)
         {
             return foreign.Snapshot;
         }
+    }
+
+    AssemblyBindingSelection RestrictSelection(AssemblyBindingSelection selection)
+    {
+        switch (selection)
+        {
+            case AssemblyBindingSelection.Selected selected:
+                if (!_routes.ContainsKey(selected.Assembly.Registration)
+                    || selected.ShadowedAssemblies.Any(assembly =>
+                        !_routes.ContainsKey(assembly.Registration)))
+                {
+                    return OutsideGroup();
+                }
+                return AssemblyBindingSelection.FoundOccurrence(
+                    selected.Occurrence,
+                    [.. selected.ShadowedAssemblies.Select(assembly =>
+                        _routes[assembly.Registration].Assembly)]);
+            case AssemblyBindingSelection.Ambiguous ambiguous:
+                if (ambiguous.Assemblies.Any(assembly =>
+                    !_routes.ContainsKey(assembly.Registration)))
+                {
+                    return OutsideGroup();
+                }
+                return AssemblyBindingSelection.Multiple(
+                    [.. ambiguous.Assemblies.Select(assembly =>
+                        _routes[assembly.Registration].Assembly)]);
+            default:
+                return selection;
+        }
+
+        static AssemblyBindingSelection OutsideGroup() =>
+            AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable));
     }
 
     AssemblyBindingSelection Select(
@@ -459,7 +524,9 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
     {
         AssemblyBindingSelection selection =
             IntrinsicCoreLibraryBinding.Select(
-                requesting.Assembly,
+                _restrictToParticipants
+                    ? _routes[requesting.Registration].Assembly
+                    : requesting.Assembly,
                 facade => Select(
                     state,
                     new AssemblyBindingRequest(
@@ -507,18 +574,34 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 null);
         }
 
+        if (_restrictToParticipants
+            && !_routes.ContainsKey(requesting.Registration))
+        {
+            return null;
+        }
+
         if (requesting.Lineage is null
             || requesting.Lineage == AssemblyBindingLineage.Seed)
         {
             AssemblyRoute route = _routes.GetValueOrDefault(
                     requesting.Registration)
                 ?? DefaultRoute;
+            AssemblyBindingOccurrence occurrence = requesting.Occurrence
+                ?? AssemblyBindingOccurrence.Seed(requesting.Assembly);
+            if (_restrictToParticipants)
+            {
+                occurrence = AssemblyBindingOccurrence.Seed(route.Assembly);
+                request = new AssemblyBindingRequest(
+                    request.Target,
+                    requesting.Occurrence is null
+                        ? AssemblyBindingOrigin.FromAssembly(route.Assembly)
+                        : AssemblyBindingOrigin.FromOccurrence(occurrence),
+                    request.Scope);
+            }
             return new RoutedRequest(
                 state.DelegateFor(route.Policy),
                 request,
-                requesting.Occurrence
-                    ?? AssemblyBindingOccurrence.Seed(
-                        requesting.Assembly));
+                occurrence);
         }
 
         if (requesting.Lineage
@@ -559,6 +642,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         }
 
         DelegateCapture bindingDelegate = route.Delegate;
+        ResolvedAssemblyReference assembly = selected.Assembly;
         AssemblyBindingOccurrence delegatedOccurrence =
             selected.Occurrence;
         if (_routes.TryGetValue(
@@ -569,6 +653,8 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 canonicalRoute.Policy);
             delegatedOccurrence = AssemblyBindingOccurrence.Seed(
                 canonicalRoute.Assembly);
+            if (_restrictToParticipants)
+                assembly = canonicalRoute.Assembly;
         }
 
         var lineage = new SourceRelativeBindingLineage(
@@ -577,8 +663,18 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             bindingDelegate,
             delegatedOccurrence);
         return AssemblyBindingSelection.FoundOccurrence(
-            lineage.Issue(selected.Assembly),
+            lineage.Issue(assembly),
             selected.ShadowedAssemblies);
+    }
+
+    sealed class ClosedWorldBindingPolicy(
+        SourceRelativeAssemblyGroupBindingPolicy inner)
+        : IAcquisitionFreeAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version => inner.Version;
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) => inner.Select(request);
     }
 
     BindingPolicyState CurrentState()

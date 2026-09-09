@@ -1621,6 +1621,15 @@ public class SourceForwarderResolutionTests
             Assert.Equal("Target", supplier.Identity.Name);
             if (sourceKind == SourceKind.Library)
                 Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(supplier.Provenance);
+            SelectedTypeBindingContext? bindingContext =
+                loaded.TryGetBindingContext(type);
+            Assert.Equal(summaryOnly, bindingContext is null);
+            if (bindingContext is not null)
+            {
+                Assert.Same(
+                    supplier.Registration,
+                    bindingContext.Occurrence.Assembly.Registration);
+            }
         }
         finally
         {

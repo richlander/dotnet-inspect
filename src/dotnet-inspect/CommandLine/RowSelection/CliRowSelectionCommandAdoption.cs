@@ -131,6 +131,15 @@ internal static class CliRowSelectionCommandRegistry
                 adoption!.Bindings,
                 adoption.Capabilities);
 
+        if (!adoption.IsActive(result.ParseResult))
+        {
+            return CliRowSelectionPreparation.Inactive(
+                result.ParseResult) with
+            {
+                Arguments = result.Arguments
+            };
+        }
+
         return PrepareLowering(result, adoption) with
         {
             Arguments = result.Arguments,
@@ -189,7 +198,7 @@ internal static class CliRowSelectionCommandRegistry
         out CliRowSelectionLowering<string>? lowering) =>
         Lowerings.TryGetValue(parseResult, out lowering);
 
-    private static bool TryGetActiveAdoption(
+    public static bool TryGetActiveAdoption(
         ParseResult parseResult,
         out CliRowSelectionCommandAdoption? adoption)
     {
@@ -213,7 +222,7 @@ internal static class CliRowSelectionCommandRegistry
         return commandResult.Command;
     }
 
-    private static string FormatArgumentFailure(
+    public static string FormatArgumentFailure(
         CliRowSelectionArgumentFailure failure) =>
         failure.Reason switch
         {
@@ -224,7 +233,7 @@ internal static class CliRowSelectionCommandRegistry
             _ => "The row-selection arguments are invalid."
         };
 
-    private static string FormatLoweringFailure(
+    public static string FormatLoweringFailure(
         CliRowSelectionFailure failure) =>
         failure.Reason switch
         {
@@ -247,7 +256,7 @@ internal static class CliRowSelectionCommandRegistry
             _ => "The row-selection arguments are invalid."
         };
 
-    private static string OptionName(
+    public static string OptionName(
         CliRowSelectionOccurrenceKind kind) =>
         kind switch
         {

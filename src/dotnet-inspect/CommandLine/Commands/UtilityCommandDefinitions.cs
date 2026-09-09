@@ -2,6 +2,7 @@ using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.CommandLine;
@@ -178,6 +179,28 @@ public static class UtilityCommandDefinitions
         var demoCommand = new Command(
             DemoCommand.Name,
             "Run a product home inspection demo (real section output)");
+        var linesOption = new Option<bool>("--lines")
+        {
+            Description = "Apply -n to rendered lines instead of demo rows",
+            Arity = ArgumentArity.Zero
+        };
+        var tailLinesOption = new Option<bool>("--tail-lines")
+        {
+            Description = "Apply -n to rendered lines from the end",
+            Arity = ArgumentArity.Zero
+        };
+        var limitOption = new Option<string[]>("-n")
+        {
+            Description = "Select the first N demo rows; pair with --tail to select from the end",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false
+        };
+        var rowsOption = new Option<string[]>("--rows")
+        {
+            Description = "Select demo rows by one-based inclusive range: N..M, N.., or ..M",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false
+        };
         var scenarioArg = new Argument<string?>("scenario")
         {
             Description = "Home demo id (omit or 'list' to list demos)",
@@ -189,14 +212,99 @@ public static class UtilityCommandDefinitions
         demoCommand.Options.Add(opts.PlainText);
         demoCommand.Options.Add(opts.Mermaid);
         opts.AddTableOptionsTo(demoCommand);
-        demoCommand.Options.Add(opts.Limit);
+        demoCommand.Options.Add(limitOption);
+        demoCommand.Options.Add(rowsOption);
+        demoCommand.Options.Add(opts.Head);
+        demoCommand.Options.Add(opts.Tail);
+        demoCommand.Options.Add(linesOption);
+        demoCommand.Options.Add(tailLinesOption);
 
         var listCommand = new Command("list", "List product home demos");
         listCommand.Options.Add(opts.Json);
         listCommand.Options.Add(opts.Markdown);
         listCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(listCommand);
-        listCommand.Options.Add(opts.Limit);
+        listCommand.Options.Add(limitOption);
+        listCommand.Options.Add(rowsOption);
+        listCommand.Options.Add(opts.Head);
+        listCommand.Options.Add(opts.Tail);
+        listCommand.Options.Add(linesOption);
+        listCommand.Options.Add(tailLinesOption);
+
+        CliRowSelectionOptionBindings rowBindings =
+            new(
+                limitOption,
+                rowsOption,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                linesOption,
+                tailLinesOption);
+        CliRowSelectionCapabilities rowCapabilities =
+            CliRowSelectionCapabilities.HeadTail
+            | CliRowSelectionCapabilities.Window
+            | CliRowSelectionCapabilities.Lines;
+        CliRowSelectionCommandRegistry.Register(
+            demoCommand,
+            rowBindings,
+            rowCapabilities,
+            result => IsDemoListAdoption(
+                result.GetValue(scenarioArg)),
+            validateLowering: (result, lowering) =>
+                ValidateDemoListRowSelection(
+                    opts,
+                    result,
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            listCommand,
+            rowBindings,
+            rowCapabilities,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                ValidateDemoListRowSelection(
+                    opts,
+                    result,
+                    lowering));
+
+        demoCommand.Validators.Add(result =>
+        {
+            if (IsDemoListMode(
+                    result.GetValue(scenarioArg)))
+            {
+                return;
+            }
+
+            if (result.GetResult(rowsOption) is { Implicit: false }
+                || result.GetValue(opts.Head)
+                || result.GetValue(opts.Tail)
+                || result.GetValue(linesOption)
+                || result.GetValue(tailLinesOption))
+            {
+                result.AddError(
+                    "--rows, --head, --tail, --lines, and --tail-lines "
+                    + "are available only when listing demos.");
+            }
+
+            if (result.GetResult(limitOption)?.Tokens.Count > 1)
+            {
+                result.AddError(
+                    "-n may only be specified once when running a demo.");
+            }
+            else if (result.GetResult(limitOption) is
+                {
+                    Implicit: false,
+                    Tokens.Count: 1
+                } limitResult
+                && !int.TryParse(limitResult.Tokens[0].Value, out _))
+            {
+                result.AddError(
+                    $"Cannot parse argument '{limitResult.Tokens[0].Value}' "
+                    + "for option '-n' as expected type "
+                    + "'System.Nullable`1[System.Int32]'.");
+            }
+        });
+
         listCommand.SetAction(parseResult =>
         {
             // Parent-bound flags (e.g. `demo --markdown --mermaid list`) must use the
@@ -204,10 +312,25 @@ public static class UtilityCommandDefinitions
             if (RejectInvalidDemoMermaidFlags(opts, parseResult) is { } mermaidExit)
                 return mermaidExit;
 
+            if (!TryGetDemoListRowSelection(
+                    parseResult,
+                    limitOption,
+                    rowsOption,
+                    linesOption,
+                    tailLinesOption,
+                    out var rowSelection))
+            {
+                return 1;
+            }
+
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
             var mermaid = parseResult.GetValue(opts.Mermaid);
-            return DemoCommand.ExecuteList(format, noHeader, mermaidRequested: mermaid);
+            return DemoCommand.ExecuteList(
+                format,
+                noHeader,
+                mermaidRequested: mermaid,
+                rowSelection: rowSelection);
         });
         demoCommand.Subcommands.Add(listCommand);
 
@@ -221,14 +344,95 @@ public static class UtilityCommandDefinitions
             var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
             var mermaid = parseResult.GetValue(opts.Mermaid);
             var scenario = parseResult.GetValue(scenarioArg);
-            if (string.IsNullOrWhiteSpace(scenario))
-                return DemoCommand.ExecuteList(format, noHeader, mermaidRequested: mermaid);
+            if (IsDemoListMode(scenario))
+            {
+                if (!TryGetDemoListRowSelection(
+                        parseResult,
+                        limitOption,
+                        rowsOption,
+                        linesOption,
+                        tailLinesOption,
+                        out var rowSelection))
+                {
+                    return 1;
+                }
 
-            return await DemoCommand.ExecuteScenarioAsync(scenario, format, noHeader, embeddedMermaid);
+                return DemoCommand.ExecuteList(
+                    format,
+                    noHeader,
+                    mermaidRequested: mermaid,
+                    rowSelection: rowSelection);
+            }
+
+            return await DemoCommand.ExecuteScenarioAsync(
+                scenario!,
+                format,
+                noHeader,
+                embeddedMermaid);
         });
 
         return demoCommand;
     }
+
+    private static string? ValidateDemoListRowSelection(
+        SharedOptions opts,
+        ParseResult parseResult,
+        CliRowSelectionLowering<string> lowering) =>
+        lowering.LineIntent is not null
+            && opts.ResolveFormat(parseResult) == OutputFormat.Json
+                ? "--lines and --tail-lines cannot be combined with JSON "
+                    + "output; use semantic -n to select complete JSON rows."
+                : null;
+
+    private static bool TryGetDemoListRowSelection(
+        ParseResult parseResult,
+        Option limitOption,
+        Option rowsOption,
+        Option<bool> linesOption,
+        Option<bool> tailLinesOption,
+        out RowSelectionIntent<string>? rowSelection)
+    {
+        if (CliRowSelectionCommandRegistry.TryGetLowering(
+                parseResult,
+                out CliRowSelectionLowering<string>? lowering))
+        {
+            rowSelection = lowering!.SemanticIntent;
+            return true;
+        }
+
+        bool hasExplicitRowSelection =
+            parseResult.GetResult(limitOption) is { Implicit: false }
+            || parseResult.GetResult(rowsOption) is { Implicit: false }
+            || CommandLineBuilder.HasParsedOption(parseResult, "--head")
+            || CommandLineBuilder.HasParsedOption(parseResult, "--tail")
+            || parseResult.GetValue(linesOption)
+            || parseResult.GetValue(tailLinesOption);
+        if (hasExplicitRowSelection)
+        {
+            CommandError.Write(
+                "Demo row selection was not lowered before execution.");
+            rowSelection = null;
+            return false;
+        }
+
+        rowSelection = null;
+        return true;
+    }
+
+    private static bool IsDemoListAdoption(
+        string? scenario) =>
+        IsDemoListMode(scenario)
+        || scenario is not null
+            && CliRowSelectionArgumentAdapter
+                .IsBareLimitShorthand(scenario);
+
+    private static bool IsDemoListMode(
+        string? scenario) =>
+        string.IsNullOrWhiteSpace(scenario)
+        || string.Equals(
+            scenario,
+            "list",
+            StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Shared mermaid combination gate for root <c>demo</c> and <c>demo list</c>

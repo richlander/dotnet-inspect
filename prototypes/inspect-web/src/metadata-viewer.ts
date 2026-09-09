@@ -730,9 +730,10 @@ function renderReadyToRun(
   return `<section class="meta-r2r">
     <div class="meta-r2r-title">
       <h3>ReadyToRun</h3>
-      <span>${escapeHtml(readyToRun.role)} · v${readyToRun.majorVersion}.${readyToRun.minorVersion}</span>
+      <span>${escapeHtml(readyToRun.role)}</span>
     </div>
     <div class="meta-r2r-facts">
+      <span><strong>R2R format version</strong>${readyToRun.majorVersion}.${readyToRun.minorVersion}</span>
       <span><strong>Advertisements</strong>${escapeHtml(readyToRun.advertisements)}</span>
       <span><strong>Flags</strong>0x${(readyToRun.flagsValue >>> 0).toString(16).padStart(8, "0")} (${escapeHtml(readyToRun.flags)})</span>
       <span><strong>Header</strong>RVA 0x${(readyToRun.headerRelativeVirtualAddress >>> 0).toString(16)} · ${fmtBytes(readyToRun.headerSize)}</span>

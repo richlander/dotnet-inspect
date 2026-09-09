@@ -39,8 +39,8 @@ two models share no state; each names the other's scope as a non-claim.
 
 Two constant-selected policy dimensions preserve the pre-implementation
 mechanics as counterexample configurations and the implemented target in
-`src/DotnetInspector.Artifacts/ArtifactAccess.cs` and
-`src/DotnetInspector.Artifacts.Workspaces/ArtifactSetSession.cs` as positive
+`src/Inspector.Artifacts/ArtifactAccess.cs` and
+`src/Inspector.Artifacts.Workspaces/ArtifactSetSession.cs` as positive
 configurations:
 
 - **`OpenMode`.** `"Recheck"` preserves the former validate-then-open window,

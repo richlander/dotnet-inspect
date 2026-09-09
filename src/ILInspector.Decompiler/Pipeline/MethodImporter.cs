@@ -119,6 +119,7 @@ public static class MethodImporter
             decoded.GenericParameterCount)
         {
             GenericParameterNames = methodGenericParameterNames,
+            GenericParameters = ParameterConstraints(reader, method.GetGenericParameters(), scope),
         };
 
         var body = source.Pe.GetMethodBody(method.RelativeVirtualAddress);
@@ -178,6 +179,7 @@ public static class MethodImporter
             MetadataToken: MetadataTokens.GetToken(methodHandle),
             DeclaringTypeGenericParameterNames: typeGenericParameterNames)
         {
+            DeclaringTypeParameters = ParameterConstraints(reader, typeDef.GetGenericParameters(), scope),
             ClassicAsyncRequest =
                 asyncClassification is not null
                     ? source.AdaptClassicAsyncRequest(
@@ -278,5 +280,21 @@ public static class MethodImporter
         foreach (var handle in handles)
             names.Add(reader.GetString(reader.GetGenericParameter(handle).Name));
         return names.MoveToImmutable();
+    }
+
+    static ImmutableArray<GenericParameterConstraintInfo> ParameterConstraints(
+        MetadataReader reader, GenericParameterHandleCollection handles, GenericScope scope)
+    {
+        var result = ImmutableArray.CreateBuilder<GenericParameterConstraintInfo>(handles.Count);
+        foreach (GenericParameterHandle handle in handles)
+        {
+            var parameter = reader.GetGenericParameter(handle);
+            var types = ImmutableArray.CreateBuilder<TypeRef>();
+            foreach (GenericParameterConstraintHandle constraint in parameter.GetConstraints())
+                types.Add(CatchType(reader, reader.GetGenericParameterConstraint(constraint).Type, scope)
+                    ?? throw new BadImageFormatException("A generic constraint has no type."));
+            result.Add(new(parameter.Index, parameter.Attributes, types.ToImmutable()));
+        }
+        return result.ToImmutable();
     }
 }

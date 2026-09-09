@@ -231,6 +231,53 @@ public class FixtureCatalogTests
     }
 
     [Fact]
+    public void ForwardedFieldFixtures_PreserveReferenceAndDeploymentSignatures()
+    {
+        AssertBoundary(
+            FixtureCatalog.DecompilerForwardedFieldCaller,
+            FixtureBoundary.CrossAssemblyBoundary);
+        AssertBoundary(
+            FixtureCatalog.DecompilerForwardedFieldTargetReference,
+            FixtureBoundary.VersionPair);
+        AssertBoundary(
+            FixtureCatalog.DecompilerForwardedFieldTargetDeployment,
+            FixtureBoundary.VersionPair);
+        Assert.Equal(
+            new Version(1, 0, 0, 0),
+            AssemblyVersion(
+                FixtureCatalog.DecompilerForwardedFieldTargetReference));
+        Assert.Equal(
+            new Version(2, 0, 0, 0),
+            AssemblyVersion(
+                FixtureCatalog.DecompilerForwardedFieldTargetDeployment));
+
+        AssertAssemblyReferences(
+            FixtureCatalog.DecompilerForwardedFieldCaller,
+            "ILInspector.Decompiler.Fixtures.ForwardedFieldTarget",
+            "DotnetInspector.Services.RouteLearning.Middle");
+        AssertAssemblyReferences(
+            FixtureCatalog.DecompilerForwardedFieldTargetReference,
+            "DotnetInspector.Services.RouteLearning.Middle");
+        AssertAssemblyReferences(
+            FixtureCatalog.DecompilerForwardedFieldTargetDeployment,
+            "DotnetInspector.Services.RouteLearning.Base");
+        Assert.DoesNotContain(
+            "DotnetInspector.Services.RouteLearning.Middle",
+            AssemblyReferences(
+                FixtureCatalog.DecompilerForwardedFieldTargetDeployment));
+
+        Assert.True(HasAttributeNamed(
+            FixtureCatalog.DecompilerForwardedFieldCaller.AssemblyPath(),
+            "MemorySafetyRulesAttribute"));
+        Assert.True(HasAttributeNamed(
+            FixtureCatalog.DecompilerForwardedFieldTargetReference.AssemblyPath(),
+            "MemorySafetyRulesAttribute"));
+        Assert.True(HasAttributeNamed(
+            FixtureCatalog.DecompilerForwardedFieldTargetDeployment.AssemblyPath(),
+            "MemorySafetyRulesAttribute"));
+    }
+
+    [Fact]
     public void RouteLearningFixtures_PreserveForwardingChain()
     {
         AssertBoundary(
@@ -313,6 +360,14 @@ public class FixtureCatalogTests
                 reader.GetString(
                     reader.GetAssemblyReference(handle).Name))
             .ToHashSet(StringComparer.Ordinal);
+    }
+
+    static Version AssemblyVersion(FixtureDefinition fixture)
+    {
+        using var stream = File.OpenRead(fixture.AssemblyPath());
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        return reader.GetAssemblyDefinition().Version;
     }
 
     static void AssertTypeForwarder(

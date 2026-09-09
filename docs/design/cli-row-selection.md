@@ -9,7 +9,9 @@ Focused L3 design proposal for
 This document owns the `dotnet-inspect` command-line grammar and lowering
 boundary for semantic row selection and rendered-line selection. The package
 `--versions` and `--versions-with-feed` lenses adopt the Head/Tail, Window, and
-Lines subset; other command surfaces retain their existing contracts.
+Lines subset. The finite `demo list` catalog and the equivalent bare `demo`
+listing adopt the same subset; other command surfaces retain their existing
+contracts.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -21,8 +23,12 @@ the lowerer. #5786 installs that adapter for plural package-version listings,
 renders its L3 failures before package acquisition, and carries typed intent
 through L2 row-cohort selection after source aggregation. The general implicit
 route envelope is implemented by #5784 as a pure pre-acquisition classifier;
-candidate-set construction, router wiring, remaining command adoptions, and
-shared universal guidance remain unimplemented.
+issue #6327 constructs candidates from the real package, library, type, and
+member commands and each selected lens declaration, then runs the envelope
+before the commandless router enters target acquisition. #6379 adopts the
+finite product-demo catalog for explicit `demo list` and equivalent bare
+`demo` listing. Remaining command adoptions and shared universal guidance
+remain unimplemented.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -561,9 +567,11 @@ A following numeric token is ordinary positional package input when the
 package slot is available, not a count. Surplus input directly following the
 flag receives the host's common zero-arity error.
 
-## Mock demo
+## Demo-list adoption
 
-The first proposed command adoption is the finite `demo list` catalog:
+The finite `demo list` catalog and equivalent bare `demo` listing declare one
+semantic row per `EcosystemDemoDescriptor` in existing product order. They
+adopt Head/Tail, Window, and Lines; scenario execution remains non-adopted.
 
 ```console
 $ dotnet-inspect demo list -n 1 --json
@@ -583,12 +591,8 @@ Neighboring ordered case:
 
 ```console
 $ dotnet-inspect demo list -n 2 --rows 2..3 --json
-Error: stage 2 (--rows 2..3) requires row 3 from stage 1's output, but only 2 rows are available.
+Error: Demo row selection stage 2 requires row 3, but only 2 demo rows are available.
 ```
-
-The exact diagnostic shape will consume the L2 structured failure contract;
-this mockup establishes the visible nonzero outcome, not presentation text
-owned by a later implementation.
 
 ## Required gates
 
@@ -648,6 +652,13 @@ The implemented implicit-route envelope is enforced by:
 | Gate | Property |
 | --- | --- |
 | `CliRowSelectionRouterPreflightTests` | Request-free invocations preserve ordinary routing; common row grammar failures and uniformly unsupported requests survive unrelated route deferral; mixed declaration or capability requires an explicit command; required-value disagreement defers dependent decisions; bare `-N` is common only when every candidate binds `-n`; original raw-argv positions are preserved. |
+| `CliRowSelectionRouterIntegrationTests` | The production commandless router constructs candidates from real commands and selected lenses; common malformed and uniformly unsupported requests stop before router rewrite and acquisition; mixed real declarations require an explicit command; required-value disagreement defers; and `NoRequest` and `Success` continue to authoritative routing. |
+
+The demo-list adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `DemoCommandTests` | Explicit `demo list` and equivalent bare `demo` apply semantic Head/Tail and ordered Window stages to complete catalog descriptors before JSON or Markout projection; every format observes the same selected demo identities; strict Window failure emits no partial payload; JSON rejects rendered-line clipping; scenario execution remains non-adopted. |
 
 The remaining implementation must satisfy:
 

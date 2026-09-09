@@ -159,7 +159,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         {
             List<Exception> cleanupFailures = [];
             if (creationFailure.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]
+                    "Inspector.Artifacts.Workspaces.CleanupFailures"]
                 is IReadOnlyCollection<Exception> acquisitionCleanupFailures)
             {
                 cleanupFailures.AddRange(acquisitionCleanupFailures);
@@ -246,6 +246,104 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         .. SurfaceParticipants.Where(participant =>
             _realization.ImplementationParticipant(participant.Realized) is null),
     ];
+
+    /// <summary>
+    /// Runs one Clone Candidates request over the retained implementation
+    /// population. Explicit browser package participants currently carry no
+    /// owner-issued ecosystem-registration membership, so every non-containing
+    /// participant is available only to <c>Everything</c>.
+    /// </summary>
+    public async ValueTask<WorkspaceStructuralCloneSearchResult>
+        QueryCloneCandidatesAsync(
+            BrowserWorkspaceParticipant containingLibrary,
+            StructuralCloneSearchSeed seed,
+            StructuralCloneCandidateBreadth breadth,
+            StructuralCloneCandidateDiscovery discovery,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(containingLibrary);
+        ArgumentNullException.ThrowIfNull(seed);
+        cancellationToken.ThrowIfCancellationRequested();
+        _ = RoleForCloneParticipant(containingLibrary);
+
+        ImmutableArray<BrowserWorkspaceParticipant> participants =
+        [
+            containingLibrary,
+            .. ImplementationParticipants
+                .Concat(ReferenceOnlySurfaceParticipants)
+                .Where(participant =>
+                    !ReferenceEquals(participant, containingLibrary))
+                .OrderBy(
+                    participant => participant.Coordinate.Key,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    participant => participant.Asset.Id,
+                    StringComparer.Ordinal),
+        ];
+        WorkspaceScopeReadResult scopeRead =
+            await _workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
+        WorkspaceScopeRevision revision = scopeRead switch
+        {
+            WorkspaceScopeReadResult.Available available =>
+                available.Snapshot.Revision,
+            WorkspaceScopeReadResult.Unavailable unavailable =>
+                throw new InvalidOperationException(
+                    "The browser Workspace scope revision is unavailable: "
+                        + unavailable.RuntimeFailure),
+            _ => throw new InvalidOperationException(
+                "Unknown browser Workspace scope-read outcome."),
+        };
+
+        var entries =
+            ImmutableArray.CreateBuilder<
+                StructuralCloneParticipantEntry>(participants.Length);
+        foreach (BrowserWorkspaceParticipant participant in participants)
+        {
+            BrowserWorkspaceRole role =
+                RoleForCloneParticipant(participant);
+            entries.Add(
+                role.CloneEntry(
+                    participant,
+                    ReferenceEquals(participant, containingLibrary)
+                        ? StructuralCloneParticipantMembership
+                            .ContainingLibrary
+                        : StructuralCloneParticipantMembership.Available));
+        }
+
+        var snapshot =
+            new StructuralCloneParticipantSnapshot(
+                revision,
+                revision,
+                entries.MoveToImmutable());
+        return WorkspaceStructuralCloneSearchQuery.Execute(
+            new WorkspaceStructuralCloneSearchInput(
+                snapshot,
+                seed,
+                breadth,
+                discovery),
+            cancellationToken);
+    }
+
+    BrowserWorkspaceRole RoleForCloneParticipant(
+        BrowserWorkspaceParticipant participant)
+    {
+        if (_implementation?.Participants.Any(
+                candidate => ReferenceEquals(candidate, participant))
+            is true)
+        {
+            return _implementation;
+        }
+        if (Surface.Participants.Any(
+                candidate => ReferenceEquals(candidate, participant)))
+        {
+            return Surface;
+        }
+
+        throw new ArgumentException(
+            "The participant does not belong to a Clone-capable browser "
+                + "workspace role.",
+            nameof(participant));
+    }
 
     /// <summary>
     /// Hands the compile-asset group to a public product query. Reference assemblies remain the
@@ -625,6 +723,26 @@ internal sealed class BrowserWorkspaceRole
         }
 
         return query(Group, participant.Participant);
+    }
+
+    public StructuralCloneParticipantEntry CloneEntry(
+        BrowserWorkspaceParticipant participant,
+        StructuralCloneParticipantMembership membership)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        if (!Participants.Any(
+                candidate => ReferenceEquals(candidate, participant)))
+        {
+            throw new ArgumentException(
+                "The participant does not belong to this browser workspace "
+                    + "role.",
+                nameof(participant));
+        }
+
+        return new StructuralCloneParticipantEntry(
+            Group,
+            participant.Participant,
+            membership);
     }
 
     public BrowserWorkspaceParticipant FindParticipant(

@@ -66,6 +66,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "ManagedCpuCanary.1310674786");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027InspectionEngine.ManagedCpuCanary.1310674786\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "InspectionEngine");
         value = $ownDataProperty(value, "RegisterEpochWorkReporter.1170383003");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027InspectionEngine.RegisterEpochWorkReporter.1170383003\u0027 is not callable.");
@@ -117,6 +125,9 @@ export function configureHost(origin) {
 }
 export async function drainEpochWorkReporter() {
     return await $requireManagedExports()["InspectionEngine"]["DrainEpochWorkReporter.1731052262"]();
+}
+export function managedCpuCanary() {
+    return $requireManagedExports()["InspectionEngine"]["ManagedCpuCanary.1310674786"]();
 }
 export function registerEpochWorkReporter(allowance, started, finished) {
     return $requireManagedExports()["InspectionEngine"]["RegisterEpochWorkReporter.1170383003"](allowance, started, finished);

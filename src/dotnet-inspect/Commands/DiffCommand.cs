@@ -10,7 +10,7 @@ using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Research;
 using Markout;
@@ -1328,7 +1328,7 @@ public class DiffCommand
             return new FindingInspection<string>.Failed(
                 new InspectionError(
                     new FindingSubject(subject.Id, subject.Display),
-                    ILInspector.Text.TextFindings.LineDescriptor,
+                    Inspector.Text.TextFindings.LineDescriptor,
                     $"PDB-source target indexing failed for the {side} endpoint: "
                     + string.Join("; ", batch.IndexingFailures)));
         }
@@ -1434,7 +1434,7 @@ public class DiffCommand
                     results[subject.Id] = new FindingInspection<string>.Failed(
                         new InspectionError(
                             new FindingSubject(subject.Id, subject.Display),
-                            ILInspector.Text.TextFindings.LineDescriptor,
+                            Inspector.Text.TextFindings.LineDescriptor,
                             $"PDB-source acquisition failed ({ex.GetType().Name}): {ex.Message}"));
                 }
             }

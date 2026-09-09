@@ -14,12 +14,15 @@ dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S Accessibility
 dotnet-inspect vocabulary -S "C# Style Choices" --json
 dotnet-inspect vocabulary -S "C# Body Kinds"
-dotnet-inspect vocabulary -S @Decompiler --count
+dotnet-inspect vocabulary -S "C#*" --count
 ```
 
-- Bare `vocabulary` renders the `Vocabulary Sections` index.
-- `-D` discovers sections, categories, and fields.
-- `-S` selects the values to materialize.
+- Bare `vocabulary` renders a compact `Vocabulary Sections` index with the
+  section name, summary, and value count. The index lists the value
+  vocabularies, not itself.
+- `-D` discovers sections and fields.
+- `-S` selects the values to materialize by exact section name, stable section
+  ID, or glob.
 - `--columns` and `--fields` project values. Released `--rows` accepts a count
   or an absolute range; the historical #4677 target proposed making it
   range-only. [Item and line limits](item-and-line-limits.md) records that
@@ -28,9 +31,14 @@ dotnet-inspect vocabulary -S @Decompiler --count
 - Markdown, plain text, table, TSV, JSONL, and JSON use the same section and row identities.
 
 The structured document carries a schema version. Every section declares its
-stable ID, categories, accepted query inputs, field schema, legal operators, and
-typed values. A stable value ID can therefore flow from discovery or a website
-picker back into a typed query without parsing labels.
+stable ID, accepted query inputs, field schema, legal operators, and typed
+values. A stable value ID can therefore flow from discovery or a website picker
+back into a typed query without parsing labels.
+
+The catalog is intentionally flat. Its small section corpus does not warrant
+categories, category-first discovery, or category selectors. Exact names and
+globs provide the complete multi-section selection model. Schema version 2
+removes the former `categories` member from structured vocabulary sections.
 
 ## Ownership
 
@@ -44,10 +52,9 @@ reclassify their values:
 - `BodyShapeSearch.SupportedKinds` owns searchable body-kind identity and order;
   `AnnotatedSourceNodeKinds` owns their display labels.
 
-CLI and browser/WASM consume the same `VocabularyCatalog` and
-`VocabularyJson` projection. Hosts may select a section for a purpose-specific
-control, but they do not restate its values, labels, order, defaults, or
-selection semantics.
+CLI and browser/WASM consume the same `VocabularyCatalog` and `VocabularyJson`
+projection. Hosts may select a section for a purpose-specific control, but they
+do not restate its values, labels, order, defaults, or selection semantics.
 
 Static vocabulary answers "what may I ask?" Target-aware facets remain query
 results: they add availability, counts, or rejection reasons for one inspected

@@ -212,6 +212,9 @@ public static class SectionNames
     public const string BodyShapes = "Body Shapes";
     public const string BodyShapeSummary = "Body Shape Summary";
 
+    /// <summary>Globally ranked structural-clone retrieval candidates.</summary>
+    public const string CloneCandidates = "Clone Candidates";
+
     // Kind-scoped performance sections (library scope). Each renders one family of the
     // optimization-opportunity scan, is explicit-only, and is absent when its family has no
     // findings — following the il-offset context-section model. Grouped under @Performance.
