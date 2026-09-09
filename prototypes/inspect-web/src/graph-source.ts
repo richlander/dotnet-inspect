@@ -1,13 +1,8 @@
-import { pdbSourceLimitationHtml } from "./data.ts";
-import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
-
-type GraphSourceResult = BrowserSource;
+import { assertNever, pdbSourceLimitationHtml } from "./data.ts";
+import type { OpenGraphSourceState } from "./source-inspection.ts";
 
 export interface RenderGraphSourceOptions {
-  title: string;
-  loading: boolean;
-  source: GraphSourceResult | null;
-  error: string;
+  state: OpenGraphSourceState;
   escapeHtml: (value: unknown) => string;
   highlightCSharp: (value: string) => string;
 }
@@ -31,18 +26,32 @@ export function bindGraphSource(
 }
 
 export function renderGraphSource(options: RenderGraphSourceOptions): string {
-  const { title, loading, source, error, escapeHtml, highlightCSharp } = options;
-  const body = loading
-    ? `<div class="graph-source-status">Resolving source for ${escapeHtml(title)}…</div>`
-    : source
-      ? `<div class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(source)}</div>
-         <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(source.text)}</code></pre>`
-      : `<div class="graph-source-status error">${escapeHtml(error || "No source was returned.")}</div>`;
+  const { state, escapeHtml, highlightCSharp } = options;
+  let body: string;
+  switch (state.status) {
+    case "loading":
+      body = `<div class="graph-source-status">Resolving source for ${escapeHtml(state.title)}…</div>`;
+      break;
+    case "ready": {
+      const { source } = state;
+      body = `<div class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(source)}</div>
+         <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(source.text)}</code></pre>`;
+      break;
+    }
+    case "failed":
+      body = `<div class="graph-source-status error">${escapeHtml(state.error || "No source was returned.")}</div>`;
+      break;
+    case "cancelled":
+      body = `<div class="graph-source-status error">No source was returned.</div>`;
+      break;
+    default:
+      return assertNever(state, "open graph source state");
+  }
   return `
     <div class="graph-source-backdrop" id="graph-source-backdrop">
       <div class="graph-source" role="dialog" aria-modal="true" aria-label="Member source">
         <div class="graph-source-head">
-          <span class="graph-source-title">${escapeHtml(title)}</span>
+          <span class="graph-source-title">${escapeHtml(state.title)}</span>
           <button id="graph-source-close" type="button" aria-label="Close">esc</button>
         </div>
         <div class="graph-source-body">${body}</div>
