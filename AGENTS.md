@@ -64,10 +64,11 @@ development model and rationale. The binding summary:
   an established oracle, a TLA+ model, or a closely developed specification
   should bound the contract before implementation.
 - **Use only approved OpenAI GPT configurations.** In agent harnesses that
-  advertise GPT models, all other models, every `Fast` model or mode, and
-  extra-high (`xhigh`) reasoning are prohibited. Default to GPT-5.6 Sol for both
-  coding and review. Use GPT-6 Astra for complex reviews, or GPT-5.6 Terra or
-  Luna for relatively simple changes that still require review.
+  advertise GPT models, never start non-GPT, `Fast`, or extra-high (`xhigh`)
+  configurations. This launch prohibition does not invalidate work: observe and
+  use results from agents mistakenly started with a prohibited configuration.
+  Default to GPT-5.6 Sol; use GPT-6 Astra for complex reviews, or GPT-5.6 Terra
+  or Luna for relatively simple reviews.
 - **Hot-start requested work through PR and review.** Agents may branch,
   commit, push, open the PR, and dispatch eligible rounds without separate
   approval; merge remains separately authorized.
