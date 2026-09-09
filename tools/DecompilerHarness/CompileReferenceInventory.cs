@@ -83,6 +83,12 @@ public sealed class CompileReferenceImage
     public AssemblyReferenceIdentity Identity => Snapshot.Identity;
     public Guid ModuleVersionId => Snapshot.ModuleVersionId;
     public InertString? Location { get; }
+
+    internal bool IsSameModuleAs(CompileReferenceImage other) =>
+        Identity.IsEquivalentTo(other.Identity)
+        && ModuleVersionId == other.ModuleVersionId
+        && ContentDigest.Algorithm == other.ContentDigest.Algorithm
+        && ContentDigest.HexValue == other.ContentDigest.HexValue;
 }
 
 /// <summary>

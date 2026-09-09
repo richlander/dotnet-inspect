@@ -121,4 +121,31 @@ public sealed class RoundTripCompilationEngineTests
             File.Delete(referencePath);
         }
     }
+
+    [Fact]
+    public void Compile_PreservesRetainedReferenceDisplayWithoutInventingPath()
+    {
+        const string display = "https://example.invalid/runtime/System.Private.CoreLib.dll";
+        MetadataReference reference =
+            RoundTripCompilationEngine.CreateFrozenReferenceFromRetainedImage(
+                [.. File.ReadAllBytes(typeof(object).Assembly.Location)],
+                display,
+                MetadataReferenceProperties.Assembly);
+
+        var result = RoundTripCompilationEngine.Compile(
+            compose: () => "public class Target { public object M() => new object(); }",
+            source: artifact => artifact,
+            [reference],
+            ParseOptions,
+            CompilationOptions,
+            grow: (_, _, _) => RoundTripGrowthResult.Stop("unexpected"));
+
+        Assert.Equal(RoundTripCompilationStatus.Succeeded, result.Status);
+        RoundTripReferenceProvenance provenance =
+            Assert.Single(result.Provenance.References);
+        Assert.Equal(display, provenance.Display);
+        Assert.Null(provenance.Path);
+        Assert.NotNull(provenance.Sha256);
+        Assert.NotNull(provenance.ModuleVersionId);
+    }
 }

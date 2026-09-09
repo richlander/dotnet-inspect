@@ -339,6 +339,14 @@ internal static class CliRowSelectionArgumentAdapter
                     "-n",
                     StringComparison.Ordinal));
 
+    internal static bool HasExplicitRowSelection(
+        ParseResult parseResult,
+        CliRowSelectionOptionBindings bindings) =>
+        BoundOptions(bindings).Any(
+            bound =>
+                parseResult.GetResult(bound.Option) is
+                    { Implicit: false });
+
     internal static bool TryClassifyExplicitRowToken(
         string token,
         CliRowSelectionOptionBindings bindings,

@@ -123,7 +123,11 @@ public sealed class AuthoredBuildContextTests
     [Fact]
     public void ReplacingAuthoredAttempt_DoesNotReuseItsContextOrVerdict()
     {
-        var decompiler = Decompile();
+        string assemblyPath = FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath();
+        using ReturnToSender.CompilationClosure closure =
+            ReturnToSender.CreateCompilationClosure(assemblyPath);
+        var decompiler = ReturnToSender.CompileBackPropertyGetters(
+            assemblyPath, maxTargets: 1, closure).Single();
         var debug = AuthoredRebuildFidelity.CompileAuthoredBody(
             decompiler, AuthoredBody(), SourceChecksumVerification.Exact, Context(new CompilationOptionInfo("optimization", "debug")));
         var release = AuthoredRebuildFidelity.CompileAuthoredBody(
@@ -276,8 +280,15 @@ public sealed class AuthoredBuildContextTests
     }
 
     static AuthoredRebuildFidelityResult Rebuild(RecordedBuildContext context)
-        => AuthoredRebuildFidelity.CompileAuthoredBody(
-            Decompile(), AuthoredBody(), SourceChecksumVerification.Exact, context);
+    {
+        string assemblyPath = FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath();
+        using ReturnToSender.CompilationClosure closure =
+            ReturnToSender.CreateCompilationClosure(assemblyPath);
+        ReturnToSender.Result decompiler = ReturnToSender.CompileBackPropertyGetters(
+            assemblyPath, maxTargets: 1, closure).Single();
+        return AuthoredRebuildFidelity.CompileAuthoredBody(
+            decompiler, AuthoredBody(), SourceChecksumVerification.Exact, context);
+    }
 
     static RecordedBuildContext Context(params CompilationOptionInfo[] options)
         => new(true, Options(options), MetadataFindings.InspectCompilationReferences([], Subject));

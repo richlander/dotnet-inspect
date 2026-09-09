@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Runtime.CompilerServices;
+using DotnetInspector.Sections;
 
 namespace DotnetInspector.CommandLine;
 
@@ -193,10 +194,42 @@ internal static class CliRowSelectionCommandRegistry
             lowering);
     }
 
-    public static bool TryGetLowering(
+    public static bool TryGetPreparedSemanticIntent(
         ParseResult parseResult,
-        out CliRowSelectionLowering<string>? lowering) =>
-        Lowerings.TryGetValue(parseResult, out lowering);
+        string selectionName,
+        out RowSelectionIntent<string>? semanticIntent,
+        out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+        ArgumentException.ThrowIfNullOrWhiteSpace(selectionName);
+
+        if (Lowerings.TryGetValue(
+                parseResult,
+                out CliRowSelectionLowering<string>? lowering))
+        {
+            semanticIntent = lowering.SemanticIntent;
+            error = null;
+            return true;
+        }
+
+        if (TryGetActiveAdoption(
+                parseResult,
+                out CliRowSelectionCommandAdoption? adoption)
+            && CliRowSelectionArgumentAdapter.HasExplicitRowSelection(
+                parseResult,
+                adoption!.Bindings))
+        {
+            semanticIntent = null;
+            error =
+                $"{selectionName} row selection was not lowered before "
+                + "execution.";
+            return false;
+        }
+
+        semanticIntent = null;
+        error = null;
+        return true;
+    }
 
     public static bool TryGetActiveAdoption(
         ParseResult parseResult,

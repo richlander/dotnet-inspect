@@ -610,7 +610,13 @@ The selected set records the current source artifact separately, including its
 acquisition registration, retained snapshot, digest, and module identity. The
 current artifact contributes source-local declaration identities but is not
 silently reintroduced as a metadata reference to satisfy its own generated
-source.
+source. After retaining the complete discovery inventory, tools classify every
+candidate with equivalent full assembly identity, MVID, and retained-content
+digest as another acquisition of the current source module. Those candidates
+remain inventory evidence but cannot enter exact or platform selections.
+Explicitly requesting one returns `SourceReferenceExcluded`; unavailable
+identity, module, digest, or retained-content evidence fails through its
+existing typed inventory failure rather than weakening source exclusion.
 
 Selection follows these rules:
 
@@ -628,7 +634,10 @@ Selection follows these rules:
 5. Trusted-platform preference applies only when acquisition and platform
    contracts authorize that exact candidate. It does not erase conflicting
    package or local candidates from the inventory.
-6. Metadata resolution and Roslyn references use the same selected descriptors
+6. Source-module exclusion is distinct from candidate coalescing: registrations
+   remain separate evidence even when an exact source replica is ineligible for
+   compiler selection.
+7. Metadata resolution and Roslyn references use the same selected descriptors
    and owner-retained immutable snapshots under one current query lease.
    Neither consumer reopens the source path. If retained content cannot be
    opened, selection fails visibly rather than reacquiring replacement bytes.
@@ -761,8 +770,8 @@ Metadata forwarding and Roslyn binding to retained images.
 `FrozenBindingsRemapArtifactOriginsAndPreserveScopeAndSeedOccurrences`
 gates origin remapping and unavailable unprepared platform bindings.
 These cases run in the ordinary Release harness contract suite.
-This policy does not expose Services' complete discovery inventory or complete
-the later RTS migration.
+The platform-policy API alone does not expose Services' complete discovery
+inventory or complete a consumer migration.
 
 #### Tools adoption
 
@@ -782,11 +791,53 @@ The compatibility-preserving frozen-reference adoption path has four steps:
 3. Expose the Services-owned
    [candidate inventory](assembly-dependency-candidate-inventory.md) in
    [#6201](https://github.com/richlander/dotnet-inspect/issues/6201), preserving
-   discovery evidence before consumer selection.
+   discovery evidence before consumer selection. The typed inventory landed in
+   [#6214](https://github.com/richlander/dotnet-inspect/pull/6214); ordered
+   `.deps.json` physical-location selection landed in
+   [#6360](https://github.com/richlander/dotnet-inspect/pull/6360).
 4. Migrate ReturnToSender's compiler-closure acquisition to the frozen context
    in [#6103](https://github.com/richlander/dotnet-inspect/issues/6103) and retire
    its simple-name-first-wins reference enumeration and competing compiler
    binding projection on that path.
+
+RTS performs step 4 by requiring the complete `Captured` Services result; a
+`Failed` result and its partial entries cannot become a smaller successful
+compiler inventory. The target occurrence becomes the selected set's separate
+source association. Every acquired non-target registration is retained through
+the platform policy's single capture map and artifact-registration pass, so
+platform preparation and ordinary inventory admission cannot register parallel
+artifacts for one Services acquisition.
+
+Platform preparation is finite and driven by target reachability or an exact
+captured collision. Starting at the target, RTS follows exact full-identity
+references through captured candidates. A reference becomes a platform request
+only when a captured Services `PlatformAsset` establishes the same name,
+culture, and key-token family; version remains the owner-authorized
+substitution. Metadata then owns forwarder traversal from those requests. When
+one exact full identity also appears as both a platform and non-platform
+candidate, RTS prepares one global platform request even if that identity is
+not target-reachable. This handles the ordinary case where the harness process
+TPA and the inspected output directory contain byte-identical copies: Services
+selects both sides and the existing platform-agreement gate verifies their
+identity, MVID, and retained digest rather than letting unrelated duplicate
+host dependencies make the compiler set ambiguous.
+
+Selection requests every captured candidate except identities in a prepared
+platform family; unprepared platform assets therefore remain ordinary exact
+compiler references rather than receiving implicit compatibility authority.
+Distinct equivalent registrations without platform authority remain a typed
+`ReferenceSelectionAmbiguous` failure rather than regaining first-wins
+behavior.
+
+One RTS compilation closure owns the sealed artifact session, query lease, and
+selected set. Initial decompiler compilation, external-interface Metadata
+resolution, fault isolation, and authored replay enter
+`CompileReferenceSet.Use` and consume one scoped `CompileReferenceContext`;
+neither a context nor a detached reference array survives the callback.
+Ordinary synchronous RTS entry points dispose their owned closure before
+returning and clear the request association. Authored replay explicitly owns
+one shared closure across every result for the assembly and disposes it after
+the final replay. Disposing the closure revokes further scoped use.
 
 The user-approved tools-first scope defers CLI/browser production adoption.
 The first step does not relabel the legacy ReturnToSender path as conforming,
