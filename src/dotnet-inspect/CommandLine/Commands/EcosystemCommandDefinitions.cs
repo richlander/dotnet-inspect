@@ -26,6 +26,10 @@ public static class EcosystemCommandDefinitions
         opts.AddSectionOptionsTo(command);
         opts.AddCountOptionTo(command);
         command.Options.Add(opts.PlainText);
+        // The lowering bindings require identities for unsupported line modes;
+        // leaving these options unattached keeps them outside the public command.
+        var linesOption = new Option<bool>("--lines");
+        var tailLinesOption = new Option<bool>("--tail-lines");
 
         command.SetAction(parseResult =>
             EcosystemCommand.Execute(new EcosystemOptions
@@ -43,6 +47,21 @@ public static class EcosystemCommandDefinitions
                 Format = opts.ResolveFormat(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
             }));
+
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                linesOption,
+                tailLinesOption),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window,
+            isActive: static _ => true);
 
         return command;
     }

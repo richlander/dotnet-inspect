@@ -607,7 +607,11 @@ public static class EcosystemCommand
                     renderedRows = [emptyRow];
                 }
 
-                return section with { Rows = renderedRows };
+                return section with
+                {
+                    Rows = renderedRows,
+                    WasLogicallyEmpty = section.Rows.Length == 0,
+                };
             }),
         ];
 
@@ -632,7 +636,7 @@ public static class EcosystemCommand
             first = false;
             writer.WriteHeading(2, section.Name);
             writer.WriteParagraph(section.Summary);
-            if (section.Rows.Length == 0)
+            if (section.Rows.Length == 0 && section.WasLogicallyEmpty)
                 writer.WriteParagraph(section.EmptyText);
             else
                 WriteTable(writer, section);
@@ -651,5 +655,6 @@ public static class EcosystemCommand
         string[] Ids,
         string[][] Rows,
         string EmptyText,
-        string[]? StructuredEmptyRow = null);
+        string[]? StructuredEmptyRow = null,
+        bool WasLogicallyEmpty = false);
 }

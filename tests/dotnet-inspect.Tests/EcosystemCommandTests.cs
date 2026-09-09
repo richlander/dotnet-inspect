@@ -52,6 +52,31 @@ public sealed class EcosystemCommandTests
     }
 
     [Fact]
+    public async Task CommandLine_OutOfRangeRowWindowDoesNotClaimConfiguredSectionIsEmpty()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] arguments =
+        [
+            "ecosystem",
+            "aspire",
+            "-S",
+            "Integrations",
+            "--rows",
+            "2..2",
+        ];
+        var result = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(arguments), arguments));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("## Known Integrations", result.Output);
+        Assert.DoesNotContain("integration.aspire", result.Output);
+        Assert.DoesNotContain(
+            "No Integration concepts are explicitly bound",
+            result.Output);
+    }
+
+    [Fact]
     public async Task Default_ListsTheShippedEcosystemCatalog()
     {
         var result = await ExecuteAsync(new EcosystemOptions());
