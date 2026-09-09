@@ -97,17 +97,7 @@ function renderAnalysisFacts(state: MemberFactsRenderState): string {
     ${renderCallFacts(facts.calls)}
     ${renderSafetyFacts(facts.safety)}
     ${renderExceptionRegions(facts.exceptionRegions)}
-    <section class="document-section performance-facts">
-      <div class="section-title"><h2>Performance opportunities</h2><span>ranked judgments · ${facts.performanceOpportunities.length}</span></div>
-      ${facts.performanceOpportunities.length
-        ? facts.performanceOpportunities.map(opportunity => `
-          <article class="performance-opportunity">
-            <div><strong>${escapeHtml(opportunity.shape)}</strong><span class="confidence ${escapeHtml(opportunity.confidence)}">${escapeHtml(opportunity.confidence)}</span>${opportunity.offset ? `<code>${escapeHtml(opportunity.offset)}</code>` : ""}</div>
-            <p>${escapeHtml(opportunity.evidence)}</p>
-            <dl><dt>Possible direction</dt><dd>${escapeHtml(opportunity.fix)}</dd>${opportunity.caveat ? `<dt>Caveat</dt><dd>${escapeHtml(opportunity.caveat)}</dd>` : ""}<dt>Provenance</dt><dd>${escapeHtml([opportunity.provenance, opportunity.finding].filter(Boolean).join(" · "))}</dd></dl>
-          </article>`).join("")
-        : '<div class="empty-fact-group">No curated performance opportunities were found for this method.</div>'}
-    </section>
+    ${renderPerformanceOpportunities(facts.performanceOpportunities)}
     ${facts.diagnostics.length
       ? `<section class="document-section fact-group"><div class="section-title"><h2>Analysis diagnostics</h2><span>${facts.diagnostics.length}</span></div><ul>${facts.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul></section>`
       : ""}`;
@@ -266,6 +256,39 @@ function renderExceptionRegions(regions: MemberFacts["exceptionRegions"]) {
           </div>
         </li>`).join("")}</ol>`
       : '<p class="exception-empty">No exception regions were found in this method.</p>'}
+  </section>`;
+}
+
+function renderPerformanceOpportunities(
+  opportunities: MemberFacts["performanceOpportunities"],
+) {
+  return `<section class="performance-facts" aria-labelledby="performance-facts-title">
+    <header><h2 id="performance-facts-title">Performance opportunities</h2><span>${opportunities.length} ${opportunities.length === 1 ? "opportunity" : "opportunities"}</span></header>
+    ${opportunities.length
+      ? `<ol class="performance-rows">${opportunities.map(opportunity => `
+        <li class="performance-row">
+          <div class="performance-identity">${opportunity.offset == null
+            ? '<span class="performance-no-offset">No IL offset</span>'
+            : `<code class="performance-offset">${escapeHtml(opportunity.offset)}</code>`}<code class="performance-shape">${escapeHtml(opportunity.shape)}</code></div>
+          <div class="performance-main">
+            <p class="performance-evidence">${escapeHtml(opportunity.evidence)}</p>
+            <dl class="performance-properties">
+              <div><dt>Confidence</dt><dd><code>${escapeHtml(opportunity.confidence)}</code></dd></div>
+              <div><dt>In loop</dt><dd><code>${opportunity.inLoop ? "yes" : "no"}</code></dd></div>
+              <div><dt>Provenance</dt><dd><code>${escapeHtml(opportunity.provenance)}</code></dd></div>
+              <div><dt>Finding</dt><dd>${opportunity.finding == null
+                ? '<span class="performance-unavailable">not supplied</span>'
+                : `<code>${escapeHtml(opportunity.finding)}</code>`}</dd></div>
+            </dl>
+            <dl class="performance-guidance">
+              <div><dt>Possible direction</dt><dd>${escapeHtml(opportunity.fix)}</dd></div>
+              <div><dt>Caveat</dt><dd>${opportunity.caveat == null
+                ? '<span class="performance-unavailable">not supplied</span>'
+                : escapeHtml(opportunity.caveat)}</dd></div>
+            </dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="performance-empty">No curated performance opportunities were found for this method.</p>'}
   </section>`;
 }
 

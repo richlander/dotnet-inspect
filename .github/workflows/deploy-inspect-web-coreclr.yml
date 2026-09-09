@@ -210,7 +210,11 @@ jobs:
                 <package pattern="Microsoft.NET.Sdk.WebAssembly.Pack" />
               </packageSource>
               <packageSource key="dotnet12">
+                <package pattern="Microsoft.AspNetCore.App.*" />
+                <package pattern="Microsoft.DotNet.ILCompiler" />
                 <package pattern="Microsoft.NET.ILLink.Tasks" />
+                <package pattern="Microsoft.NETCore.App.*" />
+                <package pattern="runtime.*.Microsoft.DotNet.ILCompiler" />
               </packageSource>
               <packageSource key="nuget.org">
                 <package pattern="*" />
@@ -246,12 +250,13 @@ jobs:
       - name: Verify runtime-async deployment
         shell: bash
         run: |
-          eng/verify-inspect-web-async-deployment.sh \
-            runtime \
-            prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
-            artifacts/inspect-web-coreclr-publish/wwwroot \
-            artifacts/inspect-web-coreclr-publish/async-lowering.json \
-            artifacts/inspect-web-runtime-async-receipts
+          RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
+            eng/verify-inspect-web-async-deployment.sh \
+              runtime \
+              prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
+              artifacts/inspect-web-coreclr-publish/wwwroot \
+              artifacts/inspect-web-coreclr-publish/async-lowering.json \
+              artifacts/inspect-web-runtime-async-receipts
 
       - name: Publish MSDL managed API
         run: >
