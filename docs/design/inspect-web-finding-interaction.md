@@ -33,9 +33,35 @@ shows every Research Facts row from the combined census:
 
 - body Finding rows with an `instanceKey` are selection actions;
 - member-header rows without an `instanceKey` remain visible and explicitly
-  report that source identity is unavailable; and
+  report that no Annotated Source target is available; and
 - the selected body Finding row is identified by exact instance key, not by
   row content.
+
+The section describes these values as Research observations for the selected
+member and labels its count `1 finding` or `N findings`. Each row keeps its IL
+offset or `Member` location, optional C# line, Finding id, optional detail,
+Category, Conditionality, and Anchor. The three classifications are labeled
+rather than joined into an unexplained compact string. The selected member
+already supplies the subject, so rows do not repeat their `Member` field.
+
+The receipt-scoped instance key remains in the keyed row's data binding and
+`aria-pressed` state but is not presented as a durable user-facing identifier.
+Keyed rows expose an `Annotated source` action. Unkeyed member-header rows are
+non-interactive and say `No annotated source target`; they are not treated as
+failed rows.
+
+The exact selected row uses the shell's purple selection treatment in dark and
+light themes while the Annotated Source action remains blue. At wide pane
+widths, location, Finding content, and action occupy separate columns. Below a
+Finding-specific 650-pixel container threshold, location and action share the
+first line with content below; at the narrowest width the row and labeled
+properties stack. Complete long values wrap without widening the member
+scroller.
+
+Loading and census failure remain separate visible Finding outcomes while the
+independent Analysis Facts can remain available. A successful empty census
+keeps the Findings heading, zero count, context, and explicit absence message.
+A selection mismatch remains a visible alert above the unchanged census.
 
 Activating a keyed Facts row changes the member surface to Annotated Source and
 opens the existing modal Finding inspector for the corresponding document
@@ -140,7 +166,11 @@ The Inspect Web TypeScript gates prove:
 - stale same-member completion cannot publish over a newer request;
 - Analysis Facts no longer invalidate an active census; and
 - existing Annotated Source selection, modal, detail, dismissal, and focus
-  behavior remains intact.
+  behavior remains intact;
+- complete labeled Finding values and responsive row containment;
+- successful empty, loading, census-failure, and selection-mismatch
+  presentation; and
+- the shell-purple selected-row treatment without exposing raw instance keys.
 
 The existing managed Release gates continue to prove that a real member
 projection transports one receipt and the same distinct key set through both
@@ -156,4 +186,8 @@ This interaction does not:
 - infer identity from Finding values, text, coordinates, or collection order;
 - add a Workspace, share, URL, or history field;
 - change Annotated Source annotation membership or document construction; or
-- define selection across members, packages, processes, or sessions.
+- define selection across members, packages, processes, or sessions;
+- infer severity, priority, ranking, grouping, sorting, filtering,
+  deduplication, remediation, quick fixes, or lifecycle state; or
+- replace receipt/key identity with row order, display content, offsets, or
+  another presentation value.

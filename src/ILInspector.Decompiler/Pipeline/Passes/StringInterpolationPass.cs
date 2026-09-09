@@ -56,7 +56,11 @@ public sealed class StringInterpolationPass : IIrPass
                     }
                 }
 
-                var interpolation = new InterpolatedStringExpression(parts, values);
+                var interpolation = new InterpolatedStringExpression(parts, values,
+                    [((NewObject)match.StoreHandler.Value).Constructor,
+                        .. match.Appends.Select(append => ((Call)append.Expression).Callee),
+                        match.ToStringCall.Callee]);
+                interpolation.InheritSourceOffset(match.ToStringCall);
                 stepper.StepOver("raise DefaultInterpolatedStringHandler sequence to interpolated string", match.StoreHandler);
                 match.ToStringCall.ReplaceWith(interpolation);
                 foreach (var append in match.Appends)

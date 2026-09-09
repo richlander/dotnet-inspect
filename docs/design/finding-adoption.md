@@ -177,7 +177,7 @@ failure to the cell. Pins:
 `CellException_BecomesFailureAndLaterCellsStillEvaluate`,
 `EmptyOwnedCensus_PreservesSubjectAvailabilityTransitions`, and
 `ProbeOrder_DoesNotChangeTimelineOrder` in
-[`TimelineCommandTests`](../../src/dotnet-inspect.Tests/TimelineCommandTests.cs).
+[`TimelineCommandTests`](../../tests/dotnet-inspect.Tests/TimelineCommandTests.cs).
 See [`FindingCensusCorrelation`](../../src/Inspector.Findings/FindingCorrelation.cs).
 
 ## 8. Equality is not correspondence

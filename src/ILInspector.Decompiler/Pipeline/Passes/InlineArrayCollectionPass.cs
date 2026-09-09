@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Collections.Immutable;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -97,7 +98,12 @@ public sealed class InlineArrayCollectionPass : IIrPass
                 elements.Add(store.Value);
             }
 
-            var collection = new CollectionExpression(element, spanType, elements);
+            var members = stores.SelectMany(store => store.Consumed)
+                .SelectMany(statement => statement.Descendants.OfType<Call>())
+                .Where(call => IsPrivateImpl(call.Callee, "InlineArrayElementRef"))
+                .Select(call => call.Callee).Append(span.Callee).ToImmutableArray();
+            var collection = new CollectionExpression(element, spanType, elements, members);
+            collection.InheritSourceOffset(span);
             context.Stepper.StepOver("raise inline-array lowering to collection expression", span);
             span.ReplaceWith(collection);
             init.Detach();
@@ -727,7 +733,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
         _ => null,
     };
 
-    static bool IsPrivateImpl(MethodRef callee, string name)
+    internal static bool IsPrivateImpl(MethodRef callee, string name)
         => callee.Name == name && callee.DeclaringType.Name == PrivateImpl;
 
     static bool IsInlineArrayElementRef(MethodRef callee, out bool first, out bool readOnly)
@@ -742,7 +748,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// (<c>TwoObjects</c>/<c>ThreeObjects</c>/<c>EightObjects</c>/<c>ArgumentData</c>)
     /// do not start with <c>InlineArray</c>, so they stay excluded.
     /// </summary>
-    static bool IsSynthesizedInlineArray(TypeRef type)
+    internal static bool IsSynthesizedInlineArray(TypeRef type)
     {
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         string name = definition?.Name ?? "";

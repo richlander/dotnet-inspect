@@ -30,7 +30,7 @@ public sealed class RepositoryLineEndingTests
             records,
             static record =>
                 record.EndsWith(
-                    "\tsrc/dotnet-inspect.Tests/RepositoryLineEndingTests.cs",
+                    "\ttests/dotnet-inspect.Tests/RepositoryLineEndingTests.cs",
                     StringComparison.Ordinal)
                 && HasLfPolicy(record));
 

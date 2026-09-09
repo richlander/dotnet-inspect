@@ -1,23 +1,77 @@
-import type { DocViewerMeta } from "./doc-viewer.ts";
+import { assertNever } from "./data.ts";
 import type {
   BrowserPackageDocumentContent,
 } from "./facades/inspect-web-package.d.ts";
 import type { InspectedPackageDocument } from "./package-acquisition.ts";
 
 export interface DocumentInspectionState {
-  docViewerOpen: boolean;
-  docViewer: InspectedPackageDocument | null;
-  docViewerLoading: boolean;
-  docViewerError: string;
-  docViewerHtml: string;
-  docViewerMeta: DocViewerMeta | null;
-  docViewerSeq: number;
+  docViewer: DocumentViewerState;
 }
 
 export interface PackageDocumentRequest {
   packageId: string;
   version: string;
   document: InspectedPackageDocument;
+}
+
+export interface DocumentViewerMeta {
+  name: string;
+  version: string;
+  descriptionHtml: string;
+}
+
+interface DocumentViewerTarget {
+  readonly request: PackageDocumentRequest;
+}
+
+export type DocumentViewerState =
+  | { readonly status: "closed" }
+  | ({ readonly status: "loading" } & DocumentViewerTarget)
+  | ({
+      readonly status: "ready";
+      readonly html: string;
+      readonly meta: DocumentViewerMeta | null;
+    } & DocumentViewerTarget)
+  | ({
+      readonly status: "failed";
+      readonly error: string;
+    } & DocumentViewerTarget);
+
+export type OpenDocumentViewerState =
+  Exclude<DocumentViewerState, { readonly status: "closed" }>;
+
+export function documentViewerIsOpen(
+  state: DocumentViewerState,
+): state is OpenDocumentViewerState {
+  switch (state.status) {
+    case "closed":
+      return false;
+    case "loading":
+    case "ready":
+    case "failed":
+      return true;
+    default:
+      return assertNever(state, "document viewer state");
+  }
+}
+
+export function normalizeDocumentViewerSnapshot(
+  state: DocumentViewerState,
+): DocumentViewerState {
+  switch (state.status) {
+    case "loading":
+      return {
+        status: "failed",
+        request: state.request,
+        error: "",
+      };
+    case "closed":
+    case "ready":
+    case "failed":
+      return state;
+    default:
+      return assertNever(state, "document viewer snapshot state");
+  }
 }
 
 export interface DocumentInspectionDependencies {
@@ -82,37 +136,29 @@ export function createDocumentInspectionCoordinator(
 ) {
   const { state } = dependencies;
   const clear = () => {
-    state.docViewerSeq++;
-    state.docViewerOpen = false;
-    state.docViewer = null;
-    state.docViewerHtml = "";
-    state.docViewerMeta = null;
-    state.docViewerError = "";
-    state.docViewerLoading = false;
+    state.docViewer = { status: "closed" };
   };
 
   return {
     async open(request: PackageDocumentRequest) {
-      const sequence = ++state.docViewerSeq;
-      state.docViewerOpen = true;
-      state.docViewer = request.document;
-      state.docViewerHtml = "";
-      state.docViewerMeta = null;
-      state.docViewerError = "";
-      state.docViewerLoading = true;
+      const pending = {
+        status: "loading",
+        request,
+      } as const;
+      state.docViewer = pending;
       dependencies.render();
       try {
         const content = await dependencies.queryDocument(request);
-        if (sequence !== state.docViewerSeq) return;
+        if (state.docViewer !== pending) return;
         if (typeof content.text !== "string")
           throw new TypeError("The document content did not contain text.");
         const { meta, body } = splitFrontmatter(content.text);
         const html = await dependencies.renderMarkdown(body);
-        if (sequence !== state.docViewerSeq) return;
+        if (state.docViewer !== pending) return;
         const descriptionHtml = meta?.description
           ? await dependencies.renderMarkdownInline(meta.description)
           : "";
-        if (sequence !== state.docViewerSeq) return;
+        if (state.docViewer !== pending) return;
         const projectedMeta = meta && (meta.name || meta.description)
           ? {
               name: meta.name || request.document.name,
@@ -120,17 +166,21 @@ export function createDocumentInspectionCoordinator(
               descriptionHtml,
             }
           : null;
-        state.docViewerHtml = html;
-        state.docViewerMeta = projectedMeta;
+        state.docViewer = {
+          status: "ready",
+          request,
+          html,
+          meta: projectedMeta,
+        };
       } catch (error) {
-        if (sequence !== state.docViewerSeq) return;
-        state.docViewerError = dependencies.describeError(error);
-      } finally {
-        if (sequence === state.docViewerSeq) {
-          state.docViewerLoading = false;
-          dependencies.render();
-        }
+        if (state.docViewer !== pending) return;
+        state.docViewer = {
+          status: "failed",
+          request,
+          error: dependencies.describeError(error),
+        };
       }
+      dependencies.render();
     },
 
     clear,
