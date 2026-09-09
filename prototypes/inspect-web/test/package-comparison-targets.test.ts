@@ -32,7 +32,7 @@ test("new Packages default to the previous version and live Workspace including 
     diff: { kind: "previous" }, clone: { kind: "workspace" },
   });
   assert.equal(diffTargetDescription(targets.get(current).diff, versions),
-    "Compare against 1.0.0 (previous version).");
+    "Previous listed release");
 });
 
 test("Library, Type, and Member readers inherit the same Package selection", () => {
@@ -117,9 +117,15 @@ test("form renders escaped coordinates, explicit limitations, and a retry action
   }, escapeHtml);
   assert.match(html, /&lt;Package>/);
   assert.match(html, /&lt;offline>/);
-  assert.match(html, /forthcoming Diff and Clone/);
+  assert.match(html, /comparison-target-list/);
+  assert.match(html, /Diff baseline/);
+  assert.match(html, /Clone search scope/);
+  assert.match(html, /Automatic: previous listed version/);
   assert.match(html, /package-comparison-retry/);
-  assert.match(html, /Workspace \(including self\)/);
+  assert.match(html, /comparison-target-status-error/);
+  assert.match(html, /Workspace: all libraries/);
+  assert.match(html, /Choosing a target does not run a comparison/);
+  assert.doesNotMatch(html, /These settings prepare targets/);
 });
 
 test("failed inventory retry stays visible while preserving an exact selection", () => {
@@ -131,8 +137,18 @@ test("failed inventory retry stays visible while preserving an exact selection",
   }, escapeHtml);
   assert.match(html, /Network unavailable/);
   assert.match(html, /value="exact:1\.0\.0" selected/);
-  assert.doesNotMatch(html, /Compare against 1\.0\.0\./);
+  assert.doesNotMatch(html, /Exact version/);
   assert.match(html, /package-comparison-retry/);
+});
+
+test("available automatic Diff renders the effective version in the control", () => {
+  const current = pkg();
+  const html = renderPackageComparisonTargets({
+    package: current, packages: [current],
+    diff: { kind: "previous" }, clone: { kind: "workspace" }, versions,
+  }, escapeHtml);
+  assert.match(html, /<option value="previous" selected>Automatic: 1\.0\.0<\/option>/);
+  assert.match(html, /id="package-diff-target-status" role="status">Previous listed release/);
 });
 
 test("bindings dispatch exact versions and captured Package objects without eager selection", () => {
