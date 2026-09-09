@@ -4,11 +4,13 @@ using System.Collections.Immutable;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection.Metadata.Ecma335;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -17,7 +19,9 @@ namespace ILInspector.DecompilerHarness;
 
 internal static class RenderAbSensor
 {
-    const int BaselineVersion = 1;
+    const int BaselineVersion = 2;
+    const int StructuralArtifactVersion = 1;
+    static readonly ResearchFactRegistry s_emptyFactRegistry = new();
 
     public static int Run(
         IReadOnlyList<string> assemblies,
@@ -26,16 +30,28 @@ internal static class RenderAbSensor
         int maxExamples,
         int methodCap,
         int? workers,
-        bool sequential)
+        bool sequential,
+        string? structuralDiffDirectory = null)
     {
         Console.WriteLine($"Evaluating render A/B...");
         var current = CollectRenders(assemblies, methodCap, workers, sequential);
         
         if (emitPath is not null)
         {
+            BaselineArtifact baseline;
+            try
+            {
+                baseline = CreateBaseline(current);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine(
+                    $"Failed to create Render A/B baseline: {ex.Message}");
+                return 2;
+            }
             var json = JsonSerializer.Serialize(
-                CreateBaseline(current),
-                new JsonSerializerOptions { WriteIndented = true });
+                baseline,
+                new JsonSerializerOptions());
             File.WriteAllText(emitPath, json);
             HarnessLog.Status($"Wrote baseline to {emitPath} ({current.Count} methods).");
             if (diffPath is null)
@@ -47,7 +63,11 @@ internal static class RenderAbSensor
             var baseline = LoadBaseline(diffPath);
             return baseline is null
                 ? 2
-                : Compare(baseline.Methods, current, maxExamples);
+                : Compare(
+                    baseline.Methods,
+                    current,
+                    maxExamples,
+                    structuralDiffDirectory);
         }
         
         return 0;
@@ -79,6 +99,15 @@ internal static class RenderAbSensor
             }
             if (parsed.Methods is null)
                 throw new JsonException("baseline methods are missing");
+            if (parsed.Methods.Any(static pair =>
+                    pair.Value.SourceDocument?.Source is null
+                    || !StringComparer.Ordinal.Equals(
+                        pair.Value.Body,
+                        pair.Value.SourceDocument.Text.Trim())))
+            {
+                throw new JsonException(
+                    "baseline methods must carry matching product structural documents with physical method provenance");
+            }
 
             return parsed with
             {
@@ -130,6 +159,19 @@ internal static class RenderAbSensor
                     var rendered = projection.Output;
                     if (rendered is not null)
                     {
+                        var documentProjection = ResearchViews.ProjectMember(
+                            new ResearchViews.MemberProjectionRequest(
+                                source,
+                                typeName,
+                                methodName,
+                                Registry: s_emptyFactRegistry,
+                                MethodToken: MetadataTokens.GetToken(item.MethodHandle),
+                                SourceDocument: true));
+                        var structuralDocument = CreateStructuralDocument(
+                            rendered.Trim(),
+                            documentProjection.SourceDocument,
+                            documentProjection.SourceDocumentFailure,
+                            out string? documentFailure);
                         string signature = CorpusMethodIdentity.SignatureText(function.Signature);
                         string key = $"{portablePath}!{typeName}::{methodName}{signature}";
                         renders.TryAdd(key, new RenderedMethod(
@@ -142,7 +184,9 @@ internal static class RenderAbSensor
                             ValidityCheck.MethodShellContext.Create(
                                 function,
                                 projection.RequiresUnsafeBodyModifier),
-                            PrecomputedSemanticContext: null));
+                            PrecomputedSemanticContext: null,
+                            SourceDocument: structuralDocument,
+                            SourceDocumentFailure: documentFailure));
                     }
                 }
                 catch
@@ -164,21 +208,91 @@ internal static class RenderAbSensor
             method => IrImporter.Import(source, method),
             typesProvablyDisjoint: source.AreProvablyDisjoint);
 
+    static string DocumentFailure(DecompilerResult? failure)
+        => failure is null
+            ? "product annotated-source document was unavailable"
+            : string.Join(
+                "; ",
+                failure.Diagnostics.Select(static diagnostic => diagnostic.ToString()));
+
+    static AnnotatedSourceDocument? CreateStructuralDocument(
+        string body,
+        AnnotatedSourceDocument? sourceDocument,
+        DecompilerResult? sourceDocumentFailure,
+        out string? failure)
+    {
+        if (sourceDocument is null)
+        {
+            failure = DocumentFailure(sourceDocumentFailure);
+            return null;
+        }
+
+        try
+        {
+            var structuralDocument = CSharpStructuralDiffDocument
+                .Create(sourceDocument, sourceDocument)
+                .Before;
+            if (!StringComparer.Ordinal.Equals(
+                    body,
+                    structuralDocument.Text.Trim()))
+            {
+                failure =
+                    "product structural projection does not match the Render A/B body";
+                return null;
+            }
+
+            failure = null;
+            return structuralDocument;
+        }
+        catch (Exception ex) when (ex is
+            ArgumentException
+            or InvalidOperationException
+            or NotSupportedException)
+        {
+            failure = ex.Message;
+            return null;
+        }
+    }
+
     internal static BaselineArtifact CreateBaseline(
         Dictionary<string, RenderedMethod> renders)
         => new(
             BaselineVersion,
             renders.ToDictionary(
                 kv => kv.Key,
-                kv => new BaselineMethod(
-                    kv.Value.Body,
-                    kv.Value.ShellContext),
+                kv => CreateBaselineMethod(kv.Key, kv.Value),
                 StringComparer.Ordinal));
+
+    static BaselineMethod CreateBaselineMethod(
+        string key,
+        RenderedMethod rendered)
+    {
+        if (rendered.SourceDocument?.Source is null)
+        {
+            throw new InvalidOperationException(
+                $"{key}: {rendered.SourceDocumentFailure
+                    ?? "product annotated-source document with physical method provenance was unavailable"}");
+        }
+
+        if (!StringComparer.Ordinal.Equals(
+                rendered.Body,
+                rendered.SourceDocument.Text.Trim()))
+        {
+            throw new InvalidOperationException(
+                $"{key}: product structural projection does not match the Render A/B body");
+        }
+
+        return new BaselineMethod(
+            rendered.Body,
+            rendered.ShellContext,
+            rendered.SourceDocument);
+    }
 
     internal static int Compare(
         Dictionary<string, BaselineMethod> baseline,
         Dictionary<string, RenderedMethod> current,
-        int maxExamples)
+        int maxExamples,
+        string? structuralDiffDirectory = null)
     {
         int total = 0, changed = 0, added = 0, removed = 0;
         var byClass = new Dictionary<DiffClass, int> { [DiffClass.Structural] = 0, [DiffClass.ParenEquivalent] = 0, [DiffClass.Unparsed] = 0 };
@@ -189,7 +303,7 @@ internal static class RenderAbSensor
             [SemanticTransition.ValidToInvalid] = 0,
             [SemanticTransition.InvalidToInvalid] = 0,
         };
-        var diffs = new List<(string Key, string Before, string After, DiffClass Class, SemanticTransition Semantic)>();
+        var changes = new List<RenderChange>();
         var semanticRegressions = new List<(string Key, string Before, string After, ValidityCheck.RenderedBodyResult BeforeValidity, ValidityCheck.RenderedBodyResult AfterValidity)>();
         var references = ValidityCheck.RuntimeReferences();
         var compileOptions = ValidityCheck.CompileOptions();
@@ -241,8 +355,12 @@ internal static class RenderAbSensor
                 bySemantic[transition]++;
                 if (transition == SemanticTransition.ValidToInvalid)
                     semanticRegressions.Add((kvp.Key, before.Body, sample.Body, beforeValidity, afterValidity));
-                if (diffs.Count < maxExamples * 10) // Collect some for examples
-                    diffs.Add((kvp.Key, before.Body, sample.Body, diffClass, transition));
+                changes.Add(new RenderChange(
+                    kvp.Key,
+                    before,
+                    sample,
+                    diffClass,
+                    transition));
             }
         }
 
@@ -268,24 +386,60 @@ internal static class RenderAbSensor
         Console.WriteLine($"Added:   {added}");
         Console.WriteLine($"Removed: {removed}");
 
-        if (changed == 0)
+        var structuralChanges = changes
+            .OrderBy(static change => change.Class)
+            .ThenBy(static change => change.Key, StringComparer.Ordinal)
+            .Select(CreateStructuralChange)
+            .ToList();
+        int structurallyComplete = structuralChanges.Count(
+            static change => change.Document is not null
+                && change.Document.ToComparison().IsCorrespondenceComplete);
+        int structurallyPartial = structuralChanges.Count(
+            static change => change.Document is not null
+                && !change.Document.ToComparison().IsCorrespondenceComplete);
+        int structurallyUnavailable = structuralChanges.Count(
+            static change => change.Document is null);
+        if (changed > 0)
         {
-            Console.WriteLine("No regressions found.");
-            return 0;
+            Console.WriteLine(
+                "Structural review: "
+                + $"complete: {structurallyComplete}, "
+                + $"partial: {structurallyPartial}, "
+                + $"unavailable: {structurallyUnavailable}");
         }
 
-        Console.WriteLine("\n==== Selected Regressions ====");
-        int printed = 0;
-        foreach (var diff in diffs.OrderBy(d => d.Class))
+        bool artifactWriteFailed = structuralDiffDirectory is not null
+            && !WriteStructuralArtifacts(
+                structuralDiffDirectory,
+                structuralChanges);
+
+        if (changed == 0)
         {
-            if (printed >= maxExamples)
-                break;
-            Console.WriteLine($"\nMethod: {diff.Key} [{DiffClassLabel(diff.Class)}, {SemanticTransitionLabel(diff.Semantic)}]");
-            Console.WriteLine("--- Baseline ---");
-            Console.WriteLine(diff.Before);
-            Console.WriteLine("--- Current ---");
-            Console.WriteLine(diff.After);
-            printed++;
+            Console.WriteLine("No render changes found.");
+            return artifactWriteFailed ? 2 : 0;
+        }
+
+        Console.WriteLine("\n==== Selected Changes ====");
+        foreach (var change in structuralChanges.Take(maxExamples))
+        {
+            Console.WriteLine(
+                $"\nMethod: {change.Change.Key} "
+                + $"[{DiffClassLabel(change.Change.Class)}, "
+                + $"{SemanticTransitionLabel(change.Change.Semantic)}]");
+            if (change.Document is not null)
+            {
+                Console.WriteLine(StructuralReview.RenderMarkdown(
+                    change.Document.ToComparison()));
+            }
+            else
+            {
+                Console.WriteLine(
+                    $"Structural review unavailable: {change.Failure}");
+                Console.WriteLine("--- Baseline ---");
+                Console.WriteLine(change.Change.Before.Body);
+                Console.WriteLine("--- Current ---");
+                Console.WriteLine(change.Change.Current.Body);
+            }
         }
 
         if (semanticRegressions.Count > 0)
@@ -305,7 +459,126 @@ internal static class RenderAbSensor
             }
         }
 
-        return semanticRegressions.Count > 0 ? 2 : 1;
+        return semanticRegressions.Count > 0
+            || structurallyUnavailable > 0
+            || artifactWriteFailed
+                ? 2
+                : 1;
+    }
+
+    static StructuralChange CreateStructuralChange(RenderChange change)
+    {
+        if (change.Before.SourceDocument is null)
+        {
+            return new StructuralChange(
+                change,
+                Document: null,
+                "baseline: product annotated-source document was unavailable");
+        }
+        if (change.Current.SourceDocument is null)
+        {
+            return new StructuralChange(
+                change,
+                Document: null,
+                $"current: {change.Current.SourceDocumentFailure
+                    ?? "product annotated-source document was unavailable"}");
+        }
+
+        try
+        {
+            var document = CSharpStructuralDiffDocument.Create(
+                change.Before.SourceDocument,
+                change.Current.SourceDocument);
+            string structuralBefore = document.Before.Text.Trim();
+            string structuralAfter = document.After.Text.Trim();
+            if (!StringComparer.Ordinal.Equals(
+                    structuralBefore,
+                    change.Before.Body)
+                || !StringComparer.Ordinal.Equals(
+                    structuralAfter,
+                    change.Current.Body))
+            {
+                return new StructuralChange(
+                    change,
+                    Document: null,
+                    "product structural projection does not match the Render A/B bodies");
+            }
+
+            return new StructuralChange(change, document, Failure: null);
+        }
+        catch (Exception ex) when (ex is
+            ArgumentException
+            or InvalidOperationException
+            or NotSupportedException)
+        {
+            return new StructuralChange(
+                change,
+                Document: null,
+                ex.Message);
+        }
+    }
+
+    static bool WriteStructuralArtifacts(
+        string directory,
+        IReadOnlyList<StructuralChange> changes)
+    {
+        try
+        {
+            if (Directory.Exists(directory)
+                && Directory.EnumerateFileSystemEntries(directory).Any())
+            {
+                Console.Error.WriteLine(
+                    $"Render A/B structural artifact directory is not empty: {directory}");
+                return false;
+            }
+
+            Directory.CreateDirectory(directory);
+            var entries = new List<StructuralArtifactEntry>(changes.Count);
+            int artifactIndex = 0;
+            foreach (var change in changes)
+            {
+                string? artifact = null;
+                if (change.Document is not null)
+                {
+                    artifact = $"{++artifactIndex:D4}.structural-diff.json";
+                    File.WriteAllText(
+                        Path.Combine(directory, artifact),
+                        AnnotatedSourceJson.SerializeStructuralDiff(
+                            change.Document));
+                }
+
+                entries.Add(new StructuralArtifactEntry(
+                    change.Change.Key,
+                    DiffClassLabel(change.Change.Class),
+                    SemanticTransitionLabel(change.Change.Semantic),
+                    change.Document?.ToComparison().IsCorrespondenceComplete,
+                    artifact,
+                    change.Failure));
+            }
+
+            File.WriteAllText(
+                Path.Combine(directory, "manifest.json"),
+                JsonSerializer.Serialize(
+                    new StructuralArtifactManifest(
+                        StructuralArtifactVersion,
+                        entries),
+                    new JsonSerializerOptions { WriteIndented = true }));
+            HarnessLog.Status(
+                $"Wrote {artifactIndex} Render A/B structural diff artifact(s) "
+                + $"to {directory}.");
+            return true;
+        }
+        catch (Exception ex) when (ex is
+            IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or NotSupportedException)
+        {
+            Console.Error.WriteLine(
+                $"Failed to write Render A/B structural artifacts to {directory}: "
+                + ex.Message);
+            return false;
+        }
     }
 
     /// <summary>
@@ -462,7 +735,9 @@ internal static class RenderAbSensor
         string PortablePath,
         string Body,
         ValidityCheck.MethodShellContext ShellContext,
-        SemanticContext? PrecomputedSemanticContext = null)
+        SemanticContext? PrecomputedSemanticContext = null,
+        AnnotatedSourceDocument? SourceDocument = null,
+        string? SourceDocumentFailure = null)
     {
         public string Key => $"{PortablePath}!{TypeName}::{MethodName}{Signature}";
     }
@@ -480,5 +755,30 @@ internal static class RenderAbSensor
 
     internal sealed record BaselineMethod(
         string Body,
-        ValidityCheck.MethodShellContext ShellContext);
+        ValidityCheck.MethodShellContext ShellContext,
+        AnnotatedSourceDocument? SourceDocument = null);
+
+    sealed record RenderChange(
+        string Key,
+        BaselineMethod Before,
+        RenderedMethod Current,
+        DiffClass Class,
+        SemanticTransition Semantic);
+
+    sealed record StructuralChange(
+        RenderChange Change,
+        CSharpStructuralDiffDocument? Document,
+        string? Failure);
+
+    sealed record StructuralArtifactManifest(
+        int Version,
+        IReadOnlyList<StructuralArtifactEntry> Methods);
+
+    sealed record StructuralArtifactEntry(
+        string Method,
+        string TextChange,
+        string SemanticTransition,
+        bool? CorrespondenceComplete,
+        string? Artifact,
+        string? Failure);
 }

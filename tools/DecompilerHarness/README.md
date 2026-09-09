@@ -1303,20 +1303,24 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 
 **Render A/B** (`--emit-render-ab` / `--render-ab`): the before/after text
 oracle for raise and printer changes. The first run writes a versioned,
-method-keyed JSON baseline containing each rendered body and its typed async,
-unsafe, and await-syntax declaration context; the second run compares the
+method-keyed JSON baseline containing each rendered body, its typed async,
+unsafe, and await-syntax declaration context, and the product-issued structural
+C# projection with physical method provenance; the second run compares the
 current render against that baseline and reports changed, added, and removed
-methods. Raised renders carry the same sibling-body import and metadata
-type-disjointness capabilities as product rendering;
+methods. The projection omits the source document's interleaved IL and unrelated
+facts while retaining the C# nodes and IL-origin correspondence required by
+`CSharpStructuralDiffDocument`. Raised renders carry the same sibling-body
+import and metadata type-disjointness capabilities as product rendering;
 `RenderAbMatchesMetadataBackedProductProjection` gates both the
-disjointness-proving and non-proving compiler fixtures. Body-only baselines
-predate the semantic-context contract and are
+disjointness-proving and non-proving compiler fixtures. Baselines predating
+either the semantic declaration context or product structural documents are
 rejected with a regeneration instruction rather than measured with current-head
-facts. Changed methods are classified on two axes:
+facts. Changed methods are classified on three axes:
 
 - spelling: `structural`, `paren-equivalent`, or `unparsed`;
 - semantic validity over the changed set only: `valid->valid`,
-  `invalid->valid`, `valid->invalid`, or `invalid->invalid`.
+  `invalid->valid`, `valid->invalid`, or `invalid->invalid`;
+- product structural correspondence: `complete`, `partial`, or `unavailable`.
 
 The semantic lane wraps each changed body with its own recorded declaration
 context while sharing the matched method's signature and binding closure, then
@@ -1325,6 +1329,30 @@ parse, such as `1++`, without paying a corpus-wide compile cost. A
 `valid->invalid` transition is a semantic regression; expression-moving PRs
 should report the semantic line explicitly, e.g. `A/B: 55 changed (40
 paren-equivalent, 15 structural; semantic: 0 valid->invalid)`.
+
+For every changed body, Render A/B passes the stored A document and freshly
+issued B document to `CSharpStructuralDiffDocument`. Selected examples render
+through the same `StructuralReview` Markdown path as standalone
+`--structural-review`; unsupported or ambiguous correspondence stays visibly
+partial. Add `--emit-render-ab-structural-diffs <directory>` to retain every
+changed method as one strict, replayable structural-diff JSON document plus a
+deterministic manifest. The directory must be absent or empty, preventing stale
+artifacts from being mistaken for current evidence:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  path/to/input.dll \
+  --render-ab artifacts/render-ab-base.json \
+  --emit-render-ab-structural-diffs artifacts/render-ab-structural
+
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --structural-review \
+  artifacts/render-ab-structural/0001.structural-diff.json
+```
+
+Structural review explains which product nodes were added, removed, changed, or
+moved; it does not decide that B is correct or better. Semantic validity,
+compile-back fidelity, and adversarial review remain independent evidence.
 
 Add `--emit-corpus-delta <file>` with `--diff-corpus-baseline` to write the
 changed per-method rows as JSON. The quality card stays compact and names the
