@@ -1134,6 +1134,7 @@ for (const pendingRequest of ["Library", "catalog"] as const) {
 }
 
 test("same-Workspace navigation retires superseded Platform catalog progress", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page, { catalogPending: true });
   await page.getByLabel("Platform version", { exact: true })
     .selectOption(alternatePlatformVersion);
