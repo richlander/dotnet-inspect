@@ -1733,30 +1733,15 @@ public class UnsafeEmitterTests
                 }
             }
             """;
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview)
-            .WithFeatures([new KeyValuePair<string, string>("updated-memory-safety-rules", "true")]);
-        var tree = CSharpSyntaxTree.ParseText(source, parseOptions);
-        var compilation = CSharpCompilation.Create(
-            "__gate",
-            [tree],
-            RuntimeReferences(),
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
-        return compilation.GetDiagnostics();
+        return CreateUpdatedRulesCompilation("__gate", source).GetDiagnostics();
     }
 
     static string CompileUpdatedRulesAssembly(string source)
     {
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview)
-            .WithFeatures([new KeyValuePair<string, string>("updated-memory-safety-rules", "true")]);
-        var tree = CSharpSyntaxTree.ParseText(source, parseOptions);
-        var compilation = CSharpCompilation.Create(
+        var compilation = CreateUpdatedRulesCompilation(
             "__fixture",
-            [tree],
-            RuntimeReferences(),
-            new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
-                optimizationLevel: OptimizationLevel.Release,
-                allowUnsafe: true));
+            source,
+            OptimizationLevel.Release);
         string path = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-unsafe-switch-{Guid.NewGuid():N}.dll");
@@ -1768,6 +1753,24 @@ public class UnsafeEmitterTests
                 Environment.NewLine,
                 result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
         return path;
+    }
+
+    static CSharpCompilation CreateUpdatedRulesCompilation(
+        string assemblyName,
+        string source,
+        OptimizationLevel optimizationLevel = OptimizationLevel.Debug)
+    {
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([new KeyValuePair<string, string>("updated-memory-safety-rules", "true")]);
+        var tree = CSharpSyntaxTree.ParseText(source, parseOptions);
+        return CSharpCompilation.Create(
+            assemblyName,
+            [tree],
+            RuntimeReferences(),
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: optimizationLevel,
+                allowUnsafe: true));
     }
 
     static void AssertNoWarningsOrErrors(ImmutableArray<Diagnostic> diagnostics, string body)
