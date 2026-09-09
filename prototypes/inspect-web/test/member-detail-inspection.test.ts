@@ -70,6 +70,7 @@ function wireMemberSurface(
     stableSelector: "Run(string)",
     anchorDigest: "abc123",
     canonicalSignature: "void Example.Widget.Run(string value)",
+    anchorTypeFullName: "Example.Widget",
     graphSelectorKey: "Run|System.String",
     bodySelectors: [],
     ...overrides,
@@ -558,6 +559,43 @@ test("stale documentation failure cannot overwrite newer request state", async (
   assert.equal(state.memberDocumentationLoading, true);
 });
 
+test("invalidation fences a pending same-signature documentation request", async () => {
+  const overload = memberSurface();
+  const query = deferred<never>();
+  const replacement = memberSurface();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocumentation: async () => {
+        queries++;
+        return queries === 1
+          ? query.promise
+          : {
+              summary: "Runs the widget.",
+              returns: null,
+              parameters: { value: "The value to run." },
+              exceptions: [],
+            };
+      },
+    }));
+
+  const load = coordinator.loadDocumentation(documentationRequest(overload));
+  coordinator.invalidate();
+  assert.equal(state.memberDocumentationKey, "");
+  assert.equal(state.memberDocumentationLoading, false);
+  await coordinator.loadDocumentation(documentationRequest(replacement));
+
+  query.reject(new Error("stale failure"));
+  await load;
+
+  assert.equal(queries, 2);
+  assert.equal(overload.documentationLoaded, undefined);
+  assert.equal(replacement.documentationLoaded, true);
+  assert.equal(state.memberDocumentationError, "");
+  assert.equal(state.memberDocumentationLoading, false);
+});
+
 test("Finding census publishes exact current results and initializes its reader", async () => {
   const result = findingCensusResult();
   const annotated = result.annotatedSource;
@@ -874,6 +912,33 @@ test("an older same-signature Finding census cannot replace the latest request",
     latestResult.factCensusReceipt,
   );
   assert.equal(state.memberAnnotatedKey, "annotated");
+  assert.equal(state.memberAnnotatedLoading, false);
+});
+
+test("invalidation fences a pending same-signature Finding census", async () => {
+  const query = deferred<MemberFindingCensus>();
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryFindingCensus: async () => query.promise,
+    }));
+
+  const load = coordinator.loadFindingCensus(findingCensusRequest());
+  coordinator.invalidate();
+  const retained = {
+    ...findingCensusResult(),
+    factCensusReceipt: "33333333-3333-3333-3333-333333333333",
+  };
+  state.memberAnnotatedKey = "annotated";
+  state.memberAnnotated = retained.annotatedSource;
+  state.memberFindingInteraction = createMemberFindingInteraction(retained);
+  state.memberAnnotatedLoading = false;
+
+  query.resolve(findingCensusResult());
+  await load;
+
+  assert.equal(state.memberAnnotated, retained.annotatedSource);
+  assert.equal(state.memberFindingInteraction?.census, retained);
   assert.equal(state.memberAnnotatedLoading, false);
 });
 

@@ -6,7 +6,7 @@ using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Research;
 

@@ -18,8 +18,11 @@ Presentation-owned
 Stage 4 is implemented under
 [#6314](https://github.com/richlander/dotnet-inspect/issues/6314) by the CLI
 `Clone Candidates` section for exact Library, Type, and Member subjects.
-Stages 5 through 7 are **not implemented**, so the Browser-facing acceptance
-scenarios below remain **unverified**.
+Stage 5 is implemented under
+[#6353](https://github.com/richlander/dotnet-inspect/issues/6353) by the
+managed Inspect Web Analysis facade and generated TypeScript/JavaScript
+transport. Stages 6 and 7 are **not implemented**, so the Browser interaction
+and deployment acceptance scenarios below remain **unverified**.
 
 Clone separates two request dimensions:
 
@@ -506,7 +509,22 @@ The counted production-adoption path under #5083 has seven stages:
    The current CLI snapshot contains the selected exact library only; requested
    breadth remains visible, and output discloses that finite participant scope
    rather than inferring ecosystem membership or relabeling the request.
-5. Add the managed Browser facade and transport.
+5. Add the managed Browser facade and transport. Landed as
+   `QueryCloneCandidates` in the Analysis facade. The request carries exact
+   package coordinates, selected package and assembly, Library/Type/Member
+   seed identity, breadth, and discovery. Member binding accepts exact
+   owner-issued identities from either the reference-preferred package surface
+   or the implementation-backed Graph Member surface; it prefers an exact
+   implementation identity, uses structural correspondence only for a
+   reference-only match, and never compares MethodDef tokens across images.
+   Browser member projections carry the complete owner-issued anchor, including
+   its declaring-type spelling, so consumers do not reconstruct it from the
+   TypeDef identity or display text. The generated transport preserves
+   the validated request, every portable result field, and the `Available`,
+   `Rejected`, `Failed`, and `Unrepresentable` outcomes. The browser Workspace
+   snapshot marks the containing library explicitly and treats every other
+   current participant as merely available until a registration owner supplies
+   ecosystem membership; it does not infer registration.
 6. Replace Inspect Web's Package-specific Clone selector with the breadth and
    candidate-discovery controls and add the Library, Type, and Member
    master/detail experience.
@@ -524,7 +542,12 @@ representation.
 
 ## Acceptance and evidence
 
-The following future outcome-level scenarios are required:
+The following outcome-level scenarios are required across the remaining
+adoption path. Stage 5 gates managed request binding, Library/Type/Member seed
+selection, logical and exact-accessor Member behavior, breadth/discovery
+transport, participant coverage, and all closed outcomes. Stage 6 must still
+gate the browser controls, interaction, navigation, and visible rendering
+scenarios.
 
 | Scenario | Required observation |
 | --- | --- |

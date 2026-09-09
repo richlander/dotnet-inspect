@@ -56,6 +56,15 @@ and repository-specific guidance.
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
+Platform packs have distinct package, Platform, and direct-library views. For
+example, `package Microsoft.NETCore.App.Ref@10.0.0` inspects the targeting-pack
+container as an exact NuGet package, while
+`library ./packs/Microsoft.NETCore.App.Ref/10.0.0/ref/net10.0/System.Runtime.dll`
+inspects one manually downloaded or extracted DLL directly. A Platform
+selection unwraps authorized pack DLLs without publishing its source pack as a
+Package participant. These entry paths preserve different provenance and do
+not infer Platform identity from a package or file name.
+
 Windows Metadata (`.winmd`) is not a supported input format, and rejection is
 only partially enforced. Directory and package scans select `*.dll`, so a
 `.winmd` beside them is skipped without comment. A `.winmd` named explicitly —
@@ -541,13 +550,14 @@ dotnet-inspect member JsonConvert \
   --package Newtonsoft.Json@13.0.4 \
   SerializeObject:1 \
   --tfm net6.0 \
-  --share url
+  --share
 dotnet-inspect depends \
-  --package Newtonsoft.Json@13.0.4 \
+  --package Newtonsoft.Json \
   --tfm net6.0 \
-  --share url
+  --share
 dotnet-inspect skill list
 dotnet-inspect demo list
+dotnet-inspect demo list -n 3 --json
 ```
 
 `workspace-state encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
@@ -555,20 +565,25 @@ for the existing share-packet JSON shape. Packet-only output remains the default
 This is not an encoder for `workspace --json` inventory output. The packet's
 existing limits and the browser's supported restoration shapes still apply.
 
-`member --share packet|url` projects one explicitly selected public member
+Bare `--share` emits a complete Inspect Web URL; `--share url` spells that
+default explicitly, while `--share packet` emits only the canonical packet.
+
+`member --share[=url|packet]` projects one explicitly selected public member
 overload from an exact NuGet.org package version and target framework. The URL
 opens that member's API Overview in the published browser. Select an overload
 with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
 private-feed, non-public, multi-library, and other rendering or analysis modes
 fail visibly rather than producing a link the browser cannot restore.
 
-`depends --package <id>@<exact-version> --tfm <tfm> --share packet|url`
+`depends --package <id>[@<version>] --tfm <tfm> --share[=url|packet]`
 projects the package Dependencies view without traversing the graph in the CLI.
-The published browser acquires the exact NuGet.org coordinate and lazily
+An omitted version or `latest` is resolved from NuGet.org and pinned before
+emission; the published browser then acquires that exact coordinate and lazily
 computes the dependency graph for the selected target framework. Local archives,
-configured sources, floating versions, omitted frameworks, the Browser-reserved
-`Microsoft.NETCore.App` Platform id, row windows, counts, and other rendering
-formats fail visibly rather than producing a non-reproducible link.
+configured sources, wildcard or range versions, omitted frameworks, the
+Browser-reserved `Microsoft.NETCore.App` Platform id, row windows, counts, and
+other rendering formats fail visibly rather than producing a non-reproducible
+link.
 
 ## Requirements
 

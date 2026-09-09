@@ -3,7 +3,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using NuGet.Frameworks;
-using NuGet.Versioning;
+using NuGetFetch;
 
 namespace DotnetInspector.Commands;
 
@@ -39,7 +39,11 @@ internal static class DependsShareProjection
         return null;
     }
 
-    internal static int Write(DependsOptions options)
+    internal static async Task<int> WriteAsync(
+        DependsOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        CancellationToken cancellationToken = default)
     {
         string packageReference = options.PackageName!;
         if (packageReference.EndsWith(
@@ -67,21 +71,6 @@ internal static class DependsShareProjection
                 $"--share cannot project NuGet package '{packageId}' because "
                 + "the published Browser reserves that id for the .NET Platform.");
         }
-        if (versionText is null
-            || versionText.Contains('*', StringComparison.Ordinal)
-            || string.Equals(
-                versionText,
-                "latest",
-                StringComparison.OrdinalIgnoreCase)
-            || versionText.Contains('+', StringComparison.Ordinal)
-            || !NuGetVersion.TryParse(
-                versionText,
-                out NuGetVersion? version))
-        {
-            return NonProjectable(
-                "--share requires one exact NuGet package version without "
-                + "ranges, wildcards, or build metadata.");
-        }
         if (!TryNormalizeFramework(
                 options.Tfm,
                 out string? framework))
@@ -90,8 +79,40 @@ internal static class DependsShareProjection
                 "--share requires one valid target framework with --tfm.");
         }
 
-        string normalizedVersion =
-            version.ToNormalizedString().ToLowerInvariant();
+        string? requestedVersion = string.Equals(
+                versionText,
+                "latest",
+                StringComparison.OrdinalIgnoreCase)
+            ? null
+            : versionText;
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                httpClient,
+                new PackageCoordinate(
+                    packageId,
+                    requestedVersion,
+                    framework),
+                [PackageSource.NuGetOrg],
+                logger.Log,
+                includePrerelease: false,
+                useVersionCache: false,
+                requireStableFloating: false,
+                cancellationToken).ConfigureAwait(false);
+        if (resolution
+            is not PackageCoordinateResolution.Resolved resolved)
+        {
+            string message = resolution switch
+            {
+                PackageCoordinateResolution.Invalid invalid =>
+                    invalid.Message,
+                PackageCoordinateResolution.Unavailable unavailable =>
+                    unavailable.Message,
+                _ => "The package coordinate could not be resolved.",
+            };
+            return NonProjectable($"--share could not resolve an exact NuGet.org package coordinate: {message}");
+        }
+
+        string normalizedVersion = resolved.Coordinate.Version;
         var coordinate =
             new DefinitionMemberCoordinate.PackageCoordinate(
                 packageId,

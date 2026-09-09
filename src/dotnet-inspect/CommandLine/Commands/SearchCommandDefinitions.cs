@@ -522,14 +522,8 @@ public static class SearchCommandDefinitions
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var shareOption = new Option<string?>("--share")
-        {
-            Description = "Emit an exact NuGet package dependency view as a canonical Workspace packet or complete URL",
-        };
-        shareOption.AcceptOnlyFromAmong(
-            StringComparer.OrdinalIgnoreCase,
-            "packet",
-            "url");
+        var shareOption = WorkspaceShareOption.Create(
+            "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
 
         dependsCommand.Arguments.Add(targetTypeArg);
         dependsCommand.Options.Add(packageOption);
@@ -555,7 +549,8 @@ public static class SearchCommandDefinitions
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
-            var share = parseResult.GetValue(shareOption);
+            WorkspaceShareFormat? shareFormat =
+                WorkspaceShareOption.Parse(parseResult, shareOption);
             bool hasNonPackageShareInput =
                 !string.IsNullOrEmpty(targetType)
                 || packages.Length != 1
@@ -565,7 +560,7 @@ public static class SearchCommandDefinitions
                 || (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) > 0
                 || parseResult.GetValue(extensionsOption)
                 || parseResult.GetValue(aspnetcoreOption);
-            if (share is not null && hasNonPackageShareInput)
+            if (shareFormat is not null && hasNonPackageShareInput)
             {
                 CommandError.Write(
                     "--share requires exactly one --package input and "
@@ -579,13 +574,7 @@ public static class SearchCommandDefinitions
                 var commonOptions = new DependsOptions
                 {
                     Tfm = parseResult.GetValue(tfmOption),
-                    ShareFormat =
-                        share?.ToLowerInvariant() switch
-                        {
-                            "packet" => WorkspaceShareFormat.Packet,
-                            "url" => WorkspaceShareFormat.Url,
-                            _ => null,
-                        },
+                    ShareFormat = shareFormat,
                     JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
@@ -602,7 +591,9 @@ public static class SearchCommandDefinitions
                     return await DependsCommand.ExecuteLibraryDependsAsync(commonOptions with { LibraryName = assemblies[0] });
 
                 if (packages.Length == 1 && assemblies.Length == 0 && projects.Length == 0)
-                    return await DependsCommand.ExecutePackageDependsAsync(commonOptions with { PackageName = packages[0] });
+                    return await DependsCommand.ExecutePackageDependsAsync(
+                        commonOptions with { PackageName = packages[0] },
+                        ct);
 
                 return TipWriter.MissingArgumentWithTips(dependsCommand,
                     "Type, package, or library required.",

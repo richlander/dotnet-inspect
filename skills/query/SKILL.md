@@ -270,7 +270,7 @@ Prefer built-in limits to shell pipes:
 - `--tail` takes the same count from the end, like `tail`.
 - `--rows N` takes the first N data rows per table on commands that retain the
   legacy row window, preserving headings and headers; add `--tail` for the last
-  N. On package version lenses, use `-n N` instead.
+  N. On adopted semantic-row surfaces, use `-n N` instead.
 - On commands retaining the legacy row window, `--rows 2..10` is an absolute
   1-based inclusive range (nine rows), `2+10` means ten rows starting at row 2,
   and `10..` runs from row 10 to the end. These legacy ranges reject
@@ -282,8 +282,8 @@ Prefer built-in limits to shell pipes:
 - `--count` counts rows in one selected table.
 
 Command-specific caps: `-t N` for type/find rows and `-m N` for members.
-Package `--versions` and `--versions-with-feed` are zero-arity selectors;
-`-n N` selects complete version rows, while `-n N --lines` clips their rendered
-lines. `--rows` on those lenses accepts only `A..B`, `A..`, and `..B`.
-`-n` and `--rows` compose as stages in argv order on those lenses;
-`--head` and `--tail` modify `-n`, not the range.
+Package `--versions` / `--versions-with-feed` and `demo list` use semantic rows.
+`-n N` selects complete items, while `-n N --lines` clips rendered lines.
+`--rows` on those surfaces accepts only `A..B`, `A..`, and `..B`; `-n` and
+`--rows` compose as stages in argv order. `--head` and `--tail` modify `-n`,
+not the range.

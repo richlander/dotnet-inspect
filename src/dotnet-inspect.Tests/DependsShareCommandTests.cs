@@ -1,3 +1,7 @@
+using System.Net;
+using DotnetInspector.Commands;
+using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspector.Tests;
@@ -36,19 +40,25 @@ public partial class CommandExecutionTests
         Assert.Empty(packet.Libraries);
     }
 
-    [Fact]
-    public async Task DependsShare_UrlWrapsCanonicalPacket()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("url")]
+    public async Task DependsShare_UrlWrapsCanonicalPacket(string? format)
     {
-        var result = await RunAppAsync(
+        var arguments = new List<string>
+        {
             "depends",
             "--package",
             "System.Text.Json@10.0.0",
             "--tfm",
             "NET10.0",
             "--share",
-            "url",
-            "--tips",
-            "q");
+        };
+        if (format is not null)
+            arguments.Add(format);
+        arguments.AddRange(["--tips", "q"]);
+
+        var result = await RunAppAsync([.. arguments]);
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -64,13 +74,42 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Newtonsoft.Json", "net6.0", "exact NuGet package version")]
-    [InlineData("Newtonsoft.Json@latest", "net6.0", "exact NuGet package version")]
-    [InlineData("Newtonsoft.Json@13.*", "net6.0", "exact NuGet package version")]
-    [InlineData("Newtonsoft.Json@13.0.4+build", "net6.0", "exact NuGet package version")]
+    [InlineData("Example.Package")]
+    [InlineData("Example.Package@latest")]
+    public async Task DependsShare_FloatingVersionResolvesWithoutPackageAcquisition(
+        string package)
+    {
+        var handler = new FloatingVersionHandler();
+        using var client = new HttpClient(handler);
+        var options = new DependsOptions
+        {
+            PackageName = package,
+            Tfm = "net8.0",
+            ShareFormat = WorkspaceShareFormat.Packet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            DependsShareProjection.WriteAsync(
+                options,
+                client,
+                new VerboseLogger(enabled: false)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            result.Output.Trim(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal("4.5.6", Assert.Single(packet.Tabs).Version);
+        Uri request = Assert.Single(handler.Requests);
+        Assert.Equal("azuresearch-usnc.nuget.org", request.Host);
+    }
+
+    [Theory]
+    [InlineData("Newtonsoft.Json@13.*", "net6.0", "exact normalized NuGet version")]
+    [InlineData("Newtonsoft.Json@13.0.4+build", "net6.0", "exact normalized NuGet version")]
     [InlineData("Newtonsoft.Json@13.0.4", null, "target framework")]
     [InlineData("Newtonsoft.Json@13.0.4", "not/a/tfm", "target framework")]
-    public async Task DependsShare_RequiresExactCoordinateBeforeAcquisition(
+    public async Task DependsShare_RejectsNonProjectableCoordinate(
         string package,
         string? framework,
         string expectedError)
@@ -213,5 +252,24 @@ public partial class CommandExecutionTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains("--share", result.Error);
+    }
+
+    private sealed class FloatingVersionHandler : HttpMessageHandler
+    {
+        public List<Uri> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request.RequestUri!);
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"data":[{"version":"4.5.6"}]}"""),
+                    RequestMessage = request,
+                });
+        }
     }
 }

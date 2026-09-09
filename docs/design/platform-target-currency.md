@@ -4,6 +4,8 @@
 
 This document is the normative owner for the shared Platform target currency
 tracked by [#6361](https://github.com/richlander/dotnet-inspect/issues/6361).
+The contract-floor implementation is tracked by
+[#6378](https://github.com/richlander/dotnet-inspect/issues/6378).
 It is a focused prerequisite for:
 
 - the platform-first product direction in
@@ -326,9 +328,10 @@ family/TFM/version grouping is a planned adopter of
 `PlatformFamilyTarget`; this owner does not move pruning semantics or package
 version comparison into the target currency.
 
-The separately owned `PlatformHouse` contract consumes those facts for product
-reference processing. This currency owner defines neither that routing nor the
-meaning of a pruning result.
+The package-processing owner consumes those facts to decide whether to retain
+package processing or issue a typed platform delegation. `PlatformHouse`
+receives only the resulting ordinary platform request. This currency owner
+defines neither that routing nor the meaning of a pruning result.
 
 ### Queries and Workspace
 
@@ -350,18 +353,19 @@ the shared identity from those strings after transport.
 `House` as a major clearing-house service that aggregates candidates from
 multiple sources, applies policy, and settles one authorized result.
 
-`PlatformHouse` therefore consumes this currency; it does not own or mint a
-parallel family or target identity.
+`PlatformHouse` therefore settles every successful target demand to this
+currency; it does not own or mint a parallel family or target identity.
 
 The separately owned
-[PlatformHouse Reference Processing](platform-house-reference-processing.md)
-contract defines the sole product-facing platform reference-processing facade,
-including its requests, policy, settlement, retained correspondence, and
-visible non-success outcomes. It encapsulates pruning and transparent .NET
-Standard processing while composing, rather than redefining, the pruning
-owner's target-bound facts and Metadata's structured type-forwarding contract.
-`.NET Standard` does not become a third `PlatformFamily`, registration
-population, or implementation target.
+[PlatformHouse Realization and Reference Processing](platform-house-reference-processing.md)
+contract defines the sole product-facing platform realization and
+reference-processing facade, including its requests, policy, settlement,
+bare-library handoff, retained correspondence, and visible non-success
+outcomes. Package-reference pruning remains with its package owner;
+PlatformHouse receives only an ordinary typed platform request after any
+upstream delegation. It composes, rather than redefines, Metadata's structured
+type-forwarding contract. `.NET Standard` does not become a third
+`PlatformFamily`, registration population, or implementation target.
 
 This document records that production-adoption dependency but does not define
 the House contract. Pack acquisition, installed realization, type indexing,
@@ -462,18 +466,18 @@ application launch remain outside this contract.
 | --- | --- |
 | This owner | Family, target-framework, version, exact family-target identity, validation, equality, and non-action |
 | Source Selection | Population declaration role and target-independent relevance |
-| Platform source adapters | Source coordinates, realization, evidence, completion, and failures |
-| PlatformHouse | Separately owned product-facing reference-processing facade and target-bound settlement |
+| Platform source adapters | Target discovery, source coordinates, realization, evidence, completion, and failures |
+| PlatformHouse | Separately owned product-facing target-demand composition, realization, reference-processing, and target-bound settlement |
 | Platform/package pruning | Target-bound package subsumption facts and comparison |
 | Queries and Workspace | Operation lowering, admission, revisions, leases, and participant lifetime |
 | Metadata | Canonical assembly identity and guarded inspection |
-| CLI and Inspect Web | User intent, target selection, diagnostics, and presentation |
+| CLI and Inspect Web | User intent, named default-policy selection, diagnostics, and presentation |
 
 There are nine counted production-adoption steps:
 
 1. Lock this focused target-currency design under #6361.
-2. Implement the package-neutral values in the target
-   `DotnetInspector.Platforms` contract floor.
+2. Implement the package-neutral values in the
+   `DotnetInspector.Platforms` contract floor under #6378.
 3. Have Source Selection retain `PlatformFamily` in
    `PlatformLibraryPopulationDeclaration`.
 4. Have pruning retain `PlatformFamilyTarget` instead of its parallel
@@ -482,8 +486,10 @@ There are nine counted production-adoption steps:
    to the exact family target.
 6. Define and implement `PlatformHouse` source settlement and realization
    receipts over this currency, including its sole-facade reference-processing
-   boundary, pruning composition, and transparent .NET Standard forwarding,
-   while keeping installed adapters package-free.
+   boundary, explicit target/version settlement, provenance-retaining
+   bare-library handoff, and transparent .NET Standard forwarding, while
+   keeping installed adapters package-free. Package pruning remains with the
+   package-processing owner.
 7. Route Queries, Workspace, dependency traversal, and assembly-reference
    platform fallback through the House, retiring their direct composition of
    platform mechanics.

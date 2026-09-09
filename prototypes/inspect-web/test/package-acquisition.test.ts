@@ -99,6 +99,7 @@ function memberSurface(): BrowserMemberSurface {
     stableSelector: "Value",
     anchorDigest: "value",
     canonicalSignature: "int Example.Widget.Value",
+    anchorTypeFullName: "Example.Widget",
     graphSelectorKey: "Value",
     bodySelectors: [{
       token: 0x06000001,

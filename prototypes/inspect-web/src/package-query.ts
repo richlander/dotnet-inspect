@@ -395,7 +395,7 @@ export function createPackageQueryController(
 
   return {
     configure(request: QueryRequest) {
-      abortController.abort();
+      abortController.abort("superseded");
       abortController = new AbortController();
       generation++;
       state.request = request;
@@ -405,7 +405,7 @@ export function createPackageQueryController(
     },
 
     async run(request: QueryRequest) {
-      abortController.abort();
+      abortController.abort("superseded");
       const runController = new AbortController();
       abortController = runController;
       const requestGeneration = ++generation;
@@ -479,7 +479,7 @@ export function createPackageQueryController(
       // completion label; cancelling after the fact must not overwrite it.
       if (state.outcome.completion.kind !== "streaming") return;
       generation++;
-      abortController.abort();
+      abortController.abort("user");
       state.outcome = withCompletion(state.outcome, { kind: "cancelled" });
       onUpdate("stream");
     },

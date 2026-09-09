@@ -76,6 +76,10 @@ public static class FixtureIds
     public const string CallerBindingCaller = "cli.caller-binding.caller";
     public const string CallerBindingContract = "cli.caller-binding.contract";
     public const string CallerBindingFacade = "cli.caller-binding.facade";
+    public const string MatchBindingDecoy = "cli.match-binding.decoy";
+    public const string MatchBindingDependency = "cli.match-binding.dependency";
+    public const string MatchBindingFacade = "cli.match-binding.facade";
+    public const string MatchBindingImplementation = "cli.match-binding.implementation";
     public const string AnalysisAsyncSiblingFriend = "analysis.async-sibling.friend";
     public const string AnalysisCallerLoop = "analysis.caller-loop";
     public const string AnalysisCrossAsmCollision = "analysis.cross-asm-collision";
@@ -126,12 +130,15 @@ public static class FixtureIds
     public const string DecompilerVbFinalizer = "decompiler.vb-finalizer";
 
     public const string HostileLiterals = "hostile.literals";
+    public const string InspectWebCloneTransport =
+        "inspect-web.clone-transport";
     public const string InspectWebMethodBodies = "inspect-web.method-bodies";
     public const string InspectWebSourceComparisonV1 = "inspect-web.source-comparison.v1";
     public const string InspectWebSourceComparisonV2 = "inspect-web.source-comparison.v2";
     public const string SourceLinkMalformed = "sourcelink.malformed";
     public const string SourceLinkPartiallyMalformed = "sourcelink.partially-malformed";
     public const string SourceLinkNormalized = "sourcelink.normalized";
+    public const string SourceLinkVisualBasic = "sourcelink.visual-basic";
 
     public const string ResearchTargetSample = "research.target-sample";
     public const string ResearchTargetCorrespondenceV1 =
@@ -172,6 +179,13 @@ public static class FixtureCatalog
         "ILInspector.Metadata.AttributeEnumFixtures.dll",
         Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "metadata", "custom-attributes", "producer-truth");
+
+    public static readonly FixtureDefinition InspectWebCloneTransport = Fixture(
+        FixtureIds.InspectWebCloneTransport,
+        "InspectWeb.CloneTransportFixtures",
+        "InspectWeb.CloneTransportFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "inspect-web", "clone", "generic-identity", "explicit-interface");
 
     public static readonly FixtureDefinition InspectWebMethodBodies = Fixture(
         FixtureIds.InspectWebMethodBodies,
@@ -276,6 +290,13 @@ public static class FixtureCatalog
         "DotnetInspector.SourceLinkNormalizedFixtures.dll",
         Boundaries(FixtureBoundary.SourceLinkMap),
         "sourcelink", "normalized-map");
+
+    public static readonly FixtureDefinition SourceLinkVisualBasic = Fixture(
+        FixtureIds.SourceLinkVisualBasic,
+        "DotnetInspector.SourceLinkVisualBasicFixtures",
+        "DotnetInspector.SourceLinkVisualBasicFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "sourcelink", "vb", "bodyless-type");
 
     public static readonly FixtureDefinition DiffV1 = Fixture(
         FixtureIds.DiffV1,
@@ -827,11 +848,40 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "cli", "caller-binding", "resolver-lineage");
 
+    public static readonly FixtureDefinition MatchBindingDecoy = Fixture(
+        FixtureIds.MatchBindingDecoy,
+        "DotnetInspector.MatchBinding.Decoy",
+        "DotnetInspector.MatchBinding.Dependency.dll",
+        Boundaries(FixtureBoundary.AssemblyName, FixtureBoundary.CrossAssemblyBoundary),
+        "cli", "match-binding", "resolver-lineage", "decoy");
+
+    public static readonly FixtureDefinition MatchBindingDependency = Fixture(
+        FixtureIds.MatchBindingDependency,
+        "DotnetInspector.MatchBinding.Dependency",
+        "DotnetInspector.MatchBinding.Dependency.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity, FixtureBoundary.CrossAssemblyBoundary),
+        "cli", "match-binding", "resolver-lineage", "selected");
+
+    public static readonly FixtureDefinition MatchBindingFacade = Fixture(
+        FixtureIds.MatchBindingFacade,
+        "DotnetInspector.MatchBinding.Facade",
+        "DotnetInspector.MatchBinding.Facade.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+        "cli", "match-binding", "resolver-lineage", "facade");
+
+    public static readonly FixtureDefinition MatchBindingImplementation = Fixture(
+        FixtureIds.MatchBindingImplementation,
+        "DotnetInspector.MatchBinding.Implementation",
+        "DotnetInspector.MatchBinding.Implementation.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+        "cli", "match-binding", "resolver-lineage", "implementation");
+
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
         JsExportUnions,
         MetadataAttributeEnums,
         MetadataMemorySafety,
+        InspectWebCloneTransport,
         InspectWebMethodBodies,
         InspectWebSourceComparisonV1,
         InspectWebSourceComparisonV2,
@@ -840,6 +890,7 @@ public static class FixtureCatalog
         SourceLinkMalformed,
         SourceLinkPartiallyMalformed,
         SourceLinkNormalized,
+        SourceLinkVisualBasic,
         DiffV1,
         DiffV2,
         SourceDiffV1,
@@ -908,6 +959,10 @@ public static class FixtureCatalog
         CallerBindingCaller,
         CallerBindingContract,
         CallerBindingFacade,
+        MatchBindingDecoy,
+        MatchBindingDependency,
+        MatchBindingFacade,
+        MatchBindingImplementation,
         ResearchTargetSample,
         ResearchTargetCorrespondenceV1,
         ResearchTargetCorrespondenceV2,
@@ -1215,6 +1270,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
+            "InspectWeb.CloneTransportFixtures" =>
+                "fixtures/inspect-web/InspectWeb.CloneTransportFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",
             "InspectWeb.SourceComparisonFixtures.V1" =>
                 "fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1",
@@ -1236,10 +1293,15 @@ public static class FixtureCatalog
             "DotnetInspector.CallerBinding.Caller" => "fixtures/cli/DotnetInspector.CallerBinding.Caller",
             "DotnetInspector.CallerBinding.Contract" => "fixtures/cli/DotnetInspector.CallerBinding.Contract",
             "DotnetInspector.CallerBinding.Facade" => "fixtures/cli/DotnetInspector.CallerBinding.Facade",
+            "DotnetInspector.MatchBinding.Decoy" => "fixtures/cli/DotnetInspector.MatchBinding.Decoy",
+            "DotnetInspector.MatchBinding.Dependency" => "fixtures/cli/DotnetInspector.MatchBinding.Dependency",
+            "DotnetInspector.MatchBinding.Facade" => "fixtures/cli/DotnetInspector.MatchBinding.Facade",
+            "DotnetInspector.MatchBinding.Implementation" => "fixtures/cli/DotnetInspector.MatchBinding.Implementation",
             "DotnetInspector.RestoredProjectFixtures" => "fixtures/queries/DotnetInspector.RestoredProjectFixtures",
             "DotnetInspector.SourceLinkMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures",
             "DotnetInspector.SourceLinkNormalizedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures",
             "DotnetInspector.SourceLinkPartiallyMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures",
+            "DotnetInspector.SourceLinkVisualBasicFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures",
             "DotnetInspector.Services.RouteLearning.Base" => "fixtures/services/DotnetInspector.Services.RouteLearning.Base",
             "DotnetInspector.Services.RouteLearning.Consumer" => "fixtures/services/DotnetInspector.Services.RouteLearning.Consumer",
             "DotnetInspector.Services.RouteLearning.Contract" => "fixtures/services/DotnetInspector.Services.RouteLearning.Contract",

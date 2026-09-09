@@ -1637,7 +1637,7 @@ repository authenticity or identifies the physical syntax tree that produced IL.
 
 ### Text and outcome semantics
 
-Two complete, compatible source endpoints use `ILInspector.Text`'s exact
+Two complete, compatible source endpoints use `Inspector.Text`'s exact
 ordered line semantics and native Findings. CR, LF, and CRLF boundaries are
 equivalent under that owner. Other supplied text remains significant:
 Research does not strip comments, attributes, directives, indentation, or

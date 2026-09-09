@@ -467,8 +467,26 @@ wrap within the row. The count describes returned opportunity records, not
 distinct shapes, Findings, runtime hotspots, or measured regressions. A
 successful empty result retains its zero count and existing absence message,
 which does not claim that the method is optimized or allocation-free. Loading
-and failure remain separate top-level Facts states. Analysis diagnostics retain
-their existing presentation.
+and failure remain separate top-level Facts states.
+
+Analysis diagnostics uses the same readable measure and separator treatment
+when recoverable method-analysis failures are returned. The section remains
+absent when no diagnostics are returned; absence does not assert that all
+analysis completed. Its context states that some method analysis could not
+complete while available evidence remains visible above.
+
+Each complete browser diagnostic string remains opaque display text in returned
+order, including repeated strings. Rows use generated `Diagnostic N` positional
+labels without parsing method identity, exception type, message, severity,
+diagnostic code, source location, or provenance from the string. The browser
+does not create navigation, links, actions, expanders, grouping, deduplication,
+or remediation from that text.
+
+The count describes returned diagnostic strings and uses singular or plural
+wording. At constrained pane widths the positional label moves above the value;
+long and markup-shaped values remain escaped and wrap within the row. The
+additional row height is an explicit trade for complete visible failure
+evidence without horizontal scrolling.
 
 #### Graph Explore
 
@@ -612,6 +630,7 @@ Overview identity.
 ```text
 Overview                                      type and member totals
 Version · Framework                         (Package only)
+platform compatibility warning              (when present)
 icon · subject name
 subject-specific identity details and content
 package@version                                    active framework
@@ -624,6 +643,23 @@ starts with a larger icon and readable name, the surface's single visible
 level-one heading. Both subjects reuse the package's existing icon selection and
 fallback. Library retains its own name, asset path and full assembly identity.
 The identity is part of the full-width content, not a new inset card.
+
+When the product classifies the package/platform target relation as
+incompatible, Package Overview renders one warning immediately below the
+Version and Framework controls:
+
+> This package is incompatible with the Workspace platform. Some operations may
+> be blocked, and some results may be incorrect.
+
+The warning consumes the owner-issued compatibility evidence defined by
+[Platform composition and overlays](platform-composition-and-overlays.md#client-disclosure).
+Target inequality alone does not show it: a `net8.0` package over a compatible
+.NET 10 Workspace platform receives no warning merely because the selected
+platform is newer than the package's target.
+It is not duplicated on traversal source and target rows. An exact
+operation-level compatibility failure remains visible in that operation's
+surface; the Overview warning provides persistent package context rather than
+replacing the failure.
 
 Package content retains the admitted-library inventory and document links. The
 platform library picker remains with the Libraries section. Library rows enter
