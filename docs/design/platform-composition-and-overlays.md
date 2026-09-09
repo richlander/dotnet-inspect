@@ -525,11 +525,11 @@ binding identity. It does not prove that every descriptive or implementation
 facet matches the participant's build target. Nullable annotations, custom
 attributes, XML documentation, PDB-mapped source, implementation bodies, and
 source-level `unsafe` placement may differ across platform versions without
-changing the bindable member identity. A pointer-type signature change does
-change that identity and therefore fails the exact lookup. Successful
-platform-derived documentation, source, decompilation, and analysis retain the
-loaded supplier and target so consumers can disclose that they describe the
-older Workspace platform.
+changing the bindable member identity. Any change to Metadata's binding
+signature changes that identity and therefore fails the exact lookup.
+Successful platform-derived documentation, source, decompilation, and analysis
+retain the loaded supplier and target so consumers can disclose that they
+describe the older Workspace platform.
 
 Expect a degree of incompatibility to remain even when everything is reported.
 Decompiled output on the far side of a reference into a skewed assembly may
