@@ -84,6 +84,7 @@ src/DotnetInspector.Artifacts.Local
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
+src/DotnetInspector.Platforms
 src/DotnetInspector.Presentation
 src/DotnetInspector.Sections
 src/DotnetInspector.SourceDelegation
@@ -98,17 +99,18 @@ src/dotnet-inspect.Tests
 src/mdi
 src/runfaster
 src/ts-jsexport
+tests/CSharpText.MemberSlicing.Tests
 tests/CSharpText.Tests
 tests/DotnetInspector.Artifacts.Local.PlatformProbe
 tests/DotnetInspector.Artifacts.Tests
 tests/DotnetInspector.AssemblyOnlyHost.Fixture
-tests/CSharpText.MemberSlicing.Tests
 tests/DotnetInspector.Ecosystems.Consumer.Tests
 tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
 tests/DotnetInspector.ILRoundtrip.Tests
 tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.PackageManifestCorpus
+tests/DotnetInspector.Platforms.Tests
 tests/DotnetInspector.Presentation.Tests
 tests/DotnetInspector.Queries.Tests
 tests/DotnetInspector.RowSelection.Consumer

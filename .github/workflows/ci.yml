@@ -989,6 +989,9 @@ jobs:
       - name: Run ecosystem consumer tests
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
+      - name: Run platform target currency tests
+        run: dotnet run --project tests/DotnetInspector.Platforms.Tests -c Release
+
       - name: Run row-selection tests
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
 
