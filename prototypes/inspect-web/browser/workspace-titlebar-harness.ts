@@ -50,6 +50,7 @@ import { allocationFactsFixture, analysisDiagnosticsFixture, callFactsFixture, e
 import {
   memberFindingInteractionFixture,
 } from "../test/member-finding-census-fixture.ts";
+import { selectFindingInstance } from "../src/finding-interaction.ts";
 import {
   bindWorkspaceSubject,
   focusWorkspace,
@@ -121,6 +122,7 @@ const safetyFactsMode = params.get("safety-facts");
 const exceptionRegionsMode = params.get("exception-regions");
 const performanceOpportunitiesMode = params.get("performance-opportunities");
 const analysisDiagnosticsMode = params.get("analysis-diagnostics");
+const findingFactsMode = params.get("finding-facts");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
@@ -259,7 +261,7 @@ let activeMemberSection: MemberSection = sourceMode
   ? "source"
   : memberFactsMode || allocationFactsMode || callFactsMode || safetyFactsMode
     || exceptionRegionsMode || performanceOpportunitiesMode
-    || analysisDiagnosticsMode ? "facts" : "overview";
+    || analysisDiagnosticsMode || findingFactsMode ? "facts" : "overview";
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
@@ -517,6 +519,27 @@ function detailHtml() {
                 : analysisDiagnosticsMode
                   ? analysisDiagnosticsFixture(analysisDiagnosticsMode === "long" ? "long" : "populated")
                   : memberFactsFixture(mode);
+      const findingFixtureMode = findingFactsMode === "long"
+        ? "long"
+        : findingFactsMode === "empty"
+          ? "empty"
+          : "populated";
+      const findingInteraction =
+        memberFindingInteractionFixture(findingFixtureMode);
+      const selectedFinding = findingFactsMode === "selected"
+        ? selectFindingInstance(
+            findingInteraction,
+            findingInteraction.census.factCensusReceipt,
+            42,
+          )
+        : null;
+      if (selectedFinding && !selectedFinding.accepted) {
+        throw new Error(selectedFinding.error);
+      }
+      const findingLoading = findingFactsMode === "loading"
+        || memberFactsMode === "loading";
+      const findingFailure = findingFactsMode === "error"
+        || memberFactsMode === "error";
       return `<section class="member-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">DeserializeSync</h1>
@@ -528,15 +551,17 @@ function detailHtml() {
           memberFactsError: memberFactsMode === "error"
             ? "The selected method could not be decoded."
             : "",
-          memberAnnotatedLoading: memberFactsMode === "loading",
-          memberAnnotatedError: memberFactsMode === "error"
+          memberAnnotatedLoading: findingLoading,
+          memberAnnotatedError: findingFailure
             ? "The Finding census could not be projected."
             : "",
           memberFindingInteraction:
-            memberFactsMode === "loading" || memberFactsMode === "error"
+            findingLoading || findingFailure
               ? null
-              : memberFindingInteractionFixture(),
-          memberFindingSelectionError: "",
+              : selectedFinding?.interaction ?? findingInteraction,
+          memberFindingSelectionError: findingFactsMode === "selection-error"
+            ? "Finding instance 73 is not present in the active census."
+            : "",
         })}</div>
       </section>`;
     }

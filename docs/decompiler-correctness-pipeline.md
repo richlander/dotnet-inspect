@@ -216,7 +216,7 @@ Notes:
   of the entry gate for behavior changes, but iterate against a class filter and
   run the full suite before requesting review.
 - **PR CI runs only the fast unit subset.** The `test` job in `ci.yml` runs
-  `dotnet run --project src/dotnet-inspect.Tests -c Release --
+  `dotnet run --project tests/dotnet-inspect.Tests -c Release --
   --filter-not-trait
   "Speed=Slow"`, `dotnet run --project tests/ILInspector.Decompiler.Tests -c
   Release -- -trait- "Speed=Slow"`, and the matching fast Analysis/IL
