@@ -198,6 +198,39 @@ test("request revision stays monotonic when controls return to prior values", ()
   assert.ok(state.revision > selfRevision);
 });
 
+test("loading an already completed request preserves retained evidence", async () => {
+  const state = createCloneCandidateInspectionState();
+  const request = buildCloneCandidateRequest(
+    input,
+    state.breadth,
+    state.discovery).request;
+  assert.ok(request);
+  let queries = 0;
+  const coordinator = createCloneCandidateInspectionCoordinator({
+    state,
+    query: () => {
+      queries++;
+      return Promise.resolve(result(request));
+    },
+    isCurrent: () => true,
+    describeError: String,
+    render: () => {},
+  });
+
+  await coordinator.load(input);
+  const completedResult = state.result;
+  const completedRevision = state.revision;
+  state.selectedRank = 37;
+
+  await coordinator.load(input);
+
+  assert.equal(queries, 1);
+  assert.equal(state.result, completedResult);
+  assert.equal(state.selectedRank, 37);
+  assert.equal(state.revision, completedRevision);
+  assert.equal(state.loading, false);
+});
+
 test("subject reconciliation clears stale evidence before replacement", () => {
   const state = createCloneCandidateInspectionState();
   const dependencies: CloneCandidateInspectionDependencies = {

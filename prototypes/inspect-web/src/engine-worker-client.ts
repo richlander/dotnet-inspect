@@ -193,9 +193,14 @@ export function createEngineWorkerCloneCandidateClient(
     if (host.snapshot().phase !== "ready")
       throw new Error("Clone Candidates Worker is unavailable.");
   };
+  let queryGeneration = 0;
   return {
     async query(requestJson: string): Promise<BrowserCloneCandidateResult> {
+      const requestGeneration = ++queryGeneration;
       await ready();
+      if (requestGeneration !== queryGeneration) {
+        throw new Error("Clone Candidates operation was superseded.");
+      }
       const operation = session.start(requestJson, adapter);
       if (operation.kind === "rejected") {
         throw new Error(
@@ -208,6 +213,7 @@ export function createEngineWorkerCloneCandidateClient(
       throw new Error(`Clone Candidates operation was ${outcome.reason}.`);
     },
     dispose() {
+      queryGeneration++;
       session.dispose();
       host.dispose();
     },
