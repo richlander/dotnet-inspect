@@ -240,6 +240,7 @@ import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
 import { renderOverviewSurface } from "./overview-surface.ts";
 import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
+import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -3601,6 +3602,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "library" && state.libraryLens === "integrations";
   const libraryOpportunitiesWorkingSurface =
     activeScope === "library" && state.libraryLens === "opportunities";
+  const libraryAnalysisWorkingSurface =
+    activeScope === "library" && state.libraryLens === "analysis";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -3641,6 +3644,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || libraryReferencesWorkingSurface
     || libraryIntegrationsWorkingSurface
     || libraryOpportunitiesWorkingSurface
+    || libraryAnalysisWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -3735,7 +3739,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4327,6 +4331,7 @@ function renderLibraryView() {
     || state.libraryLens === "references"
     || state.libraryLens === "integrations"
     || state.libraryLens === "opportunities"
+    || state.libraryLens === "analysis"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -4768,12 +4773,6 @@ function packageScopeSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
-// Analysis runs over one platform library at a time and keeps its picker with the result.
-function platformLensPicker(dataAttr: string) {
-  const scopedLib = scopedPlatformLibrary();
-  return `<section class="document-section"><div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml({ dataAttr, selected: scopedLib || "" })}</div></section>`;
-}
-
 function renderPackageOpportunities() {
   const pkg = currentPackage();
   const library = selectedLibrary();
@@ -4814,58 +4813,27 @@ function maybeAutoLoadPackageOpportunities() {
 
 function renderPackagePerformance() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
+  const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
-  const picker = isPlatform ? platformLensPicker("data-platform-analysis-library") : "";
-  if (isPlatform && !scopedLib) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to analyze</h2><p>Choose a .NET platform library above to classify allocation and performance opportunities across its method bodies.</p></section>`;
-  }
-  const scanScope =
-    `${escapeHtml(selectedLibraryName())} · ${escapeHtml(pkg.activeFramework)}`;
   const current = packageScopeSignature();
-  const fresh = state.packagePerformanceKey === current;
-  if (state.packagePerformanceLoading && fresh) {
-    return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing allocations…</h2><p>Classifying allocation and performance opportunities across this library's method bodies.</p></section>`;
-  }
-  if (fresh && state.packagePerformanceError) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Analysis failed</h2><p>${escapeHtml(state.packagePerformanceError)}</p></section>`;
-  }
-  const data = fresh ? state.packagePerformance : null;
-  if (!data) {
-    return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-  }
-
-  const members = data.members || [];
-  const warning = data.inspectionError
-    ? `<section class="document-section metadata-warning"><strong>⚠ This library could not be analyzed completely</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
-    : "";
-  const nonPublicNote = data.nonPublicOpportunities > 0
-    ? ` · ${data.nonPublicOpportunities} in non-public members`
-    : "";
-
-  if (!members.length) {
-    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No public allocation hot spots</h2><p>${data.totalOpportunities} allocation/performance opportunit${data.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${scanScope}${nonPublicNote}.</p></section>`;
-  }
-
-  const rows = members.map(member => {
-    const display = escapeHtml(`${shortTypeName(member.typeId)}.${member.memberName}`);
-    const shapes = member.shapes.map(shape => `<span class="perf-shape">${escapeHtml(shape)}</span>`).join("");
-    const loopBadge = member.inLoopCount > 0 ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">↻ ${member.inLoopCount}</span>` : "";
-    return `
-      <button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open member">
-        <span class="perf-count">${member.opportunityCount}</span>
-        <span class="perf-member"><span class="perf-name">${display}</span><span class="perf-shapes">${shapes}</span></span>
-        <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "—")}</span></span>
-      </button>`;
-  }).join("");
-
-  const summary = `
-    <section class="document-section">
-      <div class="section-title"><h2>Allocation &amp; performance triage</h2><span>${members.length} public member${members.length === 1 ? "" : "s"} · ${data.totalOpportunities} opportunit${data.totalOpportunities === 1 ? "y" : "ies"}${nonPublicNote} · ${scanScope}</span></div>
-      <p class="lens-note">Ranked by product triage policy. Static IL classification — confirm impact with a benchmark or profiler. Select a member to open its API details.</p>
-    </section>`;
-
-  return `${picker}${warning}${summary}<section class="document-section"><div class="perf-list">${rows}</div></section>`;
+  return renderLibraryAnalysisSurface({
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({
+          dataAttr: "data-platform-analysis-library",
+          selected: scopedLib || "",
+        })
+      : "",
+    fresh: state.packagePerformanceKey === current,
+    loading: state.packagePerformanceLoading,
+    error: state.packagePerformanceError,
+    data: state.packagePerformance,
+    escapeHtml,
+  });
 }
 
 async function loadPackagePerformance() {
