@@ -472,7 +472,7 @@ stronger close negative than the production names.
 
 ## Page-facing engine client
 
-This proposed extension owns **consumer binding to the generated facade set
+This extension owns **consumer binding to the generated facade set
 through one asynchronous client**. The production consumer is Inspect Web,
 with Type Source as the first fully composed Worker feature in
 [#5420](https://github.com/richlander/dotnet-inspect/issues/5420). It retains the
