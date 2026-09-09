@@ -400,7 +400,7 @@ interface MainOperationRecord<TDiagnostic> {
   readonly identity: OperationIdentity;
   readonly reference: WorkerWireOperationReference;
   readonly registration: MainOperationRegistration;
-  readonly authorityCancellation: OperationCancellationState;
+  authorityCancellation: OperationCancellationState | null;
   payload: unknown;
   phase: "held" | "awaiting-admission" | "accepted" | "physically-closed";
   cancelReason: OperationCancelReason | null;
@@ -1813,6 +1813,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         retainedSink = null;
         sealedClosure = null;
         closurePublication = null;
+        record.authorityCancellation = null;
         record.payload = undefined;
       },
     };
@@ -1968,6 +1969,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       return Promise.resolve(failedResult({ kind: "operation-mismatch" }));
     if (record.phase !== "accepted"
       || record.controlClosed
+      || record.authorityCancellation === null
       || record.authorityCancellation.reason !== null
       || record.cancelReason !== null
       || record.logicalClosureReported) {
@@ -2066,6 +2068,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       || epoch.operations.get(record.reference.operationId) !== record
       || record.phase !== "accepted"
       || record.controlClosed
+      || record.authorityCancellation === null
       || record.authorityCancellation.reason !== null
       || record.cancelReason !== null
       || record.logicalClosureReported) {

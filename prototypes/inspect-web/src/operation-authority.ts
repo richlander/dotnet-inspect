@@ -174,6 +174,18 @@ export interface OperationCancellationState {
   readonly reason: OperationCancelReason | null;
 }
 
+class MutableOperationCancellationState implements OperationCancellationState {
+  #reason: OperationCancelReason | null = null;
+
+  get reason(): OperationCancelReason | null {
+    return this.#reason;
+  }
+
+  commit(reason: OperationCancelReason): void {
+    this.#reason = reason;
+  }
+}
+
 export type OperationPreparation<TPrepareError> =
   | {
       readonly kind: "prepared";
@@ -295,7 +307,7 @@ interface OperationRecord<TValue, TError, TProgress, TDurable> {
   readonly outcomeDeferred: Deferred<OperationOutcome<TValue, TError>>;
   readonly quiescedDeferred: Deferred<void>;
   readonly handle: OperationHandle<TValue, TError>;
-  readonly cancellation: OperationCancellationState;
+  readonly cancellation: MutableOperationCancellationState;
   readonly sink: OperationProducerSink<
     TValue,
     TError,
@@ -405,6 +417,8 @@ function resolveOutcome<TValue, TError, TProgress, TDurable>(
 ): boolean {
   if (record.outcome !== null) return false;
   record.outcome = outcome;
+  if (outcome.kind === "canceled")
+    record.cancellation.commit(outcome.reason);
   record.outcomeDeferred.resolve(outcome);
   return true;
 }
@@ -536,12 +550,7 @@ function createRecord<TValue, TError, TProgress, TDurable>(
   const outcomeDeferred = deferred<OperationOutcome<TValue, TError>>();
   const quiescedDeferred = deferred<void>();
   let record: OperationRecord<TValue, TError, TProgress, TDurable>;
-  const cancellation: OperationCancellationState = {
-    get reason() {
-      const outcome = record.outcome;
-      return outcome?.kind === "canceled" ? outcome.reason : null;
-    },
-  };
+  const cancellation = new MutableOperationCancellationState();
 
   const reserveTerminal = (
     outcome: OperationOutcome<TValue, TError>,

@@ -858,6 +858,7 @@ forwarding still follows that callout. The Worker closes admission when
 cancellation begins or operation settlement starts. Closure rejects later
 local requests without posting them. It does not erase a request already
 posted: that exact response remains mandatory and may arrive after `Settled`.
+The main host drops the authority cancellation state at physical release.
 
 No cancellation acknowledgment can commit while the operation is still
 awaiting its `Accepted` or `Rejected` response.

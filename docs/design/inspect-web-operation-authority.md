@@ -613,10 +613,11 @@ after that feature callout. The producer adapter receives a read-only live
 cancellation state during preparation. Its reason changes in that same
 authority commit, before feature publication, so adapter-owned admission can
 close without moving the external cancellation endpoint ahead of the feature
-callout. Endpoint exceptions are caught at that boundary, emitted to the
-diagnostic observer, and do not escape, undo the transition, or permit another
-forwarding attempt. Reentrant producer events therefore observe the canceled
-outcome.
+callout. The state stores only that reason; retaining the state does not retain
+the operation record, sink, or callbacks. Endpoint exceptions are caught at
+that boundary, emitted to the diagnostic observer, and do not escape, undo the
+transition, or permit another forwarding attempt. Reentrant producer events
+therefore observe the canceled outcome.
 Each handle remains bound to its originating operation record. Calling an old
 handle never delegates to the session's current operation and cannot change a
 replacement's outcome, authority, cancellation count, or producer endpoint.
