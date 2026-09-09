@@ -641,6 +641,43 @@ Library inspection owner, not this document. Its focused design must preserve
 the evidence above before any PackageHouse, PlatformHouse, or direct-library
 adoption ships.
 
+### Platform asset handling map
+
+The physical container does not decide the product identity. Frameworks and
+targeting packs use NuGet package files as a distribution mechanism, but a
+Platform operation treats their package IDs and layouts as source coordinates,
+not as Package participants or assembly identities.
+
+| Asset | Platform treatment | Other explicit treatment |
+| --- | --- | --- |
+| Installed `Microsoft.NETCore.App` or `Microsoft.AspNetCore.App` shared framework | An implementation supplier for the selected platform target and family. There may be no corresponding package artifact on the machine. | An assembly path obtained independently enters direct Library inspection. |
+| `Microsoft.NETCore.App.Ref` or `Microsoft.AspNetCore.App.Ref` targeting pack | A reference-view source. `PlatformHouse` selects and unwraps the authorized DLLs without publishing the acquired pack as a Package participant. | An exact package coordinate or local `.nupkg` may be inspected separately as a package. That package inspection does not establish a Platform target or transfer package identity to its DLLs. |
+| Runtime implementation pack such as `Microsoft.NETCore.App.Runtime.<rid>` | An implementation-view source. Public implementations, facades, and private implementation libraries retain their platform roles and provenance after unwrapping. | Explicit package inspection may describe the distribution container; an extracted DLL enters direct Library inspection. Neither route implies Platform membership. |
+| `NETStandard.Library.Ref` or `NETStandard.Library` reference assets | A .NET Standard reference-contract contribution used during transparent forwarding; never a platform family or implementation population. | Explicit package inspection may describe the package. An extracted `netstandard.dll` is an ordinary direct library whose forwarding evidence remains visible. |
+| Any manually downloaded or extracted DLL | No Platform inference from its path, parent pack name, file name, or assembly name. | Direct Library inspection reads that one file with direct provenance. A caller must issue a separately typed Platform request to obtain platform target or view correspondence. |
+
+A Platform-backed Workspace therefore contains the Platform participant and
+the libraries selected from its sources, not `Microsoft.NETCore.App.Ref`,
+`Microsoft.AspNetCore.App.Ref`, runtime-pack, or .NET Standard source packages
+as ordinary package participants. Package discovery may also omit distribution
+packages that are not listed for browsing. This is not a global prohibition on
+package inspection: an exact package request or a local `.nupkg` request uses
+the generic Package path and inspects the container under package semantics.
+No result from that path can be reused as proof of Platform identity,
+selection, or compatibility.
+
+Forwarder-only facades require the same distinction. For platform population,
+type listing, and member traversal, a facade with only `ExportedType`
+forwarders contributes no independent type definitions: the
+[structured type-forwarding owner](type-forwarding-resolution.md) follows its
+metadata evidence to the physical implementation supplier. The facade does not
+become an additional implementation library merely because it was present in a
+runtime or reference pack. The artifact itself has not disappeared, however.
+Direct Library inspection may still select the facade, report that it is a
+facade, and show its forwarding evidence. "Collapse" means zero independent
+definition contribution after forwarding, not deletion or an inability to
+inspect the file.
+
 ### Workspace admission and platform skew
 
 Workspace admission and bare-library construction do not require compatibility
