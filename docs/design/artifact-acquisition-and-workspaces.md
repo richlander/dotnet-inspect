@@ -39,7 +39,7 @@ single-image and MVID correctness contract.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
 [workspace-scope-and-expansion.md](workspace-scope-and-expansion.md) owns
-committed logical Root membership, occurrence order, selective dependency
+committed logical Package membership, occurrence order, selective dependency
 expansion, scope revisions, and scope-operation results, and
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
 subjects and relationships.
@@ -130,8 +130,8 @@ package dependency closure.
 | `ArtifactSetSession` | One sealed artifact generation admitted to a workspace | child acquisition leases and artifact handles | source-specific resolution or assembly binding |
 | Root scope projection | Resource-free facts about one admitted or replacing Root | logical correspondence, current-generation freshness, typed realization status | logical membership, Root order, scope policy, or physical access authority |
 | Root preparation receipt | One complete provisional physical Root batch | prepared resources, candidate correspondence, budget reservation, one-shot publication or release | logical membership, order, expansion policy, Navigation, or portable state |
-| Workspace | One live physical inspection composition | process-local identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Root membership, dependency-expansion eligibility, or scope-operation policy |
-| Workspace scope | One committed logical inspection scope | [Root membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or Workspace lifetime |
+| Workspace | One live physical inspection composition | process-local identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Package membership, dependency-expansion eligibility, or scope-operation policy |
+| Workspace scope | One committed logical inspection scope | [Package membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or Workspace lifetime |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
 | Assembly inspection session | One opened PE inspection lifetime | [reader/image lifetime and session-scoped operations](assembly-image-lifetime.md) | artifact acquisition |
@@ -4272,7 +4272,7 @@ workspace roles remain unverified.
 - Replacing assembly context groups with artifact sets; artifact lifetime and
   assembly binding remain separate axes.
 - Requiring every workspace artifact to be an assembly.
-- Defining logical Root membership, selective dependency expansion, scope
+- Defining logical Package membership, selective dependency expansion, scope
   revisions, or scope-operation results.
 - Scraping arbitrary deployed Wasm applications for runtime assemblies. A
   cooperating application may supply an explicit manifest or adapter, but
