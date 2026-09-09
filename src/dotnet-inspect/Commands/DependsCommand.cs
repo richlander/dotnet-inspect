@@ -3,10 +3,6 @@ using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
-using DotnetInspector.Services;
-using DotnetInspector.Views;
-using Markout;
-using Markout.Formatting;
 
 namespace DotnetInspector.Commands;
 
@@ -75,7 +71,7 @@ public class DependsCommand
                 return new TypeDependsOutcome(TypeNotFoundExitCode, uncertified);
             }
 
-            if (result.Tree.Count == 0)
+            if (result.Relationships.Count == 0)
             {
                 if (options.Count)
                 {
@@ -88,50 +84,9 @@ public class DependsCommand
                 return Certified(0, uncertified);
             }
 
-            var visibleNodes = TreeRowWindow.Apply(
-                result.Tree,
-                options.Rows,
-                node => node.Children,
-                (node, children) => node with { Children = children });
-            var treeNodes = ToTreeNodes(visibleNodes);
-            if (options.Count)
-            {
-                WriteCount(
-                    TreeRowWindow.Count(result.Tree, node => node.Children),
-                    options.Rows);
-            }
-            else if (options.JsonOutput)
-            {
-                JsonOutputHelper.Write(visibleNodes,
-                    DependsJsonContext.Default.ListTypeDependencyNode,
-                    DependsCompactJsonContext.Default.ListTypeDependencyNode,
-                    options.CompactJson);
-            }
-            else
-            {
-                // The root label sits at the head of the same tree, so it needs
-                // the same containment as its children.
-                var rootName = ContainLabel(
-                    options.TargetType.Contains('<') ? options.TargetType : result.MatchedType!);
-
-                if (options.MermaidOutput)
-                {
-                    WriteMermaidTree(rootName, treeNodes);
-                }
-                else if (options.EmbeddedMermaid)
-                {
-                    WriteEmbeddedMermaidTree(rootName, treeNodes);
-                }
-                else
-                {
-                    var view = new PackageDependenciesView
-                    {
-                        Title = rootName,
-                        Dependencies = treeNodes
-                    };
-                    WriteMarkdown(view);
-                }
-            }
+            DependencyGraphOutputAdapter.Write(
+                DependencyGraphProjection.FromType(result),
+                options);
 
             return Certified(0, uncertified);
         }
@@ -172,34 +127,9 @@ public class DependsCommand
             }
 
             var graph = (LibraryDependencyGraphResult.Graph)result;
-            var treeNodes = BuildNestedDependencyTree(graph.References);
-            var visibleTreeNodes = TreeRowWindow.Apply(
-                treeNodes,
-                options.Rows,
-                node => node.Children ?? [],
-                (node, children) => new TreeNode(node.Text) { Children = children });
-
-            if (options.Count)
-            {
-                WriteCount(graph.References.Count, options.Rows);
-            }
-            else if (options.MermaidOutput)
-            {
-                WriteMermaidTree(graph.AssemblyName, visibleTreeNodes);
-            }
-            else if (options.EmbeddedMermaid)
-            {
-                WriteEmbeddedMermaidTree(ContainLabel(graph.AssemblyName), visibleTreeNodes);
-            }
-            else
-            {
-                var view = new PackageDependenciesView
-                {
-                    Title = ContainLabel(graph.AssemblyName),
-                    Dependencies = visibleTreeNodes
-                };
-                WriteMarkdown(view);
-            }
+            DependencyGraphOutputAdapter.Write(
+                DependencyGraphProjection.FromLibrary(graph),
+                options);
             return 0;
         }
         catch (Exception ex)
@@ -241,36 +171,9 @@ public class DependsCommand
             }
 
             var graph = (PackageDependencyGraphResult.Graph)result;
-            var visibleDependencies = TreeRowWindow.Apply(
-                graph.Dependencies,
-                options.Rows,
-                node => node.Children,
-                (node, children) => node with { Children = children });
-            var treeNodes = ToDependencyTreeNodes(visibleDependencies);
-
-            if (options.Count)
-            {
-                WriteCount(
-                    TreeRowWindow.Count(graph.Dependencies, node => node.Children),
-                    options.Rows);
-            }
-            else if (options.MermaidOutput)
-            {
-                WriteMermaidTree(ContainLabel(graph.Title), treeNodes);
-            }
-            else if (options.EmbeddedMermaid)
-            {
-                WriteEmbeddedMermaidTree(ContainLabel(graph.Title), treeNodes);
-            }
-            else
-            {
-                var view = new PackageDependenciesView
-                {
-                    Title = ContainLabel(graph.Title),
-                    Dependencies = treeNodes
-                };
-                WriteMarkdown(view);
-            }
+            DependencyGraphOutputAdapter.Write(
+                DependencyGraphProjection.FromPackage(graph),
+                options);
             return 0;
         }
         catch (Exception ex)
@@ -313,102 +216,6 @@ public class DependsCommand
     private static string ContainLabel(string label)
         => CSharpIdentifier.ContainRenderedText(label);
 
-    private static List<TreeNode> ToTreeNodes(List<TypeDependencyNode> nodes)
-    {
-        return nodes.Select(n =>
-            n.Children.Count > 0
-                ? new TreeNode(ContainLabel(n.TypeName)) { Children = ToTreeNodes(n.Children) }
-                : new TreeNode(ContainLabel(n.TypeName))
-        ).ToList();
-    }
-
-    private static void WriteCount(int count, RowWindow? rows = null)
-    {
-        if (rows is { IsUnlimited: false } window)
-        {
-            var (start, end) = window.Resolve(count);
-            count = end - start;
-        }
-
+    private static void WriteCount(int count) =>
         CountOutput.WriteCount(count);
-    }
-
-    private static List<TreeNode> ToDependencyTreeNodes(List<DependencyNode> nodes)
-    {
-        return nodes.Select(n =>
-        {
-            var label = !string.IsNullOrEmpty(n.Author)
-                ? $"{n.PackageId} {n.Version} [{n.Author}]"
-                : $"{n.PackageId} {n.Version}";
-            label = ContainLabel(label);
-            return n.Children.Count > 0
-                ? new TreeNode(label) { Children = ToDependencyTreeNodes(n.Children) }
-                : new TreeNode(label);
-        }).ToList();
-    }
-
-    private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
-    {
-        List<TreeNode> result = [];
-        int i = 0;
-        BuildNestedNodes(nodes, ref i, 0, result);
-        return result;
-    }
-
-    private static void BuildNestedNodes(List<AssemblyReferenceNode> nodes, ref int index, int currentDepth, List<TreeNode> target)
-    {
-        while (index < nodes.Count && nodes[index].Depth == currentDepth)
-        {
-            var node = nodes[index];
-            var label = LibraryInspectionView.ReferenceTreeText(node);
-            label = ContainLabel(label);
-            index++;
-
-            List<TreeNode> children = [];
-            if (index < nodes.Count && nodes[index].Depth > currentDepth)
-            {
-                BuildNestedNodes(nodes, ref index, currentDepth + 1, children);
-            }
-
-            target.Add(children.Count > 0 ? new TreeNode(label) { Children = children } : new TreeNode(label));
-        }
-    }
-
-    /// <summary>
-    /// Writes standalone mermaid output using the MermaidFormatter.
-    /// </summary>
-    private static void WriteMermaidTree(string title, List<TreeNode> treeNodes)
-    {
-        var writer = MarkoutWriter.Create(Console.Out, new MermaidFormatter());
-        writer.WriteHeading(1, title);
-        writer.WriteTree([.. treeNodes]);
-        writer.Flush();
-    }
-
-    /// <summary>
-    /// Writes mermaid embedded in a markdown document (```mermaid code block).
-    /// </summary>
-    private static void WriteEmbeddedMermaidTree(string title, List<TreeNode> treeNodes)
-    {
-        var mdWriter = MarkoutWriter.Create(Console.Out, new MarkdownFormatter());
-        mdWriter.WriteHeading(1, title);
-
-        // Render the mermaid content to a string
-        var mermaidWriter = MarkoutWriter.Create(new MermaidFormatter());
-        mermaidWriter.WriteTree([.. treeNodes]);
-        var mermaidContent = mermaidWriter.ToString();
-
-        mdWriter.WriteCodeStart("mermaid");
-        Console.Out.Write(mermaidContent);
-        if (!mermaidContent.EndsWith('\n'))
-            Console.Out.WriteLine();
-        mdWriter.WriteCodeEnd();
-        mdWriter.Flush();
-    }
-
-    private static void WriteMarkdown(PackageDependenciesView view)
-    {
-        OutputFormatter.WriteWindowedMarkdown(Console.Out, rows: null,
-            opts => MarkoutSerializer.Serialize(view, PackageDependenciesContext.Default, opts));
-    }
 }

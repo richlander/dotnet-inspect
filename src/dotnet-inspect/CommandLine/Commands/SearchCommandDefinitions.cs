@@ -536,6 +536,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
         dependsCommand.Options.Add(opts.Markdown);
+        opts.AddTableOptionsTo(dependsCommand);
         opts.AddCountOptionTo(dependsCommand);
         opts.AddOutputOptionsTo(dependsCommand);
         opts.AddNuGetOptionsTo(dependsCommand);
@@ -557,6 +558,8 @@ public static class SearchCommandDefinitions
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
+                    Format = opts.ResolveFormat(parseResult),
+                    NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Rows = opts.ParseRows(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     Verbose = parseResult.GetValue(opts.Verbose),
@@ -597,6 +600,8 @@ public static class SearchCommandDefinitions
                 CompactJson = parseResult.GetValue(compactOption),
                 MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
+                Format = opts.ResolveFormat(parseResult),
+                NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Rows = opts.ParseRows(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 Verbose = parseResult.GetValue(opts.Verbose),
@@ -620,6 +625,8 @@ public static class SearchCommandDefinitions
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
+                    Format = opts.ResolveFormat(parseResult),
+                    NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Rows = opts.ParseRows(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     Verbose = parseResult.GetValue(opts.Verbose),

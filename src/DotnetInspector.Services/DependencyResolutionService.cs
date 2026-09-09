@@ -31,13 +31,76 @@ public static class DependencyResolutionService
         HttpClient client, List<PackageDependency> dependencies, string tfm,
         HashSet<string> globalSeen, Action<string>? log,
         NuGetSourceOptions? sourceOptions = null)
+        => await ResolveDependencyTreeCoreAsync(
+            client,
+            dependencies,
+            tfm,
+            globalSeen,
+            log,
+            sourceOptions,
+            preserveSharedEdges: false).ConfigureAwait(false);
+
+    /// <summary>
+    /// Resolves a dependency graph as a branch-expanded tree. Repeated package
+    /// targets remain as leaves on each incoming edge, while ancestry-local
+    /// cycle detection bounds recursion.
+    /// </summary>
+    public static async Task<List<DependencyNode>> ResolveDependencyGraphAsync(
+        HttpClient client, List<PackageDependency> dependencies, string tfm,
+        HashSet<string> ancestry, Action<string>? log,
+        NuGetSourceOptions? sourceOptions = null)
+        => await ResolveDependencyTreeCoreAsync(
+            client,
+            dependencies,
+            tfm,
+            ancestry,
+            log,
+            sourceOptions,
+            preserveSharedEdges: true).ConfigureAwait(false);
+
+    private static async Task<List<DependencyNode>>
+        ResolveDependencyTreeCoreAsync(
+            HttpClient client,
+            List<PackageDependency> dependencies,
+            string tfm,
+            HashSet<string> seen,
+            Action<string>? log,
+            NuGetSourceOptions? sourceOptions,
+            bool preserveSharedEdges)
     {
         List<DependencyNode> nodes = [];
 
         foreach (var dep in dependencies.OrderBy(d => d.Id))
         {
-            if (!globalSeen.Add(dep.Id))
-                continue;
+            HashSet<string> branchSeen;
+            if (preserveSharedEdges)
+            {
+                if (seen.Contains(dep.Id))
+                {
+                    nodes.Add(
+                        new DependencyNode(
+                            dep.Id,
+                            dep.Version,
+                            null,
+                            []));
+                    continue;
+                }
+
+                branchSeen =
+                    new HashSet<string>(
+                        seen,
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        dep.Id,
+                    };
+            }
+            else
+            {
+                if (!seen.Add(dep.Id))
+                    continue;
+
+                branchSeen = seen;
+            }
 
             log?.Invoke($"Resolving: {dep.Id} {dep.Version}");
 
@@ -46,9 +109,10 @@ public static class DependencyResolutionService
                 dep.Id,
                 dep.Version,
                 tfm,
-                globalSeen,
+                branchSeen,
                 log,
-                sourceOptions).ConfigureAwait(false);
+                sourceOptions,
+                preserveSharedEdges).ConfigureAwait(false);
 
             nodes.Add(new DependencyNode(dep.Id, dep.Version, author, children));
         }
@@ -165,8 +229,9 @@ public static class DependencyResolutionService
 
     private static async Task<(List<DependencyNode> Children, string? Author)> ResolveChildDependenciesAsync(
         HttpClient client, string packageId, string versionRange, string tfm,
-        HashSet<string> globalSeen, Action<string>? log,
-        NuGetSourceOptions? sourceOptions)
+        HashSet<string> seen, Action<string>? log,
+        NuGetSourceOptions? sourceOptions,
+        bool preserveSharedEdges)
     {
         try
         {
@@ -191,13 +256,14 @@ public static class DependencyResolutionService
             var selection = SelectDependencyGroup(nuspec.DependencyGroups, tfm);
             if (selection.Group?.Dependencies is not { Count: > 0 }) return ([], nuspec.Authors);
 
-            var children = await ResolveDependencyTreeAsync(
+            var children = await ResolveDependencyTreeCoreAsync(
                 client,
                 selection.Group.Dependencies,
                 selection.TargetFramework ?? tfm,
-                globalSeen,
+                seen,
                 log,
-                sourceOptions).ConfigureAwait(false);
+                sourceOptions,
+                preserveSharedEdges).ConfigureAwait(false);
             return (children, nuspec.Authors);
         }
         catch (NuspecParseException)

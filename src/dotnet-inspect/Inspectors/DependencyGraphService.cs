@@ -113,9 +113,12 @@ internal static class DependencyGraphService
                 return new LibraryDependencyGraphResult.Empty(assemblyName);
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { assemblyName };
             var refNodes = LibraryMetadataService.BuildTransitiveReferences(
-                refs, assemblyPath, visited, logger, deduplicate: true);
+                refs, assemblyPath, visited, logger, deduplicate: false);
 
-            return new LibraryDependencyGraphResult.Graph(assemblyName, refNodes);
+            return new LibraryDependencyGraphResult.Graph(
+                assemblyName,
+                assemblyPath,
+                refNodes);
         }
         finally
         {
@@ -188,12 +191,15 @@ internal static class DependencyGraphService
                 PackageDependencyGraphResult.EmptyKind.SelectedGroup);
         }
 
-        var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
+        var ancestry = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            resolution.ManifestPackageName,
+        };
+        var depNodes = await DependencyResolutionService.ResolveDependencyGraphAsync(
             httpClient,
             group.Dependencies,
             tfm,
-            globalSeen,
+            ancestry,
             logger.Log,
             sourceOptions);
 
@@ -597,7 +603,10 @@ internal static class DependencyGraphService
 
 internal abstract record LibraryDependencyGraphResult
 {
-    public sealed record Graph(string AssemblyName, List<AssemblyReferenceNode> References) : LibraryDependencyGraphResult;
+    public sealed record Graph(
+        string AssemblyName,
+        string AssemblyPath,
+        List<AssemblyReferenceNode> References) : LibraryDependencyGraphResult;
     public sealed record Empty(string AssemblyName) : LibraryDependencyGraphResult;
     /// <summary>
     /// A resolution failure whose message embeds the caller's subject.

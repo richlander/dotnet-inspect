@@ -12,6 +12,25 @@ namespace ILInspector.Metadata;
 public record TypeDependencyNode(string TypeName, List<TypeDependencyNode> Children);
 
 /// <summary>
+/// Identifies the metadata relationship represented by a dependency edge.
+/// </summary>
+public enum TypeDependencyRelationshipKind
+{
+    BaseType,
+    Interface,
+}
+
+/// <summary>
+/// One directed logical relationship in a type dependency graph.
+/// </summary>
+public sealed record TypeDependencyRelationship(
+    string SourceTypeName,
+    string TargetTypeName,
+    TypeDependencyRelationshipKind Kind,
+    int Depth,
+    bool TargetResolved);
+
+/// <summary>
 /// Identifies why a candidate assembly was rejected during a dependency scan.
 /// </summary>
 public enum TypeDependencyRejectionKind
@@ -75,6 +94,12 @@ public sealed class AllCandidatesRejectedException : AggregateException
 public record TypeDependencyResult(string? MatchedType, List<TypeDependencyNode> Tree)
 {
     public bool Found => MatchedType != null;
+
+    /// <summary>
+    /// The directed logical relationships reachable from the matched type.
+    /// Shared targets and cycle-closing relationships remain present.
+    /// </summary>
+    public IReadOnlyList<TypeDependencyRelationship> Relationships { get; init; } = [];
 
     /// <summary>
     /// Candidate assemblies the scan rejected on metadata-format grounds.
@@ -297,8 +322,15 @@ public static class TypeDependencyScanner
             var match = typeIndex[matchKey];
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var tree = BuildNode(match.MdReader, match.TypeDef, typeIndex, seen);
-            return new TypeDependencyResult(TypeResolver.FormatDisplayName(matchKey), tree)
+            string matchedType = TypeResolver.FormatDisplayName(matchKey);
+            return new TypeDependencyResult(matchedType, tree)
             {
+                Relationships = BuildRelationships(
+                    matchedType,
+                    matchKey,
+                    match.MdReader,
+                    match.TypeDef,
+                    typeIndex),
                 Rejections = rejections,
             };
         }
@@ -365,59 +397,226 @@ public static class TypeDependencyScanner
         Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
         HashSet<string> seen)
     {
-        var context = GenericContext.ForType(reader, typeDef);
-
-        // Gather all declared dependencies (base type + interfaces)
-        var allDeps = new List<string>();
-
-        if (!typeDef.BaseType.IsNil)
-        {
-            var baseTypeName = TypeResolver.GetTypeName(reader, typeDef.BaseType, context);
-            if (baseTypeName != null && !IsSystemRoot(baseTypeName))
-                allDeps.Add(baseTypeName);
-        }
-
-        foreach (var ifaceHandle in typeDef.GetInterfaceImplementations())
-        {
-            var iface = reader.GetInterfaceImplementation(ifaceHandle);
-            var ifaceName = TypeResolver.GetTypeName(reader, iface.Interface, context);
-            if (ifaceName != null)
-                allDeps.Add(ifaceName);
-        }
-
-        if (allDeps.Count == 0)
+        List<DirectTypeDependency> directDependencies =
+            GetDirectDependencies(reader, typeDef, typeIndex);
+        if (directDependencies.Count == 0)
             return [];
-
-        // Compute transitive closure for each dep to find which are redundant
-        var transitivelyReachable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var dep in allDeps)
-        {
-            CollectTransitive(dep, typeIndex, transitivelyReachable, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-        }
-
-        // A dep is "direct" if it's not transitively reachable through another dep
-        var directDeps = allDeps
-            .Where(d => !transitivelyReachable.Contains(FqnParser.NormalizeTypeName(d)))
-            .ToList();
 
         // Build tree nodes for direct deps only
         var results = new List<TypeDependencyNode>();
-        foreach (var dep in directDeps)
+        foreach (DirectTypeDependency dependency in directDependencies)
         {
-            var normalized = FqnParser.NormalizeTypeName(dep);
+            string normalized =
+                FqnParser.NormalizeTypeName(dependency.TypeName);
             if (!seen.Add(normalized))
             {
                 // Already shown at a shallower level — include as leaf
-                results.Add(new TypeDependencyNode(dep, []));
+                results.Add(
+                    new TypeDependencyNode(dependency.TypeName, []));
                 continue;
             }
 
-            var children = ResolveChildren(dep, typeIndex, seen);
-            results.Add(new TypeDependencyNode(dep, children));
+            var children =
+                ResolveChildren(dependency.TypeName, typeIndex, seen);
+            results.Add(
+                new TypeDependencyNode(dependency.TypeName, children));
         }
 
         return results;
     }
+
+    private static IReadOnlyList<TypeDependencyRelationship>
+        BuildRelationships(
+            string matchedType,
+            string matchedTypeIdentity,
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            Dictionary<string, (
+                PEReader PeReader,
+                MetadataReader MdReader,
+                TypeDefinition TypeDef)> typeIndex)
+    {
+        var relationships = new List<TypeDependencyRelationship>();
+        var relationshipIndexes =
+            new Dictionary<(
+                string Source,
+                string Target,
+                TypeDependencyRelationshipKind Kind), int>();
+        BuildRelationships(
+            matchedType,
+            reader,
+            typeDef,
+            typeIndex,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                FqnParser.NormalizeTypeName(matchedTypeIdentity),
+            },
+            depth: 0,
+            relationships,
+            relationshipIndexes);
+        return relationships;
+    }
+
+    private static void BuildRelationships(
+        string sourceTypeName,
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        Dictionary<string, (
+            PEReader PeReader,
+            MetadataReader MdReader,
+            TypeDefinition TypeDef)> typeIndex,
+        HashSet<string> ancestry,
+        int depth,
+        List<TypeDependencyRelationship> relationships,
+        Dictionary<(
+            string Source,
+            string Target,
+            TypeDependencyRelationshipKind Kind), int>
+            relationshipIndexes)
+    {
+        foreach (DirectTypeDependency dependency
+            in GetDirectDependencies(reader, typeDef, typeIndex))
+        {
+            string normalized =
+                FqnParser.NormalizeTypeName(dependency.TypeName);
+            string? matchKey =
+                ResolveTransitiveKey(typeIndex, normalized);
+            AddRelationship(
+                relationships,
+                relationshipIndexes,
+                new TypeDependencyRelationship(
+                    sourceTypeName,
+                    dependency.TypeName,
+                    dependency.Kind,
+                    depth,
+                    matchKey is not null));
+
+            if (matchKey is null || ancestry.Contains(normalized))
+                continue;
+
+            var branchAncestry =
+                new HashSet<string>(
+                    ancestry,
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    normalized,
+                };
+            var match = typeIndex[matchKey];
+            BuildRelationships(
+                dependency.TypeName,
+                match.MdReader,
+                match.TypeDef,
+                typeIndex,
+                branchAncestry,
+                depth + 1,
+                relationships,
+                relationshipIndexes);
+        }
+    }
+
+    private static void AddRelationship(
+        List<TypeDependencyRelationship> relationships,
+        Dictionary<(
+            string Source,
+            string Target,
+            TypeDependencyRelationshipKind Kind), int>
+            relationshipIndexes,
+        TypeDependencyRelationship relationship)
+    {
+        var key = (
+            FqnParser.NormalizeTypeName(
+                relationship.SourceTypeName).ToUpperInvariant(),
+            FqnParser.NormalizeTypeName(
+                relationship.TargetTypeName).ToUpperInvariant(),
+            relationship.Kind);
+        if (relationshipIndexes.TryGetValue(key, out int existingIndex))
+        {
+            TypeDependencyRelationship existing =
+                relationships[existingIndex];
+            if (relationship.Depth < existing.Depth)
+            {
+                relationships[existingIndex] =
+                    existing with { Depth = relationship.Depth };
+            }
+            return;
+        }
+
+        relationshipIndexes.Add(key, relationships.Count);
+        relationships.Add(relationship);
+    }
+
+    private static List<DirectTypeDependency> GetDirectDependencies(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        Dictionary<string, (
+            PEReader PeReader,
+            MetadataReader MdReader,
+            TypeDefinition TypeDef)> typeIndex)
+    {
+        var context = GenericContext.ForType(reader, typeDef);
+        var allDependencies = new List<DirectTypeDependency>();
+
+        if (!typeDef.BaseType.IsNil)
+        {
+            string? baseTypeName =
+                TypeResolver.GetTypeName(
+                    reader,
+                    typeDef.BaseType,
+                    context);
+            if (baseTypeName is not null && !IsSystemRoot(baseTypeName))
+            {
+                allDependencies.Add(
+                    new DirectTypeDependency(
+                        baseTypeName,
+                        TypeDependencyRelationshipKind.BaseType));
+            }
+        }
+
+        foreach (var ifaceHandle in typeDef.GetInterfaceImplementations())
+        {
+            var iface =
+                reader.GetInterfaceImplementation(ifaceHandle);
+            string? interfaceName =
+                TypeResolver.GetTypeName(
+                    reader,
+                    iface.Interface,
+                    context);
+            if (interfaceName is not null)
+            {
+                allDependencies.Add(
+                    new DirectTypeDependency(
+                        interfaceName,
+                        TypeDependencyRelationshipKind.Interface));
+            }
+        }
+
+        if (allDependencies.Count == 0)
+            return [];
+
+        var transitivelyReachable =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (DirectTypeDependency dependency in allDependencies)
+        {
+            CollectTransitive(
+                dependency.TypeName,
+                typeIndex,
+                transitivelyReachable,
+                new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase));
+        }
+
+        return
+        [
+            .. allDependencies.Where(dependency =>
+                !transitivelyReachable.Contains(
+                    FqnParser.NormalizeTypeName(
+                        dependency.TypeName))),
+        ];
+    }
+
+    private sealed record DirectTypeDependency(
+        string TypeName,
+        TypeDependencyRelationshipKind Kind);
 
     /// <summary>
     /// Collects all interfaces transitively reachable from a type's dependencies

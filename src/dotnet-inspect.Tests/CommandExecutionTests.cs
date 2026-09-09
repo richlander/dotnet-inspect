@@ -15319,7 +15319,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Depends_Count_AppliesRowsToTheNodeLowering()
+    public async Task Depends_Count_AppliesRowsToTheEdgeLowering()
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.Int128",
@@ -15338,6 +15338,77 @@ public partial class CommandExecutionTests
         Assert.Contains("IBinaryNumber", rendered);
         Assert.DoesNotContain("IBitwiseOperators", rendered);
         Assert.DoesNotContain("IMinMaxValue", rendered);
+    }
+
+    [Fact]
+    public async Task Depends_AllGraphFormatsUseTheSelectedEdgeSequence()
+    {
+        string[][] formats =
+        [
+            ["--table"],
+            ["--tsv"],
+            ["--jsonl"],
+            ["--json"],
+            ["--mermaid"],
+        ];
+
+        foreach (string[] format in formats)
+        {
+            string[] args =
+            [
+                "depends",
+                "System.Int128",
+                .. format,
+                "--rows",
+                "2..2",
+                "--tips",
+                "q",
+            ];
+            var (exit, output, error) = await RunAppAsync(args);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("IBinaryInteger", output);
+            Assert.Contains("IBinaryNumber", output);
+            Assert.DoesNotContain("IBitwiseOperators", output);
+            Assert.DoesNotContain("IMinMaxValue", output);
+        }
+    }
+
+    [Fact]
+    public async Task Depends_JsonUsesTheSelectedLosslessGraphContract()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends",
+            "System.Int128",
+            "--json",
+            "--rows",
+            "2..2",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement root = json.RootElement;
+        Assert.Equal(
+            0,
+            Assert.Single(
+                root.GetProperty("root_node_ids")
+                    .EnumerateArray()).GetInt32());
+        Assert.Equal(
+            3,
+            root.GetProperty("nodes").GetArrayLength());
+        JsonElement edge = Assert.Single(
+            root.GetProperty("edges").EnumerateArray());
+        Assert.Equal(1, edge.GetProperty("id").GetInt32());
+        Assert.Equal(
+            "System.Numerics.IBinaryInteger`1",
+            root.GetProperty("nodes")[1]
+                .GetProperty("identity").GetString());
+        Assert.Equal(
+            1,
+            edge.GetProperty("minimum_depth").GetInt32());
     }
 
     [Fact]

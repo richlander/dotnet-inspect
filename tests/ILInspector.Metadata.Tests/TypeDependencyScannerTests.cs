@@ -133,6 +133,47 @@ public class TypeDependencyScannerTests
     }
 
     [Fact]
+    public void Int128_RelationshipsPreserveSharedTargetEdges()
+    {
+        var result =
+            TypeDependencyScanner.BuildDependencyTree(
+                "Int128",
+                RefAssemblies);
+
+        TypeDependencyRelationship[] sharedIncoming =
+        [
+            .. result.Relationships.Where(relationship =>
+                TypeMatcher.GetBaseName(
+                    FqnParser.NormalizeTypeName(
+                        relationship.TargetTypeName))
+                    .EndsWith(
+                        "IEqualityOperators",
+                        StringComparison.Ordinal)),
+        ];
+
+        Assert.Equal(2, sharedIncoming.Length);
+        Assert.Equal(
+            2,
+            sharedIncoming
+                .Select(relationship =>
+                    FqnParser.NormalizeTypeName(
+                        relationship.SourceTypeName))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count());
+        Assert.DoesNotContain(
+            result.Relationships
+                .GroupBy(relationship =>
+                    (
+                        Source: FqnParser.NormalizeTypeName(
+                            relationship.SourceTypeName),
+                        Target: FqnParser.NormalizeTypeName(
+                            relationship.TargetTypeName),
+                        relationship.Kind),
+                    new RelationshipKeyComparer()),
+            group => group.Count() > 1);
+    }
+
+    [Fact]
     public void DirectDepsOnly_ExcludesTransitive()
     {
         // INumber<TSelf> directly inherits from INumberBase<TSelf>
@@ -185,5 +226,41 @@ public class TypeDependencyScannerTests
                 CollectExpandedNames(node.Children, result);
             }
         }
+    }
+
+    private sealed class RelationshipKeyComparer :
+        IEqualityComparer<(
+            string Source,
+            string Target,
+            TypeDependencyRelationshipKind Kind)>
+    {
+        public bool Equals(
+            (
+                string Source,
+                string Target,
+                TypeDependencyRelationshipKind Kind) x,
+            (
+                string Source,
+                string Target,
+                TypeDependencyRelationshipKind Kind) y) =>
+            x.Kind == y.Kind
+            && StringComparer.OrdinalIgnoreCase.Equals(
+                x.Source,
+                y.Source)
+            && StringComparer.OrdinalIgnoreCase.Equals(
+                x.Target,
+                y.Target);
+
+        public int GetHashCode(
+            (
+                string Source,
+                string Target,
+                TypeDependencyRelationshipKind Kind) obj) =>
+            HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(
+                    obj.Source),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(
+                    obj.Target),
+                obj.Kind);
     }
 }

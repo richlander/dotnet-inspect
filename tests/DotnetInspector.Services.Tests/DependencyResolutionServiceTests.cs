@@ -176,6 +176,98 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public async Task ResolveDependencyGraph_PreservesEverySharedTargetEdge()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        const string index = "https://graph.example/v3/index.json";
+        const string flat = "https://graph.example/v3-flatcontainer/";
+        string suffix = Guid.NewGuid().ToString("N");
+        string leftId = $"Left.Package.{suffix}";
+        string rightId = $"Right.Package.{suffix}";
+        string sharedId = $"Shared.Package.{suffix}";
+        var handler = new GraphNuspecHandler(
+            index,
+            flat,
+            new Dictionary<string, string[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                [leftId] = [sharedId],
+                [rightId] = [sharedId],
+                [sharedId] = [],
+            });
+        using var client = new HttpClient(handler);
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = leftId, Version = "1.0.0" },
+            new() { Id = rightId, Version = "1.0.0" },
+        };
+
+        List<DependencyNode> result =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                dependencies,
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log: null,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [index],
+                });
+
+        Assert.Equal([leftId, rightId], result.Select(node => node.PackageId));
+        Assert.Equal(
+            sharedId,
+            Assert.Single(result[0].Children).PackageId);
+        Assert.Equal(
+            sharedId,
+            Assert.Single(result[1].Children).PackageId);
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_PreservesCycleClosingEdge()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        const string index = "https://cycle.example/v3/index.json";
+        const string flat = "https://cycle.example/v3-flatcontainer/";
+        string suffix = Guid.NewGuid().ToString("N");
+        string leftId = $"Left.Cycle.{suffix}";
+        string rightId = $"Right.Cycle.{suffix}";
+        var handler = new GraphNuspecHandler(
+            index,
+            flat,
+            new Dictionary<string, string[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                [leftId] = [rightId],
+                [rightId] = [leftId],
+            });
+        using var client = new HttpClient(handler);
+
+        List<DependencyNode> result =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                [new PackageDependency
+                {
+                    Id = leftId,
+                    Version = "1.0.0",
+                }],
+                "net10.0",
+                new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase),
+                log: null,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [index],
+                });
+
+        DependencyNode left = Assert.Single(result);
+        DependencyNode right = Assert.Single(left.Children);
+        DependencyNode cycle = Assert.Single(right.Children);
+        Assert.Equal(leftId, cycle.PackageId);
+        Assert.Empty(cycle.Children);
+    }
+
+    [Fact]
     public void FindBestMatchingTfmGroup_ExactMatch()
     {
         var groups = new List<DotnetInspector.Packages.DependencyGroup>
@@ -688,6 +780,68 @@ public class DependencyResolutionServiceTests
                 Content = new StringContent(body ?? "", Encoding.UTF8),
                 RequestMessage = request
             });
+        }
+    }
+
+    private sealed class GraphNuspecHandler(
+        string index,
+        string flat,
+        IReadOnlyDictionary<string, string[]> dependencies)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = url == index
+                ? $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"{{flat}}"}]}"""
+                : Nuspec(url);
+            return Task.FromResult(new HttpResponseMessage(
+                body is null
+                    ? HttpStatusCode.NotFound
+                    : HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    body ?? "",
+                    Encoding.UTF8),
+                RequestMessage = request,
+            });
+        }
+
+        private string? Nuspec(string url)
+        {
+            foreach (var entry in dependencies)
+            {
+                if (!url.EndsWith(
+                    $"/{entry.Key.ToLowerInvariant()}.nuspec",
+                    StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                string dependencyElements = string.Join(
+                    Environment.NewLine,
+                    entry.Value.Select(id =>
+                        $"<dependency id=\"{id}\" version=\"1.0.0\" />"));
+                return
+                    $"""
+                    <package>
+                      <metadata>
+                        <id>{entry.Key}</id>
+                        <version>1.0.0</version>
+                        <authors>Test</authors>
+                        <dependencies>
+                          <group targetFramework="net10.0">
+                            {dependencyElements}
+                          </group>
+                        </dependencies>
+                      </metadata>
+                    </package>
+                    """;
+            }
+
+            return null;
         }
     }
 }

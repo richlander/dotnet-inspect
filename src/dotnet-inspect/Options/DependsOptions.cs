@@ -76,6 +76,16 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     public bool EmbeddedMermaid { get; init; }
 
     /// <summary>
+    /// Selected output format.
+    /// </summary>
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+
+    /// <summary>
+    /// Suppress headers for table output.
+    /// </summary>
+    public bool NoHeader { get; init; }
+
+    /// <summary>
     /// Limit data rows per rendered table.
     /// </summary>
     public RowWindow? Rows { get; init; }
@@ -89,6 +99,13 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }
+
+    public OutputFormat EffectiveFormat =>
+        JsonOutput
+            ? OutputFormat.Json
+            : MermaidOutput
+                ? OutputFormat.Mermaid
+                : Format;
 
     /// <summary>
     /// NuGet source configuration options.
@@ -111,7 +128,7 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput;
+    public bool IsRawOutput => EffectiveFormat != OutputFormat.Markdown;
 
     /// <summary>
     /// True when in type dependency mode (default when no --library/--package).

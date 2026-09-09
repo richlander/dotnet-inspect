@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Breaking:** `depends` now treats one directed logical dependency edge as
+  its row currency across Markdown trees, Mermaid, tables, TSV, JSONL, JSON,
+  row windows, and counts. Shared targets and cycle-closing edges are retained,
+  tree output marks revisits, and graph output includes the explicit root
+  (#3320).
 - Adds explicit `Body Shape Summary` output to `library`, `type`, and `member`,
   grouping identical rendered Kind/Match values with occurrence counts.
   `Body Shapes` retains individual member/token/rendered-C# locations.
