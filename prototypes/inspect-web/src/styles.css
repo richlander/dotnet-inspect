@@ -379,7 +379,9 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
-.inspector-strip button.lens { padding-inline: 4px; }
+.lensbar[data-allocation-key^="library:"] .inspector-strip button.lens {
+  padding-inline: 4px;
+}
 .scope-switch button.scope-seg:hover { color: var(--text); background: rgba(127,127,127,.12); }
 .scope-switch button.scope-seg.active { color: #fff; background: var(--shell-accent-fill); border-bottom-color: transparent; }
 .lens-separator { flex: none; width: 1px; height: 17px; background: var(--line); margin: 0 4px; }
