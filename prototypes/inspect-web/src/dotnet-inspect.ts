@@ -465,6 +465,15 @@ import {
   type PackageQueryBindingActions,
 } from "./package-query-view.ts";
 import {
+  capturePackageQueryScrollAnchor,
+  createPackageQueryWindowState,
+  observePackageQueryRowHeights,
+  packageQueryResultWindowMatches,
+  preparePackageQueryResultWindow,
+  resetPackageQueryWindow,
+  restorePackageQueryScrollAnchor,
+} from "./package-query-window.ts";
+import {
   historyEntryId,
   isPackageQueryPath,
   isPackageQueryPredecessor,
@@ -1294,6 +1303,7 @@ const packageQueryController = createPackageQueryController(
   updateKind => {
     if (!state.packageQueryOpen) return;
     if (updateKind === "reset") {
+      resetPackageQueryWindow(packageQueryWindowState);
       render();
       return;
     }
@@ -1301,6 +1311,7 @@ const packageQueryController = createPackageQueryController(
   },
 );
 const packageQueryAnnouncements = createPackageQueryAnnouncementTracker();
+const packageQueryWindowState = createPackageQueryWindowState();
 const packageQueryLiveAnnouncer = createPackageQueryLiveAnnouncer(
   () => document.querySelector<HTMLElement>("#package-query-announcement"));
 
@@ -3471,6 +3482,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   scopeBarBinding?.disconnect();
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
+  packageQueryViewBinding?.disconnect();
+  packageQueryViewBinding = null;
 
   // The Metadata Explorer is a full-bleed "browse the database" view layered over the
   // package workbench. Like Settings it owns no URL and renders first, returning to the
@@ -9946,6 +9959,12 @@ const packageQueryActions: PackageQueryBindingActions = {
     packageQueryController.configure(configured);
   },
   onResultPressure: () => packageQueryController.requestMore(),
+  onViewportChange: () => schedulePackageQueryStreamRender("viewport"),
+  onViewportResize: () => {
+    resetPackageQueryWindow(packageQueryWindowState);
+    observePackageQueryRowHeights(document, packageQueryWindowState);
+    schedulePackageQueryStreamRender("viewport");
+  },
   onRowOpen: (packageId, version, rootRequest) => {
     observeAsync(
       openPackageQueryRow(packageId, version, rootRequest),
@@ -9955,30 +9974,49 @@ const packageQueryActions: PackageQueryBindingActions = {
 };
 
 let packageQueryStreamRenderFrame: number | null = null;
+let packageQueryStreamRenderRequired = false;
+let packageQueryViewBinding: { disconnect(): void } | null = null;
 
 function cancelPackageQueryStreamRender() {
-  if (packageQueryStreamRenderFrame === null) return;
-  cancelAnimationFrame(packageQueryStreamRenderFrame);
+  if (packageQueryStreamRenderFrame !== null) {
+    cancelAnimationFrame(packageQueryStreamRenderFrame);
+  }
   packageQueryStreamRenderFrame = null;
+  packageQueryStreamRenderRequired = false;
 }
 
-function schedulePackageQueryStreamRender() {
+function schedulePackageQueryStreamRender(
+  source: "stream" | "viewport" = "stream",
+) {
+  if (source === "stream") packageQueryStreamRenderRequired = true;
   if (packageQueryStreamRenderFrame !== null) return;
   packageQueryStreamRenderFrame = requestAnimationFrame(() => {
     packageQueryStreamRenderFrame = null;
-    if (state.packageQueryOpen) patchPackageQueryPage();
+    if (!state.packageQueryOpen) return;
+    const requirePatch = packageQueryStreamRenderRequired;
+    packageQueryStreamRenderRequired = false;
+    patchPackageQueryPage(requirePatch);
   });
 }
 
-function patchPackageQueryPage() {
+function patchPackageQueryPage(requirePatch = true) {
   const focus = capturePackageQueryFocus(document);
   const scrollTop = capturePackageQueryScroll(document);
+  const scrollAnchor = capturePackageQueryScrollAnchor(document);
   const announcement = takePackageQueryAnnouncement();
+  const resultWindow = preparePackageQueryResultWindow(
+    document,
+    state.packageQueryState.outcome.rows.length,
+    packageQueryWindowState,
+    scrollAnchor);
+  if (!requirePatch
+    && packageQueryResultWindowMatches(document, resultWindow)) return;
   const patched = patchPackageQueryStream(
     document,
     {
       state: state.packageQueryState,
       escapeHtml,
+      resultWindow,
     },
     packageQueryActions);
   if (!patched) {
@@ -9987,7 +10025,12 @@ function patchPackageQueryPage() {
   }
   const focusRestoration = restorePackageQueryFocus(document, focus);
   if (focusRestoration !== "fallback") {
-    restorePackageQueryScroll(document, scrollTop);
+    if (!restorePackageQueryScrollAnchor(document, scrollAnchor)) {
+      restorePackageQueryScroll(document, scrollTop);
+    }
+  }
+  if (observePackageQueryRowHeights(document, packageQueryWindowState)) {
+    schedulePackageQueryStreamRender("viewport");
   }
   packageQueryLiveAnnouncer.enqueue(announcement);
 }
@@ -9997,22 +10040,32 @@ function renderPackageQueryPage() {
   const focus = capturePackageQueryFocus(document);
   const scrollTop = capturePackageQueryScroll(document);
   const announcement = takePackageQueryAnnouncement();
+  const resultWindow = preparePackageQueryResultWindow(
+    document,
+    state.packageQueryState.outcome.rows.length,
+    packageQueryWindowState);
   document.title = "Package query · dotnet-inspect";
   app.innerHTML = renderPackageQueryView({
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
     availableAssemblyPatterns: state.packageQueryAssemblyPatterns,
+    resultWindow,
     navigationError: [
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
     escapeHtml,
   });
-  bindPackageQueryView(document, packageQueryActions);
+  packageQueryViewBinding = bindPackageQueryView(
+    document,
+    packageQueryActions);
   const focusRestoration = restorePackageQueryFocus(document, focus);
   if (focusRestoration !== "fallback") {
     restorePackageQueryScroll(document, scrollTop);
+  }
+  if (observePackageQueryRowHeights(document, packageQueryWindowState)) {
+    schedulePackageQueryStreamRender("viewport");
   }
   packageQueryLiveAnnouncer.enqueue(announcement);
 }

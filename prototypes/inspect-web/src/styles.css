@@ -3167,13 +3167,19 @@ kbd {
   z-index: 1;
 }
 .query-results { min-width: 0; }
-.query-list { display: grid; gap: 10px; }
+.query-list { display: block; }
+.query-list-spacer {
+  width: 1px;
+  pointer-events: none;
+}
 .query-row {
+  margin-bottom: 10px;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
 }
+.query-row:last-child { margin-bottom: 0; }
 .query-row-head,
 .query-row-meta {
   display: flex;

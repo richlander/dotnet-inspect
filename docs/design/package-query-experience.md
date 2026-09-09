@@ -192,7 +192,17 @@ and
   visible without consuming package-row credit. Rows append to source-
   independent state, while Browser publication is frame-batched and patches
   only the live failure, cancellation, and result regions rather than replacing
-  the whole application DOM for every event. Product-issued progress
+  the whole application DOM for every event. The Browser retains every durable
+  row in query state but renders at most 30 package cards in the DOM. The
+  rendered range covers the visible rows plus 600 CSS pixels of overscan;
+  measured card heights and estimated heights for unseen cards drive inert top
+  and bottom spacers so ordinary scrolling can move through the full retained
+  result set. Each patch preserves the first visible row and its viewport
+  offset, so measurement correction or changing progress above the list does
+  not replace the user's logical reading position. Scrolling schedules the same
+  animation-frame-coalesced region patch used by stream publication. Query context, progress, assessments,
+  failures, and completion accounting remain outside the virtual row list and
+  continue to describe the complete retained outcome. Product-issued progress
   checkpoints distinguish source search, manifest evaluation, and explicit
   package-content evaluation, so filtered candidates remain perceptible
   without becoming result rows. Query-scoped source-selection context from the
@@ -532,7 +542,11 @@ and browser-history and focus-return outcomes are proved by
    replenishment resumes it, spent budget is not reset, and active-work expiry
    cannot publish an uncredited match.
 13. Confirm that streamed progress and rows produce at most one query-region
-   patch per animation frame and do not replace the application root.
+   patch per animation frame and do not replace the application root. With 100
+   durable rows retained in state, confirm that at most 30 package cards occupy
+   the DOM, scrolling changes the measured visible range with 600 CSS pixels of
+   overscan, top and bottom spacers preserve the full scroll extent, and the
+   footer still reports all 100 retained rows.
 14. Confirm assembly `NoMatch`, `NotApplicable`, and failures remain distinct,
    an empty match set states only selected-primary-implementation-assembly
    scope, assessments spend no match credit, and every assembly match opens
@@ -571,8 +585,10 @@ and browser-history and focus-return outcomes are proved by
    by #5816, removes the complete-search barrier in prefix-profile consumers.
    [#6070](https://github.com/richlander/dotnet-inspect/issues/6070) restored
    explicit package-ID and prefix selection on the website. Its separate
-   Gallery gesture is retired by #6341. DOM virtualization and Worker placement
-   remain separate follow-ups.
+   Gallery gesture is retired by #6341. The next #5816 Browser slice retains
+   durable rows outside the DOM and renders a measured window of at most 30
+   cards with 600 CSS pixels of overscan. Worker placement remains a separate
+   follow-up.
 9. [Package Query inspection evidence](package-query-inspection-evidence.md),
    tracked by #6071, transports typed package/query scope and count-plus-preview
    summaries to the website. Query context renders once per result set while

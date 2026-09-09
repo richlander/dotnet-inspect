@@ -2746,6 +2746,252 @@ test("query header omits scope buttons and preserves navigation focus across wid
   await expect(page.locator("#package-query-product")).toBeVisible();
 });
 
+test("package query keeps 100 retained rows in a bounded scrolling DOM window", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html");
+
+  const result = await page.evaluate(async () => {
+    const {
+      appendFailure,
+      appendRows,
+      createQueryRequest,
+      emptyOutcome,
+    } = await import("../src/package-query.ts");
+    const {
+      bindPackageQueryView,
+      capturePackageQueryFocus,
+      capturePackageQueryScroll,
+      patchPackageQueryStream,
+      renderPackageQueryView,
+      restorePackageQueryFocus,
+      restorePackageQueryScroll,
+    } = await import("../src/package-query-view.ts");
+    const {
+      capturePackageQueryScrollAnchor,
+      createPackageQueryWindowState,
+      observePackageQueryRowHeights,
+      packageQueryResultWindowMatches,
+      preparePackageQueryResultWindow,
+      resetPackageQueryWindow,
+      restorePackageQueryScrollAnchor,
+    } = await import("../src/package-query-window.ts");
+    const app = document.querySelector<HTMLElement>("#app");
+    if (!app) throw new Error("The query window harness root is unavailable.");
+
+    const rows = Array.from({ length: 100 }, (_, index) => ({
+      packageId: `System.Windowed.${index.toString().padStart(3, "0")}`,
+      version: "1.0.0",
+      tier: "nuspec" as const,
+      evidence: [{
+        id: "test.query-window",
+        text: "windowed result",
+        scope: "package" as const,
+        summary: null,
+      }] as const,
+      totalDownloads: index,
+    }));
+    const state = {
+      request: createQueryRequest("System.*"),
+      outcome: appendRows(emptyOutcome(), rows),
+    };
+    const windowState = createPackageQueryWindowState();
+    let patches = 0;
+    let scheduled = false;
+    let patchRequired = false;
+    let viewportResizes = 0;
+    const schedulePatch = (source: "stream" | "viewport" = "viewport") => {
+      if (source === "stream") patchRequired = true;
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        const requirePatch = patchRequired;
+        patchRequired = false;
+        const focus = capturePackageQueryFocus(document);
+        const scrollTop = capturePackageQueryScroll(document);
+        const scrollAnchor = capturePackageQueryScrollAnchor(document);
+        const resultWindow = preparePackageQueryResultWindow(
+          document,
+          rows.length,
+          windowState,
+          scrollAnchor);
+        if (!requirePatch
+          && packageQueryResultWindowMatches(document, resultWindow)) return;
+        patches++;
+        patchPackageQueryStream(
+          document,
+          {
+            state,
+            resultWindow,
+            escapeHtml: value => String(value),
+          },
+          actions);
+        restorePackageQueryFocus(document, focus);
+        if (!restorePackageQueryScrollAnchor(document, scrollAnchor)) {
+          restorePackageQueryScroll(document, scrollTop);
+        }
+        if (observePackageQueryRowHeights(document, windowState)) {
+          schedulePatch();
+        }
+      });
+    };
+    const actions = {
+      onBack: () => {},
+      onCancel: () => {},
+      onFacetToggle: () => {},
+      onPrefixInput: () => {},
+      onResultPressure: () => {},
+      onViewportChange: schedulePatch,
+      onViewportResize: () => {
+        viewportResizes++;
+        resetPackageQueryWindow(windowState);
+        observePackageQueryRowHeights(document, windowState);
+        schedulePatch();
+      },
+      onRowOpen: () => {},
+      onRun: () => {},
+      onSourceChange: () => {},
+    };
+    app.innerHTML = renderPackageQueryView({
+      state,
+      availableFacets: [],
+      resultWindow: preparePackageQueryResultWindow(
+        document,
+        rows.length,
+        windowState),
+      escapeHtml: value => String(value),
+    });
+
+    const rowStyles = document.createElement("style");
+    const setRowStyles = (extraHeight: number) => {
+      rowStyles.textContent = rows.map((_, index) =>
+        `.query-row[data-query-row-index="${index}"]{min-height:${
+          (index < 30 ? 100 : index < 60 ? 260 : 160) + extraHeight
+        }px}`).join("");
+    };
+    setRowStyles(0);
+    document.head.append(rowStyles);
+    observePackageQueryRowHeights(document, windowState);
+    const binding = bindPackageQueryView(document, actions);
+    const waitFrames = async (count: number) => {
+      for (let frame = 0; frame < count; frame++) {
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      }
+    };
+    const main = document.querySelector<HTMLElement>(".query-main");
+    if (!main) throw new Error("The query scroll container is unavailable.");
+    const visibleAnchor = () => {
+      const mainBounds = main.getBoundingClientRect();
+      const row = [...document.querySelectorAll<HTMLElement>(
+        "[data-query-row-index]")].find(element => {
+          const bounds = element.getBoundingClientRect();
+          return bounds.bottom > mainBounds.top
+            && bounds.top < mainBounds.bottom;
+        });
+      return row
+        ? {
+            index: Number(row.dataset.queryRowIndex),
+            offset: row.getBoundingClientRect().top - mainBounds.top,
+          }
+        : null;
+    };
+    await waitFrames(2);
+    const resizeBaseline = viewportResizes;
+    const estimatedHeightBeforeResize = windowState.estimatedRowHeight;
+    setRowStyles(200);
+    app.style.width = "700px";
+    await waitFrames(4);
+    const estimatedHeightAfterResize = windowState.estimatedRowHeight;
+    const measuredRowsAfterResize = windowState.rowHeights.size;
+
+    const initialRows = document.querySelectorAll(".query-row").length;
+    main.scrollTop = main.scrollHeight / 2;
+    main.dispatchEvent(new Event("scroll"));
+    await waitFrames(6);
+    const anchorBeforeProgress = visibleAnchor();
+    state.outcome = appendFailure(
+      state.outcome,
+      "A source failed after rows were retained; this banner changes geometry.");
+    schedulePatch("stream");
+    await waitFrames(4);
+    const anchorAfterProgress = visibleAnchor();
+
+    document.querySelector<HTMLElement>("[data-query-row-open]")?.focus();
+    main.scrollTop = main.scrollHeight;
+    main.dispatchEvent(new Event("scroll"));
+    await waitFrames(4);
+    const focusAfterEviction = document.activeElement?.id ?? "";
+    schedulePatch("stream");
+    await waitFrames(2);
+    const focusAfterRequiredPatch = document.activeElement?.id ?? "";
+    const settledPatches = patches;
+    await waitFrames(3);
+    binding.disconnect();
+    const resizesAtDisconnect = viewportResizes;
+    app.style.width = "650px";
+    await waitFrames(2);
+
+    const list = document.querySelector<HTMLElement>(".query-list");
+    const footer = document.querySelector<HTMLElement>(".query-footer");
+    const renderedRows = [
+      ...document.querySelectorAll<HTMLElement>("[data-query-row-index]"),
+    ];
+    return {
+      retainedRows: state.outcome.rows.length,
+      resizeBaseline,
+      viewportResizes,
+      resizesAtDisconnect,
+      estimatedHeightBeforeResize,
+      estimatedHeightAfterResize,
+      measuredRowsAfterResize,
+      initialRows,
+      finalRows: renderedRows.length,
+      finalStart: Number(list?.dataset.queryWindowStart),
+      finalEnd: Number(list?.dataset.queryWindowEnd),
+      firstRenderedIndex: Number(renderedRows[0]?.dataset.queryRowIndex),
+      lastRenderedIndex:
+        Number(renderedRows.at(-1)?.dataset.queryRowIndex),
+      topSpacerHeight: Number.parseFloat(
+        document.querySelector<HTMLElement>(".query-list-spacer")
+          ?.style.height ?? "0"),
+      footer: footer?.textContent ?? "",
+      anchorBeforeProgress,
+      anchorAfterProgress,
+      focusAfterEviction,
+      focusAfterRequiredPatch,
+      scrollTop: main.scrollTop,
+      patches,
+      settledPatches,
+    };
+  });
+
+  expect(result.retainedRows).toBe(100);
+  expect(result.resizesAtDisconnect).toBeGreaterThan(result.resizeBaseline);
+  expect(result.viewportResizes).toBe(result.resizesAtDisconnect);
+  expect(result.measuredRowsAfterResize).toBeGreaterThan(0);
+  expect(result.estimatedHeightAfterResize)
+    .toBeGreaterThan(result.estimatedHeightBeforeResize);
+  expect(result.initialRows).toBeLessThanOrEqual(30);
+  expect(result.finalRows).toBeLessThanOrEqual(30);
+  expect(result.finalStart).toBeGreaterThan(0);
+  expect(result.finalEnd).toBe(100);
+  expect(result.firstRenderedIndex).toBe(result.finalStart);
+  expect(result.lastRenderedIndex).toBe(99);
+  expect(result.topSpacerHeight).toBeGreaterThan(0);
+  expect(result.footer).toContain("100 packages");
+  expect(result.anchorAfterProgress?.index)
+    .toBe(result.anchorBeforeProgress?.index);
+  expect(result.anchorAfterProgress?.offset)
+    .toBeCloseTo(result.anchorBeforeProgress?.offset ?? 0, 0);
+  expect(result.focusAfterEviction).toBe("package-query-results");
+  expect(result.focusAfterRequiredPatch).toBe("package-query-results");
+  expect(result.scrollTop).toBeGreaterThan(0);
+  expect(result.patches).toBe(result.settledPatches);
+  expect(result.patches).toBeLessThanOrEqual(10);
+});
+
 test("Workspace retains its full split height at constrained widths", async ({
   page,
 }) => {

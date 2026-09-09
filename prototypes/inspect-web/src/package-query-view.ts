@@ -10,6 +10,7 @@ import {
   createAssemblyQueryRequest,
   createQueryRequest,
 } from "./package-query.ts";
+import type { PackageQueryResultWindow } from "./package-query-window.ts";
 import { renderBrand } from "./brand.ts";
 import { focusRenderedElement } from "./scope-bar.ts";
 
@@ -24,6 +25,8 @@ export interface PackageQueryBindingActions {
   onFacetToggle: (facetKey: string, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
   onResultPressure: () => void;
+  onViewportChange?: () => void;
+  onViewportResize?: () => void;
   onRowOpen: (
     packageId: string,
     version: string,
@@ -46,12 +49,18 @@ export type PackageQueryFocusSnapshot =
   | { kind: "back" }
   | { kind: "run" }
   | { kind: "prerelease" }
+  | { kind: "results" }
   | {
       kind: "assembly";
       control: "pattern" | "packages" | "operand" | "tfm" | "run";
     }
   | { kind: "facet"; facetKey: string }
-  | { kind: "row"; packageId: string; version: string }
+  | {
+      kind: "row";
+      packageId: string;
+      version: string;
+      rowIndex: number | null;
+    }
   | { kind: "cancel"; index: number }
   | { kind: "fallback" };
 
@@ -104,6 +113,7 @@ export function capturePackageQueryFocus(
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.id === "package-query-prerelease") return { kind: "prerelease" };
+  if (active.id === "package-query-results") return { kind: "results" };
   const assemblyControl = assemblyControlName(active.id);
   if (assemblyControl) {
     return { kind: "assembly", control: assemblyControl };
@@ -112,10 +122,14 @@ export function capturePackageQueryFocus(
     return { kind: "facet", facetKey: active.dataset.queryFacet };
   }
   if (active.dataset.queryRowOpen && active.dataset.queryRowVersion) {
+    const rowIndex = Number.parseInt(
+      active.dataset.queryRowPosition ?? "",
+      10);
     return {
       kind: "row",
       packageId: active.dataset.queryRowOpen,
       version: active.dataset.queryRowVersion,
+      rowIndex: Number.isInteger(rowIndex) && rowIndex >= 0 ? rowIndex : null,
     };
   }
   const cancelButtons = [
@@ -149,6 +163,9 @@ export function restorePackageQueryFocus(
     case "prerelease":
       target = root.querySelector(`#package-query-${snapshot.kind}`);
       break;
+    case "results":
+      target = root.querySelector("#package-query-results");
+      break;
     case "assembly":
       target = root.querySelector(
         `#package-query-assembly-${snapshot.control}`);
@@ -162,8 +179,18 @@ export function restorePackageQueryFocus(
       target = [...root.querySelectorAll<HTMLElement>("[data-query-row-open]")]
         .find(element =>
           element.dataset.queryRowOpen === snapshot.packageId
-          && element.dataset.queryRowVersion === snapshot.version)
+          && element.dataset.queryRowVersion === snapshot.version
+          && (snapshot.rowIndex === null
+            || element.dataset.queryRowPosition === String(snapshot.rowIndex)))
         ?? null;
+      if (!target && snapshot.rowIndex !== null) {
+        const list = root.querySelector<HTMLElement>(".query-list");
+        const start = Number(list?.dataset.queryWindowStart);
+        const end = Number(list?.dataset.queryWindowEnd);
+        if (snapshot.rowIndex < start || snapshot.rowIndex >= end) {
+          target = root.querySelector("#package-query-results");
+        }
+      }
       break;
     case "cancel":
       target = [
@@ -175,12 +202,14 @@ export function restorePackageQueryFocus(
       break;
   }
   let usedFallback = false;
-  if (!isFocusableQueryElement(target) || !focusRenderedElement(target)) {
+  if (!isFocusableQueryElement(target)
+    || !focusRenderedElement(target, { preventScroll: true })) {
     target = root.querySelector("#package-query-prefix");
     usedFallback = true;
   }
   if (!isFocusableQueryElement(target)) return "none";
-  if (usedFallback && !focusRenderedElement(target)) return "none";
+  if (usedFallback
+    && !focusRenderedElement(target, { preventScroll: true })) return "none";
   if (snapshot.kind === "prefix"
     && supportsSelectionRange(target)
     && snapshot.selectionStart !== null
@@ -237,11 +266,22 @@ export function bindPackageQueryView(
       actions.onResultPressure();
     }
   };
-  queryMain?.addEventListener("scroll", reportResultPressure);
+  const handleScroll = () => {
+    actions.onViewportChange?.();
+    reportResultPressure();
+  };
+  queryMain?.addEventListener("scroll", handleScroll);
+  const resizeObserver = queryMain
+    && actions.onViewportResize
+    && typeof ResizeObserver !== "undefined"
+    ? new ResizeObserver(actions.onViewportResize)
+    : null;
+  if (queryMain) resizeObserver?.observe(queryMain);
   reportResultPressure();
   return {
     disconnect() {
-      queryMain?.removeEventListener("scroll", reportResultPressure);
+      queryMain?.removeEventListener("scroll", handleScroll);
+      resizeObserver?.disconnect();
     },
   };
 }
@@ -411,6 +451,8 @@ export function packageQueryNeedsMoreMatches(
 
 function renderRow(
   row: QueryResultRow,
+  index: number,
+  rowCount: number,
   escapeHtml: (value: unknown) => string,
 ): string {
   const evidence = row.evidence
@@ -420,11 +462,11 @@ function renderRow(
   const rootRequest = row.tier === "assembly" ? row.rootRequest : undefined;
   const openAction = row.tier === "assembly" && !rootRequest?.trim()
     ? `<span>Workspace opening request unavailable</span>`
-    : `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}"${rootRequest
+    : `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}" data-query-row-position="${index}"${rootRequest
         ? ` data-query-root-request="${escapeHtml(rootRequest)}"`
         : ""}>Open in workspace</button>`;
   return `
-    <article class="query-row">
+    <article class="query-row" role="listitem" aria-posinset="${index + 1}" aria-setsize="${rowCount}" data-query-row-index="${index}">
       <div class="query-row-head">
         <div>
           <h2>${escapeHtml(row.packageId)}</h2>
@@ -752,6 +794,7 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
   availableAssemblyPatterns?: readonly QueryAssemblyPatternDescriptor[];
+  resultWindow?: PackageQueryResultWindow;
   navigationError?: string;
   escapeHtml: (value: unknown) => string;
 }
@@ -796,21 +839,58 @@ function renderAssessments(
 function renderResults(
   state: PackageQueryState,
   escapeHtml: (value: unknown) => string,
+  resultWindow?: PackageQueryResultWindow,
 ): string {
+  const window = normalizeResultWindow(
+    resultWindow,
+    state.outcome.rows.length);
   const rows = state.outcome.rows
-    .map(row => renderRow(row, escapeHtml))
+    .slice(window.start, window.end)
+    .map((row, index) =>
+      renderRow(row, window.start + index, state.outcome.rows.length, escapeHtml))
     .join("");
   const assessments = renderAssessments(state, escapeHtml);
   return rows
-    ? `${renderProgress(state.outcome, escapeHtml)}${assessments}${renderQueryContext(state.outcome.rows, escapeHtml)}<div class="query-list">${rows}</div>${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
+    ? `${renderProgress(state.outcome, escapeHtml)}${assessments}${renderQueryContext(state.outcome.rows, escapeHtml)}<div class="query-list" role="list" data-query-window-start="${window.start}" data-query-window-end="${window.end}" data-query-window-top="${Math.round(window.topSpacerHeight)}" data-query-window-bottom="${Math.round(window.bottomSpacerHeight)}">${renderResultSpacer(window.topSpacerHeight)}${rows}${renderResultSpacer(window.bottomSpacerHeight)}</div>${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
     : state.outcome.completion.kind === "streaming" && state.request
       ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>${state.request.assemblyPattern ? "Evaluating selected assemblies" : "Acquiring package input"}</h2><p>${state.request.assemblyPattern ? "Matches, semantic non-matches, and non-applicable selections will appear as the explicit packages are evaluated." : "Matches will appear as package candidates are evaluated."}</p></section>${renderProgress(state.outcome, escapeHtml)}${assessments}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
       : `${assessments}${renderEmptyState(state, escapeHtml)}`;
 }
 
+function normalizeResultWindow(
+  resultWindow: PackageQueryResultWindow | undefined,
+  rowCount: number,
+): PackageQueryResultWindow {
+  if (!resultWindow) {
+    return {
+      start: 0,
+      end: rowCount,
+      topSpacerHeight: 0,
+      bottomSpacerHeight: 0,
+    };
+  }
+  const start = Math.min(Math.max(0, resultWindow.start), rowCount);
+  const end = Math.min(Math.max(start, resultWindow.end), rowCount);
+  return {
+    start,
+    end,
+    topSpacerHeight: Math.max(0, resultWindow.topSpacerHeight),
+    bottomSpacerHeight: Math.max(0, resultWindow.bottomSpacerHeight),
+  };
+}
+
+function renderResultSpacer(height: number): string {
+  return height > 0
+    ? `<div class="query-list-spacer" aria-hidden="true" style="height:${Math.round(height)}px"></div>`
+    : "";
+}
+
 export function patchPackageQueryStream(
   root: ParentNode,
-  options: Pick<RenderPackageQueryOptions, "state" | "escapeHtml">,
+  options: Pick<
+    RenderPackageQueryOptions,
+    "state" | "escapeHtml" | "resultWindow"
+  >,
   actions: PackageQueryBindingActions,
 ): boolean {
   const failures = root.querySelector<HTMLElement>(
@@ -823,7 +903,10 @@ export function patchPackageQueryStream(
 
   failures.innerHTML = renderFailures(options.state, options.escapeHtml);
   cancel.innerHTML = renderStreamingCancel(options.state);
-  results.innerHTML = renderResults(options.state, options.escapeHtml);
+  results.innerHTML = renderResults(
+    options.state,
+    options.escapeHtml,
+    options.resultWindow);
   bindPackageQueryStreamControls(root, actions);
 
   const queryMain = root.querySelector<HTMLElement>(".query-main");
@@ -841,13 +924,14 @@ export function renderPackageQueryView(
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
     availableAssemblyPatterns = [],
+    resultWindow,
     navigationError = "",
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
   const facets = renderFacets(availableFacets, activeKeys, escapeHtml);
   const failures = renderFailures(state, escapeHtml);
-  const results = renderResults(state, escapeHtml);
+  const results = renderResults(state, escapeHtml, resultWindow);
   const request = state.request ?? createQueryRequest("");
 
   return `
@@ -890,7 +974,7 @@ export function renderPackageQueryView(
             <p class="query-facet-disclosure">Candidate bound K: ${request.requestedLimit.toLocaleString()}; exact IDs use one candidate. Maximum matches N: ${request.requestedMatchLimit.toLocaleString()}. The match limit does not change prefix capacity.</p>
             <p class="query-facet-disclosure">Match counts and lifetime downloads describe a bounded response, not global top-N.</p>
           </aside>
-          <section id="package-query-results" class="query-results" aria-label="Package query results">
+          <section id="package-query-results" class="query-results" aria-label="Package query results" tabindex="-1">
             ${results}
           </section>
         </div>

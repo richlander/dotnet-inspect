@@ -288,7 +288,7 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
     assert.match(html, /Source selection and order from the producer/);
     assert.equal((html.match(/Source selection and order from the producer/g)
       ?? []).length, 1);
-    assert.equal((html.match(/<article class="query-row">/g) ?? []).length, 2);
+    assert.equal((html.match(/<article class="query-row"/g) ?? []).length, 2);
     assert.equal((html.match(/<ul class="query-evidence">/g) ?? []).length, 1);
     if (totalDownloads === null) {
       assert.match(html, /Lifetime downloads unavailable/);
@@ -350,13 +350,13 @@ test("query context renders once while package summaries remain on their cards",
   assert.equal((html.match(/Selected by producer ranking\./g) ?? []).length, 1);
   assert.match(
     html,
-    /<section class="query-context"[\s\S]*Selected by producer ranking\.[\s\S]*<div class="query-list">/);
+    /<section class="query-context"[\s\S]*Selected by producer ranking\.[\s\S]*<div class="query-list"/);
   assert.equal((html.match(/4 dependencies: A, B, C \(\+1 more\)\./g)
     ?? []).length, 1);
   assert.equal((html.match(/2 skill documents:/g) ?? []).length, 1);
   assert.doesNotMatch(
     html,
-    /<article class="query-row">[\s\S]*Selected by producer ranking\./);
+    /<article class="query-row"[\s\S]*Selected by producer ranking\./);
 });
 
 test("Gallery completion text retains the finite bound and estimate with or without rows", () => {
@@ -1095,6 +1095,45 @@ test("query cancel focus restores by rendered position", () => {
   assert.equal(replacement.focusCount, 1);
 });
 
+test("a virtualized focused row moves focus to the retained result surface", () => {
+  const active = new FakeElement({
+    queryRowOpen: "Contoso.Old",
+    queryRowVersion: "1.0.0",
+    queryRowPosition: "4",
+  });
+  const list = new FakeElement({
+    queryWindowStart: "40",
+    queryWindowEnd: "60",
+  });
+  const results = new FakeElement({}, "package-query-results");
+  const root = new FakeRoot(active);
+  root.add("[data-query-row-open]");
+  root.add(".query-list", list);
+  root.add("#package-query-results", results);
+  const documentRoot = fakeDom.document(root);
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.equal(restoration, "restored");
+  assert.equal(results.focusCount, 1);
+});
+
+test("the retained result surface keeps focus across later query patches", () => {
+  const active = new FakeElement({}, "package-query-results");
+  const replacement = new FakeElement({}, "package-query-results");
+  const root = new FakeRoot(active);
+  root.add("#package-query-results", replacement);
+  const documentRoot = fakeDom.document(root);
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.deepEqual(snapshot, { kind: "results" });
+  assert.equal(restoration, "restored");
+  assert.equal(replacement.focusCount, 1);
+});
+
 test("query scroll position survives streamed full renders", () => {
   const oldMain = new FakeElement();
   oldMain.scrollTop = 480;
@@ -1412,12 +1451,14 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
   main.scrollHeight = 1800;
   root.add(".query-main", main);
   let pressure = 0;
+  let viewportChanges = 0;
   const binding = bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => { pressure++; },
+    onViewportChange: () => { viewportChanges++; },
     onRowOpen: () => {},
     onRun: () => {},
     onSourceChange: () => {},
@@ -1426,10 +1467,44 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
   main.scrollTop = 401;
   main.dispatch("scroll");
   assert.equal(pressure, 1);
+  assert.equal(viewportChanges, 1);
 
   binding.disconnect();
   main.dispatch("scroll");
   assert.equal(pressure, 1);
+  assert.equal(viewportChanges, 1);
+});
+
+test("result rendering keeps durable totals outside a bounded DOM window", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Contoso.*"),
+    outcome: appendRows(
+      emptyOutcome(),
+      Array.from({ length: 100 }, (_, index) => row(`Contoso.${index}`))),
+  };
+
+  const html = renderPackageQueryView({
+    state,
+    availableFacets: FACETS,
+    resultWindow: {
+      start: 40,
+      end: 50,
+      topSpacerHeight: 7200,
+      bottomSpacerHeight: 9000,
+    },
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(html, /Contoso\.39</);
+  assert.match(html, /Contoso\.40</);
+  assert.match(html, /Contoso\.49</);
+  assert.doesNotMatch(html, /Contoso\.50</);
+  assert.match(html, /data-query-window-start="40"/);
+  assert.match(html, /data-query-window-end="50"/);
+  assert.match(html, /style="height:7200px"/);
+  assert.match(html, /style="height:9000px"/);
+  assert.match(html, /100 packages/);
+  assert.equal((html.match(/class="query-row"/g) ?? []).length, 10);
 });
 
 test("patchPackageQueryStream updates only dynamic query regions", () => {
