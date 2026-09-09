@@ -791,7 +791,7 @@ jobs:
 
       - name: Run embedded skill tests
         shell: bash
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.SkillCommandTests"
+        run: dotnet run --project tests/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.SkillCommandTests"
 
   # These tests inspect repository paths outside their owning projects. Run
   # them for every pre-merge candidate so their selection is never narrower
@@ -819,7 +819,7 @@ jobs:
 
       - name: Run repository line-ending guard
         run: >
-          dotnet run --project src/dotnet-inspect.Tests -c Release --
+          dotnet run --project tests/dotnet-inspect.Tests -c Release --
           --filter-class "DotnetInspector.Tests.RepositoryLineEndingTests"
           --minimum-expected-tests 2
 
@@ -950,7 +950,7 @@ jobs:
         run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
 
       - name: Run CLI tests (fast)
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"
+        run: dotnet run --project tests/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run GitHub Packages fixture test
         id: package_fixture
@@ -964,7 +964,7 @@ jobs:
           results_dir="$RUNNER_TEMP"
           results_name="package-fixture-tests.xml"
           results="$results_dir/$results_name"
-          dotnet run --project src/dotnet-inspect.Tests -c Release --no-build -- \
+          dotnet run --project tests/dotnet-inspect.Tests -c Release --no-build -- \
             --filter-method '*Package_Manifest_RendersToolManifestRows*' \
             --report-xunit \
             --report-xunit-filename "$results_name" \

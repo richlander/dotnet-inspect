@@ -332,7 +332,7 @@ threshold, placement convention, and existing consumers.
 
 | Area | Command |
 | --- | --- |
-| CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
+| CLI and product output | `dotnet run --project tests/dotnet-inspect.Tests -c Release` |
 | Artifact contracts | `dotnet run --project tests/Inspector.Artifacts.Tests -c Release` |
 | Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
 | Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
