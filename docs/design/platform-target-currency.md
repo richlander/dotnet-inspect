@@ -353,13 +353,13 @@ multiple sources, applies policy, and settles one authorized result.
 `PlatformHouse` therefore consumes this currency; it does not own or mint a
 parallel family or target identity.
 
-The accepted follow-on scope under #6301 is a separately owned, sole
-product-facing platform reference-processing facade. That owner must define
-its requests, policy, settlement, retained correspondence, and visible
-non-success outcomes. It will encapsulate pruning and transparent .NET
+The separately owned
+[PlatformHouse Reference Processing](platform-house-reference-processing.md)
+contract defines the sole product-facing platform reference-processing facade,
+including its requests, policy, settlement, retained correspondence, and
+visible non-success outcomes. It encapsulates pruning and transparent .NET
 Standard processing while composing, rather than redefining, the pruning
-owner's target-bound facts and
-[Metadata's structured type-forwarding contract](type-forwarding-resolution.md).
+owner's target-bound facts and Metadata's structured type-forwarding contract.
 `.NET Standard` does not become a third `PlatformFamily`, registration
 population, or implementation target.
 
