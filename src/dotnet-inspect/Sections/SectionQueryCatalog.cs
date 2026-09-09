@@ -52,6 +52,11 @@ public sealed record SectionQueryCatalog(
         }
         if (command is "library" or "type" or "member")
         {
+            queries.Add(new(
+                SectionNames.CloneCandidates,
+                "Choose the Workspace participant breadth and candidate-method admission independently. "
+                + "The default is Breadth=Everything and Discovery=SimilarNames.",
+                [.. CloneCandidateQueryOptions.QueryFacets]));
             string[] performanceSections = command == "library"
                 ? PerformanceKinds.Sections
                 : [SectionNames.PerformanceTriage];
