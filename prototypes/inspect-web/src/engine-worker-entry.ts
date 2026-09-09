@@ -8,6 +8,10 @@ import {
 import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
 import { registerEngineWorkerCpuOperation } from "./engine-worker-cpu.ts";
 import {
+  registerEngineWorkerPackageQueryOperation,
+  type EngineWorkerPackageQueryFacade,
+} from "./engine-worker-package-query.ts";
+import {
   registerEngineWorkerTypeSourceOperation,
   type EngineWorkerTypeSourceFacade,
 } from "./engine-worker-source.ts";
@@ -42,6 +46,14 @@ registerEngineWorkerTypeSourceOperation(operations, () => {
     throw new Error("Type Source facade is unavailable before Worker readiness.");
   return sourceFacade;
 });
+let packageQueryFacade: EngineWorkerPackageQueryFacade | undefined;
+registerEngineWorkerPackageQueryOperation(operations, () => {
+  if (packageQueryFacade === undefined) {
+    throw new Error(
+      "Package Query facade is unavailable before Worker readiness.");
+  }
+  return packageQueryFacade;
+});
 operations.register({
   kind: engineWorkerCanaryKind,
   allowance: { kind: "unbounded" },
@@ -69,7 +81,10 @@ const bootstrap = createEngineWorkerBootstrap(
 );
 const bootstrapWorker = async (value: string): Promise<void> => {
   await bootstrap.bootstrap(value);
-  sourceFacade = await import("/inspect-web-source.js");
+  [sourceFacade, packageQueryFacade] = await Promise.all([
+    import("/inspect-web-source.js"),
+    import("/inspect-web-package.js"),
+  ]);
 };
 const realm = new WorkerRuntimeRealm({
   bootstrap: { decoder: engineWorkerText, bootstrap: bootstrapWorker },
