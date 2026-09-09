@@ -93,6 +93,31 @@ public sealed class AssemblyImageSnapshot
     }
 
     /// <summary>
+    /// Creates a snapshot-backed descriptor whose image remains available
+    /// until the returned lease is disposed.
+    /// </summary>
+    public AssemblyImageReferenceLease LeaseAssemblyReference(
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        if (!ReferenceEquals(assembly.Registration, Registration)
+            || !IdentityMatches(
+                assembly.Identity,
+                Identity))
+        {
+            throw new ArgumentException(
+                "The assembly descriptor does not own this snapshot.",
+                nameof(assembly));
+        }
+
+        byte[] bytes = ImmutableCollectionsMarshal.AsArray(Content)!;
+        return new AssemblyImageReferenceLease(
+            assembly,
+            bytes,
+            LastWriteTimeUtc);
+    }
+
+    /// <summary>
     /// Opens, bounds, copies, and validates an assembly image.
     /// </summary>
     /// <remarks>
@@ -360,4 +385,40 @@ public sealed class AssemblyImageSnapshot
         {
             MetadataRootReason = metadataRootReason,
         });
+}
+
+/// <summary>
+/// Owns the image backing one snapshot-derived assembly descriptor.
+/// </summary>
+/// <remarks>
+/// An already-open stream remains valid after disposal. New opens fail, and
+/// the backing image becomes collectible once its other owners release it.
+/// </remarks>
+public sealed class AssemblyImageReferenceLease : IDisposable
+{
+    byte[]? _content;
+
+    internal AssemblyImageReferenceLease(
+        ResolvedAssemblyReference assembly,
+        byte[] content,
+        DateTime? lastWriteTimeUtc)
+    {
+        _content = content;
+        Assembly = assembly.WithOpenRead(
+            OpenRead,
+            lastWriteTimeUtc);
+    }
+
+    public ResolvedAssemblyReference Assembly { get; }
+
+    Stream OpenRead()
+    {
+        byte[] content = Volatile.Read(ref _content)
+            ?? throw new ObjectDisposedException(
+                nameof(AssemblyImageReferenceLease));
+        return new MemoryStream(content, writable: false);
+    }
+
+    public void Dispose() =>
+        Interlocked.Exchange(ref _content, null);
 }
