@@ -48,7 +48,7 @@ trap 'rm -rf "$scratch"' EXIT
 dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 
-usage="Usage: generate-inspect-web-engine-facade.sh [--check | --contract <assembly> <declaration-output-directory> <version-prefix>]"
+usage="Usage: generate-inspect-web-engine-facade.sh [--fast-check | --check | --contract <assembly> <declaration-output-directory> <version-prefix>]"
 
 mode=write
 source_assembly="$engine_dll"
@@ -56,6 +56,13 @@ contract_output=
 contract_version_prefix=
 case "${1:-}" in
   "")
+    ;;
+  --fast-check)
+    if [[ "$#" != 1 ]]; then
+      echo "$usage" >&2
+      exit 1
+    fi
+    mode=fast-check
     ;;
   --check)
     if [[ "$#" != 1 ]]; then
@@ -274,7 +281,7 @@ if [[ "$mode" == contract ]]; then
   done
   assert_directory_inventory "$contract_output" '*.d.ts' "$expected_declarations"
   echo "Wrote the facade declaration set to $contract_output"
-elif [[ "$mode" == check ]]; then
+elif [[ "$mode" == check || "$mode" == fast-check ]]; then
   drifted=0
   for module in "${facade_modules[@]}"; do
     for pair in \
@@ -300,32 +307,34 @@ elif [[ "$mode" == check ]]; then
     exit 1
   fi
 
-  version_prefix=$(
-    "$dotnet" msbuild \
-      "$repo_root/src/dotnet-inspect/dotnet-inspect.csproj" \
-      -getProperty:VersionPrefix \
-      -nologo
-  )
-  if [[ -z "$version_prefix" ]]; then
-    echo "The authoritative product VersionPrefix is empty." >&2
-    exit 1
-  fi
-  "$dotnet" build \
-    "$engine_csproj" \
-    -c Release \
-    -p:VersionPrefix="$version_prefix" >&2
-  versioned_contract="$scratch/versioned-declarations"
-  "$0" \
-    --contract \
-    "$engine_dll" \
-    "$versioned_contract" \
-    "$version_prefix" >&2
-  for module in "${facade_modules[@]}"; do
-    if ! cmp "$versioned_contract/$module.d.ts" "$dts_output_directory/$module.d.ts"; then
-      echo "The deployment-version context changed the $module declaration." >&2
+  if [[ "$mode" == check ]]; then
+    version_prefix=$(
+      "$dotnet" msbuild \
+        "$repo_root/src/dotnet-inspect/dotnet-inspect.csproj" \
+        -getProperty:VersionPrefix \
+        -nologo
+    )
+    if [[ -z "$version_prefix" ]]; then
+      echo "The authoritative product VersionPrefix is empty." >&2
       exit 1
     fi
-  done
+    "$dotnet" build \
+      "$engine_csproj" \
+      -c Release \
+      -p:VersionPrefix="$version_prefix" >&2
+    versioned_contract="$scratch/versioned-declarations"
+    "$0" \
+      --contract \
+      "$engine_dll" \
+      "$versioned_contract" \
+      "$version_prefix" >&2
+    for module in "${facade_modules[@]}"; do
+      if ! cmp "$versioned_contract/$module.d.ts" "$dts_output_directory/$module.d.ts"; then
+        echo "The deployment-version context changed the $module declaration." >&2
+        exit 1
+      fi
+    done
+  fi
 
   echo "inspect-web TypeScript facades and compiler-derived artifacts are up to date."
 else

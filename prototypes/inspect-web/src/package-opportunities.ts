@@ -6,14 +6,16 @@ import type {
 export type OpportunityItem = BrowserOpportunityItem;
 type PackageOpportunities = Pick<
   BrowserPackageOpportunities,
-  "categories" | "totalOpportunities" | "inspectionError"
+  "categories" | "totalOpportunities" | "isComplete" | "inspectionError"
 >;
 
 export interface RenderPackageOpportunitiesOptions {
-  isPlatform: boolean;
-  scopedLibrary: string | null;
-  activeFramework: string;
-  picker: string;
+  libraryName: string;
+  assemblyIdentity: string;
+  assetPath: string;
+  coordinate: string;
+  requireLibrary: boolean;
+  pickerHtml: string;
   fresh: boolean;
   loading: boolean;
   error: string;
@@ -127,7 +129,7 @@ function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown
     ? `<button class="opp-package-chip" data-opp-package="${escapeHtml(kind.package)}" title="Load ${escapeHtml(kind.package)} into the workspace">${escapeHtml(kind.package)}</button>${kind.text ? `<span class="opp-kind-text">${escapeHtml(kind.text)}</span>` : ""}`
     : `<span class="opp-kind-text">${escapeHtml(item.integrationType)}</span>`;
   return `
-    <div class="opp-row">
+    <div class="opp-row" role="listitem">
       <span class="signal-badge signal-type">T</span>
       <div class="opp-body">
         <div class="opp-head">
@@ -142,48 +144,60 @@ function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown
 }
 
 export function renderPackageOpportunities(options: RenderPackageOpportunitiesOptions): string {
-  const { isPlatform, scopedLibrary, activeFramework, picker, fresh, loading, error, data, escapeHtml } = options;
-
-  if (isPlatform && !scopedLibrary) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to compare its public surface against ecosystem integration patterns.</p></section>`;
+  const {
+    libraryName, assemblyIdentity, assetPath, coordinate,
+    requireLibrary, pickerHtml, fresh, loading, error, data, escapeHtml,
+  } = options;
+  let status: string;
+  let content: string;
+  if (requireLibrary) {
+    status = "Select a library";
+    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to compare its public surface against ecosystem integration patterns.</p></section>`;
+  } else if (loading && fresh) {
+    status = "Scanning opportunities\u2026";
+    content = `<section class="document-section source-progress"><span class="loader"></span><h2>Scanning opportunities&hellip;</h2><p>Comparing the public surface against ecosystem integration patterns.</p></section>`;
+  } else if (fresh && error) {
+    status = "Scan failed";
+    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Opportunity scan failed</h2><p>${escapeHtml(error)}</p></section>`;
+  } else {
+    const resolved = fresh ? data : null;
+    if (!resolved) {
+      status = "Loading\u2026";
+      content = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
+    } else {
+      const categories = resolved.categories;
+      const partial = !resolved.isComplete || Boolean(resolved.inspectionError);
+      status = `${categories.length.toLocaleString()} area${categories.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} suggestion${resolved.totalOpportunities === 1 ? "" : "s"}${partial ? " \u00b7 partial" : ""}`;
+      const warning = partial
+        ? `<section class="document-section metadata-warning"><strong>&#x26A0; This library could not be scanned completely</strong>${resolved.inspectionError ? `<ul><li><code>${escapeHtml(resolved.inspectionError)}</code></li></ul>` : ""}</section>`
+        : "";
+      const note = categories.length
+        ? `<p class="library-opportunities-note">Types open in this package; suggested packages load on demand; each concrete "look for" API opens a workspace search.</p>`
+        : "";
+      const blocks = categories.map((category, index) => {
+        const rows = category.items.map(item => renderOpportunityRow(item, escapeHtml)).join("");
+        return `<section class="opportunity-category" aria-labelledby="opportunity-category-${index}">
+          <div class="section-title"><h2 id="opportunity-category-${index}">${escapeHtml(category.integration)}</h2><span>${category.items.length} suggestion${category.items.length === 1 ? "" : "s"}</span></div>
+          <div class="opp-list" role="list">${rows}</div>
+        </section>`;
+      }).join("");
+      const empty = partial
+        ? `<section class="document-section empty-document"><h2>Opportunity scan incomplete</h2><p>No opportunity suggestions are available from this incomplete scan.</p></section>`
+        : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No integration opportunities</h2><p>The public surface of ${escapeHtml(libraryName)} shows no obvious auth, cloud-client, configuration, database, or AI-client patterns that suggest a missing ecosystem integration.</p></section>`;
+      content = `${warning}${note}${categories.length ? blocks : empty}`;
+    }
   }
-  const scanScope =
-    `${escapeHtml(scopedLibrary)} · ${escapeHtml(activeFramework)}`;
-  if (loading && fresh) {
-    return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning opportunities…</h2><p>Comparing the public surface against ecosystem integration patterns.</p></section>`;
-  }
-  if (fresh && error) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Opportunity scan failed</h2><p>${escapeHtml(error)}</p></section>`;
-  }
-  const resolved = fresh ? data : null;
-  if (!resolved) {
-    return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-  }
-
-  const categories = resolved.categories || [];
-  const warning = resolved.inspectionError
-    ? `<section class="document-section metadata-warning"><strong>⚠ This library could not be scanned completely</strong><ul><li><code>${escapeHtml(resolved.inspectionError)}</code></li></ul></section>`
-    : "";
-
-  if (!categories.length) {
-    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No integration opportunities</h2><p>The public surface of ${scanScope} shows no obvious auth, cloud-client, configuration, database, or AI-client patterns that suggest a missing ecosystem integration.</p></section>`;
-  }
-
-  const summary = `
-    <section class="document-section">
-      <div class="section-title"><h2>Integration opportunities</h2><span>${categories.length} area${categories.length === 1 ? "" : "s"} · ${resolved.totalOpportunities} suggestion${resolved.totalOpportunities === 1 ? "" : "s"} · ${scanScope}</span></div>
-      <p class="lens-note">Ecosystem areas this library's surface suggests but does not yet integrate with. Chips are live: the type opens in this package, a suggested package loads on demand, and each "look for" API opens a search.</p>
-      <div class="type-chip-list">${categories.map(category => `<span class="type-chip">${escapeHtml(category.integration)} <span class="ns-count">${category.items.length}</span></span>`).join("")}</div>
-    </section>`;
-
-  const blocks = categories.map(category => {
-    const rows = category.items.map(item => renderOpportunityRow(item, escapeHtml)).join("");
-    return `
-    <section class="document-section">
-      <div class="section-title"><h2>${escapeHtml(category.integration)}</h2><span>${category.items.length} suggestion${category.items.length === 1 ? "" : "s"}</span></div>
-      <div class="opp-list">${rows}</div>
-    </section>`;
-  }).join("");
-
-  return `${picker}${warning}${summary}${blocks}`;
+  const identity = assetPath ? `${assetPath} \u00b7 ${assemblyIdentity}` : assemblyIdentity;
+  return `<section class="library-opportunities-surface${pickerHtml ? " library-opportunities-with-controls" : ""}" aria-labelledby="library-opportunities-title">
+    <header class="api-surface-head">
+      <h1 id="library-opportunities-title">Opportunities</h1>
+      <p title="${escapeHtml(status)}">${escapeHtml(status)}</p>
+    </header>
+    ${pickerHtml ? `<section class="library-opportunities-controls" aria-label="Opportunity scan library">${pickerHtml}</section>` : ""}
+    <div class="library-opportunities-scroll">${content}</div>
+    <footer class="metadata-surface-footer">
+      <span title="${escapeHtml(identity)}">${escapeHtml(identity)}</span>
+      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
+    </footer>
+  </section>`;
 }

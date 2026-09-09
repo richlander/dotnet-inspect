@@ -46,7 +46,10 @@ import { renderMemberFacts } from "../src/member-facts.ts";
 import { renderOverviewSurface } from "../src/overview-surface.ts";
 import { renderPackageNav } from "../src/package-view.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
-import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
+import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
+import {
+  memberFindingInteractionFixture,
+} from "../test/member-finding-census-fixture.ts";
 import {
   bindWorkspaceSubject,
   focusWorkspace,
@@ -116,6 +119,7 @@ const allocationFactsMode = params.get("allocation-facts");
 const callFactsMode = params.get("call-facts");
 const safetyFactsMode = params.get("safety-facts");
 const exceptionRegionsMode = params.get("exception-regions");
+const performanceOpportunitiesMode = params.get("performance-opportunities");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
@@ -203,8 +207,12 @@ const coordinates = [
 ];
 function workspaceNavigationHtml(): string {
   return renderWorkspaceSubject({
-    packageCount: coordinates.length,
-    selected: true,
+    workspaces: [{
+      id: "workspace-1",
+      label: "Workspace 1",
+      packageCount: coordinates.length,
+      active: true,
+    }],
     escapeHtml,
   });
 }
@@ -248,7 +256,8 @@ let activeTypeLens: TypeLens = sourceMode
     : "api";
 let activeMemberSection: MemberSection = sourceMode
   ? "source"
-  : memberFactsMode || allocationFactsMode || callFactsMode || safetyFactsMode || exceptionRegionsMode ? "facts" : "overview";
+  : memberFactsMode || allocationFactsMode || callFactsMode || safetyFactsMode
+    || exceptionRegionsMode || performanceOpportunitiesMode ? "facts" : "overview";
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
@@ -501,7 +510,9 @@ function detailHtml() {
             ? safetyFactsFixture(safetyFactsMode === "long" ? "long" : "populated")
             : exceptionRegionsMode
               ? exceptionRegionsFixture(exceptionRegionsMode === "long" ? "long" : "populated")
-              : memberFactsFixture(mode);
+              : performanceOpportunitiesMode
+                ? performanceOpportunitiesFixture(performanceOpportunitiesMode === "long" ? "long" : "populated")
+                : memberFactsFixture(mode);
       return `<section class="member-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">DeserializeSync</h1>
@@ -513,6 +524,15 @@ function detailHtml() {
           memberFactsError: memberFactsMode === "error"
             ? "The selected method could not be decoded."
             : "",
+          memberAnnotatedLoading: memberFactsMode === "loading",
+          memberAnnotatedError: memberFactsMode === "error"
+            ? "The Finding census could not be projected."
+            : "",
+          memberFindingInteraction:
+            memberFactsMode === "loading" || memberFactsMode === "error"
+              ? null
+              : memberFindingInteractionFixture(),
+          memberFindingSelectionError: "",
         })}</div>
       </section>`;
     }
@@ -1025,6 +1045,8 @@ function bindHarnessWorkspace() {
   if (!workspaceMode) return;
   bindWorkspaceSubject(document, {
     onSelect: renderHarnessWorkspace,
+    onActivateWorkspace: renderHarnessWorkspace,
+    onDeleteWorkspace: () => {},
     onActivate: action => {
       const count = Number(document.body.dataset.workspaceExecutionCount ?? "0");
       document.body.dataset.workspaceExecutionCount = String(count + 1);

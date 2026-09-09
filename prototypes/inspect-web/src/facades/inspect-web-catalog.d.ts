@@ -164,6 +164,7 @@ export interface BrowserMemberSurface {
     readonly stableSelector: string;
     readonly anchorDigest: string;
     readonly canonicalSignature: string;
+    readonly anchorTypeFullName: string;
     readonly graphSelectorKey: string;
     readonly bodySelectors: ReadonlyArray<BrowserMemberBodySelector>;
 }

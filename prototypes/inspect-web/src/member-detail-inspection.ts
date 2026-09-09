@@ -11,6 +11,11 @@ import type {
   BrowserMemberDocumentation,
 } from "./facades/inspect-web-package.d.ts";
 import type { BrowserMemberFacts } from "./facades/inspect-web-analysis.d.ts";
+import {
+  createMemberFindingInteraction,
+  type MemberFindingCensus,
+  type MemberFindingInteraction,
+} from "./finding-interaction.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
 import type { AppMemberSurface } from "./package-acquisition.ts";
 
@@ -39,7 +44,7 @@ export interface MemberDocumentationRequest {
   isCurrent(): boolean;
 }
 
-export interface MemberAnnotatedRequest extends MemberCoordinates {
+export interface MemberFindingCensusRequest extends MemberCoordinates {
   signature: string;
   typeIdentity: string;
   selectorKey: string;
@@ -64,6 +69,8 @@ export interface MemberDetailInspectionState {
   memberAnnotatedKey: string;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
+  memberFindingInteraction: MemberFindingInteraction | null;
+  memberFindingSelectionError: string;
   memberFacts: MemberFacts | null;
   memberFactsLoading: boolean;
   memberFactsError: string;
@@ -73,7 +80,7 @@ export interface MemberDetailInspectionState {
   memberDocumentationKey: string;
 }
 
-export function cancelAnnotatedSourceRequest(
+export function cancelFindingCensusRequest(
   state: Pick<
     MemberDetailInspectionState,
     "memberAnnotatedLoading" | "memberAnnotatedKey" | "memberAnnotatedError"
@@ -92,9 +99,9 @@ export interface MemberDetailInspectionDependencies {
     request: MemberDocumentationRequest,
     documentationId: string,
   ): Promise<BrowserMemberDocumentation>;
-  queryAnnotated(
-    request: MemberAnnotatedRequest,
-  ): Promise<AnnotatedSourceResult>;
+  queryFindingCensus(
+    request: MemberFindingCensusRequest,
+  ): Promise<MemberFindingCensus>;
   queryFacts(request: MemberFactsRequest): Promise<MemberFacts>;
   describeError(error: unknown): string;
   render(): void;
@@ -104,8 +111,9 @@ export interface MemberDetailInspectionDependencies {
 }
 
 export interface MemberDetailInspectionCoordinator {
+  invalidate(): void;
   loadDocumentation(request: MemberDocumentationRequest): Promise<void>;
-  loadAnnotated(request: MemberAnnotatedRequest): Promise<void>;
+  loadFindingCensus(request: MemberFindingCensusRequest): Promise<void>;
   loadFacts(request: MemberFactsRequest): Promise<void>;
 }
 
@@ -114,9 +122,33 @@ export function createMemberDetailInspectionCoordinator(
 ): MemberDetailInspectionCoordinator {
   const { state } = dependencies;
   const memberFactsQueries = new Map<string, Promise<MemberFacts>>();
+  let memberDocumentationRequestId = 0;
+  let memberFindingCensusRequestId = 0;
   let memberFactsRequestId = 0;
 
   return {
+    invalidate() {
+      memberDocumentationRequestId++;
+      memberFindingCensusRequestId++;
+      memberFactsRequestId++;
+      memberFactsQueries.clear();
+      if (state.memberDocumentationLoading) {
+        state.memberDocumentationLoading = false;
+        state.memberDocumentationKey = "";
+        state.memberDocumentationError = "";
+      }
+      if (state.memberAnnotatedLoading) {
+        state.memberAnnotatedLoading = false;
+        state.memberAnnotatedKey = "";
+        state.memberAnnotatedError = "";
+      }
+      if (state.memberFactsLoading) {
+        state.memberFactsLoading = false;
+        state.memberFactsKey = "";
+        state.memberFactsError = "";
+      }
+    },
+
     async loadDocumentation(request) {
       const { overload } = request;
       const documentationId = overload.documentationId;
@@ -145,11 +177,13 @@ export function createMemberDetailInspectionCoordinator(
       state.memberDocumentationKey = request.signature;
       state.memberDocumentationLoading = true;
       state.memberDocumentationError = "";
+      const requestId = ++memberDocumentationRequestId;
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       try {
         const documentation =
           await dependencies.queryDocumentation(request, documentationId);
-        if (!request.isCurrent()) return;
+        if (!request.isCurrent()
+          || memberDocumentationRequestId !== requestId) return;
         overload.summary = documentation.summary;
         overload.returns = documentation.returns;
         overload.exceptions = [...(documentation.exceptions ?? [])];
@@ -159,11 +193,13 @@ export function createMemberDetailInspectionCoordinator(
         }));
         overload.documentationLoaded = true;
       } catch (error) {
-        if (request.isCurrent()) {
+        if (request.isCurrent()
+          && memberDocumentationRequestId === requestId) {
           state.memberDocumentationError = dependencies.describeError(error);
         }
       } finally {
-        if (state.memberDocumentationKey === request.signature) {
+        if (state.memberDocumentationKey === request.signature
+          && memberDocumentationRequestId === requestId) {
           state.memberDocumentationLoading = false;
           if (request.isCurrent()) {
             dependencies.renderPreservingMemberFocus(preservedFocus);
@@ -172,39 +208,49 @@ export function createMemberDetailInspectionCoordinator(
       }
     },
 
-    async loadAnnotated(request) {
+    async loadFindingCensus(request) {
       if (!sourceRequestNeedsLoad(
           state.memberAnnotatedKey === request.signature,
           state.memberAnnotatedLoading,
-          state.memberAnnotated,
+          state.memberFindingInteraction,
           state.memberAnnotatedError)) {
         dependencies.render();
         return;
       }
 
+      const requestId = ++memberFindingCensusRequestId;
       state.memberAnnotatedKey = request.signature;
       state.memberAnnotated = null;
       state.memberAnnotatedLoading = true;
       state.memberAnnotatedError = "";
       state.memberAnnotatedEmbedded = null;
       state.memberAnnotatedModal = null;
+      state.memberFindingInteraction = null;
+      state.memberFindingSelectionError = "";
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       try {
-        const result = await dependencies.queryAnnotated(request);
+        const census = await dependencies.queryFindingCensus(request);
+        const interaction = createMemberFindingInteraction(census);
+        const annotated = census.annotatedSource;
+        const embedded = createEmbeddedSession(
+          createAnnotatedSourceViewerModel(annotated),
+        );
         if (request.isCurrent()
-          && state.memberAnnotatedKey === request.signature) {
-          state.memberAnnotated = result;
-          state.memberAnnotatedEmbedded = createEmbeddedSession(
-            createAnnotatedSourceViewerModel(result),
-          );
+          && state.memberAnnotatedKey === request.signature
+          && memberFindingCensusRequestId === requestId) {
+          state.memberFindingInteraction = interaction;
+          state.memberAnnotated = annotated;
+          state.memberAnnotatedEmbedded = embedded;
         }
       } catch (error) {
         if (request.isCurrent()
-          && state.memberAnnotatedKey === request.signature) {
+          && state.memberAnnotatedKey === request.signature
+          && memberFindingCensusRequestId === requestId) {
           state.memberAnnotatedError = dependencies.describeError(error);
         }
       } finally {
-        if (state.memberAnnotatedKey === request.signature) {
+        if (state.memberAnnotatedKey === request.signature
+          && memberFindingCensusRequestId === requestId) {
           state.memberAnnotatedLoading = false;
           if (request.isCurrent()) {
             dependencies.renderPreservingMemberFocus(preservedFocus);
@@ -226,10 +272,6 @@ export function createMemberDetailInspectionCoordinator(
       state.memberFacts = null;
       state.memberFactsLoading = true;
       state.memberFactsError = "";
-      state.memberAnnotated = null;
-      state.memberAnnotatedError = "";
-      state.memberAnnotatedEmbedded = null;
-      state.memberAnnotatedModal = null;
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       let query = memberFactsQueries.get(request.signature);
       if (!query) {

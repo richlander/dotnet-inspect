@@ -63,6 +63,7 @@ function inspectionState(
     atLibraryRoot: false,
     packageLens: "overview",
     libraryLens: "overview",
+    packageMetadataRoot: "cli",
     packageDependencies: null,
     packageDependenciesLoading: false,
     packageDependenciesError: "",
@@ -171,6 +172,7 @@ function performanceMember(): AppMemberSurface {
     stableSelector: "Bounds~surface",
     anchorDigest: "surface",
     canonicalSignature: "P:Example.Outer.Inner.Bounds",
+    anchorTypeFullName: "Example.Outer.Inner",
     graphSelectorKey: "property:Bounds",
     bodySelectors: [{
       token: 0x06000001,
@@ -892,6 +894,7 @@ test("invalidation clears package results, failures, keys, and loads without cha
   };
   const state = inspectionState({
     ...retainedState,
+    packageMetadataRoot: "r2r-manifest",
     packageDependencies: dependencyResult(),
     packageDependenciesLoading: true,
     packageDependenciesError: "dependency failure",

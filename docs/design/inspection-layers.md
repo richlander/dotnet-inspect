@@ -295,6 +295,18 @@ reason. This query has no CLI or section adoption yet; it is gated by
 `RestoredProjectDependencyFactsQueryTests` and the
 `restored-project.dependency-facts` fixture in `DotnetInspector.Fixtures`.
 
+`RestoredProjectDependencyTraversalQuery` implements the contract in
+[`restored-project-dependency-traversal.md`](restored-project-dependency-traversal.md)
+over the same bytes and target request. It consumes one internal projection
+issued by the facts query — there is no second assets parse or target-selection
+rule — and projects the root, project-reference, and package relationship set
+with minimum root-relative distance, explicit depth boundaries, depth-scoped
+typed failures, stated completion, and a topology identity scoped to the facts
+owner's unchanged selection identity. Package relationships carry the facts
+owner's exact graph edges rather than reminted evidence. This query also has no
+CLI or section adoption yet; it is gated by
+`RestoredProjectDependencyTraversalQueryTests`.
+
 L1 does not reference Markout.
 
 ### L2 — `DotnetInspector.Sections`
@@ -412,7 +424,7 @@ scanning and is not called a scanner.
 
 **Result** names what a query returns (`XxxQuery` -> `XxxResult`).
 "Inspection" stays reserved for composed aggregates and "Finding" for the
-[`ILInspector.Findings`](../../src/ILInspector.Findings) spine, so the three
+[`Inspector.Findings`](../../src/Inspector.Findings) spine, so the three
 nouns remain distinguishable.
 
 ## Seam rules
@@ -462,7 +474,7 @@ semantics under [Implementation Diff](implementation-diff.md). L1 may require
 Research-issued identities and retain their correspondence to query identities;
 it must not mint, infer, or reinterpret them.
 
-The later
+The implemented
 [workspace Research target composition](research-workspace-target-composition.md)
 consumes this receipt to associate Metadata's terminal forwarding definition
 with one exact existing Research attempt. That composition remains
@@ -665,8 +677,8 @@ closure and remains the dependency-direction proof.
 `ComparisonPopulation_Demo` exercises the product sealer, owner-issued Research
 admission, and receipt validator over an existing compiled fixture. Repeated
 borrowed values remain three distinct input occurrences; an incomplete map is
-rejected without a partial receipt. This internal-projection demo does not
-replace #5676's public workspace file-based demo or claim host adoption.
+rejected without a partial receipt. This internal-projection demo is distinct
+from #5676's public workspace file-based demo and does not claim host adoption.
 
 ### Population-boundary non-goals
 

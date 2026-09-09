@@ -1048,6 +1048,140 @@ declaring-chain traversal it performs rather than only the names it compares;
 that case pins its fixture's declaring depth, because a shallow fixture would
 exhaust the same budget while leaving the traversal unexercised.
 
+`WorkspaceStructuralCloneSearchQuery` composes that single-pair retrieval into
+one Library, Type, or Member search over an exact caller-supplied participant
+snapshot. Its request binds the seed subject, one candidate breadth (`Self`,
+`SelfAndRegisteredEcosystems`, or `Everything`), one candidate discovery value
+(`SimilarNames` or `All`), and its result and work bounds; the default is
+`Everything` plus `SimilarNames`. The normative contract is
+[Structural clone search scope](design/structural-clone-search-scope.md).
+
+Workspace registration lookup is not implemented, so breadth membership is
+supplied rather than inferred: each snapshot entry carries its own
+`ContainingLibrary`, `RegisteredEcosystem`, or `Available` membership, and the
+snapshot binds the starting and effective Workspace revisions plus one opaque
+snapshot identity. The constructor rejects a repeated participant, a repeated
+acquisition registration, a missing or duplicated containing library, and
+revisions from different Workspaces, so inconsistent or duplicated membership
+cannot be expressed. A snapshot retains groups rather than immutable images, so
+its issuer must both associate each group with the Workspace that issued those
+revisions and keep every group and participant alive for the execution it is
+passed to. Both obligations are unverified — the group exposes no
+owning-Workspace identity, and enforcement waits on the concrete Workspace and
+registration producer — so premature release is made visible instead of
+silently changing results: a released containing library returns a typed
+`SeedLibraryReleased` failure and a released candidate becomes that library's
+`CandidateLibraryReleased` incomplete coverage beside the evidence already
+ranked.
+
+A Member seed is every exact method body the selected member occupies. A method
+anchor selects its own body, so an explicit accessor selection stays one body,
+and a property or event anchor expands to the bodies its `MethodSemantics` rows
+associate with it. An indexer overloads on its index parameters, so those
+parameters are part of its exact identity and a selected overload expands to
+its own accessors alone. The association is read through the metadata owner's
+accessor projection and its anchors through the metadata owner's identity
+producers, so no accessor name convention is re-derived here. An accessor
+association naming a MethodDef another type declares is malformed metadata, not
+a body of the selected member: TypeDef method ranges are validated as a
+partition of the MethodDef table at image entry, which is what makes SRM's
+declaring-type lookup answer for exactly one type. A selected member that
+occupies no method body — including every field, which is a supported Member
+subject that occupies none — is the typed `SeedMemberHasNoMethodBody` outcome
+rather than a missing member or an arbitrary body, and repeated exact
+identities remain ambiguous.
+
+`SimilarNames` admits a candidate only when one seed clears the fixed `0.6`
+normalized threshold on both the innermost declaring-type simple base name and
+the member name; both conditions must hold for the same seed, and that
+qualifying seed-candidate pair is also the unit of evaluation. Each seed owns
+its own candidate group inside a participant, so a candidate admitted by one
+seed is never retrieved against a different seed, and a row's reported name
+scores are its own pair's. Names are decoded under a per-name character bound
+and every comparison and admission scan charges one shared name-work budget, so
+an artifact-authored name population cannot buy unbounded edit-distance work.
+An undecodable name and an exhausted budget are visible seed and library
+coverage rather than a silently narrowed population.
+
+Names equal under `StringComparison.OrdinalIgnoreCase` score `1.0` at no
+comparison cost; every other comparison folds both names invariantly before
+`StringDistance.Similarity`. Decoded names are preserved as decoded and folding
+is invariant uppercasing, which is the mapping that comparison itself uses:
+lowercasing would separate Greek capital sigma from the final sigma and exclude
+a peer the product promises to score `1.0`. That same equivalence keys the seed
+name index and the score memoization, so two spellings of one name cannot admit
+different candidates.
+
+Decoded-name scores are
+memoized under a bound on retained score cells as well as entries, because one
+entry costs one cell per distinct seed name and an entry bound alone would
+retain gigabytes for a large seed population. A name's whole logical comparison
+work is charged before the cache is consulted and is the same on a hit and on a
+miss, so the shared budget reaches exhaustion at the same candidate for every
+cache capacity. The cache is therefore a pure optimization: it changes how much
+`StringDistance` recomputes, never the charged work, the discovered methods,
+the ranked rows, or the reported coverage.
+
+Work is bounded per library and in aggregate. Beyond the per-library seed and
+candidate populations, a request bounds the breadth-admitted participant count
+and the total seed-by-candidate retrieval population submitted to Analysis.
+Both are whole-unit bounds, discovered at different points. The participant
+bound is preflight over the snapshot's exact entry order, and the containing
+library is always the first admitted participant. The retrieval-pair bound is a
+whole-participant admission bound: under `SimilarNames` a participant's pair
+population is only known while its per-seed candidate groups are formed, so
+admission stops mid-formation and abandons that participant, after which the
+latched budget excludes later participants without opening them. Either way a
+participant that does not fit is excluded whole rather than truncated. Every
+whole-unit exclusion carries its failure and makes coverage incomplete, which
+keeps it distinct from the intentional returned-row limit.
+
+Pairs are one global ranking. A seed's admitted candidate group is submitted in
+bounded consecutive chunks so cancellation is observed between units of
+retrieval work rather than after one whole-population call; each chunk requests
+its complete ranked population, so no per-seed or per-chunk truncation can
+corrupt the global top N, and chunking moves only cancellation granularity and
+the seed body-production count, never the ranked rows, the per-pair name
+evidence, or the aggregate retrieval charge. The result
+limit applies only after the merge. Ties resolve by the Analysis component
+order and then by exact endpoint identity, where an endpoint carries the
+snapshot-issued opaque participant identity rather than an MVID and token
+alone. The snapshot owns that deterministic snapshot-local order: it captures
+its owner-issued entry order once as part of its exact identity, rejects
+repeated participants and repeated acquisition registrations, and issues one
+identity per entry, so two registrations of identical content stay distinct and
+an ordinal never leaks across snapshots. A physical self-pair is excluded, and
+an unordered pair whose two endpoints are both seeds is returned in one
+deterministic orientation; a Member seed keeps the selected seed on the left.
+Intentional row suppression is reported separately from incomplete metadata,
+name, acquisition, work-bound, and Analysis coverage. Analysis blockers are
+attributed to both owners of the retrieval that produced them: the seed it ran
+for, and the participant whose candidate methods it omitted. A library carries
+the distinct Analysis blockers that omitted its candidates, aggregated over
+every seed and chunk, and is incomplete while it holds one, so a candidate body
+Analysis could not produce can never leave that library reporting complete
+coverage. A seed-side blocker stays with its seed: it omits no candidate of any
+one participant and is already visible as that seed's coverage. Cross-image
+rank remains retrieval evidence: the query establishes no checked clone
+relation and produces no comparison document. Presentation projects the
+complete Query result into the resource-free
+[`CloneCandidateDocument`](design/clone-candidate-presentation.md), preserving
+the global ranking, exact snapshot-relative endpoint addresses, coverage,
+failures, and receipts without changing that evidence boundary.
+`WorkspaceStructuralCloneSearchQueryTests` gates the request defaults, all six
+breadth and discovery combinations, seed expansion including property and
+event accessor bodies, overloaded-indexer selection, the field bodyless
+outcome, cross-type accessor association, and explicit accessor narrowing,
+ordinal-ignore-case name
+equality, per-pair name admission,
+pair suppression, exact endpoint identity for equal content, snapshot-local
+identity order, global ranking with a post-merge limit, revision and snapshot
+binding, snapshot validation, released-group containment for both the seed and
+a candidate, cache-independent admission under both a complete and an
+exhausted name budget, per-library Analysis blocker attribution,
+chunked-retrieval equivalence, cancellation, and the visible seed,
+candidate, participant, aggregate retrieval, name, and acquisition limits.
+
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.
 
@@ -1076,8 +1210,8 @@ and one requested query.
 
 A host build may include zero or more immutable **inspection bundles**. For an
 assembly-backed scenario, the bundle may carry a portable workspace definition
-from which the host creates an ordinary runtime workspace. It never contains a
-serialized live workspace.
+from which the host creates a Workspace. It never contains the Workspace's live
+process state.
 
 A bundle may contain:
 

@@ -1,7 +1,10 @@
 import {
   createOperationAuthorityPage,
   type OperationDiagnostic,
+  type OperationProducerAdapter,
 } from "./operation-authority.ts";
+import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
+import type { TypeSourceLoadRequest } from "./source-inspection.ts";
 import { createBrowserWorkerRuntimeHost } from "./worker-runtime-browser.ts";
 import {
   createEngineWorkerProducerClasses,
@@ -11,7 +14,14 @@ import {
   engineWorkerPolicy,
   engineWorkerText,
 } from "./engine-worker-contract.ts";
+import {
+  createEngineWorkerTypeSourceHostRegistration,
+} from "./engine-worker-source.ts";
+import {
+  bindEngineWorkerCpuProbe,
+} from "./engine-worker-cpu.ts";
 import type {
+  WorkerRuntimeHost,
   WorkerRuntimeHostOptions,
   WorkerRuntimePreparationError,
 } from "./worker-runtime-core.ts";
@@ -28,6 +38,24 @@ export interface EngineWorkerProbeOptions {
   readonly callbacks: WorkerRuntimeHostOptions<string, string>["callbacks"];
   readonly operationDiagnostic: (diagnostic: OperationDiagnostic) => undefined;
   readonly startupBudgetMilliseconds?: number;
+}
+
+export type EngineWorkerHost = WorkerRuntimeHost<string, string>;
+
+export type EngineWorkerTypeSourceAdapter = OperationProducerAdapter<
+  TypeSourceLoadRequest,
+  BrowserSource,
+  string,
+  never,
+  WorkerRuntimePreparationError
+>;
+
+export function registerEngineWorkerTypeSourceAdapter(
+  host: EngineWorkerHost,
+): EngineWorkerTypeSourceAdapter {
+  return host.registerOperation(
+    createEngineWorkerTypeSourceHostRegistration(),
+  );
 }
 
 function createHost(options: EngineWorkerProbeOptions) {
@@ -58,9 +86,21 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
     mapPreparationError: error => error,
     boundaryErrors: engineWorkerBoundaryErrors,
   });
+  const typeSourceAdapter = registerEngineWorkerTypeSourceAdapter(host);
   const page = createOperationAuthorityPage();
+  const cpu = bindEngineWorkerCpuProbe(host, page, options.operationDiagnostic);
   const session = page.createSession<
     string, string, string, string, WorkerRuntimePreparationError
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: options.operationDiagnostic },
+  });
+  const typeSourceSession = page.createSession<
+    TypeSourceLoadRequest,
+    BrowserSource,
+    string,
+    never,
+    WorkerRuntimePreparationError
   >({
     feature: { publish: () => undefined },
     diagnostic: { report: options.operationDiagnostic },
@@ -68,8 +108,13 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
   return {
     host,
     probe: () => session.start("", adapter),
+    cpuProbe: () => cpu.start(),
+    typeSource: (request: TypeSourceLoadRequest) =>
+      typeSourceSession.start(request, typeSourceAdapter),
     dispose: () => {
       session.dispose();
+      typeSourceSession.dispose();
+      cpu.dispose();
       host.dispose();
     },
   };

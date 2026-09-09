@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
 using DotnetInspector.CommandLine;
-using DotnetInspector.CSharpBodySlicer;
+using CSharpText.MemberSlicing;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
@@ -611,12 +611,23 @@ public class ApiCommand
             };
         }
         (options, string? findingCensusSelectionError) =
-            NormalizeFindingCensusSelection(
+            NormalizeExactOnlySectionSelection(
                 options,
-                memberPipeline.SelectableSectionNames);
+                memberPipeline.SelectableSectionNames,
+                SectionNames.FindingCensus);
         if (findingCensusSelectionError is not null)
         {
             CommandError.Write(findingCensusSelectionError);
+            return (null!, 1);
+        }
+        (options, string? cloneCandidatesSelectionError) =
+            NormalizeExactOnlySectionSelection(
+                options,
+                memberPipeline.SelectableSectionNames,
+                SectionNames.CloneCandidates);
+        if (cloneCandidatesSelectionError is not null)
+        {
+            CommandError.Write(cloneCandidatesSelectionError);
             return (null!, 1);
         }
         if (options is
@@ -761,62 +772,20 @@ public class ApiCommand
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
     }
 
-    private static (ApiOptions Options, string? Error) NormalizeFindingCensusSelection(
+    private static (ApiOptions Options, string? Error) NormalizeExactOnlySectionSelection(
         ApiOptions options,
-        IReadOnlyList<string> memberSections)
+        IReadOnlyList<string> memberSections,
+        string section)
     {
-        if (options.IncludeSections?.Contains(SectionNames.FindingCensus) != true
-            || options.ExactIncludeSections?.Contains(SectionNames.FindingCensus) == true)
-        {
-            return (options, null);
-        }
-
-        bool hasNonExactFindingCensusSelector =
-            options.Select?.Any(selector =>
-            {
-                if (selector.StartsWith('@'))
-                    return false;
-                var (matches, _) = SelectResolver.ResolveSingle(
-                    selector,
-                    memberSections);
-                return matches.Count == 1
-                       && matches[0].Equals(
-                           SectionNames.FindingCensus,
-                           StringComparison.OrdinalIgnoreCase);
-            }) == true;
-        if (hasNonExactFindingCensusSelector)
-        {
-            return (
-                options,
-                $"section '{SectionNames.FindingCensus}' requires an exact -S selector.");
-        }
-
-        bool hasBroadFindingCensusSelector =
-            options.Select?.Any(selector =>
-            {
-                if (selector.StartsWith('@'))
-                    return false;
-                var (matches, _) = SelectResolver.ResolveSingle(
-                    selector,
-                    memberSections);
-                return matches.Count > 1
-                       && matches.Contains(
-                           SectionNames.FindingCensus,
-                           StringComparer.OrdinalIgnoreCase);
-            }) == true;
-        if (!SelectResolver.IsAllSelector(options.Select)
-            && !hasBroadFindingCensusSelector)
-        {
-            return (
-                options,
-                $"section '{SectionNames.FindingCensus}' cannot be selected through a category.");
-        }
-
-        var sections = new HashSet<string>(
+        var normalized = SelectResolver.NormalizeExactOnlySection(
+            options.Select,
             options.IncludeSections,
-            StringComparer.OrdinalIgnoreCase);
-        sections.Remove(SectionNames.FindingCensus);
-        return (options with { IncludeSections = sections }, null);
+            options.ExactIncludeSections,
+            memberSections,
+            section);
+        return normalized.Error is null
+            ? (options with { IncludeSections = normalized.Sections }, null)
+            : (options, normalized.Error);
     }
 
     internal static string? ApplyBodyShapeSelectionRequirements(
@@ -1409,6 +1378,7 @@ public class ApiCommand
         // those schema entries because the type pipeline exposes whole-type code sections.
         var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
+        LibraryCommand.AddCloneCandidateSchema(detailSchema);
         if (!includeExactMemberColumns)
             return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)
@@ -2272,17 +2242,17 @@ public class ApiCommand
             string? content = null;
             SourceChecksumVerification checksumVerification =
                 SourceChecksumVerification.Unavailable;
-            var localBytes = DotnetInspector.Services.PdbSourceAcquisition.TryReadVerifiedLocalSource(
+            var localBytes = DotnetInspector.Services.PdbSourceHouse.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                checksumVerification = PdbSourceHouse.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     localBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(localBytes));
+                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -2292,17 +2262,17 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                checksumVerification = PdbSourceHouse.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     repoBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(repoBytes));
+                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
-                var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-                var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+                var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+                var fetch = await PdbSourceHouse.FetchVerifiedSourceTextAsync(
                     fetcher,
                     methodInfo.SourceUrl,
                     methodInfo.ChecksumAlgorithm,
@@ -2404,7 +2374,7 @@ public class ApiCommand
     {
         try
         {
-            string? sourceCode = BodySlicer.ExtractMethodBody(
+            string? sourceCode = MemberTextSlicer.ExtractMemberText(
                 content,
                 startLine,
                 endLine,
@@ -2434,7 +2404,7 @@ public class ApiCommand
                 pdbPath,
                 MemberSourceTooComplex: true);
         }
-        catch (InvalidSequencePointCoordinatesException)
+        catch (InvalidMemberTextCoordinatesException)
         {
             return new ResolvedMethodSource(
                 null,
@@ -3307,8 +3277,8 @@ public class ApiCommand
 
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
-        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
+        var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var fetch = await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
             fetcher,
             selectedSource.FilePath,
             rawUrl,

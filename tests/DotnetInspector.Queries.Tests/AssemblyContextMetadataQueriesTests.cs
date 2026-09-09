@@ -127,6 +127,94 @@ public sealed class AssemblyContextMetadataQueriesTests
     }
 
     [Fact]
+    public void ReadyToRunAndManifestQueries_ReadRuntimeCoreLibrary()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            typeof(object).Assembly.Location);
+        AssemblyContextParticipant participant = group.Participants[0];
+
+        var readyToRunEntry = Assert.IsType<
+            AssemblyContextEntry<ReadyToRunImageResult>.Available>(
+                AssemblyContextReadyToRunImageQuery.ExecuteParticipant(
+                    group,
+                    participant));
+        ReadyToRunImageOverview readyToRun = Assert.IsType<
+            ReadyToRunImageResult.Available>(readyToRunEntry.Value)
+            .Overview;
+        Assert.NotNull(readyToRun.ManifestMetadata);
+
+        var manifestEntry = Assert.IsType<
+            AssemblyContextEntry<MetadataImageResult>.Available>(
+                AssemblyContextMetadataImageQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    MetadataRootKind.ReadyToRunManifest));
+        MetadataImageResult.Available manifest = Assert.IsType<
+            MetadataImageResult.Available>(manifestEntry.Value);
+        MetadataTableSummary table = Assert.Single(
+            manifest.Overview.Tables.Where(candidate =>
+                candidate.IsProjected && candidate.RowCount > 0).Take(1));
+
+        var window = Assert.IsType<
+            AssemblyContextEntry<MetadataTableWindow>.Available>(
+                AssemblyContextMetadataTableQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    new MetadataTableWindowRequest(
+                        table.Index,
+                        maxRows: 1),
+                    MetadataRootKind.ReadyToRunManifest));
+        Assert.Equal(table.Index, window.Value.Table.Index);
+
+        var heap = Assert.IsType<
+            AssemblyContextEntry<MetadataHeapEntrySet>.Available>(
+                AssemblyContextMetadataHeapQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    HeapKind.String,
+                    MetadataRootKind.ReadyToRunManifest));
+        Assert.Equal(HeapKind.String, heap.Value.Heap);
+    }
+
+    [Fact]
+    public void ManifestQueries_DoNotFallBackToCliMetadata()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            typeof(AssemblyContextMetadataQueriesTests).Assembly.Location);
+        AssemblyContextParticipant participant = group.Participants[0];
+
+        var manifest = Assert.IsType<
+            AssemblyContextEntry<MetadataImageResult>.Available>(
+                AssemblyContextMetadataImageQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    MetadataRootKind.ReadyToRunManifest));
+        Assert.IsType<MetadataImageResult.MissingRoot>(manifest.Value);
+
+        var table = Assert.IsType<
+            AssemblyContextEntry<MetadataTableWindow>.Failed>(
+                AssemblyContextMetadataTableQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    new MetadataTableWindowRequest(TableIndex.TypeDef),
+                    MetadataRootKind.ReadyToRunManifest));
+        Assert.IsType<BadImageFormatException>(table.Error);
+
+        var heap = Assert.IsType<
+            AssemblyContextEntry<MetadataHeapEntrySet>.Failed>(
+                AssemblyContextMetadataHeapQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    HeapKind.String,
+                    MetadataRootKind.ReadyToRunManifest));
+        Assert.IsType<BadImageFormatException>(heap.Error);
+    }
+
+    [Fact]
     public void ParticipantQueries_RejectParticipantsFromAnotherGroup()
     {
         string path =

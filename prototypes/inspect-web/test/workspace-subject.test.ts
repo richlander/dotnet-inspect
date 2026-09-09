@@ -21,17 +21,29 @@ function escapeHtml(value: unknown) {
     .replaceAll('"', "&quot;");
 }
 
-test("Workspace navigation always displays the singular Workspace", () => {
+test("Workspace navigation lists retained Workspaces and marks one active", () => {
   const html = renderWorkspaceSubject({
-    packageCount: 2,
-    selected: true,
+    workspaces: [{
+      id: "workspace-1",
+      label: "Workspace 1",
+      packageCount: 2,
+      active: false,
+    }, {
+      id: "workspace-2",
+      label: "Workspace 2",
+      packageCount: 1,
+      active: true,
+    }],
     escapeHtml,
   });
 
-  assert.match(html, /WORKSPACE/);
+  assert.match(html, /WORKSPACES/);
   assert.match(html, /workspace-card active/);
-  assert.match(html, /Workspace[\s\S]*2 loaded coordinates/);
-  assert.doesNotMatch(html, /Default Workspace|WORKSPACES/);
+  assert.match(html, /Workspace 1[\s\S]*2 loaded coordinates[\s\S]*Activate/);
+  assert.match(html, /Workspace 2[\s\S]*1 loaded coordinate[\s\S]*Active/);
+  assert.match(html, /data-workspace-switch="workspace-1"/);
+  assert.match(html, /data-workspace-select="workspace-2"/);
+  assert.match(html, /data-workspace-delete="workspace-1"/);
 });
 
 test("Workspace occurrence actions are visible only in the rendered Workspace view", () => {
@@ -156,7 +168,7 @@ test("Workspace Add is offered independently of occurrence loading and disabled 
     /data-workspace-add-package disabled/);
 });
 
-test("Workspace selection and activation dispatch separate actions", () => {
+test("Workspace selection, switching, deletion, and occurrence activation dispatch separate actions", () => {
   setProductHomeDemoCatalog([{
     id: "stj-serializer",
     title: "System.Text.Json",
@@ -164,8 +176,19 @@ test("Workspace selection and activation dispatch separate actions", () => {
   }]);
   const listeners = new Map<string, EventListener>();
   const select = {
+    dataset: { workspaceSelect: "workspace-1" },
     addEventListener: (name: string, listener: EventListener) =>
       listeners.set(`select:${name}`, listener),
+  };
+  const workspaceSwitch = {
+    dataset: { workspaceSwitch: "workspace-2" },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`switch:${name}`, listener),
+  };
+  const workspaceDelete = {
+    dataset: { workspaceDelete: "workspace-2" },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`delete:${name}`, listener),
   };
   const activate = {
     dataset: { workspaceActivate: "opaque-action" },
@@ -192,11 +215,13 @@ test("Workspace selection and activation dispatch separate actions", () => {
   };
   const root = {
     querySelector: (selector: string) =>
-      selector === "[data-workspace-default]" ? select
-        : selector === "[data-workspace-retry]" ? retry
+      selector === "[data-workspace-retry]" ? retry
         : selector === "[data-workspace-add-package]" ? add : null,
     querySelectorAll: (selector: string) =>
-      selector === "[data-workspace-activate]"
+      selector === "[data-workspace-select]" ? [select]
+        : selector === "[data-workspace-switch]" ? [workspaceSwitch]
+        : selector === "[data-workspace-delete]" ? [workspaceDelete]
+        : selector === "[data-workspace-activate]"
         ? [activate]
         : selector === "[data-workspace-demo]" ? [demo, invalidDemo] : [],
   };
@@ -205,9 +230,11 @@ test("Workspace selection and activation dispatch separate actions", () => {
   bindWorkspaceSubject(
     fakeDom.parentNode(root),
     {
-      onSelect: () => {
-        calls.push("select");
+      onSelect: id => {
+        calls.push(`select:${id}`);
       },
+      onActivateWorkspace: id => calls.push(`switch:${id}`),
+      onDeleteWorkspace: id => calls.push(`delete:${id}`),
       onActivate: action => {
         calls.push(`activate:${action}`);
       },
@@ -221,13 +248,17 @@ test("Workspace selection and activation dispatch separate actions", () => {
     });
 
   listeners.get("select:click")?.(fakeDom.event());
+  listeners.get("switch:click")?.(fakeDom.event());
+  listeners.get("delete:click")?.(fakeDom.event());
   listeners.get("activate:click")?.(fakeDom.event());
   listeners.get("demo:click")?.(fakeDom.event());
   listeners.get("invalid-demo:click")?.(fakeDom.event());
   listeners.get("retry:click")?.(fakeDom.event());
   listeners.get("add:click")?.(fakeDom.event());
   assert.deepEqual(calls, [
-    "select",
+    "select:workspace-1",
+    "switch:workspace-2",
+    "delete:workspace-2",
     "activate:opaque-action",
     "demo:stj-serializer",
     "retry",
@@ -235,21 +266,41 @@ test("Workspace selection and activation dispatch separate actions", () => {
   ]);
 });
 
-test("Workspace focus targets the always-visible Workspace", () => {
-  let focused = false;
+test("Workspace focus targets the active or first retained Workspace", () => {
+  const selectors: string[] = [];
+  const focused: string[] = [];
   const root = {
-    querySelector: () => ({
-      focus: () => {
-        focused = true;
-      },
-    }),
+    querySelector: (selector: string) => {
+      selectors.push(selector);
+      return selector === "[data-workspace-select]"
+        ? { focus: () => focused.push("active") }
+        : { focus: () => focused.push("inactive") };
+    },
   };
 
   assert.equal(focusWorkspace(fakeDom.parentNode(root)), true);
-  assert.equal(focused, true);
+  assert.deepEqual(selectors, ["[data-workspace-select]"]);
+  assert.deepEqual(focused, ["active"]);
+
+  selectors.length = 0;
+  focused.length = 0;
+  const fallbackRoot = {
+    querySelector: (selector: string) => {
+      selectors.push(selector);
+      return selector === "[data-workspace-switch]"
+        ? { focus: () => focused.push("inactive") }
+        : null;
+    },
+  };
+  assert.equal(focusWorkspace(fakeDom.parentNode(fallbackRoot)), true);
+  assert.deepEqual(selectors, [
+    "[data-workspace-select]",
+    "[data-workspace-switch]",
+  ]);
+  assert.deepEqual(focused, ["inactive"]);
 });
 
-test("Workspace focus survives catalog rerenders by stable action identity", () => {
+test("Workspace focus survives catalog rerenders by stable Workspace identity", () => {
   setProductHomeDemoCatalog([{
     id: "stj-serializer",
     title: "System.Text.Json",
@@ -257,15 +308,15 @@ test("Workspace focus survives catalog rerenders by stable action identity", () 
   }]);
   const focused: string[] = [];
   const workspace = {
-    dataset: {},
-    hasAttribute: (name: string) => name === "data-workspace-default",
+    dataset: { workspaceSelect: "workspace-1" },
+    hasAttribute: () => false,
   };
   assert.deepEqual(
     captureWorkspaceFocus(fakeDom.htmlElement({
       closest: (selector: string) =>
-        selector.includes("[data-workspace-default]") ? workspace : null,
+        selector.includes("[data-workspace-select]") ? workspace : null,
     })),
-    { kind: "workspace" });
+    { kind: "workspace", id: "workspace-1" });
 
   const demo = {
     dataset: { workspaceDemo: "stj-serializer" },
@@ -284,18 +335,21 @@ test("Workspace focus survives catalog rerenders by stable action identity", () 
     focus: () => focused.push("replacement"),
   };
   const workspaceReplacement = {
+    dataset: { workspaceSelect: "workspace-1" },
     focus: () => focused.push("workspace"),
   };
   const root = fakeDom.parentNode({
     querySelector: (selector: string) =>
-      selector === "[data-workspace-default]"
+      selector === "[data-workspace-select], [data-workspace-switch]"
         ? workspaceReplacement
         : null,
     querySelectorAll: (selector: string) =>
-      selector === "[data-workspace-demo]" ? [replacement] : [],
+      selector === "[data-workspace-demo]" ? [replacement]
+        : selector === "[data-workspace-select], [data-workspace-switch]"
+          ? [workspaceReplacement] : [],
   });
   assert.equal(
-    restoreWorkspaceFocus(root, { kind: "workspace" }),
+    restoreWorkspaceFocus(root, { kind: "workspace", id: "workspace-1" }),
     true);
   assert.equal(
     captured && restoreWorkspaceFocus(root, captured),

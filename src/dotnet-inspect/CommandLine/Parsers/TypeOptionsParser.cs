@@ -103,6 +103,7 @@ public static class TypeOptionsParser
             typeName: catalog == InspectionCatalogIdentity.ApiType ? null : typeName,
             out _,
             out _,
+            out _,
             typeGesture);
         if (error is not null)
             return true;
@@ -273,6 +274,7 @@ public static class TypeOptionsParser
                 source.TypeName,
                 out BodyKindQueryOptions bodyKindQuery,
                 out PerformanceTriageOptions performanceTriage,
+                out CloneCandidateQueryOptions cloneCandidateQuery,
                 new TypeGestureIntent(typeFilter));
         if (analysisError is not null)
             return new VersionError(analysisError.Value);
@@ -285,6 +287,12 @@ public static class TypeOptionsParser
         // silently gain a second section and break single-section formats (--table/--tsv/--jsonl).
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
+        if (cloneCandidateQuery.HasPredicates
+            && !opts.IsDiscoveryMode(parseResult)
+            && !hasExplicitSelect)
+        {
+            select = [.. select ?? [], SectionNames.CloneCandidates];
+        }
 
         var options = routePolicy.ApplyTo(new TypeOptions
         {
@@ -340,6 +348,7 @@ public static class TypeOptionsParser
             Rows = opts.ParseRows(parseResult),
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
+            CloneCandidateQuery = cloneCandidateQuery,
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),

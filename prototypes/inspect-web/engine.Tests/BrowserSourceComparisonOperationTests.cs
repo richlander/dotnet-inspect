@@ -593,7 +593,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
                 _symbolClient,
                 new InMemoryPdbStore(),
                 new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]),
-                new SourceFetcher(
+                new SourceFetch(
                     _sourceClient,
                     new InMemorySourceContentStore(),
                     BrowserSourceFetchPolicy.Instance));

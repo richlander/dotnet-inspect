@@ -6,7 +6,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Artifacts;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Queries;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Presentation.Tests;

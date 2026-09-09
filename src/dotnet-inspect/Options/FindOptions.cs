@@ -16,6 +16,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public string Pattern { get; init; } = "";
 
+    public string? Literal { get; init; }
+
     /// <summary>
     /// Packages to search (name or name@version). Can specify multiple.
     /// </summary>
@@ -98,6 +100,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public bool Verbose { get; init; }
 
+    public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
+
     /// <summary>
     /// Tabular output (pretty table or TSV).
     /// </summary>
@@ -169,7 +173,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// rather than acquiring package archives for API search.
     /// </summary>
     public bool IsPackageProfile =>
-        Pattern.Length == 0
+        Literal is null
+        && Pattern.Length == 0
         && (PackagePrefixSpecified || PackagePrefix is not null);
 
     /// <summary>

@@ -1,5 +1,5 @@
 using System.Collections.Immutable;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Metadata;
 

@@ -7,8 +7,10 @@ using System.Text;
 using System.Xml.Linq;
 
 using DotnetInspector.CommandLine;
+using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using NuGetFetch;
 using NuGetFetch.Plugins;
 
@@ -117,6 +119,72 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         Assert.Empty(requests);
     }
 
+    [Fact]
+    public async Task AcquirePinned_RequiredProducerConsultsOnlyItsConfiguredAuthority()
+    {
+        const string Id = "Pinned.RequiredProducer";
+        string first = Path.Combine(_root, "required-first");
+        string second = Path.Combine(_root, "required-second");
+        WriteLocalPackage(first, Id, "first payload");
+        WriteLocalPackage(second, Id, "second payload");
+
+        await using var composition = LocalComposition();
+        ConfiguredPackagePayloadResult selected =
+            await composition.AcquirePinnedAsync(
+                Id,
+                Version,
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { Sources = [second] },
+                cancellationToken: TestContext.Current.CancellationToken);
+        string producer = AssertPayload(selected, Id).ProducerKey;
+
+        ConfiguredPackagePayloadResult pinned =
+            await composition.AcquirePinnedAsync(
+                Id,
+                Version,
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { Sources = [first, second] },
+                cancellationToken: TestContext.Current.CancellationToken,
+                requiredProducerKey: producer);
+
+        Assert.Equal(
+            second,
+            pinned.Authority!.LocalIdentity!.CanonicalPath);
+        Assert.Equal(
+            "second payload",
+            ReadReadme(AssertPayload(pinned, Id).Content));
+
+        ConfiguredPackagePayloadResult unauthorized =
+            await composition.AcquirePinnedAsync(
+                Id,
+                Version,
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { Sources = [first, second] },
+                cancellationToken: TestContext.Current.CancellationToken,
+                requiredProducerKey: "nfs-local-1.bm90LWF1dGhvcml6ZWQ");
+
+        Assert.Null(unauthorized.Payload);
+        Assert.Null(unauthorized.Authority);
+        Assert.Contains(
+            unauthorized.Failures,
+            failure => failure.IsRequiredProducerUnavailable);
+
+        ConfiguredPackagePayloadResult denied =
+            await composition.AcquirePinnedAsync(
+                Id,
+                Version,
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { ResolvedSources = [] },
+                cancellationToken: TestContext.Current.CancellationToken,
+                requiredProducerKey: producer);
+
+        Assert.Null(denied.Payload);
+        Assert.Null(denied.Authority);
+        Assert.Contains(
+            denied.Failures,
+            failure => failure.IsRequiredProducerUnavailable);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -212,6 +280,74 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Contains(unreadable, outcome.ErrorMessage, StringComparison.Ordinal);
             Assert.DoesNotContain("not found", outcome.ErrorMessage, StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    [Fact]
+    public async Task AcquirePinned_NotFoundRetainsAttemptedAuthority()
+    {
+        const string Id = "Pinned.NotFound";
+        var requests = new ConcurrentQueue<string>();
+        await using var composition = CreateComposition(
+            (source, _) => new NotFoundPayloadFeedHandler(
+                source.Url,
+                Id,
+                requests));
+
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquirePinnedAsync(
+                Id,
+                Version,
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { Sources = [FirstFeed] },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Authority);
+        Assert.Null(result.Payload);
+        Assert.Empty(result.Failures);
+        ConfiguredPackageAuthority authority =
+            Assert.Single(result.NotFoundAuthorities);
+        Assert.Equal(FirstFeed, authority.Source.Url);
+        Assert.Contains(
+            requests,
+            request => request.EndsWith(".nupkg", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ConfiguredRootPayloadProvider_NotFoundNamesAuthority()
+    {
+        const string Id = "Pinned.ProviderNotFound";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new NotFoundPayloadFeedHandler(
+                source,
+                Id,
+                requests));
+        await using var provider = new ConfiguredPackageRootPayloadProvider(
+            TimeSpan.FromSeconds(5),
+            new NuGetSourceOptions { Sources = [FirstFeed] });
+
+        PackageRootPayloadResult.Unavailable unavailable =
+            Assert.IsType<PackageRootPayloadResult.Unavailable>(
+                await provider.GetPayloadAsync(
+                    PackageSourceCoordinate.Create(Id, Version),
+                    requiredProducerKey: null,
+                    PackagePayloadLimits.Default,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.PackageUnavailable,
+            unavailable.FailureKind);
+        Assert.Equal(
+            PackageSourceFailureKind.NotFound,
+            unavailable.SourceFailureKind);
+        Assert.Contains(
+            FirstFeed,
+            unavailable.Producer.ToString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            FirstFeed,
+            unavailable.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -776,6 +912,47 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 Content = content,
                 RequestMessage = request,
             };
+        }
+    }
+
+    private sealed class NotFoundPayloadFeedHandler(
+        string source,
+        string id,
+        ConcurrentQueue<string> requests) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            requests.Enqueue(url);
+            string flat = new Uri(new Uri(source), "flat2/").AbsoluteUri;
+            string packageUrl =
+                $"{flat}{id.ToLowerInvariant()}/{Version}/{id.ToLowerInvariant()}.{Version}.nupkg";
+            HttpResponseMessage response;
+            if (url == source)
+            {
+                response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($$"""
+                        {"version":"3.0.0","resources":[
+                          {"@id":"{{flat}}","@type":"PackageBaseAddress/3.0.0"}
+                        ]}
+                        """),
+                };
+            }
+            else if (url == packageUrl)
+            {
+                response = new HttpResponseMessage(HttpStatusCode.NotFound);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Unexpected exact-pin request: {url}");
+            }
+
+            response.RequestMessage = request;
+            return Task.FromResult(response);
         }
     }
 
