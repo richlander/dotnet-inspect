@@ -90,7 +90,7 @@ public static class WorkspaceCommand
             {
                 return 1;
             }
-            var packageRoots =
+            var packageBindings =
                 new List<PackageRootBinding>(members.Length);
             foreach (WorkspaceMemberCoordinate member in members)
             {
@@ -114,15 +114,15 @@ public static class WorkspaceCommand
                     return 1;
                 }
 
-                packageRoots.Add(
+                packageBindings.Add(
                     ((WorkspacePackageRootAcquisitionOutcome.Acquired)outcome).Root);
             }
 
             WorkspaceScopeSnapshot? committed =
-                await AddAcquiredRootsAsync(
+                await AddAcquiredPackagesAsync(
                     workspace,
                     snapshot,
-                    packageRoots,
+                    packageBindings,
                     cancellationToken).ConfigureAwait(false);
             if (committed is null)
                 return 1;
@@ -134,20 +134,20 @@ public static class WorkspaceCommand
     }
 
     /// <summary>
-    /// Appends the already-acquired Roots to the Workspace's Scope as one
+    /// Appends the already-acquired Packages to the Workspace's Scope as one
     /// all-or-failure batch, reporting the owner's typed non-commit result.
     /// Returns <see langword="null"/> after writing that report.
     /// </summary>
-    static async Task<WorkspaceScopeSnapshot?> AddAcquiredRootsAsync(
+    static async Task<WorkspaceScopeSnapshot?> AddAcquiredPackagesAsync(
         InspectionWorkspace workspace,
         WorkspaceScopeSnapshot snapshot,
-        IReadOnlyList<PackageRootBinding> roots,
+        IReadOnlyList<PackageRootBinding> packages,
         CancellationToken cancellationToken)
     {
         WorkspaceScopeOperationResult addition =
-            await workspace.AddRootsAsync(
+            await workspace.AddPackagesAsync(
                 snapshot.Revision,
-                [.. roots],
+                [.. packages],
                 DateTimeOffset.UtcNow.AddMinutes(5),
                 cancellationToken).ConfigureAwait(false);
         if (addition is WorkspaceScopeOperationResult.Committed committed)
@@ -274,7 +274,7 @@ public static class WorkspaceCommand
         // one this reopening produced rather than a coordinate reconstructed
         // from archive bytes, a display framework, or a store path.
         WorkspaceScopeSnapshot? committed =
-            await AddAcquiredRootsAsync(
+            await AddAcquiredPackagesAsync(
                 workspace,
                 snapshot,
                 [binding],
@@ -303,10 +303,10 @@ public static class WorkspaceCommand
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(options);
 
-        IReadOnlyList<WorkspaceRootOccurrenceDescriptor> occurrences =
+        IReadOnlyList<WorkspacePackageOccurrenceDescriptor> occurrences =
             RowWindow.Apply(
                 options.Rows,
-                snapshot.Roots);
+                snapshot.Packages);
         if (options.Count)
         {
             CountOutput.WriteCount(occurrences.Count);
@@ -318,16 +318,12 @@ public static class WorkspaceCommand
             Packages =
             [
                 .. occurrences.Select(static occurrence =>
-                    occurrence.Occurrence.Root switch
-                    {
-                        WorkspaceRootDescriptor.Package package =>
-                            new WorkspacePackageOccurrenceRow(
-                                package.PackageId,
-                                package.PackageVersion,
-                                package.Coordinate.Framework ?? package.TargetFramework ?? ""),
-                        _ => throw new InvalidOperationException(
-                            "The package inventory cannot render a non-package Root."),
-                    }),
+                    new WorkspacePackageOccurrenceRow(
+                        occurrence.Occurrence.Package.PackageId,
+                        occurrence.Occurrence.Package.PackageVersion,
+                        occurrence.Occurrence.Package.Coordinate.Framework
+                            ?? occurrence.Occurrence.Package.TargetFramework
+                            ?? "")),
             ],
         };
         switch (options.Format)

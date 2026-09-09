@@ -9,9 +9,9 @@ public sealed class WorkspaceScopeRevisionIdentity
     internal WorkspaceScopeRevisionIdentity() { }
 }
 
-public sealed class WorkspaceRootOccurrenceIdentity : InspectionWorkspaceOccurrenceIdentity
+public sealed class WorkspacePackageOccurrenceIdentity : InspectionWorkspaceOccurrenceIdentity
 {
-    internal WorkspaceRootOccurrenceIdentity(InspectionWorkspaceIdentity workspace)
+    internal WorkspacePackageOccurrenceIdentity(InspectionWorkspaceIdentity workspace)
         : base(workspace) { }
 }
 
@@ -20,101 +20,87 @@ public sealed class WorkspaceClosureObservationIdentity
     internal WorkspaceClosureObservationIdentity() { }
 }
 
-public enum WorkspaceRootKind
-{
-    Package,
-    NonPackage,
-}
-
 /// <summary>
-/// Resource-free owner facts. Only the Package adapter issues descriptors in
-/// this slice; non-package coordinates are not approximated as packages.
+/// Resource-free Package facts retained by logical Workspace Scope.
 /// </summary>
-public abstract class WorkspaceRootDescriptor
+public sealed class WorkspacePackageDescriptor
 {
-    private protected WorkspaceRootDescriptor(WorkspaceRootKind kind) => Kind = kind;
-
-    public WorkspaceRootKind Kind { get; }
-
-    public sealed class Package : WorkspaceRootDescriptor
+    internal WorkspacePackageDescriptor(PackageRootBinding binding)
     {
-        internal Package(PackageRootBinding binding) : base(WorkspaceRootKind.Package)
-        {
-            Coordinate = binding.Coordinate;
-            PackageId = binding.Root.PackageId;
-            PackageVersion = binding.Root.PackageVersion;
-            RequestedTargetFramework = binding.Root.RequestedTargetFramework;
-            SelectedTargetFramework = binding.Root.AssetSelection.TargetFramework;
-            TargetFramework = SelectedTargetFramework ?? RequestedTargetFramework ?? Coordinate.Framework;
-            RuntimeIdentifier = binding.Root.RequestedRuntimeIdentifier;
-            SelectionStatus = binding.Root.AssetSelection.Status;
-        }
-
-        public RealizedMemberCoordinate.Package Coordinate { get; }
-        public string PackageId { get; }
-        public string PackageVersion { get; }
-        public string? TargetFramework { get; }
-        public string? RequestedTargetFramework { get; }
-        public string? SelectedTargetFramework { get; }
-        public string? RuntimeIdentifier { get; }
-        public PackageCompileAssetSelectionStatus SelectionStatus { get; }
+        Coordinate = binding.Coordinate;
+        PackageId = binding.Root.PackageId;
+        PackageVersion = binding.Root.PackageVersion;
+        RequestedTargetFramework = binding.Root.RequestedTargetFramework;
+        SelectedTargetFramework = binding.Root.AssetSelection.TargetFramework;
+        TargetFramework = SelectedTargetFramework ?? RequestedTargetFramework ?? Coordinate.Framework;
+        RuntimeIdentifier = binding.Root.RequestedRuntimeIdentifier;
+        SelectionStatus = binding.Root.AssetSelection.Status;
     }
+
+    public RealizedMemberCoordinate.Package Coordinate { get; }
+    public string PackageId { get; }
+    public string PackageVersion { get; }
+    public string? TargetFramework { get; }
+    public string? RequestedTargetFramework { get; }
+    public string? SelectedTargetFramework { get; }
+    public string? RuntimeIdentifier { get; }
+    public PackageCompileAssetSelectionStatus SelectionStatus { get; }
 }
 
-public sealed class WorkspaceRootOccurrence
+public sealed class WorkspacePackageOccurrence
 {
-    internal WorkspaceRootOccurrence(
+    internal WorkspacePackageOccurrence(
         InspectionWorkspaceIdentity workspace,
-        WorkspaceRootDescriptor root,
+        WorkspacePackageDescriptor package,
         ArtifactRootCorrespondence correspondence)
     {
         Identity = new(workspace);
-        Root = root;
+        Package = package;
         Correspondence = correspondence;
     }
 
-    public WorkspaceRootOccurrenceIdentity Identity { get; }
-    public WorkspaceRootDescriptor Root { get; }
+    public WorkspacePackageOccurrenceIdentity Identity { get; }
+    public WorkspacePackageDescriptor Package { get; }
     public ArtifactRootCorrespondence Correspondence { get; }
 }
 
-public sealed class WorkspaceRootOccurrenceDescriptor
+public sealed class WorkspacePackageOccurrenceDescriptor
 {
-    internal WorkspaceRootOccurrenceDescriptor(
-        WorkspaceRootOccurrence occurrence,
+    internal WorkspacePackageOccurrenceDescriptor(
+        WorkspacePackageOccurrence occurrence,
         ArtifactRootScopeProjection realization)
     {
         Occurrence = occurrence;
         Realization = realization;
     }
 
-    public WorkspaceRootOccurrence Occurrence { get; }
+    public WorkspacePackageOccurrence Occurrence { get; }
     public ArtifactRootScopeProjection Realization { get; }
 }
 
 /// <summary>The fixed closed-Scope profile for exact package membership operations.</summary>
 public sealed class WorkspaceScopeLimits
 {
-    public const int DefaultMaxRoots = 64;
+    public const int DefaultMaxPackages = 64;
     internal static WorkspaceScopeLimits Closed { get; } = new();
     private WorkspaceScopeLimits() { }
-    public int MaxRoots => DefaultMaxRoots;
+    public int MaxPackages => DefaultMaxPackages;
 }
 
 public sealed class WorkspaceScopeRevision
 {
     internal WorkspaceScopeRevision(
         InspectionWorkspaceIdentity workspace,
-        ImmutableArray<WorkspaceRootOccurrence> roots)
+        ImmutableArray<WorkspacePackageOccurrence> packages)
     {
         Workspace = workspace;
         Identity = new();
-        Roots = roots;
+        Packages = packages;
     }
 
     public InspectionWorkspaceIdentity Workspace { get; }
     public WorkspaceScopeRevisionIdentity Identity { get; }
-    public ImmutableArray<WorkspaceRootOccurrence> Roots { get; }
+    public ImmutableArray<WorkspacePackageOccurrence> Packages { get; }
     public WorkspaceScopeLimits Limits => WorkspaceScopeLimits.Closed;
 }
 
@@ -166,19 +152,19 @@ public sealed class WorkspaceScopePreparationDescriptor
         InspectionWorkspaceIdentity workspace,
         WorkspaceScopePublicationOperationIdentity operation,
         WorkspaceScopeOperationKind kind,
-        int requestedRootCount,
+        int requestedPackageCount,
         DateTimeOffset deadline)
     {
         Operation = operation;
         Kind = kind;
-        RequestedRootCount = requestedRootCount;
+        RequestedPackageCount = requestedPackageCount;
         Deadline = deadline;
         Cancellation = new(workspace, operation);
     }
 
     public WorkspaceScopePublicationOperationIdentity Operation { get; }
     public WorkspaceScopeOperationKind Kind { get; }
-    public int RequestedRootCount { get; }
+    public int RequestedPackageCount { get; }
     public DateTimeOffset Deadline { get; }
     public WorkspaceScopeCancellationAction Cancellation { get; }
 }
@@ -189,14 +175,14 @@ public sealed class WorkspaceScopeSnapshot
     internal WorkspaceScopeSnapshot(
         WorkspaceScopeRevision revision,
         ArtifactRootCompositionGenerationIdentity physicalComposition,
-        ImmutableArray<WorkspaceRootOccurrenceDescriptor> roots,
+        ImmutableArray<WorkspacePackageOccurrenceDescriptor> packages,
         WorkspaceClosureObservation closure,
         WorkspaceScopePreparationDescriptor? preparing)
     {
         Revision = revision;
         PublicationBase = new();
         PhysicalComposition = physicalComposition;
-        Roots = roots;
+        Packages = packages;
         Closure = closure;
         Preparing = preparing;
     }
@@ -204,7 +190,7 @@ public sealed class WorkspaceScopeSnapshot
     public WorkspaceScopeRevision Revision { get; }
     public WorkspaceScopePublicationBaseIdentity PublicationBase { get; }
     public ArtifactRootCompositionGenerationIdentity PhysicalComposition { get; }
-    public ImmutableArray<WorkspaceRootOccurrenceDescriptor> Roots { get; }
+    public ImmutableArray<WorkspacePackageOccurrenceDescriptor> Packages { get; }
     public WorkspaceClosureObservation Closure { get; }
     public WorkspaceScopePreparationDescriptor? Preparing { get; }
 }
@@ -225,7 +211,7 @@ public enum WorkspaceScopeRejection
     DeadlineExpired,
     ForeignWorkspace,
     RevisionMismatch,
-    RootCapacityExceeded,
+    PackageCapacityExceeded,
     AsynchronousWorkspaceRequired,
     Busy,
     OccurrenceNotCurrent,

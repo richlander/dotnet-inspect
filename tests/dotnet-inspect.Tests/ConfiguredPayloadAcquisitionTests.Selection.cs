@@ -138,6 +138,38 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task AcquireSelected_FallbackRetainsNotFoundAndReportingAuthorities()
+    {
+        const string Id = "Selected.ReporterFallback";
+        var requests = new ConcurrentQueue<string>();
+        await using var composition = CreateComposition((source, _) =>
+            new SelectionFeedHandler(
+                source.Url,
+                Id,
+                [Version],
+                version => CreatePackage(Id, source.Url, version: version),
+                requests,
+                missingPayload: source.Url == FirstFeed));
+
+        ConfiguredPackagePayloadResult result = await composition.AcquireSelectedAsync(
+            Id,
+            null,
+            (_, _) => new InMemoryPackageStore(),
+            new NuGetSourceOptions { Sources = [FirstFeed, SecondFeed] },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result.Payload);
+        Assert.Equal(SecondFeed, result.Authority!.Source.Url);
+        Assert.Equal(
+            FirstFeed,
+            Assert.Single(result.NotFoundAuthorities).Source.Url);
+        Assert.Equal(
+            [FirstFeed, SecondFeed],
+            result.ReportingAuthorities!.Select(authority => authority.Source.Url));
+        Assert.True(result.SelectionUsesOriginalSources);
+    }
+
+    [Fact]
     public async Task AcquireSelected_QueryDistinctAuthoritiesDoNotShareReportingEvidence()
     {
         const string Id = "Selected.QueryAuthority";

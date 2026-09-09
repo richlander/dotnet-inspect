@@ -757,6 +757,13 @@ public class IlToolsActivationTests
             "-c Release -- --long-running 60 --xunit-diagnostics on",
             job);
         Assert.Contains(
+            "DOTNET_INSPECT_D3_REPORT: ${{ github.workspace }}/" +
+            "artifacts/custom-attribute-d3/result.json",
+            job);
+        Assert.Contains(
+            "path: artifacts/custom-attribute-d3/result.json",
+            job);
+        Assert.Contains(
             "run: dotnet run --project tests/ILInspector.Research.Tests " +
             "-c Release -- --fail-skips on",
             job);

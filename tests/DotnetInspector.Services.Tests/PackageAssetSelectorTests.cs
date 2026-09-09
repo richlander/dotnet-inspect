@@ -1,3 +1,4 @@
+using System.Reflection;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services.Tests;
@@ -9,6 +10,75 @@ namespace DotnetInspector.Services.Tests;
 /// </summary>
 public sealed class PackageAssetSelectorTests
 {
+    [Fact]
+    public void Evaluate_RetainsGenerationRequestAndSelection()
+    {
+        var content = new InMemoryPackageContent(
+            TestPackageArchive.Create(
+                "lib/net8.0/Sample.dll"),
+            fromCache: true,
+            "test-source");
+
+        PackageAssetSelectionReceipt receipt =
+            PackageAssetSelector.Evaluate(
+                content,
+                "net10.0",
+                "linux-x64");
+
+        Assert.Same(content.GenerationIdentity, receipt.Generation);
+        Assert.Equal("net10.0", receipt.RequestedTargetFramework);
+        Assert.Equal("linux-x64", receipt.RequestedRuntimeIdentifier);
+        Assert.Equal(
+            "net8.0",
+            Selected(receipt.Selection).TargetFramework);
+    }
+
+    [Fact]
+    public void Evaluate_PreservesNullTargetAsTypedInvalidSelection()
+    {
+        var content = new InMemoryPackageContent(
+            TestPackageArchive.Create(
+                "lib/net8.0/Sample.dll"),
+            fromCache: true,
+            "test-source");
+
+        PackageAssetSelectionReceipt receipt =
+            PackageAssetSelector.Evaluate(content, null!);
+
+        Assert.Null(receipt.RequestedTargetFramework);
+        Assert.IsType<PackageAssetSelection.Invalid>(receipt.Selection);
+        Assert.IsType<PackageAssetSelection.Invalid>(
+            PackageAssetSelector.Select(content, null!));
+    }
+
+    [Fact]
+    public void SelectionReceiptsAreResourceFree()
+    {
+        Type[] graph =
+        [
+            .. InstanceTypeGraph(typeof(PackageAssetSelectionReceipt)),
+            .. InstanceTypeGraph(typeof(PackageAssetSelection)),
+            .. typeof(PackageAssetSelection)
+                .GetNestedTypes(BindingFlags.Public)
+                .SelectMany(InstanceTypeGraph),
+            .. InstanceTypeGraph(typeof(PackageAssetUniverse)),
+            .. InstanceTypeGraph(typeof(PackageAssetEntry)),
+            .. InstanceTypeGraph(
+                typeof(PackageCompileAssetSelectionReceipt)),
+            .. InstanceTypeGraph(typeof(PackageCompileAssetSelection)),
+            .. InstanceTypeGraph(typeof(PackageCompileAsset)),
+        ];
+
+        Assert.DoesNotContain(
+            graph,
+            type =>
+                typeof(Stream).IsAssignableFrom(type)
+                || typeof(IPackageContent).IsAssignableFrom(type)
+                || typeof(IDisposable).IsAssignableFrom(type)
+                || typeof(IAsyncDisposable).IsAssignableFrom(type)
+                || typeof(Delegate).IsAssignableFrom(type));
+    }
+
     [Fact]
     public void Select_TakesHighestApplicableFrameworkFolder()
     {
@@ -603,4 +673,42 @@ public sealed class PackageAssetSelectorTests
                 "test-source"),
             targetFramework,
             runtimeIdentifier);
+
+    static IEnumerable<Type> InstanceTypeGraph(Type root)
+    {
+        var pending = new Stack<Type>([root]);
+        var seen = new HashSet<Type>();
+        while (pending.TryPop(out Type? current))
+        {
+            if (!seen.Add(current))
+                continue;
+
+            yield return current;
+            foreach (FieldInfo field in current.GetFields(
+                BindingFlags.Instance
+                | BindingFlags.Public
+                | BindingFlags.NonPublic))
+            {
+                Add(field.FieldType);
+            }
+        }
+
+        void Add(Type type)
+        {
+            if (type.IsArray)
+                Add(type.GetElementType()!);
+            foreach (Type argument in type.GetGenericArguments())
+                Add(argument);
+
+            if (type.IsPrimitive
+                || type.IsEnum
+                || type == typeof(string)
+                || type == typeof(decimal))
+            {
+                return;
+            }
+
+            pending.Push(type);
+        }
+    }
 }

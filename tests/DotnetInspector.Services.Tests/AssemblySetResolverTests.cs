@@ -1,10 +1,50 @@
 using System.IO.Compression;
+using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Services.Tests;
 
 public class AssemblySetResolverTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CollectExtractedPackage_PreservesSelectionAndTemporaryOwnership(bool temporary)
+    {
+        string root = Directory.CreateTempSubdirectory("assembly-set-acquired-").FullName;
+        try
+        {
+            string older = Directory.CreateDirectory(Path.Combine(root, "lib", "net8.0")).FullName;
+            string newer = Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0")).FullName;
+            string sourceAssembly = typeof(AssemblySetResolverTests).Assembly.Location;
+            File.Copy(sourceAssembly, Path.Combine(older, "Old.dll"));
+            File.Copy(sourceAssembly, Path.Combine(newer, "Zeta.dll"));
+            File.Copy(sourceAssembly, Path.Combine(newer, "Alpha.dll"));
+            var extracted = new PackageExtractionResult(
+                root, temporary ? root : null, "Acquired.Package", "2.0.0", FromCache: !temporary);
+
+            var set = AssemblySetResolver.CollectExtractedPackage(extracted);
+
+            Assert.Empty(set.Diagnostics);
+            Assert.Equal(["Alpha.dll", "Zeta.dll"], set.Assemblies.Select(entry => Path.GetFileName(entry.Path)));
+            Assert.All(set.Assemblies, entry =>
+            {
+                Assert.Equal("net10.0", entry.Tfm);
+                Assert.Equal(AssemblySetSourceKind.Package, entry.SourceKind);
+                Assert.Equal("Acquired.Package", entry.Source);
+                Assert.Equal("2.0.0", entry.Version);
+            });
+            Assert.Equal(temporary ? 1 : 0, set.OwnedTemporaryDirectories.Count);
+            set.Dispose();
+            Assert.Equal(!temporary, Directory.Exists(root));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task CollectAsync_LocalPackageOwnsExtractionUntilDisposed()
     {

@@ -130,6 +130,40 @@ public sealed record PackageCompileAssetSelection(
 }
 
 /// <summary>
+/// Resource-free evidence binding one compile asset-selection outcome to the
+/// content generation and exact request that produced it.
+/// </summary>
+public sealed class PackageCompileAssetSelectionReceipt
+{
+    internal PackageCompileAssetSelectionReceipt(
+        PackageContentGenerationIdentity generation,
+        string packageId,
+        string? requestedTargetFramework,
+        string? requestedRuntimeIdentifier,
+        PackageCompileAssetSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(packageId);
+        ArgumentNullException.ThrowIfNull(selection);
+        Generation = generation;
+        PackageId = packageId;
+        RequestedTargetFramework = requestedTargetFramework;
+        RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
+        Selection = selection;
+    }
+
+    public PackageContentGenerationIdentity Generation { get; }
+
+    public string PackageId { get; }
+
+    public string? RequestedTargetFramework { get; }
+
+    public string? RequestedRuntimeIdentifier { get; }
+
+    public PackageCompileAssetSelection Selection { get; }
+}
+
+/// <summary>
 /// Adds reference-assembly and explicit-empty-group semantics to the implementation universe
 /// selected by <see cref="PackageAssetSelector"/>, without requiring a filesystem.
 /// </summary>
@@ -141,6 +175,40 @@ public static class PackageCompileAssetSelector
     const string EmptyGroupMarker = "_._";
 
     public static PackageCompileAssetSelection Select(
+        IPackageContent content,
+        string packageId,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null) =>
+        Evaluate(
+            content,
+            packageId,
+            targetFramework,
+            runtimeIdentifier).Selection;
+
+    /// <summary>
+    /// Selects compile assets and retains the exact invocation correspondence
+    /// without retaining package content.
+    /// </summary>
+    public static PackageCompileAssetSelectionReceipt Evaluate(
+        IPackageContent content,
+        string packageId,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return new PackageCompileAssetSelectionReceipt(
+            content.GenerationIdentity,
+            packageId,
+            targetFramework,
+            runtimeIdentifier,
+            SelectCore(
+                content,
+                packageId,
+                targetFramework,
+                runtimeIdentifier));
+    }
+
+    private static PackageCompileAssetSelection SelectCore(
         IPackageContent content,
         string packageId,
         string? targetFramework = null,

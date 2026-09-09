@@ -30,12 +30,13 @@ implementation-ready syntax.
 
 ### Pinned (`Name@version`)
 
-Online single-package caller-pinned CLI extraction follows the
+Online single-package and API caller-pinned CLI extraction follows the
 [configured-authority acquisition contract](package-source-model.md#caller-pinned-payload-acquisition):
 local authority caches may answer immediately, while HTTP payloads currently
 use temporary authority-scoped materialization rather than persistent
 producer-keyed caches. The following producer-cache description applies to
-offline and other unmigrated consumers.
+offline and other unmigrated consumers. API pins use the same authority-scoped
+path so an exact replay can reopen a package selected from a folder-feed range.
 
 The version is treated as immutable and the caller supplies the candidate. If
 the package is already in a payload cache under an eligible producer, it is
@@ -168,10 +169,21 @@ Resolving the vector reads version metadata only. The command downloads or
 opens a package only after the caller selects an address, so an agent can probe
 previous, midpoint, or adjacent versions without triggering an unbounded scan.
 
-The configured-authority range-acquisition seam is available in the package
-layer. API and timeline adoption, including their payload replay paths, remains
-step 6 of the [source adoption plan](package-source-model.md#implementation-boundary).
+Online API and timeline commands use complete, fresh configured-authority
+discovery and retain its reporting authorities through selected payload
+acquisition. Each timeline invocation keeps one vector for all its selected
+cells. An unreadable eligible source fails discovery before any payload
+acquisition, rather than silently shortening the vector. Local payload caches
+are authority-scoped; HTTP payloads are temporary and downloaded again in a
+later invocation. Remaining consumer migration stays in step 6 of the
+[source adoption plan](package-source-model.md#implementation-boundary).
 Ordinary `package` payload inspection does not accept a range or `--at`.
+
+API and timeline vectors remain listed-only. Unlisted endpoints cannot be
+selected unless another authority independently reports that coordinate as
+listed; use an exact caller pin to inspect an unlisted package. Metadata-only
+`package --versions --include-unlisted` can enumerate those rows, but their
+ordinals are not addresses in the listed-only API/timeline vector.
 
 `timeline` uses the same vector without changing that authorization rule. With
 no `--at`, it renders every address as `Unevaluated` and recommends a probe
@@ -184,6 +196,13 @@ one exact member identity track. The same member focus composes with
 selected method body is decoded at each evaluated address. Sparse transitions
 spanning unevaluated cells are labeled as gaps and do not claim the exact
 version of a change.
+
+Online timeline recommendations retain source and configuration arguments,
+including an absolute `--nugetconfig-directory` for ambient configuration.
+They also retain TFM, prerelease, and visibility choices. Exact `match --similar`
+replay retains the reporting configured sources for the selected coordinate,
+not a transient extraction path. Credential-sensitive sources must be selected
+through configuration when their URLs cannot be safely disclosed.
 
 ```bash
 dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \

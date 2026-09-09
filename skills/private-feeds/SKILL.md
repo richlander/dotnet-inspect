@@ -99,11 +99,39 @@ those diagnostics. Tool-wrapper redirects independently reapply mapping.
 Local payload caches are scoped to the canonical configured folder, not just
 package ID/version or producer identity. HTTP payloads currently use temporary
 authority-scoped materialization and do not reuse persistent payload caches.
-Automatic selection does not reuse legacy candidate caches. Multi-package
-inspection, range-addressed payload commands, package-scoped API and dependency
-commands, and offline extraction have not migrated yet. `package --versions`
+Automatic selection does not reuse legacy candidate caches. `package --versions`
 can enumerate a range, but ordinary `package` payload inspection does not
 accept a range or `--at`.
+
+### Inspect APIs and timelines from a folder feed
+
+Online API commands support exact pins and explicitly addressed ranges:
+
+```bash
+dnx dotnet-inspect -y -- type MyCompany.Widget --package MyCompany.Widget@1.2.3 \
+  --source ./feed
+dnx dotnet-inspect -y -- type MyCompany.Widget \
+  --package MyCompany.Widget@1.0.0..2.0.0 --at last --source ./feed
+dnx dotnet-inspect -y -- timeline --package MyCompany.Widget@1.0.0..2.0.0 \
+  --type MyCompany.Widget --type-presence --at first --at last --source ./feed
+```
+
+Ranges require complete fresh discovery and acquire only from sources that
+reported each selected coordinate. A timeline retains one vector for all its
+probes. Omit `--at` for a metadata-only view; `--at all` explicitly acquires
+every address. An unreadable peer prevents selection.
+
+API/timeline vectors exclude unlisted observations, including endpoints.
+An exact pin can still inspect an unlisted coordinate. Do not copy ordinals
+from a `--include-unlisted` metadata listing into a listed-only vector.
+Timeline probe recommendations retain source/configuration and selection
+options. `match --similar` retains the reporting configured sources in its
+exact-package replay, without depending on temporary extraction paths.
+
+Exact API pins and range probes use the same local authority caches and HTTP
+temporary storage as package inspection. HTTP payloads are downloaded anew in
+each invocation. API floating/wildcard selection, multi-package and dependency
+commands, and offline extraction remain on their existing paths.
 
 ### Restrict package ids to feeds
 
@@ -186,7 +214,8 @@ Missing or mismatched provenance is a cache miss, and installed payloads do not
 introduce version candidates. Use `--no-nuget-cache` to exclude that layer.
 `--offline` forbids network access and does not start credential plugins, so it
 succeeds only from producer-authorized caches. Online version queries bypass
-these legacy caches. Online single-package extraction uses authority-scoped
+these legacy caches. Online single-package extraction, exact API pins, and
+API/timeline range probes use authority-scoped
 payload storage instead: old producer-keyed entries cannot authorize it, and HTTP
 global-packages entries are not reused. A local global-packages entry must
 name the same canonical configured folder in `.nupkg.metadata.source`.

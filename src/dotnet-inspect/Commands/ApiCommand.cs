@@ -2852,8 +2852,22 @@ public class ApiCommand
             // A whole-type decompiled-source render consumes the resolved config.
             var resolver = ApiAnalysisInspection.CreateReferenceResolver(typeDllPath, options);
             using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
-            var listing = Decompiler.MemberBodyProducer.Project(
-                type, typeDllPath, options.PdbPath, resolver, metadata, options.RenderOptions).Output;
+            var projection = sourceAssembly is null
+                ? Decompiler.MemberBodyProducer.Project(
+                    type, typeDllPath, options.PdbPath, resolver, metadata, options.RenderOptions)
+                : Decompiler.MemberBodyProducer.Project(
+                    type, sourceAssembly, options.PdbPath, resolver, metadata, options.RenderOptions);
+            if (sourceAssembly is not null
+                && projection.Diagnostics.Any(
+                    static diagnostic => diagnostic.Id == Decompiler.DiagnosticIds.InternalError))
+            {
+                CommandError.Write(string.Join(
+                    Environment.NewLine,
+                    projection.Diagnostics.Select(static diagnostic => diagnostic.ToString())));
+                return 1;
+            }
+
+            var listing = projection.Output;
             if (listing is not null)
             {
                 // Surface pending config warnings only once the styled listing is

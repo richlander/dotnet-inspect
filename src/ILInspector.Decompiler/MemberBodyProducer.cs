@@ -285,6 +285,44 @@ public static class MemberBodyProducer
         IAssemblyBindingPolicy bindingPolicy,
         Pipeline.MetadataContext? context = null,
         Pipeline.PrinterOptions? printerOptions = null)
+        => ProjectDescriptor(
+            type,
+            assembly,
+            externalPdbPath: null,
+            bindingPolicy,
+            context,
+            printerOptions,
+            reportCandidateOpenFailure: false);
+
+    /// <summary>
+    /// Projects a whole type from a descriptor-backed assembly and an optional
+    /// externally acquired portable PDB under the binding-consistent policy
+    /// supplied by its inspection context.
+    /// </summary>
+    public static DecompilerResult Project(
+        ApiType type,
+        ResolvedAssemblyReference assembly,
+        string? externalPdbPath,
+        IAssemblyBindingPolicy bindingPolicy,
+        Pipeline.MetadataContext? context = null,
+        Pipeline.PrinterOptions? printerOptions = null)
+        => ProjectDescriptor(
+            type,
+            assembly,
+            externalPdbPath,
+            bindingPolicy,
+            context,
+            printerOptions,
+            reportCandidateOpenFailure: true);
+
+    static DecompilerResult ProjectDescriptor(
+        ApiType type,
+        ResolvedAssemblyReference assembly,
+        string? externalPdbPath,
+        IAssemblyBindingPolicy bindingPolicy,
+        Pipeline.MetadataContext? context,
+        Pipeline.PrinterOptions? printerOptions,
+        bool reportCandidateOpenFailure)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -296,10 +334,11 @@ public static class MemberBodyProducer
                 assembly,
                 type,
                 bindingPolicy,
-                context),
+                context,
+                reportCandidateOpenFailure),
             (definition, ctx) => Pipeline.MetadataSource.Open(
                 definition.Assembly.Assembly,
-                externalPdbPath: null,
+                externalPdbPath,
                 bindingPolicy,
                 ctx),
             context,
@@ -542,7 +581,8 @@ public static class MemberBodyProducer
         ResolvedAssemblyReference start,
         ApiType type,
         IAssemblyBindingPolicy bindingPolicy,
-        Pipeline.MetadataContext? context)
+        Pipeline.MetadataContext? context,
+        bool reportCandidateOpenFailure = false)
     {
         MetadataTypeDefinitionName? name = GetDefinitionName(type);
         if (name is null)
@@ -568,9 +608,18 @@ public static class MemberBodyProducer
             outcome = resolutionContext.Resolve(request);
         }
 
-        return outcome is TypeResolutionOutcome.Resolved resolved
-            ? resolved.Definition
-            : null;
+        return outcome switch
+        {
+            TypeResolutionOutcome.Resolved resolved =>
+                resolved.Definition,
+            TypeResolutionOutcome.Rejected
+            {
+                Failure:
+                    TypeResolutionFailure.CandidateOpenFailed failed,
+            } when reportCandidateOpenFailure => throw new InvalidOperationException(
+                $"{failed.Failure.Kind}: {failed.Failure.Detail}"),
+            _ => null,
+        };
     }
 
     static MetadataTypeDefinitionName? GetDefinitionName(ApiType type)

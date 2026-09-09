@@ -556,6 +556,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         PackageExtractionResult result = outcome.Result!;
         try
         {
+            Assert.Equal(id, result.PackageName);
             Assert.Equal(ConfiguredPackageAuthorityKind.Http, result.Authority!.Kind);
             Assert.Null(result.CacheScopeKey);
             Assert.False(result.FromCache);

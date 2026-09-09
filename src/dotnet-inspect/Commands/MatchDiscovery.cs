@@ -8,7 +8,6 @@ using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
-using InertText;
 using Markout;
 using NuGetFetch;
 
@@ -268,7 +267,7 @@ internal static class MatchDiscovery
                 return 1;
             }
 
-            MatchDiscoveryReplaySources? replaySources = null;
+            PackageReplaySources? replaySources = null;
             bool selectedVersionSourceRestriction =
                 seed.ReplayPackage is not null
                 && candidateAddress.Package is not null
@@ -581,137 +580,22 @@ internal static class MatchDiscovery
 
     internal static bool TryGetReplaySources(
         NuGetSourceOptions? sourceOptions,
-        out MatchDiscoveryReplaySources? replaySources,
+        out PackageReplaySources? replaySources,
         out string? error,
         bool selectedVersionSourceRestriction = false,
         string? workingDirectory = null)
-    {
-        if (sourceOptions is null
-            || sourceOptions.Sources.Length == 0
-                && sourceOptions.AdditionalSources.Length == 0
-                && sourceOptions.ConfigFile is null
-                && sourceOptions.ConfigDirectory is null)
-        {
-            replaySources = null;
-            error = null;
-            return true;
-        }
-
-        workingDirectory ??= Directory.GetCurrentDirectory();
-        List<string> replaySourcesValues = [];
-        List<string> replayAdditionalSourcesValues = [];
-        foreach ((string option, string[] values, List<string> replayValues) in new[]
-        {
-            ("--source", sourceOptions.Sources, replaySourcesValues),
-            ("--add-source", sourceOptions.AdditionalSources, replayAdditionalSourcesValues),
-        })
-        {
-            foreach (string value in values)
-            {
-                string replayValue;
-                try
-                {
-                    replayValue = LocalPackageSourceIdentity.IsLocalSource(value)
-                        ? LocalPackageSourceIdentity.Create(
-                            value,
-                            workingDirectory).CanonicalPath
-                        : value;
-                }
-                catch (Exception ex) when (ex is
-                    ArgumentException
-                    or IOException
-                    or NotSupportedException)
-                {
-                    replaySources = null;
-                    error =
-                        "match --similar cannot disclose a replayable package command because "
-                            + $"{option} contains a local package source path that cannot be "
-                            + "resolved.";
-                    return false;
-                }
-
-                if (!CanDiscloseSource(replayValue))
-                {
-                    replaySources = null;
-                    error = selectedVersionSourceRestriction
-                        ? "match --similar cannot disclose a replayable package command because "
-                            + "the source that reported the selected package version contains URL "
-                            + "components that must be redacted. Exact replay requires package "
-                            + "source mapping that selects that producer through --nugetconfig "
-                            + "without printing its URL."
-                        : $"match --similar cannot disclose a replayable package command because "
-                            + $"{option} contains URL components that must be redacted. Configure "
-                            + "that source in a nuget.config file and pass --nugetconfig instead.";
-                    return false;
-                }
-
-                if (ContainsMarkdownCodeSpanDelimiter(replayValue))
-                {
-                    replaySources = null;
-                    error =
-                        "match --similar cannot disclose a replayable package command because "
-                            + $"{option} contains text that cannot be emitted losslessly.";
-                    return false;
-                }
-
-                replayValues.Add(replayValue);
-            }
-        }
-
-        string? configFile = sourceOptions.ConfigFile is null
-            ? null
-            : Path.GetFullPath(sourceOptions.ConfigFile, workingDirectory);
-        if (configFile is not null
-            && (!InertString.IsPermitted(TextPolicy.Field, configFile)
-                || ContainsMarkdownCodeSpanDelimiter(configFile)))
-        {
-            replaySources = null;
-            error =
-                "match --similar cannot disclose a replayable package command because "
-                    + "--nugetconfig contains text that cannot be emitted losslessly. Rename the "
-                    + "config path before using it for package-backed discovery.";
-            return false;
-        }
-
-        string? configDirectory = sourceOptions.ConfigDirectory is null
-            ? null
-            : Path.GetFullPath(sourceOptions.ConfigDirectory, workingDirectory);
-        if (configDirectory is not null
-            && (!InertString.IsPermitted(TextPolicy.Field, configDirectory)
-                || ContainsMarkdownCodeSpanDelimiter(configDirectory)))
-        {
-            replaySources = null;
-            error =
-                "match --similar cannot disclose a replayable package command because "
-                    + "--nugetconfig-directory contains text that cannot be emitted losslessly. "
-                    + "Use a different config discovery directory for package-backed discovery.";
-            return false;
-        }
-
-        replaySources = new MatchDiscoveryReplaySources(
-            [.. replaySourcesValues],
-            [.. replayAdditionalSourcesValues],
-            configFile,
-            configDirectory);
-        error = null;
-        return true;
-    }
+        => PackageReplaySourceArguments.TryCreate(
+            sourceOptions,
+            "match --similar",
+            out replaySources,
+            out error,
+            selectedVersionSourceRestriction,
+            workingDirectory);
 
     internal static NuGetSourceOptions? ReplaySourceOptions(
         NuGetSourceOptions? original,
         IReadOnlyList<string> reportingSourceUrls)
-    {
-        ArgumentNullException.ThrowIfNull(reportingSourceUrls);
-        if (reportingSourceUrls.Count == 0)
-            return original;
-
-        return new NuGetSourceOptions
-        {
-            Sources = [.. reportingSourceUrls],
-            ConfigFile = original?.ConfigFile,
-            ConfigDirectory = original?.ConfigDirectory,
-        };
-    }
+        => PackageReplaySourceArguments.RestrictToReportingSources(original, reportingSourceUrls);
 
     internal static bool TryValidateReplayAddress(
         ReplayableCandidateAddress address,
@@ -750,25 +634,6 @@ internal static class MatchDiscovery
 
     static bool ContainsMarkdownCodeSpanDelimiter(string value)
         => value.Contains('`');
-
-    static bool CanDiscloseSource(string value)
-    {
-        string baseline = value;
-        if (Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
-            && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
-                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
-        {
-            // UrlRedaction and Uri may normalize harmless spelling differences such as host
-            // casing, a default port, or an omitted trailing slash. Compare two normalized
-            // spellings so only removed or encoded components make the source non-replayable.
-            baseline = uri.ToString();
-        }
-
-        return string.Equals(
-            UrlRedaction.ForDiagnostics(value).ToString(),
-            baseline,
-            StringComparison.Ordinal);
-    }
 
     internal static MatchOptions ForPhysicalImageLoad(MatchOptions options)
         => options with

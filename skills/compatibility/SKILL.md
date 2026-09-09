@@ -156,6 +156,13 @@ acquired. The agent owns the search policy and bound. For recurrence-safe
 current onset, walk backward from the bad version until the first successful
 absence; use binary search only for a predicate known to be monotonic.
 
+Online API/timeline ranges support configured folder and HTTP feeds. Discovery
+must be complete, and each probe can acquire only from a source that reported
+its coordinate. These vectors are listed-only; an `--include-unlisted`
+metadata listing can have different ordinals. Use an exact pin to inspect an
+unlisted coordinate. Local payload caches retain configured authority; HTTP
+payloads use temporary storage and are downloaded again on a later invocation.
+
 `timeline` renders `Evaluations` and `Transitions` over the same vector. Omit
 `--at` for a zero-payload address view and midpoint recommendation, repeat
 `--at` for sparse probes, or pass `--at all` for explicit dense traversal.
@@ -166,6 +173,8 @@ member selector scopes `analysis.allocation`, `analysis.call-site`, and
 `analysis.unsafety` timelines to one method body.
 Gap-spanning transitions are evidence across the selected probes, not claims
 about the exact introduction or removal version.
+Online recommendations retain source/configuration, TFM, prerelease, and
+visibility options so the next probe can run from a different working directory.
 
 The range and point probes identify a candidate boundary. Confirm the adjacent
 pair with Metadata's real Finding comparison rather than inferring introduction

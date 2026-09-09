@@ -7,7 +7,8 @@ internal sealed class ConfiguredPackageExtractionSession(
     string tempDirPrefix,
     Func<DesktopPackageSourceComposition>? createComposition) : IAsyncDisposable
 {
-    private readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores = [];
+    private readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
+        new(ReferenceEqualityComparer.Instance);
     private DesktopPackageSourceComposition? _composition;
     private NuGetOperationContext? _operation;
     private string? _temporaryRoot;
@@ -22,7 +23,7 @@ internal sealed class ConfiguredPackageExtractionSession(
             packageId, version, GetStore, sourceOptions, log,
             operationContext: _operation).ConfigureAwait(false);
 
-        return ConvertResult(result,
+        return ConvertResult(result, packageId,
             $"Package '{packageId}' version '{version}'",
             "No eligible source supplied this exact coordinate.", log);
     }
@@ -38,8 +39,34 @@ internal sealed class ConfiguredPackageExtractionSession(
             packageId, versionSelector, GetStore, sourceOptions, log,
             includePrerelease, rangeAddress, operationContext: _operation).ConfigureAwait(false);
 
-        return ConvertResult(result,
+        return ConvertResult(result, packageId,
             $"Package '{packageId}' selection '{(string.IsNullOrEmpty(versionSelector) ? "latest" : versionSelector)}'",
+            "No eligible reporting source supplied a matching payload.", log);
+    }
+
+    internal Task<PackageVersionDiscoveryResult> DiscoverRangeAsync(
+        PackageVersionRange range, NuGetSourceOptions? sourceOptions,
+        Action<string>? log, bool includePrerelease)
+    {
+        DesktopPackageSourceComposition composition = GetComposition();
+        _operation ??= composition.CreateOperationContext();
+        return composition.GetVersionsAsync(
+            range.PackageId, includePrerelease || range.IncludesPrerelease,
+            limit: null, sourceOptions, log,
+            includeUnlisted: false, operationContext: _operation);
+    }
+
+    internal async Task<PackageExtractionOutcome> AcquireDiscoveredAsync(
+        string packageId,
+        PackageVersionDiscoveryResult discovery, PackageSourceCoordinate coordinate,
+        NuGetSourceOptions? sourceOptions, Action<string>? log)
+    {
+        DesktopPackageSourceComposition composition = GetComposition();
+        _operation ??= composition.CreateOperationContext();
+        ConfiguredPackagePayloadResult result = await composition.AcquireDiscoveredAsync(
+            discovery, coordinate, GetStore, sourceOptions, log, _operation).ConfigureAwait(false);
+        return ConvertResult(result, packageId,
+            $"Package '{coordinate.PackageId}' range version '{coordinate.Version}'",
             "No eligible reporting source supplied a matching payload.", log);
     }
 
@@ -50,7 +77,7 @@ internal sealed class ConfiguredPackageExtractionSession(
                 : requestTimeout);
 
     private static PackageExtractionOutcome ConvertResult(
-        ConfiguredPackagePayloadResult result, string request,
+        ConfiguredPackagePayloadResult result, string packageId, string request,
         string noMatch, Action<string>? log)
     {
         foreach (PackageAuthorityFailure failure in result.Failures)
@@ -69,7 +96,7 @@ internal sealed class ConfiguredPackageExtractionSession(
             payload.Content.RootPath
                 ?? throw new InvalidOperationException("Desktop package acquisition requires filesystem content."),
             TempDir: null,
-            payload.Coordinate.PackageId,
+            packageId,
             payload.Coordinate.Version,
             payload.Content.NupkgPath,
             FromCache: payload.Origin == PackagePayloadOrigin.Cache,
@@ -77,6 +104,11 @@ internal sealed class ConfiguredPackageExtractionSession(
         {
             Authority = result.Authority,
             AcquiredPayload = payload,
+            SelectedVersionSourceUrls = result.ReportingAuthorities is null
+                ? null
+                : Array.AsReadOnly(result.ReportingAuthorities
+                    .Select(authority => authority.Source.Url).ToArray()),
+            SelectedVersionUsesOriginalSources = result.SelectionUsesOriginalSources,
         };
     }
 
@@ -84,7 +116,16 @@ internal sealed class ConfiguredPackageExtractionSession(
     {
         PackageExtractionResult completed = result with { TempDir = _temporaryRoot ?? result.TempDir };
         _temporaryRoot = null;
+        // Each store's lazy temporary cache path belongs to the transferred root.
+        _stores.Clear();
         return completed;
+    }
+
+    internal void CleanupAttempt()
+    {
+        PackageExtractor.Cleanup(_temporaryRoot);
+        _temporaryRoot = null;
+        _stores.Clear();
     }
 
     private IPackageStore GetStore(ConfiguredPackageAuthority authority, PackageProducerIdentity producer)
@@ -109,7 +150,7 @@ internal sealed class ConfiguredPackageExtractionSession(
         finally
         {
             _operation?.Dispose();
-            PackageExtractor.Cleanup(_temporaryRoot);
+            CleanupAttempt();
         }
     }
 }

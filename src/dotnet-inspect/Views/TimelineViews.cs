@@ -42,7 +42,7 @@ public sealed class TimelineDocumentView
     public string Finding { get => field; init => field = TimelineViewText.Contain(value); } = "";
 
     /// <inheritdoc cref="TimelineViewText"/>
-    public string? Recommendation { get => field; init => field = TimelineViewText.Contain(value); }
+    public string? Recommendation { get => field; set => field = TimelineViewText.Contain(value); }
 
     [MarkoutSection(Name = "Evaluations")]
     public List<TimelineEvaluationRow>? Evaluations { get; init; }

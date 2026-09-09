@@ -182,6 +182,17 @@ both before dispatching, and expect to update them:
 - Record the outcome either way. If neither needed a change, say so; silence
   reads the same as an unchecked box.
 
+The thin bootstrap skill distributed from the peer
+[`richlander/dotnet-skills`](https://github.com/richlander/dotnet-skills)
+marketplace is a release checkpoint too. Compare it with the selected
+`VersionPrefix` and the generated `dotnet-inspect skill list`. It must stay at
+or below 60 lines, teach the basic command UX, enumerate every embedded focused
+skill, and defer details to the version-matched guide in the tool. When the
+content or version changes, align every peer skill and plugin manifest version
+with the dotnet-inspect release and publish the peer update. When the peer is
+already current and the reconciliation produces no diff, do not make a no-op
+peer release.
+
 ## Dispatching
 
 1. Open the selected successful `main` CI run and copy its run ID.

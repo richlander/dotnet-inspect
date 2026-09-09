@@ -25,23 +25,12 @@ public sealed class CustomAttributeCorpusTests(ITestOutputHelper output)
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task PinnedPackage_AllAttributeRowsEqualIndependentOracle()
+    public async Task PinnedPackages_AllAttributeRowsEqualIndependentOracle()
     {
-        CorpusInput input = LoadInput();
-        Assert.NotEmpty(input.Assemblies);
-        Assert.NotEmpty(input.Enums);
+        CorpusSet corpus = LoadInput();
         CancellationToken cancellationToken = TestContext.Current.CancellationToken;
         using var http = new HttpClient();
         var client = new NuGetClient(http);
-        await using var source = await client.DownloadAsync(
-            input.Id, input.Version, cancellationToken: cancellationToken);
-        using var package = new MemoryStream();
-        await source.CopyToAsync(package, cancellationToken);
-        VerifyHash(package.ToArray(), input.Sha256, $"{input.Id}@{input.Version}");
-        package.Position = 0;
-        using var zip = new ZipArchive(package, ZipArchiveMode.Read);
-        var images = input.Assemblies.Concat(input.RetainedDependencies)
-            .Select(entry => ReadImage(zip, entry)).ToArray();
         string[] frameworkPaths =
         [
             typeof(object).Assembly.Location,
@@ -51,6 +40,71 @@ public sealed class CustomAttributeCorpusTests(ITestOutputHelper output)
         ];
         var framework = frameworkPaths.Select(path =>
             new Image(Path.GetFileName(path), File.ReadAllBytes(path))).ToArray();
+        var snapshots = new List<SnapshotReport>();
+        foreach (CorpusInput input in corpus.Snapshots)
+            snapshots.Add(await SweepSnapshot(client, input, framework, cancellationToken));
+
+        var fixtureCases = CustomAttributeFidelitySamples.EnumCases.ToArray();
+        var fixtures = new CustomAttributeFidelityTests();
+        foreach (object[] sample in fixtureCases)
+            fixtures.RetainedCrossAssemblyEnums_EqualProducerTruth(
+                (Type)sample[0], (CustomAttributeValue<string>)sample[1]);
+
+        var report = new
+        {
+            SchemaVersion = 2,
+            Decoder = AssemblyEvidence(typeof(AttributeDecoder).Assembly),
+            Harness = AssemblyEvidence(typeof(CustomAttributeCorpusTests).Assembly),
+            Oracle = AssemblyEvidence(typeof(MetadataReader).Assembly),
+            Runtime = RuntimeInformation.FrameworkDescription,
+            CheckedOutCommit = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+            FrameworkDefinitions = framework.Select(image =>
+                new ImageEntry(image.Path, Hash(image.Bytes))),
+            CompanionFixtureProducerSdk = typeof(CustomAttributeCorpusTests).Assembly
+                .GetCustomAttributes<AssemblyMetadataAttribute>()
+                .Single(attribute => attribute.Key == "D3FixtureProducerSdk").Value,
+            CompanionProducerTruthCases = fixtureCases.Length,
+            Snapshots = snapshots,
+            Passed = snapshots.All(snapshot => snapshot.Passed),
+        };
+        string json = JsonSerializer.Serialize(report, JsonOptions);
+        output.WriteLine(json);
+        if (Environment.GetEnvironmentVariable("DOTNET_INSPECT_D3_REPORT") is { Length: > 0 } reportPath)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
+            await File.WriteAllTextAsync(reportPath, json + "\n", cancellationToken);
+        }
+
+        Assert.All(snapshots, snapshot => Assert.All(
+            snapshot.Assemblies,
+            observation => Assert.True(
+                observation.Passed,
+                $"{snapshot.Package.Id}@{snapshot.Package.Version} {observation.Path}: "
+                + $"{observation.Rows} rows, {observation.Equal} equal, "
+                + $"{observation.Refused} refused, "
+                + $"{observation.OracleRejected} oracle failures, "
+                + $"{observation.Different} differences, "
+                + $"{observation.Defaulted} defaulted. "
+                + string.Join("; ", observation.Failures))));
+    }
+
+    static async Task<SnapshotReport> SweepSnapshot(
+        NuGetClient client,
+        CorpusInput input,
+        IReadOnlyList<Image> framework,
+        CancellationToken cancellationToken)
+    {
+        Assert.NotEmpty(input.Assemblies);
+        Assert.NotEmpty(input.Enums);
+        await using var source = await client.DownloadAsync(
+            input.Id, input.Version, cancellationToken: cancellationToken);
+        using var package = new MemoryStream();
+        await source.CopyToAsync(package, cancellationToken);
+        VerifyHash(package.ToArray(), input.Sha256, $"{input.Id}@{input.Version}");
+        package.Position = 0;
+        using var zip = new ZipArchive(package, ZipArchiveMode.Read);
+        var images = input.Assemblies.Concat(input.RetainedDependencies)
+            .Select(entry => ReadImage(zip, entry)).ToArray();
         var definitions = images.Concat(framework).Select(image => image.Descriptor()).ToArray();
         TypeResolutionRequest[] requests = input.Enums.Select(evidence =>
         {
@@ -89,44 +143,27 @@ public sealed class CustomAttributeCorpusTests(ITestOutputHelper output)
             observations.Add(Sweep(
                 image.Path, reader, reader.CustomAttributes, oracle, Resolve));
         }
+        return new(input, observations);
+    }
 
-        var fixtureCases = CustomAttributeFidelitySamples.EnumCases.ToArray();
-        var fixtures = new CustomAttributeFidelityTests();
-        foreach (object[] sample in fixtureCases)
-            fixtures.RetainedCrossAssemblyEnums_EqualProducerTruth(
-                (Type)sample[0], (CustomAttributeValue<string>)sample[1]);
+    [Fact]
+    public void CorpusRecord_DeclaresExpectedSnapshots()
+    {
+        CorpusSet corpus = LoadInput();
+        Assert.Collection(
+            corpus.Snapshots,
+            input => AssertSnapshot(input, "0.14.0", assemblies: 8, enums: 12),
+            input => AssertSnapshot(input, "0.25.0", assemblies: 33, enums: 18));
 
-        var report = new
+        static void AssertSnapshot(
+            CorpusInput input, string version, int assemblies, int enums)
         {
-            SchemaVersion = 1,
-            Decoder = AssemblyEvidence(typeof(AttributeDecoder).Assembly),
-            Harness = AssemblyEvidence(typeof(CustomAttributeCorpusTests).Assembly),
-            Oracle = AssemblyEvidence(typeof(MetadataReader).Assembly),
-            Runtime = RuntimeInformation.FrameworkDescription,
-            CheckedOutCommit = Environment.GetEnvironmentVariable("GITHUB_SHA"),
-            Package = input,
-            FrameworkDefinitions = framework.Select(image => new ImageEntry(image.Path, Hash(image.Bytes))),
-            CompanionFixtureProducerSdk = typeof(CustomAttributeCorpusTests).Assembly
-                .GetCustomAttributes<AssemblyMetadataAttribute>()
-                .Single(attribute => attribute.Key == "D3FixtureProducerSdk").Value,
-            CompanionProducerTruthCases = fixtureCases.Length,
-            Assemblies = observations,
-            Passed = observations.All(observation => observation.Passed),
-        };
-        string json = JsonSerializer.Serialize(report, JsonOptions);
-        output.WriteLine(json);
-        if (Environment.GetEnvironmentVariable("DOTNET_INSPECT_D3_REPORT") is { Length: > 0 } reportPath)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
-            await File.WriteAllTextAsync(reportPath, json + "\n", cancellationToken);
+            Assert.Equal("dotnet-inspect.any", input.Id);
+            Assert.Equal(version, input.Version);
+            Assert.Equal(assemblies, input.Assemblies.Length);
+            Assert.Single(input.RetainedDependencies);
+            Assert.Equal(enums, input.Enums.Length);
         }
-
-        Assert.All(observations, observation => Assert.True(
-            observation.Passed,
-            $"{observation.Path}: {observation.Rows} rows, {observation.Equal} equal, "
-            + $"{observation.Refused} refused, {observation.OracleRejected} oracle failures, "
-            + $"{observation.Different} differences, {observation.Defaulted} defaulted. "
-            + string.Join("; ", observation.Failures)));
     }
 
     [Fact]
@@ -232,14 +269,15 @@ public sealed class CustomAttributeCorpusTests(ITestOutputHelper output)
         return new(path, handles.Count, equal, refused, oracleRejected, different, defaulted, failures);
     }
 
-    static CorpusInput LoadInput()
+    static CorpusSet LoadInput()
     {
         using var stream = typeof(CustomAttributeCorpusTests).Assembly.GetManifestResourceStream(
             "ILInspector.Metadata.Tests.Corpus.custom-attribute-d3.json")
             ?? throw new InvalidDataException("D3 corpus record is missing.");
-        var input = JsonSerializer.Deserialize<CorpusInput>(stream, JsonOptions)
+        var input = JsonSerializer.Deserialize<CorpusSet>(stream, JsonOptions)
             ?? throw new InvalidDataException("D3 corpus record is empty.");
-        Assert.Equal(1, input.SchemaVersion);
+        Assert.Equal(2, input.SchemaVersion);
+        Assert.NotEmpty(input.Snapshots);
         return input;
     }
 
@@ -301,8 +339,9 @@ public sealed class CustomAttributeCorpusTests(ITestOutputHelper output)
     sealed record EnumEvidence(
         string Name, string Definition, string[] SerializedNames,
         PrimitiveTypeCode UnderlyingType, string Source);
+    sealed record CorpusSet(int SchemaVersion, CorpusInput[] Snapshots);
     sealed record CorpusInput(
-        int SchemaVersion, string Id, string Version, string Sha256, ProducerEvidence Producer,
+        string Id, string Version, string Sha256, ProducerEvidence Producer,
         ImageEntry[] Assemblies, ImageEntry[] RetainedDependencies, EnumEvidence[] Enums);
     sealed record Observation(
         string Path, int Rows, int Equal, int Refused, int OracleRejected,
@@ -310,5 +349,10 @@ public sealed class CustomAttributeCorpusTests(ITestOutputHelper output)
     {
         public bool Passed => Rows > 0 && Equal == Rows
             && Refused == 0 && OracleRejected == 0 && Different == 0 && Defaulted == 0;
+    }
+    sealed record SnapshotReport(CorpusInput Package, IReadOnlyList<Observation> Assemblies)
+    {
+        public bool Passed => Assemblies.Count > 0
+            && Assemblies.All(observation => observation.Passed);
     }
 }

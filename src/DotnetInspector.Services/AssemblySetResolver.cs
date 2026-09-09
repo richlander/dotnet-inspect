@@ -120,7 +120,6 @@ public static class AssemblySetResolver
         List<string> tempDirs = [];
 
         void Warn(string message) => diagnostics.Add(new AssemblySetDiagnostic(AssemblySetDiagnosticSeverity.Warning, message));
-        void Error(string message) => diagnostics.Add(new AssemblySetDiagnostic(AssemblySetDiagnosticSeverity.Error, message));
 
         async Task AddPackagesAsync()
         {
@@ -142,49 +141,9 @@ public static class AssemblySetResolver
                 var extracted = outcome.Result!;
                 if (extracted.TempDir != null)
                     tempDirs.Add(extracted.TempDir);
-
-                IEnumerable<string> dlls;
-                string? selectedTfm = null;
-                if (request.PackageSelectionMode == AssemblySetPackageSelectionMode.LibAssembliesDescending)
-                {
-                    dlls = Directory.GetFiles(extracted.ExtractPath, "*.dll", SearchOption.AllDirectories)
-                        .Where(p => p.Contains("/lib/", StringComparison.Ordinal)
-                            || p.Contains("\\lib\\", StringComparison.Ordinal))
-                        .OrderByDescending(static p => p, StringComparer.Ordinal);
-                }
-                else
-                {
-                    var selection = TfmSelector.SelectHighestAssembliesFromPackage(
-                        extracted.ExtractPath,
-                        request.Tfm);
-                    selectedTfm = selection.tfm;
-                    dlls = selection.paths;
-                    if (!request.IncludePackageRuntimeAssemblies)
-                    {
-                        dlls = dlls.Where(p => !p.Contains("/runtimes/", StringComparison.Ordinal)
-                            && !p.Contains("\\runtimes\\", StringComparison.Ordinal));
-                    }
-                    dlls = dlls.OrderBy(static p => p, StringComparer.Ordinal);
-                }
-
-                var foundAssembly = false;
-                foreach (var dll in dlls)
-                {
-                    foundAssembly = true;
-                    assemblies.Add(new AssemblySetEntry(
-                        dll,
-                        extracted.PackageName ?? pkg,
-                        extracted.Version,
-                        AssemblySetSourceKind.Package,
-                        selectedTfm));
-                }
-
-                if (!foundAssembly && request.PackageSelectionMode == AssemblySetPackageSelectionMode.LibAssembliesDescending)
-                    Error($"No libraries found in package '{pkg}'.");
-                else if (!foundAssembly)
-                    Error(string.IsNullOrWhiteSpace(request.Tfm)
-                        ? $"No assemblies found in package '{pkg}'."
-                        : $"No assemblies found for target framework '{request.Tfm}' in package '{pkg}'.");
+                AddExtractedPackage(
+                    extracted, pkg, request.Tfm, request.IncludePackageRuntimeAssemblies,
+                    request.PackageSelectionMode, assemblies, diagnostics);
             }
         }
 
@@ -377,6 +336,85 @@ public static class AssemblySetResolver
         {
             AssemblySet.DeleteOwnedTemporaryDirectories(tempDirs);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Selects assemblies from an already acquired package without acquiring it again.
+    /// Ownership of the extraction's temporary directory transfers to the returned set.
+    /// </summary>
+    public static AssemblySet CollectExtractedPackage(
+        PackageExtractionResult extracted,
+        string? tfm = null,
+        bool includeRuntimeAssemblies = false,
+        AssemblySetPackageSelectionMode selectionMode = AssemblySetPackageSelectionMode.TargetFramework)
+    {
+        ArgumentNullException.ThrowIfNull(extracted);
+        List<AssemblySetEntry> assemblies = [];
+        List<AssemblySetDiagnostic> diagnostics = [];
+        string[] tempDirs = extracted.TempDir is { } temporary ? [temporary] : [];
+        try
+        {
+            AddExtractedPackage(
+                extracted, extracted.PackageName ?? extracted.ExtractPath, tfm,
+                includeRuntimeAssemblies, selectionMode, assemblies, diagnostics);
+            return new AssemblySet(assemblies, diagnostics, tempDirs);
+        }
+        catch
+        {
+            AssemblySet.DeleteOwnedTemporaryDirectories(tempDirs);
+            throw;
+        }
+    }
+
+    private static void AddExtractedPackage(
+        PackageExtractionResult extracted,
+        string package,
+        string? tfm,
+        bool includeRuntimeAssemblies,
+        AssemblySetPackageSelectionMode selectionMode,
+        List<AssemblySetEntry> assemblies,
+        List<AssemblySetDiagnostic> diagnostics)
+    {
+        IEnumerable<string> dlls;
+        string? selectedTfm = null;
+        if (selectionMode == AssemblySetPackageSelectionMode.LibAssembliesDescending)
+        {
+            dlls = Directory.GetFiles(extracted.ExtractPath, "*.dll", SearchOption.AllDirectories)
+                .Where(p => p.Contains("/lib/", StringComparison.Ordinal)
+                    || p.Contains("\\lib\\", StringComparison.Ordinal))
+                .OrderByDescending(static p => p, StringComparer.Ordinal);
+        }
+        else
+        {
+            var selection = TfmSelector.SelectHighestAssembliesFromPackage(extracted.ExtractPath, tfm);
+            selectedTfm = selection.tfm;
+            dlls = selection.paths;
+            if (!includeRuntimeAssemblies)
+            {
+                dlls = dlls.Where(p => !p.Contains("/runtimes/", StringComparison.Ordinal)
+                    && !p.Contains("\\runtimes\\", StringComparison.Ordinal));
+            }
+            dlls = dlls.OrderBy(static p => p, StringComparer.Ordinal);
+        }
+
+        bool foundAssembly = false;
+        foreach (string dll in dlls)
+        {
+            foundAssembly = true;
+            assemblies.Add(new AssemblySetEntry(
+                dll, extracted.PackageName ?? package, extracted.Version,
+                AssemblySetSourceKind.Package, selectedTfm));
+        }
+
+        if (!foundAssembly)
+        {
+            string message = selectionMode == AssemblySetPackageSelectionMode.LibAssembliesDescending
+                ? $"No libraries found in package '{package}'."
+                : string.IsNullOrWhiteSpace(tfm)
+                    ? $"No assemblies found in package '{package}'."
+                    : $"No assemblies found for target framework '{tfm}' in package '{package}'.";
+            diagnostics.Add(new AssemblySetDiagnostic(AssemblySetDiagnosticSeverity.Error, message));
         }
     }
 }

@@ -85,9 +85,9 @@ file, embedded, or another future input does not become a generic Root merely
 because it can contain Libraries. A focused design may add a concrete subject
 kind when a named consumer demonstrates its own identity, hierarchy, facets,
 and behavior. Artifact Acquisition continues to use Root for its broader
-physical realization contract. Scope's current `WorkspaceRoot*` names are
-transitional until #6293 replaces them with Package-specific vocabulary;
-neither creates a Navigation subject.
+physical realization contract. Scope's pre-issuance `WorkspaceRoot*` names are
+replaced in place by Package-specific `WorkspacePackage*` names under #6293;
+neither vocabulary creates a Navigation subject.
 The pre-adoption decision to keep this grammar package-specific is recorded on
 [PR #6184](https://github.com/richlander/dotnet-inspect/pull/6184#issuecomment-5574458614).
 
@@ -257,9 +257,9 @@ consumes those owner-issued exact values. A portable package coordinate alone
 cannot identify one retained occurrence.
 
 The `ArtifactRoot*` names in the adjacent Artifact owner describe one physical
-realization and publication unit and remain correct. Scope's current
-`WorkspaceRoot*` names are pre-issuance implementation vocabulary; its target
-contract exposes only Package occurrences and renames those types in place.
+realization and publication unit and remain correct. Issue #6293 replaces
+Scope's pre-issuance `WorkspaceRoot*` names in place; its implementation
+exposes only Package occurrences.
 Navigation consumes that Package-specific contract and never exposes a Root
 subject.
 

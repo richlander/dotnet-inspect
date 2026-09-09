@@ -263,7 +263,7 @@ jobs:
         id: metadata
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
-          DOTNET_INSPECT_D3_REPORT: artifacts/custom-attribute-d3/result.json
+          DOTNET_INSPECT_D3_REPORT: ${{ github.workspace }}/artifacts/custom-attribute-d3/result.json
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --long-running 60 --xunit-diagnostics on
 
       - name: Upload custom-attribute D3 evidence
