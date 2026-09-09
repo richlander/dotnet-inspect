@@ -57,7 +57,7 @@ function readEntries(raw: string | null): SavedWorkspace[] {
 export function createSavedWorkspaces(options: {
   read: () => string | null;
   write: (value: string) => void;
-  capture: () => string;
+  capture: () => string | Promise<string>;
   open: (entry: SavedWorkspace) => void;
   render: (focus?: SavedWorkspaceFocus) => void;
 }) {
@@ -108,14 +108,18 @@ export function createSavedWorkspaces(options: {
       state.error = "";
       options.render({ kind: "save" });
     },
-    save() {
+    async save() {
       let focus: SavedWorkspaceFocus = { kind: "save-name" };
       try {
         const name = validateName(state.name);
         if (state.entries.some(entry => entry.name.toLowerCase() === name.toLowerCase())) {
           throw new Error(`A saved Workspace named "${name}" already exists. Choose another name.`);
         }
-        const entry = { name, packet: options.capture() };
+        const captured = options.capture();
+        const packet = typeof captured === "string"
+          ? captured
+          : await captured;
+        const entry = { name, packet };
         persist([...state.entries, entry]);
         state.formOpen = false;
         state.name = "";

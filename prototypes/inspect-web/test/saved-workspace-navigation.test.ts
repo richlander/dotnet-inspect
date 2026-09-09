@@ -44,6 +44,7 @@ import {
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
+  parseWorkspaceLocationAsync,
   workspaceShareCaptureTopology,
   workspaceShareTabsMatchResolved,
   type ParsedWorkspaceLocation,
@@ -62,7 +63,8 @@ assert.deepEqual(app.errors, []);
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "scope", "syncUrl", "buildStateUrl",
-  "openSavedWorkspace", "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
+  "openSavedWorkspace", "openSavedWorkspaceCore",
+  "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
   "commitDemoNavigation", "cancelDemoNavigation",
   "captureCanonicalWorkspaceRestoreSnapshot", "restoreCanonicalWorkspaceRestoreSnapshot",
@@ -346,7 +348,10 @@ function harness() {
     activeWorkspaceUrl: null as string | null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
     spotlightMemberCache: null as object | null,
-    spotlightFocusGeneration: 0, documentFocusGeneration: 0, workspaceOccurrenceRevision: 0,
+    spotlightFocusGeneration: 0, documentFocusGeneration: 0,
+    workspaceOccurrenceRevision: 0, syncUrlRevision: 0,
+    workspaceOccurrenceClearBarrier: Promise.resolve(),
+    workspaceOccurrenceClearFailure: null as unknown,
     HTMLElement: class { isContentEditable = false; },
     URL, URLSearchParams, Error, structuredClone, Set,
     MAX_WORKSPACE_PACKAGES, packageIdentityKey, memberScopeIsActive,
@@ -389,6 +394,9 @@ function harness() {
     recordRecentPackage: (...coordinate: string[]) => recent.push(coordinate),
     packageInspection: { invalidatePackageResults: () => invalidations.push("package-results") },
     inspectClearWorkspacePackageOccurrences: () => invalidations.push("occurrences"),
+    reportAsyncFailure: (_description: string, error: unknown) => {
+      throw error;
+    },
     applicationMenuOwnsFocus: () => false,
     showToast: (message: string) => toasts.push(message),
     spotlight: {
@@ -404,7 +412,7 @@ function harness() {
       },
     },
     typeLensesFor, workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
-    parseWorkspaceLocation, isProductHomeDemosPath,
+    parseWorkspaceLocation, parseWorkspaceLocationAsync, isProductHomeDemosPath,
     inspectDecodeWorkspaceShareState: decode,
     requestAnimationFrame: (action: () => void) => frames.push(action),
     observeAsync: (operation: Promise<unknown>) => operations.push(operation),
@@ -505,8 +513,9 @@ function harness() {
     queries, retained, recent, invalidations, toasts, picker, previousEntries,
     catalogRequests, packageComparisonTargets,
     demoResolutions, callGraphRuns, publications,
-    capture: (): string => {
-      const result: unknown = runInNewContext("captureSavedWorkspacePacket()", context);
+    capture: async (): Promise<string> => {
+      const result: unknown =
+        await runInNewContext("captureSavedWorkspacePacket()", context);
       assert.ok(typeof result === "string");
       return result;
     },
@@ -588,7 +597,7 @@ test("capture settles a loading document viewer without claiming ready content",
   assert.equal(h.state.docViewer.status, "loading");
 });
 
-test("capture uses the original share projection and retains Workspace presentation without effects", () => {
+test("capture uses the original share projection and retains Workspace presentation without effects", async () => {
   const h = harness();
   const basis = sharedState();
   h.state.packages = basis.tabs.map(tab => ({
@@ -604,7 +613,7 @@ test("capture uses the original share projection and retains Workspace presentat
   const href = h.location.href;
   const history = h.history.state;
 
-  assert.equal(h.capture(), packet);
+  assert.equal(await h.capture(), packet);
   assert.deepEqual(h.encoded, [basis]);
   assert.deepEqual(h.state, before);
   assert.equal(h.location.href, href);
@@ -615,7 +624,7 @@ test("capture uses the original share projection and retains Workspace presentat
   assert.deepEqual(h.focus, []);
 });
 
-test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete projection", () => {
+test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete projection", async () => {
   for (const mutate of [
     (h: ReturnType<typeof harness>) => { h.state.home = true; },
     (h: ReturnType<typeof harness>) => { h.state.credits = true; },
@@ -630,7 +639,7 @@ test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete 
   ]) {
     const h = harness();
     mutate(h);
-    assert.throws(h.capture, /Workspace|workspace|library/);
+    await assert.rejects(h.capture(), /Workspace|workspace|library/);
     assert.equal(h.writes.length, 0);
     assert.deepEqual(h.encoded, []);
   }
@@ -641,13 +650,15 @@ test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete 
   ] satisfies BrowserWorkspaceShareEncodeResult[]) {
     const h = harness();
     h.controls.encodeResult = result;
-    assert.throws(h.capture, /Projection unavailable|canonical share/);
+    await assert.rejects(
+      h.capture(),
+      /Projection unavailable|canonical share/);
     assert.equal(h.writes.length, 0);
   }
 });
 
 for (const platform of [false, true]) {
-  test(`saving pins resolved ${platform ? "Platform" : "package"} coordinates without replacing packet-local identities or live share intent`, () => {
+  test(`saving pins resolved ${platform ? "Platform" : "package"} coordinates without replacing packet-local identities or live share intent`, async () => {
     const h = harness();
     const original = sharedState();
     const basis: BrowserWorkspaceShareState = {
@@ -669,7 +680,7 @@ for (const platform of [false, true]) {
     h.state.package = h.state.packages[1]!;
     h.state.workspaceShareBasis = basis;
     const before = structuredClone(h.state);
-    h.capture();
+    await h.capture();
     const expected = {
       ...basis,
       tabs: basis.tabs.map((tab, index) => index === 0
@@ -1055,7 +1066,7 @@ test("call-graph demo execution receives the resolution navigation sequence and 
   const resolution = deferred<BrowserHomeDemoResolveResult>();
   const execution = deferred<void>();
   h.controls.resolveHomeDemo = () => resolution.promise;
-  h.controls.demoHref = () => null;
+  h.controls.demoHref = async () => null;
   h.controls.callGraph = () => execution.promise;
   h.demo();
   const sequence = h.navigationSequence.current();
@@ -1182,9 +1193,9 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     h.state.workspaceOccurrenceSignature, h.state.workspaceOccurrenceError,
   ]) assert.equal(value, "");
   assert.deepEqual(Array.from(h.state.platformStack), []);
-  assert.deepEqual(h.invalidations, ["occurrences", "package-results"]);
+  assert.deepEqual(h.invalidations, ["package-results", "occurrences"]);
   assert.equal(h.context.workspaceOccurrenceRevision, 1);
-  assert.equal(h.capture(), packet);
+  assert.equal(await h.capture(), packet);
   assert.ok(h.encoded.length >= 2);
   for (const projection of h.encoded) assert.deepEqual(projection, {
     tabs: [
@@ -1233,7 +1244,7 @@ test("Add to an empty Workspace activates its first resolved coordinate and stay
   assert.deepEqual(h.publications, [null]);
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");
-  assert.equal(h.location.searchParams.get("w"), h.capture());
+  assert.equal(h.location.searchParams.get("w"), await h.capture());
   h.flushFocus();
   assert.deepEqual(h.focus, ["heading"]);
 });

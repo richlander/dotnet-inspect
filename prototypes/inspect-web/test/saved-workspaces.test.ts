@@ -49,7 +49,7 @@ function harness(initial: string | null = null) {
     save(name: string) {
       saves.beginSave();
       saves.setName(name);
-      saves.save();
+      void saves.save();
     },
   };
 }
