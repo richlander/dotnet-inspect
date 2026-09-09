@@ -379,7 +379,9 @@ public sealed class CoercionInsertionPass : IIrPass
             context.Stepper.StepOver($"coerce sink value to {target.Name}", value);
             // Clone so the wrapper owns a detached copy before the in-place
             // replace swaps the original out of its slot.
-            value.ReplaceWith(new Coerce(target, (IrExpression)value.Clone()));
+            var coercion = new Coerce(target, (IrExpression)value.Clone());
+            coercion.InheritSourceOffset(value);
+            value.ReplaceWith(coercion);
         }
     }
 

@@ -209,7 +209,9 @@ public sealed class TypedConstantsPass : IIrPass
             } convert when shapes.GetValueOrDefault(target) == TypeShape.Enum:
                 long widened = convertTarget.Name == "UInt64" ? (uint)payload : payload;
                 stepper.StepOver($"fold widening conv into enum {target.Name} constant", convert);
-                convert.ReplaceWith(new Constant(widened, target));
+                var widenedConstant = new Constant(widened, target);
+                widenedConstant.InheritSourceOffset(convert);
+                convert.ReplaceWith(widenedConstant);
                 return;
         }
     }
@@ -224,11 +226,15 @@ public sealed class TypedConstantsPass : IIrPass
                 {
                     case "Boolean" when value is 0 or 1:
                         stepper.StepOver($"retype constant {value} to bool", constant);
-                        constant.ReplaceWith(new Constant(value == 1, target));
+                        var boolean = new Constant(value == 1, target);
+                        boolean.InheritSourceOffset(constant);
+                        constant.ReplaceWith(boolean);
                         return;
                     case "Char" when value >= char.MinValue && value <= char.MaxValue:
                         stepper.StepOver($"retype constant {value} to char", constant);
-                        constant.ReplaceWith(new Constant((char)value, target));
+                        var character = new Constant((char)value, target);
+                        character.InheritSourceOffset(constant);
+                        constant.ReplaceWith(character);
                         return;
                 }
             }
@@ -246,7 +252,9 @@ public sealed class TypedConstantsPass : IIrPass
         if (shapes.GetValueOrDefault(target) == TypeShape.Enum && constant.Type?.Equals(target) != true)
         {
             stepper.StepOver($"retype constant to enum {target.Name}", constant);
-            constant.ReplaceWith(new Constant(constant.Value, target));
+            var enumConstant = new Constant(constant.Value, target);
+            enumConstant.InheritSourceOffset(constant);
+            constant.ReplaceWith(enumConstant);
         }
     }
 }
