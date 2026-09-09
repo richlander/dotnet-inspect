@@ -108,6 +108,7 @@ public sealed class PackageRangeExtraction : IAsyncDisposable
             using (FeedFailureTelemetry.Scope())
             {
                 selected = await _session.AcquireDiscoveredAsync(
+                    Vector.PackageId,
                     _discovery,
                     PackageSourceCoordinate.Create(Vector.PackageId, address!.Version.ToNormalizedString()),
                     _sourceOptions, _log).ConfigureAwait(false);

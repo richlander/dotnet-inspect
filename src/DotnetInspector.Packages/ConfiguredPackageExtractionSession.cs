@@ -23,7 +23,7 @@ internal sealed class ConfiguredPackageExtractionSession(
             packageId, version, GetStore, sourceOptions, log,
             operationContext: _operation).ConfigureAwait(false);
 
-        return ConvertResult(result,
+        return ConvertResult(result, packageId,
             $"Package '{packageId}' version '{version}'",
             "No eligible source supplied this exact coordinate.", log);
     }
@@ -39,7 +39,7 @@ internal sealed class ConfiguredPackageExtractionSession(
             packageId, versionSelector, GetStore, sourceOptions, log,
             includePrerelease, rangeAddress, operationContext: _operation).ConfigureAwait(false);
 
-        return ConvertResult(result,
+        return ConvertResult(result, packageId,
             $"Package '{packageId}' selection '{(string.IsNullOrEmpty(versionSelector) ? "latest" : versionSelector)}'",
             "No eligible reporting source supplied a matching payload.", log);
     }
@@ -57,6 +57,7 @@ internal sealed class ConfiguredPackageExtractionSession(
     }
 
     internal async Task<PackageExtractionOutcome> AcquireDiscoveredAsync(
+        string packageId,
         PackageVersionDiscoveryResult discovery, PackageSourceCoordinate coordinate,
         NuGetSourceOptions? sourceOptions, Action<string>? log)
     {
@@ -64,7 +65,7 @@ internal sealed class ConfiguredPackageExtractionSession(
         _operation ??= composition.CreateOperationContext();
         ConfiguredPackagePayloadResult result = await composition.AcquireDiscoveredAsync(
             discovery, coordinate, GetStore, sourceOptions, log, _operation).ConfigureAwait(false);
-        return ConvertResult(result,
+        return ConvertResult(result, packageId,
             $"Package '{coordinate.PackageId}' range version '{coordinate.Version}'",
             "No eligible reporting source supplied a matching payload.", log);
     }
@@ -76,7 +77,7 @@ internal sealed class ConfiguredPackageExtractionSession(
                 : requestTimeout);
 
     private static PackageExtractionOutcome ConvertResult(
-        ConfiguredPackagePayloadResult result, string request,
+        ConfiguredPackagePayloadResult result, string packageId, string request,
         string noMatch, Action<string>? log)
     {
         foreach (PackageAuthorityFailure failure in result.Failures)
@@ -95,7 +96,7 @@ internal sealed class ConfiguredPackageExtractionSession(
             payload.Content.RootPath
                 ?? throw new InvalidOperationException("Desktop package acquisition requires filesystem content."),
             TempDir: null,
-            payload.Coordinate.PackageId,
+            packageId,
             payload.Coordinate.Version,
             payload.Content.NupkgPath,
             FromCache: payload.Origin == PackagePayloadOrigin.Cache,

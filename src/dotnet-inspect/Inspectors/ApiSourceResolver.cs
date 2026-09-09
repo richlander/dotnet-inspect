@@ -139,6 +139,8 @@ internal static class ApiSourceResolver
 
             if (!string.IsNullOrEmpty(packagePath))
             {
+                var (requestedPackageName, _) =
+                    PackageExtractor.ParsePackageReference(packagePath);
                 var target = PackageExtractor.ParsePackageTarget(packagePath);
                 var outcome = rangeOutcome
                     ?? (!target.IsLocalFile && !Core.HttpClientFactory.IsOffline
@@ -177,7 +179,12 @@ internal static class ApiSourceResolver
                     packageReplaySourcePackageName = null;
                     packageReplayUsesOriginalSources = false;
                 }
-                (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
+                packageName = !target.IsLocalFile
+                    && extracted.ToolWrapperChain.Count == 0
+                        ? requestedPackageName
+                        : extracted.PackageName;
+                (searchPath, tempDir, packageVersion) =
+                    (extracted.ExtractPath, extracted.TempDir, extracted.Version);
                 packageExtractPath = extracted.ExtractPath;
                 apiSource = SourceKind.NuGet;
                 apiVersion = packageVersion;
