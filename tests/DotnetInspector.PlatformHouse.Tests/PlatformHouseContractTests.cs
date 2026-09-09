@@ -613,7 +613,7 @@ public class PlatformHouseContractTests
     }
 
     [Fact]
-    public void AssemblyNoNameOwnerCompletion_RequiresNoPlatformContribution()
+    public void AssemblyNoNameOwnerCompletion_RequiresSettledAbsence()
     {
         var operation = new PlatformHouseOperation.ResolveAssemblyReference
             .WithPrerequisites<TestRoutePrerequisites>(
@@ -657,8 +657,145 @@ public class PlatformHouseContractTests
         Assert.Equal(
             PlatformAssemblyReferenceCompletionKind.NoNameOwner,
             completion.Kind);
-        Assert.Empty(completion.SelectedContributions);
+        Assert.Empty(completion.SourceSettlements);
         Assert.Same(completion, receipt.Completion);
+
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("first");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("second");
+        var aggregatingRequest = new PlatformHouseRequest(
+            PlatformHouseRequestIdentity.Create("aggregating-request"),
+            new PlatformTargetDemand.Exact(Target()),
+            StandaloneOrigin(),
+            operation,
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create("aggregation"),
+                PlatformSourcePolicyGeneration.Create("generation"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Aggregation,
+                        [first, second]),
+                ]),
+            Work());
+        var firstAbsent = new PlatformSourceSettlement(
+            new PlatformSourceContribution.Unavailable(
+                PlatformSourceFacet.Reference,
+                first,
+                aggregatingRequest.Snapshot,
+                PlatformSourceGeneration.Create("first"),
+                Target(),
+                PlatformSourceUnavailabilityKind.Absent,
+                PlatformSourceEvidenceIdentity.Create("first-absent")),
+            PlatformSourceSettlementDisposition.OutcomeRelevant);
+        var secondIncomplete = new PlatformSourceSettlement(
+            new PlatformSourceContribution.Incomplete(
+                PlatformSourceFacet.Reference,
+                second,
+                aggregatingRequest.Snapshot,
+                PlatformSourceGeneration.Create("second"),
+                Target(),
+                PlatformSourceEvidenceIdentity.Create("second-incomplete")),
+            PlatformSourceSettlementDisposition.OutcomeRelevant);
+        var invalidCompletion = new PlatformHouseCompletion.AssemblyReference(
+            (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
+                aggregatingRequest.Snapshot.Operation,
+            PlatformAssemblyReferenceCompletionKind.NoNameOwner,
+            new PlatformMetadataOutcomeEvidence<TestMetadataOutcome>(
+                new TestMetadataOutcome(),
+                "aggregating-no-name-owner"),
+            [firstAbsent, secondIncomplete]);
+
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseReceipt(
+                aggregatingRequest.Snapshot,
+                new PlatformTargetSettlement.Exact(
+                    (PlatformTargetDemand.Exact)
+                        aggregatingRequest.Target),
+                [firstAbsent, secondIncomplete],
+                Consumed(),
+                invalidCompletion));
+
+        var selectedIncomplete = new PlatformSourceSettlement(
+            secondIncomplete.Contribution,
+            PlatformSourceSettlementDisposition.Selected);
+        var selectedIncompleteCompletion =
+            new PlatformHouseCompletion.AssemblyReference(
+                (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
+                    aggregatingRequest.Snapshot.Operation,
+                PlatformAssemblyReferenceCompletionKind.NoNameOwner,
+                new PlatformMetadataOutcomeEvidence<TestMetadataOutcome>(
+                    new TestMetadataOutcome(),
+                    "selected-incomplete-no-name-owner"),
+                [firstAbsent, selectedIncomplete]);
+
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseReceipt(
+                aggregatingRequest.Snapshot,
+                new PlatformTargetSettlement.Exact(
+                    (PlatformTargetDemand.Exact)
+                        aggregatingRequest.Target),
+                [firstAbsent, selectedIncomplete],
+                Consumed(),
+                selectedIncompleteCompletion));
+
+        var realized = new PlatformSourceSettlement(
+            new PlatformSourceContribution.Realization(
+                PlatformSourceFacet.Reference,
+                first,
+                aggregatingRequest.Snapshot,
+                PlatformSourceGeneration.Create("realized"),
+                Target(),
+                PlatformSourceCoordinateIdentity.Create("coordinate"),
+                PlatformTargetCorrespondenceIdentity.Create(
+                    "target-correspondence"),
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.PlatformLibrary(
+                        PlatformLibraryIdentityAuthority.Create("catalog")
+                            .Issue("System.Runtime"))),
+                PlatformSourceContributionCompleteness.Authoritative,
+                PlatformSourceEvidenceIdentity.Create("realized-evidence")),
+            PlatformSourceSettlementDisposition.Selected);
+        var secondRealized = new PlatformSourceSettlement(
+            new PlatformSourceContribution.Realization(
+                PlatformSourceFacet.Reference,
+                second,
+                aggregatingRequest.Snapshot,
+                PlatformSourceGeneration.Create("second-realized"),
+                Target(),
+                PlatformSourceCoordinateIdentity.Create(
+                    "second-coordinate"),
+                PlatformTargetCorrespondenceIdentity.Create(
+                    "second-target-correspondence"),
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.PlatformLibrary(
+                        PlatformLibraryIdentityAuthority.Create("catalog")
+                            .Issue("System.Private.CoreLib"))),
+                PlatformSourceContributionCompleteness.Authoritative,
+                PlatformSourceEvidenceIdentity.Create(
+                    "second-realized-evidence")),
+            PlatformSourceSettlementDisposition.Selected);
+        var searchedCompletion =
+            new PlatformHouseCompletion.AssemblyReference(
+                (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
+                    aggregatingRequest.Snapshot.Operation,
+                PlatformAssemblyReferenceCompletionKind.NoNameOwner,
+                new PlatformMetadataOutcomeEvidence<TestMetadataOutcome>(
+                    new TestMetadataOutcome(),
+                    "searched-no-name-owner"),
+                [realized, secondRealized]);
+
+        var searchedReceipt = new PlatformHouseReceipt(
+            aggregatingRequest.Snapshot,
+            new PlatformTargetSettlement.Exact(
+                (PlatformTargetDemand.Exact)
+                    aggregatingRequest.Target),
+            [realized, secondRealized],
+            Consumed(),
+            searchedCompletion);
+
+        Assert.Same(searchedCompletion, searchedReceipt.Completion);
     }
 
     [Fact]
@@ -779,11 +916,15 @@ public class PlatformHouseContractTests
             completion);
 
         Assert.Same(source, Assert.Single(completion.SelectedContributions));
+        PlatformTypeDefinitionValue.ReferenceAndImplementation<
+            TestMetadataOutcome,
+            TestMetadataOutcome> value = completion.BindImplementation(
+                referenceOutcome,
+                implementationOutcome).Value;
+        Assert.Same(referenceOutcome.Value, value.ReferenceOutcome);
         Assert.Same(
             implementationOutcome.Value,
-            completion.BindImplementation(
-                referenceOutcome,
-                implementationOutcome).Value);
+            value.ImplementationOutcome);
         Assert.Throws<ArgumentException>(
             () => completion.BindImplementation(
                 referenceOutcome,

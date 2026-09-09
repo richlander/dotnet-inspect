@@ -285,26 +285,25 @@ public abstract class PlatformHouseCompletion
             PlatformHouseOperationSnapshot.ResolveAssemblyReference operation,
             PlatformAssemblyReferenceCompletionKind kind,
             PlatformMetadataOutcomeEvidence metadataOutcome,
-            IEnumerable<PlatformSourceSettlement> selectedContributions,
+            IEnumerable<PlatformSourceSettlement> sourceSettlements,
             PlatformViewCorrespondenceEvidence? viewCorrespondence = null)
             : base(operation)
         {
             if (!Enum.IsDefined(kind))
                 throw new ArgumentOutOfRangeException(nameof(kind));
             ArgumentNullException.ThrowIfNull(metadataOutcome);
-            ArgumentNullException.ThrowIfNull(selectedContributions);
+            ArgumentNullException.ThrowIfNull(sourceSettlements);
 
-            PlatformSourceSettlement[] snapshot = [.. selectedContributions];
+            PlatformSourceSettlement[] snapshot = [.. sourceSettlements];
             if (kind == PlatformAssemblyReferenceCompletionKind.NoNameOwner)
             {
-                if (snapshot.Length != 0
-                    || viewCorrespondence is not null
+                if (viewCorrespondence is not null
                     || metadataOutcome.TerminalSupplier is not null
                     || metadataOutcome.Correspondence is not null)
                 {
                     throw new ArgumentException(
-                        "NoNameOwner completion has no platform contribution.",
-                        nameof(selectedContributions));
+                        "NoNameOwner completion has no selected platform supplier.",
+                        nameof(sourceSettlements));
                 }
             }
             else
@@ -333,20 +332,20 @@ public abstract class PlatformHouseCompletion
 
             Kind = kind;
             MetadataOutcome = metadataOutcome.Identity;
-            SelectedContributions = Array.AsReadOnly(snapshot);
+            SourceSettlements = Array.AsReadOnly(snapshot);
             ViewCorrespondence = viewCorrespondence?.Identity;
         }
 
         public PlatformAssemblyReferenceCompletionKind Kind { get; }
         public PlatformMetadataOutcomeIdentity MetadataOutcome { get; }
-        public IReadOnlyList<PlatformSourceSettlement> SelectedContributions
+        public IReadOnlyList<PlatformSourceSettlement> SourceSettlements
         {
             get;
         }
         public PlatformViewCorrespondenceIdentity? ViewCorrespondence { get; }
 
         internal override IReadOnlyList<PlatformSourceSettlement>
-            RequiredSourceSettlements => SelectedContributions;
+            RequiredSourceSettlements => SourceSettlements;
 
         internal PlatformHouseCompletedValue<TOutcome> Bind<TOutcome>(
             PlatformMetadataOutcomeEvidence<TOutcome> outcome)
@@ -443,8 +442,10 @@ public abstract class PlatformHouseCompletion
         internal override IReadOnlyList<PlatformSourceSettlement>
             RequiredSourceSettlements => SelectedContributions;
 
-        internal PlatformHouseCompletedValue<TOutcome> BindReference<TOutcome>(
-            PlatformMetadataOutcomeEvidence<TOutcome> referenceOutcome)
+        internal PlatformHouseCompletedValue<
+            PlatformTypeDefinitionValue.Reference<TOutcome>>
+            BindReference<TOutcome>(
+                PlatformMetadataOutcomeEvidence<TOutcome> referenceOutcome)
             where TOutcome : notnull
         {
             ArgumentNullException.ThrowIfNull(referenceOutcome);
@@ -457,10 +458,16 @@ public abstract class PlatformHouseCompletion
                     "The live reference outcome must match a reference-only completion.",
                     nameof(referenceOutcome));
             }
-            return new(Identity, referenceOutcome.Value);
+            return new(
+                Identity,
+                new PlatformTypeDefinitionValue.Reference<TOutcome>(
+                    referenceOutcome.Value));
         }
 
-        internal PlatformHouseCompletedValue<TImplementationOutcome>
+        internal PlatformHouseCompletedValue<
+            PlatformTypeDefinitionValue.ReferenceAndImplementation<
+                TReferenceOutcome,
+                TImplementationOutcome>>
             BindImplementation<TReferenceOutcome, TImplementationOutcome>(
                 PlatformMetadataOutcomeEvidence<TReferenceOutcome>
                     referenceOutcome,
@@ -482,7 +489,13 @@ public abstract class PlatformHouseCompletion
                     "Both live Metadata outcomes must match the completion evidence.",
                     nameof(implementationOutcome));
             }
-            return new(Identity, implementationOutcome.Value);
+            return new(
+                Identity,
+                new PlatformTypeDefinitionValue.ReferenceAndImplementation<
+                    TReferenceOutcome,
+                    TImplementationOutcome>(
+                        referenceOutcome.Value,
+                        implementationOutcome.Value));
         }
     }
 
@@ -922,6 +935,22 @@ public sealed class PlatformHouseReceipt
         IReadOnlyList<PlatformSourceSettlement> sourceSettlements,
         PlatformSourcePlan sourcePlan)
     {
+        if (completion is PlatformHouseCompletion.AssemblyReference
+            {
+                Kind: PlatformAssemblyReferenceCompletionKind.NoNameOwner,
+                Operation:
+                    PlatformHouseOperationSnapshot.ResolveAssemblyReference
+                        operation,
+            } assemblyReference)
+        {
+            ValidateNoNameOwnerSourcePolicy(
+                operation.RequiredView,
+                assemblyReference.SourceSettlements,
+                sourceSettlements,
+                sourcePlan);
+            return;
+        }
+
         if (completion is PlatformHouseCompletion.Documentation)
         {
             var documentation =
@@ -971,6 +1000,97 @@ public sealed class PlatformHouseReceipt
                 nameof(completion));
         }
     }
+
+    static void ValidateNoNameOwnerSourcePolicy(
+        PlatformViewDemand requiredView,
+        IReadOnlyList<PlatformSourceSettlement> completionSettlements,
+        IReadOnlyList<PlatformSourceSettlement> sourceSettlements,
+        PlatformSourcePlan sourcePlan)
+    {
+        PlatformSourceFacet[] requiredFacets = requiredView switch
+        {
+            PlatformViewDemand.Reference =>
+                [PlatformSourceFacet.Reference],
+            PlatformViewDemand.Implementation =>
+                [PlatformSourceFacet.Implementation],
+            PlatformViewDemand.ReferenceAndImplementation =>
+                [
+                    PlatformSourceFacet.Reference,
+                    PlatformSourceFacet.Implementation,
+                ],
+            _ => throw new ArgumentOutOfRangeException(nameof(requiredView)),
+        };
+
+        foreach (PlatformSourceFacet facet in requiredFacets)
+        {
+            PlatformSourceSelection? selection =
+                sourcePlan.SelectionFor(facet);
+            if (selection is null)
+                continue;
+
+            PlatformSourceSettlement[] selected = [.. completionSettlements.Where(
+                settlement => settlement.Contribution.Facet == facet
+                    && settlement.Disposition
+                        == PlatformSourceSettlementDisposition.Selected)];
+            if (selected.Length != 0)
+            {
+                if (selected.Any(
+                        settlement => settlement.Contribution
+                            is not PlatformSourceContribution.Realization))
+                {
+                    throw new ArgumentException(
+                        $"A completed NoNameOwner selected {facet} settlement must retain only successfully realized source populations.",
+                        nameof(completionSettlements));
+                }
+                ValidateSuccessfulFacetPolicy(
+                    facet,
+                    selected,
+                    sourceSettlements,
+                    sourcePlan,
+                    nameof(completionSettlements));
+                continue;
+            }
+
+            PlatformSourceSettlement[] outcomeRelevant =
+                [.. sourceSettlements.Where(
+                    settlement => settlement.Contribution.Facet == facet
+                        && settlement.Disposition
+                            == PlatformSourceSettlementDisposition
+                                .OutcomeRelevant)];
+            if (outcomeRelevant.Length != selection.Capabilities.Count)
+            {
+                throw new ArgumentException(
+                    $"A completed NoNameOwner {selection.Mode} settlement requires one authoritative absence from every {facet} capability.",
+                    nameof(sourceSettlements));
+            }
+            foreach (PlatformSourceCapabilityIdentity capability
+                in selection.Capabilities)
+            {
+                PlatformSourceSettlement[] matches =
+                    [.. outcomeRelevant.Where(
+                    settlement => ReferenceEquals(
+                        settlement.Contribution.Capability,
+                        capability))];
+                if (matches.Length != 1
+                    || !IsAuthoritativeAbsence(matches[0]))
+                {
+                    throw new ArgumentException(
+                        $"A completed NoNameOwner {selection.Mode} settlement requires authoritative absence from every {facet} capability.",
+                        nameof(sourceSettlements));
+                }
+            }
+        }
+    }
+
+    static bool IsAuthoritativeAbsence(
+        PlatformSourceSettlement settlement) =>
+        settlement.Disposition
+            == PlatformSourceSettlementDisposition.OutcomeRelevant
+        && settlement.Contribution
+            is PlatformSourceContribution.Unavailable
+            {
+                Reason: PlatformSourceUnavailabilityKind.Absent,
+            };
 
     static void ValidateSuccessfulFacetPolicy(
         PlatformSourceFacet facet,
