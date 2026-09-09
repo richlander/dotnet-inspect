@@ -50,6 +50,11 @@ import {
 } from "../src/workspace-navigation.ts";
 import { createMethodBodyDiffState } from "../src/method-body-comparison.ts";
 import { createSourceDiffState } from "../src/source-comparison.ts";
+import {
+  documentViewerIsOpen,
+  normalizeDocumentViewerSnapshot,
+  type DocumentViewerState,
+} from "../src/document-inspection.ts";
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
@@ -205,7 +210,8 @@ function harness() {
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
     memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
     sourceRequestGeneration: 0, typeMetadataGeneration: 0,
-    docViewerSeq: 0, graphSource: { status: "closed" },
+    docViewer: { status: "closed" } as DocumentViewerState,
+    graphSource: { status: "closed" },
     platformDrillLoading: false, platformDrillError: "",
     graphMemberNavigationSeq: 0, graphMemberNavigationTitle: "", graphMemberNavigationError: "",
     pendingGraphMemberDeepLink: null as object | null,
@@ -346,6 +352,8 @@ function harness() {
     MAX_WORKSPACE_PACKAGES, packageIdentityKey, memberScopeIsActive,
     graphSourceIsOpen: (value: { status: string }) =>
       value.status !== "closed",
+    documentViewerIsOpen,
+    normalizeDocumentViewerSnapshot,
     retainedWorkspaces: {
       get activeWorkspaceId() {
         return state.package ? "workspace-1" : null;
@@ -534,7 +542,6 @@ test("canonical restoration preserves coordinator-owned comparison state identit
   h.state.typeMetadataGeneration = 8;
   h.state.memberCallGraphSeq = 9;
   h.state.graphMemberNavigationSeq = 10;
-  h.state.docViewerSeq = 12;
   void runInNewContext(
     "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
     { ...h.context, snapshot });
@@ -547,7 +554,38 @@ test("canonical restoration preserves coordinator-owned comparison state identit
   assert.equal(h.state.typeMetadataGeneration, 9);
   assert.equal(h.state.memberCallGraphSeq, 10);
   assert.equal(h.state.graphMemberNavigationSeq, 11);
-  assert.equal(h.state.docViewerSeq, 13);
+});
+
+test("capture settles a loading document viewer without claiming ready content", () => {
+  const h = harness();
+  const request = {
+    packageId: "Source",
+    version: "1.2.3",
+    document: {
+      kind: "Markdown",
+      name: "README.md",
+      path: "README.md",
+      size: 12,
+    },
+  };
+  h.state.docViewer = { status: "loading", request };
+
+  const snapshot: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context,
+  );
+  assert.ok(snapshot !== null && typeof snapshot === "object"
+    && "state" in snapshot);
+  const snapshotState = snapshot.state;
+  assert.ok(snapshotState !== null && typeof snapshotState === "object"
+    && "docViewer" in snapshotState);
+
+  assert.deepEqual(snapshotState.docViewer, {
+    status: "failed",
+    request,
+    error: "",
+  });
+  assert.equal(h.state.docViewer.status, "loading");
 });
 
 test("capture uses the original share projection and retains Workspace presentation without effects", () => {
