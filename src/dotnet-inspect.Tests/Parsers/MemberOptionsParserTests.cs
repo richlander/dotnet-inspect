@@ -180,11 +180,11 @@ public class MemberOptionsParserTests
     }
 
     [Theory]
-    [InlineData("packet", MemberShareFormat.Packet)]
-    [InlineData("url", MemberShareFormat.Url)]
+    [InlineData("packet", WorkspaceShareFormat.Packet)]
+    [InlineData("url", WorkspaceShareFormat.Url)]
     public async Task Share_SetsRequestedFormat(
         string value,
-        MemberShareFormat expected)
+        WorkspaceShareFormat expected)
     {
         var options = await ParseSuccessAsync(
             "member",

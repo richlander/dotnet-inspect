@@ -542,6 +542,10 @@ dotnet-inspect member JsonConvert \
   SerializeObject:1 \
   --tfm net6.0 \
   --share url
+dotnet-inspect depends \
+  --package Newtonsoft.Json@13.0.4 \
+  --tfm net6.0 \
+  --share url
 dotnet-inspect skill list
 dotnet-inspect demo list
 ```
@@ -557,6 +561,14 @@ opens that member's API Overview in the published browser. Select an overload
 with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
 private-feed, non-public, multi-library, and other rendering or analysis modes
 fail visibly rather than producing a link the browser cannot restore.
+
+`depends --package <id>@<exact-version> --tfm <tfm> --share packet|url`
+projects the package Dependencies view without traversing the graph in the CLI.
+The published browser acquires the exact NuGet.org coordinate and lazily
+computes the dependency graph for the selected target framework. Local archives,
+configured sources, floating versions, omitted frameworks, row windows, counts,
+and other rendering formats fail visibly rather than producing a
+non-reproducible link.
 
 ## Requirements
 

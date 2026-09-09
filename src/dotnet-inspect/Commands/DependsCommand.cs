@@ -216,6 +216,14 @@ public class DependsCommand
 
         try
         {
+            if (DependsShareProjection.ValidateOptions(options) is { } shareError)
+            {
+                CommandError.Write(shareError);
+                return 1;
+            }
+            if (options.ShareFormat is not null)
+                return DependsShareProjection.Write(options);
+
             var packageRef = options.PackageName!;
             var result = await DependencyGraphService.BuildPackageDependencyTreeAsync(
                 context.HttpClient, packageRef, options.Tfm, options.SourceOptions, logger);

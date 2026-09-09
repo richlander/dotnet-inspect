@@ -13,8 +13,6 @@ namespace DotnetInspector.Commands;
 
 internal static class MemberShareProjection
 {
-    private const string ShareUrlPrefix = "https://dotnet-inspect.net/?w=";
-
     internal static string? ValidateOptions(MemberOptions options)
     {
         if (options.ShareFormat is null)
@@ -80,7 +78,7 @@ internal static class MemberShareProjection
         ApiServices.LoadedApiSurface loaded,
         ApiType type,
         ApiMember member,
-        MemberShareFormat format)
+        WorkspaceShareFormat format)
     {
         bool isNuGetOrg =
             source.PackageAuthority?.Source.IsNuGetOrg == true
@@ -256,13 +254,7 @@ internal static class MemberShareProjection
                 + failure.Message);
         }
 
-        string packet =
-            WorkspaceSharePacketCodec.Encode(projection.Packet!);
-        Console.WriteLine(
-            format == MemberShareFormat.Url
-                ? ShareUrlPrefix + packet
-                : packet);
-        return 0;
+        return WorkspaceShareOutput.Write(projection.Packet!, format);
     }
 
     private static int NonProjectable(string message)

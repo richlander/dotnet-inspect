@@ -95,6 +95,13 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }
 
+    /// <summary>
+    /// Portable Workspace share output for package dependency mode.
+    /// </summary>
+    public WorkspaceShareFormat? ShareFormat { get; init; }
+
+    internal bool OutputFormatExplicitlySet { get; init; }
+
     internal SearchSourceSelection? SourceSelection { get; init; }
 
     /// <summary>
@@ -111,7 +118,7 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput;
+    public bool IsRawOutput => JsonOutput || ShareFormat is not null;
 
     /// <summary>
     /// True when in type dependency mode (default when no --library/--package).

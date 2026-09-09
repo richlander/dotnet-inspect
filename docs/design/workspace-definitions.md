@@ -2019,6 +2019,30 @@ Definition records and product demos (this slice):
   `MemberShare_RejectsPlatformSource`,
   `MemberShare_RejectsLocalPackage`, and
   `MemberShare_RejectsConflictingModes` gate the production boundary;
+- CLI `depends --package <id>@<exact-version> --tfm <tfm> --share
+  packet|url` projects the package Root through
+  `WorkspaceSharePacketTransposer` with the exact format-1 `dependencies`
+  compatibility token. The legacy lowering table maps that token to
+  `root.package-dependencies`; the packet does not carry graph results,
+  dependency-group indexes, or Browser runtime state. The published Browser
+  restores its package Dependencies lens and lazily computes the graph from the
+  exact coordinate and framework. Browser capture refuses an explicitly
+  selected dependency group that differs from the active framework because
+  format 1 cannot preserve that override. The producer performs no package
+  acquisition or graph traversal, requires a valid exact version and framework,
+  and refuses local archives, configured sources, floating versions, row
+  windows, counts, and competing output formats before packet emission.
+  `DependsShare_PacketProjectsExactPackageDependencyView`,
+  `DependsShare_UrlWrapsCanonicalPacket`,
+  `DependsShare_RequiresExactCoordinateBeforeAcquisition`,
+  `DependsShare_RejectsLocalPackage`,
+  `DependsShare_RejectsConfiguredSource`, and
+  `DependsShare_RejectsConflictingOutput` gate the CLI boundary.
+  `canonical package dependency views restore the package root lens`,
+  `canonical package views reject contradictory structural selection`, and
+  `capture projects package Dependencies through the packet lens`, and
+  `capture refuses a non-active package dependency group` gate the Browser
+  adapter;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;

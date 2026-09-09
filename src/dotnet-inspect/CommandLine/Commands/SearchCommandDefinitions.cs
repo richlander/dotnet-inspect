@@ -522,6 +522,14 @@ public static class SearchCommandDefinitions
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var shareOption = new Option<string?>("--share")
+        {
+            Description = "Emit an exact NuGet package dependency view as a canonical Workspace packet or complete URL",
+        };
+        shareOption.AcceptOnlyFromAmong(
+            StringComparer.OrdinalIgnoreCase,
+            "packet",
+            "url");
 
         dependsCommand.Arguments.Add(targetTypeArg);
         dependsCommand.Options.Add(packageOption);
@@ -532,6 +540,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(aspnetcoreOption);
         dependsCommand.Options.Add(projectOption);
         dependsCommand.Options.Add(tfmOption);
+        dependsCommand.Options.Add(shareOption);
         dependsCommand.Options.Add(opts.Json);
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
@@ -546,6 +555,23 @@ public static class SearchCommandDefinitions
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
+            var share = parseResult.GetValue(shareOption);
+            bool hasNonPackageShareInput =
+                !string.IsNullOrEmpty(targetType)
+                || packages.Length != 1
+                || assemblies.Length > 0
+                || projects.Length > 0
+                || parseResult.GetValue(platformOption)
+                || (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) > 0
+                || parseResult.GetValue(extensionsOption)
+                || parseResult.GetValue(aspnetcoreOption);
+            if (share is not null && hasNonPackageShareInput)
+            {
+                CommandError.Write(
+                    "--share requires exactly one --package input and "
+                    + "cannot be used with type, library, project, or platform dependency modes.");
+                return 1;
+            }
 
             // Mode detection: no type arg → library or package dependency mode
             if (string.IsNullOrEmpty(targetType))
@@ -553,6 +579,13 @@ public static class SearchCommandDefinitions
                 var commonOptions = new DependsOptions
                 {
                     Tfm = parseResult.GetValue(tfmOption),
+                    ShareFormat =
+                        share?.ToLowerInvariant() switch
+                        {
+                            "packet" => WorkspaceShareFormat.Packet,
+                            "url" => WorkspaceShareFormat.Url,
+                            _ => null,
+                        },
                     JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
@@ -560,7 +593,9 @@ public static class SearchCommandDefinitions
                     Rows = opts.ParseRows(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     Verbose = parseResult.GetValue(opts.Verbose),
-                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+                    OutputFormatExplicitlySet =
+                        opts.IsFormatFlagExplicitlySet(parseResult),
                 };
 
                 if (assemblies.Length == 1 && packages.Length == 0 && projects.Length == 0)

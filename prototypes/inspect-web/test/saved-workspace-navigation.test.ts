@@ -52,6 +52,39 @@ import {
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
 assert.deepEqual(app.errors, []);
+
+interface CapturedWorkspaceUrlState {
+  subject: unknown;
+  view: {
+    lens: unknown;
+    type: unknown;
+    memberAnchor: unknown;
+    memberSignature: unknown;
+    section: unknown;
+    libraries: unknown[];
+  };
+}
+
+function isCapturedWorkspaceUrlState(
+  value: unknown,
+): value is CapturedWorkspaceUrlState {
+  if (!value || typeof value !== "object"
+    || !("subject" in value)
+    || !("view" in value)
+    || !value.view
+    || typeof value.view !== "object") {
+    return false;
+  }
+  const view = value.view;
+  return "lens" in view
+    && "type" in view
+    && "memberAnchor" in view
+    && "memberSignature" in view
+    && "section" in view
+    && "libraries" in view
+    && Array.isArray(view.libraries);
+}
+
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "scope", "syncUrl", "buildStateUrl",
@@ -184,6 +217,13 @@ function harness() {
     workspaceDependencies: {} as Record<string, unknown>,
     workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
+    packageDependencies: null as {
+      dependencyGroups: {
+        index: number;
+        isActive: boolean;
+      }[];
+    } | null,
+    dependenciesGroupIndex: null as number | null,
     dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
@@ -427,6 +467,12 @@ function harness() {
       assert.ok(typeof result === "string");
       return result;
     },
+    captureUrlState: (): CapturedWorkspaceUrlState => {
+      const result: unknown =
+        runInNewContext("captureWorkspaceUrlState()", context);
+      assert.ok(isCapturedWorkspaceUrlState(result));
+      return result;
+    },
     open: (entry: SavedWorkspace = saved): void => {
       runInNewContext("openSavedWorkspace(entry)", { ...context, entry });
     },
@@ -444,6 +490,44 @@ function harness() {
     flushFocus: () => { for (const frame of frames.splice(0)) frame(); },
   };
 }
+
+test("capture projects package Dependencies through the packet lens", () => {
+  const h = harness();
+  h.state.workspaceSubjectOpen = false;
+  h.state.atPackageRoot = true;
+  h.state.packageLens = "dependencies";
+  h.state.selectedTypeId = "stale.Type";
+  h.state.selectedMemberKey = "stale-member";
+  h.state.libraryScope = new Set(["stale-library", "another-library"]);
+
+  const captured = h.captureUrlState();
+
+  assert.equal(captured.subject, null);
+  assert.equal(captured.view.lens, "dependencies");
+  assert.equal(captured.view.type, null);
+  assert.equal(captured.view.memberAnchor, null);
+  assert.equal(captured.view.memberSignature, null);
+  assert.equal(captured.view.section, null);
+  assert.equal(captured.view.libraries.length, 0);
+});
+
+test("capture refuses a non-active package dependency group", () => {
+  const h = harness();
+  h.state.workspaceSubjectOpen = false;
+  h.state.atPackageRoot = true;
+  h.state.packageLens = "dependencies";
+  h.state.packageDependencies = {
+    dependencyGroups: [
+      { index: 0, isActive: true },
+      { index: 1, isActive: false },
+    ],
+  };
+  h.state.dependenciesGroupIndex = 1;
+
+  assert.throws(
+    () => h.captureUrlState(),
+    /selected dependency group differs from the package target framework/);
+});
 
 test("capture uses the original share projection and retains Workspace presentation without effects", () => {
   const h = harness();
