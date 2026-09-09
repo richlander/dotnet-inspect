@@ -1523,7 +1523,9 @@ test("empty Library metadata survives refresh and history without selecting a ne
   await page.locator('.library-list [data-lib-scope="asset:empty"]').click();
   await expect(page.locator("#inspector-panel")).toContainText("No public types");
   await expect(page.locator('[data-scope="type"]')).toHaveCount(0);
-  await page.locator('[data-library-lens="metadata"]').click();
+  await page.locator('[data-library-lens="overview"]').press("End");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Enter");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Empty.dll");
   await expect(page.locator("html")).toHaveAttribute("data-metadata-request", "asset:empty");
   await page.locator('[data-mde-open="0"]').click();
