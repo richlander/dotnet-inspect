@@ -25,6 +25,9 @@ export interface BrowserAssemblyReference {
     readonly culture: string | null;
     readonly publicKeyToken: string | null;
 }
+export interface BrowserAssemblyReferenceList {
+    readonly references: ReadonlyArray<BrowserAssemblyReference>;
+}
 export interface BrowserAssemblySurface {
     readonly id: string;
     readonly name: string;
@@ -140,9 +143,8 @@ export interface BrowserPackageDependencies {
     readonly activeFramework: string;
     readonly assembly: string | null;
     readonly dependencyGroups: ReadonlyArray<BrowserPackageDependencyGroup>;
-    readonly assemblyReferences: ReadonlyArray<BrowserAssemblyReference>;
+    readonly assemblyReferences: BrowserAssemblyReferenceResult;
     readonly dependencyGroupError: string | null;
-    readonly assemblyReferenceError: string | null;
     readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 export interface BrowserPackageDependency {
@@ -336,6 +338,7 @@ export interface BrowserWorkspacePackageOccurrenceView {
     readonly occurrences: ReadonlyArray<BrowserWorkspacePackageOccurrence>;
     readonly superseded: boolean;
 }
+export type BrowserAssemblyReferenceResult = BrowserAssemblyReferenceList | string | null;
 export interface JsExportRuntime {
     readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
     readonly runMain: (mainAssemblyName?: string, args?: string[]) => Promise<number>;

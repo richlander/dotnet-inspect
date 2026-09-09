@@ -1063,6 +1063,12 @@ compares all 21 artifacts and rejects extra or missing files. The SDK
 declaration is a compile-time input copied only into a temporary workspace and
 is never published.
 
+The package facade's assembly-reference result adopts a native C# union through
+this generated handoff. The Library References view consumes an available list
+or failure message rather than parallel list/error fields, while its request
+lifecycle stays separate. The focused contract and outcome gates live in
+[Package reference result](../../docs/design/inspect-web-package-reference-result.md).
+
 PR CI uses `--fast-check` for ordinary browser changes. It keeps the complete
 artifact inventory and per-root generation comparison while deferring the
 second, product-versioned regeneration to the daily Deep Inspect `inspect-web`
