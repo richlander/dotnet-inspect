@@ -13509,6 +13509,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SourceLinkFiles_InfersBodylessVisualBasicDocument()
+    {
+        const string typeName =
+            "DotnetInspector.SourceLinkVisualBasicFixtures"
+            + ".BodylessSourceFixture";
+        string assemblyPath =
+            FixtureCatalog.SourceLinkVisualBasic.AssemblyPath();
+        using var sourceLink = SourceLinkService.Open(assemblyPath);
+
+        SourceFileInfo row =
+            Assert.Single(
+                await SourceFileCollector.CollectAsync(
+                    sourceLink,
+                    assemblyPath,
+                    typeFilter: typeName));
+
+        Assert.Equal(typeName, row.Type);
+        Assert.Equal(
+            "https://example.test/dotnet-inspect/BodylessSourceFixture.vb",
+            row.Url);
+    }
+
+    [Fact]
     public async Task Discover_Bare_PreservesEmbeddedSourceLinkDoor()
     {
         var (assemblyPath, fixtureDir) =

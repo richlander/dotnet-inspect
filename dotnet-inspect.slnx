@@ -105,6 +105,7 @@
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures/DotnetInspector.SourceLinkMalformedFixtures.csproj" />
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures/DotnetInspector.SourceLinkNormalizedFixtures.csproj" />
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures/DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" />
+    <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures/DotnetInspector.SourceLinkVisualBasicFixtures.vbproj" />
   </Folder>
   <Folder Name="/fixtures/presentation/">
     <Project Path="fixtures/presentation/LibraryApiDiff.V1/LibraryApiDiff.V1.csproj" />

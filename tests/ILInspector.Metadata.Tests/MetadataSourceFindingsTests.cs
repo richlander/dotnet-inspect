@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using Inspector.Findings;
 using ILInspector.Metadata;
@@ -497,6 +498,43 @@ public sealed class MetadataSourceFindingsTests
         Assert.Contains("/_/case/AmbiguousBodylessFixture.cs", matchingPaths);
         Assert.Null(resolver.ResolveTypeSource(name));
         Assert.Null(resolver.ResolveTypeSource(selectedType.FullName!));
+    }
+
+    [Fact]
+    public void ExactBodylessVisualBasicTypeSourceResolution_InfersDocument()
+    {
+        const string typeNamespace =
+            "DotnetInspector.SourceLinkVisualBasicFixtures";
+        const string typeName = "BodylessSourceFixture";
+        using var context = PdbContext.Open(
+            FixtureCatalog.SourceLinkVisualBasic.AssemblyPath());
+        var map = SourceLinkDocumentMap.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    typeNamespace,
+                    [typeName]))
+            .Name;
+
+        var exact = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(name));
+        var legacy = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource($"{typeNamespace}.{typeName}"));
+
+        Assert.EndsWith(
+            "BodylessSourceFixture.vb",
+            exact.SourceFilePath,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            SourceLinkResolver.SourceResolutionMethod.Inferred,
+            exact.ResolutionMethod);
+        Assert.Equal(exact.SourceFilePath, legacy.SourceFilePath);
+        Assert.Equal(exact.SourceUrl, legacy.SourceUrl);
+        Assert.Equal(exact.ResolutionMethod, legacy.ResolutionMethod);
+        Assert.Equal(exact.Checksum, legacy.Checksum);
+        Assert.Equal(exact.ChecksumAlgorithm, legacy.ChecksumAlgorithm);
     }
 
     [Fact]

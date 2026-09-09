@@ -266,8 +266,17 @@ public sealed class SourceLinkResolver
         }
 
         return _docsByFirstSegment.TryGetValue(typeName, out var candidates)
-            ? candidates.Where(path => Path.GetFileName(path)
-                .EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            ? candidates.Where(path =>
+            {
+                string fileName = Path.GetFileName(path);
+                return fileName.EndsWith(
+                        ".cs",
+                        StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFileNameWithoutExtension(fileName)
+                        .Equals(
+                            typeName,
+                            StringComparison.OrdinalIgnoreCase);
+            })
             : [];
     }
 

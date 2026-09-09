@@ -139,15 +139,18 @@ After that exact TypeDef match, SourceLink may use its case-insensitive filename
 inference over the PDB document census only when the type has no
 method-correlated document and exactly one matching document path exists. This
 covers unambiguous bodyless interfaces and other declarations that produce no
-sequence points. A correlated document remains primary regardless of unrelated
-filename matches, while multiple inferred matches decline to decompiler
-fallback. An inferred mapping retains `Inferred` as the resolution method. It
-does not let a simple-name type lookup replace the exact identity, and document
-paths remain ordinal across exact and legacy string entry points.
+sequence points across C#, Visual Basic, and F# source documents. C# generated
+or partial-document suffixes such as `.g.cs` remain eligible. A correlated
+document remains primary regardless of unrelated filename matches, while
+multiple inferred matches decline to decompiler fallback. An inferred mapping
+retains `Inferred` as the resolution method. It does not let a simple-name type
+lookup replace the exact identity, and document paths remain ordinal across
+exact and legacy string entry points.
 `MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinal`,
 `MetadataSourceFindingsTests.ExactBodylessTypeSourceResolution_InfersDocumentAfterExactTypeMatch`,
 `MetadataSourceFindingsTests.ExactCorrelatedTypeSourceResolution_DoesNotAddFilenameInference`,
 `MetadataSourceFindingsTests.ExactBodylessTypeSourceResolution_DeclinesAmbiguousFilenameInference`,
+`MetadataSourceFindingsTests.ExactBodylessVisualBasicTypeSourceResolution_InfersDocument`,
 and
 `MetadataSourceFindingsTests.ExactTypeIndexes_PreserveStructuredSegmentsAndRejectDuplicateIdentity`
 gate that boundary. The shared resolution reaches CLI source-file projection
@@ -157,7 +160,9 @@ checksum-verified acquisition through
 and ambiguous-inference fallback through
 `AssemblyContextSourceQueryTests.AmbiguousBodylessTypeSourceInferenceFallsBackToDecompiler`.
 `CommandExecutionTests.SourceLinkFiles_DeclinesCaseDistinctBodylessDocuments`
-gates ordinal path identity through the CLI projection.
+gates ordinal path identity through the CLI projection, while
+`CommandExecutionTests.SourceLinkFiles_InfersBodylessVisualBasicDocument`
+preserves extension-independent inference through that projection.
 Request conversion uses `ApiType.DefinitionName` when available; an older
 surface's string `MetadataName` is accepted only for an unambiguous top-level
 name, because `+` cannot distinguish nesting from a literal metadata character.
