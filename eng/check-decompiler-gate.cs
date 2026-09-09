@@ -44,10 +44,10 @@
 //
 // Produce the discovery listing with the *same* preset as the run, so the two
 // cannot drift:
-//   dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+//   dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
 //       --gate pre-merge -preEnumerateTheories -noColor -list full/json \
 //       > discovered-tests.json
-//   dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+//   dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
 //       --gate pre-merge -preEnumerateTheories -noColor -noAutoReporters \
 //       -reporter json -xml results.xml | tee events.jsonl
 //

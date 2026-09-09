@@ -46,15 +46,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
-    <ProjectReference Include="..\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
-    <ProjectReference Include="..\ILInspector.CSharp\ILInspector.CSharp.csproj" />
-    <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
-    <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
-    <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
-    <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
-    <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
-    <ProjectReference Include="..\DotnetInspector.Artifacts.Workspaces\DotnetInspector.Artifacts.Workspaces.csproj" />
+    <ProjectReference Include="..\..\src\CSharpText\CSharpText.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.CSharp\ILInspector.CSharp.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.Instructions\ILInspector.Instructions.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Artifacts.Workspaces\DotnetInspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldCaller\ILInspector.Decompiler.Fixtures.ForwardedFieldCaller.csproj" ReferenceOutputAssembly="false" />
@@ -77,7 +77,7 @@
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkPartiallyMalformedFixtures\DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="..\..\tools\HarnessReportProtocol\HarnessReportProtocol.csproj" />
     <ProjectReference Include="..\..\tools\RoundTripCompilation\RoundTripCompilation.csproj" />
     <!-- Built, not referenced: AuthoredCorpusHarnessProcessTests runs the harness

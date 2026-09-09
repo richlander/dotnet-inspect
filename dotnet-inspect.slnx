@@ -106,6 +106,7 @@
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures/DotnetInspector.SourceLinkMalformedFixtures.csproj" />
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures/DotnetInspector.SourceLinkNormalizedFixtures.csproj" />
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures/DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" />
+    <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures/DotnetInspector.SourceLinkVisualBasicFixtures.vbproj" />
   </Folder>
   <Folder Name="/fixtures/presentation/">
     <Project Path="fixtures/presentation/LibraryApiDiff.V1/LibraryApiDiff.V1.csproj" />
@@ -141,7 +142,6 @@
     <Project Path="src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
     <Project Path="src/ILInspector.ILDiff/ILInspector.ILDiff.csproj" />
-    <Project Path="src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj" />
     <Project Path="src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
     <Project Path="src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
     <Project Path="src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
@@ -169,6 +169,7 @@
     <Project Path="tests/DotnetInspector.FixtureInfrastructure.Tests/DotnetInspector.FixtureInfrastructure.Tests.csproj" />
     <Project Path="tests/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
     <Project Path="tests/ILInspector.CSharp.Tests/ILInspector.CSharp.Tests.csproj" />
+    <Project Path="tests/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj" />
     <Project Path="tests/ILInspector.ILDiff.Tests/ILInspector.ILDiff.Tests.csproj" />
     <Project Path="tests/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />

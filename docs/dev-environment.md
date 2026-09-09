@@ -157,6 +157,26 @@ runtime-async specimens remain inside the test assembly, while independently
 compiled analysis inputs remain under `fixtures/analysis/`. See
 [repository layout](fixture-governance.md#repository-layout).
 
+### Decompiler tests
+
+Build the solution before running the decompiler suite so its cataloged fixture
+binaries and tool harness are current, and always use Release because the
+compiler-produced IL is test evidence:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+source eng/activate-iltools.sh --mdv
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+```
+
+The custom xUnit executable retains its native selectors and `--gate` presets.
+Its compiler-produced specimens stay with the host under `tests/`; independent
+inputs remain under `fixtures/`, and linked harness sources remain owned by
+`tools/DecompilerHarness`. Run the separate `--gate corpus` lane only when the
+multi-hour corpus sweep is required. See
+[decompiler correctness](decompiler-correctness-pipeline.md) and
+[repository layout](fixture-governance.md#repository-layout).
+
 ### Inspection query tests
 
 Build the solution before running the inspection-query suite so every

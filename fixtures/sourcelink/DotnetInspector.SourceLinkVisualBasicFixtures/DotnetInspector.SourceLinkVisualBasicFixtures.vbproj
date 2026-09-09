@@ -1,14 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
+    <RootNamespace></RootNamespace>
     <IsPackable>false</IsPackable>
-    <IsAotCompatible>true</IsAotCompatible>
+    <IsAotCompatible>false</IsAotCompatible>
+    <LangVersion>latest</LangVersion>
+    <EnablePreviewFeatures>false</EnablePreviewFeatures>
     <DebugType>embedded</DebugType>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
-    <PathMap>$(MSBuildProjectDirectory)/BodylessSourceCollision/Left=/_/Case,$(MSBuildProjectDirectory)/BodylessSourceCollision/Right=/_/case,$(MSBuildProjectDirectory)=/_/</PathMap>
+    <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
     <SourceLink>$(MSBuildProjectDirectory)/sourcelink.json</SourceLink>
     <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
     <EnableSourceLink>false</EnableSourceLink>
