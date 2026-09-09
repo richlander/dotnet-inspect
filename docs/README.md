@@ -109,7 +109,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Static Ecosystem Packs](design/ecosystem-packs.md) | Front-end-only application catalog of private static ecosystem registrations composing discovery metadata with optional package-set, prefix-request, and opaque Integration scanner bindings. |
 | [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md) | Explicit projection from one application ecosystem pack to a lower immutable Workspace declaration, including one authored shared-default sequence without a lower catalog dependency. |
 | [Integration Scanner Binding](design/integration-scanner-binding.md) | Integration-owned static scanner handoff over immutable decoded observations, preserving evidence and owner-controlled execution; catalog and host adoption remain staged. |
-| [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) | Committed logical Root membership and order, closed-by-default selective dependency expansion, revision-bound edits, and complete scope-operation results. |
+| [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) | Committed logical Package membership and order, closed-by-default selective dependency expansion, revision-bound edits, and complete scope-operation results. |
 | [Workspace Registration and Call-Graph Focal Length](design/workspace-registration-and-call-graph-scope.md) | Proposed, operator-approved replacement: inert exact-library/prefix/ecosystem registration, shared Platform/ASP.NET Core/Extensions defaults, and consumer-selected call-graph focal lengths with a broad default. |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
@@ -183,6 +183,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Platform Composition and Overlays](design/platform-composition-and-overlays.md) | Platform library composition, overlays, and core-library entitlement. |
 | [Platform/Package Pruning](design/platform-package-pruning.md) | Which package identities a platform target subsumes, the subsumption comparison, and the staleness contract for the shipped prune inventory. |
 | [Platform Package Supply Policy](design/platform-package-supply-policy.md) | Host-neutral decision from a package coordinate and target-bound prune inventory to preserved supply evidence and conservative platform delegation. |
+| [Package Asset-selection Correspondence](design/package-asset-selection-correspondence.md) | Resource-free generation and request correspondence for runtime and compile asset-selection outcomes. |
 | [Type, Member, and API Representation](design/type-member-api-representation.md) | Canonical type, member, and API identity model. |
 | [Member Signature Shape and Transport](design/member-signature-shape.md) | Non-authoritative signature correspondence: loss-policy rationale, caller obligations, alternatives, canonical `mss1` grammar, and evolution. |
 | [C# Type-Declaration Identifier Admission](design/csharp-type-declaration-identifier-admission.md) | Compiler-characterized model-free admission from exact identity text to a legal C# declared-type identifier spelling or typed refusal. |
