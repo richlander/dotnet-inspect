@@ -295,7 +295,7 @@ beside their consumers.
 
 `DotnetInspector.Services` likewise has no aggregate successor. Package
 components move to the package owner, platform components to the
-`PlatformHouse` owner above the lower
+[`PlatformHouse`](platform-house-reference-processing.md) owner above the lower
 [Platform Target Currency](platform-target-currency.md), source-byte transport
 to the independent `SourceFetch` root, PDB-specific source composition to the
 `PdbSourceHouse` owner, and

@@ -156,6 +156,13 @@ substrates, and inspection producers that will extend that space.
   package-neutral family, target-framework, exact version, and family-target
   identities. Source adapters, PlatformHouse composition, and host adoption
   remain separately staged under #6361, #6301, #6335, and #6228.
+- The target
+  [PlatformHouse Reference Processing](design/platform-house-reference-processing.md)
+  owner defines the sole product-facing platform reference-processing facade:
+  exact-target source settlement, pruning composition, and transparent
+  .NET Standard forwarding through Metadata. Source algorithms, Workspace
+  admission, the assembly-reference ladder, and host presentation remain with
+  their focused owners.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,
