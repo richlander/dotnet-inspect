@@ -2068,8 +2068,8 @@ public class LibraryViewShapeDerivedContainmentTests
                 && IsProductAssembly(type.Assembly);
 
         /// <summary>
-        /// Repository-owned assemblies, by the two prefixes this repository
-        /// names its assemblies with.
+        /// Repository-owned assemblies, by the three product-family prefixes
+        /// this repository names its assemblies with.
         /// </summary>
         /// <remarks>
         /// Naming the two assemblies the model root lives in was still too
@@ -2136,6 +2136,7 @@ public class LibraryViewShapeDerivedContainmentTests
             return name is not null
                 && (name.StartsWith("DotnetInspector", StringComparison.Ordinal)
                     || name.StartsWith("ILInspector", StringComparison.Ordinal)
+                    || name.StartsWith("Inspector.", StringComparison.Ordinal)
                     || name.Equals("dotnet-inspect", StringComparison.Ordinal));
         }
     }
