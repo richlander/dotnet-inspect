@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>ILInspector.Metadata.TypeDependencyConsumer</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ILInspector.Metadata.TypeDependencyReference/ILInspector.Metadata.TypeDependencyReference.csproj" />
+  </ItemGroup>
+</Project>
