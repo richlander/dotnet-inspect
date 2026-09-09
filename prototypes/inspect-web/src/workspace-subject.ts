@@ -20,9 +20,15 @@ import {
 } from "./product-home-demos.ts";
 
 export interface WorkspaceSubjectRenderOptions {
-  packageCount: number;
-  selected: boolean;
+  workspaces: readonly WorkspaceSubjectItem[];
   escapeHtml: (value: unknown) => string;
+}
+
+export interface WorkspaceSubjectItem {
+  id: string;
+  label: string;
+  packageCount: number;
+  active: boolean;
 }
 
 export interface WorkspaceViewRenderOptions {
@@ -39,7 +45,9 @@ export interface WorkspaceViewRenderOptions {
 }
 
 export interface WorkspaceSubjectBindingActions {
-  onSelect: () => void;
+  onSelect: (workspaceId: string) => void;
+  onActivateWorkspace: (workspaceId: string) => void;
+  onDeleteWorkspace: (workspaceId: string) => void;
   onActivate: (action: string) => void;
   onDemo: (demo: ProductHomeDemoId) => void;
   onRetry: () => void;
@@ -62,7 +70,8 @@ export interface WorkspaceOccurrenceVisibility {
 
 export type WorkspaceFocusTarget =
   | SavedWorkspaceFocus
-  | { kind: "workspace" }
+  | { kind: "workspace"; id: string }
+  | { kind: "delete-workspace"; id: string; index: number }
   | { kind: "add-package" }
   | { kind: "remove"; key: string; index: number }
   | { kind: "demo"; id: string };
@@ -84,19 +93,29 @@ export function workspaceOccurrenceActionsAreVisible(
 export function renderWorkspaceSubject(
   options: WorkspaceSubjectRenderOptions,
 ): string {
-  const {
-    packageCount,
-    selected,
-    escapeHtml,
-  } = options;
-  return `<aside class="type-browser workspace-nav">
-    <header class="browser-head"><span>WORKSPACE</span></header>
-    <div class="workspace-list">
-      <button class="workspace-card${selected ? " active" : ""}" type="button" data-workspace-default aria-current="${selected ? "true" : "false"}">
-        <strong>Workspace</strong>
-        <span>${escapeHtml(packageCount)} loaded coordinate${packageCount === 1 ? "" : "s"}</span>
-        <small>Browser session</small>
+  const { workspaces, escapeHtml } = options;
+  const rows = workspaces.map(workspace => {
+    const count = workspace.packageCount;
+    const action = workspace.active
+      ? `data-workspace-select="${escapeHtml(workspace.id)}"`
+      : `data-workspace-switch="${escapeHtml(workspace.id)}"`;
+    return `<div class="workspace-row">
+      <button class="workspace-card${workspace.active ? " active" : ""}" type="button" ${action} aria-current="${workspace.active ? "true" : "false"}">
+        <strong>${escapeHtml(workspace.label)}</strong>
+        <span>${escapeHtml(count)} loaded coordinate${count === 1 ? "" : "s"}</span>
+        <small>${workspace.active ? "Active" : "Activate"}</small>
       </button>
+      ${packageRemoveButton(
+        "data-workspace-delete",
+        workspace.id,
+        `Delete ${workspace.label}`,
+        escapeHtml)}
+    </div>`;
+  }).join("");
+  return `<aside class="type-browser workspace-nav">
+    <header class="browser-head"><span>WORKSPACES</span></header>
+    <div class="workspace-list">
+      ${rows || '<p class="workspace-empty">No live Workspaces.</p>'}
     </div>
   </aside>`;
 }
@@ -178,7 +197,7 @@ export function renderWorkspaceView(
     ${options.savedWorkspaces ? renderSavedWorkspaces(options.savedWorkspaces, escapeHtml) : ""}
     <section class="document-section workspace-section">
       <div class="section-title"><h2>Demos</h2><span>${demos.length} available</span></div>
-      <p>Open a product demo to replace this Workspace with its packages and initial view.</p>
+      <p>Open a product demo as a new Workspace with its packages and initial view.</p>
       ${demoContent}
     </section>
     <section class="document-section workspace-section">
@@ -194,8 +213,21 @@ export function bindWorkspaceSubject(
   root: ParentNode,
   actions: WorkspaceSubjectBindingActions,
 ): void {
-  root.querySelector<HTMLElement>("[data-workspace-default]")
-    ?.addEventListener("click", actions.onSelect);
+  root.querySelectorAll<HTMLElement>("[data-workspace-select]").forEach(button =>
+    button.addEventListener("click", () => {
+      const workspaceId = button.dataset.workspaceSelect;
+      if (workspaceId !== undefined) actions.onSelect(workspaceId);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-workspace-switch]").forEach(button =>
+    button.addEventListener("click", () => {
+      const workspaceId = button.dataset.workspaceSwitch;
+      if (workspaceId !== undefined) actions.onActivateWorkspace(workspaceId);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-workspace-delete]").forEach(button =>
+    button.addEventListener("click", () => {
+      const workspaceId = button.dataset.workspaceDelete;
+      if (workspaceId !== undefined) actions.onDeleteWorkspace(workspaceId);
+    }));
   root.querySelectorAll<HTMLElement>("[data-workspace-activate]").forEach(button =>
     button.addEventListener("click", () => {
       const action = button.dataset.workspaceActivate;
@@ -222,7 +254,8 @@ export function bindWorkspaceSubject(
 export function focusWorkspace(
   root: ParentNode,
 ): boolean {
-  const button = root.querySelector<HTMLElement>("[data-workspace-default]");
+  const button = root.querySelector<HTMLElement>("[data-workspace-select]")
+    ?? root.querySelector<HTMLElement>("[data-workspace-switch]");
   button?.focus();
   return Boolean(button);
 }
@@ -233,10 +266,20 @@ export function captureWorkspaceFocus(
   const savedFocus = captureSavedWorkspaceFocus(element);
   if (savedFocus) return savedFocus;
   const target = element?.closest<HTMLElement>(
-    "[data-workspace-default], [data-workspace-demo], [data-workspace-remove], [data-workspace-add-package]");
+    "[data-workspace-select], [data-workspace-switch], [data-workspace-delete], [data-workspace-demo], [data-workspace-remove], [data-workspace-add-package]");
   if (!target) return null;
-  if (target.hasAttribute("data-workspace-default")) {
-    return { kind: "workspace" };
+  const workspaceId =
+    target.dataset.workspaceSelect ?? target.dataset.workspaceSwitch;
+  if (workspaceId !== undefined) {
+    return { kind: "workspace", id: workspaceId };
+  }
+  if (target.dataset.workspaceDelete !== undefined) {
+    return {
+      kind: "delete-workspace",
+      id: target.dataset.workspaceDelete,
+      index: [...target.ownerDocument.querySelectorAll("[data-workspace-delete]")]
+        .indexOf(target),
+    };
   }
   if (target.hasAttribute("data-workspace-add-package")) {
     return { kind: "add-package" };
@@ -271,8 +314,23 @@ export function restoreWorkspaceFocus(
       break;
     }
     case "workspace":
-      element = root.querySelector<HTMLElement>("[data-workspace-default]");
+      element = [...root.querySelectorAll<HTMLElement>(
+        "[data-workspace-select], [data-workspace-switch]")]
+        .find(candidate =>
+          (candidate.dataset.workspaceSelect
+            ?? candidate.dataset.workspaceSwitch) === target.id)
+        ?? null;
       break;
+    case "delete-workspace": {
+      const buttons =
+        [...root.querySelectorAll<HTMLElement>("[data-workspace-delete]")];
+      element = buttons.find(button => button.dataset.workspaceDelete === target.id)
+        ?? buttons[Math.min(target.index, buttons.length - 1)]
+        ?? root.querySelector<HTMLElement>(
+          "[data-workspace-select], [data-workspace-switch], h1");
+      if (element?.tagName === "H1") element.tabIndex = -1;
+      break;
+    }
     case "add-package":
       element = root.querySelector<HTMLElement>("[data-workspace-add-package]");
       break;

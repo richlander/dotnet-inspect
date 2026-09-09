@@ -13482,6 +13482,56 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SourceLinkFiles_DeclinesCaseDistinctBodylessDocuments()
+    {
+        Type selectedType =
+            typeof(
+                global::DotnetInspector.Queries.EmbeddedFixtures
+                    .BodylessSourceCollision.Right
+                    .AmbiguousBodylessFixture);
+        string assemblyPath = selectedType.Assembly.Location;
+        using var sourceLink = SourceLinkService.Open(assemblyPath);
+
+        List<SourceFileInfo> rows =
+            await SourceFileCollector.CollectAsync(
+                sourceLink,
+                assemblyPath,
+                typeFilter: selectedType.Name);
+        SourceFileInfo[] ambiguousRows =
+        [
+            .. rows.Where(row => row.Type.EndsWith(
+                "." + selectedType.Name,
+                StringComparison.Ordinal)),
+        ];
+
+        Assert.Equal(2, ambiguousRows.Length);
+        Assert.All(ambiguousRows, row => Assert.Null(row.Url));
+    }
+
+    [Fact]
+    public async Task SourceLinkFiles_InfersBodylessVisualBasicDocument()
+    {
+        const string typeName =
+            "DotnetInspector.SourceLinkVisualBasicFixtures"
+            + ".BodylessSourceFixture";
+        string assemblyPath =
+            FixtureCatalog.SourceLinkVisualBasic.AssemblyPath();
+        using var sourceLink = SourceLinkService.Open(assemblyPath);
+
+        SourceFileInfo row =
+            Assert.Single(
+                await SourceFileCollector.CollectAsync(
+                    sourceLink,
+                    assemblyPath,
+                    typeFilter: typeName));
+
+        Assert.Equal(typeName, row.Type);
+        Assert.Equal(
+            "https://example.test/dotnet-inspect/BodylessSourceFixture.vb",
+            row.Url);
+    }
+
+    [Fact]
     public async Task Discover_Bare_PreservesEmbeddedSourceLinkDoor()
     {
         var (assemblyPath, fixtureDir) =
@@ -15538,7 +15588,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SourceFiles_PrintRow_RejectsCrossOriginResponse()
+    public async Task Type_SourceFiles_PrintRow_RedirectedChecksumMismatchIsHardError()
     {
         using var client = new HttpClient(new SourceResponseHandler(
             "redirected content"u8.ToArray(),
@@ -15556,7 +15606,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("Could not verify the final SourceLink response origin", error);
+            Assert.Contains("does not match the portable-PDB checksum", error);
             Assert.DoesNotContain("spsprodeus27", error);
         }
         finally

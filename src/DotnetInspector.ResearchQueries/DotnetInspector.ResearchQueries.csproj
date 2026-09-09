@@ -23,5 +23,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
+    <InternalsVisibleTo Include="dotnet-inspect.Tests" />
   </ItemGroup>
 </Project>

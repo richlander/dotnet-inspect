@@ -132,7 +132,7 @@ substrates, and inspection producers that will extend that space.
   instruction streams: canonicalization, alignment, Finding projection, typed
   failures, and producer-owned diff presentation.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
-- `src/ILInspector.Text/` (target `Inspector.Text`) provides the reusable
+- `src/Inspector.Text/` provides the reusable
   `TextFindings` API for exact, ordered line inspection and generic text
   comparison on the shared Finding spine, plus deterministic LF construction.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
@@ -156,15 +156,21 @@ substrates, and inspection producers that will extend that space.
   identities. Source adapters, PlatformHouse composition, and host adoption
   remain separately staged under #6361, #6301, #6335, and #6228.
 - The target
-  [PlatformHouse Reference Processing](design/platform-house-reference-processing.md)
-  owner defines the sole product-facing platform reference-processing facade:
-  exact-target source settlement, pruning composition, and transparent
-  .NET Standard forwarding through Metadata. It also settles independent
-  reference-view XML and implementation-view PDB/SourceLink documentation
-  evidence against the same target and view correspondence. XML, PDB,
-  SourceLink, and source-comment algorithms, Workspace admission, the
-  assembly-reference ladder, and host presentation remain with their focused
-  owners.
+  [PlatformHouse Realization and Reference Processing](design/platform-house-reference-processing.md)
+  owner defines the sole product-facing platform realization and
+  reference-processing facade: explicit target/version settlement,
+  exact-target source realization,
+  provenance-retaining bare-library handoff, and transparent .NET Standard
+  forwarding through Metadata. Package-reference processing and pruning
+  remain upstream in the package domain. Selected Workspace ecosystem
+  populations lower through their retained platform-family declarations into
+  independent runtime and ASP.NET Core House target demands; package-prefix
+  contributions remain package-domain work. The House also settles
+  independent reference-view XML and implementation-view PDB/SourceLink
+  documentation evidence against the same target and view correspondence.
+  XML, PDB, SourceLink, and source-comment algorithms, Workspace admission,
+  the assembly-reference ladder, and host presentation remain with their
+  focused owners.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,
@@ -197,7 +203,7 @@ substrates, and inspection producers that will extend that space.
   bounded one-candidate primary-assembly evaluation and resource-free
   package-plus-selected-asset semantic evidence without realizing unrelated
   package assemblies.
-- `src/DotnetInspector.Artifacts/` (target `Inspector.Artifacts`) is the
+- `src/Inspector.Artifacts/` is the
   package- and Metadata-free contract floor for generation-scoped artifact
   identity, typed provenance and diagnostics, acquisition outcomes, and
   owner-issued guarded access.

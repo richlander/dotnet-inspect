@@ -1510,7 +1510,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void SourceFetchPolicy_OmitsCredentialsAndRefusesRedirects()
+    public void SourceFetchPolicy_OmitsCredentialsAndFollowsRedirects()
     {
         using var request =
             new HttpRequestMessage(
@@ -1524,7 +1524,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 "WebAssemblyFetchOptions"),
             out IDictionary<string, object>? options));
         Assert.Equal("omit", options["credentials"]);
-        Assert.Equal("error", options["redirect"]);
+        Assert.Equal("follow", options["redirect"]);
     }
 
     [Fact]
@@ -3692,13 +3692,12 @@ public sealed partial class BrowserEngineBoundaryTests
                         assemblyId: ""),
                     BrowserPackageJsonContext.Default.BrowserPackageDependencies));
         Assert.Null(dependencies.Assembly);
-        Assert.Empty(dependencies.AssemblyReferences);
         Assert.Equal(
             BrowserCompileLibraryStatus.NoCompileAssets,
             dependencies.CompileLibrary.Status);
         Assert.Equal(
             dependencies.CompileLibrary.Message,
-            dependencies.AssemblyReferenceError);
+            Assert.IsType<string>(dependencies.AssemblyReferences.Value));
         BrowserPackageDependency dependency = Assert.Single(
             Assert.Single(dependencies.DependencyGroups).Dependencies);
         Assert.Equal("Tool.Payload", dependency.Id);
@@ -4236,6 +4235,13 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             implementationTypeCount,
             table.RootElement.GetProperty("rowCount").GetInt32());
+        using JsonDocument heap = JsonDocument.Parse(
+            await MetadataExports.QueryPackageHeapEntries(
+                packageId, "1.0.0", "net11.0", surface.Asset.Id,
+                "cli", "String"));
+        Assert.Contains(
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName().Name!,
+            heap.RootElement.GetRawText());
 
         BrowserPackagePerformance performance = Assert.IsType<BrowserPackagePerformance>(
             JsonSerializer.Deserialize(
@@ -4371,7 +4377,7 @@ public sealed partial class BrowserEngineBoundaryTests
             "Browser.Dependency.Child",
             dependency.GetProperty("id").GetString());
         JsonElement reference = Assert.Single(
-            root.GetProperty("assemblyReferences").EnumerateArray(),
+            root.GetProperty("assemblyReferences").GetProperty("references").EnumerateArray(),
             reference =>
                 reference.GetProperty("name").GetString() == "System.Runtime");
         Assert.Equal("11.0.0.0", reference.GetProperty("version").GetString());
@@ -4383,9 +4389,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             JsonValueKind.Null,
             root.GetProperty("dependencyGroupError").ValueKind);
-        Assert.Equal(
-            JsonValueKind.Null,
-            root.GetProperty("assemblyReferenceError").ValueKind);
+        Assert.False(root.TryGetProperty("assemblyReferenceError", out _));
     }
 
     [Fact]
@@ -5465,7 +5469,7 @@ public sealed partial class BrowserEngineBoundaryTests
     {
         const string packageId =
             "microsoft.netcore.app.runtime.linux-x64";
-        const string version = "11.0.104";
+        const string version = "11.0.304";
         const string framework = "net11.0-platform-home-demo-methods";
         byte[] nupkg = PlatformPackage(
             ("InspectWeb.Engine.Tests.dll",

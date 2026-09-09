@@ -422,6 +422,16 @@ test("routed history to demos closes the dialog and rejects late inventory", asy
     },
     currentPackageQueryHandoff: () => null,
     navigationSequence: { begin: () => 1 },
+    history: { state: null },
+    retainedWorkspaceIdFromHistory: () => null,
+    historyReferencesRetainedWorkspace: () => false,
+    retainedWorkspaces: {
+      activeWorkspaceId: null,
+      workspaces: [],
+    },
+    activateRetainedWorkspaceProjection: () => false,
+    showToast: () => {},
+    errorMessage: (error: unknown) => String(error),
     closeGraphExplorerForNavigation: () => {},
     dismissAnnotatedSourceModal: () => false,
     spotlight: { reset: () => {} },
@@ -436,6 +446,7 @@ test("routed history to demos closes the dialog and rejects late inventory", asy
     clearWorkspaceRouteFailure: () => true,
     render: () => {},
     afterCurrentNavigationFrame: () => {},
+    focusWorkspaceOrHeading: () => {},
   });
   assert.ok(callbacks.popstate);
   callbacks.popstate();

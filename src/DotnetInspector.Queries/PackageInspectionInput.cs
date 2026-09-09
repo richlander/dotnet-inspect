@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 

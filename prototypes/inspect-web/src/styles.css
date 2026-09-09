@@ -428,9 +428,12 @@ body {
 .scope-switch button.scope-seg.active { color: #fff; background: var(--shell-accent-fill); border-bottom-color: transparent; }
 .lens-separator { flex: none; width: 1px; height: 17px; background: var(--line); margin: 0 4px; }
 .workspace-list { min-height: 0; overflow: auto; padding: 8px; }
+.workspace-row { display: flex; align-items: stretch; gap: 4px; }
+.workspace-row + .workspace-row { margin-top: 4px; }
 .workspace-card {
   display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 10px;
   border: 1px solid transparent;
   background: transparent;
@@ -445,6 +448,7 @@ body {
 .workspace-card strong { color: var(--text); font: 11px var(--mono); }
 .workspace-card span { margin-top: 4px; color: var(--muted); font-size: 11px; }
 .workspace-card small { margin-top: 5px; color: var(--dim); font: 9px var(--mono); }
+.workspace-row > .package-row-remove { align-self: center; }
 .workspace-empty { margin: 12px 8px; color: var(--dim); font-size: 11px; line-height: 1.5; }
 .workspace-overview { max-width: 900px; margin-top: 28px; }
 .workspace-overview p { color: var(--muted); line-height: 1.6; }

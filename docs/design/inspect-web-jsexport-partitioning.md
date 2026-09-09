@@ -262,8 +262,9 @@ member surface selected from graph navigation. It consumes package or platform
 coordinates through `InspectWeb.Engine.Core`; it does not acquire artifacts
 independently.
 
-### Analysis facade: 7 exports
+### Analysis facade: 8 exports
 
+- `QueryCloneCandidates`
 - `QueryMemberFacts`
 - `QueryPackageIntegrations`
 - `QueryPackageOpportunities`
@@ -274,6 +275,9 @@ independently.
 
 The explicitly unavailable platform-performance operation stays in this facade
 so absence remains a visible capability result rather than a missing binding.
+`QueryCloneCandidates` belongs here because it adapts the Workspace structural
+Clone query and portable Presentation result without transferring candidate
+ranking or coverage semantics into the browser host.
 The module does not combine Analysis with call-graph topology; graph traversal
 has its own facade and product owner.
 
@@ -553,7 +557,7 @@ catalog handoff; the historical counts in this migration snapshot exclude it.
 | Synchronous startup data | 4 | `buildIdentity`, `listVocabulary`, `listHomeDemos`, `listPackageQueryFacets` | Await acquisition; supply typed catalog data to existing readers. |
 | Synchronous computed results | 5 | `decodeWorkspaceShareState`, `encodeWorkspaceShareState`, `resolveHomeDemo`, `matchPackageDependencyCoordinate`, `searchTypes` | Await the real result in navigation/share, demo resolution, dependency matching, and Spotlight owners. |
 | Synchronous stateful operations | 3 | `activateWorkspacePackageOccurrence`, `clearWorkspacePackageOccurrences`, `packageCacheStats` | Await activation/clear completion or a current stats result; retain the UI owner's ordering and invalidation. |
-| Synchronous controls | 4 | `cancelPackageQuery`, `cancelSourceQuery`, `cancelTypeSourceQuery`, `requestPackageQueryMatches` | Preserve existing targeting and real acknowledgment; logical cancellation stays with its existing feature/operation authority. |
+| Synchronous controls | 4 | `cancelPackageQuery`, `cancelSourceQuery`, `cancelTypeSourceQuery`, `requestPackageQueryMatches` | Preserve exact operation targeting and real acknowledgment; Package Query and Type Source are already keyed, while remaining singleton controls require focused adoption. Logical cancellation stays with its existing feature/operation authority. |
 | Callback stream | 1 | `runPackageQuery` | Worker-local callback adapter, durable delivery, terminal ordering, and existing match-credit behavior. |
 | Authority-governed Source | 1 | `queryTypeSource` | Direct Worker producer adapter; consume the existing keyed managed bridge and generated terminal DTO. |
 | Other Promise-returning calls | 30 | Package: 9; Metadata: 8; Analysis: 7; Source: 3; Call graph: 2; Catalog: `runHomeDemo` | Preserve generated inputs, results, and failures through typed bindings; placement alone does not complete lifecycle adoption. |

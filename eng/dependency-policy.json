@@ -12,7 +12,7 @@
       ],
       "targets": [
         "CSharpText",
-        "DotnetInspector.Artifacts",
+        "Inspector.Artifacts",
         "DotnetInspector.RowSelection",
         "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
@@ -42,8 +42,7 @@
         "*.App",
         "*.Tests",
         "*Fixture*",
-        "ILInspector.Analysis.CallerGraph*",
-        "ILInspector.Metadata"
+        "ILInspector.Analysis.CallerGraph*"
       ],
       "deny": [
         "DotnetInspector.*"
@@ -81,6 +80,7 @@
         "CSharpText",
         "DotnetInspector.*",
         "ILInspector.*",
+        "Inspector.*",
         "InertText",
         "TsJsExport.Contracts"
       ],
@@ -247,7 +247,7 @@
         "assembly"
       ],
       "targets": [
-        "ILInspector.Text"
+        "Inspector.Text"
       ],
       "allowOnly": [
         "$platform",
@@ -283,7 +283,7 @@
       "allowOnly": [
         "$platform",
         "CSharpText",
-        "DotnetInspector.Artifacts",
+        "Inspector.Artifacts",
         "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
         "InertText"
@@ -304,7 +304,7 @@
         "CSharpText",
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives",
-        "ILInspector.Text"
+        "Inspector.Text"
       ]
     },
     {
@@ -322,7 +322,7 @@
         "Inspector.Findings",
         "ILInspector.Instructions",
         "ILInspector.MetadataPrimitives",
-        "ILInspector.Text"
+        "Inspector.Text"
       ]
     },
     {
@@ -382,7 +382,7 @@
         "ILInspector.Instructions",
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives",
-        "ILInspector.Text"
+        "Inspector.Text"
       ]
     },
     {
@@ -423,7 +423,7 @@
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives",
         "ILInspector.SourceLink",
-        "ILInspector.Text"
+        "Inspector.Text"
       ]
     },
     {
