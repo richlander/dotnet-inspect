@@ -1611,6 +1611,83 @@ public class CompilerFeatureOptionsTests
     }
 
     [Fact]
+    public void UnsupportedDependencyFieldMemorySafetyRules_DeclinesWithoutPromotingDirectAttribute()
+    {
+        var options = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var library = Compile(
+            """
+            public static class Library
+            {
+                public static unsafe int RiskyField;
+
+                public static int Read()
+                {
+                    unsafe { return RiskyField; }
+                }
+            }
+            """,
+            options,
+            assemblyName: "UnsupportedFieldRulesLibrary");
+        MetadataReference libraryReference =
+            MetadataReference.CreateFromImage(library.Image);
+        using var caller = Compile(
+            """
+            public static class Consumer
+            {
+                public static int M()
+                {
+                    unsafe { return Library.RiskyField; }
+                }
+            }
+            """,
+            options,
+            assemblyName: "UnsupportedFieldRulesConsumer",
+            additionalReferences: [libraryReference]);
+
+        byte[] unsupportedLibrary =
+            WithMemorySafetyRulesVersion(library.Image, version: 99);
+        DecompilerResult result = DecompileWithSibling(
+            "UnsupportedFieldRulesLibrary.dll",
+            unsupportedLibrary,
+            "UnsupportedFieldRulesConsumer.dll",
+            caller.Image,
+            "Consumer",
+            "M");
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.DoesNotContain("unsafe", result.Output);
+
+        using var sameAssemblySource =
+            MetadataSource.OpenFromPrefetchedImage(
+                "UnsupportedFieldRulesLibrary.dll",
+                ImmutableArray.Create(unsupportedLibrary));
+        var function = IrImporter.Import(
+            sameAssemblySource,
+            "Library",
+            "Read");
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        var field = Assert.Single(
+            function.Descendants.OfType<LoadField>()).Field;
+
+        Assert.True(field.HasNormalizedMemorySafetyContract);
+        Assert.Equal(MetadataFactState.Unknown, field.RequiresUnsafeFact);
+        Assert.Equal(
+            MemorySafetyRulesState.Unsupported,
+            field.MemorySafetyRulesState);
+        var sameAssemblyResult = CSharpPrinter.Print(function);
+        Assert.Equal(
+            DecompilationFidelity.Partial,
+            sameAssemblyResult.Fidelity);
+        Assert.DoesNotContain("unsafe", sameAssemblyResult.Output);
+    }
+
+    [Fact]
     public void UnsupportedDependencyMemorySafetyRules_WithExpressionRetainsCloneProvenance()
     {
         var options = new CSharpParseOptions(LanguageVersion.Preview)

@@ -112,6 +112,12 @@ public static class FixtureIds
     public const string DecompilerLadderRung5 = "decompiler.ladder.rung5";
     public const string DecompilerLadderRung9 = "decompiler.ladder.rung9";
     public const string DecompilerTypeIdentity = "decompiler.type-identity";
+    public const string DecompilerForwardedFieldCaller =
+        "decompiler.forwarded-field.caller";
+    public const string DecompilerForwardedFieldTargetDeployment =
+        "decompiler.forwarded-field.target-deployment";
+    public const string DecompilerForwardedFieldTargetReference =
+        "decompiler.forwarded-field.target-reference";
     public const string DecompilerUnsafeLegacy = "decompiler.unsafe.legacy";
     public const string DecompilerUnsafeNew = "decompiler.unsafe.new";
     public const string DecompilerUnsafeChainA = "decompiler.unsafe.chain-a";
@@ -660,6 +666,40 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.ModuleAttribute),
         "decompiler", "unsafe", "legacy-memory-safety");
 
+    public static readonly FixtureDefinition DecompilerForwardedFieldCaller = Fixture(
+        FixtureIds.DecompilerForwardedFieldCaller,
+        "ILInspector.Decompiler.Fixtures.ForwardedFieldCaller",
+        "ILInspector.Decompiler.Fixtures.ForwardedFieldCaller.dll",
+        Boundaries(
+            FixtureBoundary.AssemblyIdentity,
+            FixtureBoundary.CrossAssemblyBoundary,
+            FixtureBoundary.ModuleAttribute),
+        "decompiler", "unsafe", "field", "type-forwarding", "updated-memory-safety");
+
+    public static readonly FixtureDefinition DecompilerForwardedFieldTargetDeployment = Fixture(
+        FixtureIds.DecompilerForwardedFieldTargetDeployment,
+        "ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment",
+        "ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.dll",
+        Boundaries(
+            FixtureBoundary.AssemblyIdentity,
+            FixtureBoundary.AssemblyName,
+            FixtureBoundary.CrossAssemblyBoundary,
+            FixtureBoundary.ModuleAttribute,
+            FixtureBoundary.VersionPair),
+        "decompiler", "unsafe", "field", "type-forwarding", "deployment");
+
+    public static readonly FixtureDefinition DecompilerForwardedFieldTargetReference = Fixture(
+        FixtureIds.DecompilerForwardedFieldTargetReference,
+        "ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference",
+        "ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.dll",
+        Boundaries(
+            FixtureBoundary.AssemblyIdentity,
+            FixtureBoundary.AssemblyName,
+            FixtureBoundary.CrossAssemblyBoundary,
+            FixtureBoundary.ModuleAttribute,
+            FixtureBoundary.VersionPair),
+        "decompiler", "unsafe", "field", "type-forwarding", "reference");
+
     public static readonly FixtureDefinition DecompilerUnsafeNew = Fixture(
         FixtureIds.DecompilerUnsafeNew,
         "ILInspector.Decompiler.Fixtures.NewUnsafe",
@@ -858,6 +898,9 @@ public static class FixtureCatalog
         DecompilerLadderRung4,
         DecompilerLadderRung5,
         DecompilerLadderRung9,
+        DecompilerForwardedFieldCaller,
+        DecompilerForwardedFieldTargetDeployment,
+        DecompilerForwardedFieldTargetReference,
         DecompilerUnsafeLegacy,
         DecompilerUnsafeNew,
         DecompilerUnsafeChainA,
@@ -937,6 +980,9 @@ public static class FixtureCatalog
             DecompilerLadderRung4,
             DecompilerLadderRung5,
             DecompilerLadderRung9,
+            DecompilerForwardedFieldCaller,
+            DecompilerForwardedFieldTargetDeployment,
+            DecompilerForwardedFieldTargetReference,
             DecompilerUnsafeLegacy,
             DecompilerUnsafeNew,
             DecompilerUnsafeChainA,
@@ -968,6 +1014,9 @@ public static class FixtureCatalog
             DecompilerUnsafeChainA,
             DecompilerUnsafeChainB,
             DecompilerUnsafeChainC,
+            DecompilerForwardedFieldCaller,
+            DecompilerForwardedFieldTargetDeployment,
+            DecompilerForwardedFieldTargetReference,
         ]);
 
     public static readonly FixtureGroup RunFasterFixtures = new(
@@ -1234,6 +1283,9 @@ public static class FixtureCatalog
             "ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts",
             "ILInspector.Decompiler.Fixtures.ClassicStateMachines" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines",
             "ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof",
+            "ILInspector.Decompiler.Fixtures.ForwardedFieldCaller" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ForwardedFieldCaller",
+            "ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment",
+            "ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference",
             "ILInspector.Decompiler.Fixtures.Ladder" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.Ladder",
             "ILInspector.Decompiler.Fixtures.AuthoredRebuild" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.AuthoredRebuild",
             "ILInspector.Decompiler.Fixtures.LegacyUnsafe" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe",
