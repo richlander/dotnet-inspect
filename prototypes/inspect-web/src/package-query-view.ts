@@ -10,6 +10,10 @@ import {
   createAssemblyQueryRequest,
   createQueryRequest,
 } from "./package-query.ts";
+import {
+  resolvePackageQueryRowWindow,
+  type PackageQueryViewportSnapshot,
+} from "./package-query-window.ts";
 import { renderBrand } from "./brand.ts";
 import { focusRenderedElement } from "./scope-bar.ts";
 
@@ -24,6 +28,7 @@ export interface PackageQueryBindingActions {
   onFacetToggle: (facetKey: string, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
   onResultPressure: () => void;
+  onResultViewportChange: () => void;
   onRowOpen: (
     packageId: string,
     version: string,
@@ -45,6 +50,7 @@ export type PackageQueryFocusSnapshot =
   | { kind: "product" }
   | { kind: "back" }
   | { kind: "run" }
+  | { kind: "results" }
   | { kind: "prerelease" }
   | {
       kind: "assembly";
@@ -103,6 +109,7 @@ export function capturePackageQueryFocus(
   if (active.id === "package-query-product") return { kind: "product" };
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
+  if (active.id === "package-query-results") return { kind: "results" };
   if (active.id === "package-query-prerelease") return { kind: "prerelease" };
   const assemblyControl = assemblyControlName(active.id);
   if (assemblyControl) {
@@ -146,6 +153,9 @@ export function restorePackageQueryFocus(
     case "run":
       target = root.querySelector("#package-query-run");
       break;
+    case "results":
+      target = root.querySelector("#package-query-results");
+      break;
     case "prerelease":
       target = root.querySelector(`#package-query-${snapshot.kind}`);
       break;
@@ -175,12 +185,17 @@ export function restorePackageQueryFocus(
       break;
   }
   let usedFallback = false;
-  if (!isFocusableQueryElement(target) || !focusRenderedElement(target)) {
-    target = root.querySelector("#package-query-prefix");
+  if (!isFocusableQueryElement(target)
+    || !focusRenderedElement(target, { preventScroll: true })) {
+    target = root.querySelector(
+      snapshot.kind === "row"
+        ? "#package-query-results"
+        : "#package-query-prefix");
     usedFallback = true;
   }
   if (!isFocusableQueryElement(target)) return "none";
-  if (usedFallback && !focusRenderedElement(target)) return "none";
+  if (usedFallback
+    && !focusRenderedElement(target, { preventScroll: true })) return "none";
   if (snapshot.kind === "prefix"
     && supportsSelectionRange(target)
     && snapshot.selectionStart !== null
@@ -237,11 +252,15 @@ export function bindPackageQueryView(
       actions.onResultPressure();
     }
   };
-  queryMain?.addEventListener("scroll", reportResultPressure);
+  const handleResultScroll = () => {
+    reportResultPressure();
+    actions.onResultViewportChange();
+  };
+  queryMain?.addEventListener("scroll", handleResultScroll);
   reportResultPressure();
   return {
     disconnect() {
-      queryMain?.removeEventListener("scroll", reportResultPressure);
+      queryMain?.removeEventListener("scroll", handleResultScroll);
     },
   };
 }
@@ -411,6 +430,8 @@ export function packageQueryNeedsMoreMatches(
 
 function renderRow(
   row: QueryResultRow,
+  index: number,
+  rowCount: number,
   escapeHtml: (value: unknown) => string,
 ): string {
   const evidence = row.evidence
@@ -424,7 +445,11 @@ function renderRow(
         ? ` data-query-root-request="${escapeHtml(rootRequest)}"`
         : ""}>Open in workspace</button>`;
   return `
-    <article class="query-row">
+    <article class="query-row"
+      role="listitem"
+      aria-posinset="${index + 1}"
+      aria-setsize="${rowCount}"
+      data-query-row-index="${index}">
       <div class="query-row-head">
         <div>
           <h2>${escapeHtml(row.packageId)}</h2>
@@ -750,6 +775,7 @@ function renderEmptyState(
 export interface RenderPackageQueryOptions {
   state: PackageQueryState;
   prefix?: string;
+  viewport?: PackageQueryViewportSnapshot | null;
   availableFacets: readonly QueryFacetTerm[];
   availableAssemblyPatterns?: readonly QueryAssemblyPatternDescriptor[];
   navigationError?: string;
@@ -796,13 +822,38 @@ function renderAssessments(
 function renderResults(
   state: PackageQueryState,
   escapeHtml: (value: unknown) => string,
+  viewport: PackageQueryViewportSnapshot | null = null,
 ): string {
+  const rowCount = state.outcome.rows.length;
+  const window = resolvePackageQueryRowWindow(rowCount, viewport);
   const rows = state.outcome.rows
-    .map(row => renderRow(row, escapeHtml))
+    .slice(window.start, window.end)
+    .map((row, offset) =>
+      renderRow(row, window.start + offset, rowCount, escapeHtml))
     .join("");
   const assessments = renderAssessments(state, escapeHtml);
+  const renderedRows = rows
+    ? `<div
+        id="package-query-row-window"
+        class="query-row-window"
+        data-query-row-extent="${window.rowExtent.toFixed(2)}">
+        <div
+          class="query-row-spacer"
+          aria-hidden="true"
+          style="height:${window.beforeHeight.toFixed(2)}px"></div>
+        <div class="query-list"
+          role="list"
+          aria-label="Packages ${window.start + 1} through ${window.end} of ${rowCount}">
+          ${rows}
+        </div>
+        <div
+          class="query-row-spacer"
+          aria-hidden="true"
+          style="height:${window.afterHeight.toFixed(2)}px"></div>
+      </div>`
+    : "";
   return rows
-    ? `${renderProgress(state.outcome, escapeHtml)}${assessments}${renderQueryContext(state.outcome.rows, escapeHtml)}<div class="query-list">${rows}</div>${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
+    ? `${renderProgress(state.outcome, escapeHtml)}${assessments}${renderQueryContext(state.outcome.rows, escapeHtml)}${renderedRows}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
     : state.outcome.completion.kind === "streaming" && state.request
       ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>${state.request.assemblyPattern ? "Evaluating selected assemblies" : "Acquiring package input"}</h2><p>${state.request.assemblyPattern ? "Matches, semantic non-matches, and non-applicable selections will appear as the explicit packages are evaluated." : "Matches will appear as package candidates are evaluated."}</p></section>${renderProgress(state.outcome, escapeHtml)}${assessments}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
       : `${assessments}${renderEmptyState(state, escapeHtml)}`;
@@ -810,7 +861,10 @@ function renderResults(
 
 export function patchPackageQueryStream(
   root: ParentNode,
-  options: Pick<RenderPackageQueryOptions, "state" | "escapeHtml">,
+  options: Pick<
+    RenderPackageQueryOptions,
+    "state" | "escapeHtml" | "viewport"
+  >,
   actions: PackageQueryBindingActions,
 ): boolean {
   const failures = root.querySelector<HTMLElement>(
@@ -823,7 +877,10 @@ export function patchPackageQueryStream(
 
   failures.innerHTML = renderFailures(options.state, options.escapeHtml);
   cancel.innerHTML = renderStreamingCancel(options.state);
-  results.innerHTML = renderResults(options.state, options.escapeHtml);
+  results.innerHTML = renderResults(
+    options.state,
+    options.escapeHtml,
+    options.viewport);
   bindPackageQueryStreamControls(root, actions);
 
   const queryMain = root.querySelector<HTMLElement>(".query-main");
@@ -843,11 +900,12 @@ export function renderPackageQueryView(
     availableAssemblyPatterns = [],
     navigationError = "",
     escapeHtml,
+    viewport = null,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
   const facets = renderFacets(availableFacets, activeKeys, escapeHtml);
   const failures = renderFailures(state, escapeHtml);
-  const results = renderResults(state, escapeHtml);
+  const results = renderResults(state, escapeHtml, viewport);
   const request = state.request ?? createQueryRequest("");
 
   return `
@@ -890,7 +948,7 @@ export function renderPackageQueryView(
             <p class="query-facet-disclosure">Candidate bound K: ${request.requestedLimit.toLocaleString()}; exact IDs use one candidate. Maximum matches N: ${request.requestedMatchLimit.toLocaleString()}. The match limit does not change prefix capacity.</p>
             <p class="query-facet-disclosure">Match counts and lifetime downloads describe a bounded response, not global top-N.</p>
           </aside>
-          <section id="package-query-results" class="query-results" aria-label="Package query results">
+          <section id="package-query-results" class="query-results" aria-label="Package query results" tabindex="-1">
             ${results}
           </section>
         </div>

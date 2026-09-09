@@ -410,7 +410,28 @@ or runtime exceptions. The successful empty section retains its zero count
 and existing absence message, which does not assert that the method cannot
 throw. Loading and failure remain separate top-level Facts states.
 The additional row height is an explicit trade for complete visible values
-without horizontal scrolling. Performance opportunities and diagnostics retain
+without horizontal scrolling.
+
+Performance opportunities uses the same readable measure and separator
+treatment. Each returned Analysis judgment retains its IL Offset and raw Shape
+with complete Evidence, followed by labeled Confidence, In loop, Provenance,
+Finding, Possible direction, and Caveat values. All nine fields remain visible
+in returned order, including repeated records. The selected-member browser
+surface does not assign a new priority, severity, runtime cost, or ranking.
+
+Null Offset, Finding, and Caveat values are explicit: `No IL offset` or
+`not supplied`. Offset absence does not infer aggregate provenance, and
+Finding text remains non-interactive evidence rather than an inferred
+navigation target. In loop uses explicit `yes` and `no`; Confidence,
+Provenance, and Shape retain their raw values. Possible direction remains
+guidance rather than an automated or universally safe fix.
+
+At constrained pane widths, offset and Shape move above Evidence; long values
+wrap within the row. The count describes returned opportunity records, not
+distinct shapes, Findings, runtime hotspots, or measured regressions. A
+successful empty result retains its zero count and existing absence message,
+which does not claim that the method is optimized or allocation-free. Loading
+and failure remain separate top-level Facts states. Analysis diagnostics retain
 their existing presentation.
 
 #### Graph Explore

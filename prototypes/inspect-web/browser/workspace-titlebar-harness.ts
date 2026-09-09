@@ -46,7 +46,7 @@ import { renderMemberFacts } from "../src/member-facts.ts";
 import { renderOverviewSurface } from "../src/overview-surface.ts";
 import { renderPackageNav } from "../src/package-view.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
-import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
+import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 import {
   memberFindingInteractionFixture,
 } from "../test/member-finding-census-fixture.ts";
@@ -119,6 +119,7 @@ const allocationFactsMode = params.get("allocation-facts");
 const callFactsMode = params.get("call-facts");
 const safetyFactsMode = params.get("safety-facts");
 const exceptionRegionsMode = params.get("exception-regions");
+const performanceOpportunitiesMode = params.get("performance-opportunities");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
@@ -251,7 +252,8 @@ let activeTypeLens: TypeLens = sourceMode
     : "api";
 let activeMemberSection: MemberSection = sourceMode
   ? "source"
-  : memberFactsMode || allocationFactsMode || callFactsMode || safetyFactsMode || exceptionRegionsMode ? "facts" : "overview";
+  : memberFactsMode || allocationFactsMode || callFactsMode || safetyFactsMode
+    || exceptionRegionsMode || performanceOpportunitiesMode ? "facts" : "overview";
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
@@ -504,7 +506,9 @@ function detailHtml() {
             ? safetyFactsFixture(safetyFactsMode === "long" ? "long" : "populated")
             : exceptionRegionsMode
               ? exceptionRegionsFixture(exceptionRegionsMode === "long" ? "long" : "populated")
-              : memberFactsFixture(mode);
+              : performanceOpportunitiesMode
+                ? performanceOpportunitiesFixture(performanceOpportunitiesMode === "long" ? "long" : "populated")
+                : memberFactsFixture(mode);
       return `<section class="member-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">DeserializeSync</h1>

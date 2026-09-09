@@ -494,6 +494,75 @@ test.describe("Package Query website over real Wasm", () => {
     expect(enrichment).toEqual([]);
   });
 
+  test("retains 100 prefix results while mounting a bounded row window", async ({
+    page,
+    context,
+  }) => {
+    const requests: URL[] = [];
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      const url = new URL(route.request().url());
+      expect(url.pathname).toBe("/query");
+      requests.push(url);
+      const skip = Number(url.searchParams.get("skip") ?? "0");
+      const data = skip === 0
+        ? Array.from({ length: 100 }, (_, index) => ({
+            id: `System.Package${index.toString().padStart(3, "0")}`,
+            version: "1.0.0",
+            description: "Windowed prefix fixture.",
+            owners: ["Fixture"],
+            totalDownloads: index,
+            verified: false,
+          }))
+        : [];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 100, data }),
+      });
+    });
+
+    await page.goto("/query");
+    const input = page.locator("#package-query-prefix");
+    const main = page.locator(".query-main");
+    const footer = page.locator(".query-footer");
+    await expect(input).toBeVisible({ timeout: 120_000 });
+    await input.fill("System*");
+    await page.locator("#package-query-run").click();
+
+    await expect(footer).toContainText("20 packages");
+    await expect(page.locator(".query-row")).toHaveCount(20);
+    const firstOpen = page.locator("[data-query-row-open]").first();
+    await firstOpen.focus();
+    await expect(firstOpen).toBeFocused();
+    for (let target = 30; target <= 100; target += 10) {
+      await main.evaluate(element => {
+        element.scrollTop = element.scrollHeight;
+      });
+      await expect.poll(async () => {
+        const text = (await footer.textContent() ?? "").trim();
+        return Number(text.match(/^(\d+) packages?/)?.[1] ?? "0");
+      }).toBeGreaterThanOrEqual(target);
+      expect(await page.locator(".query-row").count())
+        .toBeLessThanOrEqual(30);
+      if (target >= 40) {
+        await expect(page.locator("#package-query-results")).toBeFocused();
+      }
+    }
+
+    await expect(footer)
+      .toContainText("100 packages · bounded: first 100 matches");
+    await expect(page.locator(".query-row h2").last())
+      .toHaveText("System.Package099");
+    await main.evaluate(element => {
+      element.scrollTop = 0;
+    });
+    await expect(page.locator(".query-row h2").first())
+      .toHaveText("System.Package000");
+    await expect(page.locator(".query-row")).toHaveCount(30);
+    expect(requests).toHaveLength(1);
+  });
+
 });
 
 test.describe("Assembly Package Query website over real Wasm", () => {
