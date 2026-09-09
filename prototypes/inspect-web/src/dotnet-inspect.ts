@@ -1547,6 +1547,8 @@ function prepareUnpublishedWorkspace(): void {
   navigationHistory.restore({ stack: [], index: -1 });
   resetLocationFilters();
   clearWorkspacePackages();
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
   state.dependenciesGroupIndex = null;
   state.selectedTypeId = "";
   state.selectedMemberKey = "";
@@ -8592,6 +8594,7 @@ async function loadPackageFromSpotlight(
     }
     publishCurrentWorkspace(retainedSnapshot);
     workspaceLocation.push(destination);
+    render({ synchronizeUrl: false });
     focusTypeList(navigationGeneration, focusGeneration);
   }
 }
@@ -13683,6 +13686,7 @@ async function runCallGraphDemo(
       return;
     }
     syncUrl();
+    render({ synchronizeUrl: false });
     focusInspectionResult(navigationSeq);
   } catch (error) {
     cancelDemoNavigation(navigationSeq);

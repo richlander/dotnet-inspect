@@ -2383,7 +2383,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /const typeLensLoad = loadSelectedTypeLensData\(\);\s*if \(typeLensLoad !== "member"\) return typeLensLoad;/);
   assert.match(
     appSource,
-    /async function loadPackageFromSpotlight[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadPackage\([\s\S]*if \(loaded\) \{[\s\S]*destination = buildStateUrl\(\)\.toString\(\);[\s\S]*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\);\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
+    /async function loadPackageFromSpotlight[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadPackage\([\s\S]*if \(loaded\) \{[\s\S]*destination = buildStateUrl\(\)\.toString\(\);[\s\S]*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\);\s*render\(\{ synchronizeUrl: false \}\);\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
     /async function openPlatformLibrary[\s\S]*const navigationGeneration = scopeOnly \? null : beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*spotlight\.reset\(\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
@@ -3089,6 +3089,9 @@ test("home demos restore the complete parsed location", () => {
     /state\.loading = false;\s*stageDemoNavigation\(navigationSeq, buildStateUrl\(\)\.toString\(\)\);\s*render\(\);\s*let renderResult = await renderMermaidCallGraph\(\);\s*while \(renderResult\.status === "superseded"[\s\S]*renderResult = await renderMermaidCallGraph\(\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*if \(renderResult\.status === "superseded"\) \{\s*fail\("The call graph demo was superseded before publication\."\);[\s\S]*if \(renderResult\.status === "failed"\) \{\s*throw new Error\(renderResult\.message\);[\s\S]*if \(!commitDemoNavigation\(navigationSeq\)\)/);
   assert.match(
     callGraphDemo,
+    /publishCurrentWorkspace\(previousSnapshot\);\s*if \(!commitDemoNavigation\(navigationSeq\)\)[\s\S]*syncUrl\(\);\s*render\(\{ synchronizeUrl: false \}\);\s*focusInspectionResult\(navigationSeq\)/);
+  assert.match(
+    callGraphDemo,
     /state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);\s*state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.atLibraryRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
   assert.match(
     restoreWorkspace,
@@ -3131,7 +3134,14 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
     /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*const \{ rollbackSnapshot, retainedSnapshot \} =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);\s*prepareUnpublishedWorkspace\(\);/);
   assert.match(
     spotlightPackageLoad,
-    /deferWorkspacePublication: true,[\s\S]*failureHandler: \(message: string\) => \{[\s\S]*failWorkspaceCatalogAction\(\s*message,\s*rollbackSnapshot,[\s\S]*if \(loaded\) \{[\s\S]*destination = buildStateUrl\(\)\.toString\(\);[\s\S]*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\);\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
+    /deferWorkspacePublication: true,[\s\S]*failureHandler: \(message: string\) => \{[\s\S]*failWorkspaceCatalogAction\(\s*message,\s*rollbackSnapshot,[\s\S]*if \(loaded\) \{[\s\S]*destination = buildStateUrl\(\)\.toString\(\);[\s\S]*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\);\s*render\(\{ synchronizeUrl: false \}\);\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
+
+  const prepareWorkspace =
+    appSource.match(/function prepareUnpublishedWorkspace\(\): void \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    prepareWorkspace,
+    /clearWorkspacePackages\(\);\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;/);
 
   const catalogFailure =
     appSource.match(/function failWorkspaceCatalogAction\([\s\S]*?\n}/)?.[0]
