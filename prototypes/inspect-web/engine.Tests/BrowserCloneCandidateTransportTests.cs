@@ -9,6 +9,7 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using InertText;
 using InspectWeb.Engine.AnalysisFacade;
+using InspectWeb.Engine.MetadataFacade;
 
 namespace InspectWeb.Engine.Tests;
 
@@ -403,6 +404,37 @@ public sealed class BrowserCloneCandidateTransportTests
                 .Seed.MethodDefinitionToken);
     }
 
+    [Fact]
+    public async Task ExportAcceptsImplementationGraphMemberIdentities()
+    {
+        await using ReferenceFixture fixture =
+            await ReferenceFixture.Open();
+
+        BrowserCloneCandidateResult accessor =
+            await fixture.QueryGraphMember(
+                fixture.ImplementationValueGetter,
+                includeBody: true);
+        Assert.Equal(
+            BrowserCloneCandidateResultKind.Available,
+            accessor.Kind);
+        Assert.Equal(
+            fixture.ImplementationValueGetter.MetadataToken,
+            Assert.Single(accessor.Document!.Seeds)
+                .Seed.MethodDefinitionToken);
+
+        BrowserCloneCandidateResult privateMethod =
+            await fixture.QueryGraphMember(
+                fixture.ImplementationPrivateMethod,
+                includeBody: false);
+        Assert.Equal(
+            BrowserCloneCandidateResultKind.Available,
+            privateMethod.Kind);
+        Assert.Equal(
+            fixture.ImplementationPrivateMethod.MetadataToken,
+            Assert.Single(privateMethod.Document!.Seeds)
+                .Seed.MethodDefinitionToken);
+    }
+
     static BrowserCloneCandidateSeedRequest Seed(
         BrowserCloneCandidateSeedKind kind,
         string? type = null,
@@ -692,16 +724,22 @@ public sealed class BrowserCloneCandidateTransportTests
         ReferenceFixture(
             string packageId,
             MemberCase method,
-            MemberCase value)
+            MemberCase value,
+            GraphMemberCase implementationValueGetter,
+            GraphMemberCase implementationPrivateMethod)
         {
             PackageId = packageId;
             Method = method;
             Value = value;
+            ImplementationValueGetter = implementationValueGetter;
+            ImplementationPrivateMethod = implementationPrivateMethod;
         }
 
         internal string PackageId { get; }
         internal MemberCase Method { get; }
         internal MemberCase Value { get; }
+        internal GraphMemberCase ImplementationValueGetter { get; }
+        internal GraphMemberCase ImplementationPrivateMethod { get; }
 
         internal static async Task<ReferenceFixture> Open()
         {
@@ -771,6 +809,17 @@ public sealed class BrowserCloneCandidateTransportTests
                         implementationType,
                         implementationValue),
                     selector => selector.MemberName == "get_Value");
+            ApiMember privateMethod =
+                Assert.Single(
+                    implementationType.Members,
+                    member =>
+                        member.Name == "ReferenceTokenDrift"
+                        && member.Kind == "method");
+            CallGraphMemberBodySelector implementationPrivateMethod =
+                Assert.Single(
+                    CallGraphMemberResolver.CreateBodySelectors(
+                        implementationType,
+                        privateMethod));
 
             return new ReferenceFixture(
                 packageId,
@@ -789,7 +838,17 @@ public sealed class BrowserCloneCandidateTransportTests
                         referenceGetter.MemberName,
                         referenceGetter.SelectorKey,
                         referenceGetter.BodyToken),
-                    implementationGetter.BodyToken));
+                    implementationGetter.BodyToken),
+                new GraphMemberCase(
+                    referenceType.DefinitionName!.ToEscapedFullName(),
+                    implementationGetter.MemberName,
+                    implementationGetter.SelectorKey,
+                    implementationGetter.BodyToken),
+                new GraphMemberCase(
+                    referenceType.DefinitionName!.ToEscapedFullName(),
+                    implementationPrivateMethod.MemberName,
+                    implementationPrivateMethod.SelectorKey,
+                    implementationPrivateMethod.BodyToken));
         }
 
         internal async Task<BrowserCloneCandidateResult> Query(
@@ -824,6 +883,50 @@ public sealed class BrowserCloneCandidateTransportTests
                     "The Clone Candidates transport returned no result.");
         }
 
+        internal async Task<BrowserCloneCandidateResult> QueryGraphMember(
+            GraphMemberCase selection,
+            bool includeBody)
+        {
+            string graphJson =
+                await MetadataExports.QueryGraphMemberSurface(
+                    PackageId,
+                    "1.0.0",
+                    Framework,
+                    MethodBodyAssembly,
+                    selection.TypeDefinitionId,
+                    selection.MemberName,
+                    selection.SelectorKey,
+                    selection.MetadataToken);
+            BrowserGraphMemberSurface graph =
+                JsonSerializer.Deserialize(
+                    graphJson,
+                    BrowserMetadataJsonContext.Default
+                        .BrowserGraphMemberSurface)
+                ?? throw new InvalidOperationException(
+                    "The Graph Member Surface transport returned no result.");
+            BrowserMemberSurface member = Assert.Single(graph.Type.Api);
+            var anchor = new BrowserCloneMemberAnchor(
+                member.StableSelector,
+                member.CanonicalSignature,
+                member.AnchorDigest,
+                graph.Type.QueryId,
+                member.Name);
+            BrowserCloneCandidateBodySelection? body = includeBody
+                ? new(
+                    graph.SelectedBody.MemberName,
+                    graph.SelectedBody.SelectorKey,
+                    graph.SelectedBody.Token)
+                : null;
+            return await Query(
+                Seed(
+                    BrowserCloneCandidateSeedKind.Member,
+                    graph.Type.DefinitionId,
+                    anchor,
+                    body),
+                BrowserCloneCandidateBreadth.Self,
+                BrowserCloneCandidateDiscovery.All);
+        }
+
         public async ValueTask DisposeAsync()
         {
             BrowserInspectionScope scope;
@@ -855,4 +958,10 @@ public sealed class BrowserCloneCandidateTransportTests
         BrowserCloneMemberAnchor Member,
         BrowserCloneCandidateBodySelection? Body,
         int? ImplementationBodyToken = null);
+
+    sealed record GraphMemberCase(
+        string TypeDefinitionId,
+        string MemberName,
+        string SelectorKey,
+        int MetadataToken);
 }

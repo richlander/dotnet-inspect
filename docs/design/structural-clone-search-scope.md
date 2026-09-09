@@ -512,7 +512,12 @@ The counted production-adoption path under #5083 has seven stages:
 5. Add the managed Browser facade and transport. Landed as
    `QueryCloneCandidates` in the Analysis facade. The request carries exact
    package coordinates, selected package and assembly, Library/Type/Member
-   seed identity, breadth, and discovery. The generated transport preserves
+   seed identity, breadth, and discovery. Member binding accepts exact
+   owner-issued identities from either the reference-preferred package surface
+   or the implementation-backed Graph Member surface; it prefers an exact
+   implementation identity, uses structural correspondence only for a
+   reference-only match, and never compares MethodDef tokens across images.
+   The generated transport preserves
    the validated request, every portable result field, and the `Available`,
    `Rejected`, `Failed`, and `Unrepresentable` outcomes. The browser Workspace
    snapshot marks the containing library explicitly and treats every other
