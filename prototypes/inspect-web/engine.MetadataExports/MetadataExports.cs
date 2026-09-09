@@ -51,33 +51,48 @@ public static partial class MetadataExports
 
         BrowserWorkspaceParticipant participant =
             scope.LibraryParticipant(coordinate, assemblyFileName);
-        AssemblyContextEntry<MetadataImageOverview> result =
+        AssemblyContextEntry<MetadataImageResult> cli =
             scope.UseMetadataParticipant(
                 participant,
                 (group, selected) =>
                 AssemblyContextMetadataImageQuery.ExecuteParticipant(
                     group,
-                    selected));
-        BrowserPackageMetadata metadata;
-        if (result
-            is AssemblyContextEntry<MetadataImageOverview>.Available available)
+                    selected,
+                    MetadataRootKind.Cli));
+        AssemblyContextEntry<MetadataImageResult> manifest =
+            scope.UseMetadataParticipant(
+                participant,
+                (group, selected) =>
+                AssemblyContextMetadataImageQuery.ExecuteParticipant(
+                    group,
+                    selected,
+                    MetadataRootKind.ReadyToRunManifest));
+        AssemblyContextEntry<ReadyToRunImageResult> readyToRun =
+            scope.UseMetadataParticipant(
+                participant,
+                AssemblyContextReadyToRunImageQuery.ExecuteParticipant);
+        if (cli
+                is not AssemblyContextEntry<MetadataImageResult>.Available
+            && manifest
+                is not AssemblyContextEntry<MetadataImageResult>.Available
+            && readyToRun
+                is not AssemblyContextEntry<ReadyToRunImageResult>.Available)
         {
-            metadata = new BrowserPackageMetadata(
-                [ProjectMetadataAssembly(
-                    participant.Asset.AssemblyName,
-                    available.Value)],
-                null,
-                compileLibrary);
-        }
-        else
-        {
-            metadata = new BrowserPackageMetadata(
+            return new BrowserPackageMetadata(
                 [],
-                MetadataFailure(result),
+                MetadataFailure(cli),
                 compileLibrary);
         }
 
-        return metadata;
+        BrowserAssemblyMetadata? assembly = ProjectMetadataAssembly(
+            participant.Asset.AssemblyName,
+            cli,
+            manifest,
+            readyToRun);
+        return new BrowserPackageMetadata(
+            assembly is null ? [] : [assembly],
+            null,
+            compileLibrary);
     }
 
     [JSExport]
@@ -86,6 +101,7 @@ public static partial class MetadataExports
         string version,
         string targetFramework,
         string assemblyFileName,
+        string metadataRoot,
         int tableIndex,
         int startRowId,
         int maxRows)
@@ -95,6 +111,7 @@ public static partial class MetadataExports
             version,
             targetFramework,
             assemblyFileName,
+            metadataRoot,
             tableIndex,
             startRowId,
             maxRows);
@@ -108,6 +125,7 @@ public static partial class MetadataExports
         string version,
         string targetFramework,
         string assemblyFileName,
+        string metadataRoot,
         int tableIndex,
         int startRowId,
         int maxRows)
@@ -126,6 +144,7 @@ public static partial class MetadataExports
             (TableIndex)tableIndex,
             startRowId,
             maxRows);
+        MetadataRootKind root = ParseMetadataRoot(metadataRoot);
         AssemblyContextEntry<MetadataTableWindow> result =
             scope.UseMetadataParticipant(
                 participant,
@@ -133,7 +152,8 @@ public static partial class MetadataExports
                 AssemblyContextMetadataTableQuery.ExecuteParticipant(
                     group,
                     selected,
-                    request));
+                    request,
+                    root));
         return ProjectMetadataWindow(assemblyFileName, tableIndex, result);
     }
 
@@ -143,6 +163,7 @@ public static partial class MetadataExports
         string version,
         string targetFramework,
         string assemblyFileName,
+        string metadataRoot,
         string heap)
     {
         BrowserHeapListing listing = await PackageHeapEntriesAsync(
@@ -150,6 +171,7 @@ public static partial class MetadataExports
             version,
             targetFramework,
             assemblyFileName,
+            metadataRoot,
             heap);
         return JsonSerializer.Serialize(
             listing,
@@ -161,6 +183,7 @@ public static partial class MetadataExports
         string version,
         string targetFramework,
         string assemblyFileName,
+        string metadataRoot,
         string heap)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
@@ -173,6 +196,7 @@ public static partial class MetadataExports
             scope,
             scope.Coordinates[0],
             assemblyFileName);
+        MetadataRootKind root = ParseMetadataRoot(metadataRoot);
         HeapKind heapKind = ParseHeap(heap);
         AssemblyContextEntry<MetadataHeapEntrySet> result =
             scope.UseMetadataParticipant(
@@ -181,7 +205,8 @@ public static partial class MetadataExports
                 AssemblyContextMetadataHeapQuery.ExecuteParticipant(
                     group,
                     selected,
-                    heapKind));
+                    heapKind,
+                    root));
         return ProjectHeapListing(assemblyFileName, heapKind, result);
     }
 
@@ -200,28 +225,56 @@ public static partial class MetadataExports
                 assemblyFileName,
                 pack))
         {
-            AssemblyContextEntry<MetadataImageOverview> result =
+            AssemblyContextEntry<MetadataImageResult> cli =
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
-                    AssemblyContextMetadataImageQuery.ExecuteParticipant);
+                    (group, participant) =>
+                        AssemblyContextMetadataImageQuery.ExecuteParticipant(
+                            group,
+                            participant,
+                            MetadataRootKind.Cli));
             string assembly = PlatformAssemblyFileName(
                 resolution.Participant.Participant.Assembly.Identity.Name);
-            metadata = result switch
+            BrowserCompileLibraryAvailability compileLibrary =
+                BrowserMetadataWireProjection.Project(
+                    BrowserCompileLibraryProjection.Selected(
+                        resolution.Scope.Framework));
+            AssemblyContextEntry<MetadataImageResult> manifest =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    (group, participant) =>
+                        AssemblyContextMetadataImageQuery.ExecuteParticipant(
+                            group,
+                            participant,
+                            MetadataRootKind.ReadyToRunManifest));
+            AssemblyContextEntry<ReadyToRunImageResult> readyToRun =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    AssemblyContextReadyToRunImageQuery.ExecuteParticipant);
+            if (cli
+                    is not AssemblyContextEntry<MetadataImageResult>.Available
+                && manifest
+                    is not AssemblyContextEntry<MetadataImageResult>.Available
+                && readyToRun
+                    is not AssemblyContextEntry<ReadyToRunImageResult>.Available)
             {
-                AssemblyContextEntry<MetadataImageOverview>.Available available =>
-                    new BrowserPackageMetadata(
-                        [ProjectMetadataAssembly(assembly, available.Value)],
-                        null,
-                        BrowserMetadataWireProjection.Project(
-                            BrowserCompileLibraryProjection.Selected(
-                                resolution.Scope.Framework))),
-                _ => new BrowserPackageMetadata(
+                metadata = new BrowserPackageMetadata(
                     [],
-                    MetadataFailure(result),
-                    BrowserMetadataWireProjection.Project(
-                            BrowserCompileLibraryProjection.Selected(
-                                resolution.Scope.Framework))),
-            };
+                    MetadataFailure(cli),
+                    compileLibrary);
+            }
+            else
+            {
+                BrowserAssemblyMetadata? projected = ProjectMetadataAssembly(
+                    assembly,
+                    cli,
+                    manifest,
+                    readyToRun);
+                metadata = new BrowserPackageMetadata(
+                    projected is null ? [] : [projected],
+                    null,
+                    compileLibrary);
+            }
         }
 
         return JsonSerializer.Serialize(
@@ -235,6 +288,7 @@ public static partial class MetadataExports
         string platformVersion,
         string assemblyFileName,
         string pack,
+        string metadataRoot,
         int tableIndex,
         int startRowId,
         int maxRows)
@@ -251,6 +305,7 @@ public static partial class MetadataExports
                 (TableIndex)tableIndex,
                 startRowId,
                 maxRows);
+            MetadataRootKind root = ParseMetadataRoot(metadataRoot);
             AssemblyContextEntry<MetadataTableWindow> result =
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
@@ -258,7 +313,8 @@ public static partial class MetadataExports
                         AssemblyContextMetadataTableQuery.ExecuteParticipant(
                             group,
                             participant,
-                            request));
+                            request,
+                            root));
             window = ProjectMetadataWindow(
                 PlatformAssemblyFileName(
                     resolution.Participant.Participant.Assembly.Identity.Name),
@@ -277,8 +333,10 @@ public static partial class MetadataExports
         string platformVersion,
         string assemblyFileName,
         string pack,
+        string metadataRoot,
         string heap)
     {
+        MetadataRootKind root = ParseMetadataRoot(metadataRoot);
         HeapKind heapKind = ParseHeap(heap);
         BrowserHeapListing listing;
         await using (BrowserPlatformScopeResolution resolution =
@@ -295,7 +353,8 @@ public static partial class MetadataExports
                         AssemblyContextMetadataHeapQuery.ExecuteParticipant(
                             group,
                             participant,
-                            heapKind));
+                            heapKind,
+                            root));
             listing = ProjectHeapListing(
                 PlatformAssemblyFileName(
                     resolution.Participant.Participant.Assembly.Identity.Name),
@@ -308,13 +367,99 @@ public static partial class MetadataExports
             BrowserMetadataJsonContext.Default.BrowserHeapListing);
     }
 
-    internal static BrowserAssemblyMetadata ProjectMetadataAssembly(
+    internal static BrowserAssemblyMetadata? ProjectMetadataAssembly(
         string assembly,
-        MetadataImageOverview overview)
+        AssemblyContextEntry<MetadataImageResult> cli,
+        AssemblyContextEntry<MetadataImageResult> manifest,
+        AssemblyContextEntry<ReadyToRunImageResult> readyToRun)
     {
-        MetadataCorHeaderSummary? cor = overview.Headers.Cor;
+        var roots = new List<BrowserMetadataImage>();
+        string? cliError = ProjectMetadataRoot(
+            MetadataRootKind.Cli,
+            cli,
+            roots);
+        string? manifestError = ProjectMetadataRoot(
+            MetadataRootKind.ReadyToRunManifest,
+            manifest,
+            roots);
+        string? readyToRunError = ProjectReadyToRun(
+            readyToRun,
+            out BrowserReadyToRunImage? readyToRunImage);
+        if (roots.Count == 0
+            && cliError is null
+            && manifestError is null
+            && readyToRunImage is null
+            && readyToRunError is null)
+        {
+            return null;
+        }
+
         return new BrowserAssemblyMetadata(
             assembly,
+            [.. roots],
+            cliError,
+            manifestError,
+            readyToRunImage,
+            readyToRunError);
+    }
+
+    static string? ProjectMetadataRoot(
+        MetadataRootKind requestedRoot,
+        AssemblyContextEntry<MetadataImageResult> entry,
+        List<BrowserMetadataImage> roots)
+    {
+        if (entry
+            is not AssemblyContextEntry<MetadataImageResult>.Available
+                available)
+        {
+            return MetadataFailure(entry);
+        }
+
+        switch (available.Value)
+        {
+            case MetadataImageResult.Available result:
+                roots.Add(ProjectMetadataImage(
+                    requestedRoot,
+                    result));
+                return null;
+            case MetadataImageResult.NoMetadata:
+            case MetadataImageResult.MissingRoot:
+                return null;
+            case MetadataImageResult.Failed failed:
+                return BrowserSurfaceProjection.FailedAssembly(
+                    failed.Error);
+            default:
+                throw new InvalidOperationException(
+                    "Unknown metadata image result.");
+        }
+    }
+
+    static BrowserMetadataImage ProjectMetadataImage(
+        MetadataRootKind requestedRoot,
+        MetadataImageResult.Available result)
+    {
+        MetadataImageOverview overview = result.Overview;
+        MetadataRootInspection? root = result.Root;
+        if (root is not null && root.RequestedRoot != requestedRoot)
+        {
+            throw new InvalidOperationException(
+                "The metadata query returned a different requested root.");
+        }
+        if (requestedRoot == MetadataRootKind.ReadyToRunManifest
+            && root is null)
+        {
+            throw new InvalidOperationException(
+                "A ReadyToRun manifest result has no root identity.");
+        }
+
+        MetadataCorHeaderSummary? cor = overview.Headers.Cor;
+        return new BrowserMetadataImage(
+            requestedRoot.ToString(),
+            root?.Identity.Kind.ToString(),
+            root?.Identity.RelativeVirtualAddress,
+            root?.Identity.Size,
+            requestedRoot == MetadataRootKind.ReadyToRunManifest
+                && root?.Identity.Kind == MetadataRootKind.Cli,
             overview.MetadataVersion.ToString(),
             overview.MetadataVersion.IsTruncated,
             overview.Kind.ToString(),
@@ -349,6 +494,67 @@ public static partial class MetadataExports
                 cor?.ManagedNativeHeaderDirectory.RelativeVirtualAddress ?? 0,
                 cor?.ManagedNativeHeaderDirectory.Size ?? 0));
     }
+
+    static string? ProjectReadyToRun(
+        AssemblyContextEntry<ReadyToRunImageResult> entry,
+        out BrowserReadyToRunImage? result)
+    {
+        result = null;
+        if (entry
+            is not AssemblyContextEntry<ReadyToRunImageResult>.Available
+                available)
+        {
+            return MetadataFailure(entry);
+        }
+
+        switch (available.Value)
+        {
+            case ReadyToRunImageResult.Available ready:
+                result = ProjectReadyToRunImage(ready.Overview);
+                return null;
+            case ReadyToRunImageResult.NotReadyToRun:
+                return null;
+            case ReadyToRunImageResult.Failed failed:
+                return BrowserSurfaceProjection.FailedAssembly(
+                    failed.Error);
+            default:
+                throw new InvalidOperationException(
+                    "Unknown ReadyToRun image result.");
+        }
+    }
+
+    static BrowserReadyToRunImage ProjectReadyToRunImage(
+        ReadyToRunImageOverview overview) =>
+        new(
+            overview.Role.ToString(),
+            overview.Advertisements.ToString(),
+            overview.MajorVersion,
+            overview.MinorVersion,
+            (uint)overview.Flags,
+            overview.Flags.ToString(),
+            overview.HeaderRelativeVirtualAddress,
+            overview.HeaderEncodedSize,
+            overview.ManagedNativeHeaderDirectory?
+                .RelativeVirtualAddress,
+            overview.ManagedNativeHeaderDirectory?.Size,
+            overview.ExportHeaderRelativeVirtualAddress,
+            overview.ManifestMetadata is { } manifest
+                ? new BrowserReadyToRunManifest(
+                    manifest.RelativeVirtualAddress,
+                    manifest.Size,
+                    manifest.AliasesCliMetadataDirectory)
+                : null,
+            [
+                .. overview.Sections.Select(section =>
+                    new BrowserReadyToRunSection(
+                        Enum.IsDefined(section.Type)
+                            ? section.Type.ToString()
+                            : "Unknown",
+                        (uint)section.Type,
+                        section.RelativeVirtualAddress,
+                        section.Size,
+                        section.AliasesCliMetadataDirectory)),
+            ]);
 
     internal static BrowserMetadataWindow ProjectMetadataWindow(
         string assembly,
@@ -525,6 +731,16 @@ public static partial class MetadataExports
             : throw new ArgumentException(
                 $"'{heap}' is not a metadata heap.",
                 nameof(heap));
+
+    static MetadataRootKind ParseMetadataRoot(string root) =>
+        root switch
+        {
+            "cli" => MetadataRootKind.Cli,
+            "r2r-manifest" => MetadataRootKind.ReadyToRunManifest,
+            _ => throw new ArgumentException(
+                $"'{root}' is not a metadata root.",
+                nameof(root)),
+        };
 
     static string HeapStreamName(HeapKind heap) =>
         heap switch
