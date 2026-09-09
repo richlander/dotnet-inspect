@@ -33,6 +33,32 @@ public sealed record PlatformSupply(
 }
 
 /// <summary>
+/// Owner-issued evidence binding one platform-supply result to the exact
+/// inventory and package coordinate comparison that produced it.
+/// </summary>
+public sealed class PlatformSupplyReceipt
+{
+    internal PlatformSupplyReceipt(
+        PlatformPruneInventory inventory,
+        PackageCoordinate coordinate,
+        PlatformSupply supply)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(supply);
+        Inventory = inventory;
+        Coordinate = coordinate;
+        Supply = supply;
+    }
+
+    public PlatformPruneInventory Inventory { get; }
+
+    public PackageCoordinate Coordinate { get; }
+
+    public PlatformSupply Supply { get; }
+}
+
+/// <summary>
 /// The pure transform from a package identity, in the context of one platform target, to what
 /// that target supplies for it.
 /// </summary>
@@ -68,6 +94,15 @@ public static class PlatformPrunePolicy
     /// </exception>
     public static PlatformSupply Decide(
         PlatformPruneInventory inventory,
+        PackageCoordinate coordinate) =>
+        Evaluate(inventory, coordinate).Supply;
+
+    /// <summary>
+    /// Evaluates one package coordinate and retains the exact comparison
+    /// inputs with the resulting platform-supply evidence.
+    /// </summary>
+    public static PlatformSupplyReceipt Evaluate(
+        PlatformPruneInventory inventory,
         PackageCoordinate coordinate)
     {
         ArgumentNullException.ThrowIfNull(inventory);
@@ -89,7 +124,10 @@ public static class PlatformPrunePolicy
 
         if (!inventory.TryGetEntry(coordinate.PackageId, out PlatformPruneEntry entry))
         {
-            return PlatformSupply.None;
+            return new PlatformSupplyReceipt(
+                inventory,
+                coordinate,
+                PlatformSupply.None);
         }
 
         // An omitted coordinate version floats to the latest acceptable version rather than
@@ -99,9 +137,12 @@ public static class PlatformPrunePolicy
             ? inventory.Subsumes(coordinate.PackageId, version)
             : PlatformSubsumption.NotComparable;
 
-        return new PlatformSupply(
-            subsumption,
-            entry.Family,
-            entry.SuppliedVersion);
+        return new PlatformSupplyReceipt(
+            inventory,
+            coordinate,
+            new PlatformSupply(
+                subsumption,
+                entry.Family,
+                entry.SuppliedVersion));
     }
 }
