@@ -4,7 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Queries.EmbeddedFixtures;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Metadata.Tests;
 

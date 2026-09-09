@@ -13,12 +13,12 @@ src/DotnetInspector.RowSelection
 src/DotnetInspector.Services
 src/DotnetInspector.SourceSelection
 src/DotnetInspector.Vocabulary
+src/Inspector.Findings
 src/ILInspector.Analysis
 src/ILInspector.CallGraph
 src/ILInspector.ControlFlow
 src/ILInspector.CSharp
 src/ILInspector.Decompiler
-src/ILInspector.Findings
 src/ILInspector.ILDiff
 src/ILInspector.Instructions
 src/ILInspector.JsExportSurface

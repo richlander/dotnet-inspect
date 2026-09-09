@@ -7,6 +7,8 @@ composition boundary. It is tracked by
 [#6301](https://github.com/richlander/dotnet-inspect/issues/6301) and is a
 focused prerequisite of the platform-first tracker
 [#6228](https://github.com/richlander/dotnet-inspect/issues/6228).
+The documentation-source extension is tracked by
+[#6375](https://github.com/richlander/dotnet-inspect/issues/6375).
 
 The design depends on:
 
@@ -22,7 +24,11 @@ The design depends on:
   for source-specific coherent implementation realization; and
 - the
   [Assembly Reference Resolution Ladder](assembly-reference-resolution-ladder.md)
-  for the ordering and lifetime of an applicable-platform rung.
+  for the ordering and lifetime of an applicable-platform rung;
+- [SourceLink exposure](../sourcelink-exposure.md) for product SourceLink
+  surfaces and explicit network policy; and
+- [PDB acquisition](../pdb-acquisition.md) for matching-PDB acquisition and
+  checksum-verified source-document settlement.
 
 The approved scope is:
 
@@ -30,6 +36,8 @@ The approved scope is:
   facade;
 - package pruning and .NET Standard reference handling are encapsulated behind
   that facade;
+- platform XML documentation and SourceLink-backed documentation evidence are
+  settled against the House's reference and implementation views;
 - .NET Standard remains transparent compatibility processing rather than a
   `PlatformFamily`, registration population, or implementation target; and
 - Metadata type forwarding connects reference contracts to definitions under
@@ -40,7 +48,9 @@ reference resolution ladder. Queries, Workspace composition, CLI platform
 operations, and Inspect Web adopt the same House contract in separately
 reviewed slices.
 
-This is one owner claim. The design specifies the House request, settlement,
+This is one owner claim. Documentation evidence is another facet of the same
+exact-target, reference-to-implementation settlement rather than a second
+platform architecture. The design specifies the House request, settlement,
 result, evidence-retention, and encapsulation contracts. It consumes the
 owner-issued inputs listed above without redefining their identities,
 algorithms, lifetimes, or failure semantics.
@@ -53,7 +63,8 @@ algorithms, lifetimes, or failure semantics.
 > plan, one closed platform operation, and finite operation work, compose
 > source candidates and owner-issued platform facts into one typed settlement
 > that preserves target, source, reference-contract, implementation-supplier,
-> pruning, forwarding, completion, and failure evidence.
+> pruning, forwarding, documentation provenance, completion, and failure
+> evidence.
 
 It owns:
 
@@ -66,6 +77,8 @@ It owns:
 - the distinction between reference and implementation demand;
 - reference-to-implementation correspondence between settled platform views;
 - platform-specific invocation of pruning and Metadata forwarding;
+- target-bound settlement of compiled XML and SourceLink-backed documentation
+  evidence without collapsing their provenance;
 - the House result envelope and settlement receipt;
 - visible unavailable, ambiguous, rejected, and incomplete outcomes; and
 - the rule that product reference processing does not compose lower platform
@@ -87,8 +100,11 @@ It does not own:
 - Workspace admission, revisions, replacement, leases, or participant
   lifetime;
 - call-graph traversal, search ranking, section selection, rendering, or host
-  presentation; or
-- XML documentation, SourceLink, or PDB acquisition.
+  presentation;
+- XML-documentation identity, grammar, parsing, or textual normalization;
+- Portable PDB identity, SourceLink mapping, source acquisition, checksum
+  verification, or source-comment parsing; or
+- package-specific documentation-source selection.
 
 ## Why a House is needed
 
@@ -119,7 +135,10 @@ cannot safely reconstruct:
 - whether a .NET Standard facade resolved to an implementation definition;
 - whether a source result is complete, projected, stale, unavailable, or
   unauthorized; and
-- whether several source results correspond to one target and may be combined.
+- whether several source results correspond to one target and may be combined;
+- whether documentation came from the reference contract or authored source;
+  and
+- whether a missing XML file may authorize PDB or SourceLink acquisition.
 
 `PlatformHouse` centralizes those decisions without centralizing every
 algorithm. It is a clearing house over focused owners, not a renamed
@@ -138,6 +157,9 @@ algorithm. It is a clearing house over focused owners, not a renamed
 | **Reference contract** | A reference assembly or facade used to describe an API contract. It does not prove an implementation supplier. |
 | **Implementation supplier** | The exact physical assembly candidate containing the implementation definition or body. |
 | **View correspondence** | House-owned evidence connecting one resolved reference definition to one authorized implementation-resolution start without pretending that the transition is a Metadata forwarding hop. |
+| **Documentation demand** | Whether an operation requests compiled XML documentation, source-derived documentation, or both. It is independent of reference/implementation body demand. |
+| **Compiled XML documentation** | Structured documentation selected by XML-documentation identity from a companion artifact associated with the settled reference contribution. |
+| **Source-derived documentation** | Documentation comments extracted from checksum-verified PDB-mapped source associated with the settled implementation supplier. It retains its weaker declaration-correspondence evidence. |
 | **Settlement** | The House decision that selects, composes, or declines source contributions under the request's policy. |
 | **Settlement receipt** | Resource-free evidence binding the request, target, source-plan generation, selected contributions, owner results, completion, and work. |
 
@@ -159,7 +181,8 @@ PlatformHouse
   2. ask only authorized source capabilities
   3. retain every owner-issued contribution
   4. compose pruning or Metadata only when the operation requires it
-  5. settle the requested view and population demand
+  5. compose documentation owners only when documentation is requested
+  6. settle the requested view, population, and documentation demand
         |
         v
 one closed House outcome
@@ -185,8 +208,9 @@ Every operation carries:
 - the exact Workspace revision or standalone operation identity;
 - the requested reference and implementation views;
 - one-library or whole-population demand;
-- finite source, candidate, assembly, byte, forwarding-hop, and deadline
-  budgets;
+- requested documentation channels and source-access authorization;
+- finite source, candidate, assembly, XML, PDB, source-document, byte,
+  forwarding-hop, and deadline budgets;
 - owner-issued prerequisite correspondence; and
 - caller cancellation.
 
@@ -201,7 +225,7 @@ contract.
 
 ### Closed operations
 
-The version-1 facade has four conceptual operation kinds. Exact public type and
+The version-1 facade has five conceptual operation kinds. Exact public type and
 member names may change during implementation, but the distinctions may not be
 collapsed into strings, optional parameters, or nullable tuples.
 
@@ -211,12 +235,17 @@ collapsed into strings, optional parameters, or nullable tuples.
 | **Resolve assembly reference** | One exact Metadata `AssemblyBindingRequest` and platform-route prerequisites | Metadata-owned binding decision plus the platform contribution used by the ladder |
 | **Resolve type definition** | One exact Metadata `TypeResolutionRequest`, starting reference candidate, and required view | Metadata-owned `TypeResolutionOutcome` plus reference/implementation correspondence |
 | **Evaluate package reference** | One exact package coordinate and owner-issued package-edge association | Retained-package or delegated-to-platform decision preserving the pruning result |
+| **Resolve documentation evidence** | One exact type or member subject, settled reference evidence, requested documentation channels, and implementation correspondence when source-derived documentation is requested | Independent compiled-XML and source-derived documentation attempts with retained provenance |
 
 `Realize` supports direct platform browsing and supplies source candidates for
 the other operations. The three reference-processing operations are the only
 product-facing paths that may turn pruning, platform catalogs, .NET Standard
 reference contracts, or platform-specific Metadata policy into a binding,
 delegation, or implementation result.
+`Resolve documentation evidence` is the only product-facing platform path that
+may combine reference-pack XML with implementation PDB/SourceLink evidence.
+It consumes the existing XML-documentation, PDB, SourceLink, and source-text
+owners rather than reimplementing them.
 
 ### View and population demand
 
@@ -258,7 +287,9 @@ operation and the policy for considering it. It may authorize:
 - package-backed reference packs;
 - package-backed implementation packs;
 - a generated Browser platform catalog;
-- embedded platform content; or
+- embedded platform content;
+- reference-view XML-documentation companions;
+- implementation-view PDB and source-document capabilities; or
 - another separately designed platform source.
 
 The list is illustrative rather than an authority grant. Each source owner
@@ -280,6 +311,7 @@ Every contribution retains:
 - supported view and population demand;
 - source generation or freshness evidence;
 - candidate identities or realized owner result;
+- associated documentation artifacts or source capabilities when requested;
 - authoritative, partial, or unavailable completion; and
 - typed rejection or failure when the operation did not succeed.
 
@@ -311,7 +343,9 @@ Settlement obeys these rules:
   completeness;
 - a selected source failure is not hidden by a success-shaped empty result;
 - a partial population cannot satisfy complete-population demand;
-- a reference assembly does not prove an implementation body; and
+- a reference assembly does not prove an implementation body;
+- a reference XML companion does not prove SourceLink availability, while a
+  matching implementation PDB does not prove compiled XML availability; and
 - equal names or versions do not merge different families, targets, sources,
   generations, or physical suppliers.
 
@@ -466,6 +500,125 @@ The current `PlatformTypeCatalog` is therefore migration evidence, not the
 future public API. Its useful indexing behavior moves behind the House; its
 source-selection heuristics do not become identity or Metadata policy.
 
+## Platform documentation evidence
+
+Platform documentation is available through two independent evidence channels.
+They may describe the same public API, but they do not have interchangeable
+identity, provenance, cost, or failure semantics.
+
+### Documentation demand is explicit
+
+Documentation demand is closed:
+
+- **CompiledXml** requests only compiled XML documentation associated with the
+  selected reference contribution;
+- **SourceDerived** requests only documentation comments extracted from
+  PDB-mapped, checksum-verified source associated with the selected
+  implementation supplier; and
+- **CompiledXmlAndSourceDerived** requests both independent attempts.
+
+Compiled XML is local or already-acquired artifact work once its reference
+contribution is realized. Source-derived documentation may require PDB,
+SourceLink, and source-body acquisition. A missing compiled XML artifact never
+widens the request to SourceLink, and an unsuccessful SourceLink attempt never
+suppresses available compiled XML. The source plan and documentation demand
+must authorize every attempted channel.
+
+Documentation demand may require a corresponding House view even when the
+caller does not request API or body output from that view. `CompiledXml`
+requires a reference contribution; `SourceDerived` requires an implementation
+supplier. This requirement authorizes only the evidence channel, not unrelated
+reference indexing, implementation-body analysis, or whole-population work.
+
+The operation subject is one owner-issued type or member identity retained from
+the selected API or Metadata result. Display names, source text, file names,
+and overload ordinals cannot reconstruct that subject.
+
+### Compiled XML follows the reference view
+
+The XML channel consumes a companion artifact associated by its source owner
+with the exact settled reference contribution and House target. A conventional
+reference-pack sibling such as `System.Text.Json.xml` is a source coordinate,
+not independent proof of association. The contribution retains the reference
+assembly identity, source generation, exact target, companion evidence, and
+XML-documentation subject identity used for lookup.
+
+XML lookup follows the unchanged terminal reference-view definition returned by
+Metadata. When the operation starts from a reference facade and Metadata
+follows real forwarding declarations, the XML companion belongs to the
+reference contribution that supplies the terminal definition, not necessarily
+the facade named by the caller. The settlement retains the starting contract,
+forwarding hops, terminal reference supplier, and selected companion. A direct
+reference `TypeDef` remains bound to its own reference contribution.
+
+Compiled XML may satisfy platform documentation without an implementation
+assembly, PDB, SourceLink map, or network source fetch. Missing member
+documentation is a typed absence for that exact subject. A missing companion,
+malformed document, rejected identity, parse failure, or exhausted work remains
+its distinct outcome rather than becoming an empty successful document.
+
+XML-documentation identity and parsing remain owned by their existing Metadata,
+CSharpText, and hardened-reader contracts. The House selects and retains their
+results; it does not define the XML grammar or parse the file itself.
+
+### Source-derived documentation follows the implementation view
+
+The source channel begins only from the exact implementation supplier selected
+through the House's existing reference-to-implementation correspondence. The
+reference assembly's lack of debug information is not a SourceLink failure,
+and a same-named runtime assembly found by path or file-name convention cannot
+replace the required correspondence.
+
+The implementation supplier enters the existing PDB and SourceLink contracts:
+
+1. a portable PDB must match the implementation assembly identity;
+2. SourceLink maps the selected PDB document under its existing rules;
+3. `PdbSourceHouse` settles an authorized source candidate and verifies its
+   checksum; and
+4. the source-comment owner extracts documentation evidence for the requested
+   subject.
+
+This path is shared with package-backed source inspection. Platform status does
+not create a second PDB matcher, SourceLink resolver, source fetcher, checksum
+policy, or source-comment parser.
+
+Browser/Wasm may authorize an acquired or generated XML companion and a
+host-neutral PDB store and source fetcher. It does not gain desktop filesystem
+or ambient symbol access. When the host omits the SourceLink capabilities, the
+source-derived attempt is visibly unauthorized or unavailable while compiled
+XML may still settle.
+
+Portable PDB document identity and checksum correspondence do not prove which
+physical syntax tree produced a metadata definition. Source-derived
+documentation therefore retains its declaration-correspondence evidence. An
+exact owner-issued member/source correspondence may support an exact result; a
+name- or text-selected comment is explicitly best-effort and cannot silently
+replace exact compiled XML documentation.
+
+### Settlement preserves both channels
+
+The completed value contains one typed attempt per requested channel. Each
+attempt reports available, absent, unavailable, rejected, failed, or incomplete
+evidence with its own provenance and work. One successful channel does not
+rewrite the other channel's outcome.
+
+When both channels produce documentation:
+
+- the House preserves both original documents and their provenance;
+- compiled XML fields selected by exact XML-documentation identity are not
+  overwritten by best-effort source-comment extraction;
+- source-derived content may fill a missing field only in an explicitly
+  requested projection that retains field-level origin;
+- differing non-empty values remain a visible conflict in detailed evidence;
+  and
+- rendering or section selection may choose a concise default without deleting
+  the unselected evidence from the House result or receipt.
+
+The House does not infer that one channel is newer from a path, package version,
+framework alias, repository revision, or display label. It composes the
+channels only when the reference and implementation contributions retain the
+same exact House target and explicit view correspondence.
+
 ## Result and receipt contract
 
 Each operation returns an operation-specific value inside one common House
@@ -495,6 +648,12 @@ required by the exact operation settled. For example:
 - a type-resolution operation may complete with Metadata `NotFound` only when
   the selected readable image authoritatively returned that result.
 
+A documentation operation completes when every requested channel reaches a
+typed terminal attempt, including absence, unavailability, or failure.
+Top-level `Unavailable`, `Rejected`, or `Incomplete` is reserved for a missing
+or invalid House target, subject, source plan, correspondence, or work boundary
+that prevents the requested attempts themselves from settling.
+
 The settlement receipt binds:
 
 - the exact request and House target;
@@ -503,6 +662,9 @@ The settlement receipt binds:
 - reference and implementation view correspondence;
 - pruning results and package-edge associations when consulted;
 - Metadata binding or forwarding outcomes when invoked;
+- requested documentation channels and every compiled-XML or source-derived
+  attempt, including per-field provenance or conflicts in a composed
+  projection;
 - source, Workspace, and catalog generations;
 - completeness; and
 - consumed work.
@@ -537,11 +699,15 @@ House caches key successes and failures by exact target, operation shape,
 source-plan generation, source generation, view, and population demand. A
 replacement or policy change cannot reuse a prior binding decision merely
 because the paths or display labels are equal.
+Documentation cache keys additionally retain the exact subject, requested
+channels, reference/XML generation, implementation/PDB identity, and
+source-document identity used by the settled attempt.
 
 ## Encapsulation boundary
 
-Product code that decides platform binding, package delegation, or transparent
-.NET Standard implementation resolution calls `PlatformHouse`.
+Product code that decides platform binding, package delegation, transparent
+.NET Standard implementation resolution, or platform documentation-source
+settlement calls `PlatformHouse`.
 
 Lower-level owner APIs remain valid for:
 
@@ -558,6 +724,8 @@ They are not parallel product service surfaces. In particular:
   `PlatformTypeCatalog`, or pruning policy to process a reference;
 - Queries and Workspace do not recreate platform source precedence or
   .NET Standard forwarding policy;
+- CLI and Browser do not independently choose between platform reference-pack
+  XML and implementation SourceLink evidence;
 - the assembly ladder receives one House platform contribution rather than
   composing platform internals; and
 - source adapters do not call back into the House or the assembly ladder.
@@ -580,7 +748,8 @@ DotnetInspector.Platforms
              |
              v
 PlatformHouse contract and composition
-  consumes Packages, Metadata, source capabilities, and owner results
+  consumes Packages, Metadata, XML/PDB/SourceLink capabilities,
+  and owner results
              |
              v
 Queries / Workspace integration
@@ -606,6 +775,8 @@ Source-specific implementations remain focused:
   boundary;
 - package-backed pack acquisition may depend on package source and payload
   owners;
+- XML-documentation parsing, PDB acquisition, SourceLink interpretation, and
+  PDB-mapped source acquisition remain reusable package/platform mechanisms;
 - Browser-generated catalogs remain portable and contain no desktop adapter;
 - pruning remains with the package/pruning owner; and
 - forwarding remains with Metadata.
@@ -694,9 +865,49 @@ another required source has not settled. The House returns incomplete unless
 the source plan proves the first source has precedence independent of the
 unexamined result. It does not publish a provisional first match as settled.
 
+### Reference XML exists without SourceLink
+
+The selected reference pack supplies `System.Text.Json.xml`, but no matching
+implementation PDB is available. A `CompiledXml` request completes with exact
+XML documentation. A combined request retains successful XML and unavailable
+source-derived documentation; it does not erase the description or claim that
+platform documentation is absent.
+
+### SourceLink exists without reference XML
+
+The exact reference contribution has no XML companion, while the
+corresponding implementation supplier has a matching portable PDB and usable
+SourceLink map. A `CompiledXml` request reports the missing companion without
+network work. A separately authorized `SourceDerived` or combined request may
+return source-derived documentation and retains the XML absence.
+
+### Reference and source comments differ
+
+Compiled XML and checksum-verified authored source provide different summaries
+for the same member. The House returns both values and their provenance. The
+exact XML-documentation result is not overwritten by a best-effort textual
+match, and a detailed projection exposes the conflict.
+
+### SourceLink belongs to the forwarding facade
+
+The selected reference assembly defines the public type, while the runtime
+facade forwards it to another implementation assembly. The House does not open
+the facade PDB and report source absence as final. It uses explicit view
+correspondence and Metadata resolution to select the physical supplier before
+PDB acquisition, then retains the facade, forwarding, view transition, PDB,
+and source-document evidence.
+
+### Reference XML belongs to a forwarded declaration supplier
+
+The request starts from a reference facade whose Metadata declarations forward
+the selected type. The House preserves the starting facade and forwarding
+evidence, then looks up compiled XML only through the companion associated with
+the terminal reference declaration supplier. A same-named XML file beside the
+starting facade cannot manufacture documentation for the forwarded subject.
+
 ## Production adoption and retirement
 
-There are ten counted production steps:
+There are eleven counted production steps:
 
 1. Lock the lower Platform Target Currency under #6361.
 2. Lock this focused House contract under #6301.
@@ -711,13 +922,17 @@ There are ten counted production steps:
    decisions without moving pruning semantics.
 7. Move target-bound type indexing behind the House and integrate transparent
    .NET Standard resolution through Metadata's structured forwarding contract.
-8. Adopt the House platform contribution in the assembly-reference ladder,
+8. Add target-bound platform documentation evidence settlement, adapting
+   reference XML companions and implementation PDB/SourceLink capabilities
+   without moving their parsing or acquisition owners.
+9. Adopt the House platform contribution in the assembly-reference ladder,
    Queries, Workspace replacement, and dependency traversal.
-9. Adopt the same House requests and outcomes in CLI and Inspect Web.
-10. Retire direct product reference-processing entry points in
-    `PlatformResolver`, `PlatformPackService`, `PlatformTypeCatalog`, and host
-    composition, then complete the `DotnetInspector.Services` decomposition
-    tracked by #6335.
+10. Adopt the same House requests and outcomes, including documentation
+    evidence, in CLI and Inspect Web.
+11. Retire direct product reference-processing and platform-documentation
+    composition in `PlatformResolver`, `PlatformPackService`,
+    `PlatformTypeCatalog`, `SourceEnricher`, and host composition, then
+    complete the `DotnetInspector.Services` decomposition tracked by #6335.
 
 Each step after the House contract is a separately reviewed owner adoption.
 The stack preserves a usable product after every step; a bypass is retired only
@@ -790,6 +1005,37 @@ completed
   no platform acquisition performed on behalf of that edge
 ```
 
+### Reference XML and SourceLink documentation
+
+```text
+request
+  target: DotNetRuntime / net11.0 / 11.0.0
+  operation: resolve documentation evidence
+  subject: JsonSerializer.Serialize(...)
+  demand: compiled XML + source-derived
+  source policy: installed reference pack + authorized PDB/SourceLink
+
+House composition
+  reference contribution:
+    System.Text.Json.dll + associated System.Text.Json.xml
+    XML member identity -> exact compiled documentation
+  view correspondence:
+    reference definition -> runtime implementation supplier
+  implementation contribution:
+    matching portable PDB -> SourceLink document
+    checksum-verified source -> source-derived comment
+
+completed
+  compiled XML: available
+  source-derived documentation: available, best-effort declaration match
+  effective projection:
+    XML fields retained
+    source-only fields carry source provenance
+  receipt:
+    exact target, subject, reference/XML contribution,
+    implementation/PDB/source contribution, correspondence, and work
+```
+
 ## Evidence and required gates
 
 This design introduces no new independent state machine. Source operations
@@ -812,6 +1058,11 @@ The implementation and adoption slices own these Release gates:
 | Metadata ownership | Platform type resolution invokes the structured Metadata API and preserves its exact outcome and forwarding hops. |
 | Transparent .NET Standard | A `.NET Standard` facade can resolve through an exact runtime target without constructing a `NetStandard` family or implementation population. |
 | Physical supplier retention | A resolved implementation type or assembly retains its physical supplier rather than being relabeled as the reference facade. |
+| XML/reference correspondence | Compiled XML documentation can settle only through companion evidence associated with the exact selected reference contribution and target. |
+| Source/implementation correspondence | Platform SourceLink documentation starts from the exact implementation supplier selected through House view correspondence and a matching portable PDB. |
+| Independent documentation channels | XML success survives SourceLink absence or failure, SourceLink success survives XML absence, and an XML miss performs no source acquisition unless explicitly requested. |
+| Documentation provenance | Compiled XML and source-derived values retain channel, artifact, subject-correspondence, and generation evidence; best-effort source extraction cannot overwrite exact XML identity. |
+| Documentation conflict visibility | Differing non-empty XML and source-derived values remain observable in the typed result even when a concise projection selects one value. |
 | Visible incomplete evidence | Source, catalog, forwarding, pruning, work, and generation incompleteness never become absence or a success-shaped empty result. |
 | Ladder composition | The assembly-reference ladder receives one House platform contribution and preserves its own rung order and result algebra. |
 | Host parity | Representative CLI and Browser operations issue equivalent House requests and interpret the same typed outcomes. |
@@ -836,7 +1087,11 @@ This design does not:
 - alter package dependency traversal or the assembly ladder's route order;
 - alter Metadata forwarding, binding, declaration, or terminal outcomes;
 - make a reference assembly an implementation supplier;
-- define XML documentation, SourceLink, PDB, or symbol-server policy;
+- redefine XML-documentation identity or parsing, SourceLink mapping, PDB
+  matching, source acquisition, checksum verification, source-comment parsing,
+  or symbol-server policy;
+- claim that SourceLink provenance proves the physical syntax tree that
+  produced a metadata definition;
 - define Workspace admission, replacement, or lease lifetime;
 - require network access or desktop filesystem capabilities;
 - permit inspected-assembly loading or Roslyn;

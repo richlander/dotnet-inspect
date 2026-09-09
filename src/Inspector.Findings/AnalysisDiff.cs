@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 /// <summary>The producer's content assertion for one correspondence.</summary>
 public enum AnalysisDiffContentKind

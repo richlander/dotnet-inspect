@@ -2,7 +2,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using ILInspector.Decompiler.Tests;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;

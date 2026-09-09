@@ -16,7 +16,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using InertText;
-using ILInspector.Findings;
+using Inspector.Findings;
 using Markout;
 using System.Buffers;
 using System.Globalization;

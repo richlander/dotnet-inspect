@@ -295,6 +295,18 @@ reason. This query has no CLI or section adoption yet; it is gated by
 `RestoredProjectDependencyFactsQueryTests` and the
 `restored-project.dependency-facts` fixture in `DotnetInspector.Fixtures`.
 
+`RestoredProjectDependencyTraversalQuery` implements the contract in
+[`restored-project-dependency-traversal.md`](restored-project-dependency-traversal.md)
+over the same bytes and target request. It consumes one internal projection
+issued by the facts query — there is no second assets parse or target-selection
+rule — and projects the root, project-reference, and package relationship set
+with minimum root-relative distance, explicit depth boundaries, depth-scoped
+typed failures, stated completion, and a topology identity scoped to the facts
+owner's unchanged selection identity. Package relationships carry the facts
+owner's exact graph edges rather than reminted evidence. This query also has no
+CLI or section adoption yet; it is gated by
+`RestoredProjectDependencyTraversalQueryTests`.
+
 L1 does not reference Markout.
 
 ### L2 — `DotnetInspector.Sections`
@@ -412,7 +424,7 @@ scanning and is not called a scanner.
 
 **Result** names what a query returns (`XxxQuery` -> `XxxResult`).
 "Inspection" stays reserved for composed aggregates and "Finding" for the
-[`ILInspector.Findings`](../../src/ILInspector.Findings) spine, so the three
+[`Inspector.Findings`](../../src/Inspector.Findings) spine, so the three
 nouns remain distinguishable.
 
 ## Seam rules
