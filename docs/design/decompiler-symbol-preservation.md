@@ -492,7 +492,7 @@ dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
   --dump 'ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures::TwoSequentialNamedAwaits' \
   --skip-pdb
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*LoopRoleNamesAreSynthesized*'
 ```
 
@@ -813,13 +813,13 @@ dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
 dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
   -method '*GenericExtensionSignaturePreservesBinderAndCollisionFreeFallback*'
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*Import_MissingParameterName_SynthesizesOrdinalName*'
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*Import_SynthesizedParameterName_DoesNotCollideWithArtifactName*'
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*Import_SynthesizedParameterName_DoesNotCollideWithMethodGenericParameter*'
 ```
 
@@ -841,10 +841,10 @@ type generic `arg0` does not force a rename, so the ordinary fallback remains
 dotnet run --project tests/ILInspector.CSharp.Tests -c Release --no-build -- \
   -method '*HostileMetadataSelfNameIsNotRendered*'
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*UnspeakableNameFidelityTests*'
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*ReusingOuter*'
 ```
 
@@ -864,7 +864,7 @@ artifact identity and remain collision-resolved across nested scopes.
 ### P27: different PDB names for one reused slot
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*ReusedSlotWithDifferentScopeNames_ExposesCurrentLastNameLoss*'
 ```
 
@@ -889,7 +889,7 @@ dotnet run --project src/dotnet-inspect -c Release --no-build -- \
   --library "$CSHARP_TEXT" \
   -S "Fidelity Causes; Decompiled Source" --tips q
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*FullGrammarGenericParameterName_ExposesCurrentNarrowAdmission*'
 ```
 
@@ -928,7 +928,7 @@ occurrence would leave the shared-printer rule inconsistent.
 ### P30: unrepresentable parameter on a bodyless member
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*BodylessUnrepresentableParameter*'
 ```
 

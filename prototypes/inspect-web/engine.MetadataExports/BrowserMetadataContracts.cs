@@ -263,6 +263,7 @@ public sealed record BrowserMemberSurface(
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
+    string AnchorTypeFullName,
     string GraphSelectorKey,
     BrowserMemberBodySelector[] BodySelectors);
 

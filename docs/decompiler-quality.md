@@ -461,7 +461,7 @@ These keep a review fast and the proof legible:
   Reconstruct the claim from that history before reading today's matcher.
 - **Run the pass's tests in isolation.** The full decompiler suite is slow, so
   filter to the class under review —
-  `dotnet run --project src/ILInspector.Decompiler.Tests -- -class
+  `dotnet run --project tests/ILInspector.Decompiler.Tests -- -class
   ILInspector.Decompiler.Tests.<PassTests>`. Run the full suite once for a
   baseline so you can separate pre-existing failures (for example the
   fidelity-gate docket) from regressions you introduce.
@@ -471,7 +471,7 @@ These keep a review fast and the proof legible:
   ternary in Debug. A default Debug run can therefore show every positive fixture
   failing with an empty collection and the whole suite red; that is a config
   artifact, not a regression. Match CI:
-  `dotnet run --project src/ILInspector.Decompiler.Tests -c Release`.
+  `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release`.
 - **Prefer synthetic IR for near-miss negatives.** Many discriminators
   (non-local targets, field/temp receivers, user-assembly lookalikes) are awkward
   or impossible to spell in C# source but trivial to build directly as IR in the

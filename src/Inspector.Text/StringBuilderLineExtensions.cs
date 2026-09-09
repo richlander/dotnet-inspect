@@ -4,7 +4,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace ILInspector.Text;
+namespace Inspector.Text;
 
 /// <summary>
 /// Appends a line terminator that does not vary by platform.

@@ -10,7 +10,7 @@ using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Instructions;
-using ILInspector.Text;
+using Inspector.Text;
 using ILInspector.Research.Tests.TypeFixtures;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 

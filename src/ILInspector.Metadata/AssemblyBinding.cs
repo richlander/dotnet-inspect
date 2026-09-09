@@ -486,6 +486,18 @@ public interface IAssemblyBindingPolicy
 }
 
 /// <summary>
+/// An owner-attested policy whose selection performs no discovery or acquisition.
+/// </summary>
+/// <remarks>
+/// Selection may inspect the requesting image supplied by its caller, which
+/// must already be retained, and return previously acquired descriptors. It
+/// must not open captured source descriptors, discover candidates, or invoke
+/// an acquisition-capable delegate. Version and lineage contracts are unchanged.
+/// This capability is not implied by a stable policy version or a warm cache.
+/// </remarks>
+public interface IAcquisitionFreeAssemblyBindingPolicy : IAssemblyBindingPolicy;
+
+/// <summary>
 /// Compatibility adapter for an <see cref="IAssemblyReferenceResolver"/>.
 /// Structured binding policies are forwarded transparently; nullable legacy
 /// resolvers are snapshotted for one inspection lifetime. New acquisition

@@ -20,7 +20,7 @@
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
     <ProjectReference Include="..\Inspector.Findings\Inspector.Findings.csproj" />
-    <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
+    <ProjectReference Include="..\Inspector.Text\Inspector.Text.csproj" />
   </ItemGroup>
 
   <ItemGroup>

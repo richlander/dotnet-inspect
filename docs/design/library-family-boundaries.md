@@ -269,7 +269,7 @@ implementation belongs to separately tracked owner-scoped work.
 | --- | --- |
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
-| Subject-neutral inspection substrate | `Inspector.Findings`; target `Inspector.Artifacts` and `Inspector.Text` |
+| Subject-neutral inspection substrate | `Inspector.Findings`, `Inspector.Text`; target `Inspector.Artifacts` |
 | Independent domain roots | `NuGetFetch`, `CSharpText`, `InertText`; target `SourceFetch`, `NetworkAccess`, and `UntrustedDocuments` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
@@ -282,7 +282,7 @@ The following dispositions close the existing ambiguous names:
 | `DotnetInspector.Artifacts*` | Target `Inspector.Artifacts`, `Inspector.Artifacts.Workspaces`, and `Inspector.Artifacts.Local` under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | The family is source-neutral and the base is a dependency-free artifact contract floor. `ILInspector.Metadata` legitimately consumes its scoped content and identities to construct artifact-to-assembly correspondence, but the current prefix creates the sole production `ILInspector.*` to `DotnetInspector.*` exception. |
 | `DotnetInspector.Core` | Retire without a replacement assembly under [#6334](https://github.com/richlander/dotnet-inspect/issues/6334). | It groups unrelated cache, networking, untrusted-document, CLI telemetry, and single-consumer helpers by dependency depth instead of subject. |
 | `Inspector.Findings` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Its observation, census, matching, transition, comparison, diff, and correlation contracts are a coherent domain-neutral semantic model shared by both inspection families. They do not belong in metadata primitives, which owns mechanical ECMA/SRM operations rather than semantic models. |
-| `ILInspector.Text` | Target `Inspector.Text` under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Generic text Findings and deterministic LF text construction are host-neutral and Markout-free, but not inherently IL- or C#-specific. The project continues to depend on `Inspector.Findings`. |
+| `Inspector.Text` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Generic text Findings and deterministic LF text construction are host-neutral and Markout-free, but not inherently IL- or C#-specific. The project continues to depend on `Inspector.Findings`. |
 | `DotnetInspector.Services` | Retire without a replacement assembly under [#6335](https://github.com/richlander/dotnet-inspect/issues/6335). | It groups unrelated package, platform, source, assembly-resolution, parser, and corpus components by role. Targeted `*Service` names remain valid, while Houses and helpers move to their subject owners. |
 
 `DotnetInspector.Core` decomposes by subject: shared cache behavior targets
