@@ -7,7 +7,7 @@ using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Decompiler;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;

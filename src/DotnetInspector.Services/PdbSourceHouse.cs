@@ -5,7 +5,7 @@ using System.Text;
 
 using CSharpText;
 using CSharpText.MemberSlicing;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Text;
 
