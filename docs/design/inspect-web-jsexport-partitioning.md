@@ -694,6 +694,13 @@ completion only from the versioned managed terminal result. Expected and
 unexpected failures retain their classification and diagnostic; cancellation
 retains its authoritative reason.
 
+Callback rejection remains a managed bridge boundary failure. The generated
+Promise rejects only after managed release, and the Worker runtime therefore
+enters unexpected epoch draining rather than manufacturing a Package Query
+terminal result. Operation-local containment applies to an invalid fulfilled
+managed terminal DTO, whose validation maps it to an unexpected feature
+failure while the realm remains usable.
+
 The same adapter routes cancellation to the exact generated operation ID.
 Positive match credit uses the Worker control channel and becomes granted only
 after `Granted` returns the exact requested amount and the correlated Worker
@@ -711,9 +718,9 @@ advertising readiness. `test/engine-worker-package-query.test.ts`, also in
 operation authority, durable-event path, and controlled adapter. Its cases
 cover both request forms, exact identity, event order, all terminal mappings,
 keyed cancellation, exact and inactive credit, overlap rejection, delayed
-credit acknowledgment across settlement, terminal-callback rejection,
-malformed managed results, payload bounds, and continued realm health after an
-operation-local failure.
+credit acknowledgment across settlement, terminal-callback rejection entering
+Worker draining, malformed fulfilled results, payload bounds, and continued
+realm health after an operation-local result failure.
 
 This is preparation, not production activation. The production
 `PackageQueryDataSource`, `dotnet-inspect.ts` Package facade binding, UI

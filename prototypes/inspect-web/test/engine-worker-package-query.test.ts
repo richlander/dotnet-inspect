@@ -706,7 +706,7 @@ test("Package Query generated terminal validation contains malformed results to 
   harness.host.dispose();
 });
 
-test("Package Query rejects terminal callbacks without failing the realm", async () => {
+test("Package Query terminal callback rejection fails the Worker epoch", async () => {
   const facade: EngineWorkerPackageQueryFacade = {
     cancelPackageQuery: () => ({ kind: "NotActive", reason: null }),
     requestPackageQueryMatches: () => ({
@@ -715,20 +715,8 @@ test("Package Query rejects terminal callbacks without failing the realm", async
     }),
     runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     async runPackageQuery(...args) {
-      try {
-        emit(args[7], completionEvent);
-      } catch (error: unknown) {
-        return {
-          version: 1,
-          kind: "Failed",
-          value: null,
-          failureKind: "Unexpected",
-          error: "Package Query callback was rejected.",
-          diagnostic: error instanceof Error ? error.message : String(error),
-          reason: null,
-        };
-      }
-      throw new Error("Expected the terminal callback to be rejected.");
+      emit(args[7], completionEvent);
+      return succeeded();
     },
   };
   const harness = createHarness(facade);
@@ -738,11 +726,11 @@ test("Package Query rejects terminal callbacks without failing the realm", async
 
   assert.deepEqual(await handle.outcome, {
     kind: "failed",
-    error: "Package Query callback was rejected.",
+    error: "Worker reported a runtime failure.",
   });
-  await handle.quiesced;
-  assert.equal(harness.host.snapshot().phase, "ready");
+  assert.equal(harness.host.snapshot().phase, "draining");
   harness.host.dispose();
+  await handle.quiesced;
 });
 
 test("Package Query codecs reject terminal callbacks, malformed descriptors, and payload excess", () => {
