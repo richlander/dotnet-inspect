@@ -132,7 +132,6 @@ import {
   type AppPackage,
   type AppTypeSurface,
   type InspectedMemberSurface,
-  type InspectedPackageDocument,
   type InspectedTypeSurface,
 } from "./package-acquisition.ts";
 import {

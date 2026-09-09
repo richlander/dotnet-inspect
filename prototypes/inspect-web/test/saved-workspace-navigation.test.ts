@@ -570,12 +570,17 @@ test("capture settles a loading document viewer without claiming ready content",
   };
   h.state.docViewer = { status: "loading", request };
 
-  const snapshot = runInNewContext(
+  const snapshot: unknown = runInNewContext(
     "captureCanonicalWorkspaceRestoreSnapshot()",
     h.context,
-  ) as { state: { docViewer: DocumentViewerState } };
+  );
+  assert.ok(snapshot !== null && typeof snapshot === "object"
+    && "state" in snapshot);
+  const snapshotState = snapshot.state;
+  assert.ok(snapshotState !== null && typeof snapshotState === "object"
+    && "docViewer" in snapshotState);
 
-  assert.deepEqual(snapshot.state.docViewer, {
+  assert.deepEqual(snapshotState.docViewer, {
     status: "failed",
     request,
     error: "",
