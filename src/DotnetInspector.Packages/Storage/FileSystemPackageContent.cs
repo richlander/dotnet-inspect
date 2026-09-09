@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 
 namespace DotnetInspector.Packages;
 
@@ -19,9 +20,11 @@ namespace DotnetInspector.Packages;
 /// </remarks>
 public sealed class FileSystemPackageContent :
     IPackageContent,
-    IPackageContentEntryManifest
+    IPackageContentEntryManifest,
+    IPackageContentDigestSource
 {
     private readonly string _root;
+    private readonly PackageContentGenerationIdentity _generationIdentity = new();
 
     public FileSystemPackageContent(
         string rootPath,
@@ -53,6 +56,10 @@ public sealed class FileSystemPackageContent :
     public string ProducerKey { get; }
 
     /// <inheritdoc />
+    public PackageContentGenerationIdentity GenerationIdentity =>
+        _generationIdentity;
+
+    /// <inheritdoc />
     public bool RequiresArchiveTreeMatch { get; }
 
     /// <inheritdoc />
@@ -66,6 +73,62 @@ public sealed class FileSystemPackageContent :
 
         stream = File.OpenRead(NupkgPath);
         return true;
+    }
+
+    PackageContentDigest? IPackageContentDigestSource.GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!RequiresArchiveTreeMatch)
+            return null;
+
+        PackageContentGenerationIdentity generation = GenerationIdentity;
+        PackageContentDigest? digest = generation.GetOrCreateDigest(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Stream? stream;
+            try
+            {
+                if (!TryOpenArchive(out stream))
+                    return null;
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+
+            using (stream)
+            {
+                long archiveLength;
+                try
+                {
+                    archiveLength = stream.Length;
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException)
+                {
+                    return null;
+                }
+
+                chargeWork(archiveLength);
+
+                try
+                {
+                    return new PackageContentDigest(
+                        generation,
+                        Convert.ToHexStringLower(SHA256.HashData(stream)));
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException)
+                {
+                    return null;
+                }
+            }
+        });
+        cancellationToken.ThrowIfCancellationRequested();
+        return digest;
     }
 
     /// <inheritdoc />
