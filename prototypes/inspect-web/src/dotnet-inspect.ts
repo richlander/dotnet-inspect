@@ -14377,7 +14377,14 @@ async function navigateWithinCurrentWorkspace(
   const libraryFailure = applyLoadedPackageLibraryScope(pkg, loc.library);
   applyLocationView(loc);
   const viewFailure = loc.shareState
-    ? canonicalViewRestorationFailure(pkg, loc, loc.lens, loc.libraryLens)
+    ? canonicalViewRestorationFailure(
+        pkg,
+        loc,
+        loc.lens,
+        loc.libraryLens,
+        loc.atPackageRoot && !loc.workspaceSubjectOpen
+          ? loc.packageLens
+          : null)
     : null;
   const restorationFailure = libraryFailure ?? viewFailure;
   if (loc.shareState && restorationFailure) {

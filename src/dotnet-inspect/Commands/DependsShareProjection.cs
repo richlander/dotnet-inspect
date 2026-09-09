@@ -119,7 +119,6 @@ internal static class DependsShareProjection
             };
             return NonProjectable($"--share could not resolve an exact NuGet.org package coordinate: {message}");
         }
-
         string normalizedVersion = resolved.Coordinate.Version;
         var coordinate =
             new DefinitionMemberCoordinate.PackageCoordinate(

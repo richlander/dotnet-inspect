@@ -2053,7 +2053,8 @@ Definition records and product demos (this slice):
   and canonical Dependencies restoration clears any prior Browser-local group
   override before rendering. The Browser Share action uses this canonical
   capture path even though ordinary package-root address-bar state retains its
-  simpler route form. `canonical package dependency views restore the package root lens`,
+  simpler route form. `canonical package dependency views restore the package
+  root lens`,
   `canonical package views reject contradictory structural selection`,
   `capture projects package Dependencies through the packet lens`,
   `capture refuses a non-active package dependency group`, and

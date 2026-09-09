@@ -1,4 +1,5 @@
 using System.Net;
+
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -75,38 +76,46 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Example.Package")]
-    [InlineData("Example.Package@latest")]
+    [InlineData("")]
+    [InlineData("@latest")]
     public async Task DependsShare_FloatingVersionResolvesWithoutPackageAcquisition(
-        string package)
+        string versionSelector)
     {
-        var handler = new FloatingVersionHandler();
-        using var client = new HttpClient(handler);
-        var options = new DependsOptions
-        {
-            PackageName = package,
-            Tfm = "net8.0",
-            ShareFormat = WorkspaceShareFormat.Packet,
-            SourceOptions = new NuGetSourceOptions
-            {
-                Sources = ["https://api.nuget.org/v3/index.json"],
-            },
-        };
+        string packageId = $"Share.Floating.{Guid.NewGuid():N}";
+        using var handler = new ShareVersionHandler(packageId, "2.0.0");
+        using var httpClient = new HttpClient(handler);
 
-        var result = await ConsoleCapture.RunAsync(() =>
-            DependsShareProjection.WriteAsync(
-                options,
-                client,
-                new VerboseLogger(enabled: false)));
+        var result = await ConsoleCapture.RunAsync(
+            () => DependsShareProjection.WriteAsync(
+                new DependsOptions
+                {
+                    PackageName = packageId + versionSelector,
+                    Tfm = "net8.0",
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = ["https://api.nuget.org/v3/index.json"],
+                    },
+                },
+                httpClient,
+                new VerboseLogger(enabled: false),
+                TestContext.Current.CancellationToken));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
             result.Output.Trim(),
             TestContext.Current.CancellationToken);
-        Assert.Equal("4.5.6", Assert.Single(packet.Tabs).Version);
+        WorkspaceShareTab tab = Assert.Single(packet.Tabs);
+        Assert.Equal(packageId, tab.Source);
+        Assert.Equal("2.0.0", tab.Version);
         Uri request = Assert.Single(handler.Requests);
         Assert.Equal("azuresearch-usnc.nuget.org", request.Host);
+        Assert.DoesNotContain(
+            handler.Requests,
+            request => request.AbsolutePath.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
@@ -240,7 +249,9 @@ public partial class CommandExecutionTests
 
         try
         {
-            using var client = new HttpClient(new FloatingVersionHandler());
+            using var handler =
+                new ShareVersionHandler("Example.Private", "1.0.0");
+            using var client = new HttpClient(handler);
             var options = new DependsOptions
             {
                 PackageName = "Example.Private@1.0.0",
@@ -263,6 +274,7 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "authorize exactly one NuGet.org source",
                 result.Error);
+            Assert.Empty(handler.Requests);
         }
         finally
         {
@@ -350,7 +362,9 @@ public partial class CommandExecutionTests
         Assert.Contains("--share", result.Error);
     }
 
-    private sealed class FloatingVersionHandler : HttpMessageHandler
+    private sealed class ShareVersionHandler(
+        string packageId,
+        string version) : HttpMessageHandler
     {
         public List<Uri> Requests { get; } = [];
 
@@ -359,11 +373,18 @@ public partial class CommandExecutionTests
             CancellationToken cancellationToken)
         {
             Requests.Add(request.RequestUri!);
+            string? body = request.RequestUri!.Host.Equals(
+                "azuresearch-usnc.nuget.org",
+                StringComparison.OrdinalIgnoreCase)
+                ? $$"""{"data":[{"id":"{{packageId}}","version":"{{version}}"}]}"""
+                : null;
             return Task.FromResult(
-                new HttpResponseMessage(HttpStatusCode.OK)
+                new HttpResponseMessage(
+                    body is null
+                        ? HttpStatusCode.NotFound
+                        : HttpStatusCode.OK)
                 {
-                    Content = new StringContent(
-                        """{"data":[{"version":"4.5.6"}]}"""),
+                    Content = new StringContent(body ?? ""),
                     RequestMessage = request,
                 });
         }

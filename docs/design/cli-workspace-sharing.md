@@ -275,7 +275,10 @@ For each adopting command, #6150's path has three observable steps:
    subject, facet, query, and portable options.
 
 The exact-member adoption completes these steps for its supported package API
-Overview subset. Package Dependencies is the next focused adoption in #6394.
+Overview subset. The Package Dependencies adoption in #6394 completes them for
+one exact NuGet.org package coordinate, target framework, and package-root
+Dependencies facet. An unversioned package or `@latest` is resolved and pinned
+before projection; no package body or dependency graph is acquired by the CLI.
 Type, package, library, call-graph, and later operation/query adoptions remain
 separate slices under #6150; a command exposes `--share` only when its first
 useful scenario closes through the receiving host.
