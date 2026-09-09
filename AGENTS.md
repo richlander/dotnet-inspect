@@ -63,9 +63,10 @@ development model and rationale. The binding summary:
 - **Use extraordinary pre-work for complicated features.** Corpus evidence,
   an established oracle, a TLA+ model, or a closely developed specification
   should bound the contract before implementation.
-- **Use only OpenAI GPT models when available.** In agent harnesses that
-  advertise GPT models, all other models are prohibited. Default to GPT-5.6 Sol
-  for coding and GPT-6 Astra for review; another GPT model may be used when
+- **Use only approved OpenAI GPT configurations.** In agent harnesses that
+  advertise GPT models, all other models, every `Fast` model or mode, and
+  extra-high (`xhigh`) reasoning are prohibited. Default to GPT-5.6 Sol for
+  coding and GPT-6 Astra for review; another non-Fast GPT model may be used when
   sufficient.
 - **Hot-start requested work through PR and review.** Agents may branch,
   commit, push, open the PR, and dispatch eligible rounds without separate
