@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 
-namespace DotnetInspector.Artifacts;
+namespace Inspector.Artifacts;
 
 /// <summary>
 /// Owner-issued capability for guarded artifact content access.

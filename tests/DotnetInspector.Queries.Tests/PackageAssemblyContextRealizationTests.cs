@@ -3,8 +3,8 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Emit;
 
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
@@ -1154,7 +1154,7 @@ public sealed class PackageAssemblyContextRealizationTests
             Assert.IsAssignableFrom<
                 IReadOnlyList<ArtifactSetAdmissionFailure>>(
                     failure.Data[
-                        "DotnetInspector.Artifacts.Workspaces.AdmissionFailures"]);
+                        "Inspector.Artifacts.Workspaces.AdmissionFailures"]);
         ArtifactSetAdmissionFailure admissionFailure =
             Assert.Single(admissionFailures);
         Assert.Equal(

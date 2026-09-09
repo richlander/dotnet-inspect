@@ -12,7 +12,7 @@
       ],
       "targets": [
         "CSharpText",
-        "DotnetInspector.Artifacts",
+        "Inspector.Artifacts",
         "DotnetInspector.RowSelection",
         "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
@@ -42,8 +42,7 @@
         "*.App",
         "*.Tests",
         "*Fixture*",
-        "ILInspector.Analysis.CallerGraph*",
-        "ILInspector.Metadata"
+        "ILInspector.Analysis.CallerGraph*"
       ],
       "deny": [
         "DotnetInspector.*"
@@ -81,6 +80,7 @@
         "CSharpText",
         "DotnetInspector.*",
         "ILInspector.*",
+        "Inspector.*",
         "InertText",
         "TsJsExport.Contracts"
       ],
@@ -283,7 +283,7 @@
       "allowOnly": [
         "$platform",
         "CSharpText",
-        "DotnetInspector.Artifacts",
+        "Inspector.Artifacts",
         "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
         "InertText"

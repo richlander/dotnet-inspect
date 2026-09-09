@@ -1,8 +1,8 @@
 using System.Text;
 
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts.Workspaces;
 
-namespace DotnetInspector.Artifacts.Tests;
+namespace Inspector.Artifacts.Tests;
 
 public sealed partial class ArtifactSetSessionTests
 {

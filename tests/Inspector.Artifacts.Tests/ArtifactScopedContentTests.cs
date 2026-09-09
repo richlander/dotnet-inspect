@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts.Workspaces;
 
-namespace DotnetInspector.Artifacts.Tests;
+namespace Inspector.Artifacts.Tests;
 
 public sealed class ArtifactScopedContentTests
 {
@@ -404,7 +404,7 @@ public sealed class ArtifactScopedContentTests
         Assert.Equal(1, lease.Disposals);
         Assert.Same(cleanup, Assert.Single(session.CleanupFailures));
         var evidence = Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
-            primary.Data["DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+            primary.Data["Inspector.Artifacts.Workspaces.CleanupFailures"]);
         Assert.Same(cleanup, Assert.Single(evidence));
         Assert.Throws<ObjectDisposedException>(() => session.CreateQueryAuthorization());
     }
@@ -448,7 +448,7 @@ public sealed class ArtifactScopedContentTests
         }
         Assert.Equal(1, lease.Disposals);
         var evidence = Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
-            actual!.Data["DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+            actual!.Data["Inspector.Artifacts.Workspaces.CleanupFailures"]);
         Assert.Same(cleanup, Assert.Single(evidence));
     }
 

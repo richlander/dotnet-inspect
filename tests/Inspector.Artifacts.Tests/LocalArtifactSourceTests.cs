@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Net.Sockets;
-using DotnetInspector.Artifacts.Local;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts.Local;
+using Inspector.Artifacts.Workspaces;
 using Microsoft.Win32.SafeHandles;
 
-namespace DotnetInspector.Artifacts.Tests;
+namespace Inspector.Artifacts.Tests;
 
 public sealed class LocalArtifactSourceTests
 {

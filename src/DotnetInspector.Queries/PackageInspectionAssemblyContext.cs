@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
@@ -210,7 +210,7 @@ public sealed partial class InspectionWorkspace
                     await CleanupFailedArtifactRealizationAsync(
                         null, lease, session, failure).ConfigureAwait(false);
                     if (failure.Data.Contains(
-                        "DotnetInspector.Artifacts.Workspaces.CleanupFailures"))
+                        "Inspector.Artifacts.Workspaces.CleanupFailures"))
                         throw;
                     outcomes.Add(entry, new PackageInspectionAssemblyOutcome.Unavailable(
                         entry, "The selected image contains invalid metadata.", []));
@@ -220,7 +220,7 @@ public sealed partial class InspectionWorkspace
                     await CleanupFailedArtifactRealizationAsync(
                         null, lease, session, failure).ConfigureAwait(false);
                     if (failure.Data.Contains(
-                        "DotnetInspector.Artifacts.Workspaces.CleanupFailures"))
+                        "Inspector.Artifacts.Workspaces.CleanupFailures"))
                         throw;
                     outcomes.Add(entry, new PackageInspectionAssemblyOutcome.Unavailable(
                         entry, "The selected package entry is invalid or exceeds the artifact byte limit.", []));

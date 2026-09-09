@@ -1,6 +1,6 @@
 using System.IO.Enumeration;
 
-namespace DotnetInspector.Artifacts.Local;
+namespace Inspector.Artifacts.Local;
 
 public sealed record LocalDirectoryArtifactAcquisitionOptions
 {

@@ -5,7 +5,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;

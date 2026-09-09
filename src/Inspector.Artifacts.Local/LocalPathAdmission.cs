@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-namespace DotnetInspector.Artifacts.Local;
+namespace Inspector.Artifacts.Local;
 
 internal enum LocalPathKind
 {

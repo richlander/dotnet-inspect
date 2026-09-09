@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using DotnetInspector.Fixtures;
 
 using ILInspector.Analysis;

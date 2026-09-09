@@ -1,6 +1,6 @@
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 
-namespace DotnetInspector.Artifacts.Workspaces;
+namespace Inspector.Artifacts.Workspaces;
 
 /// <summary>
 /// An owner-issued reference to one published artifact's identity,
