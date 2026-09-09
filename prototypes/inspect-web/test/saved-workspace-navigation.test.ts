@@ -34,7 +34,7 @@ import {
 import { workspaceDependencyKey } from "../src/package-inspection.ts";
 import {
   isProductHomeDemosPath,
-  productHomeDemoLocationHref,
+  productHomeDemoLocationHrefAsync,
 } from "../src/product-home-demos.ts";
 import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
@@ -44,11 +44,14 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  buildWorkspaceStateUrlFromPacket,
   parseWorkspaceLocation,
   selectedBrowserCallGraphPackageTabIds,
+  parseWorkspaceLocationAsync,
   workspaceShareCaptureTopology,
   workspaceShareTabsMatchResolved,
   type ParsedWorkspaceLocation,
+  type WorkspaceUrlState,
 } from "../src/workspace-navigation.ts";
 import { createMethodBodyDiffState } from "../src/method-body-comparison.ts";
 import { createSourceDiffState } from "../src/source-comparison.ts";
@@ -67,6 +70,8 @@ const hostNames = new Set([
   "selectedCallGraphWorkspacePackages",
   "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
+  "synchronizeUrl", "buildStateUrl", "workspaceShareKey",
+  "rememberWorkspaceShare", "buildWorkspaceUrl", "preparedWorkspaceUrl",
   "openSavedWorkspace", "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
   "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
@@ -298,6 +303,7 @@ function harness() {
     resets: number;
   } = { current: null, opens: 0, resets: 0 };
   const operations: Promise<unknown>[] = [];
+  const topLevelOperations: Promise<unknown>[] = [];
   const demoResolutions: string[] = [];
   const callGraphRuns: { id: string; navigationSeq: number }[] = [];
   const controls = {
@@ -311,7 +317,7 @@ function harness() {
     queryPackage: async (_id: string, _version: string, _framework: string) => packageSurface(),
     selection: async (): Promise<void> => {},
     resolveHomeDemo: async (_id: string): Promise<BrowserHomeDemoResolveResult> => resolvedDemo(),
-    demoHref: productHomeDemoLocationHref,
+    demoHref: productHomeDemoLocationHrefAsync,
     callGraph: async (): Promise<void> => {},
     savedFocusAvailable: true,
   };
@@ -360,6 +366,10 @@ function harness() {
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
     pendingWorkspaceConstruction: null,
+    preparedWorkspaceShare: null as {
+      readonly key: string;
+      readonly packet: string;
+    } | null,
     activeWorkspaceUrl: null as string | null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
     platformLibraryRetry: null, platformCatalogRetry: null,
@@ -430,7 +440,15 @@ function harness() {
     typeLensesFor, browserCreatedCallGraphTabIds,
     selectedBrowserCallGraphPackageTabIds,
     workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
-    parseWorkspaceLocation, isProductHomeDemosPath,
+    parseWorkspaceLocation, parseWorkspaceLocationAsync,
+    isProductHomeDemosPath,
+    buildWorkspaceStateUrlFromPacket,
+    workspaceUrlProjection: () => JSON.stringify({
+      packages: state.packages.map(packageIdentityKey),
+      basis: state.workspaceShareBasis,
+      package: state.package?.id ?? null,
+      loading: state.loading,
+    }),
     inspectDecodeWorkspaceShareState: decode,
     requestAnimationFrame: (action: () => void) => frames.push(action),
     observeAsync: (operation: Promise<unknown>) => operations.push(operation),
@@ -445,6 +463,7 @@ function harness() {
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},
+    requestPackageStatsRefresh: () => {},
     clearWorkspaceRouteFailure: () => true,
     resetLocationFilters: () => {},
     prepareUnpublishedWorkspace: () =>
@@ -509,7 +528,9 @@ function harness() {
         },
       },
     },
-    productHomeDemoLocationHref: (...args: Parameters<typeof productHomeDemoLocationHref>) =>
+    productHomeDemoLocationHrefAsync: (
+      ...args: Parameters<typeof productHomeDemoLocationHrefAsync>
+    ) =>
       controls.demoHref(...args),
     runCallGraphDemo: (
       id: string,
@@ -559,12 +580,50 @@ function harness() {
     catalogRequests, packageComparisonTargets,
     demoResolutions, callGraphRuns, publications,
     capture: (): string => {
+      try {
+        const result: unknown = runInNewContext(
+          "captureSavedWorkspacePacket()",
+          context);
+        assert.ok(typeof result === "string");
+        return result;
+      } catch (error: unknown) {
+        if (!(error instanceof Error)
+          || !error.message.includes("still being prepared")) {
+          throw error;
+        }
+      }
+      // The VM fixture exposes the product-owned typed capture function.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      const snapshot = runInNewContext(
+        "captureWorkspaceUrlState()",
+        context) as WorkspaceUrlState;
+      const preparedSnapshot = {
+        ...snapshot,
+        tabs: snapshot.tabs.map((tab, index) => ({
+          ...tab,
+          version: state.packages[index]?.version ?? tab.version,
+          framework:
+            state.packages[index]?.activeFramework ?? tab.framework,
+        })),
+      };
+      const preparedUrl = workspaceLocation.build(preparedSnapshot);
+      context.preparedWorkspaceShare = {
+        // The VM fixture exposes the product-owned string key function.
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+        key: runInNewContext(
+          "workspaceShareKey(snapshot)",
+          { ...context, snapshot: preparedSnapshot }) as string,
+        packet: preparedUrl.searchParams.get("w") ?? "",
+      };
       const result: unknown = runInNewContext("captureSavedWorkspacePacket()", context);
       assert.ok(typeof result === "string");
       return result;
     },
     open: (entry: SavedWorkspace = saved): void => {
-      runInNewContext("openSavedWorkspace(entry)", { ...context, entry });
+      const operation = Promise.resolve(runInNewContext(
+        "openSavedWorkspace(entry)",
+        { ...context, entry }));
+      topLevelOperations.push(operation);
     },
     demo: (): void => { runInNewContext('runHomeDemo("demo")', context); },
     add: (result: SpotlightPackageResult = {
@@ -576,7 +635,24 @@ function harness() {
       return operation;
     },
     openPicker: (): void => { runInNewContext("openWorkspacePackagePicker()", context); },
-    settle: async () => { await Promise.all(operations); },
+    settle: async () => {
+      let settledOperations = 0;
+      let settledTopLevel = 0;
+      while (true) {
+        const pending = [
+          ...operations.slice(settledOperations),
+          ...topLevelOperations.slice(settledTopLevel),
+        ];
+        settledOperations = operations.length;
+        settledTopLevel = topLevelOperations.length;
+        await Promise.all(pending);
+        await new Promise(resolve => setImmediate(resolve));
+        if (settledOperations === operations.length
+          && settledTopLevel === topLevelOperations.length) {
+          return;
+        }
+      }
+    },
     flushFocus: () => { for (const frame of frames.splice(0)) frame(); },
   };
 }
@@ -1227,7 +1303,7 @@ test("call-graph demo execution receives the resolution navigation sequence and 
   const resolution = deferred<BrowserHomeDemoResolveResult>();
   const execution = deferred<void>();
   h.controls.resolveHomeDemo = () => resolution.promise;
-  h.controls.demoHref = () => null;
+  h.controls.demoHref = async () => null;
   h.controls.callGraph = () => execution.promise;
   h.demo();
   const sequence = h.navigationSequence.current();
@@ -1722,6 +1798,7 @@ for (const rejected of [false, true]) {
     h.controls.queryPackage = () => query.promise;
     const stale = h.add();
     h.open();
+    await new Promise(resolve => setImmediate(resolve));
     await h.operations[1];
     h.flushFocus();
     const successorState = structuredClone(h.state);

@@ -8,6 +8,26 @@ import {
 import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
 import { registerEngineWorkerCpuOperation } from "./engine-worker-cpu.ts";
 import {
+  registerEngineWorkerAnalysisOperations,
+  type EngineWorkerAnalysisFacade,
+} from "./engine-worker-analysis.ts";
+import {
+  registerEngineWorkerCallGraphOperations,
+  type EngineWorkerCallGraphFacade,
+} from "./engine-worker-call-graph.ts";
+import {
+  registerEngineWorkerCatalogOperations,
+  type EngineWorkerCatalogFacade,
+} from "./engine-worker-catalog.ts";
+import {
+  registerEngineWorkerMetadataOperations,
+  type EngineWorkerMetadataFacade,
+} from "./engine-worker-metadata.ts";
+import {
+  registerEngineWorkerPackageOperations,
+  type EngineWorkerPackageFacade,
+} from "./engine-worker-package.ts";
+import {
   registerEngineWorkerPackageQueryOperation,
   type EngineWorkerPackageQueryFacade,
 } from "./engine-worker-package-query.ts";
@@ -15,6 +35,14 @@ import {
   registerEngineWorkerTypeSourceOperation,
   type EngineWorkerTypeSourceFacade,
 } from "./engine-worker-source.ts";
+import {
+  registerEngineWorkerOrdinarySourceOperations,
+  type EngineWorkerOrdinarySourceFacade,
+} from "./engine-worker-source-ordinary.ts";
+import {
+  registerEngineWorkerSourceAuthorityOperations,
+  type EngineWorkerSourceAuthorityFacade,
+} from "./engine-worker-source-authority.ts";
 import { registerEngineWorkerStartupOperations } from "./engine-worker-startup.ts";
 import { WorkerOperationCatalog, WorkerRuntimeRealm } from "./worker-runtime-realm.ts";
 
@@ -40,19 +68,79 @@ registerEngineWorkerStartupOperations(operations, {
     return (await import("/inspect-web-package.js")).listGalleryDiscoveryCatalog();
   },
 });
-let sourceFacade: EngineWorkerTypeSourceFacade | undefined;
+let sourceFacade:
+  (EngineWorkerTypeSourceFacade
+    & EngineWorkerSourceAuthorityFacade
+    & EngineWorkerOrdinarySourceFacade)
+  | undefined;
 registerEngineWorkerTypeSourceOperation(operations, () => {
   if (sourceFacade === undefined)
     throw new Error("Type Source facade is unavailable before Worker readiness.");
   return sourceFacade;
 });
-let packageQueryFacade: EngineWorkerPackageQueryFacade | undefined;
+registerEngineWorkerSourceAuthorityOperations(operations, () => {
+  if (sourceFacade === undefined) {
+    throw new Error(
+      "Source authority facade is unavailable before Worker readiness.");
+  }
+  return sourceFacade;
+});
+let packageQueryFacade:
+  (EngineWorkerPackageQueryFacade & EngineWorkerPackageFacade)
+  | undefined;
 registerEngineWorkerPackageQueryOperation(operations, () => {
   if (packageQueryFacade === undefined) {
     throw new Error(
       "Package Query facade is unavailable before Worker readiness.");
   }
   return packageQueryFacade;
+});
+registerEngineWorkerPackageOperations(operations, () => {
+  if (packageQueryFacade === undefined) {
+    throw new Error(
+      "Package facade is unavailable before Worker readiness.");
+  }
+  return packageQueryFacade;
+});
+registerEngineWorkerOrdinarySourceOperations(operations, () => {
+  if (sourceFacade === undefined) {
+    throw new Error(
+      "Source facade is unavailable before Worker readiness.");
+  }
+  return sourceFacade;
+});
+
+let metadataFacade: EngineWorkerMetadataFacade | undefined;
+registerEngineWorkerMetadataOperations(operations, () => {
+  if (metadataFacade === undefined) {
+    throw new Error(
+      "Metadata facade is unavailable before Worker readiness.");
+  }
+  return metadataFacade;
+});
+let analysisFacade: EngineWorkerAnalysisFacade | undefined;
+registerEngineWorkerAnalysisOperations(operations, () => {
+  if (analysisFacade === undefined) {
+    throw new Error(
+      "Analysis facade is unavailable before Worker readiness.");
+  }
+  return analysisFacade;
+});
+let callGraphFacade: EngineWorkerCallGraphFacade | undefined;
+registerEngineWorkerCallGraphOperations(operations, () => {
+  if (callGraphFacade === undefined) {
+    throw new Error(
+      "Call Graph facade is unavailable before Worker readiness.");
+  }
+  return callGraphFacade;
+});
+let catalogFacade: EngineWorkerCatalogFacade | undefined;
+registerEngineWorkerCatalogOperations(operations, () => {
+  if (catalogFacade === undefined) {
+    throw new Error(
+      "Catalog facade is unavailable before Worker readiness.");
+  }
+  return catalogFacade;
 });
 operations.register({
   kind: engineWorkerCanaryKind,
@@ -81,9 +169,20 @@ const bootstrap = createEngineWorkerBootstrap(
 );
 const bootstrapWorker = async (value: string): Promise<void> => {
   await bootstrap.bootstrap(value);
-  [sourceFacade, packageQueryFacade] = await Promise.all([
-    import("/inspect-web-source.js"),
+  [
+    packageQueryFacade,
+    metadataFacade,
+    analysisFacade,
+    sourceFacade,
+    callGraphFacade,
+    catalogFacade,
+  ] = await Promise.all([
     import("/inspect-web-package.js"),
+    import("/inspect-web-metadata.js"),
+    import("/inspect-web-analysis.js"),
+    import("/inspect-web-source.js"),
+    import("/inspect-web-call-graph.js"),
+    import("/inspect-web-catalog.js"),
   ]);
 };
 const realm = new WorkerRuntimeRealm({

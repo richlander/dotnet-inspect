@@ -461,21 +461,21 @@ test("controller replenishes only near the granted match-window edge", async () 
   const running = controller.run(createQueryRequest("Microsoft."));
 
   publish(Array.from({ length: 14 }, (_, index) => row(`P${index}`)));
-  controller.requestMore();
+  await controller.requestMore();
   assert.deepEqual(requested, []);
 
   publish([row("P14")]);
-  controller.requestMore();
-  controller.requestMore();
+  await controller.requestMore();
+  await controller.requestMore();
   assert.deepEqual(requested, [10]);
 
   publish(Array.from({ length: 10 }, (_, index) => row(`Q${index}`)));
-  controller.requestMore();
+  await controller.requestMore();
   assert.deepEqual(requested, [10, 10]);
 
   finish({ kind: "exhausted" });
   await running;
-  controller.requestMore();
+  await controller.requestMore();
   assert.deepEqual(requested, [10, 10]);
 });
 
@@ -500,8 +500,8 @@ test("controller does not count rejected replenishment as granted credit", async
   const running = controller.run(createQueryRequest("Microsoft."));
 
   publish(Array.from({ length: 15 }, (_, index) => row(`P${index}`)));
-  controller.requestMore();
-  controller.requestMore();
+  await controller.requestMore();
+  await controller.requestMore();
 
   assert.equal(requests, 2);
   finish({ kind: "cancelled" });
@@ -554,7 +554,7 @@ test("controller retains assembly assessments without spending row credit", asyn
     "literal",
     ["Contoso.Library@1.2.3"],
     "net10.0"));
-  controller.requestMore();
+  await controller.requestMore();
 
   assert.deepEqual(state.outcome.assessments, [NO_MATCH_ASSESSMENT]);
   assert.deepEqual(state.outcome.rows, []);

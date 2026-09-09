@@ -5,7 +5,9 @@ import type {
   BrowserWorkspaceShareTab,
 } from "./facades/inspect-web-catalog.d.ts";
 import {
+  encodeWorkspaceShareStateAsync,
   encodeWorkspaceShareState,
+  type AsyncWorkspaceShareEncoder,
   type WorkspaceShareEncoder,
   type WorkspaceUrlState,
 } from "./workspace-navigation.ts";
@@ -78,6 +80,16 @@ function locationHref(
   return `/?${params.toString()}`;
 }
 
+async function locationHrefAsync(
+  state: WorkspaceUrlState,
+  encode: AsyncWorkspaceShareEncoder,
+): Promise<string> {
+  const params = new URLSearchParams();
+  params.set("package", state.package);
+  params.set("w", await encodeWorkspaceShareStateAsync(state, encode));
+  return `/?${params.toString()}`;
+}
+
 const BROWSER_RUNTIME_PACKAGE = "Microsoft.NETCore.App";
 
 function packageTab(
@@ -126,10 +138,9 @@ function packageTab(
  * Returns null when the demo runs through an engine operation instead
  * (member-bound Call Graph today).
  */
-export function productHomeDemoLocationHref(
+function productHomeDemoLocationState(
   demo: ProductHomeDemoResolved,
-  encode: WorkspaceShareEncoder,
-): string | null {
+): WorkspaceUrlState | null {
   const section = demo.view.section;
   if (section === "Call Graph" && demo.view.memberAnchor) {
     return null;
@@ -156,7 +167,7 @@ export function productHomeDemoLocationHref(
     ...groupTabs.map(tab => tab.id),
     ...tabs.filter(tab => tab.kind === "package").map(tab => tab.id),
   ];
-  return locationHref({
+  return {
     package: focusTab.kind === "group"
       ? BROWSER_RUNTIME_PACKAGE
       : focusTab.source,
@@ -176,7 +187,23 @@ export function productHomeDemoLocationHref(
       section: null,
       libraries: demo.view.library ? [demo.view.library] : [],
     },
-  }, encode);
+  };
+}
+
+export function productHomeDemoLocationHref(
+  demo: ProductHomeDemoResolved,
+  encode: WorkspaceShareEncoder,
+): string | null {
+  const state = productHomeDemoLocationState(demo);
+  return state === null ? null : locationHref(state, encode);
+}
+
+export async function productHomeDemoLocationHrefAsync(
+  demo: ProductHomeDemoResolved,
+  encode: AsyncWorkspaceShareEncoder,
+): Promise<string | null> {
+  const state = productHomeDemoLocationState(demo);
+  return state === null ? null : await locationHrefAsync(state, encode);
 }
 
 export function homeDemosEntryHtml(

@@ -1,8 +1,8 @@
 import type { EngineClient } from "./engine-client.ts";
 import {
-  createOperationAuthorityPage,
   type OperationDiagnostic,
 } from "./operation-authority.ts";
+import { engineWorkerBindingPage } from "./engine-worker-ordinary.ts";
 import {
   engineWorkerBoundaryErrors,
   engineWorkerDiagnostic,
@@ -69,7 +69,7 @@ export function bindEngineWorkerStartupClient(
 ): EngineStartupClient {
   const epoch = host.snapshot().epochToken;
   if (epoch === null) throw new Error("Start a Worker epoch before binding startup reads.");
-  const page = createOperationAuthorityPage();
+  const page = engineWorkerBindingPage(host, epoch);
 
   function bind<TValue>(operation: StartupOperation<TValue>): () => Promise<TValue> {
     const adapter = host.registerOperation({

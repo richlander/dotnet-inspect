@@ -19,7 +19,7 @@ import {
   type WorkerOperationCatalog,
 } from "./worker-runtime-realm.ts";
 
-const engineWorkerCpuKind = "runtime-managed-cpu-canary";
+export const engineWorkerCpuKind = "runtime-managed-cpu-canary";
 
 const engineWorkerCpuCacheKey = "runtime-managed-cpu-canary-invocations";
 

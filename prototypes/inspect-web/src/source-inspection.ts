@@ -136,20 +136,27 @@ export interface SourceInspectionDependencies {
   state: SourceInspectionState;
   operationAuthority: OperationAuthorityPage;
   queryMemberSource(request: MemberSourceQuery): Promise<BrowserSource>;
-  queryTypeSource(
+  typeSourceAdapter?: OperationProducerAdapter<
+    TypeSourceLoadRequest,
+    BrowserSource,
+    unknown,
+    never,
+    unknown
+  >;
+  readonly queryTypeSource?: (
     operationId: OperationId,
     request: TypeSourceQuery,
-  ): Promise<BrowserTypeSourceResult>;
+  ) => Promise<BrowserTypeSourceResult>;
   queryGraphSource(
     request: GraphSourceRequest,
     taste: string,
   ): Promise<BrowserSource | null>;
   memberSourceHasConcreteOverload(): boolean;
   cancelEngineSourceRequest(): void;
-  cancelTypeSourceRequest(
+  readonly cancelTypeSourceRequest?: (
     operationId: OperationId,
     reason: OperationCancelReason,
-  ): void;
+  ) => void;
   readonly reportOperationDiagnostic: (
     diagnostic: OperationDiagnostic,
   ) => undefined;
@@ -188,7 +195,7 @@ export function createSourceInspectionCoordinator(
     BrowserSource,
     unknown,
     never,
-    never
+    unknown
   >;
 
   const cancelGraphSourceRequest = (): boolean => {
@@ -269,29 +276,32 @@ export function createSourceInspectionCoordinator(
           dependencies.reportOperationDiagnostic(diagnostic),
       },
     });
-  const typeSourceAdapter: OperationProducerAdapter<
+  const legacyTypeSourceAdapter = (): OperationProducerAdapter<
     TypeSourceLoadRequest,
     BrowserSource,
     unknown,
     never,
-    never
-  > = {
-    prepare: (identity, request, sink) => {
-      typeSourceOperations.set(identity.id, {
-        request,
-        preservedFocus: null,
-      });
+    unknown
+  > => {
+    const queryTypeSource = dependencies.queryTypeSource;
+    const cancelTypeSourceRequest = dependencies.cancelTypeSourceRequest;
+    if (queryTypeSource === undefined
+      || cancelTypeSourceRequest === undefined) {
+      throw new Error(
+        "Type Source requires either a producer adapter or query and cancellation bindings.");
+    }
+    return {
+      prepare: (identity, request, sink) => {
       let engineCancellationRequested = false;
       const cancelEngine = (reason: OperationCancelReason): undefined => {
         if (engineCancellationRequested) {
           return undefined;
         }
         engineCancellationRequested = true;
-        dependencies.cancelTypeSourceRequest(identity.id, reason);
+        cancelTypeSourceRequest(identity.id, reason);
         return undefined;
       };
       const quiesce = (): undefined => {
-        typeSourceOperations.delete(identity.id);
         sink.reportQuiesced();
         return undefined;
       };
@@ -350,16 +360,62 @@ export function createSourceInspectionCoordinator(
           activate: () => {
             let query: Promise<BrowserTypeSourceResult>;
             try {
-              query = dependencies.queryTypeSource(identity.id, request);
+              query = queryTypeSource(identity.id, request);
             } catch (error: unknown) {
               return boundaryFailure(error);
             }
             void query.then(finish, boundaryFailure);
             return undefined;
           },
-          abandon: () => {
+          abandon: () => undefined,
+        },
+      };
+      },
+    };
+  };
+  const producerTypeSourceAdapter =
+    dependencies.typeSourceAdapter ?? legacyTypeSourceAdapter();
+  const typeSourceAdapter: OperationProducerAdapter<
+    TypeSourceLoadRequest,
+    BrowserSource,
+    unknown,
+    never,
+    unknown
+  > = {
+    prepare(identity, request, sink, cancellation) {
+      typeSourceOperations.set(identity.id, {
+        request,
+        preservedFocus: null,
+      });
+      const contextualSink = {
+        reportProgress: sink.reportProgress,
+        reportDurable: sink.reportDurable,
+        commitTerminal: sink.commitTerminal,
+        reportTerminal: sink.reportTerminal,
+        reportUnexpectedTerminal: sink.reportUnexpectedTerminal,
+        reportUnexpectedFailure: sink.reportUnexpectedFailure,
+        reportQuiesced: (): undefined => {
+          typeSourceOperations.delete(identity.id);
+          return sink.reportQuiesced();
+        },
+      };
+      const prepared = producerTypeSourceAdapter.prepare(
+        identity,
+        request,
+        contextualSink,
+        cancellation);
+      if (prepared.kind === "rejected") {
+        typeSourceOperations.delete(identity.id);
+        return prepared;
+      }
+      return {
+        kind: "prepared",
+        binding: {
+          requestCancellation: prepared.binding.requestCancellation,
+          activate: prepared.binding.activate,
+          abandon: (): undefined => {
             typeSourceOperations.delete(identity.id);
-            return undefined;
+            return prepared.binding.abandon();
           },
         },
       };

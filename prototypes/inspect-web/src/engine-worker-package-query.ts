@@ -13,6 +13,7 @@ import type {
 } from "./package-query.ts";
 import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
 import type {
+  WorkerRuntimeControlledOperationAdapter,
   WorkerRuntimeControlledOperationRegistration,
   WorkerRuntimePreparationError,
 } from "./worker-runtime-core.ts";
@@ -29,7 +30,7 @@ import type {
 } from "./worker-runtime-realm.ts";
 import { engineWorkerBoundaryErrors } from "./engine-worker-contract.ts";
 
-const engineWorkerPackageQueryKind = "package-query";
+export const engineWorkerPackageQueryKind = "package-query";
 
 const maximumRequestCharacters = 1_048_576;
 const maximumEventCharacters = 1_048_576;
@@ -145,6 +146,19 @@ type PackageQuerySettlement = ManagedOperationSettlement<
   string,
   string
 >;
+
+export type EngineWorkerPackageQueryAdapter =
+  WorkerRuntimeControlledOperationAdapter<
+    QueryRequest,
+    EngineWorkerPackageQueryCompletionEvent,
+    string,
+    never,
+    WorkerRuntimePreparationError,
+    EngineWorkerPackageQueryDurableEvent,
+    number,
+    number,
+    string
+  >;
 
 type PackageFacade =
   typeof import("./facades/inspect-web-package.d.ts");

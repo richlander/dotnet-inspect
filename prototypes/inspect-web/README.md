@@ -1094,23 +1094,31 @@ own assembly, and exercises build identity plus `asyncLoweringCanary()`, a
 genuinely awaited operation with a fixed typed result and no network,
 package-cache, server-API, or user-data dependency.
 
-The same generated facade set also bootstraps in a dedicated module Worker.
+The production application bootstraps the generated facade set in one dedicated
+module Worker.
 The publish step binds `runtime-loader.js` to the SDK's fingerprinted runtime
 module, so Worker startup does not depend on the document's import map.
-`src/engine-worker-client.ts` is a separately published entry: its explicit
-diagnostic probe drives the existing managed async-lowering canary through the
-Worker core and operation authority. It does not move current UI features off
-the main thread.
+`src/engine-worker-entry.ts` initializes all seven facades against that runtime
+and registers the complete operation catalog before readiness.
+`createEngineWorkerClient(origin, options)` owns the page-facing host and epoch;
+its facade-grouped client exposes all 60 production methods asynchronously.
+The page does not create a managed runtime or import the generated facade
+modules directly.
 
-That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
-the Worker-only adoption host. Its facade-grouped `client` provides Promise
-results for build identity, vocabulary, home demos, Package Query facets, and
-Gallery discovery. Concurrent reads share one bootstrap without replacing one
-another, and disposal rejects outstanding reads. Generated JSON-shaped results
-use a bounded transport string (1,048,576 UTF-16 code units per result) and
-generated-typed decoding; failures remain visible. The production application
-still uses its existing page client. Other bindings and the atomic runtime
-cutover remain separate steps under #5987.
+Five startup reads and 44 closed ordinary operations share the same
+epoch-wide operation-authority identity sequence as Package Query, Type Source,
+Method Body Diff, and Source Comparison. The 56 registered Worker operation
+kinds are checked as one set. Ordinary inputs and results have explicit tuple,
+primitive-category, and JSON-size bounds; generated DTOs remain their contract
+owners. Concurrent calls use independent sessions, disposal rejects
+outstanding work, and a binding cannot follow a replacement epoch.
+
+Package Query consumes Worker durable events rather than cloning its callback,
+and advances demand only after exact asynchronous credit acknowledgment.
+Workspace URL encoding, navigation, Spotlight ranking, cache statistics, and
+occurrence clearing preserve their prior ordering across the asynchronous
+boundary. Clipboard sharing uses a prepared managed packet so it does not await
+the engine after transient user activation is required.
 
 Before Worker `Ready`, bootstrap registers the managed epoch-work reporter
 through the generated host facade. Both Worker and receiver use the same
@@ -1119,7 +1127,7 @@ Worker-issued allowance unchanged; the realm supplies its epoch identity and
 enforces work-sequence rules. Rejected reporting fails visibly. Cooperative
 cleanup stops admission, drains retained work, and unregisters only after
 drainage; hard Worker termination remains a separate release boundary.
-Feature brokers still need to opt into this source as part of their migration.
+Production feature brokers consume this reporter through the shared Worker.
 
 Worker protocol version 3 retains version 2's nonempty batches of at most 64
 progress or durable events and adds operation-addressed typed feature control.
@@ -1134,10 +1142,7 @@ operation. The Worker returns the feature handler's explicit acknowledgment or
 queue. Cancellation, settlement, and `not-active` close later control
 admission, while a request already posted remains a response obligation and
 may be acknowledged after settlement. The protocol owns that transport and
-correlation, not feature credit policy. `npm run inspect-web-worker-protocol`
-covers the event and control transport. Package Query's production adapter and
-the single-runtime cutover remain separate adoption work under issues #5987
-and #5420.
+correlation, not feature credit policy. `npm run inspect-web-worker-protocol` covers the event and control transport.
 
 The Worker bootstrap also prepares the typed Type Source operation. Its
 page-side adapter posts only package ID, version, framework, assembly, type
@@ -1145,9 +1150,8 @@ identity, and serialized taste; the Worker validates the generated managed
 result and keyed cancellation acknowledgment before translating them to the
 closed Worker protocol. Type Source publishes no progress and uses unbounded
 liveness. `inspect-web-worker-protocol` covers the host/realm/catalog path.
-The application still uses its direct page-runtime Source adapter: this
-prepared binding is not production activation and does not create a second
-managed runtime.
+The production Source coordinators consume these adapters directly; no
+page-runtime Source path remains.
 
 After a Release publish, run the native binding gate:
 
@@ -1167,10 +1171,10 @@ fixture even when the published site comes from another directory.
 The gate uses Firefox and the complete published artifact, covering cold and
 warm managed calls, reporter registration and generated cleanup exports,
 all five typed startup reads against their generated facade results, restart,
-one decompiled Type Source result through the prepared typed adapter, bootstrap
-rejection, and input during stalled Wasm initialization. It does not itself
-prove responsiveness during managed CPU work or complete the Worker lifecycle
-gate.
+one decompiled Type Source result through the typed adapter, bootstrap
+rejection, and input during stalled Wasm initialization. The production
+application gate separately exercises Package Query, Source, and visible
+startup failure through the same Worker composition.
 
 The focused managed CPU sub-gate reuses that published artifact:
 
@@ -1184,10 +1188,10 @@ managed completion. It also covers an untuned neighboring operation,
 same-epoch diagnostic cache retention, planned restart cancellation, native
 old-Worker closure, watchdog detection of silent Worker loss, explicit
 replacement, and replacement-epoch cache reset. It does not claim painted
-pixels, feature progress, cooperative cancellation, supersession, or production
-activation. Lifecycle composition, production Source activation, and direct
-page-runtime retirement remain focused follow-on slices under #5418, #5987,
-and #5420.
+pixels. The production Package Query browser scenario separately records first
+row, first 20 rows, completion, mounted-render count, and longest main-thread
+timer delay while asserting page input and two animation frames before
+completion.
 
 The purpose-built `multi-facade-canary` proves that this lifecycle composes
 across independently generated modules. Its Alpha and Beta assemblies

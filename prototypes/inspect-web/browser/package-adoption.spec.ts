@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Buffer } from "node:buffer";
-import { expect, test, type BrowserContext, type Page, type Route } from "@playwright/test";
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type Page,
+  type Route,
+  type Worker,
+} from "@playwright/test";
 import type {
   BrowserAssemblyReferenceList as AssemblyReferenceList,
   BrowserAssemblyReferenceResult as AssemblyReferenceResult,
@@ -321,6 +328,18 @@ declare global {
         libraryId: string,
       ): Promise<PackageIntegrations>;
     };
+    __packageQueryResponsiveness?: {
+      startedAt: number;
+      firstRowAt: number | null;
+      firstWindowAt: number | null;
+      inputAt: number | null;
+      frameAt: number | null;
+      renderCount: number;
+      longestTimerDelay: number;
+      previousTimerAt: number;
+      timer: number;
+      observer: MutationObserver;
+    };
   }
 }
 
@@ -588,6 +607,10 @@ test.describe("Package Query website over real Wasm", () => {
     context,
   }) => {
     const requests: URL[] = [];
+    let deliverSearch: (() => void) | undefined;
+    const searchDelivered = new Promise<void>(resolveDelivered => {
+      deliverSearch = resolveDelivered;
+    });
     await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
       const url = new URL(route.request().url());
       expect(url.pathname).toBe("/query");
@@ -609,15 +632,83 @@ test.describe("Package Query website over real Wasm", () => {
         headers: corsHeaders,
         body: JSON.stringify({ totalHits: 100, data }),
       });
+      deliverSearch?.();
     });
 
+    const workers: Worker[] = [];
+    page.on("worker", worker => workers.push(worker));
     await page.goto("/query");
     const input = page.locator("#package-query-prefix");
     const main = page.locator(".query-main");
     const footer = page.locator(".query-footer");
     await expect(input).toBeVisible({ timeout: 120_000 });
+    expect(workers).toHaveLength(1);
+    await page.evaluate(() => {
+      const probe = document.createElement("input");
+      probe.id = "package-query-responsiveness-probe";
+      probe.setAttribute("aria-label", "Responsiveness probe");
+      document.body.append(probe);
+      const startedAt = performance.now();
+      const observer = new MutationObserver(() => {
+        const state = window.__packageQueryResponsiveness!;
+        state.renderCount++;
+        const rows = document.querySelectorAll(".query-row").length;
+        if (rows > 0 && state.firstRowAt === null)
+          state.firstRowAt = performance.now();
+        if (rows >= 20 && state.firstWindowAt === null)
+          state.firstWindowAt = performance.now();
+      });
+      const state: NonNullable<Window["__packageQueryResponsiveness"]> = {
+        startedAt,
+        firstRowAt: null,
+        firstWindowAt: null,
+        inputAt: null,
+        frameAt: null,
+        renderCount: 0,
+        longestTimerDelay: 0,
+        previousTimerAt: startedAt,
+        timer: 0,
+        observer,
+      };
+      window.__packageQueryResponsiveness = state;
+      observer.observe(document.querySelector("#app")!, {
+        childList: true,
+        subtree: true,
+      });
+      state.timer = window.setInterval(() => {
+        const now = performance.now();
+        state.longestTimerDelay = Math.max(
+          state.longestTimerDelay,
+          now - state.previousTimerAt - 16);
+        state.previousTimerAt = now;
+      }, 16);
+      probe.addEventListener("input", () => {
+        state.inputAt = performance.now();
+      });
+    });
     await input.fill("System*");
     await page.locator("#package-query-run").click();
+    await searchDelivered;
+    await page.getByRole("textbox", { name: "Responsiveness probe" })
+      .fill("responsive");
+    const responsive = await page.evaluate(async () => {
+      const state = window.__packageQueryResponsiveness!;
+      await new Promise<void>(resolveFrame => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolveFrame());
+        });
+      });
+      state.frameAt = performance.now();
+      return {
+        inputAt: state.inputAt,
+        frameAt: state.frameAt,
+        completed: document.querySelector(".query-footer")
+          ?.textContent?.includes("bounded: first 100 matches") ?? false,
+      };
+    });
+    expect(responsive.inputAt).not.toBeNull();
+    expect(responsive.frameAt).not.toBeNull();
+    expect(responsive.completed).toBe(false);
 
     await expect(footer).toContainText("20 packages");
     await expect(page.locator(".query-row")).toHaveCount(20);
@@ -650,6 +741,37 @@ test.describe("Package Query website over real Wasm", () => {
       .toHaveText("System.Package000");
     await expect(page.locator(".query-row")).toHaveCount(30);
     expect(requests).toHaveLength(1);
+    expect(workers).toHaveLength(1);
+    const metrics = await page.evaluate(() => {
+      const state = window.__packageQueryResponsiveness!;
+      clearInterval(state.timer);
+      state.observer.disconnect();
+      const completedAt = performance.now();
+      return {
+        firstRowMilliseconds: state.firstRowAt === null
+          ? null
+          : state.firstRowAt - state.startedAt,
+        firstWindowMilliseconds: state.firstWindowAt === null
+          ? null
+          : state.firstWindowAt - state.startedAt,
+        completionMilliseconds: completedAt - state.startedAt,
+        inputMilliseconds: state.inputAt === null
+          ? null
+          : state.inputAt - state.startedAt,
+        frameMilliseconds: state.frameAt === null
+          ? null
+          : state.frameAt - state.startedAt,
+        renderCount: state.renderCount,
+        longestTimerDelayMilliseconds: state.longestTimerDelay,
+      };
+    });
+    expect(metrics.firstRowMilliseconds).not.toBeNull();
+    expect(metrics.firstWindowMilliseconds).not.toBeNull();
+    expect(metrics.inputMilliseconds).not.toBeNull();
+    expect(metrics.frameMilliseconds).not.toBeNull();
+    expect(metrics.renderCount).toBeGreaterThan(0);
+    expect(metrics.longestTimerDelayMilliseconds).toBeGreaterThanOrEqual(0);
+    console.log(`Package Query responsiveness: ${JSON.stringify(metrics)}`);
   });
 
 });

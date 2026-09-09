@@ -61,10 +61,14 @@ import {
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.ts";
-import {
-  createMainThreadEngineClient,
-  type EngineClient,
-} from "./engine-client.ts";
+import type {
+  EngineWorkerClient,
+  EngineWorkerMemberSourceComparisonAdapter,
+  EngineWorkerMethodBodyComparisonAdapter,
+  EngineWorkerMethodBodyTargetsAdapter,
+  EngineWorkerPackageQueryAdapter,
+  EngineWorkerTypeSourceAdapter,
+} from "./engine-worker-client.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -94,11 +98,12 @@ import {
   bindWorkspaceRetryToUrl,
   browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
+  buildWorkspaceStateUrlFromPacket,
   callGraphCaptureTopology,
   createNavigationHistory,
   createNavigationSequence,
-  createWorkspaceLocationPersistence,
-  parseWorkspaceLocation,
+  createAsyncWorkspaceLocationPersistence,
+  parseWorkspaceLocationAsync,
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   resolvedPlatformTargetVersion,
@@ -173,7 +178,7 @@ import {
   homeDemosEntryHtml,
   isProductHomeDemosPath,
   productHomeDemoCatalog,
-  productHomeDemoLocationHref,
+  productHomeDemoLocationHrefAsync,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
@@ -476,7 +481,7 @@ import {
   createPackageQueryAnnouncementTracker,
 } from "./package-query-announcements.ts";
 import {
-  createBrowserPackageQueryDataSource,
+  createEngineWorkerPackageQueryDataSource,
   packageQueryAssemblyPatterns,
   packageQueryFacets,
 } from "./package-query-source.ts";
@@ -499,7 +504,7 @@ import {
   isPackageQueryPredecessor,
   packageQueryHistoryState,
   readPackageQueryHistory,
-  resolvePackageQueryWorkspaceSuccessor,
+  resolvePackageQueryWorkspaceSuccessorAsync,
   validPackageQuerySearchText,
   withHistoryEntryId,
   type PackageQueryReturnFocus,
@@ -534,30 +539,24 @@ type AnalysisFacade = typeof import("./facades/inspect-web-analysis.d.ts");
 type SourceFacade = typeof import("./facades/inspect-web-source.d.ts");
 type CallGraphFacade = typeof import("./facades/inspect-web-call-graph.d.ts");
 type CatalogFacade = typeof import("./facades/inspect-web-catalog.d.ts");
-type EngineCoordinator = typeof import("./engine-facades.ts");
 
-let startEngine: EngineCoordinator["startEngine"];
-let engineClient: EngineClient;
-let cancelPackageQuery: PackageFacade["cancelPackageQuery"];
+let engineClient: EngineWorkerClient;
 let inspectPackageDocument: PackageFacade["getPackageDocument"];
 let inspectLoadRuntimePack: PackageFacade["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: PackageFacade["loadRuntimePackAssembly"];
 let inspectPlatformVersions: PackageFacade["getPlatformVersions"];
 let inspectPlatformCatalog: PackageFacade["getPlatformCatalog"];
 let inspectPrefetchPlatformPacks: PackageFacade["prefetchPlatformPacks"];
-let inspectPackageCacheStats: PackageFacade["packageCacheStats"];
+let inspectPackageCacheStats:
+  EngineWorkerClient["package"]["packageCacheStats"];
 let inspectMemberDocumentation: PackageFacade["queryMemberDocumentation"];
 let inspectPackage: PackageFacade["queryPackage"];
 let inspectPackageDependencies: PackageFacade["queryPackageDependencies"];
 let inspectPackageVersions: PackageFacade["queryPackageVersions"];
 let resolveDependencyVersion: PackageFacade["resolvePackageDependencyVersion"];
-let inspectRequestPackageQueryMatches:
-  PackageFacade["requestPackageQueryMatches"];
-let inspectRunPackageQuery: PackageFacade["runPackageQuery"];
-let inspectRunPackageAssemblyQuery: PackageFacade["runPackageAssemblyQuery"];
 let inspectOpenPackageAssemblyQueryResult:
   PackageFacade["openPackageAssemblyQueryResult"];
-let inspectSearchTypes: PackageFacade["searchTypes"];
+let inspectSearchTypes: EngineWorkerClient["package"]["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
   PackageFacade["queryWorkspacePackageOccurrences"];
 let inspectActivateWorkspacePackageOccurrence:
@@ -579,61 +578,66 @@ let inspectPackagePerformance: AnalysisFacade["queryPackagePerformance"];
 let inspectPlatformIntegrations: AnalysisFacade["queryPlatformIntegrations"];
 let inspectPlatformOpportunities: AnalysisFacade["queryPlatformOpportunities"];
 let inspectPlatformPerformance: AnalysisFacade["queryPlatformPerformance"];
-let cancelSourceInspection: SourceFacade["cancelSourceQuery"];
-let cancelTypeSourceInspection: SourceFacade["cancelTypeSourceQuery"];
-let cancelMethodBodyComparisonQuery:
-  SourceFacade["cancelMethodBodyComparison"];
-let inspectMethodBodyComparison: SourceFacade["queryMethodBodyComparison"];
-let inspectMethodBodyComparisonTargets:
-  SourceFacade["queryMethodBodyComparisonTargets"];
+let cancelSourceInspection:
+  EngineWorkerClient["source"]["cancelSourceQuery"];
 let inspectMemberFindingCensus: SourceFacade["queryMemberFindingCensus"];
-let inspectMemberSourceComparison: SourceFacade["queryMemberSourceComparison"];
-let cancelMemberSourceComparisonQuery: SourceFacade["cancelMemberSourceComparison"];
 let inspectMemberSource: SourceFacade["queryMemberSource"];
 let inspectTypeMemberSource: SourceFacade["queryTypeMemberSource"];
-let inspectTypeSource: SourceFacade["queryTypeSource"];
 let inspectExpandPlatformCallGraph: CallGraphFacade["expandPlatformCallGraph"];
 let inspectMemberCallGraph: CallGraphFacade["queryMemberCallGraph"];
-let inspectDecodeWorkspaceShareState: CatalogFacade["decodeWorkspaceShareState"];
-let inspectEncodeWorkspaceShareState: CatalogFacade["encodeWorkspaceShareState"];
+let inspectDecodeWorkspaceShareState:
+  EngineWorkerClient["catalog"]["decodeWorkspaceShareState"];
+let inspectEncodeWorkspaceShareState:
+  EngineWorkerClient["catalog"]["encodeWorkspaceShareState"];
 let inspectRunHomeDemo: CatalogFacade["runHomeDemo"];
 let productHomeDemoCatalogError = "";
 
-// The generated modules stay off the first-paint path, so they are imported once the home
-// view has painted. `engine-facades.ts` owns composition of the whole set; this function
-// owns nothing but binding, and each operation is bound from the module that publishes it.
+function requireEngineWorkerClient(): EngineWorkerClient {
+  if (engineClient === undefined) {
+    throw new Error(
+      "The inspection Worker is unavailable before engine startup.");
+  }
+  return engineClient;
+}
+
+// Worker host construction stays off the first-paint path. The Worker owns the
+// only Browser/Wasm runtime and publishes all facade groups through one epoch.
 async function loadEngineModule() {
-  const [
-    hostFacade,
-    packageFacade,
-    metadataFacade,
-    analysisFacade,
-    sourceFacade,
-    callGraphFacade,
-    catalogFacade,
-    coordinator,
-  ] = await Promise.all([
-    import("/inspect-web-host.js"),
-    import("/inspect-web-package.js"),
-    import("/inspect-web-metadata.js"),
-    import("/inspect-web-analysis.js"),
-    import("/inspect-web-source.js"),
-    import("/inspect-web-call-graph.js"),
-    import("/inspect-web-catalog.js"),
-    import("./engine-facades.ts"),
-  ]);
-  ({ startEngine } = coordinator);
-  inspectPlatformVersions = packageFacade.getPlatformVersions;
-  inspectPlatformCatalog = packageFacade.getPlatformCatalog;
-  inspectPrefetchPlatformPacks = packageFacade.prefetchPlatformPacks;
-  engineClient = createMainThreadEngineClient({
-    host: hostFacade,
-    package: packageFacade,
-    catalog: catalogFacade,
+  const { createEngineWorkerClient } =
+    await import("./engine-worker-client.ts");
+  engineClient = createEngineWorkerClient(location.origin, {
+    operationAuthority,
+    callbacks: {
+      failure: failure => {
+        state.loading = false;
+        state.engineReady = false;
+        state.engineStartupFailed = true;
+        state.engineStatus = "";
+        state.errorTitle = "Inspection Worker stopped";
+        state.error =
+          "The inspection engine stopped. Reload to start a new Worker.";
+        state.errorDetail = errorMessage(failure.diagnostic);
+        state.retryAction = () => window.location.reload();
+        if (!state.credits) render();
+        return undefined;
+      },
+      diagnostic: diagnostic => {
+        console.error("Inspection Worker diagnostic.", diagnostic);
+        return undefined;
+      },
+      realmReleased: () => undefined,
+    },
+    operationDiagnostic: diagnostic => {
+      console.error(
+        "Inspection Worker operation authority failure.",
+        diagnostic);
+      return undefined;
+    },
   });
   ({
-    cancelPackageQuery,
     getPackageDocument: inspectPackageDocument,
+    getPlatformCatalog: inspectPlatformCatalog,
+    getPlatformVersions: inspectPlatformVersions,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     packageCacheStats: inspectPackageCacheStats,
@@ -641,11 +645,9 @@ async function loadEngineModule() {
     queryPackage: inspectPackage,
     queryPackageDependencies: inspectPackageDependencies,
     queryPackageVersions: inspectPackageVersions,
-    requestPackageQueryMatches: inspectRequestPackageQueryMatches,
     resolvePackageDependencyVersion: resolveDependencyVersion,
-    runPackageQuery: inspectRunPackageQuery,
-    runPackageAssemblyQuery: inspectRunPackageAssemblyQuery,
     openPackageAssemblyQueryResult: inspectOpenPackageAssemblyQueryResult,
+    prefetchPlatformPacks: inspectPrefetchPlatformPacks,
     searchTypes: inspectSearchTypes,
     queryWorkspacePackageOccurrences:
       inspectQueryWorkspacePackageOccurrences,
@@ -653,7 +655,7 @@ async function loadEngineModule() {
       inspectActivateWorkspacePackageOccurrence,
     clearWorkspacePackageOccurrences:
       inspectClearWorkspacePackageOccurrences,
-  } = packageFacade);
+  } = engineClient.package);
   ({
     queryGraphMemberSurface: inspectGraphMemberSurface,
     queryPackageHeapEntries: inspectPackageHeapEntries,
@@ -663,7 +665,7 @@ async function loadEngineModule() {
     queryPlatformMetadata: inspectPlatformMetadata,
     queryPlatformMetadataTable: inspectPlatformMetadataTable,
     queryTypeProjection: inspectTypeProjection,
-  } = metadataFacade);
+  } = engineClient.metadata);
   ({
     queryMemberFacts: inspectMemberFacts,
     queryPackageIntegrations: inspectPackageIntegrations,
@@ -672,29 +674,22 @@ async function loadEngineModule() {
     queryPlatformIntegrations: inspectPlatformIntegrations,
     queryPlatformOpportunities: inspectPlatformOpportunities,
     queryPlatformPerformance: inspectPlatformPerformance,
-  } = analysisFacade);
+  } = engineClient.analysis);
   ({
     cancelSourceQuery: cancelSourceInspection,
-    cancelTypeSourceQuery: cancelTypeSourceInspection,
-    cancelMethodBodyComparison: cancelMethodBodyComparisonQuery,
-    queryMethodBodyComparison: inspectMethodBodyComparison,
-    queryMethodBodyComparisonTargets: inspectMethodBodyComparisonTargets,
     queryMemberFindingCensus: inspectMemberFindingCensus,
-    queryMemberSourceComparison: inspectMemberSourceComparison,
-    cancelMemberSourceComparison: cancelMemberSourceComparisonQuery,
     queryMemberSource: inspectMemberSource,
     queryTypeMemberSource: inspectTypeMemberSource,
-    queryTypeSource: inspectTypeSource,
-  } = sourceFacade);
+  } = engineClient.source);
   ({
     expandPlatformCallGraph: inspectExpandPlatformCallGraph,
     queryMemberCallGraph: inspectMemberCallGraph,
-  } = callGraphFacade);
+  } = engineClient.callGraph);
   ({
     decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
     encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
     runHomeDemo: inspectRunHomeDemo,
-  } = catalogFacade);
+  } = engineClient.catalog);
 }
 
 declare global {
@@ -1136,7 +1131,11 @@ function captureCanonicalWorkspaceUrl(): string {
 
 function projectCurrentWorkspaceUrl(): string {
   try {
-    return state.package || state.platformSelection ? buildStateUrl().toString() : "/demos";
+    if (!state.package && !state.platformSelection) return "/demos";
+    const snapshot = captureWorkspaceUrlState();
+    return snapshot
+      ? preparedWorkspaceUrl(snapshot)?.toString() ?? location.href
+      : location.href;
   } catch {
     return location.href;
   }
@@ -1332,7 +1331,9 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   spotlightMemberCache = null;
   persistRecentPackages();
   persistPlatformRecent();
-  refreshPackageStats();
+  observeAsync(
+    refreshPackageStats(),
+    "Refreshing package cache statistics");
 }
 
 function cloneCanonicalWorkspaceSnapshotForRetention(
@@ -1450,7 +1451,9 @@ function restoreRetainedWorkspaceSnapshot(
   }
   persistRecentPackages();
   persistPlatformRecent();
-  refreshPackageStats();
+  observeAsync(
+    refreshPackageStats(),
+    "Refreshing package cache statistics");
 }
 
 function captureWorkspaceConstructionSnapshots(navigationSeq: number) {
@@ -1546,12 +1549,12 @@ function ensureCurrentWorkspacePublished(): void {
   activeWorkspaceUrl = projectCurrentWorkspaceUrl();
 }
 
-function publishInitialLoadedWorkspace(
+async function publishInitialLoadedWorkspace(
   rollbackSnapshot: CanonicalWorkspaceRestoreSnapshot,
-): boolean {
+): Promise<boolean> {
   if (retainedWorkspaces.activeWorkspaceId !== null) return true;
   try {
-    const destination = buildStateUrl().toString();
+    const destination = (await buildStateUrl()).toString();
     publishCurrentWorkspace(null);
     workspaceLocation.push(destination);
     return true;
@@ -1729,9 +1732,57 @@ function deleteRetainedWorkspace(workspaceId: string): void {
 const keybindings = createWorkbenchKeybindings();
 let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
+const typeSourceWorkerAdapter: EngineWorkerTypeSourceAdapter = {
+  prepare: (identity, input, sink, cancellation) =>
+    requireEngineWorkerClient().typeSourceAdapter.prepare(
+      identity,
+      input,
+      sink,
+      cancellation),
+};
+const methodBodyTargetsWorkerAdapter:
+EngineWorkerMethodBodyTargetsAdapter = {
+  prepare: (identity, input, sink, cancellation) =>
+    requireEngineWorkerClient().methodBodyTargetsAdapter.prepare(
+      identity,
+      input,
+      sink,
+      cancellation),
+};
+const methodBodyComparisonWorkerAdapter:
+EngineWorkerMethodBodyComparisonAdapter = {
+  prepare: (identity, input, sink, cancellation) =>
+    requireEngineWorkerClient().methodBodyComparisonAdapter.prepare(
+      identity,
+      input,
+      sink,
+      cancellation),
+};
+const memberSourceComparisonWorkerAdapter:
+EngineWorkerMemberSourceComparisonAdapter = {
+  prepare: (identity, input, sink, cancellation) =>
+    requireEngineWorkerClient().memberSourceComparisonAdapter.prepare(
+      identity,
+      input,
+      sink,
+      cancellation),
+};
+const packageQueryWorkerAdapter: EngineWorkerPackageQueryAdapter = {
+  prepare: (identity, input, sink, cancellation) =>
+    requireEngineWorkerClient().packageQueryAdapter.prepare(
+      identity,
+      input,
+      sink,
+      cancellation),
+  requestControl: (operationId, input) =>
+    requireEngineWorkerClient().packageQueryAdapter.requestControl(
+      operationId,
+      input),
+};
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   operationAuthority,
+  typeSourceAdapter: typeSourceWorkerAdapter,
   queryMemberSource: request => inspectMemberSource(
     request.packageId,
     request.version,
@@ -1741,14 +1792,6 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.member,
     request.selectorKey,
     request.metadataToken,
-    request.taste),
-  queryTypeSource: (operationId, request) => inspectTypeSource(
-    operationId,
-    request.packageId,
-    request.version,
-    request.framework,
-    request.assembly,
-    request.type,
     request.taste),
   queryGraphSource: (request, taste) => inspectTypeMemberSource(
     request.packageId,
@@ -1761,9 +1804,12 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.metadataToken,
     taste),
   memberSourceHasConcreteOverload,
-  cancelEngineSourceRequest: () => cancelSourceInspection?.(),
-  cancelTypeSourceRequest: (operationId, reason) => {
-    cancelTypeSourceInspection(operationId, reason);
+  cancelEngineSourceRequest: () => {
+    if (cancelSourceInspection !== undefined) {
+      observeAsync(
+        cancelSourceInspection(),
+        "Canceling Source inspection");
+    }
   },
   reportOperationDiagnostic: diagnostic => {
     console.error("Source operation authority failure.", diagnostic);
@@ -1776,21 +1822,8 @@ const sourceInspection = createSourceInspectionCoordinator({
 const methodBodyComparison = createMethodBodyComparisonCoordinator({
   state: state.methodBodyDiff,
   operationAuthority,
-  queryTargets: (operationId, context) => inspectMethodBodyComparisonTargets(
-    operationId,
-    context.packageId,
-    context.version,
-    context.framework,
-    context.assembly,
-    context.typeIdentity,
-    context.memberName,
-    context.selectorKey,
-    context.metadataToken),
-  queryComparison: (operationId, requestJson) =>
-    inspectMethodBodyComparison(operationId, requestJson),
-  cancelMethodBodyComparison: (operationId, reason) => {
-    cancelMethodBodyComparisonQuery(operationId, reason);
-  },
+  targetsAdapter: methodBodyTargetsWorkerAdapter,
+  comparisonAdapter: methodBodyComparisonWorkerAdapter,
   reportOperationDiagnostic: diagnostic => {
     console.error("Method Body Diff operation authority failure.", diagnostic);
     return undefined;
@@ -1801,11 +1834,7 @@ const methodBodyComparison = createMethodBodyComparisonCoordinator({
 const sourceComparison = createSourceComparisonCoordinator({
   state: state.sourceDiff,
   operationAuthority,
-  queryComparison: (operationId, requestJson) =>
-    inspectMemberSourceComparison(operationId, requestJson),
-  cancelComparison: (operationId, reason) => {
-    cancelMemberSourceComparisonQuery(operationId, reason);
-  },
+  comparisonAdapter: memberSourceComparisonWorkerAdapter,
   reportOperationDiagnostic: diagnostic => {
     console.error("Source Diff operation authority failure.", diagnostic);
     return undefined;
@@ -1815,58 +1844,17 @@ const sourceComparison = createSourceComparisonCoordinator({
 });
 const packageQueryController = createPackageQueryController(
   state.packageQueryState,
-  createBrowserPackageQueryDataSource({
-    cancel: (operationId, reason) =>
-      cancelPackageQuery(operationId, reason),
-    requestMatches: (operationId, additionalMatchCredit) =>
-      inspectRequestPackageQueryMatches(operationId, additionalMatchCredit),
-    runAssembly: (
-      operationId,
-      patternId,
-      operand,
-      packageCoordinatesJson,
-      targetFramework,
-      initialMatchCredit,
-      eventSink,
-    ) => inspectRunPackageAssemblyQuery(
-      operationId,
-      patternId,
-      operand,
-      packageCoordinatesJson,
-      targetFramework,
-      initialMatchCredit,
-      eventSink),
-    run: (
-      operationId,
-      prefix,
-      facetIdsJson,
-      maximumCandidates,
-      maximumMatches,
-      includePrerelease,
-      initialMatchCredit,
-      eventSink,
-      packageType,
-      sourceOrderId,
-      discovery,
-    ) => inspectRunPackageQuery(
-      operationId,
-      prefix,
-      facetIdsJson,
-      maximumCandidates,
-      maximumMatches,
-      includePrerelease,
-      initialMatchCredit,
-      eventSink,
-      packageType,
-      sourceOrderId,
-      discovery),
-  }, {
-    reportUnexpectedFailure: (operationId, error, diagnostic) => {
-      console.error(
-        `Package Query managed operation '${operationId}' failed unexpectedly.`,
-        diagnostic ?? error);
-    },
-  }),
+  createEngineWorkerPackageQueryDataSource(
+    operationAuthority,
+    packageQueryWorkerAdapter,
+    {
+      reportOperationDiagnostic: diagnostic => {
+        console.error(
+          "Package Query operation authority failure.",
+          diagnostic);
+        return undefined;
+      },
+    }),
   updateKind => {
     if (!state.packageQueryOpen) return;
     if (updateKind === "reset") {
@@ -2012,7 +2000,7 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
     await renderMermaidCallGraph();
   },
   nextPaint,
-  refreshPackageStats,
+  refreshPackageStats: requestPackageStatsRefresh,
   patchCallGraphSection,
 });
 const documentInspection = createDocumentInspectionCoordinator({
@@ -2403,7 +2391,7 @@ function memberHasSelectedBody(member: AppMemberGroup) {
       || selection.overloadIndex === state.selectedOverloadIndex);
 }
 
-const workspaceLocation = createWorkspaceLocationPersistence({
+const workspaceLocation = createAsyncWorkspaceLocationPersistence({
   current: () => ({
     href: location.href,
     pathname: location.pathname,
@@ -2420,26 +2408,28 @@ const workspaceLocation = createWorkspaceLocationPersistence({
       withRetainedWorkspaceHistoryId(historyState),
       "",
       url),
-  decode: value => inspectDecodeWorkspaceShareState(value),
-  encode: stateJson => inspectEncodeWorkspaceShareState(stateJson),
+  decode: async value => inspectDecodeWorkspaceShareState(value),
+  encode: async stateJson => inspectEncodeWorkspaceShareState(stateJson),
 });
 let pendingDemoNavigation: {
   navigationSeq: number;
   destination: string;
 } | null = null;
 
-function parseLocation() {
+async function parseLocation() {
   return workspaceLocation.parseCurrent();
 }
 
-function parseWorkspaceHref(href: string): ParsedLocation {
+async function parseWorkspaceHref(
+  href: string,
+): Promise<ParsedLocation> {
   const url = new URL(href, location.href);
-  return parseWorkspaceLocation({
+  return await parseWorkspaceLocationAsync({
     href: url.href,
     pathname: url.pathname,
     search: url.search,
     hash: url.hash,
-  }, value => inspectDecodeWorkspaceShareState(value));
+  }, async value => inspectDecodeWorkspaceShareState(value));
 }
 
 function beginDemoNavigation(destination: string): number {
@@ -2482,6 +2472,62 @@ function commitRestoredWorkspaceNavigation(
 }
 
 type ParsedLocation = ParsedWorkspaceLocation;
+
+let preparedWorkspaceShare: {
+  readonly key: string;
+  readonly packet: string;
+} | null = null;
+
+function workspaceShareKey(
+  snapshot: WorkspaceUrlState,
+): string {
+  return JSON.stringify({
+    tabs: snapshot.tabs,
+    contexts: snapshot.contexts,
+    activeTabId: snapshot.activeTabId,
+    selectedContextId: snapshot.selectedContextId,
+    view: snapshot.view,
+  });
+}
+
+function rememberWorkspaceShare(
+  snapshot: WorkspaceUrlState,
+  url: URL,
+): void {
+  const packet = url.searchParams.get("w");
+  if (packet === null) {
+    throw new Error(
+      "The Workspace could not be represented as canonical share state.");
+  }
+  preparedWorkspaceShare = {
+    key: workspaceShareKey(snapshot),
+    packet,
+  };
+}
+
+async function buildWorkspaceUrl(
+  snapshot: WorkspaceUrlState,
+  base = location.href,
+): Promise<URL> {
+  const url = await workspaceLocation.build(snapshot, base);
+  rememberWorkspaceShare(snapshot, url);
+  return url;
+}
+
+function preparedWorkspaceUrl(
+  snapshot: WorkspaceUrlState,
+  base = location.href,
+): URL | null {
+  const prepared = preparedWorkspaceShare;
+  if (prepared === null
+    || prepared.key !== workspaceShareKey(snapshot)) {
+    return null;
+  }
+  return buildWorkspaceStateUrlFromPacket(
+    base,
+    snapshot,
+    prepared.packet);
+}
 
 const initialWorkspace = workspaceLocation.preflightCurrent();
 const initialLocation = initialWorkspace.visible;
@@ -2683,7 +2729,11 @@ const savedWorkspaces = createSavedWorkspaces({
   read: () => localStorage.getItem("inspect-saved-workspaces"),
   write: value => localStorage.setItem("inspect-saved-workspaces", value),
   capture: captureSavedWorkspacePacket,
-  open: openSavedWorkspace,
+  open: entry => {
+    observeAsync(
+      openSavedWorkspace(entry),
+      "Opening the saved Workspace");
+  },
   render: focus => {
     render();
     if (focus) {
@@ -3373,8 +3423,15 @@ function selectWorkspacePackage(
     state.atLibraryRoot = false;
   }
   state.workspaceSubjectOpen = stayInWorkspace;
-  if (rollbackSnapshot
-    && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
+  if (rollbackSnapshot) {
+    observeAsync(
+      publishInitialLoadedWorkspace(rollbackSnapshot).then(published => {
+        if (published) render({ synchronizeUrl: false });
+        return undefined;
+      }),
+      "Publishing the initial Workspace");
+    return;
+  }
   render({ synchronizeUrl: rollbackSnapshot === null });
 }
 
@@ -3399,6 +3456,7 @@ function ensureWorkspaceOccurrenceView() {
 }
 
 let workspaceOccurrenceRevision = 0;
+let workspaceOccurrenceClear = Promise.resolve();
 
 async function queryWorkspaceOccurrenceView() {
   const signature = state.workspaceOccurrenceSignature;
@@ -3407,6 +3465,12 @@ async function queryWorkspaceOccurrenceView() {
   state.workspaceOccurrenceLoading = true;
   state.workspaceOccurrenceError = "";
   try {
+    await workspaceOccurrenceClear;
+    if (revision !== workspaceOccurrenceRevision
+      || signature !== state.workspaceOccurrenceSignature) {
+      superseded = true;
+      return;
+    }
     const view = await inspectQueryWorkspacePackageOccurrences(signature);
     superseded = view.superseded;
     if (!superseded
@@ -3447,7 +3511,13 @@ function retryWorkspaceOccurrenceView() {
 }
 
 function clearWorkspaceOccurrenceView() {
-  inspectClearWorkspacePackageOccurrences();
+  workspaceOccurrenceClear = Promise.resolve(
+    inspectClearWorkspacePackageOccurrences(),
+  ).catch((error: unknown) => {
+    reportAsyncFailure(
+      "Clearing Workspace package occurrences",
+      error);
+  });
   workspaceOccurrenceRevision++;
   state.workspaceOccurrenceSignature = "";
   state.workspaceOccurrenceLoading = false;
@@ -5532,7 +5602,7 @@ const packageInspection = createPackageInspectionCoordinator({
     return { assemblyFileName: platformAssemblyRequest(row), pack: row.pack };
   },
   describeError: errorMessage,
-  refreshPackageStats,
+  refreshPackageStats: requestPackageStatsRefresh,
   render: renderPreservingMemberFocus,
   renderDependencyGraph,
 });
@@ -7200,7 +7270,9 @@ function bindScopeBarEvents() {
           returnFocus: "application-query",
         });
       } else if (scope() !== "workspace") {
-        selectWorkspaceApplicationScope();
+        observeAsync(
+          selectWorkspaceApplicationScope(),
+          "Opening the Workspace");
       }
     },
     onMemberSectionSelect: section => {
@@ -8148,8 +8220,70 @@ function spotlightFallbackMatches(
     .map(entry => ({ ...entry.item, ranges: computeHighlightRanges(entry.item.type.name, lowerQuery) }));
 }
 
-// Ranked type matches across all loaded packages (engine-owned SearchTypes, with a
-// client-side fallback). This is one target among several the scoped Spotlight blends.
+type SpotlightTypeHit =
+  Awaited<ReturnType<PackageFacade["searchTypes"]>>[number];
+
+let spotlightTypeSearch: {
+  readonly key: string;
+  readonly hits: readonly SpotlightTypeHit[];
+} | null = null;
+let pendingSpotlightTypeSearchKey: string | null = null;
+let failedSpotlightTypeSearchKey: string | null = null;
+
+function mapSpotlightTypeHits(
+  query: string,
+  cache: SpotlightCache,
+  hits: readonly SpotlightTypeHit[],
+) {
+  const lowerQuery = query.toLowerCase();
+  const matches: Array<SpotlightCache["pool"][number] & {
+    ranges: HighlightRange[];
+  }> = [];
+  for (const hit of hits) {
+    const item = cache.keyMap.get(hit.key);
+    if (!item) continue;
+    matches.push({
+      ...item,
+      ranges: computeHighlightRanges(
+        item.type.name,
+        lowerQuery),
+    });
+  }
+  return matches;
+}
+
+function prepareSpotlightTypeSearch(
+  key: string,
+  query: string,
+  cache: SpotlightCache,
+): void {
+  if (pendingSpotlightTypeSearchKey === key
+    || failedSpotlightTypeSearchKey === key) {
+    return;
+  }
+  pendingSpotlightTypeSearchKey = key;
+  void Promise.resolve(
+    inspectSearchTypes(query, cache.candidatesJson),
+  ).then(hits => {
+    if (pendingSpotlightTypeSearchKey !== key) return undefined;
+    spotlightTypeSearch = { key, hits };
+    failedSpotlightTypeSearchKey = null;
+    spotlight.updateResults();
+    return undefined;
+  }, (error: unknown) => {
+    if (pendingSpotlightTypeSearchKey !== key) return undefined;
+    failedSpotlightTypeSearchKey = key;
+    reportAsyncFailure("Searching loaded types", error);
+    return undefined;
+  }).finally(() => {
+    if (pendingSpotlightTypeSearchKey === key) {
+      pendingSpotlightTypeSearchKey = null;
+    }
+  });
+}
+
+// Ranked type matches across all loaded packages. The local result is shown
+// only while the asynchronous engine-owned SearchTypes result is pending.
 function spotlightTypeMatches(query: string) {
   const cache = spotlightCandidates();
   if (!query) {
@@ -8159,18 +8293,15 @@ function spotlightTypeMatches(query: string) {
       .map(item => ({ ...item, ranges: [] }));
   }
   if (!state.engineReady) return spotlightFallbackMatches(query, cache.pool);
-  const hits = inspectSearchTypes(query, cache.candidatesJson);
-  if (!hits) return spotlightFallbackMatches(query, cache.pool);
-  const lowerQuery = query.toLowerCase();
-  const matches: Array<SpotlightCache["pool"][number] & {
-    ranges: HighlightRange[];
-  }> = [];
-  for (const hit of hits) {
-    const item = cache.keyMap.get(hit.key);
-    if (!item) continue;
-    matches.push({ ...item, ranges: computeHighlightRanges(item.type.name, lowerQuery) });
+  const key = JSON.stringify([query, cache.signature]);
+  if (spotlightTypeSearch?.key === key) {
+    return mapSpotlightTypeHits(
+      query,
+      cache,
+      spotlightTypeSearch.hits);
   }
-  return matches;
+  prepareSpotlightTypeSearch(key, query, cache);
+  return spotlightFallbackMatches(query, cache.pool);
 }
 
 // Flat member index across every loaded type, deduped by (package, type, member group).
@@ -9089,7 +9220,7 @@ async function loadPackageFromSpotlight(
   if (loaded) {
     let destination: string;
     try {
-      destination = buildStateUrl().toString();
+      destination = (await buildStateUrl()).toString();
     } catch (error) {
       failWorkspaceCatalogAction(
         `Couldn’t open ${id}@${version}: ${errorMessage(error)}`,
@@ -9205,7 +9336,20 @@ async function openPlatformLibrary(
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     if (construction) {
-      const destination = buildStateUrl().toString();
+      let destination: string;
+      try {
+        destination = (await buildStateUrl()).toString();
+      } catch (error) {
+        failWorkspaceCatalogAction(
+          `Could not open Platform Library: ${errorMessage(error)}`,
+          construction.rollbackSnapshot,
+          () => openPlatformLibrary(
+            assembly,
+            pack,
+            { ...options, tfm, version }),
+          focusWorkbenchSearchOrHeading);
+        return undefined;
+      }
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.push(destination);
       render({ synchronizeUrl: false });
@@ -9323,7 +9467,7 @@ async function pickSpotlightMember(
   resetMemberSectionState();
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
   if (rollbackSnapshot
-    && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
+    && !await publishInitialLoadedWorkspace(rollbackSnapshot)) return;
   render({ synchronizeUrl: rollbackSnapshot === null });
   await loadSelectedMemberDocumentation();
   focusTypeList(navigationGeneration, focusGeneration);
@@ -9386,7 +9530,7 @@ async function pickSpotlight(
   state.kindFilter = "";
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
   if (rollbackSnapshot
-    && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
+    && !await publishInitialLoadedWorkspace(rollbackSnapshot)) return;
   const selectionData = loadSelectionData();
   render({ synchronizeUrl: rollbackSnapshot === null });
   await selectionData;
@@ -9780,18 +9924,20 @@ function captureSavedWorkspacePacket(): string {
     }
     return { ...tab, version: pkg.version, framework: pkg.activeFramework };
   });
-  const packet = workspaceLocation.build({ ...snapshot, tabs }).searchParams.get("w");
-  if (!packet) {
-    throw new Error("The Workspace could not be captured as a canonical share packet.");
+  const prepared = preparedWorkspaceUrl({ ...snapshot, tabs });
+  const packet = prepared?.searchParams.get("w");
+  if (packet === null || packet === undefined) {
+    throw new Error(
+      "The Workspace share state is still being prepared. Try saving again.");
   }
   return packet;
 }
 
-function buildStateUrl(base = location.href) {
+async function buildStateUrl(base = location.href): Promise<URL> {
   if (scope() === "workspace") {
     const snapshot = captureWorkspaceUrlState();
     return snapshot
-      ? workspaceLocation.build(snapshot, base)
+      ? await buildWorkspaceUrl(snapshot, base)
       : new URL(base);
   }
   if (state.atPackageRoot && state.rootKind === "package" && state.package) {
@@ -9804,7 +9950,7 @@ function buildStateUrl(base = location.href) {
   }
   const snapshot = captureWorkspaceUrlState();
   return snapshot
-    ? workspaceLocation.build(snapshot, base)
+    ? await buildWorkspaceUrl(snapshot, base)
     : new URL(base);
 }
 
@@ -9819,7 +9965,11 @@ function workspaceUrlProjection() {
   });
 }
 
-function syncUrl() {
+function syncUrl(): void {
+  observeAsync(synchronizeUrl(), "Synchronizing the Workspace URL");
+}
+
+async function synchronizeUrl(): Promise<void> {
   if (currentPackageQueryHandoff()) return;
   if (pendingDemoNavigation
     && navigationSequence.isCurrent(pendingDemoNavigation.navigationSeq)) return;
@@ -9828,11 +9978,13 @@ function syncUrl() {
       pendingWorkspaceConstruction.navigationSeq)) return;
   if (retainFailedWorkspaceUrl()) return;
   try {
+    const projection = workspaceUrlProjection();
     const pushFromProductDemos =
       isProductHomeDemosPath(location.pathname);
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-      const destination = buildStateUrl().toString();
+      const destination = (await buildStateUrl()).toString();
+      if (projection !== workspaceUrlProjection()) return;
       if (pushFromProductDemos) {
         workspaceLocation.push(destination);
       } else {
@@ -9846,11 +9998,12 @@ function syncUrl() {
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
+    const destination = (await buildWorkspaceUrl(snapshot)).toString();
+    if (projection !== workspaceUrlProjection()) return;
     if (pushFromProductDemos) {
-      workspaceLocation.push(
-        workspaceLocation.build(snapshot).toString());
+      workspaceLocation.push(destination);
     } else {
-      workspaceLocation.sync(snapshot, history.state);
+      workspaceLocation.replace(destination, history.state);
     }
     if (retainedWorkspaces.activeWorkspaceId !== null) {
       activeWorkspaceUrl = location.href;
@@ -10218,7 +10371,15 @@ function loadSelectionData() {
 async function share() {
   const focusOwner = captureApplicationMenuFocusOwner(document);
   try {
-    await navigator.clipboard?.writeText(buildStateUrl().toString());
+    const snapshot = captureWorkspaceUrlState();
+    const destination = snapshot
+      ? preparedWorkspaceUrl(snapshot)
+      : null;
+    if (destination === null) {
+      throw new Error(
+        "The share link is still being prepared. Try again.");
+    }
+    await navigator.clipboard?.writeText(destination.toString());
     showToast("selection link copied");
   } catch (error) {
     state.queryNotice = errorMessage(error);
@@ -10551,7 +10712,7 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
     }
     let link: string | null;
     try {
-      link = productHomeDemoLocationHref(
+      link = await productHomeDemoLocationHrefAsync(
         resolved,
         inspectEncodeWorkspaceShareState);
     } catch (error) {
@@ -10578,7 +10739,7 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
     let loc: ParsedLocation;
     try {
       destination = new URL(link, location.href).toString();
-      loc = parseWorkspaceHref(destination);
+      loc = await parseWorkspaceHref(destination);
     } catch (error) {
       failDemoWorkspaceOpen(
         kind,
@@ -10687,7 +10848,7 @@ async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void
     state.workspaceSubjectOpen = true;
     state.atPackageRoot = true;
     state.loading = false;
-    const destination = buildStateUrl().toString();
+    const destination = (await buildStateUrl()).toString();
     ensureCurrentWorkspacePublished();
     stageDemoNavigation(navigationSeq, destination);
     if (!commitDemoNavigation(navigationSeq)) return;
@@ -10706,7 +10867,7 @@ async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void
   }
 }
 
-function openSavedWorkspace(entry: SavedWorkspace): void {
+async function openSavedWorkspace(entry: SavedWorkspace): Promise<void> {
   if (!canPublishRetainedWorkspace()) {
     appendQueryNotice(retainedWorkspaceCapacityMessage(), null);
     render({ synchronizeUrl: false });
@@ -10717,7 +10878,11 @@ function openSavedWorkspace(entry: SavedWorkspace): void {
     failWorkspaceCatalogAction(
       `Saved Workspace "${entry.name}" failed: ${message}`,
       rollbackSnapshot ?? captureCanonicalWorkspaceRestoreSnapshot(),
-      retryable ? () => openSavedWorkspace(entry) : null,
+      retryable ? () => {
+        observeAsync(
+          openSavedWorkspace(entry),
+          "Reopening the saved Workspace");
+      } : null,
       () => restoreWorkspaceFocus(
         document, { kind: "saved-open", name: entry.name, index: 0 }));
   const url = new URL("/", location.origin);
@@ -10727,7 +10892,7 @@ function openSavedWorkspace(entry: SavedWorkspace): void {
   const navigationSeq = beginDemoNavigation(destination);
   let loc: ParsedLocation;
   try {
-    loc = parseWorkspaceHref(destination);
+    loc = await parseWorkspaceHref(destination);
   } catch (error) {
     try {
       fail(errorMessage(error), false);
@@ -10776,7 +10941,7 @@ async function restoreWorkspaceCatalogEntry(
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
-      void buildStateUrl().toString();
+      await buildStateUrl();
       publishCurrentWorkspace(previousSnapshot);
       if (!commitDemoNavigation(navigationSeq)) return;
       syncUrl();
@@ -10842,7 +11007,7 @@ async function restoreFreshWorkspaceFromHistory(
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
-      const destination = buildStateUrl().toString();
+      const destination = (await buildStateUrl()).toString();
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.replace(destination, history.state);
       render({ synchronizeUrl: false });
@@ -10885,7 +11050,7 @@ async function restoreRetainedWorkspaceFromHistory(
       fail,
       false);
     if (!failed && navigationSequence.isCurrent(navigationSeq)) {
-      const destination = buildStateUrl().toString();
+      const destination = (await buildStateUrl()).toString();
       discardPendingWorkspaceConstruction();
       activeWorkspaceUrl = destination;
       workspaceLocation.replace(destination, history.state);
@@ -11146,7 +11311,7 @@ function openPackageQueryRoute(
   focusPackageQueryInput();
 }
 
-function selectWorkspaceApplicationScope() {
+async function selectWorkspaceApplicationScope(): Promise<void> {
   const pkg = state.package;
   if (!pkg) {
     if (state.platformSelection) {
@@ -11162,7 +11327,7 @@ function selectWorkspaceApplicationScope() {
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
-  const successor = resolvePackageQueryWorkspaceSuccessor(
+  const successor = await resolvePackageQueryWorkspaceSuccessorAsync(
     () => buildStateUrl(),
     () => {
       const fallback = buildPackageRootStateUrl(location.href, {
@@ -11327,7 +11492,7 @@ async function openPackageQueryRow(
   packageQueryHandoffNavigationSeq = null;
   let destination: string;
   try {
-    destination = buildStateUrl().toString();
+    destination = (await buildStateUrl()).toString();
   } catch (error) {
     discardPendingWorkspaceConstruction();
     if (rollbackSnapshot) {
@@ -11376,7 +11541,9 @@ const packageQueryActions: PackageQueryBindingActions = {
     state.packageQueryNavigationError = "";
     packageQueryController.configure(configured);
   },
-  onResultPressure: () => packageQueryController.requestMore(),
+  onResultPressure: () => observeAsync(
+    packageQueryController.requestMore(),
+    "Requesting more Package Query matches"),
   onResultViewportChange: schedulePackageQueryStreamRender,
   onRowOpen: (packageId, version, rootRequest) => {
     observeAsync(
@@ -14075,7 +14242,7 @@ const packageAcquisition = createPackageAcquisition({
   runtimePackage: runtimePackPackage,
   retainPackage: retainPackageModel,
   recordRecentPackage,
-  refreshPackageStats,
+  refreshPackageStats: requestPackageStatsRefresh,
   beginRuntimeLoad() {
     state.runtimePackLoading = true;
     state.runtimePackError = "";
@@ -14244,7 +14411,7 @@ async function runCallGraphDemo(
         packageModel.version,
         packageModel.activeFramework);
     }
-    refreshPackageStats();
+    await refreshPackageStats();
 
     activatePackage(targetPackage, { resetAccessibility: true });
     state.typeFilter = "";
@@ -14305,7 +14472,9 @@ async function runCallGraphDemo(
       overload,
       true);
     state.loading = false;
-    stageDemoNavigation(navigationSeq, buildStateUrl().toString());
+    stageDemoNavigation(
+      navigationSeq,
+      (await buildStateUrl()).toString());
     render();
     let renderResult = await renderMermaidCallGraph();
     while (renderResult.status === "superseded"
@@ -14783,7 +14952,7 @@ function applyLocationView(loc: ParsedLocation) {
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
   const navigationSeq = navigationSequence.current();
-  const loc = workspaceLocation.preflightCurrent().resolve();
+  const loc = await workspaceLocation.preflightCurrent().resolve();
   if (loc.routeFailure) {
     await restoreWorkspaceFromLocation(
       loc,
@@ -14854,9 +15023,8 @@ async function bootstrap() {
       if (!state.credits) render();
     };
     reportEngineStatus("Loading .NET WebAssembly…");
-    await startEngine(window.location.origin);
-    reportEngineStatus("Reading package assemblies…");
     state.buildIdentity = await engineClient.host.buildIdentity();
+    reportEngineStatus("Reading package assemblies…");
     const tEngine = performance.now();
     try {
       const vocabulary = await engineClient.catalog.listVocabulary();
@@ -14982,13 +15150,15 @@ function computeDiagnostics(
   };
 }
 
-function refreshPackageStats() {
-  try {
-    const stats = inspectPackageCacheStats();
-    if (stats) state.packageCacheStats = stats;
-  } catch {
-    // Keep the last known counts; a stats read failure must not disrupt inspection.
-  }
+async function refreshPackageStats(): Promise<void> {
+  const stats = await inspectPackageCacheStats();
+  if (stats) state.packageCacheStats = stats;
+}
+
+function requestPackageStatsRefresh(): void {
+  observeAsync(
+    refreshPackageStats(),
+    "Refreshing package cache statistics");
 }
 
 
@@ -15094,7 +15264,7 @@ async function openFreshWorkspaceLink(
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
-      const destination = buildStateUrl().toString();
+      const destination = (await buildStateUrl()).toString();
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.push(destination);
       render({ synchronizeUrl: false });
@@ -15106,7 +15276,7 @@ async function openFreshWorkspaceLink(
   }
 }
 
-function navigateInAppUrl(url: URL) {
+async function navigateInAppUrl(url: URL): Promise<void> {
   if (isCreditsPath(url.pathname)) {
     openCredits();
     return;
@@ -15133,7 +15303,7 @@ function navigateInAppUrl(url: URL) {
   if (focusWorkspaceAfterQuery) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
-  const loc = parseWorkspaceHref(url.toString());
+  const loc = await parseWorkspaceHref(url.toString());
   if (loc.hasWorkspaceState && !loc.shareState) {
     appendQueryNotice(
       `Workspace restore failed: ${loc.workspaceNotice
@@ -15164,7 +15334,11 @@ function navigateInAppUrl(url: URL) {
 bindWorkspaceLinkNavigation(document, {
   currentOrigin: () => location.origin,
   resolve: href => new URL(href, location.href),
-  navigate: navigateInAppUrl,
+  navigate: url => {
+    observeAsync(
+      navigateInAppUrl(url),
+      "Opening an application link");
+  },
 });
 
 const containedShortcutKeys = ["f", "k", "p"] as const;
@@ -15675,7 +15849,7 @@ function dismissModalsForRoutedNavigation() {
   return dismissedAnnotatedSourceModal;
 }
 
-window.addEventListener("popstate", () => {
+async function handlePopState(): Promise<void> {
   const leftPackageQueryHandoff = currentPackageQueryHandoff();
   const navigationSeq = navigationSequence.begin();
   let leftPackageQueryForWorkspaceSuccessor = false;
@@ -15794,7 +15968,7 @@ window.addEventListener("popstate", () => {
     render();
     return;
   }
-  const loc = parseLocation();
+  const loc = await parseLocation();
   if (loc.routeFailure) {
     failWorkspaceRoute(loc.routeFailure.message);
     return;
@@ -15923,6 +16097,12 @@ window.addEventListener("popstate", () => {
       restoreHistoryWorkspace(),
       "Restoring package history");
   }
+}
+
+window.addEventListener("popstate", () => {
+  observeAsync(
+    handlePopState(),
+    "Restoring browser history");
 });
 
 // Re-scope the active runtime pack to the platform library named in a share/history packet

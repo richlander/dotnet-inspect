@@ -104,6 +104,26 @@ export function resolvePackageQueryWorkspaceSuccessor(
       projectionError,
     };
   }
+
+}
+
+export async function resolvePackageQueryWorkspaceSuccessorAsync(
+  buildRetainedWorkspaceUrl: () => Promise<URL>,
+  buildFallbackWorkspaceUrl: () => URL,
+): Promise<PackageQueryWorkspaceSuccessor> {
+  try {
+    return {
+      url: await buildRetainedWorkspaceUrl(),
+      projected: true,
+      projectionError: null,
+    };
+  } catch (error: unknown) {
+    return {
+      url: buildFallbackWorkspaceUrl(),
+      projected: false,
+      projectionError: error,
+    };
+  }
 }
 
 export function validPackageQuerySearchText(value: string): string {

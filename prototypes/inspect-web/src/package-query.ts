@@ -349,7 +349,9 @@ export interface PackageQueryDataSource {
   initialMatchCredit?: number;
   /** Adds durable-match credit to the active request. Returns false when no
    * request can accept the credit. */
-  requestMore?(additionalMatchCredit: number): boolean;
+  requestMore?(
+    additionalMatchCredit: number,
+  ): boolean | Promise<boolean>;
   run(
     request: QueryRequest,
     onPage: (rows: readonly QueryResultRow[]) => void,
@@ -376,7 +378,7 @@ export interface PackageQueryController {
   configure(request: QueryRequest): void;
   run(request: QueryRequest): Promise<void>;
   cancel(): void;
-  requestMore(): void;
+  requestMore(): Promise<void>;
 }
 
 export type PackageQueryUpdateKind = "reset" | "stream";
@@ -392,6 +394,7 @@ export function createPackageQueryController(
   let generation = 0;
   let abortController = new AbortController();
   let grantedMatchCredit = Number.POSITIVE_INFINITY;
+  let creditRequestGeneration: number | null = null;
 
   return {
     configure(request: QueryRequest) {
@@ -401,6 +404,7 @@ export function createPackageQueryController(
       state.request = request;
       state.outcome = idleOutcome();
       grantedMatchCredit = Number.POSITIVE_INFINITY;
+      creditRequestGeneration = null;
       onUpdate("reset");
     },
 
@@ -413,6 +417,7 @@ export function createPackageQueryController(
       state.outcome = emptyOutcome();
       grantedMatchCredit =
         source.initialMatchCredit ?? Number.POSITIVE_INFINITY;
+      creditRequestGeneration = null;
       // Capture this run's own signal before onUpdate() runs: onUpdate() is
       // caller-supplied and may reentrantly call run() again synchronously
       // (e.g. a state-change handler that immediately kicks off a new
@@ -484,16 +489,29 @@ export function createPackageQueryController(
       onUpdate("stream");
     },
 
-    requestMore() {
+    async requestMore() {
+      const requestGeneration = generation;
       if (state.outcome.completion.kind !== "streaming"
         || !source.requestMore
+        || creditRequestGeneration === requestGeneration
         || !Number.isFinite(grantedMatchCredit)
         || state.outcome.rows.length
           < grantedMatchCredit - PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD) {
         return;
       }
-      if (source.requestMore(PACKAGE_QUERY_MATCH_CREDIT_BATCH)) {
-        grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
+      creditRequestGeneration = requestGeneration;
+      try {
+        const granted = await source.requestMore(
+          PACKAGE_QUERY_MATCH_CREDIT_BATCH);
+        if (granted
+          && generation === requestGeneration
+          && state.outcome.completion.kind === "streaming") {
+          grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
+        }
+      } finally {
+        if (creditRequestGeneration === requestGeneration) {
+          creditRequestGeneration = null;
+        }
       }
     },
   };
