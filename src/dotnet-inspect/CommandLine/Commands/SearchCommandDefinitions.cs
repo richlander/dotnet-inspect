@@ -583,6 +583,10 @@ public static class SearchCommandDefinitions
                     Count = parseResult.GetValue(opts.Count),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+                    LineWindowExplicitlySet =
+                        parseResult.GetResult(opts.Limit) is { Implicit: false }
+                        || parseResult.GetResult(opts.Head) is { Implicit: false }
+                        || parseResult.GetResult(opts.Tail) is { Implicit: false },
                     OutputFormatExplicitlySet =
                         opts.IsFormatFlagExplicitlySet(parseResult),
                 };

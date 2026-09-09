@@ -17,23 +17,13 @@ internal static class DependsShareProjection
             return null;
 
         if (options.OutputFormatExplicitlySet
+            || options.LineWindowExplicitlySet
             || options.CompactJson
             || options.Rows is not null
             || options.Count)
         {
             return "--share selects packet or URL output and cannot be combined "
                 + "with other output formatting or projection options.";
-        }
-
-        NuGetSourceOptions sources =
-            options.SourceOptions ?? NuGetSourceOptions.Default;
-        if (sources.Sources.Length > 0
-            || sources.AdditionalSources.Length > 0
-            || sources.ConfigFile is not null
-            || sources.ConfigDirectory is not null)
-        {
-            return "--share targets the published Browser's NuGet.org source "
-                + "and cannot be combined with source configuration.";
         }
 
         return null;
@@ -79,6 +69,24 @@ internal static class DependsShareProjection
                 "--share requires one valid target framework with --tfm.");
         }
 
+        PackageSourceAuthorization sourceAuthorization =
+            new SourcePolicyPackageSourceAuthorization(options.SourceOptions)
+                .AuthorizeSourcesFor(packageId);
+        if (sourceAuthorization.DenialReason is { } denialReason)
+        {
+            return NonProjectable(
+                "--share could not apply the effective package source policy: "
+                + denialReason);
+        }
+        if (sourceAuthorization.Sources.Count != 1
+            || !sourceAuthorization.Sources[0].IsNuGetOrg)
+        {
+            return NonProjectable(
+                "--share requires the effective package source policy to "
+                + "authorize exactly one NuGet.org source because the "
+                + "published Browser cannot preserve another source selection.");
+        }
+
         string? requestedVersion = string.Equals(
                 versionText,
                 "latest",
@@ -92,7 +100,7 @@ internal static class DependsShareProjection
                     packageId,
                     requestedVersion,
                     framework),
-                [PackageSource.NuGetOrg],
+                sourceAuthorization.Sources,
                 logger.Log,
                 includePrerelease: false,
                 useVersionCache: false,

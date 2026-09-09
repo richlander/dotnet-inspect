@@ -363,7 +363,9 @@ The existing `MemberShare_*` tests gate the narrower member subset.
 `DependsShare_FloatingVersionResolvesWithoutPackageAcquisition`,
 `DependsShare_RejectsNonProjectableCoordinate`,
 `DependsShare_RejectsLocalPackage`,
-`DependsShare_RejectsConfiguredSource`,
+`DependsShare_RejectsNonNuGetOrgSource`,
+`DependsShare_AcceptsExplicitNuGetOrgSource`,
+`DependsShare_RejectsMappedPrivateEffectiveSource`,
 `DependsShare_RejectsBrowserPlatformPackageId`, and
 `DependsShare_RejectsConflictingOutput` gate the CLI package Dependencies
 projection. `canonical package dependency views restore the package root

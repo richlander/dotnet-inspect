@@ -100,6 +100,8 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public WorkspaceShareFormat? ShareFormat { get; init; }
 
+    internal bool LineWindowExplicitlySet { get; init; }
+
     internal bool OutputFormatExplicitlySet { get; init; }
 
     internal SearchSourceSelection? SourceSelection { get; init; }
