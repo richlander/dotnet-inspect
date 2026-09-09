@@ -883,7 +883,7 @@ managed facade projects the flattened demo metadata as one inert list. The
 TypeScript application may ignore ecosystem grouping for that view while
 dispatching the exact stable scenario ID. Listing performs no package
 acquisition or demo resolution, and opening one demo continues to replace the
-singular live Workspace through the existing browser path.
+singular active Workspace through the existing browser path.
 
 For Integration execution, the facade selects the opaque binding and passes
 that owner-issued value with the realized operation inputs to

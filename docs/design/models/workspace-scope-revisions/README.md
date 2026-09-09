@@ -302,5 +302,5 @@ Ready/Pending/Failed transitions, actual time units, query leases, budgets,
 and dependency classification. Closure coverage is an exact
 occurrence/generation relation; the full expansion algorithm remains outside
 issue #5796. There are no Browser effects, Navigation, persistence, packets, or
-multiple live Workspace behavior. Historical snapshots contain symbolic
+multiple active Workspace behavior. Historical snapshots contain symbolic
 facts; this does not prove implementation object-graph resource erasure.

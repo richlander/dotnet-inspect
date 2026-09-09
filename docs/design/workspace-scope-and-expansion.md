@@ -204,16 +204,19 @@ The named production consumers are:
 - the stateless agent-oriented CLI Workspace surface tracked by
   [#5513](https://github.com/richlander/dotnet-inspect/issues/5513).
 
-The concrete Browser scenario is one current inspection scope containing one
-or more exact package, platform, and later non-package Roots. A user can replace
-that scope, add to it, remove from it, clear it, inspect its admitted
-assemblies, and selectively permit dependency following. The CLI consumes the
-same snapshot and results without adding retained terminal navigation.
+The concrete Browser scenario is one active Workspace whose explicit
+membership contains one or more exact package and later non-package Roots. The
+Workspace editor can replace that membership, add to it, remove from it, or
+clear it. Navigation independently selects one current subject through the
+subject strip. Query-owned traversal may realize Platform and package
+dependencies without adding those libraries to explicit Root membership. The
+CLI consumes the same snapshot and results without adding retained terminal
+navigation.
 
 This infrastructure is warranted only to support that scenario. It deliberately
 does not add:
 
-- a Workspace collection, switcher, tab model, or simultaneous live Workspace
+- a Workspace collection, switcher, tab model, or simultaneous active Workspace
   composition;
 - a generalized transaction framework for unrelated product state;
 - an extensible plugin vocabulary for expansion policy; or
@@ -276,7 +279,7 @@ Workspace:
 - a Browser-retained package array;
 - a portable definition or share packet;
 - a Navigation subject;
-- a proposed collection of several simultaneously live Workspaces; and
+- a proposed collection of several simultaneously active Workspaces; and
 - a possible dependency-discovery boundary.
 
 Those meanings have begun to produce independent lifecycle, history,
@@ -297,21 +300,21 @@ The missing product concept is not a Workspace manager. It is one authoritative
 logical scope over physical acquisition and binding resources that already have
 owners.
 
-## One live Workspace
+## One active Workspace
 
-Inspect Web holds exactly one Workspace. Activating a demo, share packet,
-imported definition, saved definition, or ordinary **Open** request means
-replacing the scope in that Workspace; none creates a second Workspace. An
-ordinary scope-only **Open** can perform that replacement now. An input that
-also restores canonical Navigation, view, query, or history state remains
-blocked on the focused complete-restoration participant described below.
+Inspect Web exposes exactly one active Workspace. Activating a demo, share
+packet, imported definition, saved definition, or external package **Open**
+constructs a fresh replacement Workspace. The active Workspace remains usable
+until the replacement is complete, then the host swaps the active reference
+and closes the old Workspace. At most one unpublished replacement may coexist
+with the active Workspace; it is not selectable or independently presented.
 
 This component exposes no Workspace collection, switcher, name, or
 cross-Workspace operation. Each Workspace has one current scope
 revision. A host may retain portable definitions or browser-history entries as
-data, but activating one prepares a replacement revision rather than reviving a
-second live Workspace. A packet is serialization input and output, not a
-user-visible packet Workspace.
+data, but activating one constructs a fresh Workspace rather than reviving a
+historical Workspace identity. A packet is serialization input and output, not
+a user-visible packet Workspace.
 
 The CLI normally creates one ephemeral Workspace for one invocation. Future
 service hosts may independently create Workspaces for separate requests, but
@@ -739,13 +742,11 @@ WorkspaceScopeOperation
   | ExpandDependencies
 ```
 
-Package **Open**, resolved package-set **Open**, and an explicitly scope-only
-demo or definition action that resets rather than restores Navigation, view,
-query, and history state lower to `ReplaceScope`. Workspace-editor **Add
-package** and resolved **Add package set** lower to `AddRoots`.
-Source-selection owners resolve their inputs before this owner receives exact
-Root requests. Canonical restoration inputs do not lower to `ReplaceScope`;
-they remain blocked on the #5525 participant described below.
+Inside a fresh unpublished Workspace, package **Open**, resolved package-set
+**Open**, and canonical restoration lower their complete explicit Root set to
+`ReplaceScope`. Workspace-editor **Add package** and resolved **Add package
+set** on the active Workspace lower to `AddRoots`. Source-selection owners
+resolve their inputs before this owner receives exact Root requests.
 
 ```text
 WorkspaceScopeReplacement
@@ -756,9 +757,9 @@ WorkspaceScopeReplacement
 An ordinary package Open supplies an empty expansion-scope sequence and is
 therefore closed. An explicitly scope-only demo or definition action may
 supply its own complete typed expansion policy. The previous Workspace's
-expansion scopes are never inherited by omission. Canonical restoration will
-supply the same complete sequences through its future uncommitted Scope
-participant rather than this publishing operation.
+expansion scopes are never inherited by omission. Canonical restoration
+supplies the complete sequences to ordinary `ReplaceScope` in the fresh
+Workspace before that Workspace becomes active.
 
 Package-set Browser adoption is not enabled by this transfer alone.
 [Static Ecosystem Packs](ecosystem-packs.md) may expose an **Add curated
@@ -1270,27 +1271,23 @@ focus command. Navigation owns subject recommendation, reconciliation,
 retained intent, and active-snapshot publication.
 
 [Workspace Definitions](workspace-definitions.md) owns portable schema,
-projection, and complete restoration. An ordinary `ReplaceScope` publishes
-Scope state and therefore cannot act as the uncommitted Scope fragment required
-by that owner's prepare-and-commit protocol. This design does not yet expose a
-complete-restoration participant. [#5525](https://github.com/richlander/dotnet-inspect/issues/5525)
-must return to this owner for a focused design that lets Navigation prepare
-against candidate occurrence identities and lets Scope join the one complete
-restoration commit without separately publishing. Until that prerequisite
-lands, canonical demo, share, import, saved-definition, and history restoration
-is unsupported; those inputs cannot be approximated by invoking
-`ReplaceScope` before or after the other participants.
+projection, and complete restoration. It constructs a fresh Workspace and
+supplies the complete ordered Root and registration intent to ordinary Scope
+operations there. Scope may publish normally because the replacement is not
+yet active or observable through host navigation. This owner needs no
+uncommitted restoration fragment, candidate occurrence identity, or
+multi-owner commit participant.
 
-An ordinary **Open** that intentionally replaces only Scope and resets rather
-than restores Navigation, view, query, and history state may use
-`ReplaceScope`. Workspace Definitions and the Browser owners retain the
-portable and presentation semantics; the future Scope participant must not
-transfer those semantics here or become a generalized transaction framework.
+Every occurrence in the replacement Workspace is issued under that
+Workspace's fresh identity. Scope does not compare the active and replacement
+Workspaces for compatible membership, retain active occurrence identities, or
+transfer revisions between them. Definitions and the retained host own whether
+the fully prepared replacement becomes active; failure or supersession closes
+it and leaves this Workspace's current Scope unchanged.
 
-After the complete-restoration participant lands, Browser Back/Forward may
-restore prior committed data into a new current revision. It does not
-reactivate the old runtime revision identity or make several Workspaces live
-simultaneously.
+Browser Back/Forward may construct the historical definition as a fresh
+replacement. It does not reactivate an old Scope revision or expose several
+active Workspaces.
 
 ## Concurrency model
 
@@ -1513,7 +1510,7 @@ and portable schema.
 
 This design does not define:
 
-- simultaneous live Workspaces, Workspace switching, or cross-Workspace
+- simultaneous active Workspaces, Workspace switching, or cross-Workspace
   operations;
 - Workspace names, tabs, recents, or saved-definition storage;
 - a complete dependency graph or an automatic expansion recommendation;

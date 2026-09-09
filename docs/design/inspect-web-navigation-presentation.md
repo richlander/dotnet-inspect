@@ -411,12 +411,12 @@ behavior; Surface Composition owns their row-one placement and pressure order.
 Workspace is the product-issued subject presented as the persistent
 application-scope entry point for workspace packet inspection and
 retained-coordinate management. The primary inventory is
-the set of product-issued packets, not the deduplicated Workspace compositions that
-realize them. A packet composes its Workspace, navigation, and initial view as
-defined by [Workspace Definitions](workspace-definitions.md); two packets remain
-separately selectable when they reuse the same underlying Workspace. The first
+the set of product-issued packets, not live Workspace objects. Opening a packet
+constructs a fresh Workspace, Navigation state, and initial view as defined by
+[Workspace Definitions](workspace-definitions.md); two packets remain
+separately selectable even when their portable contents are equal. The first
 browser adoption retains resolved product demo scenarios for the current
-session. Inspect Web has exactly one Workspace. The home page
+session. Inspect Web has exactly one active Workspace. The home page
 exposes one **Demos** entry that opens this subject; it does not expose one
 button per demo or create a Workspace switcher.
 
@@ -426,7 +426,7 @@ ID as action identity, renders its title and summary, and starts no demo
 resolution, acquisition, inspection, or graph work. Each entry exposes a
 separate explicit **Open demo** action. Activating that action resolves only the
 selected definition and uses its existing replace-and-restore or product-run
-path to replace the sole live Workspace. A failed Open demo action keeps the
+path to replace the sole active Workspace. A failed Open demo action keeps the
 catalog and prior Workspace available, surfaces a retryable failure there, and
 returns focus to the selected demo action.
 
@@ -448,8 +448,8 @@ with:
 
 The page's named local Save action and compact saved-definition list are owned
 by [Saved Workspaces](inspect-web-saved-workspaces.md). Saved entries are
-definitions that may replace the one live Workspace, not another Workspace
-inventory or a switcher between simultaneously live Workspaces.
+definitions that may replace the one active Workspace, not another Workspace
+inventory or a switcher between simultaneously active Workspaces.
 
 The Packages section's compact [Add package](inspect-web-workspace-add-package.md)
 action reuses package search to append a resolved coordinate without replacing

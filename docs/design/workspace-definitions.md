@@ -63,9 +63,9 @@ Adjacent owners remain independent:
 - [View Facet Registry](view-facet-registry.md) issues and resolves facet IDs,
   descriptors, applicability, and availability, and owns its private execution
   bindings.
-- [Inspection Subject Navigation](inspection-subject-navigation.md) prepares
-  one exact subject-plus-facet participant and owns its recommendation,
-  reconciliation, retained snapshot, and effect authority.
+- [Inspection Subject Navigation](inspection-subject-navigation.md) initializes
+  one exact subject-plus-facet snapshot inside the fresh Workspace and owns its
+  recommendation, reconciliation, retained snapshot, and effect authority.
 - [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
   owns admission, realization, roles, lifetime, and publication for each
   supported coordinate composition.
@@ -79,12 +79,10 @@ Adjacent owners remain independent:
   push, replace, or adopt effects.
 
 This owner composes those contracts without redefining them. In particular, a
-portable packet does not make a browser label canonical, a restoration
-relation does not choose a browser-history write, and coordinator ordering
-does not replace Navigation's retained-session authority. The coordinator
-issues no independent epoch or effect authority: it uses the one intent token
-issued by the retained Navigation session and carries only that session's
-resulting authority.
+portable packet does not make a browser label canonical, and restoration does
+not choose a browser-history write. The coordinator issues no independent
+epoch or effect authority: it consumes the retained host's current intent
+authority and carries only owner-issued replacement and Navigation authority.
 
 ## Decisions
 
@@ -113,11 +111,12 @@ resulting authority.
    format 2.** Version 1 remains an immutable legacy contract. Version 2 uses
    one canonical View Facet Registry ID field, one retained view state per
    open coordinate, and no browser lens, member-section, label, or CLI alias.
-7. **Restoration is one coordinated prepare-and-commit operation.** Every
-   required participant prepares against one immutable canonical request;
-   participant preparation failure, supersession, or `ProjectionFailed`
-   publishes no partial state. One completely prepared candidate classified
-   as either projectable or validly non-projectable may commit.
+7. **Restoration constructs and installs one fresh Workspace.** The active
+   Workspace remains usable while ordinary owner APIs populate and validate an
+   unpublished replacement from one immutable canonical request. Failure,
+   supersession, or `ProjectionFailed` closes that replacement. A completely
+   prepared projectable or validly non-projectable replacement may become the
+   one active Workspace under current host authority.
 
 ## The definition schema
 
@@ -469,8 +468,9 @@ The table retains requested portable state, not one retained Navigation
 session per coordinate. Only `navigation.focus` has an installed Navigation
 snapshot and current effect authority. Inactive states are resolved
 statelessly during complete restoration and retained as dormant exact inputs.
-Activating one later submits that coordinate's retained state as a new
-canonical-restoration intent through the one retained Navigation session.
+Activating one later submits that coordinate's retained state as ordinary
+Navigation through the active Workspace's retained Navigation session; it does
+not construct another Workspace.
 
 Each state has these fields:
 
@@ -1462,195 +1462,128 @@ and overload ordinals have no version-1 field and are never inferred from
 courtesy routes or host state.
 
 The adapter retains the exact decoded version-1 packet as the requested packet
-basis. If restoration commits the same semantic state, the result is
-`ExactRequested` and that original canonical format-1 packet remains the
-installed location basis. Any committed owner reconciliation, later user
-change, or newly captured per-coordinate state projects as format 2. No
-version-2 writer emits a version-1 token, and no version-1 writer accepts a
-Registry ID.
+basis. If the fresh replacement realizes the same semantic state, that original
+canonical format-1 packet remains the installed location basis. Any owner
+reconciliation, later user change, or newly captured per-coordinate state
+projects as format 2. No version-2 writer emits a version-1 token, and no
+version-1 writer accepts a Registry ID.
 
 ### Complete restoration
 
-Decoding, lowering, validation, and transposition do not mutate installed
-state, but restoration orders even that pure work under the one retained
-Navigation intent. Applying a submitted source uses one
-Workspace-Definitions-owned coordinator because strict decode, legacy
-resolution, coordinate realization, Navigation preparation, and query or
-target preparation may finish, fail, or be superseded independently.
+Complete restoration constructs a fresh Workspace. It does not mutate the
+active Workspace in place, compare the two Workspaces for compatibility, or
+reuse Workspace-owned Roots, occurrence identities, contexts, sessions,
+budgets, Navigation state, or query authority.
+
+This rule applies to saved definitions, share packets, Browser history,
+product demos, external-package Spotlight selection, and CLI canonical replay.
+Selecting a subject already loaded in the active Workspace is ordinary
+Navigation and does not invoke restoration.
 
 A packet or definition remains inert data and cannot authorize acquisition.
 Restoration consumes the current owner-authorized activation demand required
 by each coordinate realizer and query owner. The coordinator carries that
-demand to those owners without widening or reconstructing it; absent, stale,
-revoked, or incompatible authority fails visibly before the affected owner
-reserves budget, acquires, or publishes.
+demand without widening or reconstructing it; absent, stale, revoked, or
+incompatible authority fails visibly before the affected owner reserves budget
+or acquires content.
 
 One restoration attempt proceeds in this order:
 
-1. Submit the opaque packet or definition source as one
-   canonical-restoration operation to the retained Navigation session. Retain
-   the immutable raw request and complete prior installed snapshot, and use the
-   exact Navigation-issued intent token as the coordinator attempt token.
-   There is no second Workspace-Definitions counter. A newer restoration or
-   explicit subject, facet, or coordinate intent receives a newer Navigation
-   token and supersedes every remaining phase of the older attempt.
-2. Under that token, perform bounded format dispatch and strict decode. Format
-   2 produces a closed version-2 composition plan. Format 1 produces one
-   unresolved legacy plan and retains its exact canonical packet basis. Decode,
-   discriminator, or closed-shape failure aborts only if this exact token is
-   still current; otherwise its completion is discarded.
-3. Realize the exact workspace coordinates required by the plan. A format-1
-   plan resolves packet and definition selectors through their distinct legacy
-   currencies and source-specific domains, maps the closed facet table to an
-   exact Registry ID when present, resolves that ID against the exact subject,
-   invokes any referenced query owner's registered migration, and only then
-   validates the complete version-2 composition. Missing, ambiguous, rejected,
-   or incompatible legacy state aborts under the same token. A direct format-2
-   plan passes through the same coordinate-backed identity and composition
-   validation without a legacy stage.
-4. Derive the remaining exact participant set from every coordinate's committed
-   view. It includes workspace realization for every coordinate, one retained
-   Navigation preparation for the focused coordinate, stateless
-   subject-and-facet resolution for each inactive coordinate, and the query or
-   target adapters named by each state. The inactive checks publish no
-   Navigation snapshot or authority. The coordinator neither invents a
-   participant nor omits validation because its state is currently offscreen.
-5. Ask every remaining participant to prepare against the same request and
-   attempt token. Preparation may populate private caches, but it cannot mutate
-   or publish the installed workspace, Navigation snapshot, query result, URL
-   basis, or consumer state. The participant result is disjoint:
-   `Ready(Exact | Replacement, completeFragment, ownerEvidence)` identifies a
-   complete fragment for the exact request, while
-   `NonSuccess(owner,evidence)` means that owner could not prepare a complete
-   fragment. `Ready(Replacement, ...)` may carry a Navigation-owned exact
-   unavailable or failed Registry outcome and its non-effective basis when
-   Navigation successfully prepared that complete replacement snapshot; this
-   semantic evidence is not a Navigation preparation failure.
-6. If every required participant is ready, compose one candidate and classify
-   its packet projection. A projectable exact packet candidate retains its
-   original canonical packet; other projectable candidates emit canonical
-   format 2. A valid definition candidate that exceeds packet grammar, codec,
-   or bounds is `NonProjectable` and remains eligible to commit session-local
-   state. Only malformed candidate state or a canonical writer failure is
+1. Admit the opaque packet or definition source under the retained host's
+   current intent authority. The exact owner-issued token is the coordinator
+   attempt identity. A newer restoration or explicit host intent supersedes
+   every remaining phase of the older attempt.
+2. Perform bounded format dispatch and strict decode. Format 2 produces one
+   closed version-2 composition plan. Format 1 produces one unresolved legacy
+   plan and retains its exact canonical packet basis.
+3. Resolve legacy selectors, coordinate-backed identities, Registry IDs, query
+   migrations, Platform/package pruning, and the complete multi-package Root
+   and registration intent. Missing, ambiguous, rejected, or incompatible
+   input fails under the same attempt token.
+4. Construct one fresh Workspace. The coordinator is its sole holder until
+   installation. Populate its complete explicit membership and registrations
+   through ordinary Artifact and Scope operations. Every Workspace, Root
+   occurrence, Scope revision, and Navigation identity is fresh; no identity
+   or resource is transferred from the active Workspace.
+5. Establish the requested retained context, active subject, and lens through
+   ordinary Navigation in the replacement Workspace. Resolve each inactive
+   coordinate's saved view and query state without executing expensive work
+   that its owner keeps explicit or capability-gated. Membership, subject
+   focus, and traversal-derived realization remain separate.
+6. Project the complete replacement. A packet-sourced exact result retains its
+   canonical packet. Other projectable replacements emit canonical format 2.
+   A valid definition beyond packet grammar or bounds is `NonProjectable` but
+   remains installable; malformed candidate state or writer failure is
    `ProjectionFailed`.
-7. Compose one immutable `CompleteRestorationPublication` containing every
-   prepared fragment, the focused Navigation snapshot, the complete dormant
-   view table, the request basis, and the projectable or non-projectable
-   location evidence. Return that publication as the one result of the same
-   Navigation explicit operation. Navigation's existing retained-session
-   contract accepts it only for the current exact intent token, installs its
-   Navigation snapshot, and issues current effect authority; the coordinator
-   carries that authority opaquely with the complete publication. No
-   participant fragment is separately observable. This contract does not
-   prescribe Navigation's storage or locking implementation.
-8. If strict decode or legacy resolution fails, a participant returns
-   `NonSuccess`, or final projection fails, abort every prepared fragment and
-   retain the whole prior installed snapshot and revision. If the attempt is
-   superseded, discard every fragment and publish no consumer result or
-   authority. A late ready or failed completion for a settled token is
-   discarded and cannot install.
+7. Return one immutable `CompleteWorkspaceReplacement` containing the fresh
+   Workspace, complete snapshot, request basis, projection classification, and
+   owner evidence. The retained host may install it only while the exact
+   intent and effect authority remain current. Installation is one active
+   Workspace reference change; history, URL, focus, and announcement remain
+   host-owned effects of that same authorized result.
+8. After installation, close the old Workspace outside the pointer-swap path.
+   On decode, resolution, construction, Navigation, query, projection,
+   cancellation, expiry, or supersession failure, close the unpublished
+   replacement and retain the active Workspace unchanged. A late completion
+   for a settled token is discarded and cannot install.
 
-Owner-issued reconciliation is not partial success. A participant may return
-a ready complete replacement fragment, including Navigation's exact
-unavailable or failed Registry outcome, reconciled snapshot, and evidence. If
-all other participants prepare against that same replacement, the coordinator
-may atomically commit it as `ReplacementInstalled` with either projectable or
-non-projectable location evidence. A `NonSuccess` participant result supplies
-no complete fragment and always takes the abort/retain path; the coordinator
-never turns that result into a replacement.
+At most one unpublished replacement may coexist with the active Workspace.
+The replacement is not selectable, rendered, addressable through ordinary
+host actions, or recorded in history before installation. A newer attempt
+closes the older replacement before beginning another.
 
-Preparation validates and binds state; it is not permission to execute every
-inactive result eagerly. An inactive query participant produces an immutable
-validated plan or typed non-success outcome. Network, source-content,
-exhaustive, or otherwise expensive execution remains explicit and
-capability-gated by its owner; packet presence alone never enables it. The
-active committed view may perform owner-authorized preparation needed to make
-its availability honest, while inactive views defer result materialization
-until activation under fresh current authority.
+Fresh construction may temporarily duplicate resources present in the active
+Workspace. Shared immutable storage and package caches may avoid repeated
+network or byte acquisition, but they do not transfer Workspace-owned state.
+The Browser/Wasm host must define a combined-resource admission policy before
+adoption; this design makes no process-wide peak-memory safety claim.
 
-Failure remains source-identifying throughout the pipeline. Decode reports
-`InvalidPacket` or `UnsupportedFormat`; compatibility and legacy identity
-resolution report `LegacyLoweringFailed`; record and combination validation
-reports `InvalidDefinitionSet`; a participant that cannot prepare a complete
-fragment reports `ParticipantNonSuccess` with its owner and exact evidence;
-valid packet refusal reports `NonProjectable`; and malformed output or
-canonical-writer failure reports `ProjectionFailed`. Semantic unavailable or
-failed Registry evidence inside a ready Navigation replacement remains
-participant evidence on an installed result rather than being rewritten as a
-preparation failure. These are not interchangeable success-shaped empty
-states. Every submitted restoration has an admitted Navigation token before
-one of these outcomes can be produced; an obsolete outcome is discarded.
+Failure remains source-identifying throughout the pipeline:
+`InvalidPacket`, `UnsupportedFormat`, `LegacyLoweringFailed`,
+`InvalidDefinitionSet`, `WorkspaceConstructionFailed(owner,evidence)`,
+`NavigationFailed(evidence)`, `ProjectionFailed`, cancellation, expiry, and
+supersession are distinct outcomes. None becomes an empty successful
+Workspace. A complete Navigation snapshot may retain owner-issued unavailable
+or failed view evidence and still be installable; `NavigationFailed` means no
+complete snapshot was produced.
 
 The owner-issued result is a closed union:
 
 ```text
 CompleteRestorationResult
-  Published
-    IntentToken          opaque exact Navigation-issued token
-    Relation             ExactRequested | ReplacementInstalled | PriorRetained
-    Outcome              Installed | Failed(RestorationFailure)
+  Installed
+    IntentToken          opaque exact owner-issued token
     RequestBasis         PacketInput | DefinitionInput
-    Snapshot             CompleteWorkspaceSnapshot?
+    WorkspaceIdentity    exact fresh installed Workspace
+    Snapshot             complete installed Workspace snapshot
     Projection           Projectable(CanonicalPacket) |
-                         NonProjectable(reason) | NoSnapshot
+                         NonProjectable(reason)
     NavigationDisposition
-                         opaque current result-or-prerequisite-abort and authority
-    ParticipantEvidence  ordered complete evidence
+                         opaque current result and effect authority
+    OwnerEvidence        ordered complete evidence
+  Failed
+    IntentToken
+    RequestBasis
+    Failure              RestorationFailure
+    PriorSnapshot        complete previously active snapshot, when present
   Superseded
 ```
 
-`RestorationFailure` is a closed source-identifying union:
-`InvalidPacket`, `UnsupportedFormat`, `LegacyLoweringFailed`,
-`InvalidDefinitionSet`, `ParticipantNonSuccess(owner,evidence)`, or
-`ProjectionFailed`. It carries the exact owner-issued evidence for its arm.
-`ParticipantNonSuccess` means the owner returned no complete prepared fragment;
-it does not classify semantic non-effective evidence embedded in a ready
-replacement. `ExactRequested` and `ReplacementInstalled` require `Installed`;
-`PriorRetained` requires `Failed(RestorationFailure)`.
-`RequestBasis` distinguishes the retained canonical packet input, when strict
-decode produced one, from the immutable definition request; it never invents
-packet bytes for a definition. Invalid input retains only its source kind and
-request correlation, not unbounded source text.
+`RequestBasis` distinguishes retained packet input from an immutable
+definition request; it never invents packet bytes for a definition. Owner
+evidence follows deterministic plan order, not asynchronous completion order.
+`Installed` is the only arm carrying a new Workspace. `Failed` leaves the
+prior Workspace active, and `Superseded` produces no consumer value.
 
-`ParticipantEvidence` uses the coordinator's deterministic participant-plan
-order, not completion order. It retains owner semantic non-effective evidence
-inside ready fragments and the exact evidence from every `NonSuccess`, with
-each source owner preserved; it may be empty when decode fails before a
-participant plan exists. `Published` is the only arm that may carry an
-installable snapshot; `Superseded` produces no consumer value.
-
-Each `Published` result has one relation:
-
-| Relation | Installed state | Canonical-location evidence |
-| --- | --- | --- |
-| `ExactRequested` | Complete candidate equal to the requested semantic state | Original packet when packet-sourced; derived format-2 packet or `NonProjectable` when definition-sourced |
-| `ReplacementInstalled` | Complete owner-issued replacement candidate | Canonical format-2 packet or `NonProjectable` for the installed snapshot |
-| `PriorRetained` | Prior complete snapshot, or explicit no-snapshot state on initial failure | Prior snapshot's projectable/non-projectable outcome and typed failure |
-
-`ExactRequested`, `ReplacementInstalled`, and post-admission `PriorRetained`
-results each carry the complete installed snapshot when one exists, otherwise
-an explicit no-snapshot state, plus exact request correlation, typed semantic
-outcome and participant evidence, source-aware projection classification, and
-current opaque Navigation disposition and authority. Decode and
-legacy-lowering failures are current `PriorRetained` publications, not
-uncorrelated preflight results. A valid `NonProjectable` exact or replacement
-publication installs but carries no packet; Inspect Web applies its existing
-session-local location behavior. The relation is evidence for the UI location
-adapter, not a history command. Inspect Web alone maps exact restoration to
-adoption, replacement to its defined replace behavior, and retained failure to
-realignment with the prior canonical location. Explicit-action push versus
-replace policy remains outside this owner.
-
-The coordinator state machine is specified by
-[`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla).
-Its attempt token abstracts the exact Navigation-issued intent token; it does
-not model a second authority source. The model admits each request before an
-explicit preflight phase, then covers three abstract participants, two
-requests, preflight success or failure, exact and replacement preparation,
-projectable and non-projectable classification, projection failure, abort,
-supersession, stale completion, and atomic publication. Its finite checks
-establish evidence for this coordination protocol, not for the complete packet,
-identity, participant, authority, or UI contracts.
+The existing
+[`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
+models the retired in-place participant protocol and is not evidence for this
+fresh-Workspace contract. Before implementation, either retire it or replace
+it with the smallest model needed for current-intent installation and
+superseded-replacement cleanup. Required integration gates must show that
+failure retains the active Workspace, installation publishes the exact prepared
+replacement once, supersession closes abandoned replacements, and no
+Workspace-owned identity or resource transfers between old and new.
 
 ### Files and bundles
 
@@ -1707,6 +1640,12 @@ two persisted contracts are isomorphic.
 - **Packet consolidation.** The `popstate` handler currently re-implements
   restore inline; the loader introduced here should absorb it so every
   restore path is the same code.
+- **Retained-host replacement admission.** Inspect Web needs one owner for the
+  active Workspace reference, at most one unpublished replacement, exact
+  current-intent installation, prompt close of every non-installed
+  replacement, and a combined-resource policy for the period when old and new
+  Workspaces coexist. Per-Workspace budgets do not supply that host-level
+  bound.
 
 ## Open questions
 
@@ -1904,27 +1843,20 @@ Implementation must add, at minimum:
   `PortableLibraryIdentity` is not a facet: it resolves against the owning
   coordinate's acquired assemblies, with missing or ambiguous identity a typed
   outcome there;
-- a complete-restoration conformance gate with controllable workspace,
-  Navigation, query, and canonical-projection participants. It must cover
-  inert packet/definition input with absent, stale, revoked, and incompatible
-  activation authority; a distinct token-admission transition before
-  preflight starts; stale decode success and failure after newer intent;
-  out-of-order readiness; one failure after peers become ready; exact and
-  replacement commit; projectable and validly non-projectable commit;
-  projection failure; supersession before and after all peers are ready; late
-  completion; and an initial failure with no prior snapshot. Unauthorized
-  input must reserve, acquire, and publish nothing. Every failure publication
-  must carry its exact token, source-identifying `RestorationFailure`, request
-  kind, and current Navigation prerequisite-abort or result disposition even
-  when participant evidence is empty. It must distinguish a ready Navigation
-  replacement carrying semantic unavailable or failed Registry evidence from
-  a Navigation preparation `NonSuccess` that carries no fragment. Every
-  non-commit case retains the complete prior snapshot and revision; a commit
-  publishes every fragment in one revision; exact packet restoration retains
-  the requested packet basis; exact definition restoration retains definition
-  basis plus its derived projectable or non-projectable outcome; replacement
-  carries the installed snapshot's projectable or non-projectable outcome; and
-  only current opaque Navigation authority can reach the consumer;
+- a complete-restoration conformance gate with controllable Workspace
+  construction, Navigation, query, projection, and host installation. It must
+  cover inert packet/definition input with absent, stale, revoked, and
+  incompatible activation authority; stale decode success and failure after a
+  newer intent; Root or Navigation failure after partial replacement
+  construction; projectable and validly non-projectable installation;
+  projection failure; supersession before installation; late completion; and
+  initial failure with no active Workspace. Unauthorized input must reserve,
+  acquire, and publish nothing. Every non-install outcome must close the
+  unpublished replacement, retain the active Workspace and its exact snapshot,
+  and carry the source-identifying failure evidence. Successful installation
+  must publish the exact prepared Workspace once, preserve the request's packet
+  or definition basis and projection classification, and remain reachable only
+  through current host effect authority;
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
@@ -1961,18 +1893,13 @@ Implementation must add, at minimum:
   implementation gates for facet-ID migration, complete portable composition,
   and `WorkspaceContextLoader` group run remain open.
 
-The complete-restoration coordinator is model-checked by
-[`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla).
-Its positive configuration checks complete readiness, exact request
-correlation, admission-before-preflight-start, projectable and non-projectable
-atomic publication, projection-failure retention, supersession, stale
-completion, and per-attempt progress. Ten mutation configurations independently
-demonstrate that the named safety properties reject preflight without
-admission, early commit, partial commit, failed or superseded commit, abort
-mutation, stale installation, preparation-time installation, wrong
-exact/replacement relation, and cross-request publication. The model does not
-prove codec, Registry, query payload, Navigation, or UI implementation
-conformance; the gates above remain required.
+The existing
+[`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
+checks the retired in-place participant protocol and is not evidence for fresh
+Workspace replacement. The current target remains unverified until focused
+evidence covers current-intent installation, replacement cleanup after every
+non-install outcome, exact prepared-Workspace publication, and the adopting
+host's combined-resource policy.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified

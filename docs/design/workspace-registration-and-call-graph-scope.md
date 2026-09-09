@@ -413,7 +413,7 @@ restoration. The design remains unverified until those focused adoptions land.
 
 This design does not define:
 
-- simultaneous live Workspaces, Workspace switching, tabs, or cross-Workspace
+- simultaneous active Workspaces, Workspace switching, tabs, or cross-Workspace
   operations;
 - a security boundary based on registrations;
 - an eager import or continuously maintained package-prefix population;
