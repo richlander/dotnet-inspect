@@ -213,7 +213,6 @@ public sealed record BrowserVocabularySection(
     string Id,
     string Name,
     string Summary,
-    string[] Categories,
     [property: JsonPropertyName("accepted_by")]
     string[] AcceptedBy,
     BrowserVocabularyField[] Fields,

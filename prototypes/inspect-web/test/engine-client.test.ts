@@ -21,7 +21,7 @@ const identity: BrowserBuildIdentity = {
   commitUrl: null,
 };
 const vocabulary: BrowserVocabularyDocument = {
-  schema_version: 1,
+  schema_version: 2,
   sections: [],
 };
 const demos: BrowserHomeDemoCatalog = {
