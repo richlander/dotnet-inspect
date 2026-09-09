@@ -259,8 +259,51 @@ test("empty rankings retain incomplete coverage and seed failures", () => {
   assert.match(html, /Coverage is incomplete/);
   assert.match(html, /3 ranked pairs were omitted/);
   assert.match(html, /Seed metadata could not be read/);
-  assert.match(html, /MetadataInspectionFailed: Seed metadata could not be read/);
+  assert.match(html, /MetadataInspectionFailed \[Example\.Package, Version=1\.0\.0\.0/);
   assert.match(html, /Example\.Widget\.Build/);
+});
+
+test("library coverage retains exact participant and failure-subject identity", () => {
+  const state = createCloneCandidateInspectionState();
+  const peer = {
+    ...participant,
+    ordinal: 7,
+    provenance: {
+      ...participant.provenance,
+      packageId: "Peer.Package",
+      packageVersion: "2.0.0",
+    },
+    moduleVersionId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  };
+  state.result = {
+    ...available(),
+    document: {
+      ...document,
+      libraries: [
+        document.libraries[0]!,
+        {
+          ...document.libraries[0]!,
+          participant: peer,
+          failures: [{
+            kind: "NameWorkLimitReached",
+            subject: peer.assembly,
+            detail: "Name matching stopped at the configured work limit.",
+          }],
+          isComplete: false,
+        },
+      ],
+      coverageIsComplete: false,
+    },
+  };
+
+  const html = renderCloneCandidateInspection(state, escapeHtml);
+
+  assert.match(html, /Participant 0: Example\.Package, Version=1\.0\.0\.0/);
+  assert.match(html, /Participant 7: Example\.Package, Version=1\.0\.0\.0/);
+  assert.match(html, /Package=Example\.Package · Version=1\.0\.0 · TFM=net11\.0/);
+  assert.match(html, /Package=Peer\.Package · Version=2\.0\.0 · TFM=net11\.0/);
+  assert.match(html, /MVID=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/);
+  assert.match(html, /NameWorkLimitReached \[Example\.Package, Version=1\.0\.0\.0/);
 });
 
 test("bindings dispatch controls, row selection, and exact navigation coordinates", () => {

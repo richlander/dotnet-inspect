@@ -217,6 +217,7 @@ export function createCloneCandidateInspectionCoordinator(
       if (state.request !== null
         && state.result !== null
         && JSON.stringify(state.request) === requestJson) {
+        dependencies.render();
         return;
       }
       const requestGeneration = ++generation;

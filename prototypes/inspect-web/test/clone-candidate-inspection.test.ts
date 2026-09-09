@@ -206,6 +206,7 @@ test("loading an already completed request preserves retained evidence", async (
     state.discovery).request;
   assert.ok(request);
   let queries = 0;
+  let renders = 0;
   const coordinator = createCloneCandidateInspectionCoordinator({
     state,
     query: () => {
@@ -214,12 +215,15 @@ test("loading an already completed request preserves retained evidence", async (
     },
     isCurrent: () => true,
     describeError: String,
-    render: () => {},
+    render: () => {
+      renders++;
+    },
   });
 
   await coordinator.load(input);
   const completedResult = state.result;
   const completedRevision = state.revision;
+  const completedRenders = renders;
   state.selectedRank = 37;
 
   await coordinator.load(input);
@@ -229,6 +233,7 @@ test("loading an already completed request preserves retained evidence", async (
   assert.equal(state.selectedRank, 37);
   assert.equal(state.revision, completedRevision);
   assert.equal(state.loading, false);
+  assert.equal(renders, completedRenders + 1);
 });
 
 test("subject reconciliation clears stale evidence before replacement", () => {

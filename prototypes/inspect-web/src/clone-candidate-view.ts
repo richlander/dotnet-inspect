@@ -1,8 +1,11 @@
 import type {
+  BrowserCloneAssemblyIdentity,
   BrowserCloneCandidateAnalysisBlocker,
   BrowserCloneCandidateDocument,
   BrowserCloneCandidateFailure,
   BrowserCloneCandidateMethod,
+  BrowserCloneCandidateParticipant,
+  BrowserCloneCandidateProvenance,
   BrowserCloneCandidateResult,
   BrowserCloneCandidateRow,
 } from "./facades/inspect-web-analysis.d.ts";
@@ -51,6 +54,39 @@ function token(value: number): string {
   return `0x${value.toString(16).padStart(8, "0")}`;
 }
 
+function assemblyIdentity(value: BrowserCloneAssemblyIdentity): string {
+  return [
+    value.name,
+    `Version=${value.version ?? "unspecified"}`,
+    `Culture=${value.culture ?? "neutral"}`,
+    `PublicKeyToken=${value.publicKeyToken ?? "null"}`,
+  ].join(", ");
+}
+
+function provenanceIdentity(value: BrowserCloneCandidateProvenance): string {
+  return [
+    String(value.kind),
+    value.packageId ? `Package=${value.packageId}` : "",
+    value.packageVersion ? `Version=${value.packageVersion}` : "",
+    value.tfm ? `TFM=${value.tfm}` : "",
+    value.rid ? `RID=${value.rid}` : "",
+    value.framework ? `Framework=${value.framework}` : "",
+    value.frameworkVersion
+      ? `FrameworkVersion=${value.frameworkVersion}` : "",
+    value.project ? `Project=${value.project}` : "",
+    value.resolverSource ? `Resolver=${value.resolverSource}` : "",
+    value.contentRef ? `Content=${value.contentRef}` : "",
+    value.digest ? `Digest=${value.digest}` : "",
+    value.declaredName ? `DeclaredName=${value.declaredName}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function participantIdentity(
+  value: BrowserCloneCandidateParticipant,
+): string {
+  return `Participant ${value.ordinal}: ${assemblyIdentity(value.assembly)}`;
+}
+
 function controls(
   state: CloneCandidateInspectionState,
   escapeHtml: EscapeHtml,
@@ -84,7 +120,7 @@ function endpoint(
   escapeHtml: EscapeHtml,
 ): string {
   const participant = value.participant;
-  const provenance = [
+  const provenanceDisplay = [
     participant.provenance.packageId,
     participant.provenance.packageVersion,
     participant.provenance.tfm,
@@ -96,7 +132,7 @@ function endpoint(
       <p><code>${escapeHtml(value.addressDisplay)}</code></p>
       <dl>
         <div><dt>Assembly</dt><dd>${escapeHtml(participant.assembly.name)}</dd></div>
-        <div><dt>Package</dt><dd>${escapeHtml(provenance)}</dd></div>
+        <div><dt>Package</dt><dd>${escapeHtml(provenanceDisplay)}</dd></div>
         <div><dt>MVID</dt><dd><code>${escapeHtml(value.moduleVersionId)}</code></dd></div>
         <div><dt>MethodDef</dt><dd><code>${token(value.methodDefinitionToken)}</code></dd></div>
       </dl>
@@ -201,7 +237,11 @@ function renderSearchEvidence(
     failures: readonly BrowserCloneCandidateFailure[],
     blockers: readonly BrowserCloneCandidateAnalysisBlocker[],
   ) => [
-    ...failures.map(failure => `${failure.kind}: ${failure.detail}`),
+    ...failures.map(failure => [
+      String(failure.kind),
+      failure.subject ? ` [${assemblyIdentity(failure.subject)}]` : "",
+      `: ${failure.detail}`,
+    ].join("")),
     ...blockers.map(blocker => `${blocker.kind}: ${blocker.detail}`),
   ];
   const comparisonLimits = document.limits.comparisonLimits;
@@ -273,13 +313,13 @@ function renderSearchEvidence(
         <ul>
           ${document.libraries.map(library => {
             const participant = library.participant;
-            const label = participant.assembly.name
-              || `Participant ${participant.ordinal}`;
             const failures = coverageDetails(
               library.failures,
               library.analysisBlockers);
             return `<li>
-              <strong>${escapeHtml(label)}</strong>:
+              <strong>${escapeHtml(participantIdentity(participant))}</strong>
+              <small>${escapeHtml(provenanceIdentity(participant.provenance))}
+                · MVID=${escapeHtml(participant.moduleVersionId ?? "unavailable")}</small>:
               ${escapeHtml(library.membership)}, ${library.admitted ? "admitted" : "excluded"};
               ${library.discoveredMethods} discovered of ${library.candidateMethods} candidates,
               ${library.retrievalPairs} retrieval pairs,
