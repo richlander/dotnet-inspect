@@ -1,6 +1,6 @@
 export const MAX_RETAINED_WORKSPACES = 4;
 
-export interface RetainedWorkspace<TSnapshot> {
+interface RetainedWorkspace<TSnapshot> {
   id: string;
   label: string;
   snapshot: TSnapshot | null;
