@@ -117,7 +117,8 @@ function renderFindingFacts(state: MemberFactsRenderState): string {
     : "";
   return `
     <section class="finding-facts" aria-labelledby="finding-facts-title">
-      <header><h2 id="finding-facts-title">Findings</h2><span>${facts.length} ${facts.length === 1 ? "Finding" : "Findings"}</span></header>
+      <header><h2 id="finding-facts-title">Findings</h2><span>${facts.length} ${facts.length === 1 ? "finding" : "findings"}</span></header>
+      <p class="finding-context">Research observations for this member. Body findings can open their exact occurrence in Annotated Source.</p>
       ${selectionError}
       ${facts.length
         ? `<ol class="finding-rows">${facts.map(fact =>
@@ -126,7 +127,7 @@ function renderFindingFacts(state: MemberFactsRenderState): string {
               receipt,
               interaction.selectedInstanceKey,
             )).join("")}</ol>`
-        : '<p class="finding-empty">No Research Findings were reported for this member.</p>'}
+        : '<p class="finding-empty">No Research findings were reported for this member.</p>'}
     </section>`;
 }
 
@@ -147,13 +148,21 @@ function renderFindingFact(
         : `<span>line ${escapeHtml(fact.cSharpLine)}</span>`}
     </span>
     <span class="finding-main">
-      <strong>${escapeHtml(fact.id)}</strong>
-      ${fact.detail ? `<span>${escapeHtml(fact.detail)}</span>` : ""}
-      <small>${escapeHtml(fact.category)} · ${escapeHtml(fact.conditionality)} · ${escapeHtml(fact.anchor)}</small>
+      <code class="finding-id">${escapeHtml(fact.id)}</code>
+      ${fact.detail
+        ? `<span class="finding-detail">${escapeHtml(fact.detail)}</span>`
+        : ""}
+      <span class="finding-properties">
+        <span class="finding-property"><span class="finding-property-label">Category</span><code>${escapeHtml(fact.category)}</code></span>
+        <span class="finding-property"><span class="finding-property-label">Conditionality</span><code>${escapeHtml(fact.conditionality)}</code></span>
+        <span class="finding-property"><span class="finding-property-label">Anchor</span><code>${escapeHtml(fact.anchor)}</code></span>
+      </span>
     </span>
     ${fact.instanceKey === null
-      ? '<span class="finding-identity-unavailable">Source identity unavailable</span>'
-      : `<code class="finding-instance-key">#${escapeHtml(fact.instanceKey)}</code>`}`;
+      ? '<span class="finding-source-unavailable">No annotated source target</span>'
+      : `<span class="finding-source-action">${selected
+          ? '<span class="finding-selected-label">Selected</span><span aria-hidden="true">·</span>'
+          : ""}<span>Annotated source</span><span aria-hidden="true">→</span></span>`}`;
   return fact.instanceKey === null
     ? `<li class="finding-row finding-row-unkeyed"><div>${content}</div></li>`
     : `<li class="finding-row${selected ? " selected" : ""}">

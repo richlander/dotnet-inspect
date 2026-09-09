@@ -166,6 +166,14 @@ substrates, and inspection producers that will extend that space.
   identities. Source adapters, PlatformHouse composition, and host adoption
   remain separately staged under #6361, #6301, #6335, and #6228.
 - The target
+  [PackageHouse Composition](design/package-house.md) owner defines the sole
+  product-facing package settlement facade over typed package demands,
+  owner-issued source/input plans, version and pruning decisions, payload and
+  asset realization, target-aware dependency-edge correspondence, and
+  provenance-retaining Workspace, library, and platform-delegation handoffs.
+  Focused owner algorithms remain outside the House; adoption and retirement
+  are tracked by #6426.
+- The target
   [PlatformHouse Realization and Reference Processing](design/platform-house-reference-processing.md)
   owner defines the sole product-facing platform realization and
   reference-processing facade: explicit target/version settlement,
@@ -393,7 +401,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
 - [Workspace scope and expansion](design/workspace-scope-and-expansion.md):
-  committed logical Root membership and order, closed-by-default selective
+  committed logical Package membership and order, closed-by-default selective
   dependency expansion, scope revisions, logical limits, and complete
   scope-operation results.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
@@ -513,7 +521,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   population, and Integration contributions, typed projection outcomes, and
   one shared Platform/ASP.NET Core/Microsoft.Extensions default sequence.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
-  host-neutral Workspace, Package or non-package Root, Library, Type, and
+  host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
   reconciliation, and model-checked retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website

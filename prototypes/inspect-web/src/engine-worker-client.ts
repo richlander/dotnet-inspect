@@ -18,14 +18,21 @@ import {
   createEngineWorkerTypeSourceHostRegistration,
 } from "./engine-worker-source.ts";
 import {
+  createEngineWorkerPackageQueryHostRegistration,
+  type EngineWorkerPackageQueryCompletionEvent,
+  type EngineWorkerPackageQueryDurableEvent,
+} from "./engine-worker-package-query.ts";
+import {
   bindEngineWorkerCpuProbe,
 } from "./engine-worker-cpu.ts";
 import type {
+  WorkerRuntimeControlledOperationAdapter,
   WorkerRuntimeHost,
   WorkerRuntimeHostOptions,
   WorkerRuntimePreparationError,
 } from "./worker-runtime-core.ts";
 import { bindEngineWorkerStartupClient } from "./engine-worker-startup.ts";
+import type { QueryRequest } from "./package-query.ts";
 
 function createEngineWorker(): Worker {
   return new Worker(new URL("./engine-worker-entry.ts", import.meta.url), {
@@ -55,6 +62,27 @@ export function registerEngineWorkerTypeSourceAdapter(
 ): EngineWorkerTypeSourceAdapter {
   return host.registerOperation(
     createEngineWorkerTypeSourceHostRegistration(),
+  );
+}
+
+export type EngineWorkerPackageQueryAdapter =
+  WorkerRuntimeControlledOperationAdapter<
+    QueryRequest,
+    EngineWorkerPackageQueryCompletionEvent,
+    string,
+    never,
+    WorkerRuntimePreparationError,
+    EngineWorkerPackageQueryDurableEvent,
+    number,
+    number,
+    string
+  >;
+
+export function registerEngineWorkerPackageQueryAdapter(
+  host: EngineWorkerHost,
+): EngineWorkerPackageQueryAdapter {
+  return host.registerControlledOperation(
+    createEngineWorkerPackageQueryHostRegistration(),
   );
 }
 

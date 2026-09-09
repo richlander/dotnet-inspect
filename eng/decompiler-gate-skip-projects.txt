@@ -24,8 +24,11 @@ fixtures/cli/DotnetInspector.CallerBinding.Contract
 fixtures/cli/DotnetInspector.CallerBinding.Facade
 fixtures/cli/DotnetInspector.HostileNameFixtures
 fixtures/cli/DotnetInspector.InstallScriptFixture
+fixtures/cli/DotnetInspector.MatchBinding.Decoy
+fixtures/cli/DotnetInspector.MatchBinding.Dependency
+fixtures/cli/DotnetInspector.MatchBinding.Facade
+fixtures/cli/DotnetInspector.MatchBinding.Implementation
 fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic
-fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines
 fixtures/decompiler/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof
 fixtures/decompiler/ILInspector.Decompiler.Fixtures.OptInNet11
 fixtures/diff/DiffAsmFixtures.Caller
@@ -93,7 +96,6 @@ src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
 src/TsJsExport.Contracts
 src/dotnet-inspect
-src/dotnet-inspect.Tests
 src/mdi
 src/runfaster
 src/ts-jsexport
@@ -132,6 +134,7 @@ tests/Inspector.Artifacts.Tests
 tests/Inspector.Text.Tests
 tests/NuGetFetch.Tests
 tests/TestExtensions
+tests/dotnet-inspect.Tests
 tests/nuget/NuGetFetch.CustomClientFixture
 tests/nuget/NuGetFetch.PluginFixture
 tests/runfaster.Tests

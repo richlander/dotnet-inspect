@@ -107,7 +107,8 @@ public sealed class RvaSpanPass : IIrPass
             if (creation.Length is Constant { Value: int count } && count != arrayElements.Count)
                 continue;
 
-            var arrayLiteral = new ArrayLiteral(creation.ElementType, TypeRef.SzArray(creation.ElementType), arrayElements);
+            var arrayLiteral = new ArrayLiteral(creation.ElementType, TypeRef.SzArray(creation.ElementType), arrayElements,
+                call.Callee);
             arrayLiteral.SetSourceOffset(creation.SourceOffset);
             context.Stepper.StepOver("raise InitializeArray RVA blob to array literal", creation);
             creation.ReplaceWith(arrayLiteral);
