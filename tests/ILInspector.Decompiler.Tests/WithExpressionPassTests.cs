@@ -69,6 +69,21 @@ public class WithExpressionPassTests
     }
 
     [Fact]
+    public void CloneEvidence_IsSingleAndExcludedOnlyFromCompileBackClosure()
+    {
+        var function = FunctionWithField("X");
+        new WithExpressionPass().Run(function, PassContext.None);
+        WithExpression expression = Assert.Single(function.Descendants.OfType<WithExpression>());
+        Assert.Same(expression.CloneMethod, expression.ConsumedCloneMethod);
+        Assert.True(expression.ConsumedCloneIsVirtual);
+        var evidence = new List<ConsumedMemberEvidence>();
+        ConsumedMemberEvidence.AddFrom(expression, evidence);
+        ConsumedMemberEvidence clone = Assert.Single(evidence, item => item.Method == expression.CloneMethod);
+        Assert.False(clone.IncludeInCompileBackClosure);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void CompilerGeneratedCloneWithInvalidFieldName_DoesNotRaise()
     {
         var function = FunctionWithField("bad-name");
@@ -114,6 +129,42 @@ public class WithExpressionPassTests
         var output = CSharpPrinter.Print(function).Output;
         Assert.Contains("return point with { X = dx, Y = dy };", output);
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    /// <summary>
+    /// <c>receiver with { X = v }</c> re-emits a virtual setter call, so a
+    /// direct setter store — the spelling of <c>base.X = v</c> — has no
+    /// with-expression form and must stay lowered rather than be raised into
+    /// one that restores virtual dispatch.
+    /// </summary>
+    [Fact]
+    public void DirectSetterStore_DoesNotRaise()
+    {
+        var function = FunctionWithClone(compilerGenerated: true, directSetter: true);
+
+        new WithExpressionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<WithExpression>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        Assert.Single(function.Descendants.OfType<Call>(), call => call.Callee.Name == "<Clone>$");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectCloneOnOpenReceiver_DoesNotRaise()
+    {
+        var function = FunctionWithClone(
+            compilerGenerated: true,
+            directClone: true);
+
+        new WithExpressionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<WithExpression>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "<Clone>$");
+        function.CheckInvariant();
     }
 
     [Fact]
@@ -230,7 +281,9 @@ public class WithExpressionPassTests
         bool duplicateMember = false,
         bool copyBeforeSecondMember = false,
         bool extraUseAfterCopy = false,
-        bool unrelatedCopyBeforeSecondMember = false)
+        bool unrelatedCopyBeforeSecondMember = false,
+        bool directSetter = false,
+        bool directClone = false)
     {
         var clone = new MethodRef(Point, "<Clone>$", Point, [], HasThis: true)
         {
@@ -253,10 +306,13 @@ public class WithExpressionPassTests
             block.Add(new StoreStackSlot(slot, new LoadArgument(0, "point", Point)));
         block.Add(new StoreStackSlot(
             slot,
-            new Call(clone, isVirtual: true, [receiverUsesTargetSlot
+            new Call(clone, isVirtual: !directClone, [receiverUsesTargetSlot
                 ? new LoadStackSlot(slot, Point)
                 : new LoadArgument(0, "point", Point)])));
-        block.Add(new StoreProperty(Setter("X"), new LoadStackSlot(slot, Point), [], new LoadArgument(1, "dx", Int32)));
+        block.Add(new StoreProperty(Setter("X"), new LoadStackSlot(slot, Point), [], new LoadArgument(1, "dx", Int32))
+        {
+            IsVirtual = !directSetter,
+        });
         if (secondMember)
         {
             if (copyBeforeSecondMember)
@@ -275,7 +331,10 @@ public class WithExpressionPassTests
                 Setter(duplicateMember ? "X" : "Y"),
                 new LoadStackSlot(activeSlot, Point),
                 [],
-                new LoadArgument(2, "dy", Int32)));
+                new LoadArgument(2, "dy", Int32))
+            {
+                IsVirtual = !directSetter,
+            });
         }
         if (keepAliveUse)
             block.Add(new ExpressionStatement(new Call(keepAlive, isVirtual: false, [new LoadStackSlot(slot, Point)])));

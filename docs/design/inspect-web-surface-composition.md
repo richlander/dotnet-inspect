@@ -488,6 +488,12 @@ long and markup-shaped values remain escaped and wrap within the row. The
 additional row height is an explicit trade for complete visible failure
 evidence without horizontal scrolling.
 
+Findings closes Member Facts after Analysis diagnostics when diagnostics are
+present, or after Performance opportunities otherwise. Its exact row
+presentation, keyed and unkeyed actions, selected state, and independent
+outcomes remain owned by
+[Inspect Web Finding interaction](inspect-web-finding-interaction.md).
+
 #### Graph Explore
 
 Member Call graph retains its inline default and exposes `Explore` in the

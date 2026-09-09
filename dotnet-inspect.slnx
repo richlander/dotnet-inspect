@@ -117,7 +117,6 @@
     <Project Path="fixtures/presentation/LibraryApiDiff.V2/LibraryApiDiff.V2.csproj" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/dotnet-inspect.Tests/dotnet-inspect.Tests.csproj" />
     <Project Path="src/dotnet-inspect/dotnet-inspect.csproj" />
     <Project Path="src/CSharpText/CSharpText.csproj" />
     <Project Path="src/CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
@@ -171,6 +170,7 @@
     <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure.Tests/DotnetInspector.FixtureInfrastructure.Tests.csproj" />
+    <Project Path="tests/dotnet-inspect.Tests/dotnet-inspect.Tests.csproj" />
     <Project Path="tests/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
     <Project Path="tests/ILInspector.CSharp.Tests/ILInspector.CSharp.Tests.csproj" />
     <Project Path="tests/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj" />
@@ -188,6 +188,7 @@
     <Project Path="tests/nuget/NuGetFetch.PluginFixture/NuGetFetch.PluginFixture.csproj" />
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
     <Project Path="tests/DotnetInspector.Presentation.Tests/DotnetInspector.Presentation.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.Queries.Consumer/DotnetInspector.Queries.Consumer.csproj" />
     <Project Path="tests/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Tests/DotnetInspector.RowSelection.Tests.csproj" />
