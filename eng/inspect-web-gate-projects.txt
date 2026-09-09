@@ -7,6 +7,7 @@ src/DotnetInspector.Core
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
+src/DotnetInspector.Presentation
 src/DotnetInspector.Queries
 src/DotnetInspector.ResearchQueries
 src/DotnetInspector.RowSelection
