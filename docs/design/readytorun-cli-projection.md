@@ -43,8 +43,8 @@ default suppression.
 members are:
 
 - `ReadyToRun: Image`, a fixed one-row summary containing role, discovery
-  evidence, exact version, raw-preserving flags, header location and size, and
-  manifest relationship; and
+  evidence, exact ReadyToRun format version, raw-preserving flags, header
+  location and size, and manifest relationship; and
 - `ReadyToRun: Sections`, one row per validated section-directory entry,
   including numeric type identity, RVA, size, and CLI-metadata aliasing.
 

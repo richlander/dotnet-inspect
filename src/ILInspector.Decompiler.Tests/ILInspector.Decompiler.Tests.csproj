@@ -57,6 +57,9 @@
     <ProjectReference Include="..\DotnetInspector.Artifacts.Workspaces\DotnetInspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldCaller\ILInspector.Decompiler.Fixtures.ForwardedFieldCaller.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.LegacyUnsafe\ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.CrossAssemblyEnums\ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.csproj" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ClassicAsync\ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" ReferenceOutputAssembly="false" />
@@ -70,6 +73,7 @@
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.Ladder\ILInspector.Decompiler.Fixtures.Ladder.csproj" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.AuthoredRebuild\ILInspector.Decompiler.Fixtures.AuthoredRebuild.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.TypeIdentity\ILInspector.Decompiler.Fixtures.TypeIdentity.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Middle\DotnetInspector.Services.RouteLearning.Middle.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkPartiallyMalformedFixtures\DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" ReferenceOutputAssembly="false" />
