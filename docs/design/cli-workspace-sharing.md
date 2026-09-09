@@ -87,7 +87,7 @@ remains intact until that canonical encoding boundary.
 The target gesture is:
 
 ```console
-dotnet-inspect member JsonSerializer SerializeAsync \
+dotnet-inspect member JsonSerializer SerializeAsync:1 \
   --package System.Text.Json@10.0.0 \
   --tfm net10.0 \
   --share
@@ -249,7 +249,7 @@ The contract-defining pathological case is a rich invocation whose source,
 subject, and selected view are already correct:
 
 ```console
-dotnet-inspect member JsonSerializer DeserializeAsync \
+dotnet-inspect member JsonSerializer DeserializeAsync:1 \
   --package System.Text.Json \
   --tfm net10.0 \
   -S "Call Graph" \
