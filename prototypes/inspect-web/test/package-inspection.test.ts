@@ -63,6 +63,7 @@ function inspectionState(
     atLibraryRoot: false,
     packageLens: "overview",
     libraryLens: "overview",
+    packageMetadataRoot: "cli",
     packageDependencies: null,
     packageDependenciesLoading: false,
     packageDependenciesError: "",
@@ -893,6 +894,7 @@ test("invalidation clears package results, failures, keys, and loads without cha
   };
   const state = inspectionState({
     ...retainedState,
+    packageMetadataRoot: "r2r-manifest",
     packageDependencies: dependencyResult(),
     packageDependenciesLoading: true,
     packageDependenciesError: "dependency failure",

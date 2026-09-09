@@ -1513,12 +1513,12 @@ materialize one retained line entry per byte before tokenization begins.
 the source. CR, LF, CRLF, NEL, line separator, and paragraph separator each
 follow the same physical-line accounting.
 `DeclarationIndex` carries the declaration's starting column so
-`BodySlicer` consumes that bounded token stream once rather than tokenizing the
-same untrusted file again.
+`MemberTextSlicer` consumes that bounded token stream once rather than
+tokenizing the same untrusted file again.
 
 Conditional branch projection remains within those bounds. Metadata partitions
 visible sequence-point start lines by PDB document and sorts and deduplicates
-each set. `BodySlicer` accepts only a positive, ordered PDB range within the
+each set. `MemberTextSlicer` accepts only a positive, ordered PDB range within the
 verified source and positive, strictly increasing point lines within that
 range's physical file, uses binary range queries rather than a group-by-point
 cross product, and refuses PDB correlation when a recognized `#line` directive
@@ -1534,11 +1534,11 @@ could expose unmatched directives or an unrelated dead-branch member. These
 boundaries are gated by
 `DeclarationIndexTests.ConditionalProjection_RejectsABranchFromAnotherIndex`,
 `DeclarationIndexTests.ConditionalProjection_ManySelectionsAllocateLinearly`,
-`ExtractMethodBodyTests.InvalidSequencePointCoordinates_FailVisibly`,
-`ExtractMethodBodyTests.InvalidSequencePointRange_FailsVisibly`,
-`ExtractMethodBodyTests.UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling`,
-`ExtractMethodBodyTests.TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings`,
-`ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
+`ExtractMemberTextTests.InvalidActiveLineCoordinates_FailVisibly`,
+`ExtractMemberTextTests.InvalidMemberTextRange_FailsVisibly`,
+`ExtractMemberTextTests.UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling`,
+`ExtractMemberTextTests.TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings`,
+`ExtractMemberTextTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
 and
 `AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe`.
 The binary-search complexity itself is unverified by a dedicated performance
@@ -1576,7 +1576,7 @@ pre-allocation line boundary, and
 gates the Findings-facing result, while
 `CommandExecutionTests.PdbSource_TokenDenseInputCarriesAVisibleFailureState`
 gates the member-command result.
-`DeclarationIndexTests.TheBodySlicerCannotAccessLexerInternals` gates the
+`DeclarationIndexTests.TheMemberTextSlicerCannotAccessLexerInternals` gates the
 one-pass ownership boundary.
 
 ## Resource extraction contract

@@ -112,6 +112,10 @@ substrates, and inspection producers that will extend that space.
   Metadata suggestion ranking does not acquire the Finding-backed Text layer;
   `MetadataNameMatching_DoesNotDependOnFindingBackedText` gates that boundary.
 - `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, [type-declaration identifier admission](design/csharp-type-declaration-identifier-admission.md), identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
+- `src/CSharpText.MemberSlicing/` conservatively selects one complete C# member
+  declaration from caller-supplied line evidence. Its separate assembly uses
+  only public `CSharpText` contracts, preserving the boundary that prevents
+  access to lexer internals.
 - `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; [declared-type self-name admission](design/csharp-declared-type-self-name.md) owns the proposed exact-name boundary shared by type, constructor, and finalizer heads. `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
   Its decoded string-literal producer uses the `InertText` leaf for
@@ -141,9 +145,12 @@ substrates, and inspection producers that will extend that space.
   evidence and conservative platform delegation.
 - `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
   bounded package-prefix requests, and pure search normalization under
-  [the typed source domain](design/search-scope-domain.md). Host adapter
-  adoption remains staged under #5602; package-set identities remain in the
-  application catalog.
+  [the typed source domain](design/search-scope-domain.md). Its
+  [Platform Library Population Declaration](design/platform-library-population-declaration.md)
+  additionally owns resource-free .NET runtime and ASP.NET Core relevance
+  values without target, view, source, or acquisition policy. Host adapter
+  adoption remains staged under #5602 and #6012; package-set identities remain
+  in the application catalog.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,
@@ -230,6 +237,9 @@ substrates, and inspection producers that will extend that space.
   owns the managed Source-facade envelope that carries one Research-issued
   receipt and its Facts/document instance-key mappings without reconstructing
   identity in the host.
+  Its [ReadyToRun browser projection](design/readytorun-browser-projection.md)
+  carries Metadata-owned ReadyToRun facts and root-scoped metadata operations
+  through the managed facade into Package Metadata and Metadata Explorer.
 - [Workspace registration and call-graph focal
   length](design/workspace-registration-and-call-graph-scope.md) is the
   operator-approved cross-owner target experience for inert registration,
