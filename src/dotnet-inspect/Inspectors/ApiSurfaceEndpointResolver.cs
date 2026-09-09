@@ -1,4 +1,5 @@
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -25,6 +26,22 @@ internal static class ApiSurfaceEndpointResolver
         var assemblySet = await AssemblySetResolver
             .CollectAsync(httpClient, request, logger.Log)
             .ConfigureAwait(false);
+        return Resolve(assemblySet, includeAll, logger);
+    }
+
+    public static (ApiSurfaceEndpoint? Endpoint, string? Error, bool AssembliesResolved) Resolve(
+        PackageExtractionResult extracted,
+        string? tfm,
+        bool includeAll,
+        VerboseLogger logger)
+        => Resolve(
+            AssemblySetResolver.CollectExtractedPackage(
+                extracted, tfm, includeRuntimeAssemblies: true),
+            includeAll, logger);
+
+    private static (ApiSurfaceEndpoint? Endpoint, string? Error, bool AssembliesResolved) Resolve(
+        AssemblySet assemblySet, bool includeAll, VerboseLogger logger)
+    {
         try
         {
             if (assemblySet.Assemblies.Count == 0)

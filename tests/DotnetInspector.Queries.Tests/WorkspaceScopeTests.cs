@@ -15,15 +15,40 @@ public sealed partial class WorkspaceScopeTests
     static DateTimeOffset Deadline => DateTimeOffset.UtcNow.AddMinutes(5);
 
     [Fact]
+    public void PackageVocabularyReplacesPreIssuanceGenericRootSurface()
+    {
+        Assembly assembly = typeof(WorkspaceScopeSnapshot).Assembly;
+        Assert.All(
+            [
+                "WorkspaceRootOccurrenceIdentity",
+                "WorkspaceRootDescriptor",
+                "WorkspaceRootOccurrence",
+                "WorkspaceRootOccurrenceDescriptor",
+                "WorkspaceRootKind",
+            ],
+            name => Assert.Null(assembly.GetType($"DotnetInspector.Queries.{name}")));
+        Assert.True(typeof(WorkspacePackageDescriptor).IsSealed);
+        Assert.Null(typeof(WorkspacePackageDescriptor).GetProperty("Kind"));
+        Assert.Null(typeof(WorkspaceScopeRevision).GetProperty("Roots"));
+        Assert.Null(typeof(WorkspaceScopeSnapshot).GetProperty("Roots"));
+        Assert.Null(typeof(WorkspaceScopeLimits).GetProperty("MaxRoots"));
+        Assert.Null(typeof(WorkspaceScopePreparationDescriptor).GetProperty("RequestedRootCount"));
+        Assert.DoesNotContain("RootCapacityExceeded", Enum.GetNames<WorkspaceScopeRejection>());
+        Assert.DoesNotContain(
+            typeof(InspectionWorkspace).GetMethods(),
+            method => method.Name is "AddRootsAsync" or "RemoveRootOccurrenceAsync");
+    }
+
+    [Fact]
     public async Task InitialScopeIsCompleteEmptyClosedAndWorkspaceExact()
     {
         await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
         WorkspaceScopeSnapshot initial = await Current(workspace);
         Assert.Same(workspace.Identity, initial.Revision.Workspace);
-        Assert.Empty(initial.Revision.Roots);
-        Assert.Empty(initial.Roots);
+        Assert.Empty(initial.Revision.Packages);
+        Assert.Empty(initial.Packages);
         Assert.Null(initial.Preparing);
-        Assert.Equal(64, initial.Revision.Limits.MaxRoots);
+        Assert.Equal(64, initial.Revision.Limits.MaxPackages);
         Assert.Equal(WorkspaceClosureState.ClosedBoundary, initial.Closure.State);
         Assert.Same(initial.Revision.Identity, initial.Closure.Revision);
         Assert.Same(initial, await Current(workspace));
@@ -44,19 +69,18 @@ public sealed partial class WorkspaceScopeTests
         Assert.NotSame(initial.Revision.Identity, current.Revision.Identity);
         Assert.NotSame(initial.PublicationBase, current.PublicationBase);
         Assert.NotSame(initial.Closure.Identity, current.Closure.Identity);
-        Assert.Empty(initial.Roots);
+        Assert.Empty(initial.Packages);
         Assert.Null(current.Preparing);
         Assert.Same(current, await Current(workspace));
-        Assert.All(current.Roots, row =>
+        Assert.All(current.Packages, row =>
         {
-            var package = Assert.IsType<WorkspaceRootDescriptor.Package>(row.Occurrence.Root);
-            Assert.Equal(WorkspaceRootKind.Package, package.Kind);
+            WorkspacePackageDescriptor package = row.Occurrence.Package;
             Assert.Equal("1.0.0", package.PackageVersion);
             Assert.Equal("net11.0", package.TargetFramework);
             Assert.Equal(package.PackageId.ToLowerInvariant(), package.Coordinate.PackageId);
             Assert.Equal(PackageCompileAssetSelectionStatus.Selected, package.SelectionStatus);
             Assert.Same(workspace.Identity, row.Occurrence.Identity.WorkspaceIdentity);
-            Assert.Same(row.Occurrence, current.Revision.Roots[current.Roots.IndexOf(row)]);
+            Assert.Same(row.Occurrence, current.Revision.Packages[current.Packages.IndexOf(row)]);
             Assert.Equal(row.Occurrence.Correspondence, row.Realization.Correspondence);
             Assert.IsType<ArtifactRootRealizationStatus.Ready>(row.Realization.Status);
         });
@@ -81,13 +105,13 @@ public sealed partial class WorkspaceScopeTests
         Assert.Equal(["Prior.Package"], Names(observed));
         Assert.NotNull(observed.Preparing);
         Assert.Equal(WorkspaceScopeOperationKind.Replace, observed.Preparing.Kind);
-        Assert.Equal(1, observed.Preparing.RequestedRootCount);
+        Assert.Equal(1, observed.Preparing.RequestedPackageCount);
         Assert.Equal(["Next.Package"], Names(replacement));
         Assert.Null(replacement.Preparing);
     }
 
     [Fact]
-    public async Task OneFailedRootPublishesNoSuccessfulPrefix()
+    public async Task OneFailedPackagePublishesNoSuccessfulPrefix()
     {
         await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
         WorkspaceScopeSnapshot prior = await Replace(workspace, Binding("Prior.Package"));
@@ -116,9 +140,9 @@ public sealed partial class WorkspaceScopeTests
             Binding("first.package", onOpen: () => duplicateReads++));
         Assert.Equal(0, duplicateReads);
         Assert.Equal(["First.Package", "Second.Package"], Names(first));
-        WorkspaceRootOccurrence a = first.Roots[0].Occurrence;
-        WorkspaceRootOccurrence b = first.Roots[1].Occurrence;
-        ArtifactRootGenerationReference generation = Ready(first.Roots[0]);
+        WorkspacePackageOccurrence a = first.Packages[0].Occurrence;
+        WorkspacePackageOccurrence b = first.Packages[1].Occurrence;
+        ArtifactRootGenerationReference generation = Ready(first.Packages[0]);
 
         WorkspaceScopeSnapshot reordered = Committed(await workspace.ReplaceScopeAsync(
             first.Revision,
@@ -127,15 +151,15 @@ public sealed partial class WorkspaceScopeTests
              Binding("Second.Package", onOpen: () => duplicateReads++)],
             Deadline, TestContext.Current.CancellationToken)).Snapshot;
         Assert.Equal(0, duplicateReads);
-        Assert.Same(b, reordered.Roots[0].Occurrence);
-        Assert.Same(a, reordered.Roots[1].Occurrence);
-        Assert.Same(generation, Ready(reordered.Roots[1]));
+        Assert.Same(b, reordered.Packages[0].Occurrence);
+        Assert.Same(a, reordered.Packages[1].Occurrence);
+        Assert.Same(generation, Ready(reordered.Packages[1]));
         Assert.NotSame(first.Revision.Identity, reordered.Revision.Identity);
         Assert.Equal(["First.Package", "Second.Package"], Names(first));
     }
 
     [Fact]
-    public async Task RemovedThenEqualReaddedRootGetsFreshOccurrence()
+    public async Task RemovedThenEqualReaddedPackageGetsFreshOccurrence()
     {
         await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
         WorkspaceScopeSnapshot first = await Replace(workspace, Binding("Same.Package"));
@@ -144,9 +168,9 @@ public sealed partial class WorkspaceScopeTests
                 first.Revision, [], Deadline, TestContext.Current.CancellationToken)).Snapshot;
         WorkspaceScopeSnapshot readded = Committed(await workspace.ReplaceScopeAsync(
             empty.Revision, [Binding("Same.Package")], Deadline, TestContext.Current.CancellationToken)).Snapshot;
-        Assert.Empty(empty.Roots);
-        Assert.Equal(first.Roots[0].Occurrence.Correspondence, readded.Roots[0].Occurrence.Correspondence);
-        Assert.NotSame(first.Roots[0].Occurrence.Identity, readded.Roots[0].Occurrence.Identity);
+        Assert.Empty(empty.Packages);
+        Assert.Equal(first.Packages[0].Occurrence.Correspondence, readded.Packages[0].Occurrence.Correspondence);
+        Assert.NotSame(first.Packages[0].Occurrence.Identity, readded.Packages[0].Occurrence.Identity);
         Assert.NotSame(first.Revision.Identity, readded.Revision.Identity);
     }
 
@@ -157,7 +181,7 @@ public sealed partial class WorkspaceScopeTests
         WorkspaceScopeSnapshot initial = await Current(workspace);
         var clear = Committed(await workspace.ClearScopeAsync(
             initial.Revision, Deadline, TestContext.Current.CancellationToken));
-        Assert.Empty(clear.Snapshot.Roots);
+        Assert.Empty(clear.Snapshot.Packages);
         Assert.Equal(WorkspaceScopeOperationKind.Clear, clear.Effect);
         Assert.Same(workspace.Identity, clear.Snapshot.Revision.Workspace);
         Assert.NotSame(initial.Revision.Identity, clear.Snapshot.Revision.Identity);
@@ -169,16 +193,16 @@ public sealed partial class WorkspaceScopeTests
     [Theory]
     [InlineData("README.md", PackageCompileAssetSelectionStatus.NoCompileAssets)]
     [InlineData("ref/net11.0/_._", PackageCompileAssetSelectionStatus.EmptyCompileGroup)]
-    public async Task RootOnlyAndExplicitEmptyRemainLogicalRoots(
+    public async Task RootOnlyAndExplicitEmptyRemainLogicalPackages(
         string entry, PackageCompileAssetSelectionStatus expected)
     {
         await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
         WorkspaceScopeSnapshot current = await Replace(workspace, Binding("Empty.Package", entry: entry));
-        var package = Assert.IsType<WorkspaceRootDescriptor.Package>(Assert.Single(current.Roots).Occurrence.Root);
+        WorkspacePackageDescriptor package = Assert.Single(current.Packages).Occurrence.Package;
         Assert.Equal(expected, package.SelectionStatus);
         Assert.Equal("Empty.Package", package.PackageId);
         Assert.Equal("net11.0", package.TargetFramework);
-        Assert.IsType<ArtifactRootRealizationStatus.Ready>(current.Roots[0].Realization.Status);
+        Assert.IsType<ArtifactRootRealizationStatus.Ready>(current.Packages[0].Realization.Status);
     }
 
     [Fact]
@@ -189,7 +213,7 @@ public sealed partial class WorkspaceScopeTests
         InspectionWorkspace.RootLifetime lifetime = Assert.Single(Lifetimes(workspace));
         using InspectionWorkspace.ArtifactRootQueryLease query = ArtifactAvailable(
             await workspace.EnterArtifactRootQueryAsync(workspace.Identity,
-                prior.Roots[0].Occurrence.Correspondence, Ready(prior.Roots[0]),
+                prior.Packages[0].Occurrence.Correspondence, Ready(prior.Packages[0]),
                 cancellationToken: TestContext.Current.CancellationToken));
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -209,7 +233,7 @@ public sealed partial class WorkspaceScopeTests
             Assert.NotNull((await Current(workspace)).Preparing);
             clear = Committed(await workspace.ClearScopeAsync(
                 prior.Revision, Deadline, TestContext.Current.CancellationToken));
-            Assert.Empty(clear.Snapshot.Roots);
+            Assert.Empty(clear.Snapshot.Packages);
             Assert.Null(clear.Snapshot.Preparing);
             Assert.Same(workspace.Identity, clear.Snapshot.Revision.Workspace);
             Assert.False(pending.IsCompleted);
@@ -340,7 +364,7 @@ public sealed partial class WorkspaceScopeTests
     [InlineData("foreign", WorkspaceScopeRejection.ForeignWorkspace)]
     [InlineData("malformed", WorkspaceScopeRejection.Malformed)]
     [InlineData("deadline", WorkspaceScopeRejection.DeadlineExpired)]
-    [InlineData("capacity", WorkspaceScopeRejection.RootCapacityExceeded)]
+    [InlineData("capacity", WorkspaceScopeRejection.PackageCapacityExceeded)]
     public async Task InvalidSubmissionsDoNotSupersedeAdmittedPreparation(
         string invalidKind, WorkspaceScopeRejection reason)
     {
@@ -360,16 +384,17 @@ public sealed partial class WorkspaceScopeTests
                 "foreign" => foreignSnapshot.Revision,
                 _ => prior.Revision,
             };
-            ImmutableArray<PackageRootBinding> roots = invalidKind switch
+            ImmutableArray<PackageRootBinding> packages = invalidKind switch
             {
                 "malformed" => default,
-                "capacity" => [.. Enumerable.Range(0, 65).Select(i => Binding($"Root.{i}", entry: "README.md"))],
+                "capacity" =>
+                    [.. Enumerable.Range(0, 65).Select(i => Binding($"Package.{i}", entry: "README.md"))],
                 _ => [],
             };
             DateTimeOffset deadline = invalidKind == "deadline"
                 ? DateTimeOffset.UtcNow.AddMinutes(-1) : Deadline;
             rejection = Assert.IsType<WorkspaceScopeOperationResult.Rejected>(
-                workspace.ReplaceScopeAsync(revision, roots, deadline, TestContext.Current.CancellationToken)
+                workspace.ReplaceScopeAsync(revision, packages, deadline, TestContext.Current.CancellationToken)
                     .AsTask().GetAwaiter().GetResult());
             Assert.Same(preparing, rejection.Snapshot.Preparing);
             Assert.Same(prior.Revision, rejection.Snapshot.Revision);
@@ -469,7 +494,7 @@ public sealed partial class WorkspaceScopeTests
                 [Binding("Deadline.Package", onOpen: () => time.Advance(TimeSpan.FromMinutes(10)))],
                 time.GetUtcNow().AddMinutes(5), TestContext.Current.CancellationToken));
         Assert.Same(initial.Revision, cancelled.Snapshot.Revision);
-        Assert.Empty(cancelled.Snapshot.Roots);
+        Assert.Empty(cancelled.Snapshot.Packages);
         Assert.Null(cancelled.Snapshot.Preparing);
         Assert.Same(cancelled.Snapshot, await Current(workspace));
     }
@@ -479,13 +504,13 @@ public sealed partial class WorkspaceScopeTests
     {
         await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
         WorkspaceScopeSnapshot ready = await Replace(workspace, Binding("A.Package"), Binding("B.Package"));
-        WorkspaceRootOccurrenceDescriptor a = ready.Roots[0];
+        WorkspacePackageOccurrenceDescriptor a = ready.Packages[0];
         ArtifactRootCompositionGenerationIdentity pendingEpoch = ArtifactAvailable(
             await workspace.RetireArtifactRootAsync(a.Occurrence.Correspondence, Ready(a)));
         WorkspaceScopeSnapshot pending = await Current(workspace);
         AssertRefresh(ready, pending, pendingEpoch);
-        Assert.IsType<ArtifactRootRealizationStatus.Pending>(pending.Roots[0].Realization.Status);
-        Assert.Same(ready.Roots[1].Realization, pending.Roots[1].Realization);
+        Assert.IsType<ArtifactRootRealizationStatus.Pending>(pending.Packages[0].Realization.Status);
+        Assert.Same(ready.Packages[1].Realization, pending.Packages[1].Realization);
         Assert.Same(pendingEpoch, ArtifactAvailable(
             await workspace.GetCurrentArtifactRootCompositionGenerationAsync(workspace.Identity)));
 
@@ -495,7 +520,7 @@ public sealed partial class WorkspaceScopeTests
         WorkspaceScopeSnapshot failed = await Current(workspace);
         AssertRefresh(pending, failed, failedEpoch);
         Assert.Equal(ArtifactRootFailure.PreparationFailed,
-            Assert.IsType<ArtifactRootRealizationStatus.Failed>(failed.Roots[0].Realization.Status).Failure);
+            Assert.IsType<ArtifactRootRealizationStatus.Failed>(failed.Packages[0].Realization.Status).Failure);
         Assert.Same(failedEpoch, ArtifactAvailable(
             await workspace.GetCurrentArtifactRootCompositionGenerationAsync(workspace.Identity)));
 
@@ -507,7 +532,7 @@ public sealed partial class WorkspaceScopeTests
             await workspace.SettleArtifactRootReplacementAsync(authority, receipt, failedEpoch));
         WorkspaceScopeSnapshot replaced = await Current(workspace);
         AssertRefresh(failed, replaced, settlement.Composition);
-        Assert.NotSame(Ready(ready.Roots[0]), Ready(replaced.Roots[0]));
+        Assert.NotSame(Ready(ready.Packages[0]), Ready(replaced.Packages[0]));
         Assert.Same(replaced, await Current(workspace));
     }
 
@@ -521,8 +546,8 @@ public sealed partial class WorkspaceScopeTests
         PackageRootBinding next = Binding("B.Package", onOpen: () =>
         {
             preparing = Current(workspace).GetAwaiter().GetResult().Preparing;
-            ArtifactAvailable(workspace.RetireArtifactRootAsync(initial.Roots[0].Occurrence.Correspondence,
-                Ready(initial.Roots[0])).AsTask().GetAwaiter().GetResult());
+            ArtifactAvailable(workspace.RetireArtifactRootAsync(initial.Packages[0].Occurrence.Correspondence,
+                Ready(initial.Packages[0])).AsTask().GetAwaiter().GetResult());
             refreshed = Current(workspace).GetAwaiter().GetResult();
         });
         var failed = Assert.IsType<WorkspaceScopeOperationResult.Failed>(
@@ -532,7 +557,7 @@ public sealed partial class WorkspaceScopeTests
         Assert.NotNull(preparing);
         Assert.Same(preparing, refreshed.Preparing);
         Assert.Same(initial.Revision, refreshed.Revision);
-        Assert.IsType<ArtifactRootRealizationStatus.Pending>(refreshed.Roots[0].Realization.Status);
+        Assert.IsType<ArtifactRootRealizationStatus.Pending>(refreshed.Packages[0].Realization.Status);
         Assert.Equal(ArtifactRootFailure.CompositionMismatch, failed.Failure);
         Assert.Same(initial.Revision, failed.Snapshot.Revision);
         Assert.Same(refreshed.PhysicalComposition, failed.Snapshot.PhysicalComposition);
@@ -541,17 +566,17 @@ public sealed partial class WorkspaceScopeTests
     }
 
     [Fact]
-    public async Task ExplicitReplaceCanPrepareANonReadyCorrespondingRootWithoutChangingItsOccurrence()
+    public async Task ExplicitReplaceCanPrepareANonReadyCorrespondingPackageWithoutChangingItsOccurrence()
     {
         await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
         WorkspaceScopeSnapshot first = await Replace(workspace, Binding("Same.Package"));
-        WorkspaceRootOccurrenceDescriptor row = first.Roots[0];
+        WorkspacePackageOccurrenceDescriptor row = first.Packages[0];
         ArtifactAvailable(await workspace.RetireArtifactRootAsync(row.Occurrence.Correspondence, Ready(row)));
         WorkspaceScopeSnapshot pending = await Current(workspace);
         var replaced = Committed(await workspace.ReplaceScopeAsync(
             pending.Revision, [Binding("Same.Package")], Deadline, TestContext.Current.CancellationToken));
-        Assert.Same(row.Occurrence, replaced.Snapshot.Roots[0].Occurrence);
-        Assert.NotSame(Ready(row), Ready(replaced.Snapshot.Roots[0]));
+        Assert.Same(row.Occurrence, replaced.Snapshot.Packages[0].Occurrence);
+        Assert.NotSame(Ready(row), Ready(replaced.Snapshot.Packages[0]));
         Assert.NotSame(first.Revision.Identity, replaced.Snapshot.Revision.Identity);
         Assert.Same(replaced.Snapshot, await Current(workspace));
     }
@@ -563,7 +588,7 @@ public sealed partial class WorkspaceScopeTests
         WorkspaceScopeSnapshot prior = await Replace(workspace, Binding("Prior.Package"));
         using InspectionWorkspace.ArtifactRootQueryLease query = ArtifactAvailable(
             await workspace.EnterArtifactRootQueryAsync(workspace.Identity,
-                prior.Roots[0].Occurrence.Correspondence, Ready(prior.Roots[0]),
+                prior.Packages[0].Occurrence.Correspondence, Ready(prior.Packages[0]),
                 cancellationToken: TestContext.Current.CancellationToken));
         Task<InspectionWorkspaceCloseReport> close = workspace.CloseAsync();
         try
@@ -677,14 +702,16 @@ public sealed partial class WorkspaceScopeTests
         Assert.Same(epoch, current.PhysicalComposition);
         Assert.NotSame(previous.PublicationBase, current.PublicationBase);
         Assert.NotSame(previous.Closure.Identity, current.Closure.Identity);
-        Assert.Equal(previous.Roots.Select(row => row.Occurrence), current.Roots.Select(row => row.Occurrence));
+        Assert.Equal(
+            previous.Packages.Select(row => row.Occurrence),
+            current.Packages.Select(row => row.Occurrence));
         Assert.Equal(WorkspaceClosureState.ClosedBoundary, current.Closure.State);
     }
 
     static string[] Names(WorkspaceScopeSnapshot snapshot) =>
-        [.. snapshot.Roots.Select(row => Assert.IsType<WorkspaceRootDescriptor.Package>(row.Occurrence.Root).PackageId)];
+        [.. snapshot.Packages.Select(row => row.Occurrence.Package.PackageId)];
 
-    static ArtifactRootGenerationReference Ready(WorkspaceRootOccurrenceDescriptor row) =>
+    static ArtifactRootGenerationReference Ready(WorkspacePackageOccurrenceDescriptor row) =>
         Assert.IsType<ArtifactRootRealizationStatus.Ready>(row.Realization.Status).Generation;
 
     static T ArtifactAvailable<T>(ArtifactRootResult<T> result) =>
