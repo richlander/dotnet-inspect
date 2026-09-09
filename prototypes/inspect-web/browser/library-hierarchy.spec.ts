@@ -102,6 +102,7 @@ async function installFacades(
   references: "ready" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
+  analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
 ) {
   const common = "export async function initializeRuntime() {}";
   const surfaceLookup = `
@@ -302,6 +303,60 @@ async function installFacades(
         const selected = surface.assemblies.find(item => item.name + ".dll" === file);
         if (!selected) throw new Error("Unknown platform library: " + file);
         return queryPackageOpportunities(surface.package, version, framework, selected.id);
+      }
+      export async function queryPackagePerformance(id, version, framework, asset) {
+        document.documentElement.dataset.analysisRequest = asset;
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        const selectedType = surface.types.find(item => item.assemblyId === selected.id);
+        if (!selectedType) throw new Error("Library has no projected type: " + asset);
+        const scenario = ${JSON.stringify(analysis)};
+        if (scenario === "deferred") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-analysis-ready:" + asset, resolve, { once: true }));
+        }
+        if (scenario === "query-error") throw new Error("Analysis query unavailable.");
+        const member = (memberName, opportunityCount, inLoopCount, shapes, confidence) => ({
+          assembly: selected.name + ".dll",
+          typeId: selectedType.definitionId,
+          memberName,
+          stableSelector: "Run",
+          bodyTokens: [100663297],
+          opportunityCount,
+          inLoopCount,
+          shapes,
+          confidence
+        });
+        const members = scenario === "empty" || scenario === "partial-empty" ? [] : [
+          member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
+          member("Write", 1, 0, ["array-allocation"], "medium")
+        ];
+        if (scenario === "long") {
+          members.splice(0, members.length, ...Array.from({ length: 80 }, (_, index) =>
+            member(
+              "LongPerformanceMember".repeat(12) + index,
+              index + 1,
+              index % 3,
+              ["LongAllocationShape".repeat(12), "loop-carried-allocation"],
+              index % 2 ? "medium" : "high")));
+        }
+        const partial = scenario.startsWith("partial");
+        return {
+          members,
+          inspectionError: partial ? "A method body could not be analyzed." : null,
+          nonPublicOpportunities: 2,
+          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0) + 2,
+          compileLibrary: surface.compileLibrary
+        };
+      }
+      export async function queryPlatformPerformance(framework, version, file, pack) {
+        document.documentElement.dataset.platformAnalysisRequest = file + ":" + pack;
+        const surface = surfaceFor("Microsoft.NETCore.App");
+        const selected = surface.assemblies.find(item => item.name + ".dll" === file);
+        if (!selected) throw new Error("Unknown platform library: " + file);
+        return JSON.stringify(
+          await queryPackagePerformance(surface.package, version, framework, selected.id));
       }`,
     source: "",
     "call-graph": "",
@@ -580,6 +635,162 @@ async function openOpportunities(page: Page, location = root) {
   await expect(page.locator('[data-library-lens="opportunities"]'))
     .toHaveAttribute("aria-selected", "true");
 }
+
+async function openAnalysis(page: Page, location = root) {
+  await page.goto(location);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.locator('[data-library-lens="analysis"]')
+    .evaluate((element: HTMLElement) => element.click());
+  await expect(page.locator('[data-library-lens="analysis"]'))
+    .toHaveAttribute("aria-selected", "true");
+}
+
+for (const width of [1440, 390]) {
+  test(`production Analysis retains selected Library results at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await openAnalysis(page);
+    const frame = page.locator(".library-analysis-surface");
+    await expect(frame.locator(".perf-row")).toHaveCount(2);
+    await expect(frame.locator("header")).toContainText("2 public members");
+    await expect(frame.locator("header")).toContainText("6 opportunities");
+    await expect(frame.locator("header")).toContainText("2 non-public");
+    await expect(frame.locator("footer")).toContainText(core.asset);
+    await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
+    await expect(page.locator("html")).toHaveAttribute("data-analysis-request", "asset:core");
+    await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
+    const panelBox = await page.locator("#inspector-panel").boundingBox();
+    const frameBox = await frame.boundingBox();
+    const rowBox = await frame.locator(".perf-row").first().boundingBox();
+    expect(Math.abs(frameBox!.height - panelBox!.height)).toBeLessThanOrEqual(2);
+    expect(Math.abs(frameBox!.width - panelBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(rowBox!.width - frameBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(rowBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath("analysis-after.png") });
+    if (width === 390) {
+      const back = page.getByRole("button", { name: "Types", exact: true });
+      await back.click();
+      await expect(page.locator("#type-list")).toBeFocused();
+      await page.getByRole("button", { name: "Show details", exact: true }).click();
+      await expect(back).toBeFocused();
+      await expect(frame).toBeVisible();
+    }
+  });
+
+  test(`production Analysis contains long fields and keeps its frame while scrolling at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const longCore = library(core.id, "Example." + "LongLibraryName".repeat(25), 1);
+    await installFacades(page, {
+      ...surface, assemblies: [longCore], types: [type("Example.Widget", longCore)], totalMembers: 1,
+    }, [], "ready", "ready", "ready", "long");
+    await openAnalysis(page);
+    const frame = page.locator(".library-analysis-surface");
+    await expect(frame.locator(".perf-row")).toHaveCount(80);
+    const header = await frame.locator("header").boundingBox();
+    const footer = await frame.locator("footer").boundingBox();
+    const scroll = frame.locator(".library-analysis-scroll");
+    const geometry = await scroll.evaluate(element => ({
+      width: element.clientWidth, scrollWidth: element.scrollWidth,
+      height: element.clientHeight, scrollHeight: element.scrollHeight,
+      pageWidth: document.documentElement.clientWidth,
+      pageScrollWidth: document.documentElement.scrollWidth,
+    }));
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
+    expect(geometry.pageScrollWidth).toBeLessThanOrEqual(geometry.pageWidth + 1);
+    expect(geometry.scrollHeight).toBeGreaterThan(geometry.height);
+    await scroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await expect(frame.locator(".perf-row").last()).toBeInViewport();
+    expect(await frame.locator("header").boundingBox()).toEqual(header);
+    expect(await frame.locator("footer").boundingBox()).toEqual(footer);
+  });
+
+  for (const scenario of ["empty", "partial", "partial-empty", "query-error"] as const) {
+    test(`production Analysis retains its ${scenario} state at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installFacades(
+        page,
+        surface,
+        [],
+        "ready",
+        "ready",
+        "ready",
+        scenario);
+      await openAnalysis(page);
+      const frame = page.locator(".library-analysis-surface");
+      if (scenario === "partial") {
+        await expect(frame.locator(".perf-row")).toHaveCount(2);
+        await expect(frame.locator("header")).toContainText("partial");
+      } else {
+        await expect(frame.locator("h2")).toHaveText(scenario === "empty"
+          ? "No public allocation hot spots" : scenario === "partial-empty"
+            ? "Analysis incomplete" : "Analysis failed");
+        await expect(frame.locator(".perf-row")).toHaveCount(0);
+      }
+      if (scenario.startsWith("partial")) {
+        await expect(frame).toContainText("A method body could not be analyzed.");
+        await expect(frame).not.toContainText("No public allocation hot spots");
+      }
+      await expect(frame.locator("footer")).toBeInViewport();
+    });
+  }
+
+  test(`production Analysis keeps platform Library selection outside the scroller at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const platform = {
+      ...surface, package: "Microsoft.NETCore.App",
+      assemblies: surface.assemblies.map(item => ({ ...item, platformPack: "netcore.app" })),
+    };
+    await installFacades(page, platform);
+    await openAnalysis(page, root.replace("Example.Package", platform.package));
+    const frame = page.locator(".library-analysis-surface");
+    await expect(frame.locator(".perf-row")).toHaveCount(2);
+    const picker = frame.locator(".library-analysis-controls select");
+    await expect(picker).toBeVisible();
+    await expect(picker).toHaveValue(core.name);
+    await picker.selectOption(other.name);
+    await expect(frame.locator("footer")).toContainText(other.asset);
+    await expect(page.locator("html"))
+      .toHaveAttribute("data-platform-analysis-request", "Example.Other.dll:netcore.app");
+    const controls = await frame.locator(".library-analysis-controls").boundingBox();
+    const content = await frame.locator(".library-analysis-scroll").boundingBox();
+    expect(controls!.y + controls!.height).toBeLessThanOrEqual(content!.y + 1);
+  });
+}
+
+test("production Analysis rows open the exact ranked member", async ({ page }) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await expect(page.locator('[data-scope="member"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel")).toContainText("Runs the widget.");
+});
+
+test("production Analysis keeps deferred Library results out of the incoming analysis", async ({ page }) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    "ready",
+    "deferred");
+  await openAnalysis(page);
+  await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
+  await expect(page.locator(".library-analysis-surface footer")).toContainText(core.asset);
+  await page.evaluate(() => document.dispatchEvent(new Event("fixture-analysis-ready:asset:core")));
+  await expect(page.locator(".library-analysis-scroll .perf-row")).toHaveCount(2);
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await page.locator('[data-library-lens="analysis"]')
+    .evaluate((element: HTMLElement) => element.click());
+  await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
+  await expect(page.locator(".library-analysis-surface footer")).toContainText(other.asset);
+  await expect(page.locator(".library-analysis-surface")).not.toContainText(core.name);
+  await page.evaluate(() => document.dispatchEvent(new Event("fixture-analysis-ready:asset:other")));
+  await expect(page.locator(".library-analysis-scroll .perf-name").first())
+    .toContainText("Neighbor.Run");
+});
 
 for (const width of [1440, 390]) {
   test(`production Opportunities retains selected Library results at ${width}px`, async ({ page }, testInfo) => {
