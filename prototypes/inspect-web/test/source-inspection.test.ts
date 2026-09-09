@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   createSourceInspectionCoordinator,
+  graphSourceAutoLoadRequest,
   type SourceInspectionDependencies,
   type SourceInspectionState,
 } from "../src/source-inspection.ts";
@@ -62,7 +63,6 @@ function inspectionState(
     error: "",
     home: false,
     package: {},
-    graphSourceOpen: false,
     atPackageRoot: false,
     lens: "api",
     selectedMemberKey: "method:Build",
@@ -76,12 +76,7 @@ function inspectionState(
     typeSourceLoading: false,
     typeSourceError: "",
     typeSourceKey: "",
-    graphSource: null,
-    graphSourceLoading: false,
-    graphSourceError: "",
-    graphSourceTitle: "",
-    graphSourceRequest: null,
-    graphSourceSeq: 0,
+    graphSource: { status: "closed" },
     taste: [],
     ...overrides,
   };
@@ -248,11 +243,12 @@ test("canonical commit clears a settled graph source without rendering", () => {
     metadataToken: 42,
   };
   const state = inspectionState({
-    graphSourceOpen: true,
-    graphSource: source("old workspace"),
-    graphSourceTitle: "Old workspace",
-    graphSourceRequest: { request, title: "Old workspace" },
-    graphSourceSeq: 4,
+    graphSource: {
+      status: "ready",
+      request,
+      title: "Old workspace",
+      source: source("old workspace"),
+    },
   });
   const coordinator = createSourceInspectionCoordinator(
     inspectionDependencies(state, {
@@ -261,10 +257,7 @@ test("canonical commit clears a settled graph source without rendering", () => {
 
   coordinator.clearGraphSource();
 
-  assert.equal(state.graphSourceOpen, false);
-  assert.equal(state.graphSource, null);
-  assert.equal(state.graphSourceRequest, null);
-  assert.equal(state.graphSourceSeq, 5);
+  assert.deepEqual(state.graphSource, { status: "closed" });
   assert.equal(renders, 0);
 });
 
@@ -662,20 +655,16 @@ test("closing graph source invalidates its result and cancels the engine", async
   };
 
   const load = coordinator.openGraphSource(request, "Example.Widget.Build");
-  assert.equal(state.graphSourceOpen, true);
-  assert.equal(state.graphSourceSeq, 1);
-  assert.deepEqual(state.graphSourceRequest, {
+  assert.deepEqual(state.graphSource, {
+    status: "loading",
     request,
     title: "Example.Widget.Build",
   });
   coordinator.closeGraphSource();
-  assert.equal(state.graphSourceSeq, 3);
   query.resolve(source("stale graph"));
   await load;
 
-  assert.equal(state.graphSourceOpen, false);
-  assert.equal(state.graphSource, null);
-  assert.equal(state.graphSourceRequest, null);
+  assert.deepEqual(state.graphSource, { status: "closed" });
   assert.deepEqual(events, [
     "render",
     "query:Build/[\"expression-bodied-members\"]",
@@ -706,7 +695,108 @@ test("current graph source failures settle as visible errors", async () => {
     metadataToken: 42,
   }, "Example.Widget.Build");
 
-  assert.equal(state.graphSourceError, "graph source unavailable");
-  assert.equal(state.graphSourceLoading, false);
+  assert.deepEqual(state.graphSource, {
+    status: "failed",
+    request: {
+      packageId: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+      assembly: "Example.Package",
+      type: "Example.Widget",
+      member: "Build",
+      selectorKey: "method",
+      metadataToken: 42,
+    },
+    title: "Example.Widget.Build",
+    error: "graph source unavailable",
+  });
   assert.equal(renders, 2);
+});
+
+test("empty graph source failure settles without automatic reload", async () => {
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryGraphSource: async () => {
+        throw new Error("");
+      },
+    }));
+  const request = {
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+  };
+
+  await coordinator.openGraphSource(request, "Example.Widget.Build");
+
+  assert.deepEqual(state.graphSource, {
+    status: "failed",
+    request,
+    title: "Example.Widget.Build",
+    error: "",
+  });
+  assert.equal(graphSourceAutoLoadRequest(state.graphSource), null);
+});
+
+test("cancelled graph source retains the sole automatic reload request", async () => {
+  const query = deferred<BrowserSource>();
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryGraphSource: async () => query.promise,
+    }));
+  const request = {
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+  };
+
+  const load = coordinator.openGraphSource(request, "Example.Widget.Build");
+  assert.equal(coordinator.cancelCurrentRequest(), true);
+  assert.equal(state.sourceRequestGeneration, 2);
+  assert.deepEqual(graphSourceAutoLoadRequest(state.graphSource), {
+    request,
+    title: "Example.Widget.Build",
+  });
+  query.resolve(source("stale graph"));
+  await load;
+  assert.equal(state.graphSource.status, "cancelled");
+});
+
+test("missing graph source payload settles without automatic reload", async () => {
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryGraphSource: async () => null,
+    }));
+  const request = {
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+  };
+
+  await coordinator.openGraphSource(request, "Example.Widget.Build");
+
+  assert.deepEqual(state.graphSource, {
+    status: "failed",
+    request,
+    title: "Example.Widget.Build",
+    error: "",
+  });
+  assert.equal(graphSourceAutoLoadRequest(state.graphSource), null);
 });
