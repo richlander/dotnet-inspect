@@ -297,6 +297,7 @@ public static class MemberOptionsParser
         Option<bool> NoHeaderOption,
         Option<bool> UnsafeOption,
         Option<int?> IndexOption,
+        Option<string?> ShareOption,
         Option<string[]> KindOption,
         Option<string[]> BinOption,
         Option<string[]> ProjectOption,
@@ -589,6 +590,13 @@ public static class MemberOptionsParser
         if (mermaidError is not null)
             return new VersionError(mermaidError.Value);
         var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
+        MemberShareFormat? shareFormat =
+            parseResult.GetValue(args.ShareOption)?.ToLowerInvariant() switch
+            {
+                "packet" => MemberShareFormat.Packet,
+                "url" => MemberShareFormat.Url,
+                _ => null,
+            };
 
         var outputFormat = opts.ResolveFormat(parseResult);
         var options = new MemberOptions
@@ -639,6 +647,11 @@ public static class MemberOptionsParser
             OverloadIndex = explicitIndex ?? shorthandIndex,
             OverloadIndexExplicitlySet =
                 parseResult.GetResult(args.IndexOption) is { Implicit: false },
+            LegacyUrlModeExplicitlySet =
+                parseResult.GetResult(opts.RawUrls) is { Implicit: false }
+                || parseResult.GetResult(opts.BrowsableUrls)
+                    is { Implicit: false },
+            ShareFormat = shareFormat,
             MemberDigest = memberDigest,
             MemberGenericArity = memberGenericArity,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
