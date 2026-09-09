@@ -4054,7 +4054,8 @@ public sealed partial class CSharpPrinter
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
             left => left is LoadIndirect load && SameLValue(load.Address, s.Address),
-            IndirectStoreType(s.Address, s.Type)),
+            IndirectStoreType(s.Address, s.Type),
+            parenthesizeIncrementTarget: RendersAsPointerDeref(s.Address)),
         // default-initialization of a named place spells through the place,
         // not its address.
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
@@ -6095,14 +6096,20 @@ public sealed partial class CSharpPrinter
         string target,
         IrExpression value,
         Func<IrExpression, bool> readsTarget,
-        TypeRef? targetType = null)
+        TypeRef? targetType = null,
+        bool parenthesizeIncrementTarget = false)
     {
         if (value is Binary binary && readsTarget(binary.Left))
         {
             // A compound assignment only forms when the value reads the target
             // in same-type arithmetic, so the result already matches the target
             // — no conversion is involved on this path.
-            string statement = CompoundStatement(target, binary, targetType, out bool isIncrement);
+            string statement = CompoundStatement(
+                target,
+                binary,
+                targetType,
+                parenthesizeIncrementTarget,
+                out bool isIncrement);
             _printedRangeMetadata?.SetNodeKind(
                 owner,
                 binary.IsChecked
@@ -6129,9 +6136,13 @@ public sealed partial class CSharpPrinter
         string target,
         Binary binary,
         TypeRef? targetType,
+        bool parenthesizeIncrementTarget,
         out bool isIncrement)
     {
         isIncrement = false;
+        string incrementTarget = parenthesizeIncrementTarget
+            ? $"({target})"
+            : target;
         if (targetType is { Kind: TypeRefKind.Pointer, ElementType: { } pointerElement }
             && binary.Kind is BinaryKind.Add or BinaryKind.Subtract)
         {
@@ -6140,7 +6151,7 @@ public sealed partial class CSharpPrinter
                 if (pointerIndex is Constant { Value: 1 })
                 {
                     isIncrement = true;
-                    return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+                    return $"{incrementTarget}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
                 }
                 return $"{target} {BinaryOperator(binary)}= {Expression(pointerIndex)};";
             }
@@ -6149,7 +6160,7 @@ public sealed partial class CSharpPrinter
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
         {
             isIncrement = true;
-            return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+            return $"{incrementTarget}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
         }
         // The compound runs in the lvalue's type. Prefer the resolved store type
         // (`targetType`) over `binary.Left.ResultType`: an indirect store reads its
