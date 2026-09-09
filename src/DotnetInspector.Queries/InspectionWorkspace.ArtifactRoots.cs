@@ -361,6 +361,15 @@ public sealed partial class InspectionWorkspace
         return root.Released.Task;
     }
 
+    void CloseArtifactRootGroupAdmission()
+    {
+        foreach (RootLifetime root in _rootLifetimes)
+        {
+            foreach (AssemblyContextGroup group in DependentGroups(root.Resources.Realization))
+                group.CloseAdmissionFromWorkspace(captureFailure: true);
+        }
+    }
+
     ArtifactRootFailure? RootWorkspaceFailure(InspectionWorkspaceIdentity workspace) =>
         !ReferenceEquals(workspace, _identity) ? ArtifactRootFailure.ForeignWorkspace
         : _state == InspectionWorkspaceState.Closing ? ArtifactRootFailure.WorkspaceClosing

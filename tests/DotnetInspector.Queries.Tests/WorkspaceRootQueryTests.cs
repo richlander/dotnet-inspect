@@ -394,15 +394,16 @@ public sealed class WorkspaceRootQueryTests
         {
             WorkspaceScopeSnapshot scope = await Replace(workspace, Binding("Closing.Package"));
             WorkspaceRootOccurrenceDescriptor root = scope.Roots[0];
-            Task<ArtifactRootResult<AssemblyContextResult<AssemblyTypeInventory>>> operation =
-                workspace.ExecutePackageRootQueryAsync<AssemblyContextResult<AssemblyTypeInventory>>(
+            Task<ArtifactRootResult<bool>> operation =
+                workspace.ExecutePackageRootQueryAsync(
                     Correspondence(root), Ready(root), async (realization, token) =>
                     {
-                        AssemblyContextResult<AssemblyTypeInventory> inventory =
-                            AssemblyContextTypeInventoryQuery.Execute(realization.SurfaceGroup);
                         entered.TrySetResult();
                         await resume.Task.WaitAsync(WaitLimit, token);
-                        return inventory;
+                        Assert.Throws<ObjectDisposedException>(
+                            () => AssemblyContextTypeInventoryQuery.Execute(
+                                realization.SurfaceGroup));
+                        return true;
                     }, cancellationToken: TestCancellation).AsTask();
             Task<InspectionWorkspaceCloseReport> closing;
             try
@@ -415,7 +416,7 @@ public sealed class WorkspaceRootQueryTests
             }
             finally { resume.TrySetResult(); }
 
-            Inventory(Available(await operation.WaitAsync(WaitLimit, TestCancellation)), "Closing.Package");
+            Assert.True(Available(await operation.WaitAsync(WaitLimit, TestCancellation)));
             Assert.Empty((await closing.WaitAsync(WaitLimit, TestCancellation)).ArtifactSessionCleanupFailures);
             await Reject(ArtifactRootFailure.WorkspaceClosed);
 
