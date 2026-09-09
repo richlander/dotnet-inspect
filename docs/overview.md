@@ -79,6 +79,11 @@ substrates, and inspection producers that will extend that space.
   package dependency routes without mutating a sealed assembly-context group.
   The source query owns a Decompiler fallback over retained assembly content;
   the
+  [authored project dependency facts](design/authored-project-dependency-facts.md)
+  owner projects bounded exact project XML into literal target observations,
+  package declarations, target-condition association, and typed incomplete
+  evidence without evaluating MSBuild;
+  the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
   owns an explicit two-endpoint attempt over one resolved member. The proposed
