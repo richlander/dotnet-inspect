@@ -37,12 +37,7 @@ public static class ProjectCommandDefinitions
         {
             Description = "With --readme, print only content after YAML frontmatter"
         };
-        var outOption = new Option<string?>("--out")
-        {
-            Description = "Write output to file instead of stdout"
-        };
-        outOption.Aliases.Add("--output");
-        outOption.Aliases.Add("-o");
+        var outOption = SharedOptions.CreateOutputPathOption();
 
         projectCommand.Arguments.Add(pathArg);
         projectCommand.Options.Add(agentsIndexOption);

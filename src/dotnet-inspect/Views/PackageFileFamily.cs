@@ -49,9 +49,6 @@ public static class PackageFileFamily
 
     public static bool IsFamilySection(string? section) => PredicateFor(section) is not null;
 
-    static bool HasRoot(PackageFile file, string root)
-        => file.Path.StartsWith(root, StringComparison.OrdinalIgnoreCase);
-
     static bool HasExtension(PackageFile file, string extension)
         => file.Path.EndsWith(extension, StringComparison.OrdinalIgnoreCase);
 
@@ -60,7 +57,13 @@ public static class PackageFileFamily
     /// command's skill discovery uses.
     /// </summary>
     public static bool IsSkillDocument(PackageFile file)
-        => HasRoot(file, "skills/")
-           && (file.Path.EndsWith("/SKILL.md", StringComparison.OrdinalIgnoreCase)
-               || file.Path.Equals("skills/SKILL.md", StringComparison.OrdinalIgnoreCase));
+        => IsSkillDocumentPath(file.Path);
+
+    public static bool IsSkillDocumentPath(string path)
+    {
+        path = path.Replace('\\', '/');
+        return path.StartsWith("skills/", StringComparison.OrdinalIgnoreCase)
+               && (path.EndsWith("/SKILL.md", StringComparison.OrdinalIgnoreCase)
+                   || path.Equals("skills/SKILL.md", StringComparison.OrdinalIgnoreCase));
+    }
 }
