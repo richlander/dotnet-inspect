@@ -2053,6 +2053,26 @@ Definition records and product demos (this slice):
   `Encode_RejectsEmptyFilePathWithoutStackTrace` and
   `Encode_InvalidFilePathDoesNotPrintStackTrace` gate contained file-input
   diagnostics across platform path rules;
+- CLI `member --share packet|url` projects one explicitly selected public
+  package member through `WorkspaceSharePacketTransposer`. The first slice
+  requires a NuGet.org producer receipt, exact package version and framework,
+  one Browser-visible package library, and a package-unique structured type
+  identity. It emits the API lens, exact Browser Type and Library compatibility
+  keys, the `ApiMemberIdentity` anchor fingerprint, and no section so Browser
+  restoration selects member Overview. Selection by `Name:N`, `Name~digest`,
+  or `--index N` is mandatory; a lone matching overload does not imply portable
+  intent. Platform, project, local package, private-feed, non-public, ambiguous
+  assembly-qualified type, section, analysis, source, caller-scope, and other
+  output modes fail visibly before packet emission. The projection runs after
+  exact overload resolution and before documentation, PDB, source, decompiler,
+  or analysis enrichment.
+  `MemberShare_PacketProjectsExactPackageMember`,
+  `MemberShare_UrlWrapsCanonicalPacket`,
+  `MemberShare_NeighboringOverloadsHaveDistinctAnchors`,
+  `MemberShare_RequiresExactMemberBeforeAcquisition`,
+  `MemberShare_RejectsPlatformSource`,
+  `MemberShare_RejectsLocalPackage`, and
+  `MemberShare_RejectsConflictingModes` gate the production boundary;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;

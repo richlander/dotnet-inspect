@@ -322,6 +322,12 @@ public record TypeOptions : ApiOptions
     public override bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || NoHeader || ShapeOutput || Count;
 }
 
+public enum MemberShareFormat
+{
+    Packet,
+    Url,
+}
+
 /// <summary>
 /// Options specific to the member command.
 /// </summary>
@@ -330,6 +336,8 @@ public record MemberOptions : ApiOptions
     internal bool RouterDeferredTypeOrMember { get; init; }
     internal string[] RouterDeferredTypeMemberValues { get; init; } = [];
     internal bool OverloadIndexExplicitlySet { get; init; }
+    internal bool LegacyUrlModeExplicitlySet { get; init; }
+    public MemberShareFormat? ShareFormat { get; init; }
 
     /// <summary>
     /// True when <see cref="ApiOptions.IncludeSections"/> was supplied before the command
@@ -414,7 +422,8 @@ public record MemberOptions : ApiOptions
         || CallerScopePackages.Length > 0;
 
     /// <inheritdoc/>
-    public override bool IsRawOutput => base.IsRawOutput || Tree || MermaidOutput;
+    public override bool IsRawOutput =>
+        base.IsRawOutput || Tree || MermaidOutput || ShareFormat is not null;
 }
 
 /// <summary>
