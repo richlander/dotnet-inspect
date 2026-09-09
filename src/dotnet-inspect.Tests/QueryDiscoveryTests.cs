@@ -82,6 +82,44 @@ public class QueryDiscoveryTests
     }
 
     [Theory]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task CloneCandidates_ExposesBreadthAndDiscovery(string command)
+    {
+        var result = await Run(command, "-Q", SectionNames.CloneCandidates, "--json");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement section = Assert.Single(
+            json.RootElement.GetProperty("sections").EnumerateArray());
+        Assert.Equal(
+            "Query: " + SectionNames.CloneCandidates,
+            section.GetProperty("query_section").GetString());
+        JsonElement[] facets =
+            [.. section.GetProperty("facets").EnumerateArray()];
+        Assert.Equal(["Breadth", "Discovery"],
+            facets.Select(facet => facet.GetProperty("name").GetString()));
+        Assert.Equal(
+            ["Self", "SelfAndRegisteredEcosystems", "Everything"],
+            facets[0].GetProperty("values").EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            ["SimilarNames", "All"],
+            facets[1].GetProperty("values").EnumerateArray()
+                .Select(value => value.GetString()));
+
+        var companion = await Run(
+            command,
+            "-S",
+            "Query: " + SectionNames.CloneCandidates,
+            "--json");
+        Assert.Equal(0, companion.ExitCode);
+        Assert.Equal(result.Output, companion.Output);
+    }
+
+    [Theory]
     [InlineData("@Performance")]
     [InlineData("Performance Triage")]
     [InlineData("Performance:*")]
@@ -354,7 +392,7 @@ public class QueryDiscoveryTests
         Assert.Equal("2", result.Output.Trim());
         var bare = await Run("type", "-Q", "--count");
         Assert.Equal(0, bare.ExitCode);
-        Assert.Equal("3", bare.Output.Trim());
+        Assert.Equal("4", bare.Output.Trim());
     }
 
     [Fact]

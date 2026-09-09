@@ -303,6 +303,12 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging contract accepted workload installation without the daily feed.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
+            "            --configfile \"$nuget_config\" \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted publish restore without its mapped cohort feeds.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
             "            -p:PublishReadyToRun=false \\\n",
             "",
             ValidateCoreClrStaging,
@@ -1444,12 +1450,36 @@ internal static class PromotionWorkflowContract
         const string ExpectedPublish =
             """
             rm -rf artifacts/inspect-web-coreclr-publish artifacts/inspect-web-runtime-async-receipts
+            nuget_config="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config"
+            cat > "$nuget_config" <<EOF
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="dotnet-workload" value="$DOTNET_ROOT/library-packs" />
+                <add key="dotnet12" value="$DOTNET_DAILY_FEED" />
+                <add key="nuget.org" value="$DOTNET_NUGET_FEED" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="dotnet-workload">
+                  <package pattern="Microsoft.NET.Sdk.WebAssembly.Pack" />
+                </packageSource>
+                <packageSource key="dotnet12">
+                  <package pattern="Microsoft.NET.ILLink.Tasks" />
+                </packageSource>
+                <packageSource key="nuget.org">
+                  <package pattern="*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            EOF
             version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
               prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
               -c Release \
               --output artifacts/inspect-web-coreclr-publish \
+              --configfile "$nuget_config" \
               -p:VersionPrefix="$version" \
               -p:SourceRevisionId="${{ inputs.source_sha }}" \
               -p:BuildTimestampUtc="$built_at" \

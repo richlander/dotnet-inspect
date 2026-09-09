@@ -391,7 +391,8 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(58 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(59 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -482,7 +483,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections()
+    public void LibraryPipeline_QuerySectionsRemainUncategorized()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var categories = pipeline.GetCategoryMap()
@@ -498,7 +499,12 @@ public class SectionPipelineTests
             .ToArray();
 
         Assert.Equal(
-            [SectionNames.UnsafeMembers, SectionNames.BodyShapes, SectionNames.BodyShapeSummary],
+            [
+                SectionNames.UnsafeMembers,
+                SectionNames.BodyShapes,
+                SectionNames.BodyShapeSummary,
+                SectionNames.CloneCandidates,
+            ],
             uncategorized);
     }
 
@@ -5275,6 +5281,7 @@ public class SectionPipelineTests
         string[] expectedAboveCheap =
         [
             .. expectedQueryBodyIndexFamily,
+            SectionNames.CloneCandidates,
             SectionNames.TopLeverage,
             SectionNames.UnsafeMembers,
             .. LibraryIntegrationCatalog.CategorySections,
@@ -7627,7 +7634,8 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(33, pipeline.AllSectionNames.Length);
+        Assert.Equal(34, pipeline.AllSectionNames.Length);
+        Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
     }
 
     [Fact]
