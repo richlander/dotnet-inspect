@@ -60,6 +60,12 @@ one complete restoration result.
 
 Adjacent owners remain independent:
 
+- [CLI Workspace Sharing](cli-workspace-sharing.md) owns the public
+  `--share` gesture, its use of an inspection command's already-resolved
+  semantic state, terminal packet/URL output, refusal behavior, and
+  command-by-command adoption. It consumes this owner's scenario records and
+  typed packet-projection outcome rather than defining another Workspace or
+  packet grammar.
 - [View Facet Registry](view-facet-registry.md) issues and resolves facet IDs,
   descriptors, applicability, and availability, and owns its private execution
   bindings.
@@ -104,9 +110,11 @@ authority and carries only owner-issued activation and Navigation authority.
    replace the pseudo-package; each group expression lowers to exactly one
    `AssemblyContextGroup`.
 5. **The URL share packet is a terse projection of one scenario
-   composition**, produced and consumed by the browser's transposition layer.
-   The visible query is a human-readable courtesy label; the peer definition
-   records are always canonical.
+   composition**, produced and consumed through the product transposition
+   layer. CLI inspection commands may request that projection through the
+   separately owned [`--share` contract](cli-workspace-sharing.md); Inspect Web
+   consumes it for restoration. The visible query is a human-readable courtesy
+   label; the peer definition records are always canonical.
 6. **Complete committed views begin at definition schema version 2 and packet
    format 2.** Version 1 remains an immutable legacy contract. Version 2 uses
    one canonical View Facet Registry ID field, one retained view state per
