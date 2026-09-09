@@ -2444,7 +2444,8 @@ public sealed class MatchDiscoveryTests
             Assert.Equal(0, replayExit);
             Assert.Empty(replayError);
             Assert.Equal(1, feed.PayloadRequests(sourceA, packageName, version));
-            Assert.Equal(rangeAddress is null ? 1 : 2, feed.PayloadRequests(sourceB, packageName, version));
+            // Selected discovery acquires once; its emitted exact replay acquires once more.
+            Assert.Equal(2, feed.PayloadRequests(sourceB, packageName, version));
 
             string[] ConfigArguments() =>
                 useConfig ? ["--nugetconfig", configPath] : [];
