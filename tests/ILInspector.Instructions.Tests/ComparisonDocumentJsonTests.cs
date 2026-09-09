@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Instructions.Tests;
 

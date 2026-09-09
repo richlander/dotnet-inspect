@@ -3,7 +3,7 @@ using System.Reflection.Metadata;
 
 using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;

@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 /// <summary>
 /// Projects a <see cref="FindingMatch"/> plus the two atom streams into <see cref="PairFinding{T}"/>

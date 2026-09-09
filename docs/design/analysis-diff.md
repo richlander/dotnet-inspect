@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-This document defines the `ILInspector.Findings`-owned `AnalysisDiff<T>`
+This document defines the `Inspector.Findings`-owned `AnalysisDiff<T>`
 information format designed in
 [#5491](https://github.com/richlander/dotnet-inspect/issues/5491) and
 implemented in
@@ -14,7 +14,7 @@ The normative claim is:
 > sequences into producer-issued one-sided and corresponding relations that
 > consumers can analyze without reconstructing comparison topology.
 
-`ILInspector.Findings` owns the format's construction validity, coordinates,
+`Inspector.Findings` owns the format's construction validity, coordinates,
 relation topology, classification vocabulary, immutability, and value
 semantics.
 
