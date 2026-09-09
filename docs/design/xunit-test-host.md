@@ -208,6 +208,12 @@ regression class separately so every selection receives its own aggregate
 non-vacuity result. These paths reuse the pinned outcome-level host gate without
 changing query, workspace, package, source, or acquisition evidence.
 
+`DotnetInspector.Ecosystems.Tests` is the tenth migrated adopter. Its required
+PR, Windows, Deep Inspect platform, and developer commands remain unfiltered.
+These paths reuse the pinned outcome-level host gate without changing the
+suite's friend-only registry and catalog evidence or the separately compiled
+public-consumer evidence in `DotnetInspector.Ecosystems.Consumer.Tests`.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
