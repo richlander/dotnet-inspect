@@ -1,19 +1,18 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
-using SLF = SourceLinkFetch;
 
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Covers <see cref="SLF.SourceLinkResolver.ResolveUrl"/>, which maps a PDB document path to a
+/// Covers <see cref="SourceLinkDocumentMap.ResolveUrl"/>, which maps a PDB document path to a
 /// source URL using the SourceLink document keys embedded in that PDB. Those keys are
 /// attacker-controlled: they arrive inside the assembly under inspection, which the user does
 /// not necessarily trust (see docs/design/untrusted-data-threat-model.md).
 /// </summary>
 public class SourceLinkUrlResolutionTests
 {
-    private static SLF.SourceLinkResolver For(params (string Pattern, string Url)[] mappings)
-        => new SLF.SourceLinkResolver(mappings.ToDictionary(m => m.Pattern, m => m.Url));
+    private static SourceLinkDocumentMap For(params (string Pattern, string Url)[] mappings)
+        => new SourceLinkDocumentMap(mappings.ToDictionary(m => m.Pattern, m => m.Url));
 
     [Fact]
     public void ATrailingWildcard_MapsThePathSuffixIntoTheUrl()

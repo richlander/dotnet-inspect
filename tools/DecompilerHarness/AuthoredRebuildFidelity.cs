@@ -64,7 +64,7 @@ static class AuthoredRebuildFidelity
     {
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         using var httpClient = HttpClientFactory.CreateClient();
-        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(HttpClientFactory.SharedUntrustedFetch);
         IReadOnlyList<AuthoredRebuildFidelityResult> results =
             await EvaluateAssembliesAsync(
                 assemblies,
@@ -86,7 +86,7 @@ static class AuthoredRebuildFidelity
             IReadOnlyList<string> assemblies,
             int cap,
             HttpClient httpClient,
-            SourceFetcher fetcher,
+            SourceFetch fetcher,
             IPdbStore? pdbStore = null)
     {
         ArgumentNullException.ThrowIfNull(assemblies);
@@ -212,7 +212,7 @@ static class AuthoredRebuildFidelity
 
     internal static async Task<AuthoredRebuildFidelityResult> EvaluateAsync(
         SourceLinkService source,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         ReturnToSender.Result decompilerResult,
         RecordedBuildContext buildContext)
     {
@@ -236,7 +236,7 @@ static class AuthoredRebuildFidelity
             decompilerResult.MemberAnchor?.StableSelector
                 ?? $"{request.FullType}.{request.MethodName}",
             $"{request.FullType}.{request.MethodName}");
-        var authored = await PdbSourceAcquisition.AcquireMemberAsync(
+        var authored = await PdbSourceHouse.AcquireMemberAsync(
             source,
             MetadataTokens.GetToken(request.TargetMethod),
             request.MethodName,

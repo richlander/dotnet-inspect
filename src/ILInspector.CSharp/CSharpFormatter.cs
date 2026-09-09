@@ -47,6 +47,14 @@ public sealed record CSharpFormatOptions
     public bool TerminateMemberDeclaration { get; init; }
     public bool ForceAsync { get; init; }
     public bool ForceUnsafe { get; init; }
+    /// <summary>
+    /// Opts into model-aware method/field spelling. Null retains the compatibility
+    /// view. Unavailable evidence or unsupported forms throw NotSupportedException;
+    /// use CSharpTypePrinter for an atomic, diagnostic-bearing print outcome.
+    /// </summary>
+    public CSharpMemorySafetyLanguage? MemorySafetyLanguage { get; init; }
+    /// <summary>An affirmative choice to emit an extern declaration, not a body-RVA inference.</summary>
+    public bool IsExtern { get; init; }
     public bool IncludeCustomAttributes { get; init; } = false;
     public bool IncludeSignatureAttributes { get; init; } = true;
     public bool IncludeObsoleteAttribute { get; init; } = true;
@@ -130,10 +138,21 @@ public sealed class CSharpFormatter
             throw new ArgumentOutOfRangeException(nameof(options), options.TypeNamePolicy, "C# type-name policy must be defined.");
         if (!Enum.IsDefined(options.NamespacePolicy))
             throw new ArgumentOutOfRangeException(nameof(options), options.NamespacePolicy, "C# namespace policy must be defined.");
+        if (options.MemorySafetyLanguage is { } language && !Enum.IsDefined(language))
+            throw new ArgumentOutOfRangeException(nameof(options), language, "C# memory-safety language must be defined.");
         var usings = options.Usings?.ToArray()
             ?? throw new ArgumentException("C# formatter usings cannot be null.", nameof(options));
         _declarationOptions = ToDeclarationOptions(options, usings);
     }
+
+    CSharpFormatter(CSharpDeclarationOptions options)
+        => _declarationOptions = options;
+
+    internal CSharpFormatter ForExternDeclaration()
+        => new(_declarationOptions with { IsExtern = true });
+
+    internal bool UsesModelAwareMemorySafety
+        => _declarationOptions.MemorySafetyLanguage is not null;
 
     public string FormatMember(
         ApiType type,
@@ -161,6 +180,11 @@ public sealed class CSharpFormatter
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        if (_declarationOptions.MemorySafetyLanguage is not null)
+        {
+            throw new NotSupportedException(
+                $"Member '{type.FullName}.{member.Name}.{kind}': model-aware accessor spelling is not supported.");
+        }
 
         var accessor = member.SignatureModel?.Accessors
             .FirstOrDefault(candidate => candidate.Kind == kind);
@@ -789,6 +813,8 @@ public sealed class CSharpFormatter
             TerminateMemberDeclaration = options.TerminateMemberDeclaration,
             ForceAsync = options.ForceAsync,
             ForceUnsafe = options.ForceUnsafe,
+            MemorySafetyLanguage = options.MemorySafetyLanguage,
+            IsExtern = options.IsExtern,
             IncludeCustomAttributes = options.IncludeCustomAttributes,
             IncludeSignatureAttributes = options.IncludeSignatureAttributes,
             IncludeObsoleteAttribute = options.IncludeObsoleteAttribute,

@@ -2,6 +2,7 @@ using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.CommandLine;
@@ -56,6 +57,11 @@ public static class SearchCommandDefinitions
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var membersOption = new Option<bool>("--members") { Description = "Search member names instead of type names (auto-enabled when the pattern starts with '.', e.g. .Serialize)" };
+        var literalOption = new Option<string?>("--literal")
+        {
+            Description = "Find decoded IL string literals containing this exact ordinal substring in the primary implementation assembly of up to 5 explicit name@version packages; requires --tfm; -v:n includes literal-use rows",
+            Arity = ArgumentArity.ExactlyOne
+        };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
         {
@@ -88,6 +94,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(tfmOption);
         findCommand.Options.Add(allOption);
         findCommand.Options.Add(membersOption);
+        findCommand.Options.Add(literalOption);
         findCommand.Options.Add(typeFilterOption);
         findCommand.Options.Add(opts.RowWhere);
         findCommand.Options.Add(candidatesOption);
@@ -105,10 +112,63 @@ public static class SearchCommandDefinitions
         opts.AddOutputOptionsTo(findCommand);
         opts.AddNuGetOptionsTo(findCommand);
 
+        findCommand.Validators.Add(result =>
+        {
+            string? literal = result.GetValue(literalOption);
+            if (literal is null)
+                return;
+
+            if (!string.IsNullOrEmpty(result.GetValue(patternArg))
+                || result.GetResult(packagePrefixOption) is { Implicit: false }
+                || result.GetResult(assemblyOption) is { Implicit: false }
+                || result.GetResult(platformOption) is { Implicit: false }
+                || result.GetResult(platformLibraryOption) is { Implicit: false }
+                || result.GetValue(extensionsOption)
+                || result.GetValue(aspnetcoreOption)
+                || result.GetResult(projectOption) is { Implicit: false }
+                || result.GetResult(binOption) is { Implicit: false }
+                || result.GetValue(membersOption)
+                || result.GetValue(allOption)
+                || result.GetResult(typeFilterOption) is { Implicit: false })
+            {
+                result.AddError(
+                    "--literal searches only explicit ID@VERSION packages; "
+                    + "it cannot be combined with a type pattern, API search scopes, "
+                    + "--package-prefix, --members, --all, or -t.");
+                return;
+            }
+
+            if (result.GetValue(opts.Discover) is not null)
+                return;
+
+            // The planner rejects a missing target framework through the ordinary argument
+            // contract, which carries no product-authored sentence. The CLI owns that diagnostic.
+            string tfm = result.GetValue(tfmOption) ?? "";
+            if (string.IsNullOrWhiteSpace(tfm))
+            {
+                result.AddError(PackageAssemblyQueryDiagnostics.MissingTargetFramework);
+                return;
+            }
+
+            try
+            {
+                _ = PackageAssemblyQuery.Plan(
+                    PackageAssemblyPatterns.StringLiteralContains,
+                    literal,
+                    result.GetValue(packageOption) ?? [],
+                    tfm);
+            }
+            catch (ArgumentException ex)
+            {
+                result.AddError(PackageAssemblyQueryDiagnostics.Describe(ex));
+            }
+        });
+
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
             typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
+            literalOption,
             candidatesOption, matchesOption, packageContentOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
@@ -127,6 +187,7 @@ public static class SearchCommandDefinitions
                         "find Chat* --package Newtonsoft.Json       # specific package",
                         "find --package-prefix Azure.AI            # stream package manifests",
                         "find -Q Packages                          # discover package query facets",
+                        "find --literal Json --package System.Text.Json@10.0.0 --tfm net10.0",
                         "find Chat* --platform --extensions         # combine scopes");
 
                 case FindOptionsParser.Success success:
@@ -135,6 +196,7 @@ public static class SearchCommandDefinitions
                         ct);
 
                     if (exitCode == 0
+                        && success.Options.Literal is null
                         && !success.Options.IsPackageProfile
                         && !success.Options.FormatExplicitlySet
                         && !success.Options.IsRawOutput)

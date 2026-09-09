@@ -276,7 +276,7 @@ gates visible PDB source identity and exact/normalized checksum evidence. The
 acquisition side is gated by
 `VerifiedLocalSourceReadTests.ReturnsBytes_WhenChecksumMatches`,
 `VerifiedLocalSourceReadTests.ReturnsNull_WhenChecksumMismatches`, and
-`PdbSourceAcquisitionTests.
+`PdbSourceHouseTests.
 FromContent_MismatchedChecksumProducesFailedInspection`, while
 `FetchVerifiedSourceText_PreservesLineEndingNormalizationEvidence` gates the
 network result's typed verification. A source context is

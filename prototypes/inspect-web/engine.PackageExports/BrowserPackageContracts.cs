@@ -232,6 +232,7 @@ public enum BrowserPackageQueryFacetTier
     Nuspec,
     PackageContent,
     SearchMetadata,
+    Assembly,
 }
 
 public sealed record BrowserPackageQueryFacetDescriptor(
@@ -247,6 +248,13 @@ public sealed record BrowserPackageQueryFacetDescriptor(
 
 public sealed record BrowserPackageQueryFacetCatalog(
     BrowserPackageQueryFacetDescriptor[] Facets);
+
+public sealed record BrowserPackageAssemblyQueryPattern(
+    string Id,
+    string Label,
+    string Summary,
+    int MaximumOperandLength,
+    int MaximumPackages);
 
 public sealed record BrowserGalleryPackageTypeSuggestion(
     string Value,
@@ -292,7 +300,8 @@ public sealed record BrowserPackageQueryRow(
     long? TotalDownloads,
     bool? Verified,
     string Producer,
-    string? Description = null);
+    string? Description = null,
+    string? RootRequest = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFailureKind>))]
 public enum BrowserPackageQueryFailureKind
@@ -304,6 +313,8 @@ public enum BrowserPackageQueryFailureKind
     InvalidManifest,
     PackageContentAcquisition,
     PackageContentEvaluation,
+    AssemblyAcquisition,
+    AssemblyEvaluation,
 }
 
 public sealed record BrowserPackageQueryFailure(
@@ -319,6 +330,7 @@ public enum BrowserPackageQueryProgressPhase
     Search,
     Manifest,
     PackageContent,
+    Assembly,
 }
 
 public sealed record BrowserPackageQueryProgress(
@@ -337,6 +349,7 @@ public enum BrowserPackageQueryCompletionKind
     Failed,
     GalleryResponseComplete,
     ExactPackageComplete,
+    ExplicitCandidatesComplete,
 }
 
 public sealed record BrowserPackageQueryCompletion(
@@ -349,7 +362,25 @@ public sealed record BrowserPackageQueryCompletion(
     int Failures,
     BrowserPackageQueryCompletionKind Kind,
     int? SourceCandidates = null,
-    long? EstimatedTotalHits = null);
+    long? EstimatedTotalHits = null,
+    int? SemanticMisses = null,
+    int? NotApplicable = null,
+    string? Scope = null);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageAssemblyAssessmentKind>))]
+public enum BrowserPackageAssemblyAssessmentKind
+{
+    NoMatch,
+    NotApplicable,
+}
+
+public sealed record BrowserPackageAssemblyAssessment(
+    string PackageId,
+    string Version,
+    BrowserPackageAssemblyAssessmentKind Disposition,
+    string Message,
+    string? AssetPath,
+    string RootRequest);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEventKind>))]
 public enum BrowserPackageQueryEventKind
@@ -358,6 +389,7 @@ public enum BrowserPackageQueryEventKind
     Match,
     Failure,
     Completed,
+    Assessment,
 }
 
 public sealed record BrowserPackageQueryEvent(
@@ -365,7 +397,8 @@ public sealed record BrowserPackageQueryEvent(
     BrowserPackageQueryRow? Row,
     BrowserPackageQueryFailure? Failure,
     BrowserPackageQueryCompletion? Completion,
-    BrowserPackageQueryProgress? Progress = null);
+    BrowserPackageQueryProgress? Progress = null,
+    BrowserPackageAssemblyAssessment? Assessment = null);
 
 /// <summary>
 /// Declared package dependency groups and one selected assembly's direct references. Dependency
@@ -438,6 +471,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
+[JsonSerializable(typeof(BrowserPackageAssemblyQueryPattern[]))]
 [JsonSerializable(typeof(BrowserGalleryDiscoveryCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]

@@ -1,4 +1,4 @@
-namespace SourceLinkFetch;
+namespace ILInspector.SourceLink;
 
 public static partial class SourceLinkProvenance
 {

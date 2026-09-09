@@ -611,6 +611,10 @@ public abstract record PackageDependencyEvidenceProcessingFailure
     public sealed record Association(
         PackageDependencyEvidenceProcessingObservation Observation) :
         PackageDependencyEvidenceProcessingFailure;
+
+    public sealed record RestoredProjectPackagePruning(
+        RestoredProjectPackagePruningFailure Failure) :
+        PackageDependencyEvidenceProcessingFailure;
 }
 
 /// <summary>The positive processing-evidence state for one normalized root.</summary>
@@ -1524,16 +1528,46 @@ public static class PackageDependencyEvidenceQuery
         };
 
     private static PackageDependencyEvidenceProcessingResult
-        ProjectRestoredProcessing(RestoredProjectDependencyFacts facts) =>
-        facts.SelectedTarget is not null
-            ? new PackageDependencyEvidenceProcessingResult.Available(
-                [
-                    PackageDependencyEvidenceProcessingObservation
-                        .RestoreResolution,
-                ],
-                [],
-                PackageDependencyEvidencePhaseCompletion.Complete)
-            : new PackageDependencyEvidenceProcessingResult.Unavailable();
+        ProjectRestoredProcessing(RestoredProjectDependencyFacts facts)
+    {
+        if (facts.SelectedTarget is null)
+            return new PackageDependencyEvidenceProcessingResult.Unavailable();
+
+        return facts.PackagePruning switch
+        {
+            RestoredProjectPackagePruningResult.Available =>
+                new PackageDependencyEvidenceProcessingResult.Available(
+                    [
+                        PackageDependencyEvidenceProcessingObservation
+                            .RestoreResolution,
+                        PackageDependencyEvidenceProcessingObservation
+                            .PackagePruningEvaluation,
+                    ],
+                    [],
+                    PackageDependencyEvidencePhaseCompletion.Complete),
+            RestoredProjectPackagePruningResult.Unavailable =>
+                new PackageDependencyEvidenceProcessingResult.Available(
+                    [
+                        PackageDependencyEvidenceProcessingObservation
+                            .RestoreResolution,
+                    ],
+                    [],
+                    PackageDependencyEvidencePhaseCompletion.Complete),
+            RestoredProjectPackagePruningResult.Failed failed =>
+                new PackageDependencyEvidenceProcessingResult.Available(
+                    [
+                        PackageDependencyEvidenceProcessingObservation
+                            .RestoreResolution,
+                    ],
+                    [
+                        new PackageDependencyEvidenceProcessingFailure
+                            .RestoredProjectPackagePruning(failed.Failure),
+                    ],
+                    PackageDependencyEvidencePhaseCompletion.Incomplete),
+            _ => throw new InvalidOperationException(
+                $"Unknown restored-project package-pruning result: {facts.PackagePruning.GetType().FullName}"),
+        };
+    }
 
     private static PackageDependencyFrameworkScopeIdentity
         CreatePackageFrameworkScope(
