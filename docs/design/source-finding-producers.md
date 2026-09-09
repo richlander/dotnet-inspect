@@ -111,9 +111,10 @@ loaded after service creation advances `PdbContext.PdbVersion`; the service
 then re-extracts the map and invalidates its resolver, document, provenance,
 and type-index caches before the next query.
 
-SourceLinkFetch remains the dependency-free owner of map matching and
-provenance grammar. It does not open PE/PDB files and has no Metadata project
-dependency.
+Within `ILInspector.SourceLink`, `SourceLinkDocumentMap` remains the single
+owner of map matching and `SourceLinkProvenance` remains the single owner of
+provenance grammar. Those utilities do not open PE/PDB files;
+`SourceLinkService` composes them with Metadata's typed PDB context.
 
 ## Consumer boundaries
 
@@ -125,7 +126,7 @@ reachability and checksum statuses are operation results and presentation
 folds, not additional Findings.
 
 `MemberSourceLocationCollector` consumes member-source Findings by metadata
-token. `PdbSourceAcquisition` consumes the same token-scoped mapping and
+token. `PdbSourceHouse` consumes the same token-scoped mapping and
 document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a
 `FindingInspection<string>`. Its type operation resolves only the exact
@@ -148,7 +149,7 @@ literal metadata character. This is gated by
 Whole-document type output refuses more than 500,000 logical lines before
 materializing the Finding census; the verified text then remains a failed
 PDB-source attempt so Decompiler fallback can run.
-`PdbSourceAcquisitionTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
+`PdbSourceHouseTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
 gates that bound. A host source-content store that reports a read or write
 failure produces typed evidence and does not publish the fetched bytes to the
 process-local memory cache, so an identical retry cannot silently change from
@@ -247,7 +248,7 @@ projection. The resulting declaration must remain sliceable with identical
 boundaries; otherwise the slicer refuses the result rather than include a
 sibling from an inactive branch.
 
-`SourceFetcher` delegates reusable verified bytes to an
+`SourceFetch` delegates reusable verified bytes to an
 `ISourceContentStore`. Its compatibility constructor retains the desktop
 `CoreCache`; content-only hosts supply `InMemorySourceContentStore`, so source
 acquisition has no ambient filesystem requirement.

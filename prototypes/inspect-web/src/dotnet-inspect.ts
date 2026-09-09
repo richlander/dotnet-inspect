@@ -185,7 +185,10 @@ import {
   type GraphSourceRequest,
 } from "./source-inspection.ts";
 import { renderMemberContractSections } from "./member-overview.ts";
-import { renderMemberFacts } from "./member-facts.ts";
+import {
+  bindMemberFacts,
+  renderMemberFacts,
+} from "./member-facts.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMethodBodyComparisonCoordinator,
@@ -224,10 +227,16 @@ import {
   type AppExplorerState,
 } from "./metadata-inspection.ts";
 import {
-  cancelAnnotatedSourceRequest,
+  cancelFindingCensusRequest,
   createMemberDetailInspectionCoordinator,
   type MemberFacts,
 } from "./member-detail-inspection.ts";
+import {
+  clearFindingSelection,
+  selectAnnotatedSourceFact,
+  selectFindingInstance,
+  type MemberFindingInteraction,
+} from "./finding-interaction.ts";
 import {
   callGraphErrorForView,
   createCallGraphInspectionCoordinator,
@@ -374,10 +383,13 @@ import {
   EXPLORER_PAGE,
   EXPLORER_ROW_H,
   heapStreamName,
+  metadataRootSelection,
   renderMetadataExplorer as renderMetadataExplorerHtml,
   renderPackageMetadata as renderPackageMetadataHtml,
   sameFocus,
+  selectMetadataImage,
   type ExplorerFocus,
+  type MetadataRootSelection,
   type PackageMetadata,
 } from "./metadata-viewer.ts";
 import {
@@ -437,9 +449,9 @@ import {
   withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
+  type QueryAssemblyPatternDescriptor,
   type QueryFacetTerm,
   type QueryRequest,
-  type QuerySourceCatalog,
   type QuerySourceSelection,
 } from "./package-query.ts";
 import {
@@ -448,6 +460,7 @@ import {
 } from "./package-query-announcements.ts";
 import {
   createBrowserPackageQueryDataSource,
+  packageQueryAssemblyPatterns,
   packageQueryFacets,
 } from "./package-query-source.ts";
 import {
@@ -521,6 +534,9 @@ let resolveDependencyVersion: PackageFacade["resolvePackageDependencyVersion"];
 let inspectRequestPackageQueryMatches:
   PackageFacade["requestPackageQueryMatches"];
 let inspectRunPackageQuery: PackageFacade["runPackageQuery"];
+let inspectRunPackageAssemblyQuery: PackageFacade["runPackageAssemblyQuery"];
+let inspectOpenPackageAssemblyQueryResult:
+  PackageFacade["openPackageAssemblyQueryResult"];
 let inspectSearchTypes: PackageFacade["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
   PackageFacade["queryWorkspacePackageOccurrences"];
@@ -550,9 +566,9 @@ let cancelMethodBodyComparisonQuery:
 let inspectMethodBodyComparison: SourceFacade["queryMethodBodyComparison"];
 let inspectMethodBodyComparisonTargets:
   SourceFacade["queryMethodBodyComparisonTargets"];
+let inspectMemberFindingCensus: SourceFacade["queryMemberFindingCensus"];
 let inspectMemberSourceComparison: SourceFacade["queryMemberSourceComparison"];
 let cancelMemberSourceComparisonQuery: SourceFacade["cancelMemberSourceComparison"];
-let inspectMemberAnnotatedSource: SourceFacade["queryMemberAnnotatedSource"];
 let inspectMemberSource: SourceFacade["queryMemberSource"];
 let inspectTypeMemberSource: SourceFacade["queryTypeMemberSource"];
 let inspectTypeSource: SourceFacade["queryTypeSource"];
@@ -608,6 +624,8 @@ async function loadEngineModule() {
     requestPackageQueryMatches: inspectRequestPackageQueryMatches,
     resolvePackageDependencyVersion: resolveDependencyVersion,
     runPackageQuery: inspectRunPackageQuery,
+    runPackageAssemblyQuery: inspectRunPackageAssemblyQuery,
+    openPackageAssemblyQueryResult: inspectOpenPackageAssemblyQueryResult,
     searchTypes: inspectSearchTypes,
     queryWorkspacePackageOccurrences:
       inspectQueryWorkspacePackageOccurrences,
@@ -641,9 +659,9 @@ async function loadEngineModule() {
     cancelMethodBodyComparison: cancelMethodBodyComparisonQuery,
     queryMethodBodyComparison: inspectMethodBodyComparison,
     queryMethodBodyComparisonTargets: inspectMethodBodyComparisonTargets,
+    queryMemberFindingCensus: inspectMemberFindingCensus,
     queryMemberSourceComparison: inspectMemberSourceComparison,
     cancelMemberSourceComparison: cancelMemberSourceComparisonQuery,
-    queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
     queryMemberSource: inspectMemberSource,
     queryTypeMemberSource: inspectTypeMemberSource,
     queryTypeSource: inspectTypeSource,
@@ -838,7 +856,7 @@ const initialState = {
   packageQueryReturnFocusPending: false,
   packageQueryState: initialQueryState(),
   packageQueryFacets: [],
-  packageQuerySourceCatalog: null,
+  packageQueryAssemblyPatterns: [],
   platformIndex: null,
   rootKind: "package" as "package" | "platform",
   platformSelection: null,
@@ -872,6 +890,8 @@ const initialState = {
   memberAnnotatedKey: "",
   memberAnnotatedEmbedded: null,
   memberAnnotatedModal: null,
+  memberFindingInteraction: null,
+  memberFindingSelectionError: "",
   methodBodyDiff: createMethodBodyDiffState(),
   sourceDiff: createSourceDiffState(),
   typeSource: null,
@@ -907,6 +927,7 @@ const initialState = {
   packageMetadataLoading: false,
   packageMetadataError: "",
   packageMetadataKey: "",
+  packageMetadataRoot: "cli" as MetadataRootSelection,
   explorer: null,
   memberCallGraph: null,
   memberCallGraphLoading: false,
@@ -1011,6 +1032,7 @@ interface StateOverrides {
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
+  memberFindingInteraction: MemberFindingInteraction | null;
   methodBodyDiff: MethodBodyDiffState;
   sourceDiff: SourceDiffState;
   typeSource: BrowserSource | null;
@@ -1055,7 +1077,7 @@ interface StateOverrides {
   packageCacheStats: BrowserPackageCacheStats | null;
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
-  packageQuerySourceCatalog: QuerySourceCatalog | null;
+  packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
   packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
@@ -1090,7 +1112,7 @@ interface CanonicalWorkspaceRestoreSnapshot {
 function captureCanonicalWorkspaceRestoreSnapshot():
 CanonicalWorkspaceRestoreSnapshot {
   sourceInspection.cancelCurrentRequest();
-  cancelAnnotatedSourceRequest(state);
+  cancelFindingCensusRequest(state);
   methodBodyComparison.dispose();
   sourceComparison.dispose();
   const packages = structuredClone(state.packages);
@@ -1256,6 +1278,20 @@ const packageQueryController = createPackageQueryController(
     cancel: () => cancelPackageQuery(),
     requestMatches: additionalMatchCredit =>
       inspectRequestPackageQueryMatches(additionalMatchCredit),
+    runAssembly: (
+      patternId,
+      operand,
+      packageCoordinatesJson,
+      targetFramework,
+      initialMatchCredit,
+      eventSink,
+    ) => inspectRunPackageAssemblyQuery(
+      patternId,
+      operand,
+      packageCoordinatesJson,
+      targetFramework,
+      initialMatchCredit,
+      eventSink),
     run: (
       prefix,
       facetIdsJson,
@@ -1306,6 +1342,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
       explorer.version,
       explorer.framework,
       explorer.assemblyId,
+      explorer.metadataRoot,
       index,
       startRowId,
       maxRows),
@@ -1315,6 +1352,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
       explorer.version,
       explorer.assemblyFileName,
       explorer.pack || "",
+      explorer.metadataRoot,
       index,
       startRowId,
       maxRows),
@@ -1324,6 +1362,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
       explorer.version,
       explorer.framework,
       explorer.assemblyId,
+      explorer.metadataRoot,
       heapName),
   queryPlatformHeap: (explorer, heapName) =>
     inspectPlatformHeapEntries(
@@ -1331,6 +1370,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
       explorer.version,
       explorer.assemblyFileName,
       explorer.pack || "",
+      explorer.metadataRoot,
       heapName),
   describeError: errorMessage,
   render,
@@ -1346,8 +1386,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       request.framework,
       request.assembly,
       documentationId),
-  queryAnnotated: async request => {
-    const result = await inspectMemberAnnotatedSource(
+  queryFindingCensus: async request => {
+    const result = await inspectMemberFindingCensus(
       request.packageId,
       request.version,
       request.framework,
@@ -1359,9 +1399,15 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       request.selectorKey,
       request.metadataToken,
       request.taste);
-    const document = result.document;
+    const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
-    return { ...result, document };
+    return {
+      ...result,
+      annotatedSource: {
+        ...result.annotatedSource,
+        document,
+      },
+    };
   },
   queryFacts: request =>
     inspectMemberFacts(
@@ -1603,6 +1649,8 @@ function applyView(view: WorkspaceView) {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.selectedBodyTarget = memberHistory.selectedBodyTarget;
   if (!state.atPackageRoot && !state.atLibraryRoot) revealTypeInFilters(type);
@@ -1665,7 +1713,7 @@ function applyView(view: WorkspaceView) {
     else if (section === "call-graph")
       observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
     else if (section === "facts")
-      observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+      observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
     else if (section === "overview")
       observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
     else
@@ -3222,6 +3270,8 @@ function clearMemberContentCache() {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.selectedBodyTarget = null;
 }
@@ -3246,7 +3296,7 @@ function loadMemberSectionContent(id: MemberSection) {
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
   else if (id === "facts")
-    observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+    observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
   else if (id === "overview")
     observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
   else
@@ -3774,6 +3824,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "library" && state.libraryLens === "references";
   const libraryIntegrationsWorkingSurface =
     activeScope === "library" && state.libraryLens === "integrations";
+  const libraryOpportunitiesWorkingSurface =
+    activeScope === "library" && state.libraryLens === "opportunities";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -3813,6 +3865,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || libraryMetadataWorkingSurface
     || libraryReferencesWorkingSurface
     || libraryIntegrationsWorkingSurface
+    || libraryOpportunitiesWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -3907,7 +3960,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4505,6 +4558,7 @@ function renderLibraryView() {
   if (state.libraryLens === "overview"
     || state.libraryLens === "references"
     || state.libraryLens === "integrations"
+    || state.libraryLens === "opportunities"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -4949,9 +5003,7 @@ function packageScopeSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
-// The Opportunities and Analysis lenses run over one platform library at a time, so on the
-// Platform they render the same inline library picker as Integrations and prompt for a choice
-// when nothing is scoped. This mirrors renderPackageIntegrations' platform handling.
+// Analysis runs over one platform library at a time and keeps its picker with the result.
 function platformLensPicker(dataAttr: string) {
   if (state.rootKind === "platform") return "";
   const scopedLib = scopedPlatformLibrary();
@@ -4960,14 +5012,18 @@ function platformLensPicker(dataAttr: string) {
 
 function renderPackageOpportunities() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
-  const picker = isPlatform ? platformLensPicker("data-platform-opportunities-library") : "";
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
   const current = packageScopeSignature();
   return renderPackageOpportunitiesPure({
-    isPlatform,
-    scopedLibrary: selectedLibraryName() || null,
-    activeFramework: pkg.activeFramework,
-    picker,
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({ dataAttr: "data-platform-opportunities-library", selected: scopedLib || "" })
+      : "",
     fresh: state.packageOpportunitiesKey === current,
     loading: state.packageOpportunitiesLoading,
     error: state.packageOpportunitiesError,
@@ -5101,6 +5157,7 @@ function renderPackageMetadata() {
     loading: state.packageMetadataLoading,
     error: state.packageMetadataError || "",
     metadata: state.packageMetadata || null,
+    selectedRoot: state.packageMetadataRoot,
     escapeHtml,
     fmtBytes,
   });
@@ -5137,8 +5194,13 @@ function explorerPageSize() {
 // Opens the explorer over one assembly, focused on a table (and optionally a row). The table
 // directory comes from the already-loaded overview so the canvas can render immediately; each
 // card fetches its own row window.
-function openExplorer(assemblyFileName: string, tableIndex: number, rowId = 0) {
-  const ex = buildBaseExplorer(assemblyFileName);
+function openExplorer(
+  assemblyFileName: string,
+  metadataRoot: MetadataRootSelection,
+  tableIndex: number,
+  rowId = 0,
+) {
+  const ex = buildBaseExplorer(assemblyFileName, metadataRoot);
   if (!ex) return;
   ex.history = [{ index: tableIndex, rowId: rowId || 0 }];
   ex.historyPos = 0;
@@ -5146,8 +5208,11 @@ function openExplorer(assemblyFileName: string, tableIndex: number, rowId = 0) {
   applyExplorerFocus();
 }
 
-function openExplorerOverview(assemblyFileName: string) {
-  const ex = buildBaseExplorer(assemblyFileName);
+function openExplorerOverview(
+  assemblyFileName: string,
+  metadataRoot: MetadataRootSelection,
+) {
+  const ex = buildBaseExplorer(assemblyFileName, metadataRoot);
   if (!ex) return;
   ex.overview = true;
   state.explorer = ex;
@@ -5155,8 +5220,12 @@ function openExplorerOverview(assemblyFileName: string) {
 }
 
 // Opens the explorer focused on a heap card (#Strings / #Blob / #GUID / #US) rather than a table.
-function openExplorerHeap(assemblyFileName: string, heapName: string) {
-  const ex = buildBaseExplorer(assemblyFileName);
+function openExplorerHeap(
+  assemblyFileName: string,
+  metadataRoot: MetadataRootSelection,
+  heapName: string,
+) {
+  const ex = buildBaseExplorer(assemblyFileName, metadataRoot);
   if (!ex) return;
   ex.history = [{ heap: heapName }];
   ex.historyPos = 0;
@@ -5166,11 +5235,20 @@ function openExplorerHeap(assemblyFileName: string, heapName: string) {
 
 // The common explorer state: the table + heap directories drawn from the loaded overview, plus
 // empty window caches. Focus is set by the caller (openExplorer / openExplorerHeap).
-function buildBaseExplorer(assemblyFileName: string): AppExplorerState | null {
+function buildBaseExplorer(
+  assemblyFileName: string,
+  metadataRoot: MetadataRootSelection,
+): AppExplorerState | null {
   const data = state.packageMetadata;
   const asm = (data?.assemblies || []).find(a => a.assembly === assemblyFileName)
     || (data?.assemblies || [])[0];
   if (!asm) return null;
+  const metadata = selectMetadataImage(
+    asm.metadataRoots || [],
+    metadataRoot);
+  if (!metadata) return null;
+  const effectiveRoot = metadataRootSelection(metadata.requestedRoot);
+  if (!effectiveRoot) return null;
   const pkg = currentPackage();
   const library = selectedLibrary();
   if (!library) {
@@ -5179,11 +5257,11 @@ function buildBaseExplorer(assemblyFileName: string): AppExplorerState | null {
     return null;
   }
   const isPlatform = pkg.isRuntimePack;
-  const directory = (asm.tables || [])
+  const directory = (metadata.tables || [])
     .slice()
     .sort((a, b) => a.index - b.index)
     .map(t => ({ index: t.index, name: t.name, rowCount: t.rowCount, isProjected: t.isProjected }));
-  const heaps = (asm.heaps || [])
+  const heaps = (metadata.heaps || [])
     .filter(h => h.sizeInBytes > 0)
     .map(h => ({ name: h.name, streamName: heapStreamName(h.name), sizeInBytes: h.sizeInBytes, addressing: h.addressing }));
   return {
@@ -5191,7 +5269,10 @@ function buildBaseExplorer(assemblyFileName: string): AppExplorerState | null {
     isPlatform,
     assemblyId: library.id,
     assemblyFileName: asm.assembly,
-    pack: isPlatform ? selectedLibrary()?.platformPack ?? null : null,
+    metadataRoot: effectiveRoot,
+    canonicalRoot: metadata.canonicalRoot ?? null,
+    aliasesCliMetadata: metadata.aliasesCliMetadata,
+    pack: isPlatform ? library.platformPack ?? null : null,
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
@@ -5388,6 +5469,11 @@ function bindMetadataViewerEvents() {
     onHistoryForward: explorerHistoryForward,
     onHeapFocus: heap => pushExplorerFocus({ heap }),
     onJump: explorerJump,
+    onMetadataRootSelect: root => {
+      state.packageMetadataRoot = root;
+      state.explorer = null;
+      render();
+    },
     onOpenHeap: openExplorerHeap,
     onOpenOverview: openExplorerOverview,
     onOpenTable: openExplorer,
@@ -5929,7 +6015,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     const destinationError = state.annotatedDestinationError
       ? `<div id="annotated-destination-error" class="graph-drill-error" role="alert">${escapeHtml(state.annotatedDestinationError)}</div>`
       : "";
-    content = destinationError + (state.memberAnnotatedLoading
+    const selectionError = state.memberFindingSelectionError
+      ? `<div id="finding-selection-error" class="graph-drill-error" role="alert">${escapeHtml(state.memberFindingSelectionError)}</div>`
+      : "";
+    content = destinationError + selectionError + (state.memberAnnotatedLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Annotating member…</h2><p>Raising the selected overload to C#, interleaving its IL, and collecting the facts observed about it.</p></section>`
       : state.memberAnnotated
         ? renderAnnotatedSource(state.memberAnnotated)
@@ -6676,6 +6765,7 @@ function openAnnotatedSourceModal() {
   const opened = openModalSession(model, embedded);
   state.memberAnnotatedEmbedded = opened.embedded;
   state.memberAnnotatedModal = opened.modal;
+  syncFindingSelectionFromAnnotatedSession(opened.modal);
   spotlight.reset();
   sourceInspection.clearGraphSource();
   documentInspection.clear();
@@ -6699,8 +6789,28 @@ function dismissAnnotatedSourceModal(restoreExploreFocus: boolean) {
   state.memberAnnotatedEmbedded =
     dismissModalSession(model, state.memberAnnotatedModal);
   state.memberAnnotatedModal = null;
+  syncFindingSelectionFromAnnotatedSession(state.memberAnnotatedEmbedded);
   if (restoreExploreFocus) renderAndFocusAnnotated({ kind: "explore" }, "embedded");
   return true;
+}
+
+function syncFindingSelectionFromAnnotatedSession(
+  session: AnnotatedSourceSession,
+) {
+  const interaction = state.memberFindingInteraction;
+  if (!interaction) return;
+  const factId =
+    session.primary?.kind === "finding" ? session.primary.id : null;
+  if (factId === null) {
+    state.memberFindingInteraction = clearFindingSelection(interaction);
+    state.memberFindingSelectionError = "";
+    return;
+  }
+  const transition = selectAnnotatedSourceFact(interaction, factId);
+  state.memberFindingInteraction = transition.accepted
+    ? transition.interaction
+    : clearFindingSelection(interaction);
+  state.memberFindingSelectionError = transition.error ?? "";
 }
 
 function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
@@ -6733,17 +6843,23 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       renderAndFocusAnnotated(closed.focus, surface);
       return;
     }
-    case "annotation-open":
-      setSession(selectFinding(session, action.opener));
+    case "annotation-open": {
+      const next = selectFinding(session, action.opener);
+      setSession(next);
+      syncFindingSelectionFromAnnotatedSession(next);
       renderAndFocusAnnotated("#annotated-detail-title", surface, true);
       return;
-    case "inspector-open":
-      setSession(selectFinding(session, {
+    }
+    case "inspector-open": {
+      const next = selectFinding(session, {
         kind: "inspector",
         factId: action.factId,
-      }));
+      });
+      setSession(next);
+      syncFindingSelectionFromAnnotatedSession(next);
       renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
       return;
+    }
     case "annotation-set": {
       const transition = action.value === "Default"
         ? selectDefaultAnnotations(model, session)
@@ -6751,6 +6867,7 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
           ? selectAllAnnotations(model, session)
           : clearAnnotations(session);
       setSession(transition.state);
+      syncFindingSelectionFromAnnotatedSession(transition.state);
       renderAndFocusAnnotated(transition.focus);
       return;
     }
@@ -6758,6 +6875,7 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       const transition =
         toggleFindingAnnotation(model, session, action.factId);
       setSession(transition.state);
+      syncFindingSelectionFromAnnotatedSession(transition.state);
       renderAndFocusAnnotated(transition.focus);
       return;
     }
@@ -6792,15 +6910,20 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       binding.onSelect();
       return;
     }
-    case "node-select":
-      setSession(selectAnnotatedNode(session, action.nodeId));
+    case "node-select": {
+      const next = selectAnnotatedNode(session, action.nodeId);
+      setSession(next);
+      syncFindingSelectionFromAnnotatedSession(next);
       renderAndFocusAnnotated({ kind: "node", nodeId: action.nodeId });
       return;
+    }
     case "source-select": {
       const node =
         hitTestAnnotatedNode(model, action.offset, action.medium);
       if (!node) return;
-      setSession(selectAnnotatedNode(session, node.id));
+      const next = selectAnnotatedNode(session, node.id);
+      setSession(next);
+      syncFindingSelectionFromAnnotatedSession(next);
       renderAndFocusAnnotated({ kind: "node", nodeId: node.id });
       return;
     }
@@ -6992,6 +7115,48 @@ function bindMethodBodyDiffEvents() {
   bindMethodBodyDiff(document, { onAction: applyMethodBodyDiffAction });
 }
 
+function openFindingInstanceFromFacts(receipt: string, instanceKey: number) {
+  const interaction = state.memberFindingInteraction;
+  if (!interaction || !state.memberAnnotated) {
+    state.memberFindingSelectionError =
+      "The active Finding census is unavailable.";
+    renderPreservingMemberFocus();
+    return;
+  }
+  const transition = selectFindingInstance(
+    interaction,
+    receipt,
+    instanceKey,
+  );
+  if (!transition.accepted) {
+    state.memberFindingSelectionError = transition.error;
+    renderPreservingMemberFocus();
+    return;
+  }
+
+  state.memberFindingInteraction = transition.interaction;
+  state.memberFindingSelectionError = "";
+  const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
+  const embedded = state.memberAnnotatedEmbedded
+    ?? createEmbeddedSession(model);
+  const opened = openModalSession(model, embedded);
+  const modal = selectFinding(opened.modal, {
+    kind: "inspector",
+    factId: transition.factId,
+  });
+  state.memberAnnotatedEmbedded = opened.embedded;
+  state.memberAnnotatedModal = modal;
+  state.memberSection = "annotated";
+  contentFramePane = "detail";
+  renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
+}
+
+function bindMemberFactsEvents() {
+  bindMemberFacts(document, {
+    onSelectFinding: openFindingInstanceFromFacts,
+  });
+}
+
 function sourceComparisonAvailability(): SourceComparisonAvailability {
   if (!state.package || state.atPackageRoot || scope() !== "member")
     return { available: false, reason: "Select a package method before comparing authored source." };
@@ -7142,6 +7307,7 @@ function bindEvents() {
   bindPackageOpportunitiesEvents();
   bindGraphSourceEvents();
   bindDocViewerEvents();
+  bindMemberFactsEvents();
   bindAnnotatedSourceEvents();
   bindMethodBodyDiffEvents();
   bindSourceDiff(document, { onAction: applySourceDiffAction });
@@ -8528,6 +8694,8 @@ async function pickSpotlight(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.typeFilter = "";
   state.namespaceFilter = "";
@@ -9114,6 +9282,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberSourceKey = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.memberAnnotatedKey = "";
   state.memberFacts = null;
@@ -9344,7 +9514,7 @@ function loadSelectionData() {
     case "source": return loadSelectedMemberSource();
     case "annotated": return loadSelectedMemberAnnotatedSource();
     case "call-graph": return loadSelectedMemberCallGraph();
-    case "facts": return loadSelectedMemberFacts();
+    case "facts": return loadSelectedMemberFactsSurface();
     case "overview": return loadSelectedMemberDocumentation();
     default: return assertNever(state.memberSection, "member section");
   }
@@ -10179,15 +10349,14 @@ function closePackageQueryRoute() {
 
 function preparePackageQueryRequest(
   text: string,
-  inputKind = state.packageQueryState.request?.inputKind ?? "package",
 ): QueryRequest {
   const validText = validPackageQuerySearchText(text);
   state.packageQueryPrefix = validText;
   state.packageQueryNavigationError = "";
   const request = state.packageQueryState.request
     ? withScopeQuery(state.packageQueryState.request, validText)
-    : createQueryRequest(validText, inputKind);
-  return withInputKind(request, inputKind);
+    : createQueryRequest(validText);
+  return withInputKind(request, "package");
 }
 
 function submitPackageQueryRequest(request: QueryRequest) {
@@ -10200,22 +10369,13 @@ function submitPackageQueryRequest(request: QueryRequest) {
 }
 
 function runPackageQuery(text: string) {
-  const request = preparePackageQueryRequest(text, "package");
-  submitPackageQueryRequest(request);
-}
-
-function discoverPackages() {
-  const request = preparePackageQueryRequest("", "gallery");
+  const request = preparePackageQueryRequest(text);
   submitPackageQueryRequest(request);
 }
 
 function preparePackageQueryControlRequest(
   text: string,
 ): QueryRequest {
-  if (state.packageQueryState.request?.inputKind === "gallery") {
-    state.packageQueryNavigationError = "";
-    return state.packageQueryState.request;
-  }
   return preparePackageQueryRequest(text);
 }
 
@@ -10245,6 +10405,7 @@ function togglePackageQueryFacet(facetKey: string, text: string) {
 async function openPackageQueryRow(
   packageId: string,
   version: string,
+  rootRequest?: string,
 ) {
   packageQueryController.cancel();
   state.packageQueryOpen = false;
@@ -10256,7 +10417,7 @@ async function openPackageQueryRow(
     packageId,
     version,
     "",
-    { navigationSeq });
+    { navigationSeq, ...(rootRequest === undefined ? {} : { rootRequest }) });
   if (!navigationSequence.isCurrent(navigationSeq)) {
     if (packageQueryHandoffNavigationSeq === navigationSeq)
       packageQueryHandoffNavigationSeq = null;
@@ -10292,7 +10453,11 @@ async function openPackageQueryRow(
 const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
-  onDiscover: discoverPackages,
+  onAssemblyRun: request => {
+    state.packageQueryNavigationError = "";
+    packageQueryLiveAnnouncer.reset();
+    void packageQueryController.run(request);
+  },
   onFacetToggle: togglePackageQueryFacet,
   onSourceChange: changePackageQuerySource,
   onPrefixInput: prefix => {
@@ -10306,9 +10471,9 @@ const packageQueryActions: PackageQueryBindingActions = {
     packageQueryController.configure(configured);
   },
   onResultPressure: () => packageQueryController.requestMore(),
-  onRowOpen: (packageId, version) => {
+  onRowOpen: (packageId, version, rootRequest) => {
     observeAsync(
-      openPackageQueryRow(packageId, version),
+      openPackageQueryRow(packageId, version, rootRequest),
       "Opening a queried package");
   },
   onRun: runPackageQuery,
@@ -10362,7 +10527,7 @@ function renderPackageQueryPage() {
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
-    sourceCatalog: state.packageQuerySourceCatalog,
+    availableAssemblyPatterns: state.packageQueryAssemblyPatterns,
     navigationError: [
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
@@ -10542,7 +10707,7 @@ async function loadSelectedMemberAnnotatedSource() {
   }
   const signature = memberRequestSignature(type, overload, true, true);
   const pkg = currentPackage();
-  return memberDetailInspection.loadAnnotated({
+  return memberDetailInspection.loadFindingCensus({
     signature,
     packageId: pkg.id,
     version: pkg.version,
@@ -12353,6 +12518,8 @@ function navigateToRuntimeMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.selectedBodyTarget = bodyTarget;
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === type.id));
@@ -12478,6 +12645,8 @@ function invalidateSourceCaches() {
   state.memberAnnotated = null;
   state.memberAnnotatedKey = "";
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.memberAnnotatedEmbedded = null;
   state.memberAnnotatedModal = null;
@@ -12663,6 +12832,8 @@ function navigateToMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.memberFindingInteraction = null;
+  state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.selectedBodyTarget = selectedBodyTarget;
   if (section === "source") {
@@ -12712,7 +12883,15 @@ async function loadSelectedMemberFacts() {
   });
 }
 
+async function loadSelectedMemberFactsSurface() {
+  await Promise.all([
+    loadSelectedMemberFacts(),
+    loadSelectedMemberAnnotatedSource(),
+  ]);
+}
+
 interface LoadPackageOptions {
+  rootRequest?: string;
   background?: boolean;
   navigationSeq?: number;
   queryNotice?: string;
@@ -12765,6 +12944,9 @@ async function loadPackage(
       packageId,
       version,
       framework,
+      ...(options.rootRequest === undefined
+        ? {}
+        : { rootRequest: options.rootRequest }),
       ...(options.replacePackage !== undefined
         ? { replacePackage: options.replacePackage }
         : {}),
@@ -12961,6 +13143,8 @@ function isRuntimePackId(id: string | null | undefined) {
 const packageAcquisition = createPackageAcquisition({
   queryPackage: (packageId, version, framework) =>
     inspectPackage(packageId, version, framework),
+  queryPackageRoot: rootRequest =>
+    inspectOpenPackageAssemblyQueryResult(rootRequest),
   loadRuntimePack: (framework, platformVersion) =>
     inspectLoadRuntimePack(framework, platformVersion),
   loadRuntimePackAssembly: (
@@ -13738,13 +13922,18 @@ async function bootstrap() {
     try {
       state.packageQueryFacets =
         packageQueryFacets(await engineClient.package.listPackageQueryFacets());
-      state.packageQuerySourceCatalog =
-        await engineClient.package.listGalleryDiscoveryCatalog();
     } catch (error) {
       state.packageQueryFacets = [];
-      state.packageQuerySourceCatalog = null;
       state.packageQueryCatalogError =
-        `Package-query catalogs are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package-query facets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+    }
+    try {
+      state.packageQueryAssemblyPatterns =
+        packageQueryAssemblyPatterns(
+          await engineClient.package.listPackageAssemblyQueryPatterns());
+    } catch (error) {
+      state.packageQueryAssemblyPatterns = [];
+      console.error("Package-query assembly patterns are unavailable.", error);
     }
     state.engineReady = true;
     state.engineStatus = "";

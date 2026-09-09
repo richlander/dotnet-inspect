@@ -1499,7 +1499,8 @@ export function sourceReloadKind(
   }
   if (state.lens === "api"
     && state.selectedMemberKey
-    && state.memberSection === "annotated"
+    && (state.memberSection === "annotated"
+      || state.memberSection === "facts")
     && memberSourceHasConcreteOverload) {
     return "annotated";
   }

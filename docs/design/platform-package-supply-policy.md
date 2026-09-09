@@ -141,7 +141,7 @@ The gates live in
 `DotnetInspector.Services.Tests.PlatformPrunePolicyTests` and run with:
 
 ```text
-dotnet run --project src/DotnetInspector.Services.Tests -c Release -- \
+dotnet run --project tests/DotnetInspector.Services.Tests -c Release -- \
   --filter-class '*PlatformPrunePolicyTests'
 ```
 

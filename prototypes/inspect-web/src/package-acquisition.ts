@@ -540,6 +540,7 @@ function promoteRuntimePackagePrimary(
 }
 
 export interface PackageAcquisitionDependencies {
+  queryPackageRoot?(rootRequest: string): Promise<InspectedPackageSurface>;
   queryPackage(
     packageId: string,
     version: string,
@@ -567,6 +568,7 @@ export interface NuGetPackageRequest {
   packageId: string;
   version: string;
   framework: string;
+  rootRequest?: string;
   replacePackage?: AppPackage | null;
   isCurrent?: () => boolean;
 }
@@ -639,10 +641,18 @@ export function createPackageAcquisition(
 
   return {
     async loadPackage(request) {
-      const result = await dependencies.queryPackage(
-        request.packageId,
-        request.version,
-        request.framework);
+      let result: InspectedPackageSurface;
+      if (request.rootRequest !== undefined) {
+        if (!dependencies.queryPackageRoot) {
+          throw new Error("Exact package Root opening is unavailable.");
+        }
+        result = await dependencies.queryPackageRoot(request.rootRequest);
+      } else {
+        result = await dependencies.queryPackage(
+          request.packageId,
+          request.version,
+          request.framework);
+      }
       if (request.isCurrent && !request.isCurrent()) return null;
       dependencies.refreshPackageStats();
       const packageModel = createNuGetPackageModel(result);

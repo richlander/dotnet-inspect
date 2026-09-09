@@ -2452,7 +2452,7 @@ test("no authored document sits where the lint glob cannot reach it", () => {
 //
 // So the directives are inventoried and pinned as a set, action included. This project
 // needs the Wasm preload exception plus the Vite stylesheet and module references in
-// the production entry page and eight browser harness entry pages.
+// the production entry page and nine browser harness entry pages.
 test("authored documents carry only the suppressions this project explains", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const documents = projectSourceFiles(root, htmlDocumentExtensions, unprunedRoots);
@@ -2474,6 +2474,7 @@ test("authored documents carry only the suppressions this project explains", () 
   const browserHarnesses = [
     "browser/annotated-source.html",
     "browser/dependency-graph-explorer.html",
+    "browser/finding-interaction.html",
     "browser/graph-explorer.html",
     "browser/package-removal.html",
     "browser/saved-workspaces.html",

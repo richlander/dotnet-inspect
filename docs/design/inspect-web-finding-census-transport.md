@@ -14,7 +14,7 @@ End-to-end host adoption is tracked by
 this transport is
 [issue #5516](https://github.com/richlander/dotnet-inspect/issues/5516), and
 browser interaction follows in
-[issue #5517](https://github.com/richlander/dotnet-inspect/issues/5517).
+[Inspect Web Finding interaction](inspect-web-finding-interaction.md).
 
 ## Problem
 
@@ -99,8 +99,9 @@ Adjacent owners remain separate:
 - `AnnotatedSourceDocument` owns its compact nested wire shape;
 - the existing Analysis facade owns allocation, call, safety, exception, and
   performance result transport; and
-- browser interaction owns request replacement, selection, focus, rendering,
-  and stale-result rejection under issue #5517.
+- [Inspect Web Finding interaction](inspect-web-finding-interaction.md) owns
+  request replacement, selection, focus, rendering, and stale-result
+  rejection.
 
 Generated TypeScript declarations and runtime wrappers are mechanical
 consequences of the managed Source facade. They do not become another identity

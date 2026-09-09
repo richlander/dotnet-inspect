@@ -7,7 +7,9 @@ public enum CSharpBodyPolicy
 {
     Skeleton,
     Full,
-    Stub
+    Stub,
+    /// <summary>An explicitly selected extern method or instance constructor, with no body.</summary>
+    Extern
 }
 
 public abstract record CSharpMemberBody
@@ -21,6 +23,8 @@ public abstract record CSharpMemberBody
     /// <summary>
     /// True when this body requires an <c>unsafe</c> member context beyond any
     /// unsafe signature already represented by <see cref="ApiMember.IsUnsafe"/>.
+    /// Model-aware updated-rules printing refuses this unsatisfied body-context
+    /// requirement; publishing a caller contract cannot satisfy it.
     /// </summary>
     public bool RequiresUnsafeModifier { get; init; }
 
@@ -257,6 +261,13 @@ public sealed record CSharpTypePrintOptions
     public bool IncludeCustomAttributes { get; init; }
 
     /// <summary>
+    /// Opts into model-aware method/field declaration spelling. Null retains
+    /// the compatibility view. Unsupported forms or necessary unavailable facts
+    /// produce NotRendered, without exposing a partial batch.
+    /// </summary>
+    public CSharpMemorySafetyLanguage? MemorySafetyLanguage { get; init; }
+
+    /// <summary>
     /// Namespaces to emit as <c>using</c> directives in the composed
     /// <see cref="CSharpTypePrintResult.Source"/>. Escaped, de-duplicated, and
     /// ordinal-ordered at composition time. Ignored when <see cref="IncludeUsings"/>
@@ -401,15 +412,21 @@ public abstract record CSharpTypePrintOutcome
     }
 
     /// <summary>
-    /// At least one exact declared-type self-name was unrepresentable. This arm
-    /// exposes no source or partial print result.
+    /// At least one exact declared-type self-name or model-aware memory-safety
+    /// declaration was unrepresentable. This arm exposes no source or partial result.
     /// </summary>
     public sealed record NotRendered : CSharpTypePrintOutcome
     {
         internal NotRendered(
-            ImmutableArray<CSharpDeclaredTypeSelfNameFailure> selfNameFailures)
-            => SelfNameFailures = selfNameFailures;
+            ImmutableArray<CSharpDeclaredTypeSelfNameFailure> selfNameFailures,
+            ImmutableArray<CSharpTypePrintDiagnostic> memorySafetyFailures)
+        {
+            SelfNameFailures = selfNameFailures;
+            MemorySafetyFailures = memorySafetyFailures;
+        }
 
         public ImmutableArray<CSharpDeclaredTypeSelfNameFailure> SelfNameFailures { get; }
+
+        public ImmutableArray<CSharpTypePrintDiagnostic> MemorySafetyFailures { get; }
     }
 }

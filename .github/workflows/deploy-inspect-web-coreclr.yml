@@ -1,11 +1,20 @@
 name: Deploy inspect-web CoreCLR staging
 
 on:
-  workflow_run:
-    workflows:
-      - Deploy inspect-web staging
-    types:
-      - completed
+  workflow_call:
+    inputs:
+      staging_run_id:
+        description: 'Staging run whose exact site artifact was promoted'
+        required: true
+        type: string
+      source_sha:
+        description: 'Exact product commit promoted to production'
+        required: true
+        type: string
+      artifact_id:
+        description: 'Exact staged site artifact promoted to production'
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -24,52 +33,27 @@ env:
 
 jobs:
   publish:
-    name: Build and publish latest CoreCLR staging
-    if: >-
-      github.event.workflow_run.conclusion == 'success'
-      && github.event.workflow_run.head_branch == 'main'
-      && github.event.workflow_run.event == 'push'
+    name: Build and publish promoted CoreCLR comparison
     concurrency:
       group: deploy-inspect-web-coreclr-staging
-      cancel-in-progress: true
+      cancel-in-progress: false
     environment:
       name: inspect-web-coreclr-staging
       url: https://coreclr.dotnet-inspect.ca
     runs-on: ubuntu-26.04
     steps:
-      - name: Resolve latest successful staging run
-        id: latest
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          latest=$(
-            gh api --method GET \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-inspect-web.yml/runs" \
-              -f branch=main \
-              -f event=push \
-              -f status=success \
-              -f per_page=100 \
-              --jq '.workflow_runs | max_by(.run_number) | [.id, .head_sha] | @tsv'
-          )
-          IFS=$'\t' read -r run_id head_sha <<< "$latest"
-          test -n "$run_id"
-          test -n "$head_sha"
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.latest.outputs.head_sha }}
+          ref: ${{ inputs.source_sha }}
 
       - name: Download compiler-async staging artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: inspect-web-site
+          artifact-ids: ${{ inputs.artifact_id }}
           path: artifacts/inspect-web-compiler-publish
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run-id: ${{ steps.latest.outputs.run_id }}
+          run-id: ${{ inputs.staging_run_id }}
           digest-mismatch: error
 
       - name: Install pinned .NET 12 SDK
@@ -218,7 +202,7 @@ jobs:
             -c Release \
             --output artifacts/inspect-web-coreclr-publish \
             -p:VersionPrefix="$version" \
-            -p:SourceRevisionId="${{ steps.latest.outputs.head_sha }}" \
+            -p:SourceRevisionId="${{ inputs.source_sha }}" \
             -p:BuildTimestampUtc="$built_at" \
             -p:Features=runtime-async=on \
             -p:UseMonoRuntime=false \
@@ -600,24 +584,6 @@ jobs:
             "$(jq -r '.runtime.assets.nativeWasmSha256' "$cohort/runtime-cohort.json")"
           test "$(sha256sum "$site"/_framework/dotnet.native.*.js | awk '{print $1}')" = \
             "$(jq -r '.runtime.assets.nativeJavaScriptSha256' "$cohort/runtime-cohort.json")"
-
-      - name: Verify newest eligible staging run
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SELECTED_RUN_ID: ${{ steps.latest.outputs.run_id }}
-        run: |
-          set -euo pipefail
-          latest_run_id=$(
-            gh api --method GET \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-inspect-web.yml/runs" \
-              -f branch=main \
-              -f event=push \
-              -f status=success \
-              -f per_page=100 \
-              --jq '.workflow_runs | max_by(.run_number) | .id // empty'
-          )
-          test -n "$latest_run_id"
-          test "$latest_run_id" = "$SELECTED_RUN_ID"
 
       - name: Deploy to CoreCLR staging
         uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1

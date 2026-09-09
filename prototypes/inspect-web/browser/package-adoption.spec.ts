@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Buffer } from "node:buffer";
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page, type Route } from "@playwright/test";
 import type {
   BrowserPackageCacheStats as CacheStats,
   BrowserPackageSurface as PackageSurface,
@@ -18,6 +18,7 @@ import {
   healthyNupkg,
   malformedAlongsideHealthyNupkg,
   malformedAssemblyBytes,
+  storedZip,
 } from "./package-adoption-nupkg.ts";
 
 // This gate drives the actually published production InspectWeb.Engine Wasm
@@ -55,6 +56,9 @@ const healthyAssembly = locateFixtureAssembly(
 );
 const brokenReferenceAssembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBB_DLL",
+);
+const literalAssembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_LITERALS_DLL",
 );
 const healthyAssemblyFileName = "DiffAsmLibA.dll";
 const brokenAssemblyFileName = "DiffAsmLibB.dll";
@@ -119,10 +123,38 @@ const allFixtures: readonly FixtureCoordinate[] = [
   ...scopeCoordinates,
 ];
 
+const literalFixtures: readonly FixtureCoordinate[] = [
+  {
+    packageId: "InspectWeb.Query.LiteralMatch",
+    version,
+    archive: healthyNupkg(literalAssembly, "ILInspector.Analysis.Fixtures.dll"),
+  },
+  {
+    packageId: "InspectWeb.Query.SemanticMiss",
+    version,
+    archive: healthyArchive,
+  },
+  {
+    packageId: "InspectWeb.Query.ReferenceOnly",
+    version,
+    archive: storedZip([
+      { name: `ref/${fixtureFramework}/Primary.dll`, bytes: literalAssembly },
+    ]),
+  },
+  {
+    packageId: "InspectWeb.Query.InvalidAssembly",
+    version,
+    archive: storedZip([
+      { name: `lib/${fixtureFramework}/Primary.dll`, bytes: malformedAssemblyBytes() },
+    ]),
+  },
+];
+
 class GalleryFixtureRegistry {
   readonly downloads = new Map<string, number>();
   private readonly archives = new Map<string, Buffer>();
   private readonly versions = new Map<string, string>();
+  private readonly downloadKeys = new Map<string, string>();
 
   constructor(fixtures: readonly FixtureCoordinate[]) {
     for (const fixture of fixtures) {
@@ -130,6 +162,10 @@ class GalleryFixtureRegistry {
         galleryDownloadPath(fixture.packageId, fixture.version),
         fixture.archive,
       );
+      const flatPath = `/v3-flatcontainer/${fixture.packageId.toLowerCase()}/${fixture.version}`
+        + `/${fixture.packageId.toLowerCase()}.${fixture.version}.nupkg`;
+      this.archives.set(flatPath, fixture.archive);
+      this.downloadKeys.set(flatPath, galleryDownloadPath(fixture.packageId, fixture.version));
       this.versions.set(
         `/v3-flatcontainer/${fixture.packageId.toLowerCase()}/index.json`,
         fixture.version,
@@ -146,7 +182,8 @@ class GalleryFixtureRegistry {
   }
 
   recordDownload(pathname: string): void {
-    this.downloads.set(pathname, (this.downloads.get(pathname) ?? 0) + 1);
+    const key = this.downloadKeys.get(pathname) ?? pathname;
+    this.downloads.set(key, (this.downloads.get(key) ?? 0) + 1);
   }
 
   downloadCount(fixture: FixtureCoordinate): number {
@@ -166,7 +203,7 @@ async function installGalleryRoutes(
   context: BrowserContext,
   registry: GalleryFixtureRegistry,
 ): Promise<void> {
-  await context.route("https://globalcdn.nuget.org/**", async route => {
+  const serveFixture = async (route: Route): Promise<void> => {
     const request = route.request();
     if (request.method() === "OPTIONS") {
       await route.fulfill({ status: 204, headers: corsHeaders });
@@ -193,6 +230,22 @@ async function installGalleryRoutes(
       return;
     }
     await route.fulfill({ status: 404, headers: corsHeaders });
+  };
+  await context.route("https://globalcdn.nuget.org/**", serveFixture);
+  await context.route("https://api.nuget.org/v3-flatcontainer/**", serveFixture);
+  await context.route("https://api.nuget.org/v3/index.json", async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: corsHeaders,
+      body: JSON.stringify({
+        version: "3.0.0",
+        resources: [{
+          "@id": "https://api.nuget.org/v3-flatcontainer/",
+          "@type": "PackageBaseAddress/3.0.0",
+        }],
+      }),
+    });
   });
 }
 
@@ -350,90 +403,7 @@ function firstOccurrence(view: OccurrenceView): OccurrenceRow {
 }
 
 test.describe("Package Query website over real Wasm", () => {
-  test("requires explicit discovery before browsing by source type", async ({
-    page,
-    context,
-  }) => {
-    const requests: URL[] = [];
-    const enrichment: string[] = [];
-    context.on("request", request => {
-      if (new URL(request.url()).hostname === "globalcdn.nuget.org") {
-        enrichment.push(request.url());
-      }
-    });
-    const row = (id: string, downloads?: number) => ({
-      PackageRegistration: {
-        Id: id,
-        ...(downloads === undefined ? {} : { DownloadCount: downloads }),
-        Verified: true,
-        Owners: ["Contoso"],
-      },
-      Version: "1.0.0",
-      NormalizedVersion: "1.0.0",
-      Listed: true,
-      Description: "Gallery website fixture.",
-      DownloadCount: 3,
-    });
-    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
-      const url = new URL(route.request().url());
-      expect(url.pathname).toBe("/search/query");
-      requests.push(url);
-      const type = url.searchParams.get("packageType")?.toLowerCase();
-      const data = type === "dotnettool"
-          ? [
-            row("Contoso.ToolA", 1_000),
-            row("Contoso.ToolB", 500),
-            ...Array.from({ length: 18 }, (_, index) =>
-              row(`Contoso.Tool${index + 3}`, 100 - index)),
-          ]
-          : type === "template"
-            ? [row("Contoso.Template", 400)]
-            : [row("Contoso.Package", 2_000)];
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: corsHeaders,
-        body: JSON.stringify({ totalHits: data.length, data }),
-      });
-    });
-
-    await page.goto("/query");
-    await expect(page.locator("#package-query-prefix")).toBeVisible({ timeout: 120_000 });
-    await expect(page.locator("#package-query-prefix")).toHaveValue("");
-    await expect(page.locator("#package-query-type")).toHaveCount(0);
-    expect(requests).toHaveLength(0);
-
-    await page.locator("#package-query-discover").click();
-    await expect(page.locator(".query-row h2")).toHaveText(["Contoso.Package"]);
-    await expect(page.locator("#package-query-type")).toBeVisible();
-    await page.locator("#package-query-type").selectOption({ label: ".NET tools" });
-    await expect(page.locator(".query-row")).toHaveCount(20);
-    await expect(page.locator(".query-row h2")).toContainText(["Contoso.ToolA", "Contoso.ToolB"]);
-    await expect(page.locator(".query-row").first()).toContainText("1,000");
-    await expect(page.locator(".query-row-description").first()).toHaveText("Gallery website fixture.");
-    await expect(page.locator(".query-footer")).toContainText("200");
-    await expect(page.locator(".query-footer")).not.toContainText("all matches");
-    expect(requests.at(-1)?.searchParams.get("take")).toBe("200");
-    expect(requests.at(-1)?.searchParams.get("sortBy")).toBe("totalDownloads-desc");
-    const lastFacet = page.locator("[data-query-facet]").last();
-    await lastFacet.focus();
-    await expect(lastFacet).toBeInViewport();
-
-    await page.locator("#package-query-type").selectOption({ label: "Templates" });
-    await expect(page.locator(".query-row h2")).toHaveText(["Contoso.Template"]);
-    await page.locator("#package-query-order").selectOption({ label: "Relevance" });
-    await expect.poll(() => requests.at(-1)?.searchParams.get("sortBy")).toBe("relevance");
-
-    await page.locator("#package-query-type").selectOption("");
-    await expect(page.locator(".query-row h2")).toHaveText(["Contoso.Package"]);
-    await page.locator("#package-query-order").selectOption("");
-    await expect.poll(() => requests.at(-1)?.searchParams.get("sortBy")).toBe("totalDownloads-desc");
-    expect(requests.every(request => !request.searchParams.get("q"))).toBe(true);
-    expect(requests.every(request => request.searchParams.get("take") === "200")).toBe(true);
-    expect(enrichment).toEqual([]);
-  });
-
-  test("keeps exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
+  test("keeps blank input idle and exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
     const exactRequests: URL[] = [];
     const searchRequests: URL[] = [];
     const enrichment: string[] = [];
@@ -483,6 +453,14 @@ test.describe("Package Query website over real Wasm", () => {
     await page.goto("/query");
     const input = page.locator("#package-query-prefix");
     await expect(input).toBeVisible({ timeout: 120_000 });
+    await expect(page.locator("#package-query-run")).toHaveText("Run query");
+    await expect(page.locator("#package-query-discover")).toHaveCount(0);
+    await expect(page.locator("#package-query-type")).toHaveCount(0);
+    await expect(page.locator("#package-query-order")).toHaveCount(0);
+    expect(exactRequests).toHaveLength(0);
+    expect(searchRequests).toHaveLength(0);
+
+    await page.locator("#package-query-run").click();
     expect(exactRequests).toHaveLength(0);
     expect(searchRequests).toHaveLength(0);
 
@@ -509,25 +487,52 @@ test.describe("Package Query website over real Wasm", () => {
 
     await input.fill("Newtonsoft.Missing");
     await page.locator("#package-query-run").click();
-    await expect(page.locator(".query-empty")).toContainText("No prefix or Gallery search fallback was used.");
+    await expect(page.locator(".query-empty")).toContainText("No fallback search was used.");
     await expect(page.locator(".query-row")).toHaveCount(0);
     expect(searchRequests).toHaveLength(searchCount);
     expect(exactRequests.at(-1)?.pathname).toBe("/v3-flatcontainer/newtonsoft.missing/index.json");
     expect(enrichment).toEqual([]);
   });
 
-  test("live Gallery tool browse uses the production page and CORS path", async ({ page }) => {
-    test.skip(process.env.INSPECT_WEB_GALLERY_LIVE !== "1", "Opt-in live provider observation.");
+});
+
+test.describe("Assembly Package Query website over real Wasm", () => {
+  test("evaluates disposable candidates and reopens a match through its exact Root", async ({
+    page, context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(literalFixtures);
+    await installGalleryRoutes(context, registry);
     await page.goto("/query");
-    await expect(page.locator("#package-query-discover")).toBeVisible({ timeout: 120_000 });
-    await page.locator("#package-query-discover").click();
-    await expect(page.locator("#package-query-type")).toBeVisible();
-    await page.locator("#package-query-type").selectOption({ label: ".NET tools" });
-    await expect(page.locator(".query-row").first()).toBeVisible({ timeout: 60_000 });
-    await expect(page.locator(".query-row").first()).toContainText("Open in workspace");
-    await expect(page.locator(".query-failures")).toHaveCount(0);
-    await page.screenshot({ path: test.info().outputPath("gallery-tools.png"), fullPage: true });
-    await page.locator("[data-query-cancel]").first().click();
+    await expect(page.locator(".query-assembly-controls summary")).toBeVisible({ timeout: 120_000 });
+    await page.locator(".query-assembly-controls summary").click();
+    const packages = page.locator("#package-query-assembly-packages");
+    await page.locator("#package-query-assembly-operand").fill("shared-literal-use-marker");
+    await page.locator("#package-query-assembly-tfm").fill(fixtureFramework);
+    await packages.fill("System.Text.Json");
+    await page.locator("#package-query-assembly-run").click();
+    await expect(packages).toHaveJSProperty(
+      "validationMessage",
+      "Enter one exact ID@VERSION package per line.");
+    await packages.fill(
+      literalFixtures.map(fixture => `${fixture.packageId}@${fixture.version}`).join("\n"));
+    await expect(packages).toHaveJSProperty("validationMessage", "");
+    await page.locator("#package-query-assembly-run").click();
+
+    await expect(page.locator(".query-row")).toHaveCount(1, { timeout: 60_000 });
+    await expect(page.locator(".query-row")).toContainText("shared-literal-use-marker");
+    await expect(page.locator(".query-assessments")).toContainText("inspectweb.query.semanticmiss");
+    await expect(page.locator(".query-assessments")).toContainText("inspectweb.query.referenceonly");
+    await expect(page.locator(".query-failures")).toContainText("ImageAdmission");
+    await expect(page.locator(".query-footer")).toContainText("not all package assemblies");
+    const match = literalFixtures[0]!;
+    for (const fixture of literalFixtures) expect(registry.downloadCount(fixture)).toBe(1);
+    const open = page.locator("[data-query-root-request]");
+    await expect(open).toHaveAttribute("data-query-root-request", /^pkgroot1/);
+    await open.click();
+
+    await expect(page).not.toHaveURL(/\/query(?:[?#].*)?$/);
+    await expect(page.locator("body")).toContainText(match.packageId.toLowerCase());
+    expect(registry.downloadCount(match)).toBe(2);
   });
 });
 

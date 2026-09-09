@@ -25,7 +25,7 @@ internal readonly record struct SourceFetchBytesResult(
 /// The compatibility constructor uses the process-wide disk cache; content-only
 /// hosts can supply <see cref="InMemorySourceContentStore"/>.
 /// </summary>
-public class SourceFetcher
+public class SourceFetch
 {
     private readonly ConcurrentDictionary<string, byte[]> _byteMemoryCache = new();
     private readonly HttpClient _httpClient;
@@ -34,12 +34,12 @@ public class SourceFetcher
     private const string ByteCacheCategory = "source-bytes-v2";
     internal const long MaxSourceDownloadSize = 16_000_000;
 
-    public SourceFetcher(HttpClient httpClient)
+    public SourceFetch(HttpClient httpClient)
         : this(httpClient, CoreCacheSourceContentStore.Instance)
     {
     }
 
-    public SourceFetcher(
+    public SourceFetch(
         HttpClient httpClient,
         ISourceContentStore contentStore,
         ISourceFetchPolicy? fetchPolicy = null)

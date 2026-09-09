@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Text;
+using System.Text.Json.Nodes;
 using DotnetInspector.Fixtures;
 using InertText;
 using NuGetFetch;
@@ -173,7 +174,7 @@ public sealed class PackageDependencyEvidenceQueryTests
     }
 
     [Fact]
-    public void Execute_RestoredGraphProvidesPositiveRestoreResolutionObservation()
+    public void PackageInput_AssetsPruningObservationRequiresTypedPackagesToPruneEvidence()
     {
         PackageDependencyEvidenceRoot restored = NormalizeRestored(
             Available(
@@ -188,8 +189,67 @@ public sealed class PackageDependencyEvidenceQueryTests
                 restored.Processing);
         Assert.True(processing.IsComplete);
         Assert.Equal(
+            [
+                PackageDependencyEvidenceProcessingObservation.RestoreResolution,
+                PackageDependencyEvidenceProcessingObservation
+                    .PackagePruningEvaluation,
+            ],
+            processing.Observations);
+    }
+
+    [Fact]
+    public void PackageInput_AssetsWithoutPruneEvidenceRemainProcessingUnknown()
+    {
+        byte[] assetsBytes = MutateRestoredAssets(
+            root => root["project"]!["frameworks"]!["net11.0"]!
+                .AsObject()
+                .Remove("packagesToPrune"));
+        PackageDependencyEvidenceRoot restored = NormalizeRestored(
+            Available(
+                RestoredProjectDependencyFactsQuery.Execute(
+                    assetsBytes,
+                    new RestoredProjectTargetRequest("net11.0"))));
+
+        var processing =
+            Assert.IsType<PackageDependencyEvidenceProcessingResult.Available>(
+                restored.Processing);
+        Assert.True(processing.IsComplete);
+        Assert.Equal(
             [PackageDependencyEvidenceProcessingObservation.RestoreResolution],
             processing.Observations);
+        Assert.DoesNotContain(
+            PackageDependencyEvidenceProcessingObservation
+                .PackagePruningEvaluation,
+            processing.Observations);
+    }
+
+    [Fact]
+    public void PackageInput_InvalidPruneEvidencePreservesRestoreAsIncompleteProcessing()
+    {
+        byte[] assetsBytes = MutateRestoredAssets(
+            root => root["project"]!["frameworks"]!["net11.0"]!
+                .AsObject()["packagesToPrune"] = "invalid");
+        PackageDependencyEvidenceRoot restored = NormalizeRestored(
+            Available(
+                RestoredProjectDependencyFactsQuery.Execute(
+                    assetsBytes,
+                    new RestoredProjectTargetRequest("net11.0"))));
+
+        var processing =
+            Assert.IsType<PackageDependencyEvidenceProcessingResult.Available>(
+                restored.Processing);
+        var failure = Assert.IsType<
+            PackageDependencyEvidenceProcessingFailure
+                .RestoredProjectPackagePruning>(
+            Assert.Single(processing.Failures));
+
+        Assert.False(processing.IsComplete);
+        Assert.Equal(
+            [PackageDependencyEvidenceProcessingObservation.RestoreResolution],
+            processing.Observations);
+        Assert.Equal(
+            RestoredProjectPackagePruningFailureReason.InvalidShape,
+            failure.Failure.Reason);
     }
 
     [Fact]
@@ -768,7 +828,11 @@ public sealed class PackageDependencyEvidenceQueryTests
             Assert.IsType<PackageDependencyEvidenceProcessingResult.Available>(
                 root.Processing);
         Assert.Equal(
-            [PackageDependencyEvidenceProcessingObservation.RestoreResolution],
+            [
+                PackageDependencyEvidenceProcessingObservation.RestoreResolution,
+                PackageDependencyEvidenceProcessingObservation
+                    .PackagePruningEvaluation,
+            ],
             processing.Observations);
     }
 
@@ -1490,6 +1554,16 @@ public sealed class PackageDependencyEvidenceQueryTests
     private static RestoredProjectDependencyFacts Available(
         RestoredProjectDependencyFactsResult result) =>
         Assert.IsType<RestoredProjectDependencyFactsResult.Available>(result).Value;
+
+    private static byte[] MutateRestoredAssets(Action<JsonNode> mutate)
+    {
+        JsonNode root = JsonNode.Parse(
+            File.ReadAllBytes(
+                FixtureCatalog.RestoredProjectDependencyFacts.AssetPath(
+                    "project.assets.json")))!;
+        mutate(root);
+        return Encoding.UTF8.GetBytes(root.ToJsonString());
+    }
 
     private static void AssertDeclarationIncomplete(
         PackageDependencyEvidenceComparisonResult result)
