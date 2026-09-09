@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
 
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -23,8 +23,74 @@ public sealed class AssemblyContextParticipant
         BindingPolicy = bindingPolicy;
     }
 
+    /// <summary>
+    /// Creates a participant whose initial binding request continues from a
+    /// policy-issued occurrence rather than reconstructing a seed from its
+    /// assembly descriptor.
+    /// </summary>
+    public AssemblyContextParticipant(
+        AssemblyBindingOccurrence occurrence,
+        IAssemblyBindingPolicy bindingPolicy)
+        : this(
+            (occurrence
+                ?? throw new ArgumentNullException(nameof(occurrence)))
+                .Assembly,
+            new OccurrenceRootedBindingPolicy(
+                occurrence,
+                bindingPolicy
+                    ?? throw new ArgumentNullException(
+                        nameof(bindingPolicy))))
+    {
+    }
+
     public ResolvedAssemblyReference Assembly { get; }
     public IAssemblyBindingPolicy BindingPolicy { get; }
+
+    sealed class OccurrenceRootedBindingPolicy(
+        AssemblyBindingOccurrence root,
+        IAssemblyBindingPolicy inner)
+        : AssemblyBindingPolicyFacade(inner)
+    {
+        public override AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (request.Origin
+                    is AssemblyBindingOrigin.RequestingAssembly requesting
+                && (requesting.Lineage is null
+                    || requesting.Lineage == AssemblyBindingLineage.Seed)
+                && !ReferenceEquals(
+                    requesting.Registration,
+                    root.Assembly.Registration))
+            {
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    AssemblyBindingSelection.Invalid(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind
+                                .InvalidBindingOrigin)));
+            }
+
+            return base.Select(request);
+        }
+
+        protected override AssemblyBindingRequest SeedRequest(
+            AssemblyBindingRequest request) =>
+            request.Origin
+                    is AssemblyBindingOrigin.RequestingAssembly
+                        requesting
+                && ReferenceEquals(
+                    requesting.Registration,
+                    root.Assembly.Registration)
+                ? new AssemblyBindingRequest(
+                    request.Target,
+                    AssemblyBindingOrigin.FromOccurrence(root),
+                    request.Scope)
+                : request;
+
+        protected override AssemblyBindingSelection TransformSelection(
+            AssemblyBindingSelection selection) => selection;
+    }
 }
 
 /// <summary>Resource limits for one binding-consistent assembly context group.</summary>

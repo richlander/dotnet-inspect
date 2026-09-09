@@ -159,7 +159,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         {
             List<Exception> cleanupFailures = [];
             if (creationFailure.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]
+                    "Inspector.Artifacts.Workspaces.CleanupFailures"]
                 is IReadOnlyCollection<Exception> acquisitionCleanupFailures)
             {
                 cleanupFailures.AddRange(acquisitionCleanupFailures);

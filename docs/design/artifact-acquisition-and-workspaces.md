@@ -631,7 +631,7 @@ transfers directly to cleanup, after which the call throws
 A late `Unavailable`, `Rejected`, or `Failed` outcome has no lease to clean and
 cannot be returned through seal after disposal. The call therefore attaches
 the exact `ArtifactSetAdmissionFailure` to the `ObjectDisposedException` under
-`DotnetInspector.Artifacts.Workspaces.AdmissionFailures`; it must not discard
+`Inspector.Artifacts.Workspaces.AdmissionFailures`; it must not discard
 the adapter's kind or diagnostic. Previously accepted supplemental leases
 remain governed by the session's ordinary retained-lease lifetime.
 
@@ -1606,7 +1606,7 @@ dependencies. The explicit-file implementation exists; the directory contract
 below is target design tracked by
 [#4999](https://github.com/richlander/dotnet-inspect/issues/4999).
 
-Before registration, `DotnetInspector.Artifacts.Local` opens an explicit file
+Before registration, `Inspector.Artifacts.Local` opens an explicit file
 once, copies it under a loop-enforced byte limit, and records path, exact copied
 length, and last-write observation from that handle as typed local provenance.
 The artifact session then copies the adapter-private snapshot into
@@ -1622,7 +1622,7 @@ separate authorized query over those retained bytes.
 
 #### Shared local-path admission
 
-`DotnetInspector.Artifacts.Local` owns one package-free admission contract for
+`Inspector.Artifacts.Local` owns one package-free admission contract for
 every path coordinate it consumes. The contract is internal to the local
 adapter; it does not add filesystem policy to source-neutral artifact
 contracts. It has two stages over one classifier:
@@ -3860,9 +3860,9 @@ full host --> core Queries + selected optional adapters/companions
 local host --> core Queries + local adapter
 ```
 
-`DotnetInspector.Artifacts` owns the source-neutral contract floor,
-`DotnetInspector.Artifacts.Workspaces` owns artifact-session composition, and
-`DotnetInspector.Artifacts.Local` owns explicit local-file acquisition. The
+`Inspector.Artifacts` owns the source-neutral contract floor,
+`Inspector.Artifacts.Workspaces` owns artifact-session composition, and
+`Inspector.Artifacts.Local` owns explicit local-file acquisition. The
 remaining adapter and companion project names are deferred, but the split must
 produce these compile-time properties:
 
@@ -3956,10 +3956,10 @@ The migration is intentionally incremental:
    guarded content access, provenance marker, acquisition registration and
    outcome, admission/query authorization, quiescent lifetime, and lease
    contracts in a package- and Metadata-free project. Implemented by
-   `DotnetInspector.Artifacts`; no existing acquisition path consumes the new
+   `Inspector.Artifacts`; no existing acquisition path consumes the new
    contracts yet.
 3. **Prove local acquisition.** Explicit local files now enter
-   `DotnetInspector.Artifacts.Local`, freeze before registration, publish through
+   `Inspector.Artifacts.Local`, freeze before registration, publish through
    `ArtifactSetSession`, and feed the package-free Metadata fixture through a
    current query lease. Explicit caller designation is assigned by workspace
    admission as a role rather than local provenance. Metadata trust does not yet

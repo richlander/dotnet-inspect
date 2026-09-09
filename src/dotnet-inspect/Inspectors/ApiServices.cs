@@ -23,7 +23,11 @@ internal static class ApiServices
         IReadOnlyDictionary<
             ApiType,
             ResolvedAssemblyReference> SourceAssemblies,
-        bool IsSummary = false)
+        bool IsSummary = false,
+        SelectedTypeBindingContext? RootBindingContext = null,
+        IReadOnlyDictionary<
+            ApiType,
+            SelectedTypeBindingContext>? BindingContexts = null)
     {
         internal string GetLibraryAssetPath(string? packageExtractPath) =>
             packageExtractPath is null
@@ -51,6 +55,16 @@ internal static class ApiServices
                 out var assembly)
                 ? assembly
                 : null;
+        }
+
+        internal SelectedTypeBindingContext? TryGetBindingContext(
+            ApiType type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return BindingContexts is not null
+                && BindingContexts.TryGetValue(type, out var context)
+                    ? context
+                    : null;
         }
     }
 
@@ -151,10 +165,23 @@ internal static class ApiServices
         var sourceAssemblies =
             new Dictionary<ApiType, ResolvedAssemblyReference>(
                 ReferenceEqualityComparer.Instance);
+        Dictionary<ApiType, SelectedTypeBindingContext>?
+            bindingContexts = resolution is null
+                ? null
+                : new(ReferenceEqualityComparer.Instance);
+        SelectedTypeBindingContext? rootBindingContext =
+            resolution is not null && rootAssembly is not null
+                ? resolution.BindingContext(
+                    AssemblyBindingOccurrence.Seed(rootAssembly))
+                : null;
         if (rootAssembly is not null)
         {
             foreach (ApiType type in api.Types)
+            {
                 sourceAssemblies.Add(type, rootAssembly);
+                if (rootBindingContext is not null)
+                    bindingContexts!.Add(type, rootBindingContext);
+            }
         }
 
         if (resolution is not null)
@@ -166,7 +193,8 @@ internal static class ApiServices
                 options.IncludeAll,
                 isPlatformAssembly,
                 resolution: resolution,
-                sourceAssemblies);
+                sourceAssemblies,
+                bindingContexts);
         }
 
         if (!string.IsNullOrEmpty(packagePath))
@@ -188,7 +216,9 @@ internal static class ApiServices
             api,
             apiDllPath,
             runtimeAssemblyPath ?? apiDllPath,
-            sourceAssemblies);
+            sourceAssemblies,
+            RootBindingContext: rootBindingContext,
+            BindingContexts: bindingContexts);
     }
 
     static ResolvedAssemblyReference? SelectRootAssembly(
@@ -525,13 +555,19 @@ internal static class ApiServices
         bool isPlatformAssembly,
         TypeDefinitionResolutionSession resolution,
         IDictionary<ApiType, ResolvedAssemblyReference>?
-            sourceAssemblies = null)
+            sourceAssemblies = null,
+        IDictionary<ApiType, SelectedTypeBindingContext>?
+            bindingContexts = null)
     {
         Dictionary<
             AssemblyAcquisitionRegistration,
             (ResolvedAssemblyReference Assembly,
                 HashSet<MetadataTypeDefinitionName> Types,
-                HashSet<int> TypeTokens)> byAssembly = [];
+                HashSet<int> TypeTokens,
+                Dictionary<
+                    MetadataTypeDefinitionName,
+                    SelectedTypeBindingContext> BindingContexts)>
+            byAssembly = [];
 
         foreach (TypeForwarder forwarder in api.TypeForwarders)
         {
@@ -563,12 +599,15 @@ internal static class ApiServices
                     assembly.Registration,
                     out var group))
             {
-                group = (assembly, [], []);
+                group = (assembly, [], [], []);
                 byAssembly.Add(assembly.Registration, group);
             }
             group.Types.Add(resolved.Definition.Type);
             group.TypeTokens.Add(
                 resolved.Definition.Address.Definition.Value);
+            group.BindingContexts[resolved.Definition.Type] =
+                resolution.BindingContext(
+                    resolved.Definition.Occurrence);
         }
 
         logger.Log(
@@ -604,7 +643,9 @@ internal static class ApiServices
                     group.Types,
                     group.Assembly,
                     group.TypeTokens,
-                    sourceAssemblies);
+                    sourceAssemblies,
+                    bindingContexts,
+                    group.BindingContexts);
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -665,7 +706,13 @@ internal static class ApiServices
         ResolvedAssemblyReference targetAssembly,
         IReadOnlyCollection<int>? forwardedTypeTokens = null,
         IDictionary<ApiType, ResolvedAssemblyReference>?
-            sourceAssemblies = null)
+            sourceAssemblies = null,
+        IDictionary<ApiType, SelectedTypeBindingContext>?
+            bindingContexts = null,
+        IReadOnlyDictionary<
+            MetadataTypeDefinitionName,
+            SelectedTypeBindingContext>?
+            forwardedBindingContexts = null)
     {
         List<ApiType> copiedTypes =
         [
@@ -722,6 +769,15 @@ internal static class ApiServices
             type.IsForwarded = true;
             type.SourceAssemblyPath = targetAssembly.Path;
             sourceAssemblies?.Add(type, targetAssembly);
+            if (bindingContexts is not null
+                && type.DefinitionName is { } definitionName
+                && forwardedBindingContexts is not null
+                && forwardedBindingContexts.TryGetValue(
+                    definitionName,
+                    out SelectedTypeBindingContext? context))
+            {
+                bindingContexts.Add(type, context);
+            }
             api.Types.Add(type);
             api.PublicMethodCount +=
                 type.Members.Count(

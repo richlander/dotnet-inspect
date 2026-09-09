@@ -981,7 +981,7 @@ jobs:
         run: dotnet run --project tests/ILInspector.CSharp.Tests -c Release
 
       - name: Run artifact contract tests
-        run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
+        run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
 
       - name: Run ecosystem registry tests
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
