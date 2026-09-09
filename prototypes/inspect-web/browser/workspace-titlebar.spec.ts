@@ -560,11 +560,15 @@ test("Member Facts keeps zero, loading, and failure states distinct", async ({
       await expect(page.locator(".safety-facts")).toHaveCount(0);
       await expect(page.locator(".exception-regions")).toHaveCount(0);
       await expect(page.locator(".performance-facts")).toHaveCount(0);
-      await expect(page.locator(".member-surface-scroll h2"))
-        .toHaveText(mode === "loading" ? "Analyzing method…" : "Facts query failed");
+      await expect(page.getByRole("heading", {
+        name: mode === "loading" ? "Analyzing method…" : "Facts query failed",
+        exact: true,
+      })).toBeVisible();
       if (mode === "error") {
-        await expect(page.locator(".member-surface-scroll p"))
-          .toHaveText("The selected method could not be decoded.");
+        await expect(page.getByText(
+          "The selected method could not be decoded.",
+          { exact: true },
+        )).toBeVisible();
       }
     }
   }

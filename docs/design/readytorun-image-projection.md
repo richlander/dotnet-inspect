@@ -12,8 +12,9 @@ not choose an artifact, acquire content, load inspected code, decode native
 methods, or render a host surface.
 
 The contract is enforced in Release by
-`ILInspector.Metadata.Tests.ReadyToRunImageInspectorTests`. The later metadata,
-CLI, and Browser/Wasm adoptions remain tracked by #5835.
+`ILInspector.Metadata.Tests.ReadyToRunImageInspectorTests`. Metadata-root, CLI,
+and Browser/Wasm adoption are implemented as the separately owned follow-on
+slices tracked by #5835.
 
 ## Claim
 
@@ -77,9 +78,9 @@ slices:
    and Package Metadata and Metadata Explorer expose the R2R overview and
    manifest root without parsing PE bytes in TypeScript.
 
-This document owns only step 1. Steps 2-4 are separate owner adoptions and may
-land as later stack slices. The shared projection contains no CLI, Markout,
-JSON, JavaScript, DOM, worker, or callback type.
+This document owns only step 1. Steps 2-4 landed as separate owner adoptions.
+The shared projection contains no CLI, Markout, JSON, JavaScript, DOM, worker,
+or callback type.
 
 ## Format basis
 
@@ -365,5 +366,4 @@ This contract does not claim:
 - discovery of a custom crossgen2 header symbol;
 - native method entry points, code ranges, runtime functions, imports, fixups,
   exception data, debug data, profile data, or GC information;
-- decoding or semantic validation of `ManifestMetadata`; or
-- any CLI or browser output before the corresponding adoption slice lands.
+- decoding or semantic validation of `ManifestMetadata`.

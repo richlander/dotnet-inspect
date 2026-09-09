@@ -48,6 +48,9 @@ import { renderPackageNav } from "../src/package-view.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
 import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 import {
+  memberFindingInteractionFixture,
+} from "../test/member-finding-census-fixture.ts";
+import {
   bindWorkspaceSubject,
   focusWorkspace,
   renderWorkspaceSubject,
@@ -517,6 +520,15 @@ function detailHtml() {
           memberFactsError: memberFactsMode === "error"
             ? "The selected method could not be decoded."
             : "",
+          memberAnnotatedLoading: memberFactsMode === "loading",
+          memberAnnotatedError: memberFactsMode === "error"
+            ? "The Finding census could not be projected."
+            : "",
+          memberFindingInteraction:
+            memberFactsMode === "loading" || memberFactsMode === "error"
+              ? null
+              : memberFindingInteractionFixture(),
+          memberFindingSelectionError: "",
         })}</div>
       </section>`;
     }
