@@ -83,6 +83,23 @@ dnx dotnet-inspect --source https://api.nuget.org/v3/index.json
 
 ## Additional library suites
 
+### CLI and product-output tests
+
+Build the solution before running the CLI suite so its cataloged fixtures and
+out-of-process apphosts are current:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/dotnet-inspect.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections; PR CI excludes
+`Speed=Slow`, while Deep Inspect runs the complete suite. Compiler-produced
+sample types and self-host tests remain with the executable under `tests/`;
+independently compiled inspected inputs remain under `fixtures/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
 ### Text-library tests
 
 Run the complete text-library suites from the repository root:

@@ -48,11 +48,15 @@ public static class HelpWriter
         if (options.Count > 0)
             view.Options = FormatEntries(options.Select(FormatOptionEntry));
 
-        // Subcommands (excluding hidden, preserve insertion order)
-        var subcommands = command.Subcommands.Where(c => !c.Hidden).ToList();
-        if (subcommands.Count > 0)
+        // Root help is an inventory; nested commands retain their authored workflow order.
+        IEnumerable<Command> subcommands = command.Subcommands.Where(c => !c.Hidden);
+        if (command is RootCommand)
+            subcommands = subcommands.OrderBy(c => c.Name, StringComparer.Ordinal);
+
+        var visibleSubcommands = subcommands.ToList();
+        if (visibleSubcommands.Count > 0)
         {
-            view.Commands = FormatEntries(subcommands.Select(c =>
+            view.Commands = FormatEntries(visibleSubcommands.Select(c =>
             {
                 var name = c.Name;
                 var visibleArgs = c.Arguments.Where(a => !a.Hidden).ToList();
