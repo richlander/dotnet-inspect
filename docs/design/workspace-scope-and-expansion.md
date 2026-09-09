@@ -1284,8 +1284,9 @@ multi-owner commit participant.
 
 Every occurrence in the new Workspace is issued under that
 Workspace's fresh identity. Scope constructs only from the new Workspace's
-requested membership; it does not read active Workspace membership, retain
-active occurrence identities, or transfer revisions between Workspaces.
+requested membership. No other Workspace or Workspace definition participates;
+Scope does not retain occurrence identities or transfer revisions between
+Workspaces.
 Definitions and the retained host own whether the fully prepared Workspace
 becomes active; failure or supersession closes it and leaves the active
 Workspace's current Scope unchanged.

@@ -1471,12 +1471,10 @@ version-1 writer accepts a Registry ID.
 ### Complete restoration
 
 Complete restoration is a switch to an independently constructed Workspace.
-The composition of any currently active Workspace is not input to the new
-Workspace and no compatibility relationship exists between them. Restoration
-does not mutate a current Workspace in place or reuse its Roots, occurrence
-identities, contexts, sessions, budgets, Navigation state, or query authority.
-Whether a current Workspace exists, or whether it shares zero, some, or all
-requested package IDs with the new Workspace, has no bearing on activation.
+Each Workspace is constructed solely from its own definition; no other
+Workspace or Workspace definition participates. Restoration does not mutate a
+current Workspace in place or reuse its Roots, occurrence identities, contexts,
+sessions, budgets, Navigation state, or query authority.
 
 This rule applies to saved definitions, share packets, Browser history,
 product demos, external-package Spotlight selection, and CLI canonical replay.
@@ -1502,10 +1500,8 @@ One restoration attempt proceeds in this order:
 3. Resolve legacy selectors, coordinate-backed identities, Registry IDs, query
    migrations, Platform/package pruning, and the complete multi-package Root
    and registration intent. Missing, ambiguous, rejected, or invalid input
-   fails under the same attempt token. This is ordinary construction of the
-   requested Workspace, not a compatibility test against the active Workspace
-   or a cross-Root compatibility gate; each Root resolves under its own owner
-   contract.
+   fails under the same attempt token. Each Root resolves under its own owner
+   contract as part of constructing this one Workspace.
 4. Construct one fresh Workspace. The coordinator is its sole holder until
    installation. Populate its complete explicit membership and registrations
    through ordinary Artifact and Scope operations. Every Workspace, Root

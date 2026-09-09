@@ -27,9 +27,8 @@ Fresh Workspace construction and switching, tracked by
 adds no private Artifact candidate. Definitions constructs a new Workspace,
 populates and inspects it through ordinary owner APIs while the active
 Workspace remains usable, and returns it for one host-owned switch or
-close. Artifact Acquisition owns each Workspace independently; it does not
-compare Workspaces for compatibility or transfer Workspace-owned resources
-between them.
+close. Artifact Acquisition owns each Workspace independently; another
+Workspace or Workspace definition does not participate in its construction.
 
 See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
@@ -3622,19 +3621,16 @@ or a second query-access protocol.
 A saved definition describes one Workspace with `Newtonsoft.Json` and
 `Humanizer.Core` as explicit package Roots and a member from `Humanizer.dll`
 selected. Opening that definition constructs exactly that Workspace. The
-contents of any currently active Workspace are not input to construction and
-are not a comparison operand. Once construction succeeds, the host makes the
-new Workspace active and Navigation makes `Humanizer.Core` active in the
-subject strip for the selected member. If another Workspace was active, the
-host has switched from it; otherwise this is initial activation. Failure
+new Workspace is constructed solely from that definition; no other Workspace
+or Workspace definition participates. Once construction succeeds, the host
+makes the new Workspace active and Navigation makes `Humanizer.Core` active in
+the subject strip for the selected member. If another Workspace was active,
+the host has switched from it; otherwise this is initial activation. Failure
 retains the prior host state, including the absence of an active Workspace.
 
-Restoration does not test compatibility between Workspaces or make a
-whole-Workspace compatibility judgment from package overlap or dependency
-relationships. Each requested Root resolves under its ordinary owner contract.
-Restoration constructs a fresh Workspace with a fresh
-`InspectionWorkspaceIdentity`, then uses the ordinary Artifact, Scope,
-Navigation, and query paths inside that unpublished Workspace:
+Restoration constructs the new Workspace with a fresh
+`InspectionWorkspaceIdentity` and uses the ordinary Artifact, Scope,
+Navigation, and query paths inside it:
 
 1. create one fresh Workspace under the restoration attempt's cancellation and
    deadline;
@@ -3657,9 +3653,9 @@ consumer's existing intent and effect authority.
 The new Workspace shares no Workspace-owned Root, occurrence identity, artifact
 session, context group, query lease, budget reservation, Navigation session,
 or mutable owner state with the active Workspace. Equal package coordinates do
-not trigger a compatibility decision or resource transfer. Storage and package
-caches may independently return the same immutable bytes to both Workspaces;
-cache reuse does not make either Workspace own the other's resources.
+not transfer resources. Storage and package caches may independently return the
+same immutable bytes to both Workspaces; cache reuse does not make either
+Workspace own the other's resources.
 
 Because the new Workspace is ordinary, its published Roots use the
 ordinary current-query path. Artifact Acquisition needs no candidate identity,

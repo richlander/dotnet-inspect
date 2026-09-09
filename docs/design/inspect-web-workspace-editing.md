@@ -46,9 +46,8 @@ package result constructs a ready unnamed Workspace with one explicit package
 Root in addition to the default ecosystem registrations, switches to it, and
 establishes focus there. Selecting a subject already loaded in the active
 Workspace changes focus without rebuilding membership. Repeated unrelated
-package searches therefore switch between independently constructed
-Workspaces rather than accumulating packages or testing compatibility with the
-prior Workspace.
+package searches therefore create and switch to independent one-package
+Workspaces rather than accumulating packages.
 
 Spotlight does not currently expose **Add to current Workspace**. The full
 Workspace editor remains the multi-package composition surface. A future
