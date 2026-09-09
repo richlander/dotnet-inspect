@@ -22,11 +22,11 @@ availability in another session or agent host.
 This policy applies to agent harnesses that advertise GPT models. In those
 harnesses, only OpenAI GPT models may be used; all other models are prohibited.
 Every model or mode labeled Fast and extra-high (`xhigh`) reasoning are also
-prohibited. GPT-5.6 Sol is the coding default and GPT-6 Astra holds the sole
-review seat. Any advertised non-Fast GPT-5.6 model, such as GPT-5.6 Terra, or
-another advertised non-Fast GPT model may be selected when the agent judges it
-sufficient for the task. Historical review attributions keep their original
-model names.
+prohibited. GPT-5.6 Sol is the default for coding and review. GPT-6 Astra may
+review complex changes; GPT-5.6 Terra or Luna may review relatively simple
+changes that still require review. Another advertised non-Fast GPT model may be
+selected when the agent judges it sufficient for the task. Historical review
+attributions keep their original model names.
 
 ## Resolving a dispatch
 
