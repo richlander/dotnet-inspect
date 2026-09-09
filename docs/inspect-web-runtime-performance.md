@@ -205,14 +205,15 @@ Inspect Web project graph retains that target framework while executing on the
 .NET 12 CoreCLR runtime. The workflow sets `PublishReadyToRun=false`
 explicitly. Both workload installation and application publication restore use
 the pinned daily feed plus NuGet.org. Publication uses package-source mapping so
-SDK-selected `Microsoft.NET.ILLink.Tasks` can resolve from the same daily cohort
-while ordinary project dependencies remain available from NuGet.org. Its
-artifact carries `dotnet --info`, `dotnet workload list`, and a machine-readable
-receipt that binds the SDK, runtime, workload manifest and packs, feeds, target
-framework, runtime-async lowering, and non-ReadyToRun configuration. It also
-records the pinned CoreCLR pack's native JavaScript and Wasm hashes, which must
-equal the published runtime assets. The same receipt is verified before
-artifact upload and again before deployment.
+the installed workload supplies `Microsoft.NET.Sdk.WebAssembly.Pack`, the daily
+feed supplies SDK-selected `Microsoft.NET.ILLink.Tasks`, and NuGet.org supplies
+ordinary project dependencies. Its artifact carries `dotnet --info`, `dotnet
+workload list`, and a machine-readable receipt that binds the SDK, runtime,
+workload manifest and packs, feeds, target framework, runtime-async lowering,
+and non-ReadyToRun configuration. It also records the pinned CoreCLR pack's
+native JavaScript and Wasm hashes, which must equal the published runtime
+assets. The same receipt is verified before artifact upload and again before
+deployment.
 
 ReadyToRun publication must additionally record:
 

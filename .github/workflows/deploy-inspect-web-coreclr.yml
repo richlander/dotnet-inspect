@@ -201,16 +201,19 @@ jobs:
           <configuration>
             <packageSources>
               <clear />
+              <add key="dotnet-workload" value="$DOTNET_ROOT/library-packs" />
               <add key="dotnet12" value="$DOTNET_DAILY_FEED" />
               <add key="nuget.org" value="$DOTNET_NUGET_FEED" />
             </packageSources>
             <packageSourceMapping>
+              <packageSource key="dotnet-workload">
+                <package pattern="Microsoft.NET.Sdk.WebAssembly.Pack" />
+              </packageSource>
               <packageSource key="dotnet12">
                 <package pattern="Microsoft.NET.ILLink.Tasks" />
               </packageSource>
               <packageSource key="nuget.org">
                 <package pattern="*" />
-                <package pattern="Microsoft.NET.ILLink.Tasks" />
               </packageSource>
             </packageSourceMapping>
           </configuration>
