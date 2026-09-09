@@ -32,6 +32,7 @@ fixtures/diff/DiffAsmFixtures.Caller
 fixtures/diff/DiffAsmFixtures.LibA
 fixtures/diff/DiffAsmFixtures.LibB
 fixtures/diff/DiffAsmFixtures.Target
+fixtures/inspect-web/InspectWeb.CloneTransportFixtures
 fixtures/inspect-web/InspectWeb.MethodBodyFixtures
 fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1
 fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2
@@ -71,15 +72,13 @@ fixtures/research/ILInspector.Research.TargetFixtures
 fixtures/research/ResearchTargetCorrespondenceFixtures.V1
 fixtures/research/ResearchTargetCorrespondenceFixtures.V2
 fixtures/runfaster/RunFaster.AllocationFixture
-fixtures/services/DotnetInspector.Services.RouteLearning.Base
 fixtures/services/DotnetInspector.Services.RouteLearning.Consumer
-fixtures/services/DotnetInspector.Services.RouteLearning.Contract
 fixtures/services/DotnetInspector.Services.RouteLearning.InterfaceBase
-fixtures/services/DotnetInspector.Services.RouteLearning.Middle
 fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated
 fixtures/shared/DotnetInspector.Fixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures
+fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures
 src/DotnetInspector.Artifacts.Local
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
@@ -91,7 +90,6 @@ src/DotnetInspector.SourceDelegation
 src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
-src/ILInspector.Research.Tests
 src/ILInspector.TypeScriptGeneration
 src/TsJsExport.Contracts
 src/dotnet-inspect
@@ -129,8 +127,9 @@ tests/ILInspector.JsExportSurface.AsyncDelegateCompileNegative
 tests/ILInspector.JsExportSurface.Tests
 tests/ILInspector.Metadata.Tests
 tests/ILInspector.MetadataPrimitives.PlatformProbe
-tests/ILInspector.Text.Tests
+tests/ILInspector.Research.Tests
 tests/InertText.Tests
+tests/Inspector.Text.Tests
 tests/NuGetFetch.Tests
 tests/TestExtensions
 tests/nuget/NuGetFetch.CustomClientFixture

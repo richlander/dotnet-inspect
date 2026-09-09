@@ -38,6 +38,68 @@ public sealed class AssemblyContextMethodAddressQueryTests
     }
 
     [Fact]
+    public void MethodAnchorUsesExactDeclaringTypeAndMethodDef()
+    {
+        using var fixture = new Fixture();
+        var method =
+            typeof(string).GetMethod(
+                nameof(string.ToString),
+                Type.EmptyTypes)!;
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized(
+                    "System.String")).Name;
+        MemberAnchor anchor =
+            Assert.IsType<AssemblyContextEntry<MemberAnchor>.Available>(
+                AssemblyContextMethodAnchorQuery.ExecuteParticipant(
+                    fixture.Group,
+                    fixture.Participant,
+                    type,
+                    method.MetadataToken,
+                    isExtensionMethod: false)).Value;
+
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(string).Assembly.Location);
+        ApiType apiType =
+            Assert.Single(
+                session.ApiSurface(includeAll: true).Types,
+                candidate => candidate.FullName == "System.String");
+        ApiMember apiMember =
+            Assert.Single(
+                apiType.Members,
+                candidate =>
+                    candidate.MetadataToken == method.MetadataToken);
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(apiType, apiMember),
+            anchor);
+    }
+
+    [Fact]
+    public void MethodAnchorRejectsMethodFromAnotherDeclaringType()
+    {
+        using var fixture = new Fixture();
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized(
+                    "System.Object")).Name;
+        var failed =
+            Assert.IsType<AssemblyContextEntry<MemberAnchor>.Failed>(
+                AssemblyContextMethodAnchorQuery.ExecuteParticipant(
+                    fixture.Group,
+                    fixture.Participant,
+                    type,
+                    typeof(string)
+                        .GetMethod(
+                            nameof(string.ToString),
+                            Type.EmptyTypes)!
+                        .MetadataToken,
+                    isExtensionMethod: false));
+
+        Assert.Contains("is not declared by", failed.Error.Message);
+    }
+
+    [Fact]
     public void MissingImageIsRejected()
     {
         using var fixture = new Fixture(unavailable: true);

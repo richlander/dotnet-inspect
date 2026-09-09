@@ -136,6 +136,9 @@ public readonly record struct ConsumedMemberEvidence(
             case LoadFieldAddress address:
                 evidence.Add(new(Field: address.Field));
                 break;
+            case FixedBufferElementAddress address:
+                evidence.Add(new(Field: address.BufferField));
+                break;
             case NullCoalescingFieldAssignment assignment:
                 evidence.Add(new(Field: assignment.Field));
                 break;

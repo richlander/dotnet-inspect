@@ -9,6 +9,7 @@ import {
   createOperationAuthorityPage,
   type OperationAuthorityPage,
   type OperationAuthorityPageOptions,
+  type OperationCancellationState,
   type OperationCancelReason,
   type OperationControlResult,
   type OperationDiagnostic,
@@ -40,6 +41,7 @@ interface ProducerAttempt {
   readonly identity: OperationIdentity;
   readonly input: string;
   readonly sink: TestSink;
+  readonly cancellation: OperationCancellationState;
   readonly cancellations: OperationCancelReason[];
   activated: boolean;
   abandoned: boolean;
@@ -96,11 +98,12 @@ function deterministicOptions(
 function producer(options: ProducerOptions = {}): ProducerHarness {
   const attempts: ProducerAttempt[] = [];
   const adapter: TestAdapter = {
-    prepare: (identity, input, sink) => {
+    prepare: (identity, input, sink, cancellation) => {
       const attempt: ProducerAttempt = {
         identity,
         input,
         sink,
+        cancellation,
         cancellations: [],
         activated: false,
         abandoned: false,
@@ -511,6 +514,12 @@ test("activation sees an installed cancellable operation after start publication
   });
   harness = sessionHarness(undefined, event => {
     order.push(event.kind);
+    if (event.kind === "canceled") {
+      assert.equal(
+        activating.attempts[0]?.cancellation.reason,
+        event.reason,
+      );
+    }
     return undefined;
   });
 

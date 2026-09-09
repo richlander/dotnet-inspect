@@ -207,8 +207,12 @@ const coordinates = [
 ];
 function workspaceNavigationHtml(): string {
   return renderWorkspaceSubject({
-    packageCount: coordinates.length,
-    selected: true,
+    workspaces: [{
+      id: "workspace-1",
+      label: "Workspace 1",
+      packageCount: coordinates.length,
+      active: true,
+    }],
     escapeHtml,
   });
 }
@@ -1041,6 +1045,8 @@ function bindHarnessWorkspace() {
   if (!workspaceMode) return;
   bindWorkspaceSubject(document, {
     onSelect: renderHarnessWorkspace,
+    onActivateWorkspace: renderHarnessWorkspace,
+    onDeleteWorkspace: () => {},
     onActivate: action => {
       const count = Number(document.body.dataset.workspaceExecutionCount ?? "0");
       document.body.dataset.workspaceExecutionCount = String(count + 1);

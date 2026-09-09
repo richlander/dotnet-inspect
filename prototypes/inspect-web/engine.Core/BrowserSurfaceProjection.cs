@@ -272,6 +272,7 @@ internal static class BrowserSurfaceProjection
             anchor.StableSelector,
             anchor.Fingerprint,
             anchor.CanonicalSignature,
+            anchor.TypeFullName,
             Analysis.CallGraphMemberResolver.CreateSelector(type, member).Key,
             [
                 .. Analysis.CallGraphMemberResolver.CreateBodySelectors(type, member)
@@ -403,6 +404,7 @@ internal static class BrowserSurfaceProjection
             Retain(member.StableSelector);
             Retain(member.AnchorDigest);
             Retain(member.CanonicalSignature);
+            Retain(member.AnchorTypeFullName);
             Retain(member.GraphSelectorKey);
             foreach (BrowserParameterSurfaceInfo parameter in member.Parameters)
             {

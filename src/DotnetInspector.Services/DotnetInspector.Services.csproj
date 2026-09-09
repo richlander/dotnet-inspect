@@ -25,7 +25,7 @@
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <ProjectReference Include="../ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
-    <ProjectReference Include="../ILInspector.Text/ILInspector.Text.csproj" />
+    <ProjectReference Include="../Inspector.Text/Inspector.Text.csproj" />
     <ProjectReference Include="../DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <ProjectReference Include="../InertText/InertText.csproj" />

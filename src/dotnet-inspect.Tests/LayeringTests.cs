@@ -253,7 +253,7 @@ public sealed class LayeringTests
             .ToArray();
 
         Assert.Contains("ILInspector.MetadataPrimitives", closure);
-        Assert.DoesNotContain("ILInspector.Text", closure);
+        Assert.DoesNotContain("Inspector.Text", closure);
     }
 
     [Fact]
@@ -931,7 +931,7 @@ public sealed class LayeringTests
 
         Assert.DoesNotContain("ILInspector.ILDiff", closure);
         Assert.DoesNotContain("Inspector.Findings", closure);
-        Assert.DoesNotContain("ILInspector.Text", closure);
+        Assert.DoesNotContain("Inspector.Text", closure);
     }
 
     [Fact]

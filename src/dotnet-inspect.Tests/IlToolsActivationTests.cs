@@ -757,7 +757,7 @@ public class IlToolsActivationTests
             "-c Release -- --long-running 60 --xunit-diagnostics on",
             job);
         Assert.Contains(
-            "run: dotnet run --project src/ILInspector.Research.Tests " +
+            "run: dotnet run --project tests/ILInspector.Research.Tests " +
             "-c Release -- --fail-skips on",
             job);
 
@@ -828,7 +828,7 @@ public class IlToolsActivationTests
                 "-c Release -- --filter-not-trait \"Speed=Slow\""),
             (
                 "decompiler",
-                "dotnet run --project src/ILInspector.Decompiler.Tests " +
+                "dotnet run --project tests/ILInspector.Decompiler.Tests " +
                 "-c Release -- -trait- \"Speed=Slow\""),
             (
                 "metadata",
