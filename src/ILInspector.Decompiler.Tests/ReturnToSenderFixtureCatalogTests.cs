@@ -7,7 +7,7 @@ using DotnetInspector.Queries;
 using ILInspector.Decompiler;
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.CSharp;
 using ILInspector.Metadata;

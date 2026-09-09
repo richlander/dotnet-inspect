@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace DotnetInspector.Queries;
 

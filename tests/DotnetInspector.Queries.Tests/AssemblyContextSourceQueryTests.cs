@@ -12,7 +12,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 

@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 /// <summary>
 /// A named soft-correspondence tier. <see cref="Id"/> uniquely names the tier and therefore its

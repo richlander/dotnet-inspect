@@ -3,7 +3,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
-using ILInspector.Findings;
+using Inspector.Findings;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;

@@ -1,6 +1,6 @@
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Research;
 

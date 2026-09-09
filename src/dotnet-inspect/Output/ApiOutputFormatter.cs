@@ -1,7 +1,7 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Core;
 using ILInspector.CSharp;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;

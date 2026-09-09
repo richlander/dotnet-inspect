@@ -130,12 +130,12 @@
     <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
+    <Project Path="src/Inspector.Findings/Inspector.Findings.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
     <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <Project Path="src/ILInspector.CallGraph/ILInspector.CallGraph.csproj" />
     <Project Path="src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
-    <Project Path="src/ILInspector.Findings/ILInspector.Findings.csproj" />
     <Project Path="src/ILInspector.ILDiff/ILInspector.ILDiff.csproj" />
     <Project Path="src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj" />
     <Project Path="src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />

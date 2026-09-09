@@ -3,7 +3,7 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.RoundTripCompilation;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;

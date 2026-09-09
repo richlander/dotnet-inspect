@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 /// <summary>
 /// A consumer-selected equivalence relation over a diff, expressed as data (an allow-list of pair
