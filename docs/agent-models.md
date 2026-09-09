@@ -28,6 +28,12 @@ changes that still require review. Another advertised non-Fast GPT model may be
 selected when the agent judges it sufficient for the task. Historical review
 attributions keep their original model names.
 
+These prohibitions govern dispatch only. If an agent is mistakenly started with
+a prohibited configuration, continue observing it and assess and use its
+returned work normally. Do not cancel, discard, or duplicate otherwise useful
+work solely because its launch violated model policy; use an approved
+configuration for subsequent dispatches.
+
 ## Resolving a dispatch
 
 Use the exact ID accepted by the active dispatch tool. Confirm a mapped ID

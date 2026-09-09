@@ -48,12 +48,12 @@ export function diffTargetDescription(
   versions: PackageVersionState,
 ): string {
   if (versions.status === "failed") return versions.message;
-  if (diff.kind === "exact") return `Compare against ${diff.version}.`;
+  if (diff.kind === "exact") return "Exact version";
   if (versions.status !== "available") return "Reading available versions...";
   const { previousVersion, previousVersionUnavailableReason } = versions.inventory;
   return previousVersionUnavailableReason
     ?? (previousVersion
-      ? `Compare against ${previousVersion} (previous version).`
+      ? "Previous listed release"
       : "No earlier listed version is available.");
 }
 
@@ -73,25 +73,41 @@ export function renderPackageComparisonTargets<T extends ComparisonPackage>(
     ? [...versions.inventory.versions] : [];
   if (diff.kind === "exact" && !choices.includes(diff.version))
     choices.unshift(diff.version);
+  const automaticDiffLabel = versions.status === "available"
+    ? versions.inventory.previousVersionUnavailableReason
+      ? "Automatic: listing unavailable"
+      : versions.inventory.previousVersion
+        ? `Automatic: ${versions.inventory.previousVersion}`
+        : "Automatic: no earlier version"
+    : "Automatic: previous listed version";
+  const retry = supported && (versions.status === "failed"
+    || (versions.status === "available"
+      && versions.inventory.previousVersionUnavailableReason));
+  const diffStatusClass = versions.status === "failed"
+    ? " comparison-target-status-error" : "";
 
-  return `<div class="section-title"><h2>Comparison targets</h2><span>Browser session</span></div>
-    <p>These settings prepare targets for the forthcoming Diff inspector.</p>
-    <div class="package-coordinate-fields">
-      <label class="version-select">
-        <span>Diff against</span>
-        <select id="package-diff-target" aria-describedby="package-diff-target-status"${supported ? "" : " disabled"}>
-          <option value="previous"${diff.kind === "previous" ? " selected" : ""}>Previous version (automatic)</option>
+  return `<div class="section-title comparison-targets-title"><h2>Comparison targets</h2><span>Target setup</span></div>
+    <div class="comparison-target-list">
+      <section class="comparison-target-row" aria-labelledby="package-diff-target-label">
+        <div class="comparison-target-heading">
+          <h3 id="package-diff-target-label">Diff baseline</h3>
+        </div>
+        <div class="comparison-target-selection">
+          <select id="package-diff-target" aria-labelledby="package-diff-target-label" aria-describedby="package-diff-target-status"${supported ? "" : " disabled"}>
+          <option value="previous"${diff.kind === "previous" ? " selected" : ""}>${escapeHtml(automaticDiffLabel)}</option>
           ${choices.map(version => `<option value="exact:${escapeHtml(version)}"${diff.kind === "exact" && diff.version === version ? " selected" : ""}>${escapeHtml(version)}</option>`).join("")}
-        </select>
-      </label>
+          </select>
+          <div class="comparison-target-status${diffStatusClass}">
+            <p id="package-diff-target-status" role="status">${escapeHtml(supported
+              ? diffTargetDescription(diff, versions)
+              : "Version targets are available only for Gallery packages.")}</p>
+            ${retry
+              ? '<button type="button" class="comparison-target-retry" id="package-comparison-retry">Retry versions</button>' : ""}
+          </div>
+        </div>
+      </section>
     </div>
-    <p id="package-diff-target-status" role="status">${escapeHtml(supported
-      ? diffTargetDescription(diff, versions)
-      : "Version comparison targets are currently available for Gallery packages.")}</p>
-    ${supported && (versions.status === "failed"
-      || (versions.status === "available" && versions.inventory.previousVersionUnavailableReason))
-      ? '<button type="button" id="package-comparison-retry">Retry versions</button>' : ""}
-    <p>Automatic Diff uses listed stable releases; preview coordinates can also select earlier previews. Targets are not included in shared links.</p>`;
+    <p class="comparison-target-policy">Session only. Choosing a target does not run a comparison or change shared links.</p>`;
 }
 
 export function bindPackageComparisonTargets(
