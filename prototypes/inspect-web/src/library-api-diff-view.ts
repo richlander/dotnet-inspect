@@ -31,6 +31,10 @@ export interface LibraryApiDiffSelectionSnapshot {
   readonly focusedTypeId: string | null;
 }
 
+export interface LibraryApiDiffSelectionRestoreOptions {
+  readonly restoreFocus?: boolean;
+}
+
 export function captureLibraryApiDiffSelection(
   root: ParentNode,
 ): LibraryApiDiffSelectionSnapshot {
@@ -48,6 +52,7 @@ export function captureLibraryApiDiffSelection(
 export function restoreLibraryApiDiffSelection(
   root: ParentNode,
   snapshot: LibraryApiDiffSelectionSnapshot,
+  options: LibraryApiDiffSelectionRestoreOptions = {},
 ): void {
   const surface = root.querySelector<HTMLElement>(".library-api-diff-scroll");
   const list = root.querySelector<HTMLElement>(".library-api-diff-list");
@@ -56,7 +61,7 @@ export function restoreLibraryApiDiffSelection(
     surface.scrollTop = snapshot.surfaceScrollTop;
   }
   if (snapshot.scrollTop !== null) list.scrollTop = snapshot.scrollTop;
-  if (!snapshot.focusedTypeId) return;
+  if (options.restoreFocus === false || !snapshot.focusedTypeId) return;
   const focused = [...list.querySelectorAll<HTMLElement>(
     "[data-library-api-diff-type]"    )].find(
         item => item.dataset.libraryApiDiffType === snapshot.focusedTypeId);

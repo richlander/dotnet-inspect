@@ -226,6 +226,7 @@ import {
   renderLibraryApiDiffSurface,
   restoreLibraryApiDiffSelection,
   type LibraryApiDiffAction,
+  type LibraryApiDiffSelectionSnapshot,
 } from "./library-api-diff-view.ts";
 import {
   createMetadataInspectionCoordinator,
@@ -4279,6 +4280,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && document.activeElement.closest("#method-body-diff-modal")
     ? document.activeElement.id
     : "";
+  const libraryApiDiffContinuity =
+    captureLibraryApiDiffRenderContinuity();
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen || state.methodBodyDiff.open ? " inert" : ""}>
       ${workbenchShellHtml({
@@ -4450,6 +4453,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && currentCallGraph()?.mermaid) {
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
   }
+  scheduleLibraryApiDiffRenderContinuity(libraryApiDiffContinuity);
 }
 
 function renderWorkspaceCatalogView() {
@@ -7588,12 +7592,7 @@ function applyLibraryApiDiffAction(action: LibraryApiDiffAction) {
       libraryApiDiff.retry();
       return;
     case "select-type":
-      {
-        const selection = captureLibraryApiDiffSelection(document);
-        libraryApiDiff.selectType(action.typeId);
-        requestAnimationFrame(() =>
-          restoreLibraryApiDiffSelection(document, selection));
-      }
+      libraryApiDiff.selectType(action.typeId);
       return;
   }
 }
@@ -9053,6 +9052,41 @@ function scheduleMemberFocusAfterRender(
   requestAnimationFrame(() => {
     if (contentFrameReplacementAuthority === replacementAuthority)
       contentFrameReplacementAuthority = null;
+  });
+}
+
+interface LibraryApiDiffRenderContinuity {
+  readonly signature: string;
+  readonly result: NonNullable<LibraryApiDiffState["result"]>;
+  readonly selection: LibraryApiDiffSelectionSnapshot;
+  readonly focusGeneration: number;
+}
+
+function captureLibraryApiDiffRenderContinuity():
+LibraryApiDiffRenderContinuity | null {
+  const result = state.libraryApiDiff.result;
+  if (!result || !libraryApiDiffActiveView()) return null;
+  return {
+    signature: state.libraryApiDiff.signature,
+    result,
+    selection: captureLibraryApiDiffSelection(document),
+    focusGeneration: documentFocusGeneration,
+  };
+}
+
+function scheduleLibraryApiDiffRenderContinuity(
+  continuity: LibraryApiDiffRenderContinuity | null,
+) {
+  if (!continuity) return;
+  requestAnimationFrame(() => {
+    if (!libraryApiDiffActiveView()
+      || state.libraryApiDiff.signature !== continuity.signature
+      || state.libraryApiDiff.result !== continuity.result) {
+      return;
+    }
+    restoreLibraryApiDiffSelection(document, continuity.selection, {
+      restoreFocus: continuity.focusGeneration === documentFocusGeneration,
+    });
   });
 }
 

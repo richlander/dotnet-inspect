@@ -1019,6 +1019,7 @@ kbd {
 .detail-scroll.library-integrations-working-surface,
 .detail-scroll.library-opportunities-working-surface,
 .detail-scroll.library-analysis-working-surface,
+.detail-scroll.library-api-diff-working-surface,
 .detail-scroll.package-dependencies-working-surface,
 .detail-scroll.package-metadata-working-surface { min-height: 0; overflow: hidden; padding: 0; }
 

@@ -205,6 +205,56 @@ async function installFacades(
         id, version, framework, asset, metadataRoot, index, startRowId) {
         document.documentElement.dataset.tableRequest = asset;
         return { index, name: "Module", rowCount: 1, startRowId, columns: [], rows: [], error: null };
+      }
+      export function cancelLibraryApiDiff() {
+        return { kind: "NotActive", reason: null };
+      }
+      export async function queryLibraryApiDiff(operationId, requestJson) {
+        const request = JSON.parse(requestJson);
+        document.documentElement.dataset.libraryApiDiffRequest = request.assembly;
+        const identity = index => ({
+          identifier: "T:Example.DiffType" + index,
+          display: "Example.DiffType" + index
+        });
+        const subjects = Array.from({ length: 80 }, (_, index) => ({
+          identifier: identity(index).identifier,
+          display: identity(index).display,
+          change: "Diff",
+          typeDiff: {
+            before: identity(index), after: identity(index),
+            pairKind: "Changed", typeDefinitionChanged: true,
+            compatibilityChanges: [], members: [],
+            breakingCount: 0, additiveCount: 0,
+            potentiallyBreakingCount: 0, changedMemberCount: 1
+          }
+        }));
+        const endpoint = version => ({
+          identity: {
+            name: "Example.Core", version,
+            culture: null, publicKeyToken: null
+          },
+          scope: "Public", isComplete: true, issues: []
+        });
+        return {
+          version: 1, kind: "Succeeded",
+          value: {
+            request, kind: "Available",
+            before: endpoint("0.9.0.0"), after: endpoint("1.0.0.0"),
+            summary: {
+              changedTypeCount: subjects.length,
+              addedTypeCount: 0, removedTypeCount: 0,
+              changedMemberCount: subjects.length,
+              breakingCount: 0, additiveCount: 0,
+              potentiallyBreakingCount: 0
+            },
+            document: {
+              identifier: "library-api.v1|Example.Core",
+              display: "Example.Core", subjects
+            },
+            unavailableKind: null, rejectionKind: null
+          },
+          failureKind: null, error: null, diagnostic: null, reason: null
+        };
       }`,
     analysis: `
       ${surfaceLookup}
@@ -217,6 +267,7 @@ async function installFacades(
         if (scenario === "deferred") {
           await new Promise(resolve => document.addEventListener(
             "fixture-integrations-ready:" + asset, resolve, { once: true }));
+          document.documentElement.dataset.integrationComplete = asset;
         }
         if (scenario === "query-error") throw new Error("Integration query unavailable.");
         const categories = scenario === "empty" || scenario === "partial-empty" ? [] : [
@@ -1070,6 +1121,55 @@ test("production Integrations keeps deferred Library results out of the incoming
   await page.evaluate(() => document.dispatchEvent(new Event("fixture-integrations-ready:asset:other")));
   await expect(page.locator(".library-integrations-scroll .signal-ns").first()).toContainText(other.name);
 });
+
+for (const width of [1440, 390]) {
+  test(`Library Diff preserves its full-area position across background completion at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page, surface, [], "ready", "deferred");
+    await openIntegrations(page);
+    await expect(page.locator(".library-integrations-surface"))
+      .toContainText("Scanning integrations");
+    await page.locator('[data-library-lens="diff"]')
+      .evaluate((element: HTMLElement) => element.click());
+
+    const panel = page.locator("#inspector-panel");
+    const diffSurface = page.locator(".library-api-diff-surface");
+    const surfaceScroll = diffSurface.locator(".library-api-diff-scroll");
+    const typeList = diffSurface.locator(".library-api-diff-list");
+    await expect(diffSurface.locator('[data-library-api-diff-state="available"]'))
+      .toBeVisible();
+    const panelBox = await panel.boundingBox();
+    const surfaceBox = await diffSurface.boundingBox();
+    expect(Math.abs(surfaceBox!.height - panelBox!.height)).toBeLessThanOrEqual(2);
+    expect(Math.abs(surfaceBox!.width - panelBox!.width)).toBeLessThanOrEqual(2);
+
+    const lastType = typeList.locator("[data-library-api-diff-type]").last();
+    if (width === 1440) {
+      await typeList.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    } else {
+      await surfaceScroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    }
+    await lastType.focus();
+    const listScrollTop = await typeList.evaluate(element => element.scrollTop);
+    const surfaceScrollTop =
+      await surfaceScroll.evaluate(element => element.scrollTop);
+    expect(Math.max(listScrollTop, surfaceScrollTop)).toBeGreaterThan(0);
+    const renderedSurface = await diffSurface.elementHandle();
+    if (!renderedSurface) throw new Error("Expected the rendered Diff surface.");
+
+    await page.evaluate(() =>
+      document.dispatchEvent(new Event("fixture-integrations-ready:asset:core")));
+    await expect.poll(() =>
+      renderedSurface.evaluate(element => element.isConnected)).toBe(false);
+    await expect(page.locator("html"))
+      .toHaveAttribute("data-integration-complete", "asset:core");
+    await expect(lastType).toBeFocused();
+    expect(await typeList.evaluate(element => element.scrollTop))
+      .toBe(listScrollTop);
+    expect(await surfaceScroll.evaluate(element => element.scrollTop))
+      .toBe(surfaceScrollTop);
+  });
+}
 
 async function openReferences(page: Page) {
   await page.goto(root);

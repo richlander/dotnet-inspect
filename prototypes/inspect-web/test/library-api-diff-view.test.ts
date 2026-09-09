@@ -333,3 +333,35 @@ test("Type detail rerender restores the inventory scroll and exact focused row",
   assert.equal(restoredScrollTop, 1545);
   assert.equal(focused, true);
 });
+
+test("scroll restoration can preserve newer focus ownership", () => {
+  let restoredSurfaceScrollTop = 0;
+  let restoredScrollTop = 0;
+  let focused = false;
+  const snapshot = {
+    surfaceScrollTop: 527,
+    scrollTop: 1545,
+    focusedTypeId: "T:Example.Thirty",
+  };
+  const list = {
+    get scrollTop() { return restoredScrollTop; },
+    set scrollTop(value: number) { restoredScrollTop = value; },
+    querySelectorAll: () => [{
+      dataset: { libraryApiDiffType: "T:Example.Thirty" },
+      focus: () => { focused = true; },
+    }],
+  };
+  const surface = {
+    get scrollTop() { return restoredSurfaceScrollTop; },
+    set scrollTop(value: number) { restoredSurfaceScrollTop = value; },
+  };
+
+  restoreLibraryApiDiffSelection(fakeDom.parentNode({
+    querySelector: (selector: string) =>
+      selector === ".library-api-diff-scroll" ? surface : list,
+  }), snapshot, { restoreFocus: false });
+
+  assert.equal(restoredSurfaceScrollTop, 527);
+  assert.equal(restoredScrollTop, 1545);
+  assert.equal(focused, false);
+});
