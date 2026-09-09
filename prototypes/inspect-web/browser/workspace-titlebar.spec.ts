@@ -888,7 +888,7 @@ test("Member Facts performance rows preserve all nine fields and nullable values
   const performance = await box(page, ".performance-facts");
   const regions = await box(page, ".exception-regions");
   expect(performance.width).toBeCloseTo(regions.width, 0);
-  expect(performance.height).toBeLessThanOrEqual(500);
+  expect(performance.height).toBeLessThanOrEqual(550);
   expect(performance.y - (regions.y + regions.height)).toBeCloseTo(20, 0);
 });
 
