@@ -7,6 +7,8 @@ import type {
 } from "../src/operation-authority.ts";
 import {
   decodeBoundMainToWorkerEnvelope,
+  decodeControlAcknowledgedPayload,
+  decodeControlPayload,
   decodeEpochFailedPayload,
   decodeEventsPayload,
   decodeInitializePayload,
@@ -182,6 +184,16 @@ const mainToWorkerFixtures: readonly {
       kind: "cancel",
       operation,
       reason: "superseded",
+    },
+  },
+  {
+    name: "Control",
+    envelope: {
+      ...header,
+      kind: "control",
+      operation,
+      controlSequence: 3,
+      payload: "grant:10",
     },
   },
   {
@@ -393,6 +405,27 @@ const workerToMainFixtures: readonly {
     },
   },
   {
+    name: "ControlAcknowledged",
+    envelope: {
+      ...header,
+      kind: "control-acknowledged",
+      operation,
+      controlSequence: 3,
+      status: "acknowledged",
+      result: "accepted:10",
+    },
+  },
+  {
+    name: "ControlNotActive",
+    envelope: {
+      ...header,
+      kind: "control-acknowledged",
+      operation,
+      controlSequence: 4,
+      status: "not-active",
+    },
+  },
+  {
     name: "Progress",
     envelope: {
       ...header,
@@ -583,6 +616,102 @@ test("raw worker decoding does not inspect or decode payload internals", () => {
     assert.equal(settled.settlement.diagnostic, diagnostic);
   assert.equal(payloadAccessorCalls, 0);
   assert.equal(diagnosticAccessorCalls, 0);
+});
+
+test("control payloads remain owner-defined until the selected codec runs", () => {
+  let accessorCalls = 0;
+  const payload = {
+    get value(): string {
+      accessorCalls++;
+      return "grant";
+    },
+  };
+  const control = requireKind(decoded(decodeBoundMain({
+    ...header,
+    kind: "control",
+    operation,
+    controlSequence: 1,
+    payload,
+  })), "control");
+  const acknowledged = requireKind(decoded(decodeWorker({
+    ...header,
+    kind: "control-acknowledged",
+    operation,
+    controlSequence: 1,
+    status: "acknowledged",
+    result: payload,
+  })), "control-acknowledged");
+  assert.equal(control.payload, payload);
+  assert.equal(
+    acknowledged.status === "acknowledged"
+      ? acknowledged.result
+      : null,
+    payload,
+  );
+  assert.equal(accessorCalls, 0);
+
+  let decoderCalls = 0;
+  const decoder: BoundedPayloadDecoder<string> = {
+    decode: value => {
+      decoderCalls++;
+      return value === payload
+        ? { kind: "decoded", value: "grant" }
+        : {
+            kind: "rejected",
+            reason: "invalid",
+            message: "Expected a grant control.",
+          };
+    },
+  };
+  assert.equal(decoded(decodeControlPayload(control, decoder)).payload, "grant");
+  assert.equal(decoderCalls, 1);
+  assert.deepEqual(
+    decoded(decodeControlAcknowledgedPayload(acknowledged, decoder)),
+    { ...acknowledged, result: "grant" },
+  );
+  assert.equal(decoderCalls, 2);
+  assert.equal(accessorCalls, 0);
+});
+
+test("control envelopes validate exact sequences, statuses, and variant fields", () => {
+  for (const controlSequence of [0, -1, 1.5, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+    assertDecodeFailure(decodeBoundMain({
+      ...header,
+      kind: "control",
+      operation,
+      controlSequence,
+      payload: "grant",
+    }), "invalid-integer", "$.controlSequence");
+    assertDecodeFailure(decodeWorker({
+      ...header,
+      kind: "control-acknowledged",
+      operation,
+      controlSequence,
+      status: "not-active",
+    }), "invalid-integer", "$.controlSequence");
+  }
+  assertDecodeFailure(decodeWorker({
+    ...header,
+    kind: "control-acknowledged",
+    operation,
+    controlSequence: 1,
+    status: "unknown",
+  }), "invalid-literal", "$.status");
+  assertDecodeFailure(decodeWorker({
+    ...header,
+    kind: "control-acknowledged",
+    operation,
+    controlSequence: 1,
+    status: "not-active",
+    result: "unexpected",
+  }), "unexpected-property", "$.result");
+  assertDecodeFailure(decodeWorker({
+    ...header,
+    kind: "control-acknowledged",
+    operation,
+    controlSequence: 1,
+    status: "acknowledged",
+  }), "missing-property", "$.result");
 });
 
 test("operation-specific codecs are selected after raw lookup", () => {

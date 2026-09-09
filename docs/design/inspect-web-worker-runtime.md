@@ -574,9 +574,10 @@ decode likewise performs no global cross-operation payload selection: the
 operation reference selects the active record and its result, error,
 diagnostic, or progress codecs.
 
-Protocol version 2 adds the closed `Events` variant. Peers must agree on the
-exact version; an older peer is not silently treated as supporting durable
-delivery.
+Protocol version 3 adds the closed operation-addressed `Control` and
+`ControlAcknowledged` variants after version 2 introduced `Events`. Peers must
+agree on the exact version; an older peer is not silently treated as supporting
+durable delivery or acknowledged feature controls.
 
 The main-to-worker inventory is:
 
@@ -584,6 +585,7 @@ The main-to-worker inventory is:
 Initialize(bootstrap, idleHeartbeatInterval, idleAllowanceMilliseconds)
 Start(operation, kind, payload)
 Cancel(operation, reason)
+Control(operation, controlSequence, payload)
 Probe(probeSequence)
 ```
 
@@ -595,6 +597,8 @@ StartupFailed(diagnostic)
 Accepted(operation, allowance)
 Rejected(operation, error, diagnostic)
 CancelAcknowledged(operation, running | not-active)
+ControlAcknowledged(operation, controlSequence,
+  Acknowledged(result) | NotActive)
 Progress(operation, payload)
 Events(operation, entries)
 Settled(operation,
@@ -738,13 +742,44 @@ state, including `Heartbeat` or unsolicited `ProbeAcknowledged`, is
 `protocol`. A browser worker `error` or `messageerror` event is
 `worker-message`.
 
-## Cancellation and record release
+## Operation controls, cancellation, and record release
+
+An operation registration may expose one closed control request and result
+pair. The page adapter addresses a request with the exact authority-issued
+operation ID and operation sequence plus a positive safe-integer control
+sequence. It applies the selected registration's bounded request codec before
+posting. The worker resolves the active operation first, applies that
+operation's request codec, awaits its control handler in the serialized command
+lane, and then commits exactly one acknowledgment. The handler returns either
+`NotActive` when its feature-owned keyed state is no longer controllable or an
+accepted result that the Worker validates with the same registration's bounded
+result codec before committing `Acknowledged(result)`.
+
+One operation has at most one outstanding page-side control request. A second
+request rejects locally as `control-busy`; the runtime does not queue hidden
+feature pressure. Control sequences begin at one for each accepted operation,
+strictly increase, and never wrap. A replay or non-increasing sequence for the
+exact active operation fails the epoch. A reference newer than the operation
+high-water also fails. A structurally valid nonfuture reference absent from the
+active map returns `NotActive`. The selected feature handler may also return
+`NotActive` when its own keyed state has already sealed control while Worker
+settlement remains pending. Without completed-operation tombstones, that status
+does not claim historical-reference proof.
+
+`Acknowledged(result)` proves only that the feature handler accepted the
+request and produced the validated result. It does not prove durable-event
+publication, terminal completion, or physical release. Settlement may race
+ahead of the acknowledgment; the main host releases the operation payload and
+sink while retaining one compact control record until the acknowledgment or
+epoch closure completes it. Planned restart completes the waiting caller as
+worker-restarted cancellation. Unexpected closure completes it with the
+registration's matching boundary failure.
 
 The main adapter sends at most one `Cancel` for an assigned record. It sends
 none for a held start settled before readiness. Main-to-worker message ordering
 ensures a posted `Start` precedes its posted `Cancel`.
 
-The worker processes `Start`, `Cancel`, and `Probe` through one serialized
+The worker processes `Start`, `Cancel`, `Control`, and `Probe` through one
 protocol-command lane. A command cannot let the next command begin until it
 has committed its required immediate response:
 
@@ -752,7 +787,9 @@ has committed its required immediate response:
   without awaiting its returned Promise in the lane, and attaches settlement
   handling outside the lane;
 - `Cancel` commits `CancelAcknowledged` after its keyed managed cancellation
-  call completes; and
+  call completes;
+- `Control` commits `ControlAcknowledged` after its selected feature handler
+  and bounded result validation complete; and
 - `Probe` commits `ProbeAcknowledged`.
 
 The lane can await a command's boundary call, but it cannot run a later probe
@@ -782,18 +819,19 @@ awaiting its `Accepted` or `Rejected` response.
 The main protocol record is released when:
 
 - `Rejected` or `Settled` has arrived; and
-- the one cancellation acknowledgment has arrived when `Cancel` was sent.
+- the one cancellation acknowledgment has arrived when `Cancel` was sent; and
+- the one control acknowledgment has arrived when `Control` was sent.
 
 After physical closure, the sink and payload are released even when a compact
 control-response record must remain for a pending acknowledgment. No feature
 observer or managed callback is retained by that record.
 
 Missing responses are not inferred from elapsed operation duration. A bounded
-control-response grace can cause the host to post a `Probe` after an
-unanswered `Start` or `Cancel`. That probe snapshots the exact earlier response
-obligations it covers. The serialized command lane delays its acknowledgment
-until every earlier command has completed its response-commit point. If a
-covered required response is still absent when the matching
+control-response grace can cause the host to post a `Probe` after an unanswered
+`Start`, `Cancel`, or `Control`. That probe snapshots the exact earlier
+response obligations it covers. The serialized command lane delays its
+acknowledgment until every earlier command has completed its response-commit
+point. If a covered required response is still absent when the matching
 `ProbeAcknowledged` arrives, the handler completed without its contractually
 required response; the epoch enters bounded unexpected draining.
 
@@ -808,8 +846,9 @@ obligation normally. The acknowledgment still retires the probe and does not
 fail the epoch merely because its original snapshot is now empty. Requests
 posted after the probe are not covered by it.
 
-While a probe is outstanding, the host marks every later `Start` and `Cancel`
-command record against that exact probe sequence. That mark is immutable:
+While a probe is outstanding, the host marks every later `Start`, `Cancel`, and
+`Control` command record against that exact probe sequence. That mark is
+immutable:
 posting a later command never re-marks an earlier record. Main-to-worker
 delivery preserves posting order, the serialized worker lane preserves
 processing order, and the worker posts `ProbeAcknowledged` and later immediate
@@ -819,10 +858,11 @@ probe remains outstanding therefore proves that the lane passed the probe
 without committing `ProbeAcknowledged`. The host records `control-response`
 failure and begins bounded draining before treating that later response as
 liveness evidence. The valid response still commits its physical meaning:
-acceptance records admission, rejection records never-admitted closure, and a
-cancellation acknowledgment records release progress. Those transitions
-permit later settlement or acknowledgment to drain naturally but do not renew
-task-loop evidence. The host dispatches every Worker source event through one
+acceptance records admission, rejection records never-admitted closure, and
+cancellation or control acknowledgments record release progress. Those
+transitions permit later settlement or acknowledgment to drain naturally but
+do not renew task-loop evidence. The host dispatches every Worker source event
+through one
 epoch-local FIFO, including decoded envelopes, structural decode failures, and
 browser `error` and `messageerror` events. An event received reentrantly during
 response, terminal, diagnostic, progress, or quiescence callbacks joins the
@@ -917,10 +957,10 @@ process the heartbeat task. Event-loop liveness evidence is deliberately
 narrow:
 
 - `Heartbeat` and `ProbeAcknowledged` prove a worker task ran;
-- `Accepted`, `Rejected`, and `CancelAcknowledged` prove the serialized
-  protocol-command lane processed an inbound task, except that a response for
-  a command posted after an unacknowledged probe first proves
-  `control-response` failure as described above; and
+- `Accepted`, `Rejected`, `CancelAcknowledged`, and `ControlAcknowledged`
+  prove the serialized protocol-command lane processed an inbound task, except
+  that a response for a command posted after an unacknowledged probe first
+  proves `control-response` failure as described above; and
 - matching readiness ends startup but is not a post-readiness renewal.
 
 Matching readiness establishes the first complete post-readiness idle
@@ -1216,7 +1256,14 @@ epoch-local feature state.
 
 ## Model evidence
 
-The companion model directory contains seven finite models:
+The runtime model suite contains seven existing finite models plus the focused
+operation-control model:
+
+- `inspect-web-worker-control/InspectWebWorkerControl.tla` covers one
+  outstanding request, exact operation-and-control-sequence acknowledgment
+  correlation, per-operation control sequence freshness, replay rejection,
+  `NotActive`, settlement before acknowledgment, and compact request retention
+  after payload release.
 
 - `InspectWebWorkerValidation.tla` covers registered versus advertised
   operation allowances, epoch-work identity validation, and mismatch-driven
@@ -1278,6 +1325,11 @@ deterministic scheduling rather than a real browser worker. It includes:
   the current token and exact bound worker source, including same-token
   different-worker and same-worker wrong-token negatives, with exact-source
   invalid traffic failing rather than producing stale diagnostics;
+- typed operation-addressed control request and result codecs, one outstanding
+  request across encoder reentrancy, fresh control sequences, realm- and
+  handler-selected `NotActive`, settlement/acknowledgment and
+  cancellation/control races, omitted-response proof, and compact-state
+  release;
 - synchronous `Initialize` send failure rejecting the epoch start after
   preserving failure reporting, realm release, and token non-reuse;
 - bind-time `Ready` failing before initialization dispatch, synchronous

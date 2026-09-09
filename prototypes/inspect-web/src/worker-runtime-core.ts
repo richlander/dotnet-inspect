@@ -8,6 +8,7 @@ import type {
   PreparedOperationProducer,
 } from "./operation-authority.ts";
 import {
+  decodeControlAcknowledgedPayload,
   decodeEventsPayload,
   decodeEpochFailedPayload,
   decodeProgressPayload,
@@ -126,6 +127,8 @@ export interface WorkerRuntimeOperationRegistration<
   TProgress,
   TPreparationError,
   TDurable = never,
+  TControlInput = never,
+  TControlResult = never,
 > {
   readonly kind: string;
   readonly allowance: WorkerLivenessAllowance;
@@ -137,10 +140,74 @@ export interface WorkerRuntimeOperationRegistration<
   readonly diagnostic: BoundedPayloadDecoder<TOperationDiagnostic>;
   readonly progress: BoundedPayloadDecoder<TProgress>;
   readonly durable?: BoundedPayloadDecoder<TDurable>;
+  readonly control?: {
+    readonly encodeInput: (
+      input: TControlInput,
+    ) => BoundedPayloadDecodeResult<unknown>;
+    readonly result: BoundedPayloadDecoder<TControlResult>;
+  };
   readonly mapPreparationError: (
     error: WorkerRuntimePreparationError,
   ) => TPreparationError;
   readonly boundaryErrors: WorkerRuntimeBoundaryErrors<TError>;
+}
+
+type WorkerRuntimeControlOutcome<TResult, TError> =
+  | {
+      readonly kind: "acknowledged";
+      readonly value: TResult;
+    }
+  | {
+      readonly kind: "not-active";
+    }
+  | {
+      readonly kind: "canceled";
+      readonly reason: "worker-restarted";
+    }
+  | {
+      readonly kind: "failed";
+      readonly error: TError;
+    };
+
+export type WorkerRuntimeControlRequestResult<TResult, TError> =
+  | {
+      readonly kind: "started";
+      readonly outcome: Promise<WorkerRuntimeControlOutcome<TResult, TError>>;
+    }
+  | {
+      readonly kind: "rejected";
+      readonly reason:
+        | "epoch-unavailable"
+        | "operation-not-active"
+        | "control-not-registered"
+        | "control-busy"
+        | "control-sequence-exhausted"
+        | "payload-invalid"
+        | "payload-oversized";
+      readonly detail?: unknown;
+    };
+
+export interface WorkerRuntimeOperationAdapter<
+  TInput,
+  TValue,
+  TError,
+  TProgress,
+  TPrepareError,
+  TDurable = never,
+  TControlInput = never,
+  TControlResult = never,
+> extends OperationProducerAdapter<
+  TInput,
+  TValue,
+  TError,
+  TProgress,
+  TPrepareError,
+  TDurable
+> {
+  readonly control: (
+    operation: OperationIdentity,
+    input: TControlInput,
+  ) => WorkerRuntimeControlRequestResult<TControlResult, TError>;
 }
 
 export type WorkerRuntimePreparationError =
@@ -302,6 +369,9 @@ interface MainOperationRecord<TDiagnostic> {
   cancelReason: OperationCancelReason | null;
   cancelSent: boolean;
   cancelAcknowledged: boolean;
+  controlEncoding: boolean;
+  nextControlSequence: number;
+  pendingControl: MainPendingControl<TDiagnostic> | null;
   logicalClosureReported: boolean;
   quiescenceReported: boolean;
   readonly receiveRejected: (
@@ -398,6 +468,22 @@ interface RegisteredProducerClass {
 interface MainOperationRegistration {
   readonly kind: string;
   readonly allowance: WorkerLivenessAllowance;
+  readonly controlRegistered: boolean;
+}
+
+interface MainPendingControl<TDiagnostic> {
+  readonly sequence: number;
+  readonly receive: (
+    envelope: Extract<
+      RawWorkerToMainEnvelope,
+      { readonly kind: "control-acknowledged" }
+    >,
+  ) => OperationMessageReceiveResult;
+  readonly sealClosure: (
+    closure: WorkerEpochClosure<TDiagnostic>,
+  ) => void;
+  readonly commitClosure: () => void;
+  readonly publishClosure: () => void;
 }
 
 function validatePositiveSafeInteger(value: number, name: string): number {
@@ -417,10 +503,14 @@ function operationKey(reference: WorkerWireOperationReference): string {
 }
 
 function commandKey(
-  kind: "start" | "cancel",
+  kind: "start" | "cancel" | "control",
   reference: WorkerWireOperationReference,
+  controlSequence?: number,
 ): string {
-  return `${kind}\u0000${operationKey(reference)}`;
+  const suffix = kind === "control"
+    ? `\u0000${controlSequence ?? 0}`
+    : "";
+  return `${kind}\u0000${operationKey(reference)}${suffix}`;
 }
 
 function brandEpochToken(value: number): WorkerEpochToken {
@@ -743,6 +833,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     TProgress,
     TPreparationError,
     TDurable = never,
+    TControlInput = never,
+    TControlResult = never,
   >(
     registration: WorkerRuntimeOperationRegistration<
       TInput,
@@ -751,15 +843,19 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TOperationDiagnostic,
       TProgress,
       TPreparationError,
-      TDurable
+      TDurable,
+      TControlInput,
+      TControlResult
     >,
-  ): OperationProducerAdapter<
+  ): WorkerRuntimeOperationAdapter<
     TInput,
     TValue,
     TError,
     TProgress,
     TPreparationError,
-    TDurable
+    TDurable,
+    TControlInput,
+    TControlResult
   > {
     if (this.#registrations.has(registration.kind)) {
       return {
@@ -768,6 +864,10 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
           error: registration.mapPreparationError({
             kind: "operation-kind-already-registered",
           }),
+        }),
+        control: () => ({
+          kind: "rejected",
+          reason: "epoch-unavailable",
         }),
       };
     }
@@ -781,7 +881,156 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     return {
       prepare: (identity, input, sink) =>
         this.#prepareOperation(registration, identity, input, sink),
+      control: (identity, input) =>
+        this.#requestControl(registration, identity, input),
     };
+  }
+
+  #requestControl<
+    TInput,
+    TValue,
+    TError,
+    TOperationDiagnostic,
+    TProgress,
+    TPreparationError,
+    TDurable,
+    TControlInput,
+    TControlResult,
+  >(
+    registration: WorkerRuntimeOperationRegistration<
+      TInput,
+      TValue,
+      TError,
+      TOperationDiagnostic,
+      TProgress,
+      TPreparationError,
+      TDurable,
+      TControlInput,
+      TControlResult
+    >,
+    identity: OperationIdentity,
+    input: TControlInput,
+  ): WorkerRuntimeControlRequestResult<TControlResult, TError> {
+    const epoch = this.#current;
+    if (this.#disposed
+      || epoch === null
+      || (epoch.phase !== "ready" && epoch.phase !== "suspect")) {
+      return { kind: "rejected", reason: "epoch-unavailable" };
+    }
+    const record = epoch.operations.get(identity.id);
+    if (record === undefined
+      || record.reference.operationSequence !== identity.sequence
+      || record.registration.kind !== registration.kind
+      || record.phase !== "accepted") {
+      return { kind: "rejected", reason: "operation-not-active" };
+    }
+    const control = registration.control;
+    if (control === undefined || !record.registration.controlRegistered) {
+      return { kind: "rejected", reason: "control-not-registered" };
+    }
+    if (record.controlEncoding || record.pendingControl !== null)
+      return { kind: "rejected", reason: "control-busy" };
+    if (record.nextControlSequence > Number.MAX_SAFE_INTEGER) {
+      return { kind: "rejected", reason: "control-sequence-exhausted" };
+    }
+    record.controlEncoding = true;
+    let encoded: ReturnType<typeof control.encodeInput>;
+    try {
+      encoded = control.encodeInput(input);
+    } finally {
+      record.controlEncoding = false;
+    }
+    if (this.#current !== epoch
+      || this.#disposed
+      || (epoch.phase !== "ready" && epoch.phase !== "suspect")) {
+      return { kind: "rejected", reason: "epoch-unavailable" };
+    }
+    if (epoch.operations.get(identity.id) !== record
+      || record.reference.operationSequence !== identity.sequence
+      || record.phase !== "accepted") {
+      return { kind: "rejected", reason: "operation-not-active" };
+    }
+    if (encoded.kind === "rejected") {
+      return {
+        kind: "rejected",
+        reason: encoded.reason === "oversized"
+          ? "payload-oversized"
+          : "payload-invalid",
+        detail: encoded.cause ?? encoded.message,
+      };
+    }
+
+    const sequence = record.nextControlSequence;
+    record.nextControlSequence = sequence === Number.MAX_SAFE_INTEGER
+      ? Number.MAX_SAFE_INTEGER + 1
+      : sequence + 1;
+    let resolveOutcome:
+      | ((outcome: WorkerRuntimeControlOutcome<TControlResult, TError>) => void)
+      | null = null;
+    const outcome = new Promise<
+      WorkerRuntimeControlOutcome<TControlResult, TError>
+    >(resolve => {
+      resolveOutcome = resolve;
+    });
+    let sealed:
+      | WorkerRuntimeControlOutcome<TControlResult, TError>
+      | null = null;
+    let committed:
+      | WorkerRuntimeControlOutcome<TControlResult, TError>
+      | null = null;
+    let published = false;
+    const publish = (): void => {
+      if (published || committed === null || resolveOutcome === null) return;
+      published = true;
+      resolveOutcome(committed);
+      resolveOutcome = null;
+    };
+    record.pendingControl = {
+      sequence,
+      receive: envelope => {
+        const decoded = decodeControlAcknowledgedPayload(
+          envelope,
+          control.result,
+        );
+        if (decoded.kind === "failure") return decoded;
+        if (committed === null) {
+          committed = decoded.value.status === "acknowledged"
+            ? {
+                kind: "acknowledged",
+                value: decoded.value.result,
+              }
+            : { kind: "not-active" };
+        }
+        publish();
+        return { kind: "success" };
+      },
+      sealClosure: closure => {
+        if (committed !== null || sealed !== null) return;
+        sealed = closure.kind === "planned-restart"
+          ? {
+              kind: "canceled",
+              reason: closure.reason,
+            }
+          : {
+              kind: "failed",
+              error: registration.boundaryErrors[closure.failure.kind],
+            };
+      },
+      commitClosure: () => {
+        if (committed === null && sealed !== null) committed = sealed;
+      },
+      publishClosure: publish,
+    };
+    this.#trackCommand(epoch, "control", record.reference, sequence);
+    this.#post(epoch, {
+      protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
+      epochToken: epoch.token,
+      kind: "control",
+      operation: record.reference,
+      controlSequence: sequence,
+      payload: encoded.value,
+    });
+    return { kind: "started", outcome };
   }
 
   start(bootstrap: TBootstrap): WorkerRuntimeEpochStartResult {
@@ -1177,6 +1426,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     TProgress,
     TPreparationError,
     TDurable,
+    TControlInput,
+    TControlResult,
   >(
     registration: WorkerRuntimeOperationRegistration<
       TInput,
@@ -1185,7 +1436,9 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TOperationDiagnostic,
       TProgress,
       TPreparationError,
-      TDurable
+      TDurable,
+      TControlInput,
+      TControlResult
     >,
     identity: OperationIdentity,
     input: TInput,
@@ -1369,6 +1622,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     TProgress,
     TPreparationError,
     TDurable,
+    TControlInput,
+    TControlResult,
   >(
     epoch: MainEpoch<TDiagnostic>,
     registration: WorkerRuntimeOperationRegistration<
@@ -1378,7 +1633,9 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TOperationDiagnostic,
       TProgress,
       TPreparationError,
-      TDurable
+      TDurable,
+      TControlInput,
+      TControlResult
     >,
     identity: OperationIdentity,
     payload: unknown,
@@ -1424,12 +1681,16 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       registration: {
         kind: registration.kind,
         allowance: registration.allowance,
+        controlRegistered: registration.control !== undefined,
       },
       payload,
       phase: "held",
       cancelReason: null,
       cancelSent: false,
       cancelAcknowledged: false,
+      controlEncoding: false,
+      nextControlSequence: 1,
+      pendingControl: null,
       logicalClosureReported: false,
       quiescenceReported: false,
       receiveRejected: envelope => {
@@ -1521,11 +1782,13 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         return { kind: "success" };
       },
       sealClosure: closure => {
+        record.pendingControl?.sealClosure(closure);
         if (record.logicalClosureReported) return;
         record.logicalClosureReported = true;
         sealedClosure = closure;
       },
       commitClosure: () => {
+        record.pendingControl?.commitClosure();
         const closure = sealedClosure;
         if (closure === null) return;
         sealedClosure = null;
@@ -1544,6 +1807,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         }
       },
       publishClosure: () => {
+        record.pendingControl?.publishClosure();
         const publication = closurePublication;
         if (publication === null) return;
         closurePublication = null;
@@ -1718,10 +1982,11 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
 
   #trackCommand(
     epoch: MainEpoch<TDiagnostic>,
-    kind: "start" | "cancel",
+    kind: "start" | "cancel" | "control",
     reference: WorkerWireOperationReference,
+    controlSequence?: number,
   ): void {
-    const key = commandKey(kind, reference);
+    const key = commandKey(kind, reference, controlSequence);
     const command: DeferredCommand = {
       key,
       dueAt: this.#options.clock.now()
@@ -1815,6 +2080,9 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       case "cancel-acknowledged":
         this.#receiveCancelAcknowledged(epoch, envelope);
         return;
+      case "control-acknowledged":
+        this.#receiveControlAcknowledged(epoch, envelope);
+        return;
       case "progress":
         this.#receiveProgress(epoch, envelope);
         return;
@@ -1877,6 +2145,9 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         return;
       case "cancel-acknowledged":
         this.#receiveCancelAcknowledged(epoch, envelope, true);
+        return;
+      case "control-acknowledged":
+        this.#receiveControlAcknowledged(epoch, envelope, true);
         return;
       case "epoch-work-finished":
         this.#receiveEpochWorkFinished(epoch, envelope.workSequence, true);
@@ -2002,6 +2273,50 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     this.#closeDrainedRealmIfReleased(epoch);
   }
 
+  #receiveControlAcknowledged(
+    epoch: MainEpoch<TDiagnostic>,
+    envelope: Extract<
+      RawWorkerToMainEnvelope,
+      { readonly kind: "control-acknowledged" }
+    >,
+    draining = false,
+  ): void {
+    const record = this.#findOperation(epoch, envelope.operation);
+    const pending = record?.pendingControl ?? null;
+    if (record === null
+      || pending === null
+      || pending.sequence !== envelope.controlSequence
+      || record.phase === "held"
+      || record.phase === "awaiting-admission") {
+      if (!draining) this.#protocolFailure(epoch, envelope);
+      return;
+    }
+    if (!draining
+      && !this.#commitCommandResponse(
+        epoch,
+        "control",
+        envelope.operation,
+        envelope.controlSequence,
+      )) {
+      return;
+    }
+    if (epoch.phase === "closed") return;
+    const received = pending.receive(envelope);
+    if (received.kind === "failure") {
+      if (!draining) this.#protocolFailure(epoch, received.failure);
+      return;
+    }
+    record.pendingControl = null;
+    if (!draining) this.#recordTaskEvidence(epoch);
+    if (epoch.closurePublicationActive) {
+      if (record.phase === "physically-closed")
+        epoch.deferredPhysicalClosures.add(record);
+      return;
+    }
+    this.#retireOperationIfComplete(epoch, record);
+    this.#closeDrainedRealmIfReleased(epoch);
+  }
+
   #receiveProgress(
     epoch: MainEpoch<TDiagnostic>,
     envelope: Extract<RawWorkerToMainEnvelope, { readonly kind: "progress" }>,
@@ -2088,10 +2403,11 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
 
   #commitCommandResponse(
     epoch: MainEpoch<TDiagnostic>,
-    kind: "start" | "cancel",
+    kind: "start" | "cancel" | "control",
     reference: WorkerWireOperationReference,
+    controlSequence?: number,
   ): boolean {
-    const key = commandKey(kind, reference);
+    const key = commandKey(kind, reference, controlSequence);
     const command = epoch.commands.get(key);
     if (command === undefined || command.responded) {
       this.#protocolFailure(epoch, { key, reason: "duplicate-response" });
@@ -2547,6 +2863,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   ): void {
     if (record.phase !== "physically-closed") return;
     if (record.cancelSent && !record.cancelAcknowledged) return;
+    if (record.pendingControl !== null) return;
     epoch.operations.delete(record.reference.operationId);
   }
 
@@ -2556,7 +2873,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     if (epoch.phase !== "draining") return;
     for (const record of epoch.operations.values()) {
       if (record.phase !== "physically-closed"
-        || (record.cancelSent && !record.cancelAcknowledged)) {
+        || (record.cancelSent && !record.cancelAcknowledged)
+        || record.pendingControl !== null) {
         return;
       }
     }
@@ -2710,7 +3028,12 @@ export interface FakeWorkerRuntimeOptions<TBootstrap, TDiagnostic>
 extends Omit<WorkerRuntimeRealmOptions<TBootstrap, TDiagnostic>, "post"> {
   readonly scheduler: WorkerRuntimeTaskScheduler;
   readonly omitResponse?: (
-    kind: "accepted" | "rejected" | "cancel-acknowledged" | "probe-acknowledged",
+    kind:
+      | "accepted"
+      | "rejected"
+      | "cancel-acknowledged"
+      | "control-acknowledged"
+      | "probe-acknowledged",
     correlation: string,
   ) => boolean;
 }
@@ -2817,9 +3140,12 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
     if (data.kind === "accepted"
       || data.kind === "rejected"
       || data.kind === "cancel-acknowledged"
+      || data.kind === "control-acknowledged"
       || data.kind === "probe-acknowledged") {
       const correlation = data.kind === "probe-acknowledged"
         ? String(data.probeSequence)
+        : data.kind === "control-acknowledged"
+          ? `${operationKey(data.operation)}\u0000${data.controlSequence}`
         : operationKey(data.operation);
       if (this.#options.omitResponse?.(data.kind, correlation) === true) return;
     }

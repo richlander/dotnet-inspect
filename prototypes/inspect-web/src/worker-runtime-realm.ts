@@ -2,6 +2,8 @@ import type { OperationCancelReason } from "./operation-authority.ts";
 import type { WorkerProducerClassRegistry } from "./worker-runtime-core.ts";
 import {
   decodeBoundMainToWorkerEnvelope,
+  decodeControlPayload,
+  decodeControlResult,
   decodeStartPayload,
   decodeUnboundInitializationEnvelope,
   decodeWorkerEventEntries,
@@ -100,6 +102,8 @@ export interface WorkerOperationRegistration<
   TValue,
   TError,
   TOperationDiagnostic,
+  TControlInput = never,
+  TControlResult = never,
 > {
   readonly kind: string;
   readonly allowance: WorkerLivenessAllowance;
@@ -121,17 +125,50 @@ export interface WorkerOperationRegistration<
     operation: WorkerWireOperationReference,
     reason: OperationCancelReason,
   ) => boolean | Promise<boolean>;
+  readonly control?: {
+    readonly input: BoundedPayloadDecoder<TControlInput>;
+    readonly result: BoundedPayloadDecoder<TControlResult>;
+    readonly invoke: (
+      operation: WorkerWireOperationReference,
+      input: TControlInput,
+    ) => WorkerOperationControlHandlerOutcome<TControlResult>
+      | Promise<WorkerOperationControlHandlerOutcome<TControlResult>>;
+  };
 }
+
+type WorkerOperationControlHandlerOutcome<TResult> =
+  | {
+      readonly kind: "acknowledged";
+      readonly result: TResult;
+    }
+  | {
+      readonly kind: "not-active";
+    };
 
 type WorkerCancel = (
   operation: WorkerWireOperationReference,
   reason: OperationCancelReason,
 ) => boolean | Promise<boolean>;
 
+type WorkerControlDispatchResult =
+  | {
+      readonly kind: "accepted";
+      readonly result: Promise<WorkerOperationControlHandlerOutcome<unknown>>;
+    }
+  | {
+      readonly kind: "rejected";
+      readonly failure: WorkerEnvelopeDecodeFailure;
+    };
+
+type WorkerControl = (
+  envelope: Extract<RawMainToWorkerEnvelope, { readonly kind: "control" }>,
+) => WorkerControlDispatchResult;
+
 interface WorkerOperationDispatchHandlers {
   readonly accepted: (
     allowance: WorkerLivenessAllowance,
     cancel: WorkerCancel | null,
+    control: WorkerControl | null,
   ) => boolean;
   readonly rejected: (error: unknown, diagnostic: unknown) => void;
   readonly settled: (
@@ -172,12 +209,21 @@ export class WorkerOperationCatalog {
   readonly #registrations =
     new Map<string, ErasedWorkerOperationRegistration>();
 
-  register<TInput, TValue, TError, TOperationDiagnostic>(
+  register<
+    TInput,
+    TValue,
+    TError,
+    TOperationDiagnostic,
+    TControlInput = never,
+    TControlResult = never,
+  >(
     registration: WorkerOperationRegistration<
       TInput,
       TValue,
       TError,
-      TOperationDiagnostic
+      TOperationDiagnostic,
+      TControlInput,
+      TControlResult
     >,
   ): void {
     if (this.#registrations.has(registration.kind))
@@ -194,11 +240,65 @@ export class WorkerOperationCatalog {
           return;
         }
         const cancel = registration.cancel;
+        const control = registration.control;
         const accepted = handlers.accepted(
           registration.allowance,
           cancel === undefined
             ? null
             : (operation, reason) => cancel(operation, reason),
+          control === undefined
+            ? null
+            : controlEnvelope => {
+                const controlInput = decodeControlPayload(
+                  controlEnvelope,
+                  control.input,
+                );
+                if (controlInput.kind === "failure") {
+                  return {
+                    kind: "rejected",
+                    failure: controlInput.failure,
+                  };
+                }
+                let result:
+                  | WorkerOperationControlHandlerOutcome<TControlResult>
+                  | Promise<
+                    WorkerOperationControlHandlerOutcome<TControlResult>
+                  >;
+                try {
+                  result = control.invoke(
+                    controlEnvelope.operation,
+                    controlInput.value.payload,
+                  );
+                } catch (error: unknown) {
+                  return {
+                    kind: "accepted",
+                    result: Promise.reject(new Error(
+                      "Worker control handler threw.",
+                      { cause: error },
+                    )),
+                  };
+                }
+                return {
+                  kind: "accepted",
+                  result: Promise.resolve(result).then(outcome => {
+                    if (outcome.kind === "not-active") return outcome;
+                    const validated = decodeControlResult(
+                      outcome.result,
+                      control.result,
+                    );
+                    if (validated.kind === "failure") {
+                      throw new Error(
+                        "Worker control result was rejected.",
+                        { cause: validated.failure },
+                      );
+                    }
+                    return {
+                      kind: "acknowledged",
+                      result: validated.value,
+                    };
+                  }),
+                };
+              },
         );
         if (!accepted) return;
         let result:
@@ -268,6 +368,8 @@ export interface WorkerRuntimeRealmOptions<TBootstrap, TDiagnostic> {
 interface WorkerActiveOperation {
   readonly operation: WorkerWireOperationReference;
   readonly cancel: WorkerCancel | null;
+  readonly control: WorkerControl | null;
+  controlSequenceHighWater: number;
   settling: boolean;
 }
 
@@ -508,6 +610,10 @@ export class WorkerRuntimeRealm<TBootstrap, TDiagnostic> {
       await this.#processCancel(decoded.value);
       return;
     }
+    if (decoded.value.kind === "control") {
+      await this.#processControl(decoded.value);
+      return;
+    }
     this.#processProbe(decoded.value.probeSequence);
   }
 
@@ -585,11 +691,13 @@ export class WorkerRuntimeRealm<TBootstrap, TDiagnostic> {
       envelope,
       context,
       {
-        accepted: (allowance, cancel) => {
+        accepted: (allowance, cancel, control) => {
           if (this.#terminated || this.#failed) return false;
           admitted = {
             operation: envelope.operation,
             cancel,
+            control,
+            controlSequenceHighWater: 0,
             settling: false,
           };
           this.#active.set(envelope.operation.operationId, admitted);
@@ -647,6 +755,79 @@ export class WorkerRuntimeRealm<TBootstrap, TDiagnostic> {
       operation: envelope.operation,
       status: running ? "running" : "not-active",
     });
+  }
+
+  async #processControl(
+    envelope: Extract<RawMainToWorkerEnvelope, { readonly kind: "control" }>,
+  ): Promise<void> {
+    if (envelope.operation.operationSequence > this.#operationHighWater) {
+      this.#declareFailure({
+        kind: "future-control",
+        operation: envelope.operation,
+      });
+      return;
+    }
+    const active = this.#active.get(envelope.operation.operationId);
+    if (active === undefined
+      || active.operation.operationSequence
+        !== envelope.operation.operationSequence
+      || active.settling) {
+      this.#emit({
+        protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
+        epochToken: this.#requiredEpochToken(),
+        kind: "control-acknowledged",
+        operation: envelope.operation,
+        controlSequence: envelope.controlSequence,
+        status: "not-active",
+      });
+      return;
+    }
+    if (envelope.controlSequence <= active.controlSequenceHighWater) {
+      this.#declareFailure({
+        kind: "control-sequence-replay",
+        operation: envelope.operation,
+        controlSequence: envelope.controlSequence,
+      });
+      return;
+    }
+    active.controlSequenceHighWater = envelope.controlSequence;
+    if (active.control === null) {
+      this.#declareFailure({
+        kind: "control-not-registered",
+        operation: envelope.operation,
+      });
+      return;
+    }
+    const dispatched = active.control(envelope);
+    if (dispatched.kind === "rejected") {
+      this.#declareFailure(dispatched.failure);
+      return;
+    }
+    try {
+      const outcome = await dispatched.result;
+      if (outcome.kind === "not-active") {
+        this.#emit({
+          protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
+          epochToken: this.#requiredEpochToken(),
+          kind: "control-acknowledged",
+          operation: envelope.operation,
+          controlSequence: envelope.controlSequence,
+          status: "not-active",
+        });
+        return;
+      }
+      this.#emit({
+        protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
+        epochToken: this.#requiredEpochToken(),
+        kind: "control-acknowledged",
+        operation: envelope.operation,
+        controlSequence: envelope.controlSequence,
+        status: "acknowledged",
+        result: outcome.result,
+      });
+    } catch (error: unknown) {
+      this.#declareFailure(error);
+    }
   }
 
   #processProbe(sequence: number): void {

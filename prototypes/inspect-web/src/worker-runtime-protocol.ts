@@ -1,6 +1,6 @@
 import type { OperationCancelReason } from "./operation-authority.ts";
 
-export const WORKER_RUNTIME_PROTOCOL_VERSION = 2;
+export const WORKER_RUNTIME_PROTOCOL_VERSION = 3;
 export const WORKER_RUNTIME_MAX_EVENT_BATCH_SIZE = 64;
 
 export type WorkerWireEpochToken = number;
@@ -70,6 +70,14 @@ interface CancelMainToWorkerEnvelope
   readonly reason: WorkerOperationCancelReason;
 }
 
+export interface RawControlMainToWorkerEnvelope
+  extends WorkerWireEnvelopeHeader {
+  readonly kind: "control";
+  readonly operation: WorkerWireOperationReference;
+  readonly controlSequence: number;
+  readonly payload: unknown;
+}
+
 interface ProbeMainToWorkerEnvelope
   extends WorkerWireEnvelopeHeader {
   readonly kind: "probe";
@@ -80,6 +88,7 @@ export type RawMainToWorkerEnvelope =
   | RawInitializeMainToWorkerEnvelope
   | RawStartMainToWorkerEnvelope
   | CancelMainToWorkerEnvelope
+  | RawControlMainToWorkerEnvelope
   | ProbeMainToWorkerEnvelope;
 
 export interface InitializeMainToWorkerEnvelope<TBootstrap>
@@ -98,10 +107,19 @@ export interface StartMainToWorkerEnvelope<TPayload>
   readonly payload: TPayload;
 }
 
-export type MainToWorkerEnvelope<TBootstrap, TPayload> =
+export interface ControlMainToWorkerEnvelope<TPayload>
+  extends WorkerWireEnvelopeHeader {
+  readonly kind: "control";
+  readonly operation: WorkerWireOperationReference;
+  readonly controlSequence: number;
+  readonly payload: TPayload;
+}
+
+export type MainToWorkerEnvelope<TBootstrap, TPayload, TControl = never> =
   | InitializeMainToWorkerEnvelope<TBootstrap>
   | StartMainToWorkerEnvelope<TPayload>
   | CancelMainToWorkerEnvelope
+  | ControlMainToWorkerEnvelope<TControl>
   | ProbeMainToWorkerEnvelope;
 
 interface ReadyWorkerToMainEnvelope
@@ -137,6 +155,21 @@ interface CancelAcknowledgedWorkerToMainEnvelope
   readonly operation: WorkerWireOperationReference;
   readonly status: "running" | "not-active";
 }
+
+export type RawControlAcknowledgedWorkerToMainEnvelope =
+  | (WorkerWireEnvelopeHeader & {
+      readonly kind: "control-acknowledged";
+      readonly operation: WorkerWireOperationReference;
+      readonly controlSequence: number;
+      readonly status: "acknowledged";
+      readonly result: unknown;
+    })
+  | (WorkerWireEnvelopeHeader & {
+      readonly kind: "control-acknowledged";
+      readonly operation: WorkerWireOperationReference;
+      readonly controlSequence: number;
+      readonly status: "not-active";
+    });
 
 export interface RawProgressWorkerToMainEnvelope
   extends WorkerWireEnvelopeHeader {
@@ -202,6 +235,7 @@ export type RawWorkerToMainEnvelope =
   | AcceptedWorkerToMainEnvelope
   | RawRejectedWorkerToMainEnvelope
   | CancelAcknowledgedWorkerToMainEnvelope
+  | RawControlAcknowledgedWorkerToMainEnvelope
   | RawProgressWorkerToMainEnvelope
   | RawEventsWorkerToMainEnvelope
   | RawSettledWorkerToMainEnvelope
@@ -232,6 +266,21 @@ export interface ProgressWorkerToMainEnvelope<TProgress>
   readonly payload: TProgress;
 }
 
+export type ControlAcknowledgedWorkerToMainEnvelope<TResult> =
+  | (WorkerWireEnvelopeHeader & {
+      readonly kind: "control-acknowledged";
+      readonly operation: WorkerWireOperationReference;
+      readonly controlSequence: number;
+      readonly status: "acknowledged";
+      readonly result: TResult;
+    })
+  | (WorkerWireEnvelopeHeader & {
+      readonly kind: "control-acknowledged";
+      readonly operation: WorkerWireOperationReference;
+      readonly controlSequence: number;
+      readonly status: "not-active";
+    });
+
 export interface SettledWorkerToMainEnvelope<TValue, TError, TDiagnostic>
   extends WorkerWireEnvelopeHeader {
   readonly kind: "settled";
@@ -255,12 +304,14 @@ export type WorkerToMainEnvelope<
   TDiagnostic,
   TProgress,
   TDurable = never,
+  TControlResult = never,
 > =
   | ReadyWorkerToMainEnvelope
   | StartupFailedWorkerToMainEnvelope<TDiagnostic>
   | AcceptedWorkerToMainEnvelope
   | RejectedWorkerToMainEnvelope<TError, TDiagnostic>
   | CancelAcknowledgedWorkerToMainEnvelope
+  | ControlAcknowledgedWorkerToMainEnvelope<TControlResult>
   | ProgressWorkerToMainEnvelope<TProgress>
   | EventsWorkerToMainEnvelope<TProgress, TDurable>
   | SettledWorkerToMainEnvelope<TValue, TError, TDiagnostic>
@@ -554,6 +605,12 @@ function isCancellationStatus(
   value: string,
 ): value is "running" | "not-active" {
   return value === "running" || value === "not-active";
+}
+
+function isControlStatus(
+  value: string,
+): value is "acknowledged" | "not-active" {
+  return value === "acknowledged" || value === "not-active";
 }
 
 function decodeHeader(
@@ -884,6 +941,34 @@ export function decodeStartPayload<TPayload>(
   return success({ ...envelope, payload: payload.value });
 }
 
+export function decodeControlPayload<TPayload>(
+  envelope: RawControlMainToWorkerEnvelope,
+  decoder: BoundedPayloadDecoder<TPayload>,
+): WorkerEnvelopeDecodeResult<ControlMainToWorkerEnvelope<TPayload>> {
+  const payload = decodePayload(envelope.payload, decoder, "$.payload");
+  if (payload.kind === "failure") return payload;
+  return success({ ...envelope, payload: payload.value });
+}
+
+export function decodeControlResult<TValue>(
+  value: unknown,
+  decoder: BoundedPayloadDecoder<TValue>,
+): WorkerEnvelopeDecodeResult<TValue> {
+  return decodePayload(value, decoder, "$.result");
+}
+
+export function decodeControlAcknowledgedPayload<TResult>(
+  envelope: RawControlAcknowledgedWorkerToMainEnvelope,
+  decoder: BoundedPayloadDecoder<TResult>,
+): WorkerEnvelopeDecodeResult<
+  ControlAcknowledgedWorkerToMainEnvelope<TResult>
+> {
+  if (envelope.status === "not-active") return success(envelope);
+  const result = decodeControlResult(envelope.result, decoder);
+  if (result.kind === "failure") return result;
+  return success({ ...envelope, result: result.value });
+}
+
 export function decodeStartupFailedPayload<TDiagnostic>(
   envelope: RawStartupFailedWorkerToMainEnvelope,
   decoder: BoundedPayloadDecoder<TDiagnostic>,
@@ -1132,6 +1217,47 @@ export function decodeBoundMainToWorkerEnvelope(
     });
   }
 
+  if (discriminator.value === "control") {
+    const record = decodeClosedRecord(
+      value,
+      [
+        "protocolVersion",
+        "epochToken",
+        "kind",
+        "operation",
+        "controlSequence",
+        "payload",
+      ],
+      path,
+    );
+    if (record.kind === "failure") return record;
+    const header = decodeHeader(record.value, path);
+    if (header.kind === "failure") return header;
+    const expectedHeader = requireExpectedEpoch(
+      header.value,
+      expectedEpochToken,
+      path,
+    );
+    if (expectedHeader.kind === "failure") return expectedHeader;
+    const operation = decodeOperationReference(
+      record.value.get("operation"),
+      "$.operation",
+    );
+    if (operation.kind === "failure") return operation;
+    const controlSequence = decodePositiveSafeInteger(
+      record.value.get("controlSequence"),
+      "$.controlSequence",
+    );
+    if (controlSequence.kind === "failure") return controlSequence;
+    return success({
+      ...expectedHeader.value,
+      kind: "control",
+      operation: operation.value,
+      controlSequence: controlSequence.value,
+      payload: record.value.get("payload"),
+    });
+  }
+
   if (discriminator.value === "probe") {
     const record = decodeClosedRecord(
       value,
@@ -1337,6 +1463,75 @@ export function decodeWorkerToMainEnvelope(
       kind: "cancel-acknowledged",
       operation: operation.value,
       status: status.value,
+    });
+  }
+
+  if (discriminator.value === "control-acknowledged") {
+    const shape = decodeRecordShape(value, path);
+    if (shape.kind === "failure") return shape;
+    const statusValue = readOwnDataProperty(shape.value, "status", path);
+    if (statusValue.kind === "failure") return statusValue;
+    const status = decodeLiteral<"acknowledged" | "not-active">(
+      statusValue.value,
+      isControlStatus,
+      "$.status",
+      "acknowledged or not-active control status",
+    );
+    if (status.kind === "failure") return status;
+    const fields = status.value === "acknowledged"
+      ? [
+          "protocolVersion",
+          "epochToken",
+          "kind",
+          "operation",
+          "controlSequence",
+          "status",
+          "result",
+        ]
+      : [
+          "protocolVersion",
+          "epochToken",
+          "kind",
+          "operation",
+          "controlSequence",
+          "status",
+        ];
+    const record = decodeClosedRecord(value, fields, path);
+    if (record.kind === "failure") return record;
+    const header = decodeHeader(record.value, path);
+    if (header.kind === "failure") return header;
+    const expectedHeader = requireExpectedEpoch(
+      header.value,
+      expectedEpochToken,
+      path,
+    );
+    if (expectedHeader.kind === "failure") return expectedHeader;
+    const operation = decodeOperationReference(
+      record.value.get("operation"),
+      "$.operation",
+    );
+    if (operation.kind === "failure") return operation;
+    const controlSequence = decodePositiveSafeInteger(
+      record.value.get("controlSequence"),
+      "$.controlSequence",
+    );
+    if (controlSequence.kind === "failure") return controlSequence;
+    if (status.value === "not-active") {
+      return success({
+        ...expectedHeader.value,
+        kind: "control-acknowledged",
+        operation: operation.value,
+        controlSequence: controlSequence.value,
+        status: "not-active",
+      });
+    }
+    return success({
+      ...expectedHeader.value,
+      kind: "control-acknowledged",
+      operation: operation.value,
+      controlSequence: controlSequence.value,
+      status: "acknowledged",
+      result: record.value.get("result"),
     });
   }
 
