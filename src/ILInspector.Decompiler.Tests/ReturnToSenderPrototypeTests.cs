@@ -1685,6 +1685,35 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CreateCompilationClosure_ExcludesDistinctSourceModuleAcquisitions()
+    {
+        string originalPath = typeof(RoundTripCompilationEngine).Assembly.Location;
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(fixtureDir);
+        string copiedPath = Path.Combine(fixtureDir, Path.GetFileName(originalPath));
+        File.Copy(originalPath, copiedPath);
+        try
+        {
+            IReadOnlyList<ReturnToSender.Result> original =
+                ReturnToSender.CompileBackPropertyGetters(originalPath, maxTargets: 40);
+            IReadOnlyList<ReturnToSender.Result> copied =
+                ReturnToSender.CompileBackPropertyGetters(copiedPath, maxTargets: 40);
+
+            Assert.Equal(original.Count, copied.Count);
+            Assert.Equal(
+                original.Select(result => result.Status),
+                copied.Select(result => result.Status));
+            Assert.Equal(
+                original.Sum(result => Math.Max(0, result.Plan.Types.Count - 1)),
+                copied.Sum(result => Math.Max(0, result.Plan.Types.Count - 1)));
+        }
+        finally
+        {
+            DeleteFixture(copiedPath);
+        }
+    }
+
+    [Fact]
     public void ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");

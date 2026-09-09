@@ -2484,7 +2484,8 @@ static class ReturnToSender
             CompileReferenceRequest[] exactRequests =
                 [.. frozenInventory.Candidates
                     .Where(candidate =>
-                        !IsPlatformFamily(candidate.Identity, preparedPlatformFamilies))
+                        !candidate.IsSameModuleAs(frozenInventory.Source)
+                        && !IsPlatformFamily(candidate.Identity, preparedPlatformFamilies))
                     .Select(candidate => new CompileReferenceRequest(candidate.Identity))];
             CompileReferenceSet referenceSet =
                 RequireReady(policy.Select(frozenInventory, exactRequests));

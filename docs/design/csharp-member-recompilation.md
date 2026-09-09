@@ -610,7 +610,13 @@ The selected set records the current source artifact separately, including its
 acquisition registration, retained snapshot, digest, and module identity. The
 current artifact contributes source-local declaration identities but is not
 silently reintroduced as a metadata reference to satisfy its own generated
-source.
+source. After retaining the complete discovery inventory, tools classify every
+candidate with equivalent full assembly identity, MVID, and retained-content
+digest as another acquisition of the current source module. Those candidates
+remain inventory evidence but cannot enter exact or platform selections.
+Explicitly requesting one returns `SourceReferenceExcluded`; unavailable
+identity, module, digest, or retained-content evidence fails through its
+existing typed inventory failure rather than weakening source exclusion.
 
 Selection follows these rules:
 
@@ -628,7 +634,10 @@ Selection follows these rules:
 5. Trusted-platform preference applies only when acquisition and platform
    contracts authorize that exact candidate. It does not erase conflicting
    package or local candidates from the inventory.
-6. Metadata resolution and Roslyn references use the same selected descriptors
+6. Source-module exclusion is distinct from candidate coalescing: registrations
+   remain separate evidence even when an exact source replica is ineligible for
+   compiler selection.
+7. Metadata resolution and Roslyn references use the same selected descriptors
    and owner-retained immutable snapshots under one current query lease.
    Neither consumer reopens the source path. If retained content cannot be
    opened, selection fails visibly rather than reacquiring replacement bytes.
