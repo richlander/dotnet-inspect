@@ -3167,6 +3167,11 @@ kbd {
   z-index: 1;
 }
 .query-results { min-width: 0; }
+.query-row-window { min-width: 0; }
+.query-row-spacer {
+  min-height: 0;
+  pointer-events: none;
+}
 .query-list { display: grid; gap: 10px; }
 .query-row {
   padding: 16px;
