@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Text;
 using CSharpText;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.CSharp;
 

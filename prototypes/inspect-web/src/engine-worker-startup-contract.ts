@@ -114,7 +114,6 @@ export const engineStartupOperations = {
           return {
             ...section,
             id: text(section.id), name: text(section.name), summary: text(section.summary),
-            categories: array(section.categories, text),
             accepted_by: array(section.accepted_by, text),
             fields: array(section.fields, rawField => {
               const field = record(rawField);

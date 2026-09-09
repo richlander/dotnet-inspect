@@ -111,6 +111,7 @@ export interface MemberDetailInspectionDependencies {
 }
 
 export interface MemberDetailInspectionCoordinator {
+  invalidate(): void;
   loadDocumentation(request: MemberDocumentationRequest): Promise<void>;
   loadFindingCensus(request: MemberFindingCensusRequest): Promise<void>;
   loadFacts(request: MemberFactsRequest): Promise<void>;
@@ -121,10 +122,33 @@ export function createMemberDetailInspectionCoordinator(
 ): MemberDetailInspectionCoordinator {
   const { state } = dependencies;
   const memberFactsQueries = new Map<string, Promise<MemberFacts>>();
+  let memberDocumentationRequestId = 0;
   let memberFindingCensusRequestId = 0;
   let memberFactsRequestId = 0;
 
   return {
+    invalidate() {
+      memberDocumentationRequestId++;
+      memberFindingCensusRequestId++;
+      memberFactsRequestId++;
+      memberFactsQueries.clear();
+      if (state.memberDocumentationLoading) {
+        state.memberDocumentationLoading = false;
+        state.memberDocumentationKey = "";
+        state.memberDocumentationError = "";
+      }
+      if (state.memberAnnotatedLoading) {
+        state.memberAnnotatedLoading = false;
+        state.memberAnnotatedKey = "";
+        state.memberAnnotatedError = "";
+      }
+      if (state.memberFactsLoading) {
+        state.memberFactsLoading = false;
+        state.memberFactsKey = "";
+        state.memberFactsError = "";
+      }
+    },
+
     async loadDocumentation(request) {
       const { overload } = request;
       const documentationId = overload.documentationId;
@@ -153,11 +177,13 @@ export function createMemberDetailInspectionCoordinator(
       state.memberDocumentationKey = request.signature;
       state.memberDocumentationLoading = true;
       state.memberDocumentationError = "";
+      const requestId = ++memberDocumentationRequestId;
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       try {
         const documentation =
           await dependencies.queryDocumentation(request, documentationId);
-        if (!request.isCurrent()) return;
+        if (!request.isCurrent()
+          || memberDocumentationRequestId !== requestId) return;
         overload.summary = documentation.summary;
         overload.returns = documentation.returns;
         overload.exceptions = [...(documentation.exceptions ?? [])];
@@ -167,11 +193,13 @@ export function createMemberDetailInspectionCoordinator(
         }));
         overload.documentationLoaded = true;
       } catch (error) {
-        if (request.isCurrent()) {
+        if (request.isCurrent()
+          && memberDocumentationRequestId === requestId) {
           state.memberDocumentationError = dependencies.describeError(error);
         }
       } finally {
-        if (state.memberDocumentationKey === request.signature) {
+        if (state.memberDocumentationKey === request.signature
+          && memberDocumentationRequestId === requestId) {
           state.memberDocumentationLoading = false;
           if (request.isCurrent()) {
             dependencies.renderPreservingMemberFocus(preservedFocus);

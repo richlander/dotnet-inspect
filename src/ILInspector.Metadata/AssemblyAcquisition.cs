@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 
 namespace ILInspector.Metadata;
 

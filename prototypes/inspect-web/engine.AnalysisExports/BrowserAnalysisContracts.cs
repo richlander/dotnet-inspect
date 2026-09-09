@@ -169,4 +169,6 @@ public sealed record BrowserPerformanceOpportunity(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
+[JsonSerializable(typeof(BrowserCloneCandidateRequest))]
+[JsonSerializable(typeof(BrowserCloneCandidateResult))]
 internal sealed partial class BrowserAnalysisJsonContext : JsonSerializerContext;

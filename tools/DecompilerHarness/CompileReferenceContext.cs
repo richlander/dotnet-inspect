@@ -1,5 +1,5 @@
 using System.Collections.Immutable;
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using ILInspector.Metadata;
 using DotnetInspector.RoundTripCompilation;
 using Microsoft.CodeAnalysis;

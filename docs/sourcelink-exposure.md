@@ -287,18 +287,25 @@ use the network only when the selected section justifies it.
 | Fetch one PDB-mapped member source body | explicit selected-member `PDB Source` / `@Source` |
 | Resolve member file/line locations | explicit member `Source Locations` section; may acquire one missing PDB but should not fetch source bodies |
 
-Every source-body fetch checks the final response URL after redirects. If the
-requested URL has an attributable SourceLink origin, the final URL must name the
-same host, repository, and revision. The response body is then used only when it
-matches the portable-PDB checksum. Availability and integrity audits apply the
-same final-origin rule before recording reachability or reading content.
-Browser/Wasm cannot report the final URL after an automatic redirect, so
-attributed SourceLink fetches fail closed on that platform; checksum-verified
-URLs outside the known provenance grammars remain available. Header-first body
-reads retain the untrusted-fetch timeout and enforce the download cap against
-decoded bytes even when the server omits `Content-Length`. Each source body is
-capped at 16 MB. Browser/Wasm fetches require streaming-response support so the
-transport cannot buffer the full body before that cap is enforced.
+Selected source-body acquisition follows redirects and uses a successful final
+response only when its bytes match the portable-PDB checksum. An unsuccessful
+response or transport failure leaves PDB source unavailable, so the shared
+source query uses decompiled source when available. The desktop transport
+continues to apply its untrusted-destination checks to every connection,
+including redirects. Browser/Wasm authorizes the initial HTTPS SourceLink host,
+omits credentials, and follows redirects; checksum verification remains the
+content-admission gate.
+
+Availability and integrity audits continue to check the final response URL
+before recording reachability or reading content. If the requested URL has an
+attributable SourceLink origin, the final URL must name the same host,
+repository, and revision. Browser/Wasm cannot report the final URL after an
+automatic redirect, so attributed audit results fail closed on that platform.
+Header-first body reads retain the untrusted-fetch timeout and enforce the
+download cap against decoded bytes even when the server omits
+`Content-Length`. Each source body is capped at 16 MB. Browser/Wasm fetches
+require streaming-response support so the transport cannot buffer the full
+body before that cap is enforced.
 
 The section pipeline lowers selected SourceLink sections to typed query demand:
 

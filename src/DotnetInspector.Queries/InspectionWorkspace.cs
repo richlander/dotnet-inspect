@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
 
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -23,8 +23,74 @@ public sealed class AssemblyContextParticipant
         BindingPolicy = bindingPolicy;
     }
 
+    /// <summary>
+    /// Creates a participant whose initial binding request continues from a
+    /// policy-issued occurrence rather than reconstructing a seed from its
+    /// assembly descriptor.
+    /// </summary>
+    public AssemblyContextParticipant(
+        AssemblyBindingOccurrence occurrence,
+        IAssemblyBindingPolicy bindingPolicy)
+        : this(
+            (occurrence
+                ?? throw new ArgumentNullException(nameof(occurrence)))
+                .Assembly,
+            new OccurrenceRootedBindingPolicy(
+                occurrence,
+                bindingPolicy
+                    ?? throw new ArgumentNullException(
+                        nameof(bindingPolicy))))
+    {
+    }
+
     public ResolvedAssemblyReference Assembly { get; }
     public IAssemblyBindingPolicy BindingPolicy { get; }
+
+    sealed class OccurrenceRootedBindingPolicy(
+        AssemblyBindingOccurrence root,
+        IAssemblyBindingPolicy inner)
+        : AssemblyBindingPolicyFacade(inner)
+    {
+        public override AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (request.Origin
+                    is AssemblyBindingOrigin.RequestingAssembly requesting
+                && (requesting.Lineage is null
+                    || requesting.Lineage == AssemblyBindingLineage.Seed)
+                && !ReferenceEquals(
+                    requesting.Registration,
+                    root.Assembly.Registration))
+            {
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    AssemblyBindingSelection.Invalid(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind
+                                .InvalidBindingOrigin)));
+            }
+
+            return base.Select(request);
+        }
+
+        protected override AssemblyBindingRequest SeedRequest(
+            AssemblyBindingRequest request) =>
+            request.Origin
+                    is AssemblyBindingOrigin.RequestingAssembly
+                        requesting
+                && ReferenceEquals(
+                    requesting.Registration,
+                    root.Assembly.Registration)
+                ? new AssemblyBindingRequest(
+                    request.Target,
+                    AssemblyBindingOrigin.FromOccurrence(root),
+                    request.Scope)
+                : request;
+
+        protected override AssemblyBindingSelection TransformSelection(
+            AssemblyBindingSelection selection) => selection;
+    }
 }
 
 /// <summary>Resource limits for one binding-consistent assembly context group.</summary>
@@ -172,7 +238,13 @@ public sealed class AssemblyContextGroup : IDisposable
         IEnumerable<AssemblyContextParticipant> participants,
         AssemblyContextGroupOptions? options,
         Action<AssemblyContextGroup> onDisposed,
-        bool captureReleaseFailuresByDefault)
+        bool captureReleaseFailuresByDefault,
+        IReadOnlyDictionary<
+            AssemblyAcquisitionRegistration,
+            AssemblyImageSnapshot>? retainedSnapshots = null,
+        IReadOnlyDictionary<
+            AssemblyAcquisitionRegistration,
+            AssemblyImageReferenceLease>? retainedReferenceLeases = null)
     {
         ArgumentNullException.ThrowIfNull(participants);
         ArgumentNullException.ThrowIfNull(onDisposed);
@@ -186,6 +258,7 @@ public sealed class AssemblyContextGroup : IDisposable
         var builder =
             ImmutableArray.CreateBuilder<AssemblyContextParticipant>();
         AssemblyBindingPolicyVersion? bindingPolicyVersion = null;
+        int retainedSnapshotCount = 0;
         foreach (AssemblyContextParticipant participant in participants)
         {
             ArgumentNullException.ThrowIfNull(participant);
@@ -207,9 +280,54 @@ public sealed class AssemblyContextGroup : IDisposable
                     nameof(participants));
             }
 
+            AssemblyImageSnapshot? retainedSnapshot = null;
+            AssemblyImageReferenceLease? retainedReferenceLease = null;
+            if (retainedSnapshots?.TryGetValue(
+                    participant.Assembly.Registration,
+                    out retainedSnapshot) == true)
+            {
+                if (!ReferenceEquals(
+                        retainedSnapshot.Registration,
+                        participant.Assembly.Registration)
+                    || !AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                        retainedSnapshot.Identity,
+                        participant.Assembly.Identity))
+                {
+                    throw new ArgumentException(
+                        "A retained image snapshot must match its participant descriptor.",
+                        nameof(retainedSnapshots));
+                }
+
+                _retainedImageBytes = checked(
+                    _retainedImageBytes + retainedSnapshot.Length);
+                if (_retainedImageBytes > _maxRetainedImageBytes)
+                {
+                    throw new ArgumentException(
+                        "Retained image snapshots exceed the assembly context group's image budget.",
+                        nameof(retainedSnapshots));
+                }
+
+                retainedSnapshotCount++;
+                if (retainedReferenceLeases?.TryGetValue(
+                        participant.Assembly.Registration,
+                        out retainedReferenceLease) != true
+                    || retainedReferenceLease is null
+                    || !ReferenceEquals(
+                        retainedReferenceLease.Assembly,
+                        participant.Assembly))
+                {
+                    throw new ArgumentException(
+                        "A retained image participant must use its group-owned reference lease.",
+                        nameof(retainedReferenceLeases));
+                }
+            }
+
             if (!_participantByRegistration.TryAdd(
                     participant.Assembly.Registration,
-                    new ParticipantState(participant)))
+                    new ParticipantState(
+                        participant,
+                        retainedSnapshot,
+                        retainedReferenceLease)))
             {
                 throw new ArgumentException(
                     "An acquisition registration may appear only once in an assembly context group.",
@@ -217,6 +335,21 @@ public sealed class AssemblyContextGroup : IDisposable
             }
 
             builder.Add(participant);
+        }
+
+        if (retainedSnapshots is not null
+            && retainedSnapshotCount != retainedSnapshots.Count)
+        {
+            throw new ArgumentException(
+                "Every retained image snapshot must belong to one participant.",
+                nameof(retainedSnapshots));
+        }
+        if (retainedReferenceLeases is not null
+            && retainedSnapshotCount != retainedReferenceLeases.Count)
+        {
+            throw new ArgumentException(
+                "Every retained reference lease must belong to one participant.",
+                nameof(retainedReferenceLeases));
         }
 
         if (builder.Count == 0)
@@ -837,11 +970,29 @@ public sealed class AssemblyContextGroup : IDisposable
             : new AggregateException(failures);
     }
 
-    sealed class ParticipantState(
-        AssemblyContextParticipant participant)
+    sealed class ParticipantState
     {
-        internal AssemblyContextParticipant Participant { get; } =
-            participant;
+        internal ParticipantState(
+            AssemblyContextParticipant participant,
+            AssemblyImageSnapshot? retainedSnapshot,
+            AssemblyImageReferenceLease? retainedReferenceLease)
+        {
+            Participant = participant;
+            RetainedReferenceLease = retainedReferenceLease;
+            if (retainedSnapshot is not null)
+            {
+                Initialized = true;
+                Access = new SnapshotAccess(
+                    retainedSnapshot,
+                    Failure: null);
+            }
+        }
+
+        internal AssemblyContextParticipant Participant { get; }
+        internal AssemblyImageReferenceLease? RetainedReferenceLease
+        {
+            get;
+        }
         internal object ImageLoadGate { get; } = new();
         internal bool Initialized { get; set; }
         internal bool Released { get; private set; }
@@ -856,6 +1007,7 @@ public sealed class AssemblyContextGroup : IDisposable
             Access = default;
             Initialized = false;
             Released = true;
+            RetainedReferenceLease?.Dispose();
             return imageSize;
         }
     }
@@ -1034,7 +1186,40 @@ public sealed partial class InspectionWorkspace :
 
     public AssemblyContextGroup CreateAssemblyContextGroup(
         IEnumerable<AssemblyContextParticipant> participants,
+        AssemblyContextGroupOptions? options = null) =>
+        CreateAssemblyContextGroupCore(
+            participants,
+            options,
+            retainedSnapshots: null);
+
+    internal AssemblyContextGroup CreateAssemblyContextGroupWithRetainedImages(
+        IEnumerable<AssemblyContextParticipant> participants,
+        IReadOnlyDictionary<
+            AssemblyAcquisitionRegistration,
+            AssemblyImageSnapshot> retainedSnapshots,
+        IReadOnlyDictionary<
+            AssemblyAcquisitionRegistration,
+            AssemblyImageReferenceLease> retainedReferenceLeases,
         AssemblyContextGroupOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(retainedSnapshots);
+        ArgumentNullException.ThrowIfNull(retainedReferenceLeases);
+        return CreateAssemblyContextGroupCore(
+            participants,
+            options,
+            retainedSnapshots,
+            retainedReferenceLeases);
+    }
+
+    AssemblyContextGroup CreateAssemblyContextGroupCore(
+        IEnumerable<AssemblyContextParticipant> participants,
+        AssemblyContextGroupOptions? options,
+        IReadOnlyDictionary<
+            AssemblyAcquisitionRegistration,
+            AssemblyImageSnapshot>? retainedSnapshots,
+        IReadOnlyDictionary<
+            AssemblyAcquisitionRegistration,
+            AssemblyImageReferenceLease>? retainedReferenceLeases = null)
     {
         WorkspaceGroupAdmission? admission = null;
         lock (_gate)
@@ -1061,7 +1246,9 @@ public sealed partial class InspectionWorkspace :
                 RemoveGroup,
                 captureReleaseFailuresByDefault:
                     _lifetimeMode
-                    == InspectionWorkspaceLifetimeMode.Asynchronous);
+                    == InspectionWorkspaceLifetimeMode.Asynchronous,
+                retainedSnapshots: retainedSnapshots,
+                retainedReferenceLeases: retainedReferenceLeases);
         }
         catch
         {

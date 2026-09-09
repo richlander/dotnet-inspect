@@ -322,3 +322,21 @@ export function performanceOpportunitiesFixture(
       : opportunities,
   };
 }
+
+export function analysisDiagnosticsFixture(
+  mode: "populated" | "long" = "populated",
+): MemberFacts {
+  const facts = memberFactsFixture();
+  return {
+    ...facts,
+    diagnostics: mode === "long"
+      ? [
+          "Example.Serialization.BufferedDocumentReader<System.Collections.Generic.Dictionary<System.String,System.Collections.Generic.List<System.Text.Json.JsonElement>>>.<ReadDocumentAsync>d__123456.MoveNext(): BadImageFormatException: The method body contains an intentionally long malformed local signature that cannot be decoded while preserving the complete generic context.",
+          "Example.Serialization.BufferedDocumentReader.<ReadAsync>d__12.MoveNext(): InvalidOperationException: Could not resolve metadata token 0x0A000123.",
+        ]
+      : [
+          "Example.Serialization.BufferedDocumentReader.Read(): BadImageFormatException: Invalid local signature.",
+          "Example.Serialization.BufferedDocumentReader.<ReadAsync>d__12.MoveNext(): InvalidOperationException: Could not resolve metadata token 0x0A000123.",
+        ],
+  };
+}

@@ -108,6 +108,7 @@ public sealed record BrowserMemberSurface(
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
+    string AnchorTypeFullName,
     string GraphSelectorKey,
     BrowserMemberBodySelector[] BodySelectors);
 
@@ -212,7 +213,6 @@ public sealed record BrowserVocabularySection(
     string Id,
     string Name,
     string Summary,
-    string[] Categories,
     [property: JsonPropertyName("accepted_by")]
     string[] AcceptedBy,
     BrowserVocabularyField[] Fields,
