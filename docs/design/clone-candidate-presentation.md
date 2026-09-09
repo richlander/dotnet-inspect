@@ -9,9 +9,11 @@ Implementation is tracked by
 [#6306](https://github.com/richlander/dotnet-inspect/issues/6306).
 
 The CLI `Clone Candidates` section adopted this contract in stage 4 under
-[#6314](https://github.com/richlander/dotnet-inspect/issues/6314). The next
-consumers are the Inspect Web transport and master/detail experience in stages
-5 and 6. This owner defines neither host adoption.
+[#6314](https://github.com/richlander/dotnet-inspect/issues/6314). The managed
+Inspect Web Analysis facade and generated transport adopted it in stage 5
+under [#6353](https://github.com/richlander/dotnet-inspect/issues/6353).
+The next consumer is the Inspect Web master/detail experience in stage 6.
+This owner defines neither host adoption.
 
 ## Authority and exact claim
 

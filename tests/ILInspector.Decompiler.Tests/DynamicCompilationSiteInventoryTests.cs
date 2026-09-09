@@ -268,7 +268,7 @@ public sealed class DynamicCompilationSiteInventoryTests
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
         {
-            string candidate = Path.Combine(dir.FullName, "src", "ILInspector.Decompiler.Tests");
+            string candidate = Path.Combine(dir.FullName, "tests", "ILInspector.Decompiler.Tests");
             if (File.Exists(Path.Combine(dir.FullName, "dotnet-inspect.slnx")) && Directory.Exists(candidate))
                 return candidate;
         }

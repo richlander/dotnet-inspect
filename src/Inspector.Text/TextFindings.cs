@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 using Inspector.Findings;
 
-namespace ILInspector.Text;
+namespace Inspector.Text;
 
 /// <summary>An exact text-line census exceeded its caller-selected limit.</summary>
 public sealed class TextFindingComplexityException(int limit)

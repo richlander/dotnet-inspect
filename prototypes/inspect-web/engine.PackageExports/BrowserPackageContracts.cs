@@ -121,10 +121,10 @@ public sealed record BrowserTypeSurface(
     string? PlatformPack);
 
 /// <summary>
-/// One member overload. <see cref="StableSelector"/>, <see cref="AnchorDigest"/>, and
-/// <see cref="CanonicalSignature"/> are the product's member anchor; <see cref="GraphSelectorKey"/>
-/// and <see cref="BodySelectors"/> are the product's opaque call-graph correspondence. The host
-/// transports them and never parses them.
+/// One member overload. <see cref="StableSelector"/>, <see cref="AnchorDigest"/>,
+/// <see cref="CanonicalSignature"/>, and <see cref="AnchorTypeFullName"/> are the product's
+/// member anchor; <see cref="GraphSelectorKey"/> and <see cref="BodySelectors"/> are the product's
+/// opaque call-graph correspondence. The host transports them and never parses them.
 /// </summary>
 public sealed record BrowserMemberSurface(
     string Name,
@@ -149,6 +149,7 @@ public sealed record BrowserMemberSurface(
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
+    string AnchorTypeFullName,
     string GraphSelectorKey,
     BrowserMemberBodySelector[] BodySelectors);
 

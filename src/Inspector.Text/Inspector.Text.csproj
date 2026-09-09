@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Reusable exact text-line inspection and comparison on the ILInspector finding spine.</Description>
+    <Description>Reusable exact text-line inspection and comparison on the Inspector Finding spine.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

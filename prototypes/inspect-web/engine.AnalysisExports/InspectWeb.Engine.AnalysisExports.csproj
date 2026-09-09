@@ -11,6 +11,7 @@
     <AdditionalFiles Include="..\engine\BannedSymbols.txt" />
     <ProjectReference Include="..\engine.Core\InspectWeb.Engine.Core.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\..\src\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />

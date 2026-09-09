@@ -5,7 +5,7 @@ using CSharpText;
 using ILInspector.CSharp;
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Decompiler.Pipeline;
 
