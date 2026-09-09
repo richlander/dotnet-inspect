@@ -354,6 +354,44 @@ failure publication. This slice does not change PDB acquisition, select a
 runtime implementation, establish API/runtime correspondence, or migrate
 standalone `member`, comparison commands or Browser hosts.
 
+### Standalone member code acquisition
+
+When standalone `member` code projection receives a selected root or forwarded
+API supplier, `MemberCodeProvider` opens that descriptor for both its
+metadata/body session and Decompiler metadata source rather than reopening the
+descriptor's path projection. The resolved external portable-PDB path is
+carried into the Decompiler open. The descriptor path remains the
+dependency resolver's configuration root; it is not an alternative opener.
+
+A selected descriptor opening failure reaches the command error boundary
+rather than retrying through the readable path or becoming successful empty
+member-code output. Descriptorless callers retain the existing path route,
+including its established partial-output behavior when only the Decompiler
+metadata source cannot be opened.
+
+`MemberCodeAcquisition_UsesSelectedSupplier`,
+`MemberCodeAcquisition_ReportsSelectedMetadataOpenFailure`,
+`MemberCodeAcquisition_ReportsSelectedDecompilerOpenFailure`,
+`MemberCodeAcquisition_CarriesExternalPdb`, and
+`MemberCodeAcquisition_SkipsOrdinaryOutput` gate this composition.
+`MemberCodeAcquisition_LeavesAnalysisRoutePathBased` gates the adjacent
+non-adoption boundary. Existing member-code, source, rendering, and
+descriptorless cases remain neighboring regression evidence.
+
+This is [#6480](https://github.com/richlander/dotnet-inspect/issues/6480)'s
+three-step production adoption under #4867: `MemberCommand` retains the
+supplier; `ApiCommand` and `ApiOutputFormatter` pass it into
+`MemberCodeProvider`; existing typed member-code views and Markout rendering,
+or command error reporting, publish the result. Metadata and Decompiler
+continue to own their existing descriptor openers; this adds no shared
+acquisition substrate or rendering shape.
+
+This slice covers sections produced by `MemberCodeProvider`. The separately
+composed Analysis-backed sections, Exception Regions and Body Shapes retain
+their current routes. PDB acquisition policy, runtime-image selection,
+API/runtime correspondence, `diff`, `match` and Browser hosts remain separate
+work.
+
 ## Command families
 
 The command surface is organized by operation shape rather than by

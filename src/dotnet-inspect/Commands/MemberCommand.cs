@@ -26,9 +26,27 @@ public static class MemberCommand
             ResolvedMemberInspectionPlan
                 .FromCompatibilityOptions(options));
 
-    internal static async Task<int> ExecuteAsync(
+    internal static Task<int> ExecuteAsync(
         MemberOptions options,
         ResolvedMemberInspectionPlan plan)
+        => ExecuteCoreAsync(options, plan);
+
+    internal static Task<int> ExecuteResolvedAsync(
+        MemberOptions options,
+        ApiSourceResult source,
+        ApiServices.LoadedApiSurface loaded)
+        => ExecuteCoreAsync(
+            options,
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options),
+            source,
+            loaded);
+
+    private static async Task<int> ExecuteCoreAsync(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan,
+        ApiSourceResult? resolvedSource = null,
+        ApiServices.LoadedApiSurface? loadedSurface = null)
     {
         if (plan.Intent.Surface != InspectionSurface.Member)
             throw new ArgumentException(
@@ -117,8 +135,21 @@ public static class MemberCommand
                 "Static discovery did not produce an exit code.");
         }
 
-        var (source, sourceError) = await ApiSourceResolver.ResolveAsync(options);
-        if (sourceError.HasValue) return sourceError.Value;
+        bool ownsSource = resolvedSource is null;
+        ApiSourceResult source;
+        if (resolvedSource is null)
+        {
+            var (acquiredSource, sourceError) =
+                await ApiSourceResolver.ResolveAsync(options);
+            if (sourceError.HasValue)
+                return sourceError.Value;
+
+            source = acquiredSource;
+        }
+        else
+        {
+            source = resolvedSource;
+        }
 
         var searchPath = source.SearchPath;
         var runtimeAssemblyPath = source.RuntimeAssemblyPath;
@@ -142,12 +173,13 @@ public static class MemberCommand
 
         try
         {
-            var loaded = options.RouterDeferredTypeOrMember
-                ? ApiServices.LoadTypeApi(source, options)
-                : ApiServices.LoadFullApi(
-                searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                apiSource, source.ApiVersion, selectedTfm, logger, options,
-                source.PackageExtractPath);
+            var loaded = loadedSurface
+                ?? (options.RouterDeferredTypeOrMember
+                    ? ApiServices.LoadTypeApi(source, options)
+                    : ApiServices.LoadFullApi(
+                        searchPath, runtimeAssemblyPath, options.PackagePath,
+                        packageName, apiSource, source.ApiVersion, selectedTfm,
+                        logger, options, source.PackageExtractPath));
             if (loaded == null)
             {
                 CommandError.Write("Could not extract API from library.");
@@ -384,7 +416,8 @@ public static class MemberCommand
 
             var acquisition = new ApiCommand.TypeAcquisitionContext(
                 loaded.GetLibraryAssetPath(source.PackageExtractPath),
-                packageName, packageVersion ?? source.ApiVersion, apiSource, selectedTfm);
+                packageName, packageVersion ?? source.ApiVersion, apiSource,
+                selectedTfm, sourceAssembly);
 
             // Default --docs on for single-type view at Normal+ unless explicitly disabled
             MemberOptions effectiveOptions = options;
@@ -669,7 +702,8 @@ public static class MemberCommand
                     SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
             }
 
-            if (apiDllPath != null && NeedsMemberSourceLocationResolution(effectiveOptions))
+            if (apiDllPath != null
+                && NeedsMemberSourceLocationResolution(effectiveOptions))
             {
                 var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
                 var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
@@ -893,7 +927,9 @@ public static class MemberCommand
                         MemberSourceTooComplex = resolved.MemberSourceTooComplex,
                         MemberSourceCoordinatesInvalid = resolved.MemberSourceCoordinatesInvalid,
                         PdbSourceUnavailableReason = resolved.PdbSourceUnavailableReason,
-                        PdbPath = resolved.PdbPath
+                        PdbPath =
+                            effectiveOptions.PdbPath
+                            ?? resolved.PdbPath
                     };
                 }
             }
@@ -980,7 +1016,8 @@ public static class MemberCommand
                 effectiveOptions.MemberFilter);
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                 apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
-                acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions);
+                acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions,
+                sourceAssembly: sourceAssembly);
             if (writeExitCode != 0)
                 return writeExitCode;
 
@@ -1029,7 +1066,7 @@ public static class MemberCommand
         }
         finally
         {
-            if (tempDir != null && Directory.Exists(tempDir))
+            if (ownsSource && tempDir != null && Directory.Exists(tempDir))
             {
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
             }

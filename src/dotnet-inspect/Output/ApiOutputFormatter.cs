@@ -1487,7 +1487,8 @@ public static class ApiOutputFormatter
         ApiMemberAnalysisInspection analysisInspection,
         string? pdbPath = null,
         IReadOnlySet<string>? explicitSections = null,
-        ApiOptions? options = null)
+        ApiOptions? options = null,
+        ResolvedAssemblyReference? sourceAssembly = null)
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
@@ -1772,7 +1773,16 @@ public static class ApiOutputFormatter
             || request.SourceDocument || request.FindingCensus)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
-        foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
+        foreach (var (member, code) in MemberCodeProvider.Collect(
+            type,
+            bodyMethods,
+            dllPath,
+            overloadIndex,
+            request,
+            pdbPath,
+            options?.IncludeAll ?? false,
+            options?.RenderOptions,
+            sourceAssembly))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {

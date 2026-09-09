@@ -2707,7 +2707,8 @@ public class ApiCommand
                         mo4.DllPath!, methods, requestedSections, mo4.CallerScopeAssemblies, mo4);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
-                        requestedSections, analysisInspection, mo4.PdbPath, mo4.IncludeSections, mo4);
+                        requestedSections, analysisInspection, mo4.PdbPath,
+                        mo4.IncludeSections, mo4, sourceAssembly);
                 }
             }
 
@@ -3684,7 +3685,8 @@ public class ApiCommand
                         memberOptions.DllPath!,
                         memberOptions.OverloadIndex.HasValue ? memberOptions.OverloadIndex.Value - 1 : null,
                         requestedSections, analysisInspection, memberOptions.PdbPath,
-                        memberOptions.IncludeSections, memberOptions);
+                        memberOptions.IncludeSections, memberOptions,
+                        acquisition?.SourceAssembly);
                 }
 
                 if (requestedSections.Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))

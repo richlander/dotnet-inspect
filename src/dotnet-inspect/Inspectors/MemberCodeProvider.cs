@@ -12,10 +12,10 @@ namespace DotnetInspector.Inspectors;
 
 /// <summary>
 /// Acquires per-member code sections — decompiled source, IL, annotated source,
-/// custom attributes — from an assembly on disk. Owns all PE and metadata
-/// access for member code so the output formatter only renders views
-/// (docs/decompiler.md, seams). Failures surface as diagnostic
-/// comment text, never as missing entries.
+/// custom attributes — from a selected assembly source. Owns all PE and
+/// metadata access for member code so the output formatter only renders views
+/// (docs/decompiler.md, seams). Descriptorless decompiler-open failures retain
+/// partial output; selected-source opening failures reach the command boundary.
 /// </summary>
 internal static class MemberCodeProvider
 {
@@ -53,7 +53,8 @@ internal static class MemberCodeProvider
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
         Request request, string? pdbPath = null, bool includeAll = false,
-        PrinterOptions? renderOptions = null)
+        PrinterOptions? renderOptions = null,
+        ResolvedAssemblyReference? sourceAssembly = null)
     {
         var results = new List<(ApiMember, Item)>();
         
@@ -62,10 +63,17 @@ internal static class MemberCodeProvider
         // and is handled separately in PopulateIndexSections.
         if (!overloadIndex.HasValue)
             return results;
-            
+
+        var selectedAssembly = RequestsMemberCode(request)
+            ? sourceAssembly
+            : null;
+
         // Read metadata/IL through the assembly seam; decompiler-backed sections
         // still own their symbol-aware MetadataSource below.
-        using var image = ILInspector.Metadata.AssemblyInspectionSession.Open(dllPath);
+        using var image = selectedAssembly is null
+            ? ILInspector.Metadata.AssemblyInspectionSession.Open(dllPath)
+            : ILInspector.Metadata.AssemblyInspectionSession.Open(
+                selectedAssembly);
         if (!image.HasMetadata)
             return results;
 
@@ -73,9 +81,10 @@ internal static class MemberCodeProvider
 
         // All decompiler-backed sections (decompiled source, annotated source, IR
         // stages) read through one MetadataSource that owns its own readers.
-        // A malformed-metadata failure opening it degrades those sections to
-        // empty — the IL/attribute sections still render — instead of throwing.
-        using var pipelineSource = OpenPipelineSource(request, dllPath, pdbPath);
+        // Descriptorless callers preserve the established partial-output behavior
+        // when this second open fails. A selected descriptor failure stays visible.
+        using var pipelineSource =
+            OpenPipelineSource(request, dllPath, pdbPath, selectedAssembly);
 
         foreach (var method in methods)
         {
@@ -383,24 +392,39 @@ internal static class MemberCodeProvider
                         ?? ["Decompiler import or projection failed."])));
     }
 
+    static bool RequestsMemberCode(Request request)
+        => request.DecompiledSource
+            || request.AnnotatedSource
+            || request.CostOverlay
+            || request.SemanticsOverlay
+            || request.IL
+            || request.Attributes
+            || request.Facts
+            || request.FidelityCauses
+            || request.AppliedTaste
+            || request.SourceDocument
+            || request.FindingCensus;
+
     /// <summary>
     /// Opens the decompiler's reader for the code sections that need it
     /// (decompiled source, annotated source, IR stages), or null when none are
-    /// requested or when the assembly cannot be opened (malformed metadata
-    /// that nonetheless passed the first PE read). Failing to a null source
-    /// keeps the no-crash invariant: those sections degrade to empty while the
-    /// IL and attribute sections, which use the already-open reader, still
-    /// render.
+    /// requested. Descriptorless callers retain the established null result when
+    /// the path cannot be opened, allowing IL and attribute sections from the
+    /// first reader to render. A selected descriptor is authoritative, so its
+    /// opening failures propagate to the command error boundary.
     /// </summary>
-    static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
+    static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(
+        Request request,
+        string dllPath,
+        string? pdbPath,
+        ResolvedAssemblyReference? sourceAssembly)
     {
         if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay
             && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses
             && !request.AppliedTaste && !request.SourceDocument && !request.FindingCensus)
             return null;
-        try
-        {
-            var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(dllPath)
+        IAssemblyReferenceResolver resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(dllPath)
             {
                 ProjectAssetsPath = request.ProjectAssetsPath,
                 TargetFramework = request.TargetFramework,
@@ -409,7 +433,20 @@ internal static class MemberCodeProvider
                 PreferImplementationAssemblies = true,
                 AllowPlatformAssemblyVersionRollForward = true,
             });
-            return Decompiler.Pipeline.MetadataSource.Open(dllPath, pdbPath, resolver);
+        if (sourceAssembly is not null)
+        {
+            return Decompiler.Pipeline.MetadataSource.Open(
+                sourceAssembly,
+                pdbPath,
+                resolver);
+        }
+
+        try
+        {
+            return Decompiler.Pipeline.MetadataSource.Open(
+                dllPath,
+                pdbPath,
+                resolver);
         }
         catch
         {
