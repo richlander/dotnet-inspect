@@ -6,8 +6,8 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json.Serialization;
 
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.RoundTripCompilation;
