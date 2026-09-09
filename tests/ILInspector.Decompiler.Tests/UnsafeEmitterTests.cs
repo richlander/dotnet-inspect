@@ -454,6 +454,67 @@ public class UnsafeEmitterTests
         Assert.DoesNotContain("unsafe\n{", output);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void NewRulesModule_ResidualSwitchSelector_UsesUnsafeExpression(
+        bool raised)
+    {
+        string assemblyPath = CompileUpdatedRulesAssembly(
+            """
+            public static class Probe
+            {
+                public static unsafe int Risky() => 2;
+
+                public static int SharedSwitch(bool flag)
+                {
+                    if (flag) goto Shared;
+                    unsafe
+                    {
+                        switch (Risky())
+                        {
+                            case 0: goto Shared;
+                            case 1: return 2;
+                            case 2: return 9;
+                            case 3: return 7;
+                            default: return 0;
+                        }
+                    }
+                Shared:
+                    return 8;
+                }
+            }
+            """);
+        try
+        {
+            using var source = MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(source, "Probe", "SharedSwitch");
+            Assert.NotNull(function);
+            Assert.NotEmpty(function!.Descendants.OfType<SwitchBranch>());
+
+            var result = raised
+                ? CSharpPrinter.PrintRaised(function)
+                : CSharpPrinter.PrintLowered(function);
+            string output = result.Output!;
+
+            Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+            Assert.Contains(
+                "__switchValue0 = (int)(unsafe(Risky()));",
+                output);
+            Assert.DoesNotContain("__switchValue0 = (int)(Risky());", output);
+            AssertNoWarningsOrErrors(
+                Recompile(
+                    "static int M(bool flag)",
+                    output,
+                    typeMembers: "static unsafe int Risky() => 2;"),
+                output);
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+        }
+    }
+
     [Fact]
     public void NewRulesModule_CrossAssemblyRequiresUnsafeCall_UsesUnsafeExpression()
     {
@@ -1681,6 +1742,32 @@ public class UnsafeEmitterTests
             RuntimeReferences(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
         return compilation.GetDiagnostics();
+    }
+
+    static string CompileUpdatedRulesAssembly(string source)
+    {
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([new KeyValuePair<string, string>("updated-memory-safety-rules", "true")]);
+        var tree = CSharpSyntaxTree.ParseText(source, parseOptions);
+        var compilation = CSharpCompilation.Create(
+            "__fixture",
+            [tree],
+            RuntimeReferences(),
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                allowUnsafe: true));
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-unsafe-switch-{Guid.NewGuid():N}.dll");
+        using var stream = File.Create(path);
+        var result = compilation.Emit(stream);
+        Assert.True(
+            result.Success,
+            string.Join(
+                Environment.NewLine,
+                result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
+        return path;
     }
 
     static void AssertNoWarningsOrErrors(ImmutableArray<Diagnostic> diagnostics, string body)

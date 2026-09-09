@@ -2826,8 +2826,11 @@ public sealed partial class CSharpPrinter
             // of `case i: goto IL_xxxx;`. Fall-through preserves out-of-range
             // behavior.
             string temp = _switchTemps.TryGetValue(switchBranch, out var name) ? name : "__switchValue";
+            string value = UnsafeExpressionText(
+                switchBranch.Value,
+                Expression(switchBranch.Value));
             sb.Append(pad).Append(temp).Append(" = ")
-                .Append("(int)(").Append(Expression(switchBranch.Value)).AppendLf(");");
+                .Append("(int)(").Append(value).AppendLf(");");
             for (int t = 0; t < switchBranch.TargetOffsets.Length; t++)
             {
                 sb.Append(pad);
