@@ -1956,7 +1956,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 
 # Compile-back (semantic fidelity): decompile -> recompile -> compare IL.
 # Tight loop over the purpose-built fixture corpus:
-dotnet build src/ILInspector.Decompiler.Tests -c Release
+dotnet build tests/ILInspector.Decompiler.Tests -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --fidelity-check \
   artifacts/bin/ILInspector.Decompiler.Tests/release/ILInspector.Decompiler.Tests.dll
 # Focus one type, dump the units that fail to recompile:

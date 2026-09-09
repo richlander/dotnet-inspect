@@ -79,7 +79,7 @@ lines:
 
 - `src/dotnet-inspect/dotnet-inspect.csproj`
 - `src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj`
-- `src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj`
+- `tests/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj`
 
 `ILInspector.Decompiler.Tests` also consumes `Markout.Templates`, which is a
 separate package with its own version.

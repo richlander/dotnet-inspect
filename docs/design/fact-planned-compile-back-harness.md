@@ -1121,7 +1121,7 @@ Tests in `AuthoredRebuildFidelityTests` retain the original outcome coverage:
 `BuildContextAssessment_ReportsContextDriftIndependently`, and
 `AuthoredBody_ReusesFinalRtsRequestAndProductIlDiff`. The per-lane contract is
 gated by the following methods in `AuthoredBuildContextTests`, run by
-`src/ILInspector.Decompiler.Tests` in Release:
+`tests/ILInspector.Decompiler.Tests` in Release:
 
 | Gate | Required observation |
 | --- | --- |
