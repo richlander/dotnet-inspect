@@ -5093,7 +5093,7 @@ public partial class CommandExecutionTests
                 "CSharpText.csproj"),
             Path.Combine(
                 repositoryRoot,
-                "src",
+                "tests",
                 "dotnet-inspect.Tests",
                 "dotnet-inspect.Tests.csproj")
         ];

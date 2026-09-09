@@ -28,7 +28,7 @@ test "$("$INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
 export COORD_WORKFLOW="$PWD/artifacts/workflows/il-coordinate-artifacts"
 rm -rf "$COORD_WORKFLOW"
 mkdir -p "$COORD_WORKFLOW"
-dotnet build src/dotnet-inspect.Tests -c Release -p:PublishAot=false
+dotnet build tests/dotnet-inspect.Tests -c Release -p:PublishAot=false
 ```
 
 Generate three coordinate artifact files from the test assembly:
