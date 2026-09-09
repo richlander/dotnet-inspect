@@ -1213,9 +1213,9 @@ The eventual subject-navigation implementation must include named gates for:
 - `RetainedContextReconciliation_ResolvesOccurrenceThenPathThenActiveSubject`
 - `CoordinateVariation_NeverCrossesWorkspaceBoundary`
 - `MemberIdentity_BindsExactDeclaringTypeAndAnchor`
-- `InitialRecommendation_PrefersTypeThenLibraryThenPackage`
+- `InitialRecommendation_PrefersLibraryThenPackage`
 - `TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`
-- `InitialRecommendation_NeverChoosesMember`
+- `InitialRecommendation_NeverChoosesTypeOrMember`
 - `EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`
 - `ProjectedMemberWithoutTypedDeclaringIdentity_FailsClosed`
 - `SuccessfulProducerRows_AreTrustworthyDespitePeerFailure`
