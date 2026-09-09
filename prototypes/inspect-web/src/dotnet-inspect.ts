@@ -403,6 +403,7 @@ import {
 import { renderBrand } from "./brand.ts";
 import {
   DEFAULT_PLATFORM_FRAMEWORK, loadPlatformIndex, parsePlatformCatalogTarget,
+  platformCatalogFramework,
   type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
 } from "./platform-index.ts";
 import {
@@ -7665,14 +7666,15 @@ function retainPlatformPackageForTarget(
 }
 
 async function ensurePlatformCatalog(tfm: string, version?: string): Promise<PlatformCatalogTarget> {
+  const catalogTfm = platformCatalogFramework(tfm);
   state.platformIndex ??= await loadPlatformIndex();
   if (!state.platformIndex) throw new Error("The Platform catalog could not be loaded.");
-  const bundled = state.platformIndex.target(tfm, version);
+  const bundled = state.platformIndex.target(catalogTfm, version);
   if (bundled) return bundled;
-  if (!version) throw new Error(`The Platform catalog has no target for ${tfm}.`);
+  if (!version) throw new Error(`The Platform catalog has no target for ${catalogTfm}.`);
   const target = requireMatchingPlatformTarget(
-    parsePlatformCatalogTarget(await inspectPlatformCatalog(tfm, version)),
-    tfm, version);
+    parsePlatformCatalogTarget(await inspectPlatformCatalog(catalogTfm, version)),
+    catalogTfm, version);
   state.platformIndex.addTarget(target);
   return target;
 }
@@ -11387,7 +11389,7 @@ function callGraphTargetBinding(
     if (target.id === "n0" || !target.assembly || !typeId) return null;
     const pack = runtimePackForFramework(
       runtimePackPackage(),
-      state.package?.activeFramework || "");
+      platformCatalogFramework(state.package?.activeFramework || ""));
     const candidate = pack
       ? resolveRuntimeGraphTargetCandidate(pack, target)
       : { status: "missing" } as const;
@@ -11494,7 +11496,7 @@ function callGraphTargetBinding(
   }
   const pack = runtimePackForFramework(
     runtimePackPackage(),
-    state.package?.activeFramework || "");
+    platformCatalogFramework(state.package?.activeFramework || ""));
   const runtimeCandidate = (candidate.status === "missing"
       || candidate.status === "skew") && pack
     ? resolveRuntimeGraphTargetCandidate(pack, target)
@@ -12141,7 +12143,7 @@ async function drillPlatformNode(
       "the target does not carry a complete navigable identity");
     return;
   }
-  const framework = currentPackage().activeFramework;
+  const framework = platformCatalogFramework(currentPackage().activeFramework);
   const runtimePack = runtimePackForFramework(
     runtimePackPackage(),
     framework);
@@ -12158,7 +12160,7 @@ async function drillPlatformNode(
       node.assembly,
       node.platformPack,
       runtimePackPackage(),
-      currentPackage().activeFramework) ?? "",
+      framework) ?? "",
     assemblyVersion: node.assemblyVersion,
     assemblyCulture: node.assemblyCulture,
     assemblyPublicKeyToken: node.assemblyPublicKeyToken,
@@ -12230,7 +12232,8 @@ async function navigateOrDrillPlatform(
       failureSurface);
     return;
   }
-  const framework = state.package?.activeFramework || "";
+  const framework = platformCatalogFramework(
+    state.package?.activeFramework || "");
   let pack = runtimePackForFramework(
     runtimePackPackage(),
     framework);
@@ -13218,7 +13221,9 @@ async function loadRuntimeGraphAssembly(
   isCurrent: () => boolean,
 ): Promise<RuntimeLoadResult> {
   try {
-    const target = await ensurePlatformCatalog(framework, platformVersion);
+    const target = await ensurePlatformCatalog(
+      platformCatalogFramework(framework),
+      platformVersion);
     if (!isCurrent()) return { packageModel: null, failureMessage: "" };
     const row = platformGraphLibraryForTarget(target, assembly, pack);
     if (!row) {

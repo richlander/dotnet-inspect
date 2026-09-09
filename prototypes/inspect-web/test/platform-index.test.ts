@@ -5,6 +5,7 @@ import {
   DEFAULT_PLATFORM_FRAMEWORK,
   parsePlatformCatalogTarget,
   parsePlatformIndex,
+  platformCatalogFramework,
 } from "../src/platform-index.ts";
 
 function row(assembly: string, overrides: Record<string, unknown> = {}) {
@@ -31,6 +32,16 @@ function catalog() {
     }],
   };
 }
+
+test("platform-qualified targets use their base catalog release line", () => {
+  assert.equal(platformCatalogFramework("net10.0"), "net10.0");
+  assert.equal(platformCatalogFramework("net10.0-browser"), "net10.0");
+  assert.equal(
+    platformCatalogFramework("net10.0-windows10.0.19041.0"),
+    "net10.0");
+  assert.equal(platformCatalogFramework("net10.0-"), "net10.0-");
+  assert.equal(platformCatalogFramework("netstandard2.0"), "netstandard2.0");
+});
 
 test("catalog preserves reference membership independently of runtime role", () => {
   const index = parsePlatformIndex(catalog());

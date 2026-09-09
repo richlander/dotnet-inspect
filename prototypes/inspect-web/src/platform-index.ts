@@ -4,6 +4,11 @@ export const DEFAULT_PLATFORM_FRAMEWORK = "net11.0";
 type PlatformPack = "netcore.app" | "aspnetcore.app" | "netstandard";
 type PlatformAssemblyKind = "impl" | "facade" | "ref";
 
+export function platformCatalogFramework(tfm: string): string {
+  const match = /^(net\d+\.\d+)(?:-.+)?$/i.exec(tfm);
+  return match?.[1] ?? tfm;
+}
+
 export interface PlatformAssemblyRow {
   readonly tfm: string;
   readonly pack: PlatformPack;

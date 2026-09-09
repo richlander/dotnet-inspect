@@ -113,6 +113,7 @@ import {
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
 } from "../src/graph-mermaid.ts";
+import { platformCatalogFramework } from "../src/platform-index.ts";
 import {
   platformAssemblyRequest,
   platformGraphLibraryForTarget,
@@ -5117,6 +5118,9 @@ test("platform graph borders reflect actual resident lookup", () => {
   assert.match(binding, /else \{[\s\S]*startPlatformDrill\(target\)/);
   assert.match(
     packageBinding,
+    /runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/);
+  assert.match(
+    packageBinding,
     /const runtimeCandidate = \(candidate\.status === "missing"[\s\S]*?\|\| candidate\.status === "skew"\) && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
   assert.match(
     packageBinding,
@@ -6579,15 +6583,24 @@ test("graph-first platform acquisition preserves catalog family and physical fil
   const navigation =
     appSource.match(/async function navigateOrDrillPlatform[\s\S]*?(?=\n\})/)?.[0]
     ?? "";
+  const drill =
+    appSource.match(/async function drillPlatformNode[\s\S]*?(?=\n\})/)?.[0]
+    ?? "";
   const requests: unknown[][] = [];
+  const catalogRequests: unknown[][] = [];
   await runInNewContext(
     stripTypeScriptTypes(`(async () => {
       ${loader}
       await loadRuntimeGraphAssembly(
-        "net11.0", "11.0.0", "Mixed", "netcore.app", () => true);
+        "net11.0-windows10.0.19041.0",
+        "11.0.0", "Mixed", "netcore.app", () => true);
     })()`),
     {
-      ensurePlatformCatalog: async () => target,
+      ensurePlatformCatalog: async (...args: unknown[]) => {
+        catalogRequests.push(args);
+        return target;
+      },
+      platformCatalogFramework,
       platformGraphLibraryForTarget,
       platformAssemblyRequest,
       loadRuntimePackAssembly: async (...args: unknown[]) => {
@@ -6596,6 +6609,7 @@ test("graph-first platform acquisition preserves catalog family and physical fil
       },
       errorMessage: (error: unknown) => String(error),
     });
+  assert.deepEqual(catalogRequests, [["net11.0", "11.0.0"]]);
   assert.equal(requests.length, 1);
   const request = requests[0]!;
   assert.deepEqual(
@@ -6611,6 +6625,12 @@ test("graph-first platform acquisition preserves catalog family and physical fil
   assert.equal(
     navigation.match(/loadRuntimeGraphAssembly\(/g)?.length,
     2);
+  assert.match(
+    navigation,
+    /const framework = platformCatalogFramework\(\s*state\.package\?\.activeFramework \|\| ""\)/);
+  assert.match(
+    drill,
+    /const framework = platformCatalogFramework\(currentPackage\(\)\.activeFramework\)[\s\S]*resolvedPlatformTargetVersion\([\s\S]*framework\)[\s\S]*platformPackForGraphAssembly\([\s\S]*framework\) \?\? ""/);
   assert.match(
     navigation,
     /loadRuntimeGraphAssembly\(\s*framework,\s*retainedPlatform\?\.version \?\? "",\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
