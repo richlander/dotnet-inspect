@@ -1564,6 +1564,44 @@ for that work bound. Existing physical-candidate forwarder-cycle detection
 and hop budgets remain unchanged. This effort does not widen support for
 revisiting a candidate through a different context on one forwarding path.
 
+##### CLI match body continuation
+
+Issue #6391 applies this contract to the CLI `match --body` handoff. API selection
+retains the terminal occurrence and its issuing policy with each selected type.
+The body query starts from that occurrence; it does not construct another
+resolver from the terminal assembly path.
+
+The query workspace remains sealed. Before creating it, the CLI walks the
+selected occurrence's assembly references through the retained policy and
+continuations, bounded by Metadata's existing candidate limit. The resulting
+participants are the exact selected descriptors and shadows returned by that
+policy. Directly selected platform participants are included but not
+recursively expanded; the platform resolver remains their closure owner.
+Missing, ambiguous, unavailable, or rejected references add no participant,
+and the query does not synthesize a fallback candidate for them.
+
+The occurrence-rooted participant adapter is a transforming policy. It owns a
+distinct outer version, translates the selected initial occurrence to the
+delegate, retains delegated continuations inside its own lineage, and rejects a
+different seed origin. The sealed group composes one such route for every
+selected occurrence under one routing-only source-relative policy version;
+shadow-only participants have no invented continuation. The existing Research
+publication guard validates the resulting policy version before body evidence
+escapes.
+
+The pathological gate uses a facade-forwarded implementation whose body calls
+a dependency selected by project policy. An unselected same-name dependency
+beside the implementation advertises an incompatible delegate shape. Re-seeding
+from the implementation path produces partial reconstructed C# through the
+decoy or an unavailable dependency; continuing the selected occurrence produces
+the same full-fidelity body with and without that neighbor.
+
+This adoption does not change `match --similar`, broaden navigation or
+reference-tree discovery, define a Browser transport, retire
+`IAssemblyReferenceResolver`, or change candidate-domain finalization. The
+existing resolver-lineage model covers the retained occurrence and
+reconstruction negative control; no new state transition is introduced.
+
 ##### Both production hosts and retirement
 
 The counted adoption path in #5274 has **four steps**, including this design.
@@ -1619,6 +1657,10 @@ delegate-version refresh, and the compiled two-context case.
 `AssemblySetResolutionSessionTests` retain the original forwarded-constraint
 oracle; CLI `CommandLine_ForwardedConstraint_ReportsDependencyCompleteness`
 exercises the real command and its missing-dependency neighbor.
+CLI `ExecuteAsync_ForwardedBodies_RetainSelectedProjectContext` exercises the
+Issue #6391's facade, selected dependency, and same-name neighbor through production
+`match --body`; `AssemblyContextParticipantTests` enforce seed translation,
+continuation translation, distinct outer versions, and foreign-seed rejection.
 Existing `MemberCallGraphSessionTests` provide query-level regression coverage,
 not Browser endpoint adoption. Browser's Release `BrowserEngineBoundaryTests`
 provide that endpoint evidence:

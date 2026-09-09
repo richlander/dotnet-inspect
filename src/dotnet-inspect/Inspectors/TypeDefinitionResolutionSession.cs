@@ -1,3 +1,5 @@
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -8,6 +10,136 @@ namespace DotnetInspector.Inspectors;
 internal sealed record TypeDefinitionApiSurfaceFailure(
     string Kind,
     string Detail);
+
+internal sealed record SelectedTypeBindingContext(
+    AssemblyBindingOccurrence Occurrence,
+    IAssemblyBindingPolicy Policy)
+{
+    internal sealed record SelectedBindingParticipant(
+        ResolvedAssemblyReference Assembly,
+        AssemblyBindingOccurrence? Occurrence);
+
+    internal IReadOnlyList<SelectedBindingParticipant>
+        DiscoverParticipants(
+            CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        AssemblyBindingPolicyVersion version = Policy.Version;
+        int maxCandidates =
+            new TypeResolutionContextOptions().MaxCandidates;
+        var participants = new Dictionary<
+            AssemblyAcquisitionRegistration,
+            SelectedBindingParticipant>(
+                ReferenceEqualityComparer.Instance);
+        var expanded = new HashSet<AssemblyBindingOccurrence>();
+        var pending = new Queue<AssemblyBindingOccurrence>();
+        pending.Enqueue(Occurrence);
+
+        while (pending.TryDequeue(out AssemblyBindingOccurrence? current))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!expanded.Add(current))
+                continue;
+            Retain(current.Assembly, current);
+
+            using Stream stream = current.Assembly.OpenRead();
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+            {
+                throw new BadImageFormatException(
+                    $"The selected assembly "
+                    + $"'{current.Assembly.Identity.Name}' has no metadata.");
+            }
+
+            MetadataReader reader = peReader.GetMetadataReader();
+            foreach (AssemblyReferenceHandle handle
+                in reader.AssemblyReferences)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                AssemblyReferenceIdentity identity =
+                    AssemblyReferenceIdentity.From(reader, handle);
+                var request = new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(identity),
+                    AssemblyBindingOrigin.FromOccurrence(current),
+                    PlatformKeys.IsPlatform(identity.PublicKeyToken)
+                        ? AssemblyResolutionScope.Platform
+                        : AssemblyResolutionScope.Any);
+                AssemblyBindingSelectionSnapshot? snapshot =
+                    Policy.Select(request);
+                if (snapshot is null
+                    || !ReferenceEquals(snapshot.Version, version)
+                    || !ReferenceEquals(Policy.Version, version))
+                {
+                    throw new InvalidOperationException(
+                        "The binding-policy snapshot changed while "
+                        + "forming the match body context.");
+                }
+
+                AssemblyBindingSelection selection =
+                    AssemblyBindingSelection.ValidateForRequest(
+                        request,
+                        snapshot.Selection);
+                if (selection
+                    is not AssemblyBindingSelection.Selected selected)
+                {
+                    continue;
+                }
+
+                Retain(selected.Assembly, selected.Occurrence);
+                foreach (ResolvedAssemblyReference shadow
+                    in selected.ShadowedAssemblies)
+                {
+                    Retain(shadow, occurrence: null);
+                }
+
+                if (selected.Assembly.Provenance
+                        is not AssemblyResolutionProvenance.PlatformAsset)
+                {
+                    pending.Enqueue(selected.Occurrence);
+                }
+            }
+        }
+
+        if (!ReferenceEquals(Policy.Version, version))
+        {
+            throw new InvalidOperationException(
+                "The binding-policy snapshot changed while "
+                + "forming the match body context.");
+        }
+
+        return [.. participants.Values];
+
+        void Retain(
+            ResolvedAssemblyReference assembly,
+            AssemblyBindingOccurrence? occurrence)
+        {
+            if (participants.TryGetValue(
+                    assembly.Registration,
+                    out SelectedBindingParticipant? retained))
+            {
+                if (retained.Occurrence is null
+                    && occurrence is not null)
+                {
+                    participants[assembly.Registration] =
+                        new SelectedBindingParticipant(
+                            assembly,
+                            occurrence);
+                }
+                return;
+            }
+
+            participants.Add(
+                assembly.Registration,
+                new SelectedBindingParticipant(assembly, occurrence));
+            if (participants.Count > maxCandidates)
+            {
+                throw new InvalidOperationException(
+                    $"The match binding context exceeded its "
+                    + $"{maxCandidates}-assembly candidate bound.");
+            }
+        }
+    }
+}
 
 /// <summary>
 /// CLI inspection-lifetime owner for structured type resolution from one acquired
@@ -115,6 +247,10 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
             [request]);
         return context.Resolve(request);
     }
+
+    internal SelectedTypeBindingContext BindingContext(
+        AssemblyBindingOccurrence occurrence) =>
+        new(occurrence, _policy);
 
     public ApiSurface? ExtractApiSurface(
         bool includeAll = false,
