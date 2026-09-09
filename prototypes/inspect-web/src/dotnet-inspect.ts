@@ -6280,17 +6280,32 @@ async function openPlatformLensLibrary(
     && packageIdentityEquals(state.package, originPackage);
   const key = name.replace(/\.dll$/i, "");
   const pack = selectedPack || platformPackForAssembly(key);
+  const target = state.platformIndex?.target(
+    originPackage.activeFramework,
+    originPackage.version);
+  const matches = target?.rows.filter(row =>
+    row.hasImplementation
+    && (!pack || row.pack === pack)
+    && row.assembly.toLowerCase() === key.toLowerCase()) ?? [];
+  if (matches.length !== 1) {
+    appendQueryNotice(
+      `The platform library '${key}' is not uniquely available in the exact catalog.`);
+    render();
+    return;
+  }
+  const row = matches[0]!;
   const resident = runtimeAssemblyIsResident(
-    runtimePackPackage(),
-    key,
-    pack ?? "");
+    originPackage,
+    row.assembly,
+    row.pack);
   if (!resident) {
     const runtimeResult = await loadRuntimePackAssembly(
-      platformScopeTfm(),
-      `${key}.dll`,
-      pack ?? "",
-      () => state.packages.includes(originPackage),
-      originPackage.version);
+      originPackage.activeFramework,
+      platformAssemblyRequest(row),
+      row.pack,
+      isCurrent,
+      originPackage.version,
+      row.file);
     const loaded = runtimeResult.packageModel;
     if (!loaded) {
       if (isCurrent()) {

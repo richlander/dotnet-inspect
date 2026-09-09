@@ -127,6 +127,7 @@ interface PlatformFixture {
   wrongCatalog?: boolean;
   libraryFailure?: boolean;
   libraryPending?: boolean;
+  libraryPendingPack?: PlatformAssemblyRow["pack"];
   duplicateLibrary?: boolean;
   nativeCoreLib?: boolean;
   mismatchedFile?: boolean;
@@ -209,7 +210,10 @@ async function installFacades(
           });
         }
         document.documentElement.dataset.platformLibraryRequest = JSON.stringify([tfm, version, file, pack, assetFileName]);
-        if (platformOptions.libraryPending) await new Promise(resolve => document.addEventListener("finish-platform-library", resolve, { once: true }));
+        if (platformOptions.libraryPending
+          && (!platformOptions.libraryPendingPack || platformOptions.libraryPendingPack === pack)) {
+          await new Promise(resolve => document.addEventListener("finish-platform-library", resolve, { once: true }));
+        }
         if (platformOptions.libraryFailure) throw new Error("Library offline");
         const row = platformTarget.rows.find(row => row.assembly + ".dll" === file && row.pack === pack)
           ?? { assembly: file.replace(/\\.dll$/, ""), file, publicTypes: 0 };
@@ -1174,24 +1178,99 @@ for (const width of [1440, 390]) {
 
   test(`production Opportunities keeps Platform Library selection outside the scroller at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await openPlatform(page);
-    await page.getByTitle("Inspect System.Text.Json", { exact: true }).click();
+    await openPlatform(page, { mismatchedFile: true });
+    await page.getByTitle("Inspect System.Facade", { exact: true }).click();
     await page.locator('[data-library-lens="opportunities"]').click();
     const frame = page.locator(".library-opportunities-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
     const picker = frame.locator(".library-opportunities-controls select");
     await expect(picker).toBeVisible();
-    await expect(picker).toHaveValue("System.Text.Json");
-    await picker.selectOption("System.Facade");
-    await expect(frame.locator(".opp-type-ns").nth(1)).toContainText("System.Facade");
-    await expect(frame.locator("footer")).toContainText("System.Facade.dll");
+    await expect(picker).toHaveValue("System.Facade");
+    await picker.selectOption("System.Text.Json");
+    await expect(frame.locator(".opp-type-ns").nth(1)).toContainText("System.Text.Json");
+    await expect(frame.locator("footer")).toContainText("PhysicalPayload.dll");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-platform-library-request",
+      JSON.stringify([
+        "net11.0",
+        platformVersion,
+        "System.Text.Json.dll",
+        "netcore.app",
+        "PhysicalPayload.dll",
+      ]),
+    );
     await expect(page.locator("html"))
-      .toHaveAttribute("data-platform-opportunity-request", "System.Facade.dll:netcore.app");
+      .toHaveAttribute("data-platform-opportunity-request", "System.Text.Json.dll:netcore.app");
     const header = await frame.locator("header").boundingBox();
     const content = await frame.locator(".library-opportunities-scroll").boundingBox();
     expect(header!.y + header!.height).toBeLessThanOrEqual(content!.y + 1);
   });
 }
+
+test("stale Platform Opportunities acquisition cannot replace a newer family selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page, {
+    duplicateLibrary: true,
+    libraryPending: true,
+    libraryPendingPack: "aspnetcore.app",
+  });
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation netcore.app/ },
+  ).click();
+  await page.locator('[data-library-lens="opportunities"]').click();
+  const picker = page.locator(
+    ".library-opportunities-controls .platform-library-select",
+  );
+  await picker
+    .locator('option[data-pack="aspnetcore.app"]')
+    .first()
+    .evaluate(option => {
+      if (!(option instanceof HTMLOptionElement))
+        throw new Error("Expected a Platform Library option.");
+      const select = option.closest("select");
+      if (!(select instanceof HTMLSelectElement))
+        throw new Error("Expected a Platform Library picker.");
+      for (const candidate of select.options) candidate.selected = false;
+      option.selected = true;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-library-request",
+    JSON.stringify([
+      "net11.0",
+      platformVersion,
+      "System.Text.Json.dll",
+      "aspnetcore.app",
+      "System.Text.Json.dll",
+    ]),
+  );
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("Widget");
+  await page.locator('[data-sl-type*="Example.Widget"]:not([data-sl-member])').first().click();
+  await expect(page.locator('[data-scope="type"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("finish-platform-library")));
+  await page.locator('[data-scope="library"]').click();
+  await page.locator('[data-library-lens="metadata"]').click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-metadata-request",
+    JSON.stringify([
+      "net11.0",
+      platformVersion,
+      "System.Text.Json.dll",
+      "netcore.app",
+    ]),
+  );
+});
 
 test("production Opportunities keeps deferred Library results out of the incoming scan", async ({ page }) => {
   await installFacades(page, surface, [], "ready", "ready", undefined, "deferred");
