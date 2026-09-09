@@ -98,7 +98,7 @@ An exact-library registration names one source-owner-issued library
 coordinate. It may identify a platform or package-origin library without
 converting either into the other's identity model.
 
-A package Root may contribute one or more admitted libraries, but package
+A Package may contribute one or more admitted libraries, but Package
 membership and exact-library registration remain distinct. Opening or
 admitting a package does not silently register all of its libraries.
 
@@ -172,7 +172,7 @@ with the request mode owned by
 | --- | --- | --- |
 | `Self` | Self | The selected registration population or the selected member's containing exact library |
 | `SelfAndRegisteredEcosystems` | Self + registered ecosystems | `Self` plus every ecosystem registration in the current Workspace revision |
-| `Everything` | Everything | Every exact-library, package-prefix, ecosystem, Root-derived, and already admitted participant available through the current Workspace |
+| `Everything` | Everything | Every exact-library, package-prefix, ecosystem, package-derived, and already admitted participant available through the current Workspace |
 
 `Everything` is the default for both hosts. Opening one package and requesting
 a multi-depth graph should be able to leave that package. Narrowing is a
@@ -183,7 +183,7 @@ before the request starts.
 
 For a member or type in an exact library, `Self` means that exact library. It
 does not mean only the selected method body, every library in the same package,
-or every currently loaded Root.
+or every currently loaded Package.
 
 When the selected subject is a package prefix or ecosystem, `Self` means the
 bounded population selected for that exact registration by the request. It
@@ -227,7 +227,7 @@ merely because they are registered. A request may select one of them as
 ### Everything
 
 `Everything` admits all Workspace registrations and all already admitted
-libraries. It may also follow Root-derived resolution routes supplied by the
+libraries. It may also follow package-derived resolution routes supplied by the
 resolution owner, admitting newly resolved participants into the same
 Workspace under the operation's source authorization and bounds.
 
@@ -346,7 +346,7 @@ and per-operation bounds keep that broader model explicit.
 
 | Participating owner | Responsibility retained |
 | --- | --- |
-| [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Committed Root membership, registration revision, complete snapshots, and scope-operation results |
+| [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Committed Package membership, registration revision, complete snapshots, and scope-operation results |
 | [Static Ecosystem Packs](ecosystem-packs.md) | Ecosystem identity, product default manifest, static contributions, and projection onto a lower registration declaration; not reusable Workspace state or call-graph scope |
 | [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md) | Lower ecosystem declaration, explicit pack correspondence, projection outcomes, and product-default validation |
 | [Platform Library Population Declaration](platform-library-population-declaration.md) and other source owners | Platform relevance values, exact-library and package-prefix declarations, and later source-specific candidate outcomes |
