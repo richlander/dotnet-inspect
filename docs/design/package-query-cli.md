@@ -35,7 +35,10 @@ The focused CLI adoption in [#6107](https://github.com/richlander/dotnet-inspect
 binds the existing metadata/content vocabulary as described in
 [CLI facet binding](#cli-facet-binding). The promoted assembly tier has a separate focused
 owner in
-[Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md).
+[Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md);
+its first CLI host route has landed as `find --literal` plus
+`workspace --root-request` — see
+[The landed promoted-tier CLI route](#the-landed-promoted-tier-cli-route).
 Despite the Sections migration landing,
 `find --package-prefix`'s corpus limit is also still spelled `-t`, not the
 historical #4677 `-n` target. [Item and line
@@ -189,9 +192,10 @@ bespoke logic the way it did before that split existed.
 [Website-first adoption #6019](https://github.com/richlander/dotnet-inspect/issues/6019)
 extends the shared Package Query input, not the CLI grammar. Its claim is that
 local package-facet evaluation and match selection preserve the exact bounded
-Gallery input supplied by NuGetFetch. The concrete first consumer is the
-Package Query website; [#5919](https://github.com/richlander/dotnet-inspect/issues/5919)
-retains the eight-milestone path through CLI adoption.
+Gallery input supplied by NuGetFetch. The Package Query website was the first
+consumer; #6341 later retired that Browser gesture while retaining the shared
+input. [#5919](https://github.com/richlander/dotnet-inspect/issues/5919) retains
+the eight-milestone path through CLI adoption.
 
 The [Gallery discovery owner](nuget-gallery-discovery.md) supplies optional
 search text, package-type selection, source order, and one fully admitted
@@ -462,7 +466,8 @@ predicates:
   evaluation](package-query-assembly-evaluation.md). This CLI document retains
   only gesture lowering, capability admission, candidate-bound disclosure, and
   row shaping. L2 and L3 submit product-owned opaque pattern identities and do
-  not recreate the pattern vocabulary.
+  not recreate the pattern vocabulary. Its first CLI gesture has landed; see
+  [The landed promoted-tier CLI route](#the-landed-promoted-tier-cli-route).
 
 The CLI reuses `RowPredicateSyntaxParser` and repeated `--where` syntax for
 `facet=<ID>`. The IDs come from the product descriptor catalog; this is not an
@@ -492,9 +497,117 @@ both), mirroring the browser experience's Deepen action, which is
 thousand-row funnel doesn't silently trigger a thousand package downloads."
 
 The metadata/content CLI gesture is defined in
-[CLI facet binding](#cli-facet-binding). `--deepen`'s exact spelling and bound
-shape remain open for promoted assembly evaluation (see
+[CLI facet binding](#cli-facet-binding). The promoted assembly tier's first CLI
+gesture is no longer open either: see
+[The landed promoted-tier CLI route](#the-landed-promoted-tier-cli-route).
+`--deepen`'s exact spelling and bound shape remain open for the corpus-scale
+slice that first needs them (see
 [Landing sequence](#landing-sequence)).
+
+## The landed promoted-tier CLI route
+
+The first promoted-tier CLI host route is deliberately narrower than
+`--deepen`: it does not escalate from a corpus funnel at all, so it needs no
+candidate-bound gesture to escalate *from*. The user names the candidates
+outright.
+
+```bash
+dotnet-inspect find --literal TEXT --package ID@VERSION --tfm TFM
+```
+
+- **The gesture is the explicit cost.** Naming 1-5 exact `ID@VERSION`
+  coordinates and one `--tfm` *is* the bounded, explicit-cost admission the
+  [tier gating](#tier-gating) rules require. There is no corpus streaming, no
+  `--package-prefix` expansion, and no implicit widening, so the promoted-tier
+  bound is the user's own literal candidate list. The shared planner enforces
+  the 1-5 maximum, the exact-coordinate requirement, and duplicate rejection;
+  the CLI lowers to it rather than re-deriving those rules.
+- **The pattern identity stays product-owned.** `--literal` lowers to the
+  product-issued `il-string-literal-contains` descriptor and its operand
+  contract. The CLI does not spell the pattern vocabulary, and `--literal`
+  text is a raw ordinal substring — not this repository's type-pattern
+  grammar, not a glob, and not a regex.
+- **Candidates are disposable.** Evaluation runs through the shared serial
+  pipeline against a fresh per-candidate store, so a query never adds a
+  candidate to the durable package cache.
+- **The source policy is narrow and explicit.** The route uses the same
+  credential-free NuGet Gallery client `find --package-prefix` uses and
+  *rejects* `--source`/`--add-source`/NuGet-config overrides rather than
+  silently ignoring them.
+- **Every candidate reports its own outcome.** Rows carry `matched`,
+  `no-match`, `not-applicable`, or `failed`, so a semantic miss, an
+  inapplicable selection, an evaluation failure, and an acquisition failure
+  stay distinguishable. Only failures affect the exit code.
+
+### Row shaping for the landed route
+
+Unlike the nuspec tier's single wide per-package row
+([Row declaration](#row-declaration-coercing-a-wide-per-package-fact-set-into-a-table)),
+promoted-tier results have two natural row units, so the document declares two
+sections rather than flattening evidence into the candidate row:
+
+- **Matches** leads, one row per occurrence: package, version, assembly,
+  method-definition token, IL offset, and the inert literal text. That triple
+  is the evidence unit; it is the same evidence the Browser host projects.
+- **Candidates** follows, one row per named candidate: package, version,
+  outcome, selected asset, selected TFM, an owner-derived detail, and the
+  candidate's exact `Root` reopening token.
+
+The default minimal view renders **Candidates** as its single high-value
+section: it preserves every candidate's outcome and exact reopening token.
+Normal verbosity (`-v:n`) adds **Matches**, with occurrence evidence leading
+the expanded document. Quiet verbosity suppresses row sections. These presets
+apply to Markdown and JSON and follow the existing
+[progressive disclosure](progressive-disclosure.md) contract; they do not
+change evaluation scope or acquire more content. Single-section row formats
+(`--table`, `--tsv`, and `--jsonl`) expose **Candidates** and retain their
+existing prohibition on `-v`. Use Markdown or `-v:n --json` for occurrence
+evidence.
+
+`--count` counts matching literal-use occurrences, preserving Find's
+match-count meaning rather than counting the candidate inventory. It does not
+publish a count if any candidate failed: an incomplete semantic evaluation is
+not evidence of zero matches. Zero-row descriptions likewise report that no
+matches were reported, rather than claiming that failed or inapplicable
+assemblies contain no matching literal.
+
+### Exact reopening is part of the CLI contract
+
+A promoted-tier result is only useful if the user can get back to *exactly*
+the Root the evidence came from, so the `Root` column carries the artifact
+owner's opaque, resource-free reopening token, and the CLI ships the route
+that consumes it:
+
+```bash
+dotnet-inspect workspace --root-request TOKEN
+```
+
+- The token is the only portable form. The CLI never reconstructs an opening
+  intent from displayed package id, version, selected asset, or selected TFM —
+  a requested TFM may select a different one, so display fields are not an
+  identity.
+- Decoding is total: a token this tool did not issue is refused by parse,
+  not repaired.
+- Acquisition authorization *intersects* the token's pinned producer, so a
+  host source override fails visibly instead of quietly opening different
+  content.
+- A typed failure (`InvalidCoordinate`, `PackageUnavailable`,
+  `ProducerNotAuthorized`, `SelectionRequestNotReproduced`) is reported as
+  itself. There is no fallback to opening the package by id and version.
+- The acquired binding is committed through the Workspace Scope owner's
+  `AddRootsAsync` and rendered from the returned snapshot, exactly as
+  `workspace --package` does (see
+  [Workspace scope and expansion](workspace-scope-and-expansion.md)). The
+  binding is handed over as acquired, so no Root is reconstructed from archive
+  bytes or a store path, and root-only and explicit-empty compile selections
+  remain reportable Roots rather than a refusal.
+
+Its Release gates are `PackageAssemblyQueryOutputTests` (row shaping, ordinal
+substring semantics, inert rendering, section ordering, JSON token presence,
+and refusal of a completion-less event stream) and `WorkspaceRootRequestTests`
+(option parsing, mutual exclusion, malformed-token refusal, exact reopening,
+including root-only and explicit-empty compile selections, and typed failure
+reporting).
 
 ## Row declaration: coercing a wide per-package fact set into a Table
 
@@ -616,7 +729,9 @@ the CLI's named facets as canonical for the browser's facet rail.
   equivalent) — never a corpus-wide default.
 - No decision here on `--deepen`'s exact spelling, bound shape, or the saved
   query/result file's exact fields — those are implementation-slice
-  decisions, not settled by this document.
+  decisions, not settled by this document. The landed
+  `find --literal` route sidesteps `--deepen` entirely by requiring the user
+  to name every candidate.
 
 ## Landing sequence
 
@@ -650,8 +765,13 @@ the CLI's named facets as canonical for the browser's facet rail.
    Release gates are named in [CLI facet binding](#cli-facet-binding).
 6. **Compose the focused
    [assembly-pattern evaluator](package-query-assembly-evaluation.md) through
-   a promoted-tier capability gate and `--deepen` candidate bound**, including
-   the L2 tier-gating error for an ungated promoted-tier field.
+   a promoted-tier capability gate and candidate bound.** The first host route
+   landed as `find --literal` plus `workspace --root-request`, where the
+   explicit 1-5 `ID@VERSION` list and required `--tfm` *are* the bound, gated
+   by `PackageAssemblyQueryOutputTests` and `WorkspaceRootRequestTests`. Still
+   open: escalating into the promoted tier from a corpus funnel, which is what
+   `--deepen`'s spelling, bound shape, and L2 tier-gating error for an ungated
+   promoted-tier field are actually for.
 7. **Define the shared save/resume file shape**, coordinated with whatever
    the browser experience's local-storage record settles on when it is
    implemented.

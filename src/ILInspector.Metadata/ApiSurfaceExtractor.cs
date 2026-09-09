@@ -958,6 +958,10 @@ public static class ApiSurfaceExtractor
             // property or event rows. Raiser and Other semantic methods have no
             // ApiMember token slots, so they stay methods.
             var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
+            MemorySafetyMetadataIndex memorySafety = GetMemorySafetyIndex();
+            bool accessorAssociationsAvailable =
+                memorySafety.Rules is MemorySafetyRulesResult.Available
+                && memorySafety.AssociationFailure is null;
             var runtimeJsExportWrapperCandidateMethods =
                 new Dictionary<string, List<int>>(
                     StringComparer.Ordinal);
@@ -1011,7 +1015,10 @@ public static class ApiSurfaceExtractor
                 // hide the public contract. Public MethodImpl accessors — static
                 // abstract implementations, covariant overrides, VB Implements —
                 // stay on that public row. ApiSurfaceEmitSetTests is the gate.
-                if (accessorMethods.Contains(methodHandle)
+                if (accessorMethods.TryGetValue(
+                        methodHandle,
+                        out ApiMethodSemanticsKind methodSemantics)
+                    && IsCSharpAccessor(methodSemantics)
                     && !(isExplicitInterfaceImplementation
                         && methodAccess == MethodAttributes.Private))
                 {
@@ -1124,6 +1131,11 @@ public static class ApiSurfaceExtractor
                         _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
                         _ => "method"
                     },
+                    MethodSemantics = accessorAssociationsAvailable
+                        ? accessorMethods.GetValueOrDefault(
+                            methodHandle,
+                            ApiMethodSemanticsKind.None)
+                        : null,
                     IsStatic = modifiers.IsStatic,
                     IsVirtual = modifiers.IsVirtual,
                     IsAbstract = modifiers.IsAbstract,
@@ -1949,7 +1961,10 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string methodName = reader.GetString(method.Name);
-            if ((accessorMethods.Contains(methodHandle)
+            if ((accessorMethods.TryGetValue(
+                        methodHandle,
+                        out ApiMethodSemanticsKind methodSemantics)
+                    && IsCSharpAccessor(methodSemantics)
                     && !(isExplicitImplementation
                         && methodAccess == MethodAttributes.Private))
                 || methodName.StartsWith('<'))
@@ -2431,7 +2446,7 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// Property getter/setter and event adder/remover bodies from
+    /// Property and event semantic methods from
     /// <c>MethodSemantics</c>. Ordinary accessors are represented by their
     /// property or event row; raiser and Other semantic methods have no
     /// <see cref="ApiMember"/> token slots, so they stay methods.
@@ -2443,35 +2458,55 @@ public static class ApiSurfaceExtractor
     /// because its property or event row does not represent the public contract.
     /// A public MethodImpl accessor is represented by that public row.
     /// </remarks>
-    private static HashSet<MethodDefinitionHandle> GetSemanticAccessorMethods(
+    private static Dictionary<MethodDefinitionHandle, ApiMethodSemanticsKind>
+        GetSemanticAccessorMethods(
         MetadataReader reader,
         TypeDefinition typeDef)
     {
-        HashSet<MethodDefinitionHandle> accessors = [];
+        Dictionary<MethodDefinitionHandle, ApiMethodSemanticsKind> accessors = [];
         foreach (PropertyDefinitionHandle propertyHandle in typeDef.GetProperties())
         {
             PropertyAccessors propertyAccessors =
                 reader.GetPropertyDefinition(propertyHandle).GetAccessors();
-            Add(propertyAccessors.Getter);
-            Add(propertyAccessors.Setter);
+            Add(propertyAccessors.Getter, ApiMethodSemanticsKind.PropertyGetter);
+            Add(propertyAccessors.Setter, ApiMethodSemanticsKind.PropertySetter);
+            foreach (MethodDefinitionHandle other in propertyAccessors.Others)
+                Add(other, ApiMethodSemanticsKind.PropertyOther);
         }
 
         foreach (EventDefinitionHandle eventHandle in typeDef.GetEvents())
         {
             EventAccessors eventAccessors =
                 reader.GetEventDefinition(eventHandle).GetAccessors();
-            Add(eventAccessors.Adder);
-            Add(eventAccessors.Remover);
+            Add(eventAccessors.Adder, ApiMethodSemanticsKind.EventAdder);
+            Add(eventAccessors.Remover, ApiMethodSemanticsKind.EventRemover);
+            Add(eventAccessors.Raiser, ApiMethodSemanticsKind.EventRaiser);
+            foreach (MethodDefinitionHandle other in eventAccessors.Others)
+                Add(other, ApiMethodSemanticsKind.EventOther);
         }
 
         return accessors;
 
-        void Add(MethodDefinitionHandle accessor)
+        void Add(
+            MethodDefinitionHandle accessor,
+            ApiMethodSemanticsKind semantics)
         {
-            if (!accessor.IsNil)
-                accessors.Add(accessor);
+            if (accessor.IsNil)
+                return;
+
+            accessors.TryGetValue(
+                accessor,
+                out ApiMethodSemanticsKind existing);
+            accessors[accessor] = existing | semantics;
         }
     }
+
+    static bool IsCSharpAccessor(ApiMethodSemanticsKind semantics)
+        => (semantics
+            & (ApiMethodSemanticsKind.PropertyGetter
+                | ApiMethodSemanticsKind.PropertySetter
+                | ApiMethodSemanticsKind.EventAdder
+                | ApiMethodSemanticsKind.EventRemover)) != 0;
 
     private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
         MetadataReader reader, TypeDefinition typeDef)
@@ -2995,6 +3030,7 @@ public static class ApiSurfaceExtractor
                     Signature = extension.Signature,
                     SignatureModel = extension.SignatureModel,
                     SignatureDecodeStatus = extension.SignatureDecodeStatus,
+                    MethodSemantics = extension.MethodSemantics,
                     MetadataToken = extension.MetadataToken,
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
@@ -4828,93 +4864,15 @@ public static class ApiSurfaceExtractor
                     parameterAccessorMethod.GetCustomAttributes(),
                     beforeDecodeWork)
                 ?? typeNullableContext;
-        var paramTypes = treeSignature.ParameterTypes;
-        List<string> indexerParameters = [];
-        List<ApiParameter> parameterModels = [];
-        var parameterInfos = Enumerable.Range(1, paramTypes.Length)
-            .Select(sequenceNumber => GetParameterInfo(
+        (List<string> indexerParameters, List<ApiParameter> parameterModels) =
+            ProjectPropertyParameters(
                 reader,
+                treeSignature.ParameterTypes,
                 paramHandles,
-                sequenceNumber,
+                parameterNullableContext,
                 beforeRetainText,
-                attributeMaterialize))
-            .ToArray();
-        string[] parameterNames = CSharpParameterNames.Allocate(
-            parameterInfos.Select(info => info.name).ToArray());
-        for (var i = 0; i < paramTypes.Length; i++)
-        {
-            var paramBytes = NullabilityReader.GetParameterNullableBytes(
-                reader,
-                paramHandles,
-                i + 1,
-                beforeDecodeWork);
-            pos = 0;
-            paramTypes[i].ApplyNullability(paramBytes, ref pos, parameterNullableContext);
-            var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(
-                reader,
-                paramHandles,
-                i + 1,
-                beforeDecodeWork);
-            pos = 0;
-            paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
-            paramTypes[i].ApplyTupleNames(
-                TupleElementNamesReader.GetParameterTupleElementNames(
-                    reader,
-                    paramHandles,
-                    i + 1,
-                    beforeDecodeWork));
-            var paramType = paramTypes[i].Render();
-            var canonicalParamType = paramTypes[i].RenderCanonical();
-            var (_, isParams, refKind, hasDefault, defaultValue, attributes) =
-                parameterInfos[i];
-            var isByRef = paramType.StartsWith("ref ", StringComparison.Ordinal);
-            if (isByRef)
-            {
-                paramType = paramType["ref ".Length..];
-                canonicalParamType = canonicalParamType["ref ".Length..];
-                refKind ??= "ref";
-            }
-            else
-            {
-                refKind = null;
-            }
-
-            var modifier = isParams ? "params" : refKind;
-            bool acceptsNullDefault = AcceptsNullDefault(paramTypes[i]);
-            string? defaultValueText = DefaultValueText(
-                reader,
-                defaultValue,
-                paramType,
-                hasDefault,
-                acceptsNullDefault,
-                beforeDecodeWork);
-            var parameter = FormatParameter(
-                paramType,
-                parameterNames[i],
-                modifier,
-                hasDefault,
-                defaultValue,
-                defaultValueText);
-            beforeRetainText?.Invoke(parameter);
-            var parameterModel = new ApiParameter
-            {
-                Attributes = attributes,
-                Name = parameterNames[i],
-                Type = paramType,
-                CanonicalType = canonicalParamType,
-                StructuralType = paramTypes[i].HasStructuralPayload
-                    ? paramTypes[i].StructuralIdentity()
-                    : null,
-                TypeReferences =
-                    [.. paramTypes[i].ReferencedTypes().Distinct()],
-                Modifier = modifier,
-                HasDefault = hasDefault,
-                DefaultValueText = defaultValueText
-            };
-            ObserveText(parameterModel, beforeRetainText);
-            indexerParameters.Add(parameter);
-            parameterModels.Add(parameterModel);
-        }
+                beforeDecodeWork,
+                attributeMaterialize);
 
         var returnType = FormatMethodReturnType(
             reader,
@@ -4958,6 +4916,175 @@ public static class ApiSurfaceExtractor
             model,
             treeSignature.ReturnType.IsDegraded
                 || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
+    }
+
+    internal static ImmutableArray<string> GetCanonicalPropertyParameterTypes(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        PropertyDefinition property,
+        Action<string>? beforeRetainText = null,
+        Action<int>? beforeDecodeWork = null)
+    {
+        var typeDefinition = reader.GetTypeDefinition(typeHandle);
+        var typeNodeProvider = beforeRetainText is null
+            ? TypeNodeProvider.Instance
+            : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
+        MethodSignature<TypeNode> signature =
+            GuardedProviderDecode.Property(
+                reader,
+                property,
+                typeNodeProvider,
+                GenericContext.ForType(reader, typeDefinition),
+                (TypeNode)new DegradedTypeNode());
+        if (signature.ReturnType.IsDegraded
+            || signature.ParameterTypes.Any(
+                static parameter => parameter.IsDegraded))
+        {
+            throw new BadImageFormatException(
+                "The property signature could not be decoded.");
+        }
+        PropertyAccessors accessors = property.GetAccessors();
+        MethodDefinitionHandle parameterAccessor = !accessors.Getter.IsNil
+            ? accessors.Getter
+            : accessors.Setter;
+        var parameterAccessorMethod = parameterAccessor.IsNil
+            ? default
+            : reader.GetMethodDefinition(parameterAccessor);
+        var parameterHandles = parameterAccessor.IsNil
+            ? default
+            : parameterAccessorMethod.GetParameters();
+        byte typeNullableContext =
+            NullabilityReader.GetTypeNullableContext(
+                reader,
+                typeHandle,
+                beforeDecodeWork);
+        byte parameterNullableContext = parameterAccessor.IsNil
+            ? typeNullableContext
+            : NullabilityReader.GetNullableContext(
+                    reader,
+                    parameterAccessorMethod.GetCustomAttributes(),
+                    beforeDecodeWork)
+                ?? typeNullableContext;
+        (_, List<ApiParameter> parameters) = ProjectPropertyParameters(
+            reader,
+            signature.ParameterTypes,
+            parameterHandles,
+            parameterNullableContext,
+            beforeRetainText,
+            beforeDecodeWork,
+            beforeDecodeWork);
+        return
+        [
+            .. parameters.Select(
+                static parameter => parameter.CanonicalTypeWithModifier),
+        ];
+    }
+
+    static (List<string> Display, List<ApiParameter> Models)
+        ProjectPropertyParameters(
+            MetadataReader reader,
+            ImmutableArray<TypeNode> parameterTypes,
+            ParameterHandleCollection parameterHandles,
+            byte parameterNullableContext,
+            Action<string>? beforeRetainText,
+            Action<int>? beforeDecodeWork,
+            Action<int>? beforeAttributeMaterialize)
+    {
+        List<string> display = [];
+        List<ApiParameter> models = [];
+        var parameterInfos = Enumerable.Range(1, parameterTypes.Length)
+            .Select(sequenceNumber => GetParameterInfo(
+                reader,
+                parameterHandles,
+                sequenceNumber,
+                beforeRetainText,
+                beforeAttributeMaterialize))
+            .ToArray();
+        string[] parameterNames = CSharpParameterNames.Allocate(
+            parameterInfos.Select(info => info.name).ToArray());
+        for (var i = 0; i < parameterTypes.Length; i++)
+        {
+            var parameterType = parameterTypes[i];
+            var nullableBytes =
+                NullabilityReader.GetParameterNullableBytes(
+                    reader,
+                    parameterHandles,
+                    i + 1,
+                    beforeDecodeWork);
+            int position = 0;
+            parameterType.ApplyNullability(
+                nullableBytes,
+                ref position,
+                parameterNullableContext);
+            var dynamicFlags =
+                DynamicReader.GetParameterDynamicFlags(
+                    reader,
+                    parameterHandles,
+                    i + 1,
+                    beforeDecodeWork);
+            position = 0;
+            parameterType.ApplyDynamic(dynamicFlags, ref position);
+            parameterType.ApplyTupleNames(
+                TupleElementNamesReader.GetParameterTupleElementNames(
+                    reader,
+                    parameterHandles,
+                    i + 1,
+                    beforeDecodeWork));
+            string renderedType = parameterType.Render();
+            string canonicalType = parameterType.RenderCanonical();
+            var (_, isParams, refKind, hasDefault, defaultValue, attributes) =
+                parameterInfos[i];
+            bool isByRef =
+                renderedType.StartsWith("ref ", StringComparison.Ordinal);
+            if (isByRef)
+            {
+                renderedType = renderedType["ref ".Length..];
+                canonicalType = canonicalType["ref ".Length..];
+                refKind ??= "ref";
+            }
+            else
+            {
+                refKind = null;
+            }
+
+            string? modifier = isParams ? "params" : refKind;
+            bool acceptsNullDefault = AcceptsNullDefault(parameterType);
+            string? defaultValueText = DefaultValueText(
+                reader,
+                defaultValue,
+                renderedType,
+                hasDefault,
+                acceptsNullDefault,
+                beforeDecodeWork);
+            string renderedParameter = FormatParameter(
+                renderedType,
+                parameterNames[i],
+                modifier,
+                hasDefault,
+                defaultValue,
+                defaultValueText);
+            beforeRetainText?.Invoke(renderedParameter);
+            var parameterModel = new ApiParameter
+            {
+                Attributes = attributes,
+                Name = parameterNames[i],
+                Type = renderedType,
+                CanonicalType = canonicalType,
+                StructuralType = parameterType.HasStructuralPayload
+                    ? parameterType.StructuralIdentity()
+                    : null,
+                TypeReferences =
+                    [.. parameterType.ReferencedTypes().Distinct()],
+                Modifier = modifier,
+                HasDefault = hasDefault,
+                DefaultValueText = defaultValueText
+            };
+            ObserveText(parameterModel, beforeRetainText);
+            display.Add(renderedParameter);
+            models.Add(parameterModel);
+        }
+
+        return (display, models);
     }
 
     static void ApplyAccessorStructuralReturns(

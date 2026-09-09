@@ -24,6 +24,7 @@ internal static class ChangePlanSerializer
         "pack",
         "buildNet10",
         "inspectWeb",
+        "inspectWebComprehensive",
         "skillGate",
         "tla",
     ];
@@ -242,7 +243,8 @@ internal static class ChangePlanSerializer
                 values[9],
                 values[10],
                 values[11],
-                values[12]);
+                values[12],
+                values[13]);
 
             JsonElement scopesElement =
                 RequireObject(root.GetProperty("scopes"), "scopes");
@@ -317,6 +319,7 @@ internal static class ChangePlanSerializer
         validations.Pack,
         validations.BuildNet10,
         validations.InspectWeb,
+        validations.InspectWebComprehensive,
         validations.SkillGate,
         validations.Tla,
     ];

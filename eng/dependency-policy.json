@@ -17,7 +17,6 @@
         "ILInspector.Findings",
         "ILInspector.MetadataPrimitives",
         "InertText",
-        "SourceLinkFetch",
         "TsJsExport.Contracts"
       ],
       "allowOnly": [
@@ -34,8 +33,7 @@
       "targets": [
         "CSharpText",
         "ILInspector.*",
-        "InertText",
-        "SourceLinkFetch"
+        "InertText"
       ],
       "projectPaths": [
         "src/*/*.csproj"
@@ -84,7 +82,6 @@
         "DotnetInspector.*",
         "ILInspector.*",
         "InertText",
-        "SourceLinkFetch",
         "TsJsExport.Contracts"
       ],
       "projectPaths": [
@@ -345,7 +342,8 @@
         "ILInspector.Findings",
         "ILInspector.Instructions",
         "ILInspector.Metadata",
-        "ILInspector.MetadataPrimitives"
+        "ILInspector.MetadataPrimitives",
+        "InertText"
       ]
     },
     {
@@ -401,8 +399,7 @@
         "$platform",
         "ILInspector.Findings",
         "ILInspector.Metadata",
-        "ILInspector.MetadataPrimitives",
-        "SourceLinkFetch"
+        "ILInspector.MetadataPrimitives"
       ]
     },
     {

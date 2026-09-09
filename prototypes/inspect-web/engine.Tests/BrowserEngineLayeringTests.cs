@@ -463,7 +463,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Services.GitHubUrlResolver",
             "DotnetInspector.Services.LocalRepoSourceAcquisition",
             "DotnetInspector.Services.NuspecParser",
-            "DotnetInspector.Services.PdbSourceAcquisition",
+            "DotnetInspector.Services.PdbSourceHouse",
             "DotnetInspector.Services.ProjectAssetsParser",
             "DotnetInspector.Services.SignatureVerifier",
             "ILInspector.Metadata.ApiSurface",
@@ -476,8 +476,6 @@ public sealed class BrowserEngineLayeringTests
             "NuGetFetch.PackageSignatureVerifier",
             "NuGetFetch.SourceResolver",
             "NuGetFetch.TfmResolver",
-            "SourceLinkFetch.SourceLinkProvenance",
-            "SourceLinkFetch.SourceLinkResolver",
         ];
         HashSet<string> approved =
             approvedOwners.ToHashSet(StringComparer.Ordinal);

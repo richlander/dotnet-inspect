@@ -45,11 +45,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -74,7 +73,7 @@ jobs:
 
       - name: Run query tests
         if: inputs.suite == 'queries'
-        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
 
       - name: Run CLI tests
         if: inputs.suite == 'cli'
@@ -82,11 +81,11 @@ jobs:
 
       - name: Run services tests
         if: inputs.suite == 'services'
-        run: dotnet run --project src/DotnetInspector.Services.Tests -c Release && dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release && dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Services.Tests -c Release && dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release && dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
       - name: Run analysis tests
         if: inputs.suite == 'analysis'
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
+        run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run decompiler tests
         if: inputs.suite == 'decompiler'

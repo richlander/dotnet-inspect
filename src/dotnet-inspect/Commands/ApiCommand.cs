@@ -2272,17 +2272,17 @@ public class ApiCommand
             string? content = null;
             SourceChecksumVerification checksumVerification =
                 SourceChecksumVerification.Unavailable;
-            var localBytes = DotnetInspector.Services.PdbSourceAcquisition.TryReadVerifiedLocalSource(
+            var localBytes = DotnetInspector.Services.PdbSourceHouse.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                checksumVerification = PdbSourceHouse.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     localBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(localBytes));
+                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -2292,17 +2292,17 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                checksumVerification = PdbSourceHouse.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     repoBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(repoBytes));
+                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
-                var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-                var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+                var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+                var fetch = await PdbSourceHouse.FetchVerifiedSourceTextAsync(
                     fetcher,
                     methodInfo.SourceUrl,
                     methodInfo.ChecksumAlgorithm,
@@ -3321,8 +3321,8 @@ public class ApiCommand
 
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
-        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
+        var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var fetch = await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
             fetcher,
             selectedSource.FilePath,
             rawUrl,

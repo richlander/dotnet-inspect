@@ -330,7 +330,7 @@ public sealed class MetadataSourceFindingsTests
     {
         using var context = PdbContext.Open(
             typeof(MetadataSourceFindingsTests).Assembly.Location);
-        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             """{"documents":{"*":"https://example.test/*"}}""");
         var resolver = new SourceLinkResolver(context, map);
 
@@ -346,7 +346,7 @@ public sealed class MetadataSourceFindingsTests
     {
         using var context = PdbContext.Open(
             typeof(MetadataSourceFindingsTests).Assembly.Location);
-        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             """{"documents":{"*":"https://example.test/*"}}""");
         var resolver = new SourceLinkResolver(context, map);
 
@@ -369,7 +369,7 @@ public sealed class MetadataSourceFindingsTests
     {
         using var context = PdbContext.Open(
             typeof(MetadataSourceFindingsTests).Assembly.Location);
-        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             """{"documents":{"*":"https://example.test/*"}}""");
         var resolver = new SourceLinkResolver(context, map);
         var upperName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(

@@ -111,7 +111,7 @@ public static class SourceIntegrityService
                                 log: null,
                                 cancellationToken: ct,
                                 trafficKind: NetworkTrafficKind.SourceIntegrity,
-                                maxDownloadSize: SourceFetcher.MaxSourceDownloadSize)
+                                maxDownloadSize: SourceFetch.MaxSourceDownloadSize)
                                 .ConfigureAwait(false);
                         if (fetch.Status
                             == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)
@@ -143,7 +143,7 @@ public static class SourceIntegrityService
                     }
 
                     SourceChecksumVerification verification =
-                        PdbSourceAcquisition.VerifyChecksum(document, body);
+                        PdbSourceHouse.VerifyChecksum(document, body);
                     if (verification == SourceChecksumVerification.Exact)
                     {
                         Interlocked.Increment(ref verified);
