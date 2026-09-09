@@ -10,8 +10,8 @@ test("Facts and Annotated Source select the exact Finding instance", async ({
 }) => {
   const first = page.locator('[data-finding-instance="41"]');
   const second = page.locator('[data-finding-instance="42"]');
-  await expect(first.locator(".finding-main")).toHaveText(
-    await second.locator(".finding-main").innerText(),
+  expect(await first.locator(".finding-main").textContent()).toBe(
+    await second.locator(".finding-main").textContent(),
   );
 
   await second.click();
