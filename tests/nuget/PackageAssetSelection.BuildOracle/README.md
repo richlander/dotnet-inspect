@@ -14,7 +14,8 @@ SDK from this directory. The recorded result below was produced with SDK
 `11.0.100-rc.1.26425.128`.
 
 ```bash
-dotnet pack Package/EmptyCompileGroup.Oracle.csproj -c Release
+dotnet pack Package/EmptyCompileGroup.Oracle.csproj -c Release \
+  -p:IsPackable=true
 dotnet build \
   Consumer/PackageAssetSelection.BuildOracle.Consumer.csproj \
   -c Release -f net6.0
