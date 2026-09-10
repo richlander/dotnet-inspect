@@ -628,6 +628,33 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void XmlDocIdentity_UsesClrNameForTypedReference()
+    {
+        using var stream = File.OpenRead(typeof(System.Reflection.FieldInfo).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == "System.Reflection.FieldInfo");
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == "GetValueDirect"
+                && candidate.SignatureModel?.Parameters.Count == 1);
+
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                type,
+                member,
+                out XmlDocMemberIdentity identity));
+
+        Assert.Equal(
+            "M:System.Reflection.FieldInfo.GetValueDirect(System.TypedReference)",
+            identity.Value);
+    }
+
+    [Fact]
     public void XmlDocIdentity_UsesIndexerParametersForProperties()
     {
         var type = GetType(nameof(ApiSignatureFixtures));

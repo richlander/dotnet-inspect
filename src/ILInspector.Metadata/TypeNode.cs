@@ -67,8 +67,10 @@ internal abstract class TypeNode
         switch (this)
         {
             case PrimitiveTypeNode primitive:
-                name = CSharpText.PrimitiveTypeNames.ToClrFullName(
-                    primitive.Name);
+                name = primitive.Name == "TypedReference"
+                    ? "System.TypedReference"
+                    : CSharpText.PrimitiveTypeNames.ToClrFullName(
+                        primitive.Name);
                 return true;
 
             case NamedTypeNode { MetadataName: { } metadataName }:
