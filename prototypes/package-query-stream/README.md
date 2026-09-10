@@ -11,20 +11,20 @@ written. This makes ordinary shell timing measure time to the complete visible
 window:
 
 ```bash
-dotnet build prototypes/package-query-stream/PackageQuery.StreamingPrototype.csproj \
-  -c Release
+dotnet publish \
+  prototypes/package-query-stream/PackageQuery.StreamingPrototype.csproj \
+  -c Release -r linux-x64
 
-time dotnet run \
-  --project prototypes/package-query-stream/PackageQuery.StreamingPrototype.csproj \
-  -c Release --no-build -- 'System.*' -n 20
+time ./prototypes/package-query-stream/bin/Release/net11.0/linux-x64/publish/package-query-stream \
+  'System.*' -n 20
 ```
 
-The terminal `*` is optional:
+Replace `linux-x64` with the current machine's runtime identifier. The terminal
+`*` is optional:
 
 ```bash
-time dotnet run \
-  --project prototypes/package-query-stream/PackageQuery.StreamingPrototype.csproj \
-  -c Release --no-build -- 'AWSSDK.' -n 20
+time ./prototypes/package-query-stream/bin/Release/net11.0/linux-x64/publish/package-query-stream \
+  'AWSSDK.' -n 20
 ```
 
 The prototype intentionally has no cache, retries, facets, manifest
