@@ -136,6 +136,51 @@ PackageHouse does not accept transport URLs, rendered dependency rows, asset
 paths, assembly names, or package labels as substitutes for those typed
 inputs.
 
+## Source-settlement lease
+
+PackageHouse is the clearing house where source-owner-issued leases are
+acquired or borrowed and source-owner receipts are settled. For the first
+operational slice in
+[#6477](https://github.com/richlander/dotnet-inspect/issues/6477), the Package
+Source Model issues one `PackageSourceSettlementLease` over an injected
+configured-authority-to-`IPackageSourceClient` capability and a lower-owner
+operation-context factory. PackageHouse consumes that lease; it does not mint,
+rename, or reinterpret it.
+
+The lease owns one package acquisition candidate-issuer identity. It settles:
+
+- caller-pinned exact candidate authorization;
+- complete dependency-version discovery across one explicit
+  `PackageSourceAuthorization`; and
+- exact manifest acquisition through a candidate issued by that lease.
+
+The authorization value remains package-source-owner evidence. The source
+client remains a caller-owned capability whose result identity must match both
+the exact configured-authority association and the exact client that performed
+the operation. PackageHouse neither discovers a broader authority set nor
+reconstructs source identity from endpoints.
+
+When a caller omits `NuGetOperationContext`, the lease uses that injected
+factory and disposes the created context after the settlement. A
+caller-supplied context remains caller-owned.
+
+Retiring the lease rejects new settlement and candidate use. Completed
+candidate, discovery, manifest, failure, and timeout evidence remains valid as
+data after retirement. Retirement does not dispose source clients,
+authentication contexts, transports, caller-supplied `NuGetOperationContext`
+instances, payload streams, package stores, artifact content, or Workspace
+participants.
+
+`DesktopPackageSourceComposition` owns its desktop capabilities and supplies
+them to one Package Source Model-issued settlement lease for its lifetime.
+Browser/Wasm and query adapters supply their host-created clients through the
+same lease contract.
+
+Step 4 routes complete PackageHouse request/result operations through this
+substrate; this slice does not make a candidate or manifest result a complete
+House terminal result. Borrowing or transfer across an `await` boundary remains
+owned by [#6544](https://github.com/richlander/dotnet-inspect/issues/6544).
+
 ## Package demand
 
 A House request begins with one typed package demand:
@@ -153,12 +198,16 @@ An unresolved version demand retains its original constraint beside every
 selection observation. Resolution issues one exact coordinate or a typed
 non-success; it does not replace the request with a display version.
 
-The initial resource-free contract floor in #6433 deliberately exposes only
-the exact-coordinate demand. The selecting and resolved-edge arms remain
-architectural requirements, but they do not enter the public contract until
-their owners issue a version-selection request and resolution receipt, or an
-edge correspondence, that PackageHouse can consume without interpreting
-selector text.
+The initial resource-free contract floor in #6433 exposed only the
+exact-coordinate demand. The selecting arm now consumes the owner-issued
+`PackageVersionSelectionRequest` and
+`PackageVersionResolutionReceipt` defined by
+[Package Version Selection](version-resolution.md). A selected package
+decision must use the receipt's exact candidate and coordinate; a typed
+non-success can only stop package settlement without manufacturing either.
+PackageHouse does not interpret selector text or reproduce semantic version
+ordering. The resolved-edge arm remains staged until its owner issues the
+required correspondence.
 
 ## Package target context
 
@@ -281,8 +330,10 @@ Every terminal House result retains:
 - completion and every typed failure; and
 - one owner-issued settlement identity that consumers retain opaquely.
 
-The result contains three separable receipts when the corresponding work ran:
+The result contains four separable receipts when the corresponding work ran:
 
+- a **version resolution receipt** binds an unresolved request to complete
+  configured-authority discovery and one exact candidate or typed non-success;
 - a **package decision receipt** records coordinate settlement, authority,
   pruning, and the decision to acquire, delegate, or stop; and
 - a **package acquisition receipt** binds the retained decision and candidate
@@ -310,6 +361,11 @@ evidence, but it does make content access visibly unavailable.
 The settlement identity does not replace package coordinate, content
 generation, Workspace membership, or dependency-edge identity. It associates
 them for this operation.
+
+The implemented selecting-demand floor does not yet permit pruning or platform
+delegation after version resolution. That composition remains in the pruning
+adoption step; it cannot be inferred by attaching an exact coordinate to the
+selecting request.
 
 ## Terminal outcomes
 
@@ -630,6 +686,14 @@ authority-bearing package evidence under their owner contracts. PackageHouse
 applies the same candidate, version, pruning, and realization semantics while
 retaining their distinct producer and transport provenance.
 
+### Retired source-settlement lease retains evidence
+
+A Package Source Model-issued lease issues an exact candidate and settles a
+manifest failure. The host retires the lease. The candidate and failure retain
+their existing evidence semantics, but another candidate resolution or
+manifest operation through that lease is rejected. The source client remains
+alive because its host, not PackageHouse, owns it.
+
 ### Direct library bypasses PackageHouse
 
 A user supplies one DLL path. It enters shared Library inspection with direct
@@ -673,8 +737,9 @@ counted production-adoption steps:
    plan.
 2. Define the resource-free request, operation, result, receipt, and
    package-to-library/platform handoff contracts.
-3. Generalize `DesktopPackageSourceComposition` to host-neutral House source
-   settlement over injected source capabilities.
+3. Generalize `DesktopPackageSourceComposition` to the Package Source
+   Model-issued, host-neutral source-settlement lease over injected source
+   capabilities tracked by #6477 and #6545.
 4. Route version settlement, candidate authorization, manifest acquisition,
    and payload acquisition through the House.
 5. Adopt normalized package input and processing evidence from #6266.
@@ -701,6 +766,9 @@ every supported host that uses it.
 | Exact implementation floor | The public demand family exposes only the exact-coordinate arm until a version-owner request and resolution receipt exist. |
 | Request association | A result retains the exact demand, operation, target context, and owner-issued settlement identity without reconstructing them from display values. |
 | Terminal evidence | Every terminal arm retains the same immutable evidence envelope, completed receipts, and typed failures; direct and owner-adapted operation timeouts cannot produce success. |
+| Source lease authority | One lease owns one candidate issuer; candidates from another lease and clients or results from another configured-authority association are rejected. |
+| Source lease retirement | Retirement rejects new source settlement while completed source evidence remains readable. |
+| Source capability ownership | Retiring a package-source settlement lease does not dispose caller-owned clients or caller-supplied operation contexts. |
 | Source completeness | Partial authority evidence cannot settle latest, wildcard, range, or authoritative absence. |
 | Pruning order | `Subsumed` skips payload acquisition and every other pruning state cannot issue platform delegation. |
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |

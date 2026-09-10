@@ -1466,13 +1466,16 @@ public sealed class PackageDependencyTraversalQueryTests
         using var successfulClient = new RegistryPackageSourceClient(
             CreateResultFactoryFor(dependencyAuthorization.Authorities[1]),
             successfulRegistry);
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                authority => ReferenceEquals(
+                    authority.Association,
+                    dependencyAuthorization.Authorities[0].Association)
+                        ? missingClient
+                        : successfulClient);
         var candidateSource = new AuthorizedPackageDependencyCandidateSource(
             authorization,
-            authority => ReferenceEquals(
-                authority.Association,
-                dependencyAuthorization.Authorities[0].Association)
-                    ? missingClient
-                    : successfulClient);
+            lease);
         PackageDependencyTraversalOutcome explicitOutcome = await ExecuteAsync(
             [root],
             new PackageDependencyTraversalCandidateAdapter(candidateSource),
@@ -2151,6 +2154,8 @@ public sealed class PackageDependencyTraversalQueryTests
 
         public RegistryPackageSourceClient Client { get; }
 
+        public PackageSourceSettlementLease Lease { get; }
+
         public IPackageDependencyTraversalCandidateResolver CandidateResolver { get; }
 
         public IPackageDependencyTraversalManifestAcquirer ManifestAcquirer { get; }
@@ -2164,10 +2169,12 @@ public sealed class PackageDependencyTraversalQueryTests
                 .Authorities[0];
             PackageSourceResultFactory factory = CreateResultFactoryFor(authority);
             Client = new RegistryPackageSourceClient(factory, Registry);
+            Lease = PackageSourceSettlementService.IssueLease(
+                _ => Client);
             var candidateSource =
                 new AuthorizedPackageDependencyCandidateSource(
                     authorization,
-                    _ => Client);
+                    Lease);
             CandidateResolver = new PackageDependencyTraversalCandidateAdapter(
                 candidateSource);
             ManifestAcquirer = new AuthorizedPackageDependencyManifestSource(
@@ -2176,6 +2183,7 @@ public sealed class PackageDependencyTraversalQueryTests
 
         public void Dispose()
         {
+            Lease.Dispose();
             Client.Dispose();
         }
     }

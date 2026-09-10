@@ -33,7 +33,7 @@ Tag a test `Speed=Slow` when it does one of the following:
   guess — measure with a real xUnit XML timing report:
 
   ```sh
-  dotnet run --project tests/dotnet-inspect.Tests -c Release -- \
+  dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
     --filter-not-trait "Speed=Slow" --report-xunit \
     --report-xunit-filename fast-tests.xml --results-directory /tmp
   ```
@@ -71,9 +71,9 @@ public void SomeExpensiveTheory(string assemblyName)
 ## Existing consumers (no workflow changes needed to add a tag)
 
 - `ci.yml`'s PR-blocking fast leg runs
-  `dotnet run --project tests/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"`
+  `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- --filter-not-trait "Speed=Slow"`
   — a newly tagged test is automatically excluded.
-- `deep-inspect.yml`'s nightly `dotnet-inspect.Tests` step runs fully
+- `deep-inspect.yml`'s nightly `DotnetInspect.Cli.Tests` step runs fully
   unfiltered — a newly tagged test automatically keeps running nightly.
 - The metadata suite uses the same MTP `--filter-not-trait "Speed=Slow"`
   selection in PR CI and the optional Windows PR workflow. Deep Inspect runs

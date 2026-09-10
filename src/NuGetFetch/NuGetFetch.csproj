@@ -17,16 +17,13 @@
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspector.Packages" />
     <InternalsVisibleTo Include="DotnetInspector.Services" />
-    <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
     <InternalsVisibleTo Include="NuGetFetch.Tests" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\NetworkDestinationPolicy.cs" Link="NetworkDestinationPolicy.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\InertText\InertText.csproj" />
+    <ProjectReference Include="..\NetworkAccess\NetworkAccess.csproj" />
   </ItemGroup>
 
   <ItemGroup>

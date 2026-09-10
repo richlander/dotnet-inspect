@@ -52,7 +52,7 @@ and repository-specific guidance.
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/dotnet-inspect`, `project ./src/dotnet-inspect -S Skills --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and dependency package skills; restore/build first if dependencies changed. dotnet-inspect does not restore or build. |
+| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and dependency package skills; restore/build first if dependencies changed. dotnet-inspect does not restore or build. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
@@ -147,6 +147,7 @@ stderr rather than mixed into structured output.
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, vulnerability data, custom feeds, and NuGet config support. |
 | Project package skills and docs | `project` | Direct dependency `Skills` rows from valid package `skills/**/SKILL.md` files plus version-resolved package docs in a restored project context. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
+| Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL and selected-member authored-source evidence. |
@@ -184,6 +185,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
+| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
 | `workspace` | Render the committed ordered package Roots of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact package Root a `find --literal` result names. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
@@ -199,6 +201,17 @@ you need them.
 Integration support is exposed through `@Integrations` or focused
 `Integration: ...` sections such as `Integration: Logging` or
 `Integration: OpenTelemetry`.
+
+Use `ecosystem` to inspect which ecosystem packs and Integration bindings are
+configured into this build. This is catalog knowledge, not evidence from an
+acquired library:
+
+```bash
+dotnet-inspect ecosystem
+dotnet-inspect ecosystem aspire
+dotnet-inspect ecosystem aspire -S Integrations
+dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
+```
 
 All integrations are enabled by default. Discover the supported ecosystem
 predicate with `library -Q Integrations`, then narrow the ordinary result:
@@ -312,7 +325,7 @@ dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S "Integration
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S "Integration: OpenTelemetry"
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
-dotnet-inspect project ./src/dotnet-inspect -S Skills --jsonl -T q
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
 ```
 
 ## Common examples
@@ -393,10 +406,10 @@ share the package id and version.
 ### Projects and local assets
 
 ```bash
-dotnet-inspect project ./src/dotnet-inspect -S Skills
-dotnet-inspect project ./src/dotnet-inspect -S Skills --print --row 1
-dotnet-inspect type Command --project ./src/dotnet-inspect
-dotnet-inspect member Command --project ./src/dotnet-inspect -S "Member Index"
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
+dotnet-inspect type Command --project ./src/DotnetInspect.Cli
+dotnet-inspect member Command --project ./src/DotnetInspect.Cli -S "Member Index"
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S Signals
 ```
 
@@ -526,11 +539,11 @@ dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
 dotnet-inspect dependency-evidence --package Newtonsoft.Json --tfm net8.0
 dotnet-inspect dependency-evidence \
-  --project ./src/dotnet-inspect \
+  --project ./src/DotnetInspect.Cli \
   --nuspec ./artifacts/package.nuspec \
   -v:n
-dotnet-inspect implements IEquatable --project ./src/dotnet-inspect -v:q
-dotnet-inspect extensions string --project ./src/dotnet-inspect -v:q
+dotnet-inspect implements IEquatable --project ./src/DotnetInspect.Cli -v:q
+dotnet-inspect extensions string --project ./src/DotnetInspect.Cli -v:q
 dotnet-inspect graph integrations \
   --package Microsoft.Extensions.DependencyInjection.Abstractions@10.0.0 \
   --package Microsoft.Extensions.Logging.Abstractions@10.0.0 \
@@ -551,7 +564,11 @@ dotnet-inspect member JsonConvert \
   --package Newtonsoft.Json@13.0.4 \
   SerializeObject:1 \
   --tfm net6.0 \
-  --share url
+  --share
+dotnet-inspect depends \
+  --package Newtonsoft.Json \
+  --tfm net6.0 \
+  --share
 dotnet-inspect skill list
 dotnet-inspect demo list
 dotnet-inspect demo list -n 3 --json
@@ -562,12 +579,26 @@ for the existing share-packet JSON shape. Packet-only output remains the default
 This is not an encoder for `workspace --json` inventory output. The packet's
 existing limits and the browser's supported restoration shapes still apply.
 
-`member --share packet|url` projects one explicitly selected public member
+Bare `--share` emits a complete Inspect Web URL; `--share url` spells that
+default explicitly, while `--share packet` emits only the canonical packet.
+
+`member --share[=url|packet]` projects one explicitly selected public member
 overload from an exact NuGet.org package version and target framework. The URL
 opens that member's API Overview in the published browser. Select an overload
 with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
 private-feed, non-public, multi-library, and other rendering or analysis modes
 fail visibly rather than producing a link the browser cannot restore.
+
+`depends --package <id>[@<version>] --tfm <tfm> --share[=url|packet]`
+projects the package Dependencies view without acquiring the package or
+traversing the graph in the CLI. An omitted version or `latest` is resolved
+from NuGet.org and pinned before emission; the published browser then acquires
+that exact coordinate and lazily computes the dependency graph for the
+selected target framework. Local archives, effective source policies that do
+not authorize exactly one NuGet.org source, wildcard, range, or build-metadata
+versions, omitted frameworks, the Browser-reserved `Microsoft.NETCore.App`
+Platform id, row windows, counts, and other rendering formats fail visibly
+rather than producing a non-reproducible link.
 
 ## Requirements
 

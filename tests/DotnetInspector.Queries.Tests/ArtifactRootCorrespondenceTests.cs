@@ -153,6 +153,7 @@ public sealed class ArtifactRootCorrespondenceTests
                     "tests",
                     framework: null,
                     runtimeIdentifier: null),
+                compileTargetFramework: " ",
                 selectionTargetFramework: " ",
                 selectionRuntimeIdentifier: null);
         PackageArtifactRootRequest extendedRequest =
@@ -163,6 +164,7 @@ public sealed class ArtifactRootCorrespondenceTests
                     "tests",
                     ExtendedFramework,
                     runtimeIdentifier: null),
+                ExtendedFramework.ToUpperInvariant(),
                 ExtendedFramework.ToUpperInvariant(),
                 selectionRuntimeIdentifier: null);
         var content = new CountingPackageContent(

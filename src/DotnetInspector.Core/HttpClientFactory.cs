@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using DotnetInspector.Networking;
+using NetworkAccess;
 
 namespace DotnetInspector.Core;
 
@@ -435,14 +435,6 @@ public static class HttpClientFactory
             trustedHost: null,
             trustedPort: null,
             cancellationToken).ConfigureAwait(false);
-
-    /// <summary>
-    /// Returns true for destinations that are not globally reachable, including embedded
-    /// non-public IPv4 destinations in IPv6 translation and transition addresses. Pinned by
-    /// <c>HttpClientFactoryTests.UntrustedFetchAddressClassification_MatchesNonPublicContract</c>.
-    /// </summary>
-    private static bool IsNonPublic(IPAddress ip) =>
-        NetworkDestinationPolicy.IsNonPublic(ip);
 }
 
 /// <summary>
