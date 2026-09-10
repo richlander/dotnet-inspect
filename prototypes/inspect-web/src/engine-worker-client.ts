@@ -28,11 +28,13 @@ import {
 } from "./engine-worker-contract.ts";
 import {
   createEngineWorkerTypeSourceHostRegistration,
+  type EngineWorkerTypeSourceFailure,
 } from "./engine-worker-source.ts";
 import {
   createEngineWorkerPackageQueryHostRegistration,
   type EngineWorkerPackageQueryCompletionEvent,
   type EngineWorkerPackageQueryDurableEvent,
+  type EngineWorkerPackageQueryTerminalFailure,
 } from "./engine-worker-package-query.ts";
 import {
   bindEngineWorkerOrdinaryClient,
@@ -68,12 +70,12 @@ export interface EngineWorkerProbeOptions {
 
 export type EngineWorkerHost = WorkerRuntimeHost<string, string>;
 
-interface SharedEngineOperationAuthority {
+export interface SharedEngineOperationAuthority {
   readonly page: OperationAuthorityPage;
-  createSessionWithId<T>(operationId: string, create: () => T): T;
+  startWithId<T>(operationId: string, start: () => T): T;
 }
 
-function createSharedEngineOperationAuthority(): SharedEngineOperationAuthority {
+export function createSharedEngineOperationAuthority(): SharedEngineOperationAuthority {
   let suppliedOperationId: string | null = null;
   const page = createOperationAuthorityPage({
     allocation: {
@@ -86,14 +88,14 @@ function createSharedEngineOperationAuthority(): SharedEngineOperationAuthority 
   });
   return {
     page,
-    createSessionWithId<T>(operationId: string, create: () => T): T {
+    startWithId<T>(operationId: string, start: () => T): T {
       if (suppliedOperationId !== null) {
         throw new Error(
           "An engine operation identity allocation is already active.");
       }
       suppliedOperationId = operationId;
       try {
-        return create();
+        return start();
       } finally {
         suppliedOperationId = null;
       }
@@ -104,7 +106,7 @@ function createSharedEngineOperationAuthority(): SharedEngineOperationAuthority 
 export type EngineWorkerTypeSourceAdapter = OperationProducerAdapter<
   TypeSourceLoadRequest,
   BrowserSource,
-  string,
+  EngineWorkerTypeSourceFailure,
   never,
   WorkerRuntimePreparationError
 >;
@@ -121,7 +123,7 @@ export type EngineWorkerPackageQueryAdapter =
   WorkerRuntimeControlledOperationAdapter<
     QueryRequest,
     EngineWorkerPackageQueryCompletionEvent,
-    string,
+    EngineWorkerPackageQueryTerminalFailure,
     never,
     WorkerRuntimePreparationError,
     EngineWorkerPackageQueryDurableEvent,
@@ -171,12 +173,6 @@ function startFailureReason(
   return reason.kind === "producer-rejected"
     ? reason.error.kind
     : reason.kind;
-}
-
-function diagnosticText(diagnostic: OperationDiagnostic): string {
-  return diagnostic.error instanceof Error
-    ? diagnostic.error.message
-    : String(diagnostic.error);
 }
 
 function packageQueryRequest(
@@ -263,7 +259,7 @@ function publishPackageQueryEvent(
   }
 }
 
-function bindTypeSourceFacade(
+export function bindTypeSourceFacade(
   adapter: EngineWorkerTypeSourceAdapter,
   reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
   authority: SharedEngineOperationAuthority,
@@ -272,11 +268,14 @@ function bindTypeSourceFacade(
   "cancelTypeSourceQuery" | "queryTypeSource"
 > & { readonly dispose: () => void } {
   interface ActiveTypeSource {
-    readonly handle: OperationHandle<BrowserSource, string>;
+    readonly handle: OperationHandle<
+      BrowserSource,
+      EngineWorkerTypeSourceFailure
+    >;
     readonly session: OperationSession<
       TypeSourceLoadRequest,
       BrowserSource,
-      string,
+      EngineWorkerTypeSourceFailure,
       never,
       WorkerRuntimePreparationError
     >;
@@ -294,35 +293,26 @@ function bindTypeSourceFacade(
     ): Promise<BrowserTypeSourceResult> {
       if (active.has(operationId))
         throw new Error(`Type Source operation '${operationId}' is already active.`);
-      let unexpectedDiagnostic: string | null = null;
-      const session = authority.createSessionWithId(
-        operationId,
-        () => authority.page.createSession<
-          TypeSourceLoadRequest,
-          BrowserSource,
-          string,
-          never,
-          WorkerRuntimePreparationError
-        >({
-          feature: { publish: () => undefined },
-          diagnostic: {
-            report: diagnostic => {
-              unexpectedDiagnostic = diagnosticText(diagnostic);
-              return reportDiagnostic(diagnostic);
-            },
-          },
-        }),
-      );
-      const started = session.start({
-        packageId,
-        version,
-        framework,
-        assembly,
-        type,
-        taste,
-        signature: `${packageId}/${version}/${framework}/${assembly}/${type}`,
-        isVisible: () => true,
-      }, adapter);
+      const session = authority.page.createSession<
+        TypeSourceLoadRequest,
+        BrowserSource,
+        EngineWorkerTypeSourceFailure,
+        never,
+        WorkerRuntimePreparationError
+      >({
+        feature: { publish: () => undefined },
+        diagnostic: { report: reportDiagnostic },
+      });
+      const started = authority.startWithId(operationId, () => session.start({
+          packageId,
+          version,
+          framework,
+          assembly,
+          type,
+          taste,
+          signature: `${packageId}/${version}/${framework}/${assembly}/${type}`,
+          isVisible: () => true,
+        }, adapter));
       if (started.kind === "rejected") {
         session.dispose();
         throw new Error(
@@ -348,10 +338,9 @@ function bindTypeSourceFacade(
             version: 1,
             kind: "Failed",
             value: null,
-            failureKind:
-              unexpectedDiagnostic === null ? "Expected" : "Unexpected",
-            error: outcome.error,
-            diagnostic: unexpectedDiagnostic,
+            failureKind: outcome.error.failureKind,
+            error: outcome.error.error,
+            diagnostic: outcome.error.diagnostic,
             reason: null,
           };
         }
@@ -380,7 +369,7 @@ function bindTypeSourceFacade(
   };
 }
 
-function bindPackageQueryFacade(
+export function bindPackageQueryFacade(
   adapter: EngineWorkerPackageQueryAdapter,
   reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
   authority: SharedEngineOperationAuthority,
@@ -394,12 +383,12 @@ function bindPackageQueryFacade(
   interface ActivePackageQuery {
     readonly handle: OperationHandle<
       EngineWorkerPackageQueryCompletionEvent,
-      string
+      EngineWorkerPackageQueryTerminalFailure
     >;
     readonly session: OperationSession<
       QueryRequest,
       EngineWorkerPackageQueryCompletionEvent,
-      string,
+      EngineWorkerPackageQueryTerminalFailure,
       never,
       WorkerRuntimePreparationError,
       EngineWorkerPackageQueryDurableEvent
@@ -414,33 +403,27 @@ function bindPackageQueryFacade(
   ): Promise<BrowserPackageQueryResult> {
     if (active.has(operationId))
       throw new Error(`Package Query operation '${operationId}' is already active.`);
-    let unexpectedDiagnostic: string | null = null;
-    const session = authority.createSessionWithId(
+    const session = authority.page.createSession<
+      QueryRequest,
+      EngineWorkerPackageQueryCompletionEvent,
+      EngineWorkerPackageQueryTerminalFailure,
+      never,
+      WorkerRuntimePreparationError,
+      EngineWorkerPackageQueryDurableEvent
+    >({
+      feature: {
+        publish: event => {
+          if (event.kind === "durable")
+            publishPackageQueryEvent(eventSink, event.durable.value);
+          return undefined;
+        },
+      },
+      diagnostic: { report: reportDiagnostic },
+    });
+    const started = authority.startWithId(
       operationId,
-      () => authority.page.createSession<
-        QueryRequest,
-        EngineWorkerPackageQueryCompletionEvent,
-        string,
-        never,
-        WorkerRuntimePreparationError,
-        EngineWorkerPackageQueryDurableEvent
-      >({
-        feature: {
-          publish: event => {
-            if (event.kind === "durable")
-              publishPackageQueryEvent(eventSink, event.durable.value);
-            return undefined;
-          },
-        },
-        diagnostic: {
-          report: diagnostic => {
-            unexpectedDiagnostic = diagnosticText(diagnostic);
-            return reportDiagnostic(diagnostic);
-          },
-        },
-      }),
+      () => session.start(request, adapter),
     );
-    const started = session.start(request, adapter);
     if (started.kind === "rejected") {
       session.dispose();
       throw new Error(
@@ -466,10 +449,9 @@ function bindPackageQueryFacade(
           version: 1,
           kind: "Failed",
           value: null,
-          failureKind:
-            unexpectedDiagnostic === null ? "Expected" : "Unexpected",
-          error: outcome.error,
-          diagnostic: unexpectedDiagnostic,
+          failureKind: outcome.error.failureKind,
+          error: outcome.error.error,
+          diagnostic: outcome.error.diagnostic,
           reason: null,
         };
       }
@@ -597,7 +579,7 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
   const typeSourceSession = page.createSession<
     TypeSourceLoadRequest,
     BrowserSource,
-    string,
+    EngineWorkerTypeSourceFailure,
     never,
     WorkerRuntimePreparationError
   >({

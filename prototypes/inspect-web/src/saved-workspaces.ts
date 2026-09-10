@@ -89,7 +89,11 @@ export function createSavedWorkspaces(options: {
     return entry;
   }
 
-  let saveOperation: Promise<void> | null = null;
+  let saveRevision = 0;
+  let saveOperation: {
+    readonly revision: number;
+    readonly promise: Promise<void>;
+  } | null = null;
 
   function persistSave(name: string, packet: string): SavedWorkspaceFocus {
     const entry = { name, packet };
@@ -101,7 +105,8 @@ export function createSavedWorkspaces(options: {
   }
 
   function save(): Promise<void> {
-    if (saveOperation) return saveOperation;
+    if (saveOperation?.revision === saveRevision)
+      return saveOperation.promise;
     try {
       const name = validateName(state.name);
       if (state.entries.some(entry => entry.name.toLowerCase() === name.toLowerCase())) {
@@ -112,21 +117,27 @@ export function createSavedWorkspaces(options: {
         options.render(persistSave(name, captured));
         return Promise.resolve();
       }
+      const revision = saveRevision;
       let focus: SavedWorkspaceFocus = { kind: "save-name" };
-      saveOperation = captured
+      const operation = captured
         .then(packet => {
+          if (revision !== saveRevision) return undefined;
           focus = persistSave(name, packet);
           return undefined;
         })
         .catch((error: unknown) => {
+          if (revision !== saveRevision) return undefined;
           state.error = `Could not save Workspace: ${String(error)}`;
           return undefined;
         })
         .finally(() => {
-          saveOperation = null;
-          options.render(focus);
+          if (saveOperation?.promise === operation)
+            saveOperation = null;
+          if (revision === saveRevision)
+            options.render(focus);
         });
-      return saveOperation;
+      saveOperation = { revision, promise: operation };
+      return operation;
     } catch (error) {
       state.error = `Could not save Workspace: ${String(error)}`;
       options.render({ kind: "save-name" });
@@ -139,6 +150,7 @@ export function createSavedWorkspaces(options: {
   return {
     state,
     beginSave() {
+      saveRevision++;
       state.formOpen = true;
       state.name = "";
       state.error = "";
@@ -148,6 +160,7 @@ export function createSavedWorkspaces(options: {
       state.name = name;
     },
     cancelSave() {
+      saveRevision++;
       state.formOpen = false;
       state.name = "";
       state.error = "";

@@ -184,6 +184,37 @@ test("asynchronous capture reports a following write failure", async () => {
   assert.match(saves.state.error, /Could not save Workspace: Error: Quota exceeded/);
 });
 
+test("canceling an asynchronous save retires it before a new draft", async () => {
+  let stored: string | null = null;
+  const oldCapture = deferred<string>();
+  const focused: (SavedWorkspaceFocus | undefined)[] = [];
+  const saves = createSavedWorkspaces({
+    read: () => stored,
+    write: value => { stored = value; },
+    capture: () => oldCapture.promise,
+    open: () => {},
+    render: focus => { focused.push(focus); },
+  });
+
+  saves.beginSave();
+  saves.setName("Old Workspace");
+  const oldOperation = saves.save();
+  saves.cancelSave();
+  saves.beginSave();
+  saves.setName("New Workspace");
+  const focusBeforeSettlement = focused.length;
+
+  oldCapture.resolve("old-owner-issued-packet");
+  await oldOperation;
+
+  assert.equal(stored, null);
+  assert.deepEqual(saves.state.entries, []);
+  assert.equal(saves.state.formOpen, true);
+  assert.equal(saves.state.name, "New Workspace");
+  assert.equal(saves.state.error, "");
+  assert.equal(focused.length, focusBeforeSettlement);
+});
+
 for (const raw of [
   "{",
   '{"version":2,"entries":[]}',
