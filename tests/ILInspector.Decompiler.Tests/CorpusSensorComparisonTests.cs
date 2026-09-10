@@ -2194,6 +2194,35 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void DeepInspectCensus_RetainsNativeReturnToSenderCutoverEvidence()
+    {
+        string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string workflow = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
+
+        Assert.Contains(
+            "artifacts/deep-inspect/rts-cutover-snapshot.json",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "artifacts/deep-inspect/rts-cutover.txt",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--corpus-fidelity-oracle rts-cutover",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--corpus-fidelity-cap 50",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "artifacts/deep-inspect/corpus-assemblies.txt",
+            workflow,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Compare_DoesNotGateSemanticCountsWhenPinnedSamplesDiffer()
     {
         var baseline = Snapshot(
