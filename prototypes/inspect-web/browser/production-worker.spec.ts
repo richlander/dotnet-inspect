@@ -236,7 +236,12 @@ test("production Worker composition: bounded query, demand/continuation, input/r
   });
 
   await page.getByRole("tab", { name: "Library", exact: true }).click();
-  await page.locator('[data-library-lens="metadata"]').click();
+  await expect(page.locator('[data-scope="library"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-library-lens]:not([hidden])').first().press("End");
+  const metadataLens = page.locator('[data-library-lens="metadata"]');
+  await expect(metadataLens).toBeFocused();
+  await metadataLens.press("Enter");
   await page.locator("[data-mde-open]").first().click();
   await expect(page.locator(".metadata-explorer")).toBeVisible();
   await expect(page.locator("#mde-exit")).toBeVisible();
