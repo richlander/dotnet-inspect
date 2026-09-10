@@ -1,10 +1,10 @@
 using System.Text;
 using System.Text.Json;
-using DotnetInspector.Models;
+using DotnetInspect.Cli.Models;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Queries;
-using DotnetInspector.Sections;
 
-namespace DotnetInspector.Tests;
+namespace DotnetInspect.Cli.Tests;
 
 public sealed class DependencyEvidenceAuthoredProjectionTests
 {
