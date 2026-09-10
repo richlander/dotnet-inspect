@@ -103,6 +103,8 @@ and meaningful before terminal policy:
 - one final section catalog and its version;
 - explicit semantic selection and query intent after alias and category
   resolution;
+- resolved semantic query bounds, including owner-issued call-graph depth and
+  node bounds;
 - owner-issued target facts needed for structural applicability;
 - capability-request provenance; and
 - typed failures from any preceding resolution step.
@@ -110,7 +112,8 @@ and meaningful before terminal policy:
 It does not contain:
 
 - a verbosity-expanded section set;
-- a probe budget or probe outcomes;
+- effective-discovery probe policy, execution budget, or completed probe
+  outcomes;
 - a render format, columns, fields, row window, or diagram choice;
 - an executable producer closure or host authorization grant;
 - a packet, URL, Browser compatibility token, or rendered result.
@@ -172,7 +175,8 @@ It:
 1. uses the exact resolved source, context, and structural target;
 2. resolves explicit semantic selection or the subject's share default to one
    canonical `ViewFacetId`;
-3. retains every portable owner-issued query or traversal input;
+3. retains every portable owner-issued query or traversal input and its
+   resolved semantic bounds;
 4. asks Workspace Definitions to project canonical scenario records; and
 5. emits no ordinary inspection result.
 
@@ -200,6 +204,7 @@ All three terminal plans preserve:
 - structural target and exact resolved identity;
 - final catalog identity and version;
 - explicit semantic section, facet, and query demand;
+- resolved semantic query bounds;
 - target facts used for structural applicability; and
 - visible resolution failures.
 
