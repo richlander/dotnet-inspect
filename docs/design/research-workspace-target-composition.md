@@ -71,6 +71,23 @@ The host-neutral composition is planned for both current product hosts:
 Neither host reimplements endpoint choice. Their later efforts own request
 lowering, presentation, cancellation, and user interaction.
 
+### Real asset basis
+
+`Microsoft.Extensions.DependencyInjection` 10.0.0 is the motivating NuGet
+facade. Its `lib/net10.0/Microsoft.Extensions.DependencyInjection.dll`
+forwards
+`Microsoft.Extensions.DependencyInjection.ServiceCollection` to
+`Microsoft.Extensions.DependencyInjection.Abstractions`, matching the
+root-to-terminal shape this composition preserves. The corresponding
+declaration is visible in the
+[dotnet/runtime source at the inspected lineage](https://github.com/dotnet/runtime/blob/dc71a6daaf7bf6b7f8105fbbb12f1b7b38b67da1/src/libraries/Microsoft.Extensions.DependencyInjection/src/Properties/TypeForwards.cs).
+
+The deterministic gates build the same supported metadata shape in memory so
+they can independently vary before/after MVIDs, method bodies, duplicate rows,
+missing participants, and binding outcomes. They do not replace the real
+facade as the product basis; they isolate the exact association and failure
+properties that the package alone cannot vary reproducibly.
+
 ## Baseline behavior
 
 Each side is composed independently inside one comparison question and one
