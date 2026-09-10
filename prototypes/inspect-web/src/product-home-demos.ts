@@ -5,8 +5,8 @@ import type {
   BrowserWorkspaceShareTab,
 } from "./facades/inspect-web-catalog.d.ts";
 import {
-  encodeWorkspaceShareState,
-  type WorkspaceShareEncoder,
+  encodeWorkspaceShareStateAsync,
+  type AsyncWorkspaceShareEncoder,
   type WorkspaceUrlState,
 } from "./workspace-navigation.ts";
 import {
@@ -68,13 +68,13 @@ export function isProductHomeDemosPath(pathname: string): boolean {
   return isRoutedEntryPath(pathname, ROUTED_ENTRY_PATHS.demos);
 }
 
-function locationHref(
+async function locationHref(
   state: WorkspaceUrlState,
-  encode: WorkspaceShareEncoder,
-): string {
+  encode: AsyncWorkspaceShareEncoder,
+): Promise<string> {
   const params = new URLSearchParams();
   params.set("package", state.package);
-  params.set("w", encodeWorkspaceShareState(state, encode));
+  params.set("w", await encodeWorkspaceShareStateAsync(state, encode));
   return `/?${params.toString()}`;
 }
 
@@ -126,10 +126,10 @@ function packageTab(
  * Returns null when the demo runs through an engine operation instead
  * (member-bound Call Graph today).
  */
-export function productHomeDemoLocationHref(
+export async function productHomeDemoLocationHref(
   demo: ProductHomeDemoResolved,
-  encode: WorkspaceShareEncoder,
-): string | null {
+  encode: AsyncWorkspaceShareEncoder,
+): Promise<string | null> {
   const section = demo.view.section;
   if (section === "Call Graph" && demo.view.memberAnchor) {
     return null;
@@ -156,7 +156,7 @@ export function productHomeDemoLocationHref(
     ...groupTabs.map(tab => tab.id),
     ...tabs.filter(tab => tab.kind === "package").map(tab => tab.id),
   ];
-  return locationHref({
+  return await locationHref({
     package: focusTab.kind === "group"
       ? BROWSER_RUNTIME_PACKAGE
       : focusTab.source,

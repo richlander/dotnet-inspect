@@ -16,9 +16,22 @@ import {
   type EngineWorkerTypeSourceFacade,
 } from "./engine-worker-source.ts";
 import { registerEngineWorkerStartupOperations } from "./engine-worker-startup.ts";
+import {
+  registerEngineWorkerOrdinaryOperations,
+  type EngineWorkerOrdinaryFacades,
+} from "./engine-worker-ordinary.ts";
 import { WorkerOperationCatalog, WorkerRuntimeRealm } from "./worker-runtime-realm.ts";
 
 const operations = new WorkerOperationCatalog();
+let ordinaryFacades: EngineWorkerOrdinaryFacades | undefined;
+registerEngineWorkerOrdinaryOperations(operations, () => {
+  if (ordinaryFacades === undefined) {
+    throw new Error(
+      "Ordinary facades are unavailable before Worker readiness.",
+    );
+  }
+  return ordinaryFacades;
+});
 registerEngineWorkerCpuOperation(
   operations,
   () => import("/inspect-web-host.js"),
@@ -81,10 +94,31 @@ const bootstrap = createEngineWorkerBootstrap(
 );
 const bootstrapWorker = async (value: string): Promise<void> => {
   await bootstrap.bootstrap(value);
-  [sourceFacade, packageQueryFacade] = await Promise.all([
-    import("/inspect-web-source.js"),
+  const [
+    packageFacade,
+    metadataFacade,
+    analysisFacade,
+    loadedSourceFacade,
+    callGraphFacade,
+    catalogFacade,
+  ] = await Promise.all([
     import("/inspect-web-package.js"),
+    import("/inspect-web-metadata.js"),
+    import("/inspect-web-analysis.js"),
+    import("/inspect-web-source.js"),
+    import("/inspect-web-call-graph.js"),
+    import("/inspect-web-catalog.js"),
   ]);
+  sourceFacade = loadedSourceFacade;
+  packageQueryFacade = packageFacade;
+  ordinaryFacades = {
+    package: packageFacade,
+    metadata: metadataFacade,
+    analysis: analysisFacade,
+    source: loadedSourceFacade,
+    callGraph: callGraphFacade,
+    catalog: catalogFacade,
+  };
 };
 const realm = new WorkerRuntimeRealm({
   bootstrap: { decoder: engineWorkerText, bootstrap: bootstrapWorker },
