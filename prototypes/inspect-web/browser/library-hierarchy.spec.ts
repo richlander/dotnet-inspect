@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -134,8 +136,8 @@ interface PlatformFixture {
   mismatchedFile?: boolean;
 }
 
-// Exercise the production composition root with deterministic facade responses.
-// Worker transport and specialized-operation behavior have separate boundary gates.
+// Exercise the production composition root and bindings with deterministic facade
+// responses. Codec and participant-query behavior have separate engine outcome gates.
 async function installFacades(
   page: Page,
   model = surface,
@@ -155,7 +157,55 @@ async function installFacades(
       ...(platform?.nativeCoreLib ? [{ ...platformRow("System.Private.CoreLib", "impl", false), publicTypes: 1 }] : []),
     ],
   };
-  const common = "export async function initializeRuntime() {}";
+  const fixtureChannelName = `inspect-web-library-fixture-${randomUUID()}`;
+  await page.addInitScript(channelName => {
+    const channel = new BroadcastChannel(channelName);
+    channel.addEventListener("message", event => {
+      const message: unknown = event.data;
+      if (typeof message !== "object"
+        || message === null
+        || !("kind" in message)
+        || !("name" in message)
+        || !("value" in message)
+        || message.kind !== "observe"
+        || typeof message.name !== "string"
+        || typeof message.value !== "string") return;
+      document.documentElement.dataset[message.name] = message.value;
+    });
+    document.documentElement.dataset.fixtureChannelName = channelName;
+  }, fixtureChannelName);
+  const common = `
+    const fixtureChannel = new BroadcastChannel(${JSON.stringify(fixtureChannelName)});
+    const fixtureListeners = new Map();
+    fixtureChannel.addEventListener("message", event => {
+      const message = event.data;
+      if (message?.kind !== "release") return;
+      const listeners = fixtureListeners.get(message.name);
+      if (!listeners) return;
+      fixtureListeners.delete(message.name);
+      for (const listener of listeners) listener();
+    });
+    const document = {
+      documentElement: {
+        dataset: new Proxy({}, {
+          set(_target, name, value) {
+            fixtureChannel.postMessage({
+              kind: "observe",
+              name: String(name),
+              value: String(value),
+            });
+            return true;
+          },
+        }),
+      },
+      addEventListener(name, listener) {
+        const listeners = fixtureListeners.get(name) ?? [];
+        listeners.push(listener);
+        fixtureListeners.set(name, listeners);
+      },
+    };
+    export async function initializeRuntime() {}
+  `;
   const surfaceLookup = `
     const surfaces = ${JSON.stringify([model, ...additionalSurfaces])};
     function surfaceFor(id) {
@@ -166,6 +216,9 @@ async function installFacades(
       export async function createRuntime() { return {}; }
       export function configureHost() {}
       export async function runEntryPoint() { return 0; }
+      export function registerEpochWorkReporter() {}
+      export async function drainEpochWorkReporter() {}
+      export function unregisterEpochWorkReporter() {}
       export function buildIdentity() {
         return { version: "fixture", commit: null, builtAtUtc: null, commitUrl: null };
       }`,
@@ -557,7 +610,7 @@ async function installFacades(
     source: "",
     "call-graph": "",
     catalog: `
-      export function listVocabulary() { return { sections: [] }; }
+      export function listVocabulary() { return { schema_version: 1, sections: [] }; }
       export function listHomeDemos() { return { demos: [] }; }
       export function encodeWorkspaceShareState(json) {
         return { succeeded: true, packet: btoa(json), failure: null };
@@ -566,62 +619,47 @@ async function installFacades(
         return { succeeded: true, state: JSON.parse(atob(packet)), failure: null };
       }`,
   };
-  await page.route("https://cdn.jsdelivr.net/**", route => route.abort());
-  await page.route("**/inspect-web-*.js", route => {
-    const name = new URL(route.request().url()).pathname
-      .replace("/inspect-web-", "").replace(".js", "");
-    const body = modules[name];
-    if (body === undefined) throw new Error(`Unexpected facade: ${name}`);
-    return route.fulfill({
-      contentType: "text/javascript",
-      body: `${common}\n${body}`,
-    });
-  });
-  await page.route(/\/assets\/[^/]+\.(?:js|css|woff2?|ttf)$/, route => {
-    const asset = basename(new URL(route.request().url()).pathname);
-    if (asset.startsWith("engine-worker-client-")) {
-      return route.fulfill({
-        contentType: "text/javascript",
-        body: `
-          import * as host from "/inspect-web-host.js";
-          import * as packageFacade from "/inspect-web-package.js";
-          import * as metadata from "/inspect-web-metadata.js";
-          import * as analysis from "/inspect-web-analysis.js";
-          import * as source from "/inspect-web-source.js";
-          import * as callGraph from "/inspect-web-call-graph.js";
-          import * as catalog from "/inspect-web-catalog.js";
-
-          const unsupportedAdapter = {
-            prepare() {
-              throw new Error("This browser fixture does not exercise specialized Worker operations.");
-            },
-            requestControl() {
-              throw new Error("This browser fixture does not exercise specialized Worker controls.");
-            },
-          };
-
-          export function createEngineWorkerClient() {
-            return {
-              runtimeHost: {},
-              host,
-              package: packageFacade,
-              metadata,
-              analysis,
-              source,
-              callGraph,
-              catalog,
-              packageQueryAdapter: unsupportedAdapter,
-              typeSourceAdapter: unsupportedAdapter,
-              methodBodyTargetsAdapter: unsupportedAdapter,
-              methodBodyComparisonAdapter: unsupportedAdapter,
-              memberSourceComparisonAdapter: unsupportedAdapter,
-              dispose() {},
-            };
-          }`,
-      });
+  const assetDirectory = new URL("../dist/assets/", import.meta.url);
+  const workerEntryAssets = (await readdir(assetDirectory))
+    .filter(name => name.startsWith("engine-worker-entry-") && name.endsWith(".js"));
+  if (workerEntryAssets.length !== 1) {
+    throw new Error(
+      `Expected one built Worker entry asset, found ${workerEntryAssets.length}.`);
+  }
+  const workerEntryAsset = workerEntryAssets[0]!;
+  let workerEntryBody = await readFile(
+    new URL(workerEntryAsset, assetDirectory),
+    "utf8",
+  );
+  const fixtureModuleUrls: Record<string, string> = {};
+  for (const [name, moduleBody] of Object.entries(modules)) {
+    const source = `${common}\n${moduleBody}`;
+    fixtureModuleUrls[name] =
+      `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
+    workerEntryBody = workerEntryBody.replaceAll(
+      `import(\`/inspect-web-${name}.js\`)`,
+      `__inspectWebFixtureImport(${JSON.stringify(name)})`,
+    );
+    if (workerEntryBody.includes(`/inspect-web-${name}.js`)) {
+      throw new Error(`Worker facade import was not replaced: ${name}`);
     }
-    return route.fulfill({
-      path: fileURLToPath(new URL(`../dist/assets/${asset}`, import.meta.url)),
+  }
+  workerEntryBody = `
+    const __inspectWebFixtureModuleUrls = ${JSON.stringify(fixtureModuleUrls)};
+    const __inspectWebFixtureImport =
+      name => import(__inspectWebFixtureModuleUrls[name]);
+    ${workerEntryBody}`;
+  await page.route("https://cdn.jsdelivr.net/**", route => route.abort());
+  await page.route(/\/assets\/[^/]+\.(?:js|css|woff2?|ttf)$/, async route => {
+    const assetName = basename(new URL(route.request().url()).pathname);
+    const path = fileURLToPath(new URL(`../dist/assets/${assetName}`, import.meta.url));
+    if (assetName !== workerEntryAsset) {
+      await route.fulfill({ path });
+      return;
+    }
+    await route.fulfill({
+      contentType: "text/javascript",
+      body: workerEntryBody,
     });
   });
   await page.route("**/assets/platform-index.json", route =>
@@ -638,6 +676,22 @@ async function installFacades(
       : route.fallback());
 }
 
+async function releaseFacade(page: Page, name: string): Promise<void> {
+  await page.evaluate(releaseName => {
+    const channelName = document.documentElement.dataset.fixtureChannelName;
+    if (channelName === undefined) {
+      throw new Error("Worker fixture channel is unavailable.");
+    }
+    const channel = new BroadcastChannel(channelName);
+    const send = channel.postMessage.bind(channel);
+    send({
+      kind: "release",
+      name: releaseName,
+    });
+    channel.close();
+  }, name);
+}
+
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
 
 async function openPlatform(page: Page, options: PlatformFixture = {}) {
@@ -645,6 +699,7 @@ async function openPlatform(page: Page, options: PlatformFixture = {}) {
   await page.goto("/");
   await page.locator("[data-sl-load-runtime]").click();
   await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(/\/\?w=/);
 }
 
 test("Platform opens its catalog before warm-up, with reference membership and role labels", async ({ page }) => {
@@ -753,6 +808,7 @@ test("Platform Library parent, history and refresh retain the exact target witho
   const platformLocation = page.url();
   await page.getByRole("button", { name: /System.Facade Facade/ }).click();
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => page.url()).not.toBe(platformLocation);
   const libraryLocation = page.url();
   await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
   await page.reload();
@@ -777,7 +833,9 @@ test("Platform Library parent, history and refresh retain the exact target witho
 test("history-restored cached Platform Libraries remain usable through Spotlight", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page);
+  const platformLocation = page.url();
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect.poll(() => page.url()).not.toBe(platformLocation);
   const libraryLocation = page.url();
   await page.locator(".type-browser .nav-back-row").click();
   await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
@@ -819,7 +877,7 @@ test("Catalog-only Platform is a Workspace coordinate and pending Library work c
   await page.locator('[data-application-scope="workspace"]').click();
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
   await expect(page.locator("#inspector-panel")).toContainText(platformVersion);
-  await page.evaluate(() => document.dispatchEvent(new Event("finish-platform-library")));
+  await releaseFacade(page, "finish-platform-library");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
   await page.locator("[data-workspace-platform]").click();
   await expect(page.locator(".platform-library-row")).toHaveCount(3);
@@ -856,7 +914,7 @@ test("pending Platform catalog cannot overwrite a loaded Package selected throug
   await page.locator('[data-scope="package"]').click();
   await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
 
-  await page.evaluate(() => document.dispatchEvent(new Event("finish-platform-catalog")));
+  await releaseFacade(page, "finish-platform-catalog");
   await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Package");
 });
@@ -894,7 +952,7 @@ test("pending Platform catalog cannot overwrite a loaded Type selected through C
   await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
 
-  await page.evaluate(() => document.dispatchEvent(new Event("finish-platform-catalog")));
+  await releaseFacade(page, "finish-platform-catalog");
   await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
 });
@@ -930,7 +988,7 @@ for (const destination of ["Type", "Member"] as const) {
       await expect(page.locator("#inspector-panel h1")).toContainText("Run");
     }
 
-    await page.evaluate(() => document.dispatchEvent(new Event("finish-platform-library")));
+    await releaseFacade(page, "finish-platform-library");
     await expect(page.locator(
       destination === "Type" ? '[data-scope="type"]' : '[data-scope="member"]',
     )).toHaveAttribute("aria-selected", "true");
@@ -1158,9 +1216,12 @@ for (const pendingRequest of ["Library", "catalog"] as const) {
     await page.keyboard.press("Control+p");
     await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
     await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-    await page.evaluate(request => document.dispatchEvent(new Event(
-      request === "Library" ? "finish-platform-library" : "finish-platform-catalog",
-    )), pendingRequest);
+    await releaseFacade(
+      page,
+      pendingRequest === "Library"
+        ? "finish-platform-library"
+        : "finish-platform-catalog",
+    );
 
     await page.goBack();
     await expect.poll(() => currentWorkspaceHistoryState(page)).toEqual(platformWorkspace);
@@ -1189,8 +1250,7 @@ test("same-Workspace navigation retires superseded Platform catalog progress", a
     "aria-selected",
     "true",
   );
-  await page.evaluate(() =>
-    document.dispatchEvent(new Event("finish-platform-catalog")));
+  await releaseFacade(page, "finish-platform-catalog");
   await page.locator('[data-scope="platform"]').click();
 
   await expect(page.locator("#inspector-panel")).toContainText(
@@ -1596,7 +1656,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
   await openAnalysis(page);
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
   await expect(page.locator(".library-analysis-surface footer")).toContainText(core.asset);
-  await page.evaluate(() => document.dispatchEvent(new Event("fixture-analysis-ready:asset:core")));
+  await releaseFacade(page, "fixture-analysis-ready:asset:core");
   await expect(page.locator(".library-analysis-scroll .perf-row")).toHaveCount(2);
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
@@ -1605,7 +1665,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
   await expect(page.locator(".library-analysis-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-analysis-surface")).not.toContainText(core.name);
-  await page.evaluate(() => document.dispatchEvent(new Event("fixture-analysis-ready:asset:other")));
+  await releaseFacade(page, "fixture-analysis-ready:asset:other");
   await expect(page.locator(".library-analysis-scroll .perf-name").first())
     .toContainText("Neighbor.Run");
 });
@@ -1775,8 +1835,7 @@ test("stale Platform Opportunities acquisition cannot replace a newer family sel
     "true",
   );
 
-  await page.evaluate(() =>
-    document.dispatchEvent(new Event("finish-platform-library")));
+  await releaseFacade(page, "finish-platform-library");
   await page.locator('[data-scope="library"]').click();
   await page.locator('[data-library-lens="metadata"]').click();
   await expect(page.locator("html")).toHaveAttribute(
@@ -1795,7 +1854,7 @@ test("production Opportunities keeps deferred Library results out of the incomin
   await openOpportunities(page);
   await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");
   await expect(page.locator(".library-opportunities-surface footer")).toContainText(core.asset);
-  await page.evaluate(() => document.dispatchEvent(new Event("fixture-opportunities-ready:asset:core")));
+  await releaseFacade(page, "fixture-opportunities-ready:asset:core");
   await expect(page.locator(".library-opportunities-scroll .opp-row")).toHaveCount(3);
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
@@ -1806,7 +1865,7 @@ test("production Opportunities keeps deferred Library results out of the incomin
   await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");
   await expect(page.locator(".library-opportunities-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-opportunities-surface")).not.toContainText(core.name);
-  await page.evaluate(() => document.dispatchEvent(new Event("fixture-opportunities-ready:asset:other")));
+  await releaseFacade(page, "fixture-opportunities-ready:asset:other");
   await expect(page.locator(".library-opportunities-scroll .opp-type-ns").nth(1)).toContainText(other.name);
 });
 
@@ -1918,7 +1977,7 @@ test("production Integrations keeps deferred Library results out of the incoming
   await openIntegrations(page);
   await expect(page.locator(".library-integrations-surface")).toContainText("Scanning integrations");
   await expect(page.locator(".library-integrations-surface footer")).toContainText(core.asset);
-  await page.evaluate(() => document.dispatchEvent(new Event("fixture-integrations-ready:asset:core")));
+  await releaseFacade(page, "fixture-integrations-ready:asset:core");
   await expect(page.locator(".library-integrations-scroll .signal-row")).toHaveCount(3);
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
@@ -1928,7 +1987,7 @@ test("production Integrations keeps deferred Library results out of the incoming
   await expect(page.locator(".library-integrations-surface")).toContainText("Scanning integrations");
   await expect(page.locator(".library-integrations-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-integrations-surface")).not.toContainText(core.name);
-  await page.evaluate(() => document.dispatchEvent(new Event("fixture-integrations-ready:asset:other")));
+  await releaseFacade(page, "fixture-integrations-ready:asset:other");
   await expect(page.locator(".library-integrations-scroll .signal-ns").first()).toContainText(other.name);
 });
 
@@ -2029,7 +2088,7 @@ test("production References retains a loading frame and does not show a previous
   await openReferences(page);
   await expect(page.locator(".library-references-surface")).toContainText("Reading direct AssemblyRef rows");
   await expect(page.locator(".library-references-surface footer")).toContainText(core.asset);
-  await page.evaluate(() => document.dispatchEvent(new Event("fixture-references-ready:asset:core")));
+  await releaseFacade(page, "fixture-references-ready:asset:core");
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Core.Dependency");
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
@@ -2038,7 +2097,7 @@ test("production References retains a loading frame and does not show a previous
   await expect(page.locator(".library-references-surface")).toContainText("Reading direct AssemblyRef rows");
   await expect(page.locator(".library-references-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-references-surface")).not.toContainText("Example.Core");
-  await page.evaluate(() => document.dispatchEvent(new Event("fixture-references-ready:asset:other")));
+  await releaseFacade(page, "fixture-references-ready:asset:other");
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Other.Dependency");
 });
 

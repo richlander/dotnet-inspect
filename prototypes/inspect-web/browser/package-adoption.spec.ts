@@ -34,8 +34,29 @@ import {
   type ManifestDependency,
 } from "./package-adoption-nupkg.ts";
 
+type WorkerClientModule = typeof import("../src/engine-worker-client.ts");
+
+const site = resolve(
+  process.env.INSPECT_WEB_PACKAGE_ADOPTION_SITE
+    ?? "../../artifacts/inspect-web-publish/wwwroot",
+);
+const manifest: unknown = JSON.parse(
+  readFileSync(resolve(site, "manifest.json"), "utf8"),
+);
+if (typeof manifest !== "object" || manifest === null
+    || !("src/engine-worker-client.ts" in manifest)) {
+  throw new Error("Published site is missing the production Worker client entry.");
+}
+const workerClientEntry = manifest["src/engine-worker-client.ts"];
+if (typeof workerClientEntry !== "object" || workerClientEntry === null
+    || !("file" in workerClientEntry)
+    || typeof workerClientEntry.file !== "string") {
+  throw new Error("Published production Worker client entry has no asset.");
+}
+const workerClientUrl = `/${workerClientEntry.file}`;
+
 // This gate drives the actually published production InspectWeb.Engine Wasm
-// artifact and its public generated facades in a real Firefox page. It proves
+// artifact through the production single-runtime Worker client in Firefox. It proves
 // the artifact-backed package scope adoption contract (issue #5576): ordinary
 // singleton opening via queryPackage, repeated/joined requests, the four-scope
 // bound with successful eviction, awaitable Workspace occurrence activation, a
@@ -311,10 +332,10 @@ declare global {
         version: string,
         framework: string,
       ): Promise<PackageSurface>;
-      cacheStats(): CacheStats;
+      cacheStats(): Promise<CacheStats>;
       queryOccurrences(workspaceJson: string): Promise<OccurrenceView>;
       activate(action: string): Promise<OccurrenceActivation>;
-      clearOccurrences(): void;
+      clearOccurrences(): Promise<void>;
       queryDependencies(
         packageId: string,
         version: string,
@@ -327,6 +348,7 @@ declare global {
         framework: string,
         libraryId: string,
       ): Promise<PackageIntegrations>;
+      dispose(): void;
     };
     __packageQueryResponsiveness?: {
       startedAt: number;
@@ -343,88 +365,52 @@ declare global {
   }
 }
 
-type HostFacadeModule = Pick<
-  typeof import("../src/facades/inspect-web-host.js"),
-  "createRuntime" | "initializeRuntime" | "configureHost"
->;
-
-type PackageFacadeModule = Pick<
-  typeof import("../src/facades/inspect-web-package.js"),
-  "initializeRuntime" | "queryPackage" | "packageCacheStats"
-  | "queryWorkspacePackageOccurrences" | "activateWorkspacePackageOccurrence"
-  | "clearWorkspacePackageOccurrences" | "queryPackageDependencies"
->;
-
-type AnalysisFacadeModule = Pick<
-  typeof import("../src/facades/inspect-web-analysis.js"),
-  "initializeRuntime" | "queryPackageIntegrations"
->;
-
 async function boot(page: Page): Promise<void> {
   await page.goto("/package-adoption-gate.html");
-  await page.evaluate(async () => {
-    const hostImport: unknown = await import("/inspect-web-host.js");
-    const pkgImport: unknown = await import("/inspect-web-package.js");
-    const analysisImport: unknown = await import("/inspect-web-analysis.js");
-    function isHostFacade(value: unknown): value is HostFacadeModule {
+  await page.evaluate(async clientUrl => {
+    const clientImport: unknown = await import(clientUrl);
+    function isWorkerClient(value: unknown): value is WorkerClientModule {
       return typeof value === "object" && value !== null
-        && "createRuntime" in value && typeof value.createRuntime === "function"
-        && "initializeRuntime" in value && typeof value.initializeRuntime === "function"
-        && "configureHost" in value && typeof value.configureHost === "function";
+        && "createEngineWorkerClient" in value
+        && typeof value.createEngineWorkerClient === "function";
     }
-    function isPackageFacade(value: unknown): value is PackageFacadeModule {
-      return typeof value === "object" && value !== null
-        && "initializeRuntime" in value && typeof value.initializeRuntime === "function"
-        && "queryPackage" in value && typeof value.queryPackage === "function"
-        && "packageCacheStats" in value && typeof value.packageCacheStats === "function"
-        && "queryWorkspacePackageOccurrences" in value
-          && typeof value.queryWorkspacePackageOccurrences === "function"
-        && "activateWorkspacePackageOccurrence" in value
-          && typeof value.activateWorkspacePackageOccurrence === "function"
-        && "clearWorkspacePackageOccurrences" in value
-          && typeof value.clearWorkspacePackageOccurrences === "function"
-        && "queryPackageDependencies" in value
-          && typeof value.queryPackageDependencies === "function";
+    if (!isWorkerClient(clientImport)) {
+      throw new Error("Published production Worker client exports are missing.");
     }
-    function isAnalysisFacade(value: unknown): value is AnalysisFacadeModule {
-      return typeof value === "object" && value !== null
-        && "initializeRuntime" in value && typeof value.initializeRuntime === "function"
-        && "queryPackageIntegrations" in value
-          && typeof value.queryPackageIntegrations === "function";
-    }
-    if (!isHostFacade(hostImport)) {
-      throw new Error("Published host facade exports are missing.");
-    }
-    if (!isPackageFacade(pkgImport)) {
-      throw new Error("Published package facade exports are missing.");
-    }
-    if (!isAnalysisFacade(analysisImport)) {
-      throw new Error("Published analysis facade exports are missing.");
-    }
-    const host = hostImport;
-    const pkg = pkgImport;
-    const analysis = analysisImport;
-    const runtime = host.createRuntime();
-    await host.initializeRuntime(runtime);
-    await pkg.initializeRuntime(runtime);
-    await analysis.initializeRuntime(runtime);
-    host.configureHost(location.origin);
+    const client = clientImport.createEngineWorkerClient(location.origin, {
+      callbacks: {
+        failure: failure => {
+          throw new Error(`Production Worker failure: ${failure.kind}.`);
+        },
+        diagnostic: diagnostic => {
+          throw new Error(`Production Worker diagnostic: ${diagnostic.kind}.`);
+        },
+        realmReleased: () => undefined,
+      },
+      operationDiagnostic: diagnostic => {
+        throw new Error(`Production operation failed: ${diagnostic.kind}.`);
+      },
+    });
+    await client.host.buildIdentity();
     window.__adoption = {
       queryPackage: (packageId, pkgVersion, framework) =>
-        pkg.queryPackage(packageId, pkgVersion, framework),
-      cacheStats: () => pkg.packageCacheStats(),
+        client.package.queryPackage(packageId, pkgVersion, framework),
+      cacheStats: () => client.package.packageCacheStats(),
       queryOccurrences: workspaceJson =>
-        pkg.queryWorkspacePackageOccurrences(workspaceJson),
-      activate: action => pkg.activateWorkspacePackageOccurrence(action),
-      clearOccurrences: () => {
-        pkg.clearWorkspacePackageOccurrences();
-      },
+        client.package.queryWorkspacePackageOccurrences(workspaceJson),
+      activate: action =>
+        client.package.activateWorkspacePackageOccurrence(action),
+      clearOccurrences: () =>
+        client.package.clearWorkspacePackageOccurrences(),
       queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
-        pkg.queryPackageDependencies(packageId, pkgVersion, framework, assemblyId),
+        client.package.queryPackageDependencies(
+          packageId, pkgVersion, framework, assemblyId),
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
-        analysis.queryPackageIntegrations(packageId, pkgVersion, framework, libraryId),
+        client.analysis.queryPackageIntegrations(
+          packageId, pkgVersion, framework, libraryId),
+      dispose: () => client.dispose(),
     };
-  });
+  }, workerClientUrl);
 }
 
 function driver(page: Page): {
@@ -459,9 +445,7 @@ function driver(page: Page): {
     activate: action =>
       page.evaluate(token => window.__adoption!.activate(token), action),
     clearOccurrences: () =>
-      page.evaluate(() => {
-        window.__adoption!.clearOccurrences();
-      }),
+      page.evaluate(() => window.__adoption!.clearOccurrences()),
     queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
       page.evaluate(
         ({ packageId: id, version: ver, framework: tfm, assemblyId: selected }) =>
@@ -825,9 +809,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     page,
     context,
   }) => {
+    const workers: Worker[] = [];
+    page.on("worker", worker => workers.push(worker));
     const registry = new GalleryFixtureRegistry(allFixtures);
     await installGalleryRoutes(context, registry);
     await boot(page);
+    expect(workers).toHaveLength(1);
     const engine = driver(page);
 
     // Ordinary singleton opening yields healthy evidence.
@@ -947,6 +934,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     );
     expect(healthyIntegrations.isComplete).toBe(true);
     expect(healthyIntegrations.inspectionError).toBeNull();
+    await page.evaluate(() => window.__adoption!.dispose());
   });
 
   test("holds the four-scope bound and evicts to admit new scopes", async ({

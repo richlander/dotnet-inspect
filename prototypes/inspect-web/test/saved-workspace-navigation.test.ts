@@ -386,7 +386,10 @@ function harness() {
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
     platformLibraryRetry: null, platformCatalogRetry: null,
     spotlightMemberCache: null as object | null,
-    spotlightFocusGeneration: 0, documentFocusGeneration: 0, workspaceOccurrenceRevision: 0,
+    spotlightFocusGeneration: 0, documentFocusGeneration: 0,
+    workspaceOccurrenceRevision: 0,
+    workspaceOccurrenceClearBarrier: Promise.resolve(),
+    workspaceOccurrenceClearFailure: null,
     HTMLElement: class { isContentEditable = false; },
     URL, URLSearchParams, Error, structuredClone, Set,
     MAX_WORKSPACE_PACKAGES, packageIdentityKey, memberScopeIsActive,
@@ -1702,7 +1705,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     h.state.workspaceOccurrenceSignature, h.state.workspaceOccurrenceError,
   ]) assert.equal(value, "");
   assert.deepEqual(Array.from(h.state.platformStack), []);
-  assert.deepEqual(h.invalidations, ["occurrences", "package-results"]);
+  assert.deepEqual(h.invalidations, ["package-results", "occurrences"]);
   assert.equal(h.context.workspaceOccurrenceRevision, 1);
   assert.equal(await h.capture(), packet);
   assert.ok(h.encoded.length >= 2);

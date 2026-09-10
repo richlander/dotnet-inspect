@@ -1209,6 +1209,7 @@ export function createAsyncWorkspaceLocationPersistence(
       },
     };
   };
+  let syncRevision = 0;
   return {
     async parseCurrent() {
       return await preflightCurrent().resolve();
@@ -1216,15 +1217,17 @@ export function createAsyncWorkspaceLocationPersistence(
     preflightCurrent,
     build,
     async sync(state, historyState = null) {
+      const revision = ++syncRevision;
       try {
-        dependencies.replace(
-          (await build(state)).toString(),
-          historyState);
+        const url = await build(state);
+        if (revision !== syncRevision) return;
+        dependencies.replace(url.toString(), historyState);
       } catch {
         // Sandboxed frames and overlong state can reject address-bar persistence.
       }
     },
     replace(url, historyState = null) {
+      syncRevision++;
       try {
         dependencies.replace(url, historyState);
         return true;
@@ -1234,6 +1237,7 @@ export function createAsyncWorkspaceLocationPersistence(
       }
     },
     push(url, historyState = null) {
+      syncRevision++;
       try {
         dependencies.push(url, historyState);
       } catch {

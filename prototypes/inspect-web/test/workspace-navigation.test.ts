@@ -7,6 +7,7 @@ import {
   buildPackageRootStateUrl,
   buildWorkspaceStateUrl,
   callGraphCaptureTopology,
+  createAsyncWorkspaceLocationPersistence,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
@@ -38,6 +39,12 @@ import type {
 interface TestView {
   id: string;
   revision: number;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(accept => { resolve = accept; });
+  return { promise, resolve };
 }
 
 function locationSnapshot(value: string | URL): WorkspaceLocationSnapshot {
@@ -1326,6 +1333,28 @@ test("location persistence contains sync failures but leaves direct build failur
     () => persistence.build(workspaceState()),
     /selected context is not projectable/);
 });
+
+for (const navigate of ["push", "replace"] as const) {
+  test(`direct ${navigate} invalidates a pending asynchronous URL sync`, async () => {
+    const current = locationSnapshot("https://inspect.example/");
+    const writes: Array<{ kind: "push" | "replace"; url: string }> = [];
+    const encode = deferred<BrowserWorkspaceShareEncodeResult>();
+    const persistence = createAsyncWorkspaceLocationPersistence({
+      current: () => current,
+      replace: url => writes.push({ kind: "replace", url }),
+      push: url => writes.push({ kind: "push", url }),
+      decode: async () => rejected("unused"),
+      encode: () => encode.promise,
+    });
+
+    void persistence.sync(workspaceState());
+    persistence[navigate]("/credits");
+    encode.resolve(encoded());
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.deepEqual(writes, [{ kind: navigate, url: "/credits" }]);
+  });
+}
 
 function linkClick(overrides: Partial<LinkNavigationClick> = {}): LinkNavigationClick {
   return {

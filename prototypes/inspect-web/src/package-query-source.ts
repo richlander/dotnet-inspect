@@ -8,7 +8,6 @@ import type {
   BrowserPackageQueryProgress as BrowserPackageQueryProgressPayload,
   BrowserPackageQueryRow as BrowserPackageQueryRowPayload,
   BrowserPackageQueryEvent as BrowserPackageQueryEventPayload,
-  BrowserPackageQueryCancellation,
   BrowserPackageQueryMatchCreditResponse,
   BrowserPackageQueryResult,
 } from "./facades/inspect-web-package.d.ts";
@@ -44,11 +43,12 @@ export interface BrowserPackageQueryEngine {
   cancel(
     operationId: string,
     reason: string,
-  ): BrowserPackageQueryCancellation;
+  ): void;
   requestMatches(
     operationId: string,
     additionalMatchCredit: number,
-  ): BrowserPackageQueryMatchCreditResponse;
+  ): BrowserPackageQueryMatchCreditResponse
+    | Promise<BrowserPackageQueryMatchCreditResponse>;
   run(
     operationId: string,
     searchText: string,
@@ -132,11 +132,11 @@ export function createBrowserPackageQueryDataSource(
     });
   return {
     initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-    requestMore: additionalMatchCredit => {
+    requestMore: async additionalMatchCredit => {
       const operationId = activeOperationId;
       if (operationId === null) return false;
       const result =
-        engine.requestMatches(operationId, additionalMatchCredit);
+        await engine.requestMatches(operationId, additionalMatchCredit);
       return result.kind === "Granted"
         && result.additionalMatchCredit === additionalMatchCredit;
     },

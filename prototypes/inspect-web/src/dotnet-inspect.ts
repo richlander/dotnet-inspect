@@ -579,7 +579,7 @@ let inspectQueryWorkspacePackageOccurrences:
 let inspectActivateWorkspacePackageOccurrence:
   PackageFacade["activateWorkspacePackageOccurrence"];
 let inspectClearWorkspacePackageOccurrences:
-  PackageFacade["clearWorkspacePackageOccurrences"];
+  EngineWorkerClient["package"]["clearWorkspacePackageOccurrences"];
 let inspectGraphMemberSurface: MetadataFacade["queryGraphMemberSurface"];
 let inspectPackageHeapEntries: MetadataFacade["queryPackageHeapEntries"];
 let inspectPackageMetadata: MetadataFacade["queryPackageMetadata"];
@@ -3487,7 +3487,18 @@ function ensureWorkspaceOccurrenceView() {
 }
 
 let workspaceOccurrenceRevision = 0;
-let workspaceOccurrenceClear = Promise.resolve();
+let workspaceOccurrenceClearBarrier: Promise<void> = Promise.resolve();
+let workspaceOccurrenceClearFailure: unknown = null;
+
+async function awaitWorkspaceOccurrenceClear(): Promise<void> {
+  await workspaceOccurrenceClearBarrier;
+  if (workspaceOccurrenceClearFailure !== null) {
+    const failure = workspaceOccurrenceClearFailure;
+    throw failure instanceof Error
+      ? failure
+      : new Error(errorMessage(failure), { cause: failure });
+  }
+}
 
 async function queryWorkspaceOccurrenceView() {
   const signature = state.workspaceOccurrenceSignature;
@@ -3496,7 +3507,7 @@ async function queryWorkspaceOccurrenceView() {
   state.workspaceOccurrenceLoading = true;
   state.workspaceOccurrenceError = "";
   try {
-    await workspaceOccurrenceClear;
+    await awaitWorkspaceOccurrenceClear();
     if (revision !== workspaceOccurrenceRevision
       || signature !== state.workspaceOccurrenceSignature) {
       superseded = true;
@@ -3542,13 +3553,22 @@ function retryWorkspaceOccurrenceView() {
 }
 
 function clearWorkspaceOccurrenceView() {
-  workspaceOccurrenceClear = Promise.resolve(
-    inspectClearWorkspacePackageOccurrences(),
-  ).catch((error: unknown) => {
-    reportAsyncFailure(
-      "Clearing Workspace package occurrences",
-      error);
-  });
+  const revision = workspaceOccurrenceRevision + 1;
+  workspaceOccurrenceClearBarrier =
+    workspaceOccurrenceClearBarrier.then(async () => {
+      try {
+        await inspectClearWorkspacePackageOccurrences();
+        if (revision === workspaceOccurrenceRevision)
+          workspaceOccurrenceClearFailure = null;
+      } catch (error) {
+        if (revision === workspaceOccurrenceRevision)
+          workspaceOccurrenceClearFailure = error;
+        reportAsyncFailure(
+          "Clearing Workspace package occurrences",
+          error);
+      }
+      return undefined;
+    });
   workspaceOccurrenceRevision++;
   state.workspaceOccurrenceSignature = "";
   state.workspaceOccurrenceLoading = false;

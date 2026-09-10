@@ -5,6 +5,9 @@ Status: **implemented** for issue
 the [page-facing engine client](#page-facing-engine-client) and atomic
 single-runtime Worker cutover tracked by
 [#5987](https://github.com/richlander/dotnet-inspect/issues/5987).
+The production page imports only the Worker client: every managed call is
+bound to one Worker epoch, with no generated-facade import or managed-runtime
+fallback on the page.
 
 This is the owning document for the inspect-web production facade partition:
 which existing browser-host exports belong together, how independently

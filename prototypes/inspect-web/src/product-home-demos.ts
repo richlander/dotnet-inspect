@@ -6,9 +6,7 @@ import type {
 } from "./facades/inspect-web-catalog.d.ts";
 import {
   encodeWorkspaceShareStateAsync,
-  encodeWorkspaceShareState,
   type AsyncWorkspaceShareEncoder,
-  type WorkspaceShareEncoder,
   type WorkspaceUrlState,
 } from "./workspace-navigation.ts";
 import {
@@ -70,17 +68,7 @@ export function isProductHomeDemosPath(pathname: string): boolean {
   return isRoutedEntryPath(pathname, ROUTED_ENTRY_PATHS.demos);
 }
 
-function locationHref(
-  state: WorkspaceUrlState,
-  encode: WorkspaceShareEncoder,
-): string {
-  const params = new URLSearchParams();
-  params.set("package", state.package);
-  params.set("w", encodeWorkspaceShareState(state, encode));
-  return `/?${params.toString()}`;
-}
-
-async function locationHrefAsync(
+async function locationHref(
   state: WorkspaceUrlState,
   encode: AsyncWorkspaceShareEncoder,
 ): Promise<string> {
@@ -190,20 +178,19 @@ function productHomeDemoLocationState(
   };
 }
 
-export function productHomeDemoLocationHref(
+export async function productHomeDemoLocationHref(
   demo: ProductHomeDemoResolved,
-  encode: WorkspaceShareEncoder,
-): string | null {
+  encode: AsyncWorkspaceShareEncoder,
+): Promise<string | null> {
   const state = productHomeDemoLocationState(demo);
-  return state === null ? null : locationHref(state, encode);
+  return state === null ? null : await locationHref(state, encode);
 }
 
 export async function productHomeDemoLocationHrefAsync(
   demo: ProductHomeDemoResolved,
   encode: AsyncWorkspaceShareEncoder,
 ): Promise<string | null> {
-  const state = productHomeDemoLocationState(demo);
-  return state === null ? null : await locationHrefAsync(state, encode);
+  return await productHomeDemoLocationHref(demo, encode);
 }
 
 export function homeDemosEntryHtml(

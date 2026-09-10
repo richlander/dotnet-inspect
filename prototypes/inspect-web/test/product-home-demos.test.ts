@@ -154,9 +154,11 @@ const callGraphResolved: BrowserHomeDemoResolved = {
 
 let encodedDemoState: BrowserWorkspaceShareState | null = null;
 
-function demoHref(resolved: BrowserHomeDemoResolved): string | null {
+async function demoHref(
+  resolved: BrowserHomeDemoResolved,
+): Promise<string | null> {
   encodedDemoState = null;
-  return productHomeDemoLocationHref(resolved, stateJson => {
+  return await productHomeDemoLocationHref(resolved, async stateJson => {
     const value: unknown = JSON.parse(stateJson);
     assert.ok(isBrowserWorkspaceShareState(value));
     encodedDemoState = value;
@@ -204,8 +206,8 @@ function parseDemoHref(href: string) {
   };
 }
 
-test("demo workspace links are rooted independently of the catalog route", () => {
-  const href = demoHref(stjResolved);
+test("demo workspace links are rooted independently of the catalog route", async () => {
+  const href = await demoHref(stjResolved);
   assert.ok(href);
   assert.equal(new URL(href, "https://inspect.local/demos").pathname, "/");
 });
@@ -254,8 +256,8 @@ test("product demo discovery owns one canonical application route", () => {
   assert.equal(isProductHomeDemosPath("/"), false);
 });
 
-test("stj-serializer deep link selects JsonSerializer on STJ 10.0.0", () => {
-  const href = demoHref(stjResolved);
+test("stj-serializer deep link selects JsonSerializer on STJ 10.0.0", async () => {
+  const href = await demoHref(stjResolved);
   assert.ok(href);
   const { url, location } = parseDemoHref(href);
   assert.equal(url.searchParams.get("package"), "System.Text.Json");
@@ -273,8 +275,8 @@ test("stj-serializer deep link selects JsonSerializer on STJ 10.0.0", () => {
   assert.equal(location.package, "System.Text.Json");
 });
 
-test("unversioned platform residual maps to the browser runtime pack", () => {
-  const href = demoHref(unversionedRuntimeResolved);
+test("unversioned platform residual maps to the browser runtime pack", async () => {
+  const href = await demoHref(unversionedRuntimeResolved);
   assert.ok(href);
   assert.deepEqual(encodedDemoState?.contexts, [{
     id: "g0",
@@ -308,11 +310,11 @@ test("unversioned platform residual maps to the browser runtime pack", () => {
   assert.equal(location.package, "Microsoft.NETCore.App");
 });
 
-test("extensions-callgraph delegates execution to the engine instead of encoding a location", () => {
-  assert.equal(demoHref(callGraphResolved), null);
+test("extensions-callgraph delegates execution to the engine instead of encoding a location", async () => {
+  assert.equal(await demoHref(callGraphResolved), null);
 });
 
-test("single-package Call Graph demos also delegate to the engine", () => {
+test("single-package Call Graph demos also delegate to the engine", async () => {
   const serializeResolved: BrowserHomeDemoResolved = {
     id: "stj-serialize-callgraph",
     title: "Serialize call graph",
@@ -347,10 +349,10 @@ test("single-package Call Graph demos also delegate to the engine", () => {
       section: "Call Graph",
     },
   };
-  assert.equal(demoHref(serializeResolved), null);
+  assert.equal(await demoHref(serializeResolved), null);
 });
 
-test("platform residual rejects pinned runtime coordinates", () => {
+test("platform residual rejects pinned runtime coordinates", async () => {
   const pinned = {
     ...unversionedRuntimeResolved,
     tabs: [
@@ -367,8 +369,8 @@ test("platform residual rejects pinned runtime coordinates", () => {
       },
     ],
   };
-  assert.throws(
-    () => demoHref(pinned),
+  await assert.rejects(
+    demoHref(pinned),
     /unversioned shape/,
   );
 });
