@@ -22,11 +22,15 @@ internal static class PromotionWorkflowContract
     private const string CoreClrDotnetNugetFeed =
         "https://api.nuget.org/v3/index.json";
     private const string CoreClrDotnetRuntimeVersion =
-        "12.0.0-alpha.1.26454.116";
+        "12.0.0-alpha.1.26459.112";
     private const string CoreClrDotnetSdkFeatureBand =
         "12.0.100-alpha.1";
     private const string CoreClrDotnetSdkVersion =
-        "12.0.100-alpha.1.26454.116";
+        "12.0.100-alpha.1.26459.112";
+    private const string CoreClrDotnetVmrCommit =
+        "7792b064d8573a30d8527944de8184b7e108837e";
+    private const string CoreClrDotnetVmrRepository =
+        "https://github.com/dotnet/dotnet";
     private const string CompilerAsyncDeploymentCheck =
         """
         eng/verify-inspect-web-async-deployment.sh \
@@ -292,7 +296,7 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging contract accepted the Mono runtime.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
-            "  DOTNET_SDK_VERSION: '12.0.100-alpha.1.26454.116'\n",
+            "  DOTNET_SDK_VERSION: '12.0.100-alpha.1.26459.112'\n",
             "  DOTNET_SDK_VERSION: '12.0.100-alpha.1.99999.999'\n",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted a different .NET 12 daily SDK.");
@@ -322,10 +326,16 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging contract accepted runtime verification without its mapped cohort feeds.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
-            "            -p:PublishReadyToRun=false \\\n",
+            "            -p:PublishReadyToRun=true \\\n",
             "",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted implicit ReadyToRun behavior.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "            -p:PublishReadyToRunComposite=false \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted implicit composite ReadyToRun behavior.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
             "            -p:WasmBuildNative=false \\\n",
@@ -1124,6 +1134,8 @@ internal static class PromotionWorkflowContract
                 ["DOTNET_RUNTIME_VERSION"] = CoreClrDotnetRuntimeVersion,
                 ["DOTNET_SDK_FEATURE_BAND"] = CoreClrDotnetSdkFeatureBand,
                 ["DOTNET_SDK_VERSION"] = CoreClrDotnetSdkVersion,
+                ["DOTNET_VMR_COMMIT"] = CoreClrDotnetVmrCommit,
+                ["DOTNET_VMR_REPOSITORY"] = CoreClrDotnetVmrRepository,
             },
             "CoreCLR staging workflow.env");
 
@@ -1357,7 +1369,14 @@ internal static class PromotionWorkflowContract
               Microsoft.NETCore.App.Runtime.AOT.linux-x64.Cross.browser-wasm; do
               test -d "$DOTNET_ROOT/packs/$pack/$DOTNET_RUNTIME_VERSION"
             done
-            test -f "$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$DOTNET_RUNTIME_VERSION.nupkg"
+            webassembly_pack_nupkg="$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$DOTNET_RUNTIME_VERSION.nupkg"
+            test -f "$webassembly_pack_nupkg"
+            vmr_repository=$(unzip -p "$webassembly_pack_nupkg" '*.nuspec' \
+              | sed -n 's/.*<repository[^>]*url="\([^"]*\)"[^>]*>.*/\1/p')
+            vmr_commit=$(unzip -p "$webassembly_pack_nupkg" '*.nuspec' \
+              | sed -n 's/.*<repository[^>]*commit="\([^"]*\)"[^>]*>.*/\1/p')
+            test "$vmr_repository" = "$DOTNET_VMR_REPOSITORY"
+            test "$vmr_commit" = "$DOTNET_VMR_COMMIT"
 
             target_framework=$(dotnet msbuild \
               inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
@@ -1375,13 +1394,15 @@ internal static class PromotionWorkflowContract
               --arg daily_feed "$DOTNET_DAILY_FEED" \
               --arg nuget_feed "$DOTNET_NUGET_FEED" \
               --arg target_framework "$target_framework" \
+              --arg vmr_commit "$vmr_commit" \
+              --arg vmr_repository "$vmr_repository" \
               --arg native_wasm_sha256 "$native_wasm_sha256" \
               --arg native_javascript_sha256 "$native_javascript_sha256" \
               '
                 . as $manifest
                 | .workloads["wasm-tools"].packs as $packs
                 | {
-                    schema: 1,
+                    schema: 2,
                     sdk: {
                       version: $sdk,
                       featureBand: $feature_band
@@ -1390,6 +1411,10 @@ internal static class PromotionWorkflowContract
                       name: "Microsoft.NETCore.App",
                       version: $runtime,
                       implementation: "CoreCLR",
+                      source: {
+                        repository: $vmr_repository,
+                        commit: $vmr_commit
+                      },
                       assets: {
                         nativeWasmSha256: $native_wasm_sha256,
                         nativeJavaScriptSha256: $native_javascript_sha256
@@ -1398,7 +1423,9 @@ internal static class PromotionWorkflowContract
                     targetFramework: $target_framework,
                     configuration: {
                       asyncLowering: "runtime",
-                      publishReadyToRun: false,
+                      publishReadyToRun: true,
+                      publishReadyToRunComposite: false,
+                      readyToRunContainer: "wasm",
                       wasmBuildNative: false
                     },
                     workload: {
@@ -1502,7 +1529,8 @@ internal static class PromotionWorkflowContract
               -p:BuildTimestampUtc="$built_at" \
               -p:Features=runtime-async=on \
               -p:UseMonoRuntime=false \
-              -p:PublishReadyToRun=false \
+              -p:PublishReadyToRun=true \
+              -p:PublishReadyToRunComposite=false \
               -p:WasmBuildNative=false \
               -p:WasmNestedPublishAppDependsOn= \
               -p:WasmEnableExceptionHandling=true \
@@ -1514,6 +1542,11 @@ internal static class PromotionWorkflowContract
               artifacts/inspect-web-coreclr-runtime-cohort/workload-list.txt \
               artifacts/inspect-web-coreclr-runtime-cohort/runtime-cohort.json \
               artifacts/inspect-web-coreclr-publish/runtime-cohort/
+            node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
+              --record \
+              artifacts/inspect-web-coreclr-publish/wwwroot \
+              inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
+              artifacts/inspect-web-coreclr-publish/runtime-cohort
             """;
         if (GetRequiredScalar(
                 publish,
@@ -1873,8 +1906,13 @@ internal static class PromotionWorkflowContract
               cohort={{publishRoot}}/runtime-cohort
               test -f "$cohort/dotnet-info.txt"
               test -f "$cohort/workload-list.txt"
+              node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
+                --verify \
+                "$site" \
+                inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
+                "$cohort"
               jq -e '
-                .schema == 1
+                .schema == 2
                 and .sdk == {
                   version: "{{CoreClrDotnetSdkVersion}}",
                   featureBand: "{{CoreClrDotnetSdkFeatureBand}}"
@@ -1882,14 +1920,36 @@ internal static class PromotionWorkflowContract
                 and .runtime.name == "Microsoft.NETCore.App"
                 and .runtime.version == "{{CoreClrDotnetRuntimeVersion}}"
                 and .runtime.implementation == "CoreCLR"
+                and .runtime.source == {
+                  repository: "{{CoreClrDotnetVmrRepository}}",
+                  commit: "{{CoreClrDotnetVmrCommit}}"
+                }
                 and (.runtime.assets.nativeWasmSha256 | test("^[0-9a-f]{64}$"))
                 and (.runtime.assets.nativeJavaScriptSha256 | test("^[0-9a-f]{64}$"))
                 and .targetFramework == "net11.0"
                 and .configuration == {
                   asyncLowering: "runtime",
-                  publishReadyToRun: false,
+                  publishReadyToRun: true,
+                  publishReadyToRunComposite: false,
+                  readyToRunContainer: "wasm",
                   wasmBuildNative: false
                 }
+                and .readyToRun.evidenceFile == "ready-to-run-assets.json"
+                and (.readyToRun.evidenceSha256 | test("^[0-9a-f]{64}$"))
+                and .readyToRun.format == "crossgen2-webassembly"
+                and .readyToRun.mode == "per-assembly"
+                and .readyToRun.publishedManagedAssetCount > 0
+                and .readyToRun.readyToRunAssetCount
+                  == (.readyToRun.publishedManagedAssetCount - 3)
+                and .readyToRun.readyToRunBytes > 0
+                and .readyToRun.inspectWebApplicationAssetCount == 8
+                and .readyToRun.ilOnlyAssets == [
+                  "System.ComponentModel.wasm",
+                  "System.Xml.Linq.wasm",
+                  "System.wasm"
+                ]
+                and all(.readyToRun.frameworkPayload[];
+                  .fileCount > 0 and .bytes > 0)
                 and .workload == {
                   id: "wasm-tools",
                   manifestVersion: "{{CoreClrDotnetSdkVersion}}",

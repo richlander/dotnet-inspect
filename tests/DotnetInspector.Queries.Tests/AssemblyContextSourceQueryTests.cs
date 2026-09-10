@@ -1833,6 +1833,56 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Null(policy.Select(request));
     }
 
+    [Fact]
+    public void CancellationObservingBindingPolicy_ObservesCompositionDomain()
+    {
+        ResolvedAssemblyReference first =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "First",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(),
+                AssemblyResolutionProvenance.Local("first test candidate"));
+        ResolvedAssemblyReference second =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "Second",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(),
+                AssemblyResolutionProvenance.Local("second test candidate"));
+        var inner = new FrameworkBindingPolicy
+        {
+            SelectOverride = _ =>
+                AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create(
+                        [first, second])),
+        };
+        var policy =
+            new AssemblyContextSourceQuery.CancellationObservingBindingPolicy(
+                inner);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+
+        var required = Assert.IsType<
+            AssemblyBindingSelection.CompositionRequired>(
+                policy.Select(request).Selection);
+
+        Assert.Equal(
+            [first.Registration, second.Registration],
+            required.Domain.Candidates.Select(
+                candidate => candidate.Registration));
+        Assert.DoesNotContain(first, required.Domain.Candidates);
+        Assert.DoesNotContain(second, required.Domain.Candidates);
+    }
+
     [Theory]
     [InlineData(false, false, false)]
     [InlineData(false, true, false)]

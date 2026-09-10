@@ -265,13 +265,19 @@ import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
+  styleCallGraphMermaid,
 } from "./graph-mermaid.ts";
 import {
   bindGraphBack,
   bindGraphPanZoom,
+  graphControlsHtml,
   type GraphNodeBinding,
   type GraphBackBindingActions,
 } from "./graph-interactions.ts";
+import {
+  callGraphLegendHtml,
+  dependencyGraphLegendHtml,
+} from "./graph-legends.ts";
 import { bindGraphExplore, createGraphExplorer } from "./graph-explorer.ts";
 import {
   validateAnnotatedSourceDocument,
@@ -5422,6 +5428,7 @@ function renderPackageDependencies() {
       <div class="section-title"><h2>Dependency graph</h2><span>${DEPENDENCY_GRAPH_SUMMARY}</span></div>
       ${workspaceDependencyErrorHtml()}
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+      ${dependencyGraphLegendHtml()}
     </section>`;
 
   return renderPackageDependenciesSurface(
@@ -6686,14 +6693,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             ${incompleteGraph}
             ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
-            <div class="graph-legend" aria-label="Graph legend">
-              <span><i class="legend-swatch target"></i>target member</span>
-              <span><i class="legend-swatch same-type"></i>same declaring type</span>
-              <span><i class="legend-swatch different-type"></i>different type, same assembly</span>
-              <span><i class="legend-swatch different-assembly"></i>different assembly</span>
-              <span><i class="legend-swatch loaded-node"></i>solid border: no platform lookup</span>
-              <span><i class="legend-swatch platform-node"></i>dashed border: external assembly (platform lookup on click)</span>
-            </div>
+            ${callGraphLegendHtml()}
             <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
@@ -12003,11 +12003,7 @@ async function renderTypeGraph() {
     if (document.querySelector("#type-graph-diagram") !== container) return;
     container.innerHTML =
       '<div class="graph-viewport"></div>'
-      + '<div class="graph-controls">'
-      + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
-      + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
-      + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
-      + '</div>';
+      + graphControlsHtml();
     const viewport =
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
@@ -12166,11 +12162,8 @@ async function renderDependencyGraph() {
     if (document.querySelector("#dependency-graph-diagram") !== container) return;
     container.innerHTML =
       '<div class="dependency-graph-stage"><div class="graph-viewport"></div>'
-      + '<div class="graph-controls">'
-      + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
-      + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
-      + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
-      + '</div></div>'
+      + graphControlsHtml()
+      + '</div>'
       + (built.truncated
         ? `<div class="graph-drill-error graph-diagnostics" role="status">Dependency graph truncated at ${built.nodeLimit} nodes.</div>`
         : "");
@@ -12446,7 +12439,8 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
       const id = `call-graph-${Date.now().toString(36)}-${seq}`;
       const rootStyle = getComputedStyle(document.documentElement);
       const renderDefinition = resolveMermaidCssVariables(
-        definition, name => rootStyle.getPropertyValue(name));
+        styleCallGraphMermaid(definition, active.targets),
+        name => rootStyle.getPropertyValue(name));
       const { svg } = await mermaid.render(id, renderDefinition);
       if (seq !== callGraphRenderSeq) {
         return { status: "superseded" };
@@ -12460,11 +12454,7 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
       }
       targetContainer.innerHTML =
         '<div class="graph-viewport"></div>'
-        + '<div class="graph-controls">'
-        + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
-        + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
-        + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
-        + '</div>';
+        + graphControlsHtml();
       const viewport =
         targetContainer.querySelector<HTMLElement>(".graph-viewport");
       if (!viewport) {
