@@ -4,7 +4,7 @@ using DotnetInspector.Core;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
-using DotnetInspector.Output;
+using DotnetInspect.Cli.Output;
 using DotnetInspector.Services;
 using InertText;
 
