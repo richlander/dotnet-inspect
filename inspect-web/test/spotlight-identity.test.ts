@@ -112,6 +112,7 @@ import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
+  styleCallGraphMermaid,
 } from "../src/graph-mermaid.ts";
 import { platformCatalogFramework } from "../src/platform-index.ts";
 import {
@@ -225,6 +226,8 @@ test("normalizing a history entry keeps its consumed position and later entries"
 });
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+const graphLegendsSource =
+  readFileSync(new URL("../src/graph-legends.ts", import.meta.url), "utf8");
 const parsedAppSource = parseSync("dotnet-inspect.ts", appSource);
 const appSyntax = parsedAppSource.program;
 
@@ -5083,10 +5086,10 @@ test("graph-only members open through the typed member surface", () => {
   assert.match(
     generatedFacadeSource("inspect-web-metadata"),
     /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);
-  assert.match(appSource, /solid border: no platform lookup/);
+  assert.match(graphLegendsSource, /solid border: no platform lookup/);
   assert.match(
-    appSource,
-    /dashed border: external assembly \(platform lookup on click\)/);
+    graphLegendsSource,
+    /dashed border: platform lookup on click/);
 });
 
 test("graph-only deep links win over colliding public member groups", () => {
@@ -5212,7 +5215,7 @@ test("shared package graph navigation retains portable accessor identity", () =>
     shareState,
     /memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
   assert.doesNotMatch(shareState, /selectedBodyTarget:/);
-  assert.match(appSource, /solid border: no platform lookup/);
+  assert.match(graphLegendsSource, /solid border: no platform lookup/);
 });
 
 test("stale graph member loads cannot mutate the visible member surface", () => {
@@ -6145,7 +6148,10 @@ test("navigable call graph targets share mouse and keyboard activation", () => {
     /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\);[\s\S]*node\.setAttribute\("aria-label", binding\.label\)/);
   assert.match(
     stylesSource,
-    /\.graph-viewport g\.node\.nav-node:focus-visible rect,[\s\S]*?stroke: var\(--blue\); stroke-width: 3px;/);
+    /\.graph-viewport g\.node\.nav-node:hover \{ filter: drop-shadow\(0 0 2px var\(--blue\)\); \}/);
+  assert.match(
+    stylesSource,
+    /\.graph-viewport g\.node\.nav-node:focus-visible \{[\s\S]*?outline: 2px solid var\(--blue\);[\s\S]*?filter: drop-shadow\(0 0 4px var\(--blue\)\);/);
   assert.match(
     appSource,
     /id="platform-drill-error" class="graph-drill-error" role="alert" tabindex="-1"/);
@@ -7240,6 +7246,9 @@ test("type graph rendering contains artifact labels", () => {
     /t0\["A&#92;u202E&#92;uD800-Café😀"\]:::self/);
   assert.equal(definition.includes("\u202E"), false);
   assert.equal(definition.includes("\uD800"), false);
+  assert.match(
+    definition,
+    /classDef self fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
 });
 
 test("Mermaid resolves the current theme without inventing missing colors", () => {
@@ -7248,6 +7257,42 @@ test("Mermaid resolves the current theme without inventing missing colors", () =
       "classDef self fill:var(--accent-soft),stroke:var(--accent);",
       name => name === "--accent-soft" ? " #abcdef " : ""),
     "classDef self fill:#abcdef,stroke:var(--accent);");
+});
+
+test("Call graph rendering lowers production roles to the legend palette", () => {
+  const definition = styleCallGraphMermaid(
+    `graph LR
+      n0[Process]:::focus --> n1[Same type]:::normal
+      n0 --> n2[Same assembly]:::normal
+      n0 --> n3[Different assembly]:::external
+      n0 --> n4[Same type name, different assembly]:::external`,
+    [
+      {
+        id: "n0", assembly: "Example", assemblyVersion: "1.0.0.0",
+        typeDefinitionId: "Example.Worker", kind: "focus",
+      },
+      {
+        id: "n1", assembly: "Example", assemblyVersion: "1.0.0.0",
+        typeDefinitionId: "Example.Worker", kind: "normal",
+      },
+      {
+        id: "n2", assembly: "Example", assemblyVersion: "1.0.0.0",
+        typeDefinitionId: "Example.Helper", kind: "normal",
+      },
+      {
+        id: "n3", assembly: "Other", assemblyVersion: "2.0.0.0",
+        typeDefinitionId: "Other.Helper", kind: "external",
+      },
+      {
+        id: "n4", assembly: "Other", assemblyVersion: "2.0.0.0",
+        typeDefinitionId: "Example.Worker", kind: "external",
+      },
+    ]);
+  assert.match(definition, /classDef target fill:var\(--graph-target-fill\)/);
+  assert.match(definition, /class n0 target;/);
+  assert.match(definition, /class n1 sameType;/);
+  assert.match(definition, /class n2 differentType;/);
+  assert.match(definition, /class n3,n4 differentAssembly;/);
 });
 
 test("dependency graph rendering contains artifact labels", async () => {
@@ -7279,4 +7324,7 @@ test("dependency graph rendering contains artifact labels", async () => {
     /d1\["Dependency&#92;u200D&#92;uDC00-Café😀"\]:::external/);
   assert.equal(definition.definition.includes("\u200D"), false);
   assert.equal(definition.definition.includes("\uDC00"), false);
+  assert.match(
+    definition.definition,
+    /classDef self fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
 });

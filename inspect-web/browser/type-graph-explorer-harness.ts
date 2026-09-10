@@ -1,7 +1,7 @@
 import mermaid from "mermaid";
 import { packageCoordinateLabel } from "../src/data.ts";
 import { bindGraphExplore, createGraphExplorer } from "../src/graph-explorer.ts";
-import { bindGraphPanZoom } from "../src/graph-interactions.ts";
+import { bindGraphPanZoom, graphControlsHtml } from "../src/graph-interactions.ts";
 import { buildTypeGraphMermaid, resolveMermaidCssVariables } from "../src/graph-mermaid.ts";
 import {
   renderTypeMetadata, TYPE_RELATIONSHIPS_GRAPH_SUMMARY, typeMetadataSignature,
@@ -104,11 +104,7 @@ async function mountGraph() {
   if (document.querySelector("#type-graph-diagram") !== diagram) return;
   diagram.innerHTML = `
     <div class="graph-viewport">${svg}</div>
-    <div class="graph-controls">
-      <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
-      <button type="button" data-zoom="out" aria-label="Zoom out">-</button>
-      <button type="button" data-zoom="reset" aria-label="Fit">fit</button>
-    </div>`;
+    ${graphControlsHtml()}`;
   const nodes = new Map(meta.graphNodes.map((node, index) => [`t${index}`, node]));
   bindGraphPanZoom(diagram, diagram.querySelector<HTMLElement>(".graph-viewport")!, {
     keybindings,

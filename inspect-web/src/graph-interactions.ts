@@ -25,6 +25,14 @@ export interface GraphPanZoomBindingOptions {
   ) => GraphNodeBinding | { unavailableLabel: string } | null;
 }
 
+export function graphControlsHtml(): string {
+  return `<div class="graph-controls" role="group" aria-label="Graph view controls">
+    <button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
+    <button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">&minus;</button>
+    <button type="button" class="reset" data-zoom="reset" title="Fit graph" aria-label="Fit">Fit</button>
+  </div>`;
+}
+
 export function bindGraphBack(
   root: ParentNode,
   actions: GraphBackBindingActions,
@@ -57,10 +65,14 @@ export function bindGraphPanZoom(
   svg.setAttribute("width", String(naturalWidth));
   svg.setAttribute("height", String(naturalHeight));
 
-  const minScale = 0.2;
+  type FitMode = "automatic" | "full";
+  const automaticMinScale = 0.2;
+  const fullExtentMinScale = 0.05;
+  const maxFitScale = 1.5;
   const maxScale = 8;
   const view = { scale: 1, x: 0, y: 0 };
-  const clampScale = (value: number) =>
+  let fitMode: FitMode | null = "automatic";
+  const clampScale = (value: number, minScale = fullExtentMinScale) =>
     Math.min(maxScale, Math.max(minScale, value));
 
   function apply() {
@@ -68,15 +80,22 @@ export function bindGraphPanZoom(
       `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
   }
 
-  function fit() {
+  function fit(mode: FitMode) {
     const rect = viewport.getBoundingClientRect();
     if (!naturalWidth || !naturalHeight || !rect.width) return;
     const fitScale =
       Math.min(rect.width / naturalWidth, rect.height / naturalHeight) * 0.92;
-    view.scale = clampScale(Math.min(fitScale, 1));
+    fitMode = mode;
+    view.scale = clampScale(
+      Math.min(fitScale, maxFitScale),
+      mode === "automatic" ? automaticMinScale : fullExtentMinScale);
     view.x = (rect.width - naturalWidth * view.scale) / 2;
     view.y = (rect.height - naturalHeight * view.scale) / 2;
     apply();
+  }
+
+  function markUserAdjusted() {
+    fitMode = null;
   }
 
   function zoomAt(px: number, py: number, factor: number) {
@@ -90,6 +109,7 @@ export function bindGraphPanZoom(
 
   viewport.addEventListener("wheel", event => {
     event.preventDefault();
+    markUserAdjusted();
     const rect = viewport.getBoundingClientRect();
     zoomAt(
       event.clientX - rect.left,
@@ -120,6 +140,7 @@ export function bindGraphPanZoom(
       if (Math.abs(dx) + Math.abs(dy) <= panThreshold) return;
       capturing = true;
       moved = true;
+      markUserAdjusted();
       viewport.setPointerCapture(pointerId);
       viewport.classList.add("panning");
     }
@@ -144,12 +165,15 @@ export function bindGraphPanZoom(
       button.addEventListener("click", () => {
         const rect = viewport.getBoundingClientRect();
         const mode = button.dataset.zoom;
-        if (mode === "in")
+        if (mode === "in") {
+          markUserAdjusted();
           zoomAt(rect.width / 2, rect.height / 2, 1.25);
-        else if (mode === "out")
+        } else if (mode === "out") {
+          markUserAdjusted();
           zoomAt(rect.width / 2, rect.height / 2, 0.8);
-        else
-          fit();
+        } else {
+          fit("full");
+        }
       });
     });
 
@@ -157,24 +181,30 @@ export function bindGraphPanZoom(
   const handlePanZoomKey = (event: KeyboardEvent): boolean => {
     const rect = viewport.getBoundingClientRect();
     const step = 45;
-    if (event.key === "+" || event.key === "=")
+    if (event.key === "+" || event.key === "=") {
+      markUserAdjusted();
       zoomAt(rect.width / 2, rect.height / 2, 1.25);
-    else if (event.key === "-" || event.key === "_")
+    } else if (event.key === "-" || event.key === "_") {
+      markUserAdjusted();
       zoomAt(rect.width / 2, rect.height / 2, 0.8);
-    else if (event.key === "0")
-      fit();
-    else if (event.key === "ArrowLeft" && !event.altKey && !event.shiftKey) {
+    } else if (event.key === "0") {
+      fit("full");
+    } else if (event.key === "ArrowLeft" && !event.altKey && !event.shiftKey) {
       // Alt/Shift+ArrowLeft is the global back gesture; leave it unclaimed so
       // panning doesn't swallow document-level history navigation.
+      markUserAdjusted();
       view.x += step;
       apply();
     } else if (event.key === "ArrowRight" && !event.altKey && !event.shiftKey) {
+      markUserAdjusted();
       view.x -= step;
       apply();
     } else if (event.key === "ArrowUp") {
+      markUserAdjusted();
       view.y += step;
       apply();
     } else if (event.key === "ArrowDown") {
+      markUserAdjusted();
       view.y -= step;
       apply();
     } else {
@@ -250,5 +280,11 @@ export function bindGraphPanZoom(
     });
   }
 
-  fit();
+  fit("automatic");
+  if (typeof ResizeObserver !== "undefined") {
+    const resizeObserver = new ResizeObserver(() => {
+      if (fitMode) fit(fitMode);
+    });
+    resizeObserver.observe(viewport);
+  }
 }

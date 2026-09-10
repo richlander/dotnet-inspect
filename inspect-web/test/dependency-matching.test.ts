@@ -124,6 +124,7 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
         return diagramResult;
       },
     } }),
+    graphControlsHtml: () => '<div class="graph-controls"></div>',
     bindGraphPanZoom() {},
     keybindings: {},
     closeGraphExplorerForNavigation() {},

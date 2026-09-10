@@ -22,6 +22,84 @@ export function resolveMermaidCssVariables(
     (whole: string, name: string) => readProperty(name).trim() || whole);
 }
 
+export interface CallGraphMermaidTarget {
+  id: string;
+  assembly: string;
+  assemblyVersion?: string | null;
+  assemblyCulture?: string | null;
+  assemblyPublicKeyToken?: string | null;
+  typeDefinitionId?: string | null;
+  typeMetadataId?: string | null;
+  kind: string;
+  surfaceAssemblyId?: string | null;
+}
+
+function callGraphTypeId(target: CallGraphMermaidTarget): string {
+  return target.typeDefinitionId || target.typeMetadataId || "";
+}
+
+function callGraphTargetsShareAssembly(
+  left: CallGraphMermaidTarget,
+  right: CallGraphMermaidTarget,
+): boolean {
+  if (left.surfaceAssemblyId && right.surfaceAssemblyId) {
+    return left.surfaceAssemblyId.toLowerCase()
+      === right.surfaceAssemblyId.toLowerCase();
+  }
+  const culture = (value: string | null | undefined) =>
+    value?.toLowerCase() === "neutral" ? "" : value?.toLowerCase() || "";
+  return left.assembly.toLowerCase() === right.assembly.toLowerCase()
+    && (left.assemblyVersion || "") === (right.assemblyVersion || "")
+    && culture(left.assemblyCulture) === culture(right.assemblyCulture)
+    && (left.assemblyPublicKeyToken || "").toLowerCase()
+      === (right.assemblyPublicKeyToken || "").toLowerCase();
+}
+
+export function styleCallGraphMermaid(
+  definition: string,
+  targets: readonly CallGraphMermaidTarget[],
+): string {
+  const focus =
+    targets.find(target => target.kind.toLowerCase() === "focus")
+    ?? targets.find(target => target.id === "n0");
+  if (!focus) return definition;
+
+  const roles = {
+    target: [] as string[],
+    sameType: [] as string[],
+    differentType: [] as string[],
+    differentAssembly: [] as string[],
+  };
+  const focusTypeId = callGraphTypeId(focus);
+  for (const target of targets) {
+    const sharesAssembly = callGraphTargetsShareAssembly(target, focus);
+    if (target.id === focus.id
+      || target.kind.toLowerCase() === "focus") {
+      roles.target.push(target.id);
+    } else if (sharesAssembly
+      && focusTypeId
+      && callGraphTypeId(target) === focusTypeId) {
+      roles.sameType.push(target.id);
+    } else if (sharesAssembly) {
+      roles.differentType.push(target.id);
+    } else {
+      roles.differentAssembly.push(target.id);
+    }
+  }
+
+  const lines = [
+    definition,
+    "classDef target fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;",
+    "classDef sameType fill:var(--graph-same-type-fill),stroke:var(--graph-same-type-stroke),color:var(--graph-same-type-text);",
+    "classDef differentType fill:var(--graph-different-type-fill),stroke:var(--graph-different-type-stroke),color:var(--graph-different-type-text);",
+    "classDef differentAssembly fill:var(--graph-different-assembly-fill),stroke:var(--graph-different-assembly-stroke),color:var(--graph-different-assembly-text);",
+  ];
+  for (const [role, ids] of Object.entries(roles)) {
+    if (ids.length > 0) lines.push(`class ${ids.join(",")} ${role};`);
+  }
+  return lines.join("\n");
+}
+
 function shortTypeName(fullName: string): string {
   const generic = fullName.indexOf("<");
   const head = generic < 0 ? fullName : fullName.slice(0, generic);
@@ -62,7 +140,7 @@ export function buildTypeGraphMermaid(meta: TypeGraphMeta): string | null {
     const to = idOf.get(edge.toId);
     if (from && to) lines.push(`  ${from} --> ${to}`);
   }
-  lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
+  lines.push("classDef self fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
   lines.push("classDef base fill:var(--panel-active),stroke:var(--line-strong),color:var(--text);");
   lines.push("classDef interface fill:transparent,stroke:var(--line-strong),color:var(--dim);");
   lines.push("classDef derived fill:var(--panel),stroke:var(--line),color:var(--text);");
@@ -276,7 +354,7 @@ export async function buildDependencyGraphMermaid(
   for (const edge of edges) {
     lines.push(`  ${idOf.get(edge.from)} --> ${idOf.get(edge.to)}`);
   }
-  lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
+  lines.push("classDef self fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
   lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
   lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
   const nodeInfoById = new Map<string, DependencyGraphNodeInfo>();
