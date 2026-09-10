@@ -60,7 +60,9 @@ rejected because GitHub's NuGet ecosystem records do not establish
 correspondence with a private or shadowing feed. Coordinates are compared by
 their normalized lowercase package ID and NuGet version. The first occurrence
 determines stable result order; duplicate spellings do not cause duplicate
-network work.
+network work. A response package entry is relevant only when its ID matches an
+ID admitted by that request; response parsing does not impose a second,
+narrower package-ID grammar.
 
 The producer is the fixed `https://api.github.com/advisories` endpoint with
 explicit `ecosystem=nuget`, `type=reviewed`, and non-withdrawn scope. A result
@@ -117,7 +119,8 @@ limit, API rate-limit or forbidden response, aggregate response-byte limit,
 deadline, cancellation, or source/data failure. Cancellation remains
 cancellation rather than a success-shaped result. Other terminal failures
 retain observations already acquired and mark uncovered or incompletely
-covered categories accordingly.
+covered categories accordingly. The deadline covers response acquisition and
+local parsing and exact-coordinate evaluation.
 
 The 1,000-coordinate request bound covers the six-week experiment's roughly
 529 coordinates without making that sample a completion claim. Source
@@ -151,6 +154,9 @@ The implementation must demonstrate:
   coordinates;
 - a positive match retained when a later continuation fails;
 - malformed range or fixed-version evidence preventing a complete negative;
+- malformed escaped string data producing typed invalid evidence;
+- a request-admitted non-ASCII package ID retaining exact correspondence;
+- deadline expiry during local exact-coordinate evaluation;
 - request and aggregate-byte limits after earlier coordinates produced
   evidence;
 - rejected off-authority continuation and duplicate-bearing JSON; and

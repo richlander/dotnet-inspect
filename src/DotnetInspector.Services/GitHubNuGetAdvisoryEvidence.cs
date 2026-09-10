@@ -459,7 +459,20 @@ public sealed class GitHubNuGetAdvisoryService
                 }
 
                 state.ResponseBytes += response.Bytes.LongLength;
-                batchUsable |= ParsePage(response.Bytes, batch, state);
+                batchUsable |= ParsePage(
+                    response.Bytes,
+                    batch,
+                    state,
+                    deadline.Token,
+                    out bool localDeadlineReached);
+                if (localDeadlineReached
+                    || deadline.IsCancellationRequested)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    state.AddFailure(
+                        GitHubNuGetAdvisoryFailureKind.DeadlineReached);
+                    break;
+                }
 
                 if (links.Invalid)
                 {
@@ -692,8 +705,17 @@ public sealed class GitHubNuGetAdvisoryService
     private static bool ParsePage(
         ReadOnlyMemory<byte> json,
         ImmutableArray<GitHubNuGetAdvisoryRequest.Package> batch,
-        AcquisitionState state)
+        AcquisitionState state,
+        CancellationToken deadlineToken,
+        out bool deadlineReached)
     {
+        deadlineReached = false;
+        if (deadlineToken.IsCancellationRequested)
+        {
+            deadlineReached = true;
+            return false;
+        }
+
         JsonDocument document;
         try
         {
@@ -715,70 +737,91 @@ public sealed class GitHubNuGetAdvisoryService
 
             var batchIds = batch.Select(static package => package.PackageId)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (JsonElement element in document.RootElement.EnumerateArray())
+            try
             {
-                if (!TryReadAdvisory(element, out ParsedAdvisory? advisory))
+                deadlineToken.ThrowIfCancellationRequested();
+                foreach (JsonElement element
+                    in document.RootElement.EnumerateArray())
                 {
-                    state.MarkInvalid(batch);
-                    continue;
-                }
-
-                foreach (ParsedVulnerability vulnerability
-                    in advisory!.Vulnerabilities)
-                {
-                    if (!batchIds.Contains(vulnerability.PackageId)
-                        || !state.Packages.TryGetValue(
-                            vulnerability.PackageId,
-                            out PackageState? package))
+                    deadlineToken.ThrowIfCancellationRequested();
+                    if (!TryReadAdvisory(
+                            element,
+                            batchIds,
+                            deadlineToken,
+                            out ParsedAdvisory? advisory))
                     {
+                        state.MarkInvalid(batch);
                         continue;
                     }
 
-                    if (vulnerability.Range is null)
+                    foreach (ParsedVulnerability vulnerability
+                        in advisory!.Vulnerabilities)
                     {
-                        package.CurrentDataValid = false;
-                        state.AddFailure(
-                            GitHubNuGetAdvisoryFailureKind.InvalidData);
-                    }
-                    else
-                    {
-                        foreach (CoordinateState coordinate in package.Coordinates)
+                        deadlineToken.ThrowIfCancellationRequested();
+                        if (!state.Packages.TryGetValue(
+                            vulnerability.PackageId,
+                            out PackageState? package))
                         {
-                            if (!TryEvaluateRange(
-                                    vulnerability.Range,
-                                    coordinate.Version,
-                                    out bool affected))
-                            {
-                                package.CurrentDataValid = false;
-                                state.AddFailure(
-                                    GitHubNuGetAdvisoryFailureKind.InvalidData);
-                                break;
-                            }
-
-                            if (affected)
-                                coordinate.Current.TryAdd(advisory.Reference);
+                            continue;
                         }
-                    }
 
-                    if (vulnerability.FirstPatchedVersionMalformed)
-                    {
-                        package.FixedDataValid = false;
-                        state.AddFailure(
-                            GitHubNuGetAdvisoryFailureKind.InvalidData);
-                    }
-                    else if (vulnerability.FirstPatchedVersion is { } fixedVersion)
-                    {
-                        foreach (CoordinateState coordinate in package.Coordinates)
+                        if (vulnerability.Range is null)
                         {
-                            if (VersionComparer.VersionRelease.Equals(
-                                    fixedVersion,
-                                    coordinate.Version))
+                            package.CurrentDataValid = false;
+                            state.AddFailure(
+                                GitHubNuGetAdvisoryFailureKind.InvalidData);
+                        }
+                        else
+                        {
+                            foreach (CoordinateState coordinate
+                                in package.Coordinates)
                             {
-                                coordinate.Fixed.TryAdd(advisory.Reference);
+                                deadlineToken.ThrowIfCancellationRequested();
+                                if (!TryEvaluateRange(
+                                        vulnerability.Range,
+                                        coordinate.Version,
+                                        out bool affected))
+                                {
+                                    package.CurrentDataValid = false;
+                                    state.AddFailure(
+                                        GitHubNuGetAdvisoryFailureKind.InvalidData);
+                                    break;
+                                }
+
+                                if (affected)
+                                    coordinate.Current.TryAdd(advisory.Reference);
+                            }
+                        }
+
+                        if (vulnerability.FirstPatchedVersionMalformed)
+                        {
+                            package.FixedDataValid = false;
+                            state.AddFailure(
+                                GitHubNuGetAdvisoryFailureKind.InvalidData);
+                        }
+                        else if (vulnerability.FirstPatchedVersion
+                            is { } fixedVersion)
+                        {
+                            foreach (CoordinateState coordinate
+                                in package.Coordinates)
+                            {
+                                deadlineToken.ThrowIfCancellationRequested();
+                                if (VersionComparer.VersionRelease.Equals(
+                                        fixedVersion,
+                                        coordinate.Version))
+                                {
+                                    coordinate.Fixed.TryAdd(advisory.Reference);
+                                }
                             }
                         }
                     }
                 }
+            }
+            catch (OperationCanceledException)
+                when (deadlineToken.IsCancellationRequested)
+            {
+                deadlineReached = true;
+                return true;
             }
         }
 
@@ -787,6 +830,8 @@ public sealed class GitHubNuGetAdvisoryService
 
     private static bool TryReadAdvisory(
         JsonElement element,
+        IReadOnlySet<string> requestedPackageIds,
+        CancellationToken deadlineToken,
         out ParsedAdvisory? advisory)
     {
         advisory = null;
@@ -817,9 +862,11 @@ public sealed class GitHubNuGetAdvisoryService
         {
             if (cve.ValueKind == JsonValueKind.String)
             {
-                cveId = cve.GetString();
-                if (!IsCveId(cveId))
+                if (!TryReadString(cve, out cveId)
+                    || !IsCveId(cveId))
+                {
                     return false;
+                }
             }
             else if (cve.ValueKind != JsonValueKind.Null)
             {
@@ -830,8 +877,14 @@ public sealed class GitHubNuGetAdvisoryService
         var parsed = ImmutableArray.CreateBuilder<ParsedVulnerability>();
         foreach (JsonElement vulnerability in vulnerabilities.EnumerateArray())
         {
-            if (!TryReadVulnerability(vulnerability, out ParsedVulnerability? value))
+            deadlineToken.ThrowIfCancellationRequested();
+            if (!TryReadVulnerability(
+                    vulnerability,
+                    requestedPackageIds,
+                    out ParsedVulnerability? value))
+            {
                 return false;
+            }
             if (value is not null)
                 parsed.Add(value);
         }
@@ -851,6 +904,7 @@ public sealed class GitHubNuGetAdvisoryService
 
     private static bool TryReadVulnerability(
         JsonElement element,
+        IReadOnlySet<string> requestedPackageIds,
         out ParsedVulnerability? vulnerability)
     {
         vulnerability = null;
@@ -865,17 +919,17 @@ public sealed class GitHubNuGetAdvisoryService
 
         if (!ecosystem!.Equals("nuget", StringComparison.OrdinalIgnoreCase))
             return true;
-        if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
-            return false;
+        if (!requestedPackageIds.Contains(packageId!))
+            return true;
 
         string? range = null;
         if (element.TryGetProperty(
                 "vulnerable_version_range",
                 out JsonElement rangeElement)
-            && rangeElement.ValueKind == JsonValueKind.String
-            && !string.IsNullOrWhiteSpace(rangeElement.GetString()))
+            && TryReadString(rangeElement, out string? rangeValue)
+            && !string.IsNullOrWhiteSpace(rangeValue))
         {
-            range = rangeElement.GetString();
+            range = rangeValue;
         }
 
         bool hasFirstPatched = element.TryGetProperty(
@@ -886,11 +940,9 @@ public sealed class GitHubNuGetAdvisoryService
         if (hasFirstPatched
             && firstPatchedElement.ValueKind != JsonValueKind.Null)
         {
-            string? identifier = firstPatchedElement.ValueKind
-                == JsonValueKind.String
-                    ? firstPatchedElement.GetString()
-                    : null;
-            if (firstPatchedElement.ValueKind != JsonValueKind.String
+            if (!TryReadString(
+                    firstPatchedElement,
+                    out string? identifier)
                 || string.IsNullOrWhiteSpace(identifier)
                 || !NuGetVersion.TryParse(identifier, out firstPatched))
             {
@@ -1019,13 +1071,31 @@ public sealed class GitHubNuGetAdvisoryService
     {
         value = null;
         if (!element.TryGetProperty(propertyName, out JsonElement property)
-            || property.ValueKind != JsonValueKind.String)
+            || !TryReadString(property, out value))
         {
             return false;
         }
 
-        value = property.GetString();
         return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool TryReadString(
+        JsonElement element,
+        out string? value)
+    {
+        value = null;
+        if (element.ValueKind != JsonValueKind.String)
+            return false;
+
+        try
+        {
+            value = element.GetString();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static bool TryUtcTimestamp(

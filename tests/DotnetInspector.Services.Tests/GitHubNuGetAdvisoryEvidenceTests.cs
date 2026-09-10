@@ -586,6 +586,65 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
     }
 
     [Fact]
+    public async Task MalformedEscapedStringProducesInvalidData()
+    {
+        string page = AdvisoryPage(
+            packageId: "Example.Client",
+            range: "< 2.0.0",
+            fixedVersion: "2.0.0")
+            .Replace(
+                "\"severity\": \"high\"",
+                "\"severity\": \"\\uD800\"",
+                StringComparison.Ordinal);
+        using var handler = new RoutingHandler((_, _) => Json(page));
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "1.0.0")),
+                TestContext.Current.CancellationToken);
+
+        GitHubNuGetAdvisoryPackageEvidence package =
+            Assert.Single(result.Packages);
+        Assert.False(result.Complete);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Partial,
+            package.CurrentContextAvailability);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Partial,
+            package.FixedVersionAvailability);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.InvalidData,
+            result.Failures);
+    }
+
+    [Fact]
+    public async Task MatchesRequestAdmittedUnicodePackageId()
+    {
+        const string packageId = "Тест.Client";
+        using var handler = new RoutingHandler((_, _) => Json(AdvisoryPage(
+            packageId,
+            range: "< 2.1.1",
+            fixedVersion: "2.1.1")));
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At(packageId, "2.1.0")),
+                TestContext.Current.CancellationToken);
+
+        GitHubNuGetAdvisoryPackageEvidence package =
+            Assert.Single(result.Packages);
+        Assert.True(result.Complete);
+        Assert.Equal("тест.client", package.Coordinate.PackageId);
+        Assert.Single(package.CurrentAdvisories);
+        Assert.Empty(package.FixedVersionAdvisories);
+        Assert.Empty(result.Failures);
+    }
+
+    [Fact]
     public async Task DateOnlyAdvisoryTimestampIsInvalid()
     {
         string page = AdvisoryPage(
@@ -608,6 +667,76 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
         Assert.Empty(Assert.Single(result.Packages).CurrentAdvisories);
         Assert.Contains(
             GitHubNuGetAdvisoryFailureKind.InvalidData,
+            result.Failures);
+    }
+
+    [Fact]
+    public async Task OperationDeadlineBoundsLocalEvaluation()
+    {
+        var vulnerabilities = new StringBuilder();
+        for (int index = 0; index < 1_500; index++)
+        {
+            if (index != 0)
+                vulnerabilities.Append(',');
+            vulnerabilities.Append(
+                """
+                {
+                  "package": {
+                    "ecosystem": "nuget",
+                    "name": "Example.Client"
+                  },
+                  "vulnerable_version_range": ">= 0.0.0",
+                  "first_patched_version": null
+                }
+                """);
+        }
+
+        string page =
+            $$"""
+            [
+              {
+                "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+                "cve_id": "CVE-2026-1234",
+                "type": "reviewed",
+                "severity": "high",
+                "published_at": "2026-09-09T16:04:11Z",
+                "updated_at": "2026-09-09T18:00:00Z",
+                "withdrawn_at": null,
+                "vulnerabilities": [{{vulnerabilities}}]
+              }
+            ]
+            """;
+        using var handler = new RoutingHandler((_, _) => Json(page));
+        using var client = new HttpClient(handler);
+        PackageSourceCoordinate[] coordinates = Enumerable.Range(0, 1_000)
+            .Select(index => At("Example.Client", $"1.0.{index}"))
+            .ToArray();
+
+        var warmup = new GitHubNuGetAdvisoryService(client);
+        _ = await warmup.AcquireAsync(
+            Request(coordinates),
+            TestContext.Current.CancellationToken);
+
+        var service = new GitHubNuGetAdvisoryService(
+            client,
+            new GitHubNuGetAdvisoryOptions
+            {
+                OperationTimeout = TimeSpan.FromMilliseconds(20),
+            });
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(coordinates),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.Complete);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Partial,
+            Assert.Single(result.Packages.Select(
+                static package => package.CurrentContextAvailability)
+                .Distinct()));
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.DeadlineReached,
             result.Failures);
     }
 
