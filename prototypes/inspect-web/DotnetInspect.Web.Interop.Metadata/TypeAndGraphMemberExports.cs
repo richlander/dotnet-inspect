@@ -8,12 +8,12 @@ using Analysis = ILInspector.Analysis;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Metadata;
 
+namespace DotnetInspect.Web.Interop.Metadata;
+
 /// <summary>
 /// API and metadata projection over a package or platform coordinate the shared workspace already
 /// owns. This facade acquires no artifact of its own.
 /// </summary>
-namespace DotnetInspect.Web.Interop.Metadata;
-
 [SupportedOSPlatform("browser")]
 public static partial class MetadataExports
 {

@@ -5,11 +5,11 @@ using System.Text.Json;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.CallGraph;
 
+namespace DotnetInspect.Web.Interop.CallGraph;
+
 /// <summary>
 /// Platform call-graph expansion through the shared browser Platform workspace.
 /// </summary>
-namespace DotnetInspect.Web.Interop.CallGraph;
-
 [SupportedOSPlatform("browser")]
 public static partial class CallGraphExports
 {

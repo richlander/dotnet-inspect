@@ -6,6 +6,8 @@ using DotnetInspector.Queries;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
 
+namespace DotnetInspect.Web.Interop.Analysis;
+
 /// <summary>
 /// Platform Analysis results. Platform performance is an explicitly unavailable capability rather
 /// than a missing binding: the operation stays exported and rejects with its existing error.
@@ -24,8 +26,6 @@ using DotnetInspect.Web.Interop.Analysis;
 /// "Required workspace queries", and each has a tracking issue named there.
 /// </para>
 /// </remarks>
-namespace DotnetInspect.Web.Interop.Analysis;
-
 [SupportedOSPlatform("browser")]
 public static partial class AnalysisExports
 {

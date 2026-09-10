@@ -8,11 +8,10 @@ using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
-// The generated wwwroot/inspect-web-catalog.js module binds exports.CatalogExports.*, so this
-// type stays in the global namespace. Its helpers and wire records live in
-// DotnetInspect.Web.Interop.Catalog.
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Catalog;
+
+namespace DotnetInspect.Web.Interop.Catalog;
 
 /// <summary>
 /// Product-owned static vocabulary and demo definitions plus product-owned workspace-share
@@ -23,8 +22,6 @@ using DotnetInspect.Web.Interop.Catalog;
 /// <c>DotnetInspect.Web.Core</c>; it does not call the package facade or reuse that facade's wire
 /// records.
 /// </remarks>
-namespace DotnetInspect.Web.Interop.Catalog;
-
 [SupportedOSPlatform("browser")]
 public static partial class CatalogExports
 {

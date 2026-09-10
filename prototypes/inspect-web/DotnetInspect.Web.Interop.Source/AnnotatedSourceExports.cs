@@ -9,13 +9,13 @@ using Analysis = ILInspector.Analysis;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Source;
 
+namespace DotnetInspect.Web.Interop.Source;
+
 /// <summary>
 /// Annotated source. The returned document and its viewer contract are the capability being
 /// requested, so it stays with source; Analysis facts embedded in that product document do not
 /// transfer ownership to another adapter.
 /// </summary>
-namespace DotnetInspect.Web.Interop.Source;
-
 [SupportedOSPlatform("browser")]
 public static partial class SourceExports
 {

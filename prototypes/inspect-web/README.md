@@ -1024,7 +1024,7 @@ dotnet workload install wasm-experimental
 cd prototypes/inspect-web
 npm ci
 npm run build
-cd engine
+cd DotnetInspect.Web
 dotnet run -c Release
 ```
 

@@ -4,12 +4,12 @@ using System.Text.Json;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Package;
 
+namespace DotnetInspect.Web.Interop.Package;
+
 /// <summary>
 /// Platform acquisition. A runtime pack load returns the same browsable package surface as a
 /// NuGet package load, so both live in the package facade.
 /// </summary>
-namespace DotnetInspect.Web.Interop.Package;
-
 [SupportedOSPlatform("browser")]
 public static partial class PackageExports
 {

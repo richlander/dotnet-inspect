@@ -7,11 +7,10 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
-// The generated wwwroot/inspect-web-package.js module binds
-// exports.PackageExports.*, so this type stays in the global namespace. Its
-// helpers and wire records live in DotnetInspect.Web.Interop.Package.
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Package;
+
+namespace DotnetInspect.Web.Interop.Package;
 
 /// <summary>
 /// The browser's package and platform acquisition surface.
@@ -30,8 +29,6 @@ using DotnetInspect.Web.Interop.Package;
 /// artifact at all (type-name ranking and cache statistics).
 /// </para>
 /// </remarks>
-namespace DotnetInspect.Web.Interop.Package;
-
 [SupportedOSPlatform("browser")]
 public static partial class PackageExports
 {

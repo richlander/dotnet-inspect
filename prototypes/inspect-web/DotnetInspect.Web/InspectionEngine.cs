@@ -3,9 +3,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 
-// The generated wwwroot/inspect-web-host.js module binds exports.InspectionEngine.*, so this type
-// stays in the global namespace. Its helpers live in DotnetInspect.Web.
-using DotnetInspect.Web;
+namespace DotnetInspect.Web;
 
 /// <summary>
 /// The browser host's own exported surface: Browser/Wasm lifecycle, host configuration, and build
@@ -24,8 +22,6 @@ using DotnetInspect.Web;
 /// <c>DotnetInspect.Web.Core</c> and is applied before the entry point starts application work.
 /// </para>
 /// </remarks>
-namespace DotnetInspect.Web;
-
 [SupportedOSPlatform("browser")]
 public static partial class InspectionEngine
 {

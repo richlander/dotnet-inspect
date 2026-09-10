@@ -9,6 +9,8 @@ using ILAnalysis = ILInspector.Analysis;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
 
+namespace DotnetInspect.Web.Interop.Analysis;
+
 /// <summary>
 /// Analysis, integration, opportunity, and performance results for one package or platform
 /// workspace.
@@ -18,8 +20,6 @@ using DotnetInspect.Web.Interop.Analysis;
 /// that owns the session and the Analysis index. This facade composes no evidence and adapts no
 /// call-graph topology; graph traversal has its own facade and product owner.
 /// </remarks>
-namespace DotnetInspect.Web.Interop.Analysis;
-
 [SupportedOSPlatform("browser")]
 public static partial class AnalysisExports
 {

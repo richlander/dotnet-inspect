@@ -2516,8 +2516,8 @@ test("bare home paints before wasm engine download", () => {
     appSource.match(/function openPackageQuery[\s\S]*?\n}\n\nconst loadErrorShellActions/)?.[0] ?? "";
   const loadingView =
     appSource.match(/function renderLoading\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberDocumentation/)?.[0] ?? "";
-  assert.doesNotMatch(appSource, /from "\/DotnetInspect.Web\.js"/);
-  assert.doesNotMatch(appSource, /inspect-web-DotnetInspect.Web/);
+  assert.doesNotMatch(appSource, /from "\/engine\.js"/);
+  assert.doesNotMatch(appSource, /inspect-web-engine/);
   assert.match(
     appSource,
     /async function loadEngineModule\(\)[\s\S]*await Promise\.all\(\[/);

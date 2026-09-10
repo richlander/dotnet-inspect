@@ -4,11 +4,10 @@ using System.Text.Json;
 using DotnetInspector.Queries;
 using Analysis = ILInspector.Analysis;
 
-// The generated wwwroot/inspect-web-call-graph.js module binds exports.CallGraphExports.*, so
-// this type stays in the global namespace. Its helpers and wire records live in
-// DotnetInspect.Web.Interop.CallGraph.
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.CallGraph;
+
+namespace DotnetInspect.Web.Interop.CallGraph;
 
 /// <summary>
 /// Package and platform call-graph expansion. Both traversals return the same browser call-graph
@@ -18,8 +17,6 @@ using DotnetInspect.Web.Interop.CallGraph;
 /// Graph-target member projection stays in the metadata facade because it projects one API member
 /// after navigation rather than expanding topology.
 /// </remarks>
-namespace DotnetInspect.Web.Interop.CallGraph;
-
 [SupportedOSPlatform("browser")]
 public static partial class CallGraphExports
 {
