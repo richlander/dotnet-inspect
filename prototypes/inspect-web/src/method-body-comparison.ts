@@ -130,10 +130,10 @@ export function methodBodyChoiceForKey(
     choice => methodBodySelectionKey(choice) === key) ?? null;
 }
 
-export type MethodBodyTargetsAdapter = OperationProducerAdapter<
+type MethodBodyTargetsAdapter = OperationProducerAdapter<
   MethodBodyComparisonContext, BrowserMethodBodyTargets, unknown, never, unknown
 >;
-export type MethodBodyComparisonAdapter = OperationProducerAdapter<
+type MethodBodyComparisonAdapter = OperationProducerAdapter<
   BrowserMethodBodyComparisonRequest, BrowserMethodBodyComparison, unknown, never, unknown
 >;
 

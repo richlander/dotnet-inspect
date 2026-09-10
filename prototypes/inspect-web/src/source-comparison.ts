@@ -49,7 +49,7 @@ export function isExactSourceComparisonVersion(value: string): boolean {
   return /^\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(value.trim());
 }
 
-export type SourceComparisonAdapter = OperationProducerAdapter<
+type SourceComparisonAdapter = OperationProducerAdapter<
   BrowserSourceComparisonRequest, BrowserSourceComparison, unknown, never, unknown
 >;
 
