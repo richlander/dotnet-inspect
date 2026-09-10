@@ -354,6 +354,18 @@ public class CatalogCallGraphScopeTests
         Assert.Equal(
             GraphNodeIdentity.FromMember(callSite),
             GraphNodeIdentity.FromMethod(Definition(dependencyV2)));
+        MemberRef versionTwoCallSite = callSite with
+        {
+            ParameterTypes = [Dependency(dependencyV2)],
+        };
+        Assert.Equal(
+            GraphNodeIdentity.FromMember(callSite),
+            GraphNodeIdentity.FromMember(versionTwoCallSite));
+        Assert.NotEqual(
+            CatalogCallGraphScope.ExactPlanMemberIdentity(
+                callSite),
+            CatalogCallGraphScope.ExactPlanMemberIdentity(
+                versionTwoCallSite));
         Assert.True(
             CatalogCallGraphScope.ExactFallbackSignaturesMatch(
                 callSite,

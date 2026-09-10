@@ -395,6 +395,10 @@ public sealed class CatalogCallGraphScope : IDisposable
         || kind == CallKind.CallVirtual
             && !target.IsVirtualDispatchOpen;
 
+    internal static string ExactPlanMemberIdentity(MemberRef member) =>
+        LibraryBodyAsyncSiblingSignatureMatcher
+            .ExactAsyncSiblingMemberIdentity(member);
+
     sealed class ScopeGraph : IDisposable
     {
         readonly ImmutableArray<StoredDefinition> _definitions;
@@ -1499,7 +1503,8 @@ public sealed class CatalogCallGraphScope : IDisposable
         {
             var key = new PlanKey(
                 source.Registration,
-                GraphNodeIdentity.FromMember(member));
+                GraphNodeIdentity.FromMember(member),
+                ExactPlanMemberIdentity(member));
             if (plans.TryGetValue(key, out PlanEntry? existing))
                 return existing;
 
@@ -1580,7 +1585,8 @@ public sealed class CatalogCallGraphScope : IDisposable
 
         readonly record struct PlanKey(
             AssemblyAcquisitionRegistration Source,
-            GraphNodeIdentity Member);
+            GraphNodeIdentity Member,
+            string ExactMember);
 
         sealed record PendingDefinition(
             CatalogCallGraphParticipant Participant,

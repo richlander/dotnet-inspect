@@ -292,6 +292,10 @@ public sealed class InspectionGraphCommandTests
 
         Assert.Equal(0, partial.ExitCode);
         Assert.Contains(
+            "Evidence Method",
+            partial.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "2 call sites.",
             partial.Output,
             StringComparison.Ordinal);

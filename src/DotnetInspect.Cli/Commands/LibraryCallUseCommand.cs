@@ -56,6 +56,7 @@ public static class LibraryCallUseCommand
         "Source Member",
         "Target Member",
         "Call",
+        "Evidence Method",
         "IL Offset",
     ];
 

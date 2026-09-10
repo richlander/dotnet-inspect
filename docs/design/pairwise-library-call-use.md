@@ -186,9 +186,12 @@ call semantics.
 
 The default human view summarizes source-member, target-member, and call-site
 counts per observed direction, then shows the directed source and target member
-pair, call kind, and physical location. Structured formats retain the exact
-occurrence rows, including full assembly identities, source and target MVIDs
-and method tokens, and the evidence method MVID and token.
+pair, call kind, evidence method, and physical IL offset. The evidence method
+remains visible even when it equals the attributed source method so generated-
+body locations cannot appear to belong to the declared method. Structured
+formats retain the exact occurrence rows, including full assembly identities,
+source and target MVIDs and method tokens, and the evidence method MVID and
+token.
 Row windows apply once before human summaries and table rendering. Counts
 operate on the same windowed occurrences, not unique methods.
 
