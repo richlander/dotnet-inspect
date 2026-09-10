@@ -371,7 +371,7 @@ test("malformed and oversized generated results reject only their calls", async 
   );
   const oversized = assert.rejects(
     state.client.package.loadRuntimePack("net10.0", "10.0.0"),
-    /exceeds 1048576 characters/,
+    /exceeds 8388608 characters/,
   );
   const neighbor = state.client.package.packageCacheStats();
   await state.environment.flushAsync();
@@ -407,10 +407,38 @@ test("malformed and oversized inputs are rejected before facade invocation", asy
     state.client.package.queryWorkspacePackageOccurrences(
       "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
     ),
-    /exceeds 1048576 characters/,
+    /exceeds 8388608 characters/,
   );
   assert.equal(calls, 0);
   assert.equal(state.host.snapshot().activeOperations, 0);
+  state.host.dispose();
+});
+
+test("large generated results cross the former ordinary transport bounds", async () => {
+  const formerMaximumJsonCharacters = 1_048_576;
+  const formerMaximumCollectionEntries = 65_536;
+  const versions = Array.from(
+    { length: formerMaximumCollectionEntries },
+    (_unused, index) => index === 0
+      ? "x".repeat(formerMaximumJsonCharacters)
+      : "",
+  );
+  const state = fixture({
+    package: {
+      queryPackageVersions: async () => ({
+        versions,
+        currentVersionInsertionIndex: 0,
+        previousVersion: null,
+        previousVersionUnavailableReason: null,
+      }),
+    },
+  });
+
+  const result = state.client.package.queryPackageVersions("Example", "1.0.0");
+  await state.environment.flushAsync();
+  assert.deepEqual((await result).versions, versions);
+  assert.equal(state.host.snapshot().phase, "ready");
+  assert.deepEqual(state.failures, []);
   state.host.dispose();
 });
 

@@ -121,9 +121,9 @@ export interface EngineWorkerOrdinaryClient {
   readonly catalog: AsyncFacadeGroup<CatalogFacade, CatalogOperationName>;
 }
 
-export const engineWorkerOrdinaryMaximumJsonCharacters = 1_048_576;
+export const engineWorkerOrdinaryMaximumJsonCharacters = 8_388_608;
 export const engineWorkerOrdinaryMaximumNesting = 64;
-export const engineWorkerOrdinaryMaximumCollectionEntries = 65_536;
+export const engineWorkerOrdinaryMaximumCollectionEntries = 262_144;
 
 type JsonPrimitive = null | boolean | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [name: string]: JsonValue };
@@ -154,7 +154,9 @@ function consumeEntries(budget: JsonBudget, count: number): void {
   budget.remainingEntries -= count;
   if (budget.remainingEntries < 0) {
     throw new OrdinaryPayloadError(
-      "Ordinary Worker JSON exceeds 65536 collection entries.",
+      `Ordinary Worker JSON exceeds ${
+        engineWorkerOrdinaryMaximumCollectionEntries
+      } collection entries.`,
       "oversized",
     );
   }
@@ -317,7 +319,9 @@ function encodeTransportTuple(
   }
   if (encoded.length > engineWorkerOrdinaryMaximumJsonCharacters) {
     throw new OrdinaryPayloadError(
-      `${description} JSON exceeds 1048576 characters.`,
+      `${description} JSON exceeds ${
+        engineWorkerOrdinaryMaximumJsonCharacters
+      } characters.`,
       "oversized",
     );
   }
@@ -336,7 +340,9 @@ function decodeTransportTuple(
   }
   if (value.length > engineWorkerOrdinaryMaximumJsonCharacters) {
     throw new OrdinaryPayloadError(
-      `${description} JSON exceeds 1048576 characters.`,
+      `${description} JSON exceeds ${
+        engineWorkerOrdinaryMaximumJsonCharacters
+      } characters.`,
       "oversized",
     );
   }
