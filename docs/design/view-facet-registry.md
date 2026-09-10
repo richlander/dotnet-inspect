@@ -537,7 +537,7 @@ and
 
 Current transitional surfaces are:
 
-- `prototypes/inspect-web/src/data.ts`, which owns browser arrays and local
+- `inspect-web/src/data.ts`, which owns browser arrays and local
   tokens;
 - `ProductDemoSections`, which admits product demo section display names; and
 - CLI section descriptor names and `SelectResolver` aliases, which remain

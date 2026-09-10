@@ -174,12 +174,12 @@ be peers of reusable `DotnetInspector.Queries`, `DotnetInspector.Packages`,
 and `DotnetInspector.Presentation`. The migration does not rename the
 executable, tool package, tool command, or reusable libraries.
 
-The web host currently uses `InspectWeb.Engine` and facet-specific
-`InspectWeb.Engine.*Facade` namespaces. `DotnetInspect.Web` names the product
+The web host uses `DotnetInspect.Web` and domain-specific
+`DotnetInspect.Web.Interop.*` namespaces. `DotnetInspect.Web` names the product
 host rather than its current Wasm runtime or managed-engine implementation.
 `DotnetInspect.Web.Interop` is its one architectural child: it owns JavaScript
 export contracts, wire projections, and exported entry points. Domain suffixes
-such as Source or Packages may organize those exports beneath `Interop` without
+such as Source or Package organize those exports beneath `Interop` without
 becoming new architectural layers.
 
 The CLI's current suffixes, including Commands, Options, Output, Views,

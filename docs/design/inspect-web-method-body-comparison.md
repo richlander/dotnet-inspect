@@ -143,7 +143,7 @@ release before completing the managed operation. A removal-requested scope
 cannot become a new comparison context. Package labels that identify multiple
 eligible retained bindings produce visible `ContextUnavailable`, rather than
 choosing a generation. The
-[Browser registry](../../prototypes/inspect-web/README.md#artifact-backed-package-scope-adoption)
+[Browser registry](../../inspect-web/README.md#artifact-backed-package-scope-adoption)
 continues to own admission, binding identity, and asynchronous retirement.
 
 This feature's transport uses an empty `PackageId` to distinguish a retained

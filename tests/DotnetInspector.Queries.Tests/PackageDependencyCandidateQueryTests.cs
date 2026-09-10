@@ -648,6 +648,7 @@ public sealed class PackageDependencyCandidateQueryTests
                         "The configured authority did not answer."),
                 ];
         return new PackageVersionDiscoveryResult(
+            PackageId,
             state,
             [
                 .. versions.Select(version =>

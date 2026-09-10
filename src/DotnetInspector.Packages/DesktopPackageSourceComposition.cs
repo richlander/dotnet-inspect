@@ -77,6 +77,7 @@ internal sealed class ConfiguredPackageCandidateObservation
 public sealed class PackageVersionDiscoveryResult
 {
     internal PackageVersionDiscoveryResult(
+        string? packageId,
         PackageVersionDiscoveryState state,
         IReadOnlyList<PackageVersionSourceInfo> sourceListings,
         IReadOnlyList<PackageAuthorityFailure> failures,
@@ -85,6 +86,41 @@ public sealed class PackageVersionDiscoveryResult
         PackageVersionDiscoveryContract? contract = null,
         object? candidateIssuer = null)
     {
+        if (packageId is not null
+            && !PackageCoordinateResolver.IsCanonicalPackageId(packageId))
+        {
+            throw new ArgumentException(
+                "Version discovery requires a valid package ID.",
+                nameof(packageId));
+        }
+        ConfiguredPackageCandidateObservation[] candidateSnapshot =
+            candidates is null ? [] : [.. candidates];
+        if (packageId is null
+            && (state != PackageVersionDiscoveryState.Failed
+                || sourceListings.Count != 0
+                || failures.Count == 0
+                || failures.Any(failure =>
+                    failure.Kind != PackageAuthorityFailureKind.Input)
+                || hasAnyCandidate
+                || candidateSnapshot.Length != 0))
+        {
+            throw new ArgumentException(
+                "Missing package identity is reserved for package-ID input failure.",
+                nameof(packageId));
+        }
+        if (candidateSnapshot.Length > 0
+            && (packageId is null
+                || candidateSnapshot.Any(candidate =>
+                    !candidate.Observation.Coordinate.PackageId.Equals(
+                        packageId,
+                        StringComparison.OrdinalIgnoreCase))))
+        {
+            throw new ArgumentException(
+                "Version discovery candidates must belong to the requested package.",
+                nameof(candidates));
+        }
+
+        PackageId = packageId?.ToLowerInvariant();
         State = state;
         SourceListings = new ReadOnlyCollection<PackageVersionSourceInfo>([.. sourceListings]);
         Listings = new ReadOnlyCollection<PackageVersionInfo>(
@@ -96,11 +132,17 @@ public sealed class PackageVersionDiscoveryResult
             new ReadOnlyCollection<PackageAuthorityFailure>([.. failures]);
         HasAnyCandidate = hasAnyCandidate;
         Candidates = new ReadOnlyCollection<ConfiguredPackageCandidateObservation>(
-            candidates is null ? [] : [.. candidates]);
+            candidateSnapshot);
         Contract = contract ?? PackageVersionDiscoveryContract.Unspecified;
         CandidateIssuer = candidateIssuer ?? new object();
     }
 
+    /// <summary>
+    /// The canonical package ID whose source operation produced this result,
+    /// or <see langword="null"/> when input validation rejected the ID before
+    /// source discovery began.
+    /// </summary>
+    public string? PackageId { get; }
     public PackageVersionDiscoveryState State { get; }
     public IReadOnlyList<string> Versions { get; }
     public IReadOnlyList<PackageVersionInfo> Listings { get; }
@@ -130,9 +172,9 @@ public sealed class PackageVersionDiscoveryResult
         }
 
         string normalized = PackageSourceCoordinate.Create(
-            Candidates.FirstOrDefault()?.Observation.Coordinate.PackageId
+            PackageId
                 ?? throw new InvalidOperationException(
-                    "The discovery result contains no candidate observations."),
+                    "Version discovery rejected its package ID before candidate selection."),
             version).Version;
         var reporters = new List<ConfiguredPackageCandidateObservation>();
         var seen = new HashSet<ConfiguredPackageAuthority>(
@@ -249,6 +291,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         if (!PackageExtractor.IsValidPackageId(packageId))
         {
             return Failed(
+                null,
                 new PackageAuthorityFailure(
                     InertString.Empty,
                     PackageAuthorityFailureKind.Input,
@@ -259,6 +302,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         if (limit <= 0)
         {
             return Failed(
+                packageId,
                 new PackageAuthorityFailure(
                     InertString.Empty,
                     PackageAuthorityFailureKind.Input,
@@ -272,6 +316,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         if (sources.Count == 0)
         {
             return new PackageVersionDiscoveryResult(
+                packageId,
                 PackageVersionDiscoveryState.Failed,
                 [],
                 failures,
@@ -451,6 +496,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             _ => PackageVersionDiscoveryState.Failed,
         };
         return new PackageVersionDiscoveryResult(
+            packageId,
             state,
             ordered,
             failures,
@@ -786,9 +832,11 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     }
 
     private static PackageVersionDiscoveryResult Failed(
+        string? packageId,
         PackageAuthorityFailure failure,
         PackageVersionDiscoveryContract contract) =>
         new(
+            packageId,
             PackageVersionDiscoveryState.Failed,
             [],
             [failure],
