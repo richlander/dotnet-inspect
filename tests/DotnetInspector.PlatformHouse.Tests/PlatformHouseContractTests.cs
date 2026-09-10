@@ -865,6 +865,29 @@ public class PlatformHouseContractTests
                 Consumed(),
                 partialCompletion));
 
+        var partialResolvedOutcome =
+            new PlatformMetadataOutcomeEvidence<TestMetadataOutcome>(
+                new TestMetadataOutcome(),
+                "partial-resolved",
+                realized.Contribution);
+        var partialResolvedCompletion =
+            new PlatformHouseCompletion.AssemblyReference(
+                (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
+                    aggregatingRequest.Snapshot.Operation,
+                PlatformAssemblyReferenceCompletionKind.Resolved,
+                partialResolvedOutcome,
+                [realized, partialRealized]);
+
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseReceipt(
+                aggregatingRequest.Snapshot,
+                new PlatformTargetSettlement.Exact(
+                    (PlatformTargetDemand.Exact)
+                        aggregatingRequest.Target),
+                [realized, partialRealized],
+                Consumed(),
+                partialResolvedCompletion));
+
         var searchedCompletion =
             new PlatformHouseCompletion.AssemblyReference(
                 (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
