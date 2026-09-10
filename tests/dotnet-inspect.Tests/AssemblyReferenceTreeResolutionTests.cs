@@ -16,6 +16,74 @@ namespace DotnetInspector.Tests;
 public class AssemblyReferenceTreeResolutionTests
 {
     [Fact]
+    public void ReferenceGraph_RetainsSharedIncomingEdgesAndRootCycle()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-graph-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly("Owner", "Left", "Right"));
+            File.WriteAllBytes(
+                Path.Combine(root, "Left.dll"),
+                BuildAssembly("Left", "Shared"));
+            File.WriteAllBytes(
+                Path.Combine(root, "Right.dll"),
+                BuildAssembly("Right", "Shared"));
+            File.WriteAllBytes(
+                Path.Combine(root, "Shared.dll"),
+                BuildAssembly("Shared", "Owner"));
+
+            List<AssemblyReferenceIdentity> references =
+                AssemblyInspector.ExtractReferenceIdentities(ownerPath);
+            LibraryMetadataService.AssemblyReferenceGraph graph =
+                LibraryMetadataService.BuildTransitiveReferenceGraph(
+                    references,
+                    ownerPath,
+                    AssemblyInspector.ExtractManagedMetadataIdentity(
+                        ownerPath)
+                        ?? throw new InvalidOperationException(
+                            "The fixture must expose managed metadata."),
+                    new VerboseLogger(enabled: false));
+
+            Assert.Equal(5, graph.Relationships.Count);
+            Assert.Equal(
+                2,
+                graph.Relationships.Count(relationship =>
+                    relationship.Target.Name == "Shared"));
+            Assert.Contains(
+                graph.Relationships,
+                relationship =>
+                    relationship.Source.Name == "Shared"
+                    && relationship.Target.Name == "Owner");
+
+            DependencyGraphDocument document =
+                DependencyGraphProjection.Library(
+                    new LibraryDependencyGraphResult.Graph(
+                        "Owner",
+                        graph));
+            DependencyGraphNode owner = Assert.Single(
+                document.Nodes,
+                node => node.Identity
+                    is DependencyGraphNodeIdentity.Library library
+                    && library.Identity.Name == "Owner");
+            Assert.Equal(owner.Id, Assert.Single(document.Roots).NodeId);
+            Assert.Contains(
+                document.Edges,
+                edge => edge.TargetNodeId == owner.Id
+                    && document.Nodes[edge.SourceNodeId].Identity
+                        is DependencyGraphNodeIdentity.Library library
+                    && library.Identity.Name == "Shared");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory()
     {
         string root = Directory.CreateTempSubdirectory(
@@ -92,6 +160,100 @@ public class AssemblyReferenceTreeResolutionTests
 
             Assert.Equal(siblingPath, sibling.Path);
             Assert.Equal("local", sibling.ResolvedFrom);
+
+            List<AssemblyReferenceIdentity> references =
+                AssemblyInspector.ExtractReferenceIdentities(ownerPath);
+            LibraryMetadataService.AssemblyReferenceGraph graph =
+                LibraryMetadataService.BuildTransitiveReferenceGraph(
+                    references,
+                    ownerPath,
+                    AssemblyInspector.ExtractManagedMetadataIdentity(
+                        ownerPath)
+                        ?? throw new InvalidOperationException(
+                            "The fixture must expose managed metadata."),
+                    new VerboseLogger(enabled: false));
+            LibraryMetadataService.AssemblyReferenceRelationship relationship =
+                Assert.Single(graph.Relationships);
+            Assert.True(relationship.IsResolved);
+            var target = Assert.IsType<
+                ManagedMetadataIdentity.Assembly>(
+                    relationship.Target);
+            Assert.Equal(
+                new Version(1, 0, 0, 0),
+                relationship.RequestedTarget.Version);
+            Assert.Equal(
+                new Version(2, 0, 0, 0),
+                target.Identity.Version);
+
+            DependencyGraphDocument document =
+                DependencyGraphProjection.Library(
+                    new LibraryDependencyGraphResult.Graph(
+                        "Owner",
+                        graph));
+            DependencyGraphEdge edge = Assert.Single(document.Edges);
+            var evidence = Assert.IsType<
+                DependencyGraphEvidenceIdentity.AssemblyReference>(
+                    edge.EvidenceIdentity);
+            Assert.Equal(
+                relationship.RequestedTarget,
+                evidence.Identity);
+            DependencyGraphEdgeRow row = Assert.Single(
+                DependencyGraphOutputAdapter.EdgeRows(document));
+            Assert.Equal(
+                "Sibling, Version=2.0.0.0, Culture=neutral, PublicKeyToken=null",
+                row.TargetIdentity);
+            Assert.Equal("Sibling 2.0.0.0", row.Target);
+            Assert.Equal(
+                "Sibling, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+                row.EvidenceIdentity);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MissingSibling_RemainsAnUnresolvedDeclaration()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-graph-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly("Owner", "MissingSibling"));
+
+            List<AssemblyReferenceIdentity> references =
+                AssemblyInspector.ExtractReferenceIdentities(ownerPath);
+            LibraryMetadataService.AssemblyReferenceGraph graph =
+                LibraryMetadataService.BuildTransitiveReferenceGraph(
+                    references,
+                    ownerPath,
+                    AssemblyInspector.ExtractManagedMetadataIdentity(
+                        ownerPath)
+                        ?? throw new InvalidOperationException(
+                            "The fixture must expose managed metadata."),
+                    new VerboseLogger(enabled: false));
+
+            LibraryMetadataService.AssemblyReferenceRelationship relationship =
+                Assert.Single(graph.Relationships);
+            Assert.False(relationship.IsResolved);
+            Assert.Null(relationship.ResolutionFailure);
+
+            DependencyGraphDocument document =
+                DependencyGraphProjection.Library(
+                    new LibraryDependencyGraphResult.Graph(
+                        "Owner",
+                        graph));
+            DependencyGraphEdge edge = Assert.Single(document.Edges);
+            Assert.Equal(
+                DependencyGraphResolutionState.Declared,
+                edge.Resolution);
+            DependencyGraphEdgeRow row = Assert.Single(
+                DependencyGraphOutputAdapter.EdgeRows(document));
+            Assert.Equal("declared", row.Resolution);
         }
         finally
         {

@@ -20,7 +20,9 @@ internal static class DependsShareProjection
             || options.LineWindowExplicitlySet
             || options.CompactJson
             || options.Rows is not null
-            || options.Count)
+            || options.Count
+            || options.Tree
+            || options.NoHeader)
         {
             return "--share selects packet or URL output and cannot be combined "
                 + "with other output formatting or projection options.";
