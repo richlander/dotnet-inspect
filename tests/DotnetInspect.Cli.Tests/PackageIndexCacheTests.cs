@@ -586,8 +586,11 @@ public sealed class PackageIndexCacheTests
         }
     }
 
-    [Fact]
-    public async Task PackageInspector_WrongShapedDepsPreservesColdResultAndDeclinesPublication()
+    [Theory]
+    [InlineData("""{"libraries":[]}""")]
+    [InlineData("""{"runtimeTarget":{"name":"\uD800"}}""")]
+    public async Task PackageInspector_MalformedDepsPreservesColdResultAndDeclinesPublication(
+        string depsJson)
     {
         string root = Directory.CreateTempSubdirectory(
             "package-index-wrong-deps-").FullName;
@@ -599,7 +602,7 @@ public sealed class PackageIndexCacheTests
             Directory.CreateDirectory(tools);
             await File.WriteAllTextAsync(
                 Path.Combine(tools, "wrong.deps.json"),
-                """{"libraries":[]}""",
+                depsJson,
                 TestContext.Current.CancellationToken);
             var content = new InMemoryPackageContent(
                 [9, 10, 11, 12],

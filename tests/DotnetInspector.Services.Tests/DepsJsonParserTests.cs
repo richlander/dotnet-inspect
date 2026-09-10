@@ -195,6 +195,9 @@ public class DepsJsonParserTests : IDisposable
     [InlineData("""{"libraries":[]}""")]
     [InlineData("""{"libraries":{"Package/1.0.0":[]}}""")]
     [InlineData("""{"libraries":{"Package/1.0.0":{"type":42}}}""")]
+    [InlineData("""{"runtimeTarget":{"name":"\uD800"}}""")]
+    [InlineData("""{"libraries":{"\uD800/1.0.0":{"type":"package"}}}""")]
+    [InlineData("""{"libraries":{"Package/1.0.0":{"type":"\uD800"}}}""")]
     public void TryParse_WrongShapedJsonReportsIncompleteProjection(
         string content)
     {

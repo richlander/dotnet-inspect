@@ -24,7 +24,8 @@ public static class DepsJsonParser
             ex is IOException
                 or UnauthorizedAccessException
                 or JsonException
-                or InvalidDataException)
+                or InvalidDataException
+                or InvalidOperationException)
         {
             return new DepsJsonParseResult(
                 Data: null,
@@ -66,25 +67,26 @@ public static class DepsJsonParser
             RequireObject(libraries, "libraries");
             foreach (var lib in libraries.EnumerateObject())
             {
-                int separator = lib.Name.IndexOf('/');
+                string libraryName = ReadPropertyName(lib);
+                int separator = libraryName.IndexOf('/');
                 if (separator <= 0
-                    || separator != lib.Name.LastIndexOf('/')
-                    || separator == lib.Name.Length - 1)
+                    || separator != libraryName.LastIndexOf('/')
+                    || separator == libraryName.Length - 1)
                     continue;
 
-                RequireObject(lib.Value, $"libraries.{lib.Name}");
+                RequireObject(lib.Value, "library entry");
                 if (lib.Value.TryGetProperty("type", out var typeElem))
                 {
                     string type = ReadOptionalString(
                         typeElem,
-                        $"libraries.{lib.Name}.type") ?? "";
+                        "library type") ?? "";
                     if (type == "package")
                     {
                         result.RuntimeDependencies ??= [];
                         result.RuntimeDependencies.Add(new PackageDependency
                         {
-                            Id = lib.Name[..separator],
-                            Version = lib.Name[(separator + 1)..],
+                            Id = libraryName[..separator],
+                            Version = libraryName[(separator + 1)..],
                         });
                     }
                 }
@@ -107,13 +109,36 @@ public static class DepsJsonParser
         JsonElement element,
         string propertyName)
     {
-        return element.ValueKind switch
+        try
         {
-            JsonValueKind.String => element.GetString(),
-            JsonValueKind.Null => null,
-            _ => throw new InvalidDataException(
-                $"'{propertyName}' must be a JSON string or null."),
-        };
+            return element.ValueKind switch
+            {
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.Null => null,
+                _ => throw new InvalidDataException(
+                    $"'{propertyName}' must be a JSON string or null."),
+            };
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidDataException(
+                $"'{propertyName}' must be valid UTF-16.",
+                ex);
+        }
+    }
+
+    private static string ReadPropertyName(JsonProperty property)
+    {
+        try
+        {
+            return property.Name;
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidDataException(
+                "Library property name must be valid UTF-16.",
+                ex);
+        }
     }
 }
 
