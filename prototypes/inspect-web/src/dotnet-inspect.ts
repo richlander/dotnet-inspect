@@ -432,9 +432,15 @@ import {
   type SpotlightPackageHit,
   type SpotlightResult,
   type SpotlightScope,
-  visibleSpotlightPackageHits,
 } from "./spotlight.ts";
-import { createSpotlightPackageSearch } from "./spotlight-package-search.ts";
+import {
+  createSpotlightPackageSearch,
+  normalizeSpotlightPackageSearchSnapshot,
+  spotlightPackageSearchError,
+  spotlightPackageSearchIsLoading,
+  visibleSpotlightPackageHits,
+  type SpotlightPackageSearchResultState,
+} from "./spotlight-package-search.ts";
 import { createPackageRemoval } from "./package-removal.ts";
 import {
   createCatalogRequests,
@@ -1021,10 +1027,7 @@ const initialState = {
   spotlightScope: "all" as const,
   spotlightFocus: "input" as const,
   spotlightChipIndex: 0,
-  spotlightPkgHits: [],
-  spotlightPkgLoading: false,
-  spotlightPkgError: "",
-  spotlightPkgQuery: "",
+  spotlightPackageSearch: { status: "idle" as const },
   runtimePackLoading: false,
   runtimePackError: "",
   selectedBodyTarget: null,
@@ -1089,7 +1092,7 @@ interface StateOverrides {
   memberFacts: MemberFacts | null;
   libraryScope: Set<string> | null;
   accessibilityFilter: Set<string>;
-  spotlightPkgHits: SpotlightPackageHit[];
+  spotlightPackageSearch: SpotlightPackageSearchResultState;
   spotlightFocus: "input" | "chips";
   spotlightScope: SpotlightScope;
   memberSection: MemberSection;
@@ -1216,7 +1219,8 @@ CanonicalWorkspaceRestoreSnapshot {
       platformStack: structuredClone(state.platformStack),
       platformRecent: structuredClone(state.platformRecent),
       recentPackages: structuredClone(state.recentPackages),
-      spotlightPkgHits: structuredClone(state.spotlightPkgHits),
+      spotlightPackageSearch:
+        structuredClone(state.spotlightPackageSearch),
       history: [...state.history],
     },
     hasWorkspace:
@@ -1283,6 +1287,10 @@ function normalizeWorkspaceAsyncSnapshotState(
   }
   snapshotState.docViewer =
     normalizeDocumentViewerSnapshot(snapshotState.docViewer);
+  snapshotState.spotlightPackageSearch =
+    normalizeSpotlightPackageSearchSnapshot(
+      snapshotState.spotlightPackageSearch,
+    );
   snapshotState.workspaceOccurrenceLoading = false;
   snapshotState.workspaceDependencyLoads = new Set();
   snapshotState.sourceRequestGeneration++;
@@ -1444,10 +1452,7 @@ function captureRetainedHostState() {
     spotlightScope: state.spotlightScope,
     spotlightFocus: state.spotlightFocus,
     spotlightChipIndex: state.spotlightChipIndex,
-    spotlightPkgHits: state.spotlightPkgHits,
-    spotlightPkgLoading: state.spotlightPkgLoading,
-    spotlightPkgError: state.spotlightPkgError,
-    spotlightPkgQuery: state.spotlightPkgQuery,
+    spotlightPackageSearch: state.spotlightPackageSearch,
     dotnetReleases: state.dotnetReleases,
     dotnetReleasesLoading: state.dotnetReleasesLoading,
     styleTiers: state.styleTiers,
@@ -2765,8 +2770,10 @@ const spotlight = createSpotlight({
     : null,
   schedulePackageFetch: () => spotlightPackageSearch.schedule(),
   resetPackageSearch: () => spotlightPackageSearch.reset(),
-  packageSearchLoading: () => state.spotlightPkgLoading,
-  packageSearchError: () => state.spotlightPkgError,
+  packageSearchLoading: () =>
+    spotlightPackageSearchIsLoading(state.spotlightPackageSearch),
+  packageSearchError: () =>
+    spotlightPackageSearchError(state.spotlightPackageSearch),
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
   render,
@@ -8801,9 +8808,8 @@ function spotlightResults(): SpotlightResult[] {
     }
     let added = 0;
     const packageHits = visibleSpotlightPackageHits(
+      state.spotlightPackageSearch,
       query,
-      state.spotlightPkgQuery,
-      state.spotlightPkgHits,
     );
     for (const hit of packageHits) {
       if (openIds.has(hit.id.toLowerCase()) || recentShown.has(hit.id.toLowerCase())) continue;

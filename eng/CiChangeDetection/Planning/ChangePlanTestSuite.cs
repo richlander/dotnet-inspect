@@ -73,14 +73,14 @@ internal static class ChangePlanTestSuite
                 "code,decompiler,shipped,web"),
             ("src/UnionPolyfill.cs",
                 "code,decompiler,shipped,web"),
-            ("src/dotnet-inspect/Program.cs", "code,shipped"),
+            ("src/DotnetInspect.Cli/Program.cs", "code,shipped"),
             ("src/ILInspector.Decompiler/Raise.cs",
                 "code,csharpdiff,decompiler,shipped,web"),
             ("src/ILInspector.Metadata/Reader.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
             ("src/DotnetInspector.Core/Core.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
-            ("src/dotnet-inspect/dotnet-inspect.csproj",
+            ("src/DotnetInspect.Cli/DotnetInspect.Cli.csproj",
                 "code,packaging,shipped"),
             ("src/Directory.Build.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
@@ -295,7 +295,7 @@ internal static class ChangePlanTestSuite
 
             // A missing inspect-web inventory broadens `web` to every src
             // change rather than narrowing it.
-            if (Render(policy.Route(Evidence("src/dotnet-inspect/Program.cs")))
+            if (Render(policy.Route(Evidence("src/DotnetInspect.Cli/Program.cs")))
                 != "code,decompiler,shipped,web")
             {
                 throw new InvalidOperationException(
@@ -304,7 +304,7 @@ internal static class ChangePlanTestSuite
             }
 
             // A missing decompiler skip inventory exempts nothing.
-            if (!policy.Route(Evidence("src/dotnet-inspect/Program.cs"))
+            if (!policy.Route(Evidence("src/DotnetInspect.Cli/Program.cs"))
                 .Decompiler)
             {
                 throw new InvalidOperationException(
@@ -313,7 +313,7 @@ internal static class ChangePlanTestSuite
 
             PlanningResult result = ChangePlanner.Compose(
                 Provenance(PlanEventKind.PullRequestSyntheticCandidate),
-                Evidence("src/dotnet-inspect/Program.cs"),
+                Evidence("src/DotnetInspect.Cli/Program.cs"),
                 policy);
             if (result.Plan.Diagnostics.Count != 2
                 || !result.Plan.Validations.Test)
