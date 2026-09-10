@@ -5,19 +5,19 @@ namespace DotnetInspector.PackageQueries;
 
 /// <summary>
 /// Thin dependency-candidate adapter over explicit package authorization and
-/// one caller-owned House source lease.
+/// one caller-owned package-source settlement lease.
 /// </summary>
 public sealed class AuthorizedPackageDependencyCandidateSource
     : IPackageDependencyCandidateSource
 {
     private readonly IPackageSourceAuthorization _authorization;
-    private readonly PackageHouseSourceLease _sourceLease;
+    private readonly PackageSourceSettlementLease _sourceLease;
 
-    internal PackageHouseSourceLease SourceLease => _sourceLease;
+    internal PackageSourceSettlementLease SourceLease => _sourceLease;
 
     public AuthorizedPackageDependencyCandidateSource(
         IPackageSourceAuthorization authorization,
-        PackageHouseSourceLease sourceLease)
+        PackageSourceSettlementLease sourceLease)
     {
         ArgumentNullException.ThrowIfNull(authorization);
         ArgumentNullException.ThrowIfNull(sourceLease);

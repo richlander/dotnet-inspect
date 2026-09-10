@@ -55,6 +55,44 @@ package-level acquisition composition remains
 package-profile projection remains owned by
 [#4806](https://github.com/richlander/dotnet-inspect/issues/4806).
 
+## Source-settlement lease
+
+The package source model owns package-source settlement. Its
+`PackageSourceSettlementService` issues a
+`PackageSourceSettlementLease` over caller-supplied configured-authority
+client access and operation-context creation. The lease is named for that
+resource, not for PackageHouse or another consumer.
+
+The lease carries the live authority to:
+
+- authorize and settle one caller-pinned package coordinate;
+- discover dependency versions across one explicit source authorization; and
+- acquire one exact manifest through a candidate issued by the same lease.
+
+One lease owns one candidate-issuer identity. It accepts only source results
+whose association and client identity match the exact configured authority
+being settled. PackageHouse, desktop composition, and host-neutral query
+adapters may hold and use the owner-issued lease, but they do not mint, rename,
+or reinterpret it.
+
+Retiring the lease rejects new settlement and candidate use. It does not
+dispose caller-owned source clients, operation contexts, payload streams,
+package stores, artifact content, or Workspace participants. Completed result
+values retain their existing evidence semantics after retirement; no
+PackageHouse receipt stores the live source-settlement lease.
+
+This ownership correction preserves the existing `IDisposable` lifetime and
+async operation shapes. It does not define borrowing or transfer across an
+`await` boundary; [#6544](https://github.com/richlander/dotnet-inspect/issues/6544)
+owns that contract. Repository-wide absence of another issuer or the retired
+House-named API remains unverified by user choice.
+
+`PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient`
+and
+`PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation`
+are the Release gates for retirement, caller-owned resources, candidate
+identity, and exact source association.
+
 ## Identity roles
 
 The following roles are intentionally separate:
