@@ -64,7 +64,8 @@
       "excludeTargets": [
         "*.Tests",
         "*Fixture*",
-        "dotnet-inspect"
+        "dotnet-inspect",
+        "DotnetInspect.Cli"
       ],
       "deny": [
         "DotnetInspector.Ecosystems"

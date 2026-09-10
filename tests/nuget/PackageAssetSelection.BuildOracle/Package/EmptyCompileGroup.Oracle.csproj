@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>Example</AssemblyName>
+    <RootNamespace>Example</RootNamespace>
+    <PackageId>EmptyCompileGroup.Oracle</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>dotnet-inspect</Authors>
+    <Description>Build oracle for compatible empty NuGet compile groups.</Description>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <NoPackageAnalysis>true</NoPackageAnalysis>
+    <PackageOutputPath>../feed</PackageOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="empty/_._"
+          Pack="true"
+          PackagePath="ref/net8.0/" />
+  </ItemGroup>
+</Project>

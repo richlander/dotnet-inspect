@@ -3756,6 +3756,39 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryPackage_CompatibleEmptyCompileGroupSuppressesLibraryFallback()
+    {
+        const string packageId = "Compatible.Empty.Compile.Group";
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                PackageEntries(
+                    ("ref/net8.0/_._", []),
+                    ($"lib/net6.0/{packageId}.dll",
+                        File.ReadAllBytes(
+                            typeof(BrowserEngineBoundaryTests).Assembly.Location))),
+                fromCache: false));
+
+        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
+            JsonSerializer.Deserialize(
+                await PackageExports.QueryPackage(
+                    packageId,
+                    "1.0.0",
+                    "net9.0"),
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+
+        Assert.Equal("net9.0", surface.ActiveFramework);
+        Assert.Equal(
+            BrowserCompileLibraryStatus.EmptyCompileGroup,
+            surface.CompileLibrary.Status);
+        Assert.Equal("net6.0", surface.CompileLibrary.TargetFramework);
+        Assert.Null(surface.DefaultAssemblyId);
+        Assert.Empty(surface.Assemblies);
+        Assert.Empty(surface.Types);
+    }
+
+    [Fact]
     public async Task QueryPackage_NoMatchingFrameworkRetainsRequestedRoot()
     {
         const string packageId = "Future.Library";
