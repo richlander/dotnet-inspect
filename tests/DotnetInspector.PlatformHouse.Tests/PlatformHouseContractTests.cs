@@ -787,6 +787,29 @@ public class PlatformHouseContractTests
 
         Assert.Same(mixedCompletion, mixedReceipt.Completion);
 
+        var resolvedOutcome =
+            new PlatformMetadataOutcomeEvidence<TestMetadataOutcome>(
+                new TestMetadataOutcome(),
+                "mixed-resolved",
+                realized.Contribution);
+        var resolvedCompletion =
+            new PlatformHouseCompletion.AssemblyReference(
+                (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
+                    aggregatingRequest.Snapshot.Operation,
+                PlatformAssemblyReferenceCompletionKind.Resolved,
+                resolvedOutcome,
+                [realized]);
+        var resolvedReceipt = new PlatformHouseReceipt(
+            aggregatingRequest.Snapshot,
+            new PlatformTargetSettlement.Exact(
+                (PlatformTargetDemand.Exact)
+                    aggregatingRequest.Target),
+            [realized, secondAbsent],
+            Consumed(),
+            resolvedCompletion);
+
+        Assert.Same(resolvedCompletion, resolvedReceipt.Completion);
+
         var secondRealized = new PlatformSourceSettlement(
             new PlatformSourceContribution.Realization(
                 PlatformSourceFacet.Reference,
