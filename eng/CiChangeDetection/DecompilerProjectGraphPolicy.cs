@@ -18,11 +18,11 @@ internal static class DecompilerProjectGraphPolicy
             || IsAtOrBelowProject(right, left);
 
         if (!ProjectTreesOverlap(
-                "src/dotnet-inspect/Nested",
-                "src/dotnet-inspect")
+                "src/DotnetInspect.Cli/Nested",
+                "src/DotnetInspect.Cli")
             || ProjectTreesOverlap(
-                "tests/dotnet-inspect.TestsExtra",
-                "tests/dotnet-inspect.Tests"))
+                "tests/DotnetInspect.Cli.TestsExtra",
+                "tests/DotnetInspect.Cli.Tests"))
         {
             throw new InvalidOperationException(
                 "Decompiler skip-list project boundary check is not non-vacuous.");
