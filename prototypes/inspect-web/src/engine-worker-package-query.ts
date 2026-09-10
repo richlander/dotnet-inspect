@@ -27,7 +27,10 @@ import type {
   WorkerOperationCatalog,
   WorkerOperationContext,
 } from "./worker-runtime-realm.ts";
-import { engineWorkerBoundaryErrors } from "./engine-worker-contract.ts";
+import {
+  engineWorkerBoundaryErrors,
+  mapEngineWorkerBoundaryErrors,
+} from "./engine-worker-contract.ts";
 
 const engineWorkerPackageQueryKind = "package-query";
 
@@ -140,9 +143,15 @@ export type EngineWorkerPackageQueryInput =
       readonly initialMatchCredit: number;
     };
 
+export interface EngineWorkerPackageQueryTerminalFailure {
+  readonly failureKind: "Expected" | "Unexpected";
+  readonly error: string;
+  readonly diagnostic: string;
+}
+
 type PackageQuerySettlement = ManagedOperationSettlement<
   EngineWorkerPackageQueryCompletionEvent,
-  string,
+  EngineWorkerPackageQueryTerminalFailure,
   string
 >;
 
@@ -913,14 +922,57 @@ function boundedDiagnostic(value: unknown, description: string): string {
   return decoded.value;
 }
 
+const engineWorkerPackageQueryFailure:
+BoundedPayloadDecoder<EngineWorkerPackageQueryTerminalFailure> = {
+  decode(value) {
+    try {
+      const failure = dataRecord(value, [
+        "failureKind",
+        "error",
+        "diagnostic",
+      ], "Package Query failure");
+      return {
+        kind: "decoded",
+        value: {
+          failureKind: literal(
+            failure.failureKind,
+            ["Expected", "Unexpected"] as const,
+            "Package Query failure kind"),
+          error: boundedDiagnostic(
+            failure.error,
+            "Package Query error"),
+          diagnostic: boundedDiagnostic(
+            failure.diagnostic,
+            "Package Query diagnostic"),
+        },
+      };
+    } catch (error: unknown) {
+      return rejected(error);
+    }
+  },
+};
+
+function packageQueryFailure(
+  failureKind: EngineWorkerPackageQueryTerminalFailure["failureKind"],
+  error: string,
+  diagnostic: string,
+): EngineWorkerPackageQueryTerminalFailure {
+  return { failureKind, error, diagnostic };
+}
+
+const packageQueryBoundaryErrors = mapEngineWorkerBoundaryErrors(message =>
+  packageQueryFailure("Unexpected", message, message));
+
 function transportLimitFailure(
   diagnostic: string,
 ): PackageQuerySettlement {
+  const error = "Package Query exceeded Worker transport limits.";
+  const bounded = diagnostic.slice(0, maximumDiagnosticCharacters);
   return {
     kind: "failed",
     failureKind: "unexpected",
-    error: "Package Query exceeded Worker transport limits.",
-    diagnostic: diagnostic.slice(0, maximumDiagnosticCharacters),
+    error: packageQueryFailure("Unexpected", error, bounded),
+    diagnostic: bounded,
   };
 }
 
@@ -929,13 +981,15 @@ function invalidResultFailure(error: unknown): PackageQuerySettlement {
     && error.reason === "oversized") {
     return transportLimitFailure(error.message);
   }
+  const failure = "Package Query returned invalid Worker boundary data.";
+  const diagnostic = error instanceof Error
+    ? error.message.slice(0, maximumDiagnosticCharacters)
+    : "Package Query result validation failed.";
   return {
     kind: "failed",
     failureKind: "unexpected",
-    error: "Package Query returned invalid Worker boundary data.",
-    diagnostic: error instanceof Error
-      ? error.message.slice(0, maximumDiagnosticCharacters)
-      : "Package Query result validation failed.",
+    error: packageQueryFailure("Unexpected", failure, diagnostic),
+    diagnostic,
   };
 }
 
@@ -972,20 +1026,23 @@ export function mapEngineWorkerPackageQueryResult(
     if (result.kind === "Failed") {
       nullValue(result.value, "Package Query failure value");
       nullValue(result.reason, "Package Query failure reason");
+      const failureKind = literal(
+        result.failureKind,
+        ["Expected", "Unexpected"] as const,
+        "Package Query failure kind");
+      const error = boundedDiagnostic(
+        result.error,
+        "Package Query error");
+      const diagnostic = boundedDiagnostic(
+        result.diagnostic,
+        "Package Query diagnostic");
       return {
         kind: "failed",
-        failureKind: literal(
-          result.failureKind,
-          ["Expected", "Unexpected"] as const,
-          "Package Query failure kind") === "Expected"
+        failureKind: failureKind === "Expected"
           ? "expected"
           : "unexpected",
-        error: boundedDiagnostic(
-          result.error,
-          "Package Query error"),
-        diagnostic: boundedDiagnostic(
-          result.diagnostic,
-          "Package Query diagnostic"),
+        error: packageQueryFailure(failureKind, error, diagnostic),
+        diagnostic,
       };
     }
     if (result.kind === "Canceled") {
@@ -1106,7 +1163,7 @@ function mapControlRequestError(
       WorkerRuntimeControlledOperationRegistration<
         QueryRequest,
         EngineWorkerPackageQueryCompletionEvent,
-        string,
+        EngineWorkerPackageQueryTerminalFailure,
         string,
         never,
         WorkerRuntimePreparationError,
@@ -1136,7 +1193,7 @@ export function createEngineWorkerPackageQueryHostRegistration():
 WorkerRuntimeControlledOperationRegistration<
   QueryRequest,
   EngineWorkerPackageQueryCompletionEvent,
-  string,
+  EngineWorkerPackageQueryTerminalFailure,
   string,
   never,
   WorkerRuntimePreparationError,
@@ -1150,12 +1207,12 @@ WorkerRuntimeControlledOperationRegistration<
     allowance: { kind: "unbounded" },
     encodeInput: encodeQueryRequest,
     value: engineWorkerPackageQueryCompletionEvent,
-    error: packageQueryText,
+    error: engineWorkerPackageQueryFailure,
     diagnostic: packageQueryText,
     progress: packageQueryNoProgress,
     durable: engineWorkerPackageQueryDurableEvent,
     mapPreparationError: error => error,
-    boundaryErrors: engineWorkerBoundaryErrors,
+    boundaryErrors: packageQueryBoundaryErrors,
     control: {
       encodeInput: value => packageQueryCredit.decode(value),
       value: packageQueryCredit,
@@ -1224,7 +1281,11 @@ export function registerEngineWorkerPackageQueryOperation(
     allowance: { kind: "unbounded" },
     input: engineWorkerPackageQueryInput,
     rejectInvalidPayload: failure => ({
-      error: failure.message,
+      error: packageQueryFailure(
+        "Unexpected",
+        failure.message,
+        failure.message,
+      ),
       diagnostic: failure.message,
     }),
     invoke: async (input, context) => {

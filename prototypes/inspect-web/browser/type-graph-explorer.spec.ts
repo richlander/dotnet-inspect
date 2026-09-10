@@ -15,6 +15,12 @@ test("Type relationships relocates the live graph and warnings, not Metadata fac
   }));
   await page.getByRole("button", { name: "Explore", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Type relationships" });
+  await expect(dialog.locator(".graph-explorer-kind")).toHaveText("Type relationships");
+  await expect(dialog.locator("#graph-explorer-title")).toHaveText("Example.Type");
+  await expect(dialog.locator(".graph-explorer-context")).toHaveText("Example.Package@1.0.0");
+  await expect(dialog.locator(".graph-explorer-summary"))
+    .toHaveText("base · interfaces · derived — select a highlighted node to open");
+  await expect(dialog.locator(".call-graph-section > .section-title")).toBeHidden();
   await expect(dialog.locator(".metadata-warning")).toContainText("Fixture relationship could not be projected.");
   await expect(dialog.locator(".metadata-shape-section, .metadata-surface-footer, .type-chip-list")).toHaveCount(0);
   await expect(page.locator("#graph-explorer-title")).toBeFocused();

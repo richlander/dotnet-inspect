@@ -129,14 +129,22 @@ public class SearchSourceAdapterTests
             {
                 Pattern = "System.String", SourceSelection = selection, Count = true,
             }),
-            "implements" => await ImplementsCommand.ExecuteAsync(new ImplementsOptions
-            {
-                TargetType = "IDisposable", SourceSelection = selection, Count = true,
-            }),
-            "extensions" => await ExtensionsCommand.ExecuteAsync(new ExtensionsOptions
-            {
-                TargetType = "IEnumerable<T>", SourceSelection = selection, Count = true,
-            }),
+            "implements" => await ImplementsCommand.ExecuteAsync(
+                new ImplementsOptions
+                {
+                    TargetType = "IDisposable",
+                    SourceSelection = selection,
+                    Count = true,
+                },
+                TestContext.Current.CancellationToken),
+            "extensions" => await ExtensionsCommand.ExecuteAsync(
+                new ExtensionsOptions
+                {
+                    TargetType = "IEnumerable<T>",
+                    SourceSelection = selection,
+                    Count = true,
+                },
+                TestContext.Current.CancellationToken),
             "depends" => (await DependsCommand.ExecuteTypeDependsAsync(new DependsOptions
             {
                 TargetType = "System.String", SourceSelection = selection, Count = true,

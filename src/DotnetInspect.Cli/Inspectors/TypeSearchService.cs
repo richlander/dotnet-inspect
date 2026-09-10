@@ -24,9 +24,56 @@ internal static class TypeSearchService
         FindOptions options,
         string[] patterns,
         VerboseLogger logger,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        CancellationToken cancellationToken = default)
     {
+        AssemblySetRequest request =
+            FindSourceCollector.BuildFindRequest(options);
+        if (ConfiguredPackageSearchWorkspace.IsEligible(
+                options.SourceSelection,
+                request,
+                options.Tfm,
+                options.Limit))
+        {
+            await using ConfiguredPackageSearchWorkspace? configured =
+                await ConfiguredPackageSearchWorkspace.OpenAsync(
+                    httpClient,
+                    request,
+                    options.Tfm!,
+                    logger.Log,
+                    cancellationToken);
+            if (configured is null)
+                return [];
+
+            return patterns.Length == 1 && !options.Tabular
+                ? await FindSinglePatternAsync(
+                    patterns[0],
+                    options,
+                    pattern => CollectTypesAsync(
+                        options,
+                        pattern,
+                        logger,
+                        configured,
+                        cancellationToken))
+                : await FindMultiPatternAsync(
+                    patterns,
+                    options,
+                    pattern => CollectTypesAsync(
+                        options,
+                        pattern,
+                        logger,
+                        configured,
+                        cancellationToken));
+        }
+
         using var workspace = new AssemblySetInspectionWorkspace();
+        Task<List<TypeSearchResult>> Collect(string? pattern) =>
+            CollectTypesAsync(
+                options,
+                pattern,
+                logger,
+                httpClient,
+                workspace);
 
         // Optimized single-pattern path: collect with filtering, then partial match if empty
         if (patterns.Length == 1 && !options.Tabular)
@@ -34,33 +81,22 @@ internal static class TypeSearchService
             return await FindSinglePatternAsync(
                 patterns[0],
                 options,
-                logger,
-                httpClient,
-                workspace);
+                Collect);
         }
 
         // Multi-pattern or tabular output: collect all types, then match each pattern
         return await FindMultiPatternAsync(
             patterns,
             options,
-            logger,
-            httpClient,
-            workspace);
+            Collect);
     }
 
     private static async Task<List<TypeFindResult>> FindMultiPatternAsync(
         string[] patterns,
         FindOptions options,
-        VerboseLogger logger,
-        HttpClient httpClient,
-        AssemblySetInspectionWorkspace workspace)
+        Func<string?, Task<List<TypeSearchResult>>> collect)
     {
-        var allTypes = await CollectTypesAsync(
-            options,
-            null,
-            logger,
-            httpClient,
-            workspace);
+        var allTypes = await collect(null);
         var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
 
         Dictionary<string, List<TypeSearchResult>> resultsByPattern = [];
@@ -151,27 +187,15 @@ internal static class TypeSearchService
     private static async Task<List<TypeFindResult>> FindSinglePatternAsync(
         string pattern,
         FindOptions options,
-        VerboseLogger logger,
-        HttpClient httpClient,
-        AssemblySetInspectionWorkspace workspace)
+        Func<string?, Task<List<TypeSearchResult>>> collect)
     {
-        var results = await CollectTypesAsync(
-            options,
-            pattern,
-            logger,
-            httpClient,
-            workspace);
+        var results = await collect(pattern);
 
         List<TypeSearchResult>? partialMatches = null;
         Dictionary<string, double>? partialSimilarities = null;
         if (results.Count == 0 && !pattern.Contains('*') && !pattern.Contains('?'))
         {
-            var allTypes = await CollectTypesAsync(
-                options,
-                null,
-                logger,
-                httpClient,
-                workspace);
+            var allTypes = await collect(null);
             var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
 
             if (TryGetNamespacePrefixMatches(pattern, allTypes, options, out var prefixPattern, out var prefixResults))
@@ -329,54 +353,13 @@ internal static class TypeSearchService
                 group => AssemblyContextTypeInventoryQuery.Execute(
                     group,
                     options.IncludeAll),
-                (assembly, entry) =>
-                {
-                    switch (entry)
-                    {
-                        case AssemblyContextEntry<
-                            AssemblyTypeInventory>.Available available:
-                            foreach (AssemblyTypeInventoryEntry type
-                                in available.Value.Types)
-                            {
-                                if (!searchPatterns.Any(searchPattern =>
-                                        TypeMatcher.MatchesTypeFilter(
-                                            type.FullName,
-                                            searchPattern)))
-                                {
-                                    continue;
-                                }
-
-                                results.Add(new TypeSearchResult
-                                {
-                                    TypeName = type.TypeName,
-                                    Namespace = type.Namespace,
-                                    FullName = type.FullName,
-                                    Kind = type.Kind,
-                                    Assembly = Path.GetFileNameWithoutExtension(
-                                        assembly.Path),
-                                    Source = assembly.Source,
-                                    SourceVersion = assembly.Version,
-                                });
-                                if (ReachedLimit())
-                                    break;
-                            }
-                            WriteInspectionFailures(
-                                assembly,
-                                available.Value.InspectionFailures,
-                                logger);
-                            break;
-                        case AssemblyContextEntry<
-                            AssemblyTypeInventory>.Rejected rejected:
-                            CommandError.WriteWarning(
-                                $"Could not read {assembly.Path}: {rejected.Failure.Detail}");
-                            break;
-                        case AssemblyContextEntry<
-                            AssemblyTypeInventory>.Failed failed:
-                            CommandError.WriteWarning(
-                                $"Could not read {assembly.Path}: {failed.Error.Message}");
-                            break;
-                    }
-                },
+                (assembly, entry) => AddTypes(
+                    results,
+                    searchPatterns,
+                    SearchAssemblySource.FromAssemblySet(assembly),
+                    entry,
+                    logger,
+                    ReachedLimit),
                 (assembly, failure) =>
                     CommandError.WriteWarning(
                         $"Could not read {assembly.Path}: {failure}"),
@@ -393,8 +376,102 @@ internal static class TypeSearchService
         return results;
     }
 
+    private static async Task<List<TypeSearchResult>> CollectTypesAsync(
+        FindOptions options,
+        string? pattern,
+        VerboseLogger logger,
+        ConfiguredPackageSearchWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        List<TypeSearchResult> results = [];
+        IReadOnlyList<string> searchPatterns =
+            pattern is null ? ["*"] : [pattern];
+        ConfiguredPackageSearchQueryResult<
+            AssemblyContextResult<AssemblyTypeInventory>>? execution =
+                await workspace.QuerySurfaceAsync(
+                    context =>
+                        AssemblyContextTypeInventoryQuery.Execute(
+                            context.Group,
+                            options.IncludeAll),
+                    cancellationToken);
+        if (execution?.Sources is not { } sources
+            || execution.Result is not { } queryResult)
+        {
+            return results;
+        }
+
+        foreach (AssemblyContextEntry<AssemblyTypeInventory> entry
+            in queryResult.Assemblies)
+        {
+            AddTypes(
+                results,
+                searchPatterns,
+                sources.SourceFor(entry.Subject),
+                entry,
+                logger,
+                static () => false);
+        }
+        return results;
+    }
+
+    private static void AddTypes(
+        List<TypeSearchResult> results,
+        IReadOnlyList<string> searchPatterns,
+        SearchAssemblySource assembly,
+        AssemblyContextEntry<AssemblyTypeInventory> entry,
+        VerboseLogger logger,
+        Func<bool> reachedLimit)
+    {
+        switch (entry)
+        {
+            case AssemblyContextEntry<
+                AssemblyTypeInventory>.Available available:
+                foreach (AssemblyTypeInventoryEntry type
+                    in available.Value.Types)
+                {
+                    if (!searchPatterns.Any(searchPattern =>
+                            TypeMatcher.MatchesTypeFilter(
+                                type.FullName,
+                                searchPattern)))
+                    {
+                        continue;
+                    }
+
+                    results.Add(new TypeSearchResult
+                    {
+                        TypeName = type.TypeName,
+                        Namespace = type.Namespace,
+                        FullName = type.FullName,
+                        Kind = type.Kind,
+                        Assembly = assembly.Library,
+                        Source = assembly.Source,
+                        SourceVersion = assembly.SourceVersion,
+                    });
+                    if (reachedLimit())
+                        break;
+                }
+                WriteInspectionFailures(
+                    assembly,
+                    available.Value.InspectionFailures,
+                    logger);
+                break;
+            case AssemblyContextEntry<
+                AssemblyTypeInventory>.Rejected rejected:
+                CommandError.WriteWarning(
+                    $"Could not read {assembly.DiagnosticSubject}: "
+                    + rejected.Failure.Detail);
+                break;
+            case AssemblyContextEntry<
+                AssemblyTypeInventory>.Failed failed:
+                CommandError.WriteWarning(
+                    $"Could not read {assembly.DiagnosticSubject}: "
+                    + failed.Error.Message);
+                break;
+        }
+    }
+
     private static void WriteInspectionFailures(
-        AssemblySetEntry assembly,
+        SearchAssemblySource assembly,
         ImmutableArray<ApiSurfaceInspectionFailure> failures,
         VerboseLogger logger)
     {
@@ -402,7 +479,8 @@ internal static class TypeSearchService
             return;
 
         CommandError.WriteWarning(
-            $"Type search in {assembly.Path} skipped {failures.Length} metadata row(s).");
+            $"Type search in {assembly.DiagnosticSubject} skipped "
+            + $"{failures.Length} metadata row(s).");
         foreach (ApiSurfaceInspectionFailure failure in failures)
         {
             logger.LogWarning(

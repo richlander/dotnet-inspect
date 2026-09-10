@@ -134,10 +134,20 @@ public class FindCommand
 
             if (options.Members)
             {
-                return await ExecuteMemberSearchAsync(options, patterns, logger, context.HttpClient);
+                return await ExecuteMemberSearchAsync(
+                    options,
+                    patterns,
+                    logger,
+                    context.HttpClient,
+                    cancellationToken);
             }
 
-            var results = await TypeSearchService.FindTypesAsync(options, patterns, logger, context.HttpClient);
+            var results = await TypeSearchService.FindTypesAsync(
+                options,
+                patterns,
+                logger,
+                context.HttpClient,
+                cancellationToken);
             var title = patterns.Length == 1 ? $"Find: {patterns[0]}" : "Find Results";
 
             // --count reduces the payload, so it is resolved before the format flags that
@@ -609,7 +619,8 @@ public class FindCommand
         FindOptions options,
         string[] patterns,
         VerboseLogger logger,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        CancellationToken cancellationToken)
     {
         // Strip the leading '.' sentinel from each segment so ".Serialize" and "Serialize" both search
         // the member named "Serialize". ".ctor"/".cctor" are preserved (they are real member names).
@@ -624,7 +635,12 @@ public class FindCommand
             return 1;
         }
 
-        var results = await MemberSearchService.FindMembersAsync(options, memberPatterns, logger, httpClient);
+        var results = await MemberSearchService.FindMembersAsync(
+            options,
+            memberPatterns,
+            logger,
+            httpClient,
+            cancellationToken);
         var title = memberPatterns.Length == 1 ? $"Find member: {memberPatterns[0]}" : "Find Members";
 
         if (options.Count)

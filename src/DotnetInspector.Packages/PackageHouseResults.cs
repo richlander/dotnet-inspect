@@ -134,17 +134,19 @@ public sealed class PackageHouseDecisionReceipt
         PackageHouseDecision decision,
         PackageSourceCoordinate? coordinate,
         PackageAcquisitionCandidate? candidate,
-        PackageHousePruningReceipt? pruning)
+        PackageHousePruningReceipt? pruning,
+        PackageVersionResolutionReceipt? versionResolution)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!Enum.IsDefined(decision))
             throw new ArgumentOutOfRangeException(nameof(decision));
-        if (coordinate is not null)
-        {
-            PackageHouseContractValidation.RequireCoordinateMatchesDemand(
-                request.Demand,
-                coordinate);
-        }
+        PackageHouseContractValidation.RequireVersionResolutionMatchesDemand(
+            request.Demand,
+            decision,
+            coordinate,
+            candidate,
+            pruning,
+            versionResolution);
         if (candidate is not null
             && candidate.Coordinate != coordinate)
         {
@@ -191,6 +193,7 @@ public sealed class PackageHouseDecisionReceipt
         Coordinate = coordinate;
         Candidate = candidate;
         Pruning = pruning;
+        VersionResolution = versionResolution;
     }
 
     public PackageHouseRequest Request { get; }
@@ -203,6 +206,8 @@ public sealed class PackageHouseDecisionReceipt
 
     public PackageHousePruningReceipt? Pruning { get; }
 
+    public PackageVersionResolutionReceipt? VersionResolution { get; }
+
     internal static PackageHouseDecisionReceipt RetainPackage(
         PackageHouseRequest request,
         PackageSourceCoordinate coordinate,
@@ -213,7 +218,19 @@ public sealed class PackageHouseDecisionReceipt
             PackageHouseDecision.RetainPackage,
             coordinate,
             candidate,
-            pruning);
+            pruning,
+            versionResolution: null);
+
+    internal static PackageHouseDecisionReceipt RetainSelectedPackage(
+        PackageHouseRequest request,
+        PackageVersionResolutionReceipt.Resolved versionResolution) =>
+        new(
+            request,
+            PackageHouseDecision.RetainPackage,
+            versionResolution.Coordinate,
+            versionResolution.Candidate,
+            pruning: null,
+            versionResolution: versionResolution);
 
     internal static PackageHouseDecisionReceipt DelegateToPlatform(
         PackageHouseRequest request,
@@ -225,19 +242,22 @@ public sealed class PackageHouseDecisionReceipt
             PackageHouseDecision.DelegateToPlatform,
             coordinate,
             candidate,
-            pruning);
+            pruning,
+            versionResolution: null);
 
     internal static PackageHouseDecisionReceipt Stop(
         PackageHouseRequest request,
         PackageSourceCoordinate? coordinate = null,
         PackageAcquisitionCandidate? candidate = null,
-        PackageHousePruningReceipt? pruning = null) =>
+        PackageHousePruningReceipt? pruning = null,
+        PackageVersionResolutionReceipt? versionResolution = null) =>
         new(
             request,
             PackageHouseDecision.Stop,
             coordinate,
             candidate,
-            pruning);
+            pruning,
+            versionResolution);
 }
 
 /// <summary>
@@ -976,6 +996,10 @@ public abstract class PackageHouseResult
             : base(evidence)
         {
             RequireNoCompletedRealization(evidence, nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.NotFound>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -991,6 +1015,10 @@ public abstract class PackageHouseResult
                 evidence,
                 PackageHouseRealizationCompletion.NoMatch,
                 nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.NoMatch>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1006,6 +1034,10 @@ public abstract class PackageHouseResult
                 evidence,
                 PackageHouseRealizationCompletion.Ambiguous,
                 nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.Ambiguous>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1021,6 +1053,10 @@ public abstract class PackageHouseResult
                 evidence,
                 PackageHouseRealizationCompletion.Rejected,
                 nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.Rejected>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1035,6 +1071,10 @@ public abstract class PackageHouseResult
             : base(evidence)
         {
             RequireNoCompletedRealization(evidence, nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.Unavailable>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1049,6 +1089,10 @@ public abstract class PackageHouseResult
             : base(evidence)
         {
             RequireNoCompletedRealization(evidence, nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.Incomplete>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1067,6 +1111,10 @@ public abstract class PackageHouseResult
                     "A completed asset-selection outcome requires its corresponding House terminal result unless operation timeout takes precedence.",
                     nameof(evidence));
             }
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.Failed>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1098,22 +1146,106 @@ public abstract class PackageHouseResult
                 parameterName);
         }
     }
+
+    private static void RequireVersionResolutionOutcome<TReceipt>(
+        PackageHouseEvidence evidence,
+        string parameterName)
+        where TReceipt : PackageVersionResolutionReceipt
+    {
+        if (evidence.Request.Demand
+                is not PackageHouseDemand.Selecting)
+        {
+            return;
+        }
+
+        PackageVersionResolutionReceipt? resolution =
+            evidence.Decision?.VersionResolution;
+        if (resolution is null)
+        {
+            throw new ArgumentException(
+                "A selecting package result must retain its version-resolution receipt.",
+                parameterName);
+        }
+        if (resolution
+                is not PackageVersionResolutionReceipt.Resolved
+            && resolution is not TReceipt)
+        {
+            throw new ArgumentException(
+                "The PackageHouse terminal result must preserve the version-resolution terminal outcome.",
+                parameterName);
+        }
+    }
 }
 
 internal static class PackageHouseContractValidation
 {
-    internal static void RequireCoordinateMatchesDemand(
+    internal static void RequireVersionResolutionMatchesDemand(
         PackageHouseDemand demand,
-        PackageSourceCoordinate coordinate)
+        PackageHouseDecision decision,
+        PackageSourceCoordinate? coordinate,
+        PackageAcquisitionCandidate? candidate,
+        PackageHousePruningReceipt? pruning,
+        PackageVersionResolutionReceipt? versionResolution)
     {
         ArgumentNullException.ThrowIfNull(demand);
-        ArgumentNullException.ThrowIfNull(coordinate);
-        if (demand is not PackageHouseDemand.Exact exact
-            || exact.Coordinate != coordinate)
+        switch (demand)
         {
-            throw new ArgumentException(
-                "The settled coordinate must be the exact package demand.",
-                nameof(coordinate));
+            case PackageHouseDemand.Exact exact:
+                if (versionResolution is not null
+                    || coordinate is not null
+                        && exact.Coordinate != coordinate)
+                {
+                    throw new ArgumentException(
+                        "An exact package demand accepts only its exact coordinate and no version-selection receipt.",
+                        nameof(coordinate));
+                }
+                return;
+
+            case PackageHouseDemand.Selecting selecting:
+                if (versionResolution is null
+                    || !ReferenceEquals(
+                        selecting.Request,
+                        versionResolution.Request))
+                {
+                    throw new ArgumentException(
+                        "A selecting package demand requires the resolution receipt for its exact request.",
+                        nameof(versionResolution));
+                }
+
+                if (versionResolution
+                    is PackageVersionResolutionReceipt.Resolved resolved)
+                {
+                    if (coordinate != resolved.Coordinate
+                        || !ReferenceEquals(
+                            candidate,
+                            resolved.Candidate))
+                    {
+                        throw new ArgumentException(
+                            "A selected package decision must retain the resolution receipt's exact coordinate and candidate.",
+                            nameof(versionResolution));
+                    }
+                    if (pruning is not null)
+                    {
+                        throw new ArgumentException(
+                            "Selecting-demand pruning is not part of this PackageHouse contract slice.",
+                            nameof(pruning));
+                    }
+                    return;
+                }
+
+                if (decision != PackageHouseDecision.Stop
+                    || coordinate is not null
+                    || candidate is not null
+                    || pruning is not null)
+                {
+                    throw new ArgumentException(
+                        "A non-success version resolution can only stop package settlement without an exact coordinate.",
+                        nameof(versionResolution));
+                }
+                return;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(demand));
         }
     }
 
