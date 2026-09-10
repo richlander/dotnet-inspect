@@ -1865,7 +1865,19 @@ When a handoff passes through a routing composite before the adjacent
 arbitration owner finalizes one selected contender, the resulting occurrence
 preserves the delegated request occurrence that reached the domain issuer.
 Finalization must not replace that route with a seed occurrence merely because
-the handoff itself carried descriptors rather than a terminal selection.
+the handoff itself carried descriptors rather than a terminal selection. A
+direct handoff whose selected contender is a configured canonical participant
+instead continues through that participant's configured policy. The adjacent
+source-relative arbitration owner consumes a compatible domain from the
+handoff itself even when none of its members was an initial group root; root
+membership cannot substitute for, or be required in addition to, the identity
+owner's completeness statement.
+
+A source-relative group's local name-owner mismatch rule applies after
+`NoNameOwner`, when no candidate evidence exists. It cannot replace a terminal
+`Selected` or `Ambiguous` result, even when the group contains another
+same-named root not represented by that result. Such roots do not authorize
+reconstructing contenders or promoting inactive evidence.
 
 This contract owns identity-domain completeness, descriptor preservation,
 deterministic evidence order, and the closed finalization boundary. It does not
@@ -1901,12 +1913,19 @@ request occurrence through routing-only handoff forwarding and singleton
 finalization.
 `Select_TerminalSelectionDoesNotPromoteInactiveDesignatedEvidence` gates a
 terminal selected partition through a compatible outer group, including a
-group root already represented by inactive evidence.
+group root already represented by inactive evidence and an additional
+same-named root outside the terminal partition.
 `Select_NestedTerminalAmbiguityPreservesInactiveOrder` gates both active and
 inactive projection order when a compatible outer group names an existing
 terminal contender. These terminal gates require later selection-changing
 arbitration to consume `CompositionRequired`; a composite cannot reconstruct a
 candidate domain from `Selected` or `Ambiguous`.
+`Select_RootFreeCompositionHandoffUsesItsCompleteDomain` gates source-relative
+consumption when no handoff member is an initial group root.
+`Select_DirectCompositionUsesCanonicalParticipantRoute` and
+`Select_RoutingOnlyCompositionPreservesSelectingRoute` jointly gate the
+continuation distinction between a direct canonical-participant handoff and a
+handoff forwarded by a routing-only composite.
 `SourceRelativeAssemblyGroupBindingPolicyTests.Select_ForeignCompositionSnapshotEscapesBeforeDomainInterpretation`
 gates
 foreign-snapshot exclusion before a transforming composite can inspect the

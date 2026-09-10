@@ -232,6 +232,67 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
     }
 
     [Fact]
+    public void Select_RootFreeCompositionHandoffUsesItsCompleteDomain()
+    {
+        var owner = NamedDescriptor("Owner");
+        var selected = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("domain overlay"));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "domain fallback"));
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create(
+                [platform, selected]);
+        var policy = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.RequireComposition(domain));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)policy)]);
+
+        var actual = Selected(group, Request(selected, owner));
+
+        Assert.Same(selected, actual.Assembly);
+        Assert.Same(platform, Assert.Single(actual.ShadowedAssemblies));
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void Select_DirectCompositionUsesCanonicalParticipantRoute()
+    {
+        var owner = NamedDescriptor("Owner");
+        var selected = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("canonical overlay"));
+        var dependency = NamedDescriptor("Dependency");
+        var wrongDependency = NamedDescriptor("Dependency");
+        var source = new SelectionPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Platform.Library" }
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create([selected]))
+                : AssemblyBindingSelection.Found(wrongDependency));
+        var canonical = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.Found(dependency));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)source),
+                (selected, (IAssemblyBindingPolicy)canonical),
+            ]);
+
+        var first = Selected(group, Request(selected, owner));
+        var continued = Selected(
+            group,
+            Request(dependency, first.Occurrence));
+
+        Assert.Same(dependency, continued.Assembly);
+        Assert.Equal(1, source.SelectionCount);
+        Assert.Equal(1, canonical.SelectionCount);
+    }
+
+    [Fact]
     public void Select_RoutingOnlyCompositionPreservesSelectingRoute()
     {
         var fallback = NamedDescriptor("Fallback");
@@ -344,6 +405,11 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
             AssemblyResolutionProvenance.Designated(
                 "selected designated"),
             new Version(2, 0, 0, 0));
+        var additionalDesignated = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated(
+                "additional designated"),
+            new Version(3, 0, 0, 0));
         AssemblyBindingSelection terminal =
             AssemblyBindingCandidateDomain.Create(
                 [inactiveDesignated, platform, selectedDesignated])
@@ -356,6 +422,7 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
             [
                 (owner, (IAssemblyBindingPolicy)inner),
                 (inactiveDesignated, (IAssemblyBindingPolicy)inner),
+                (additionalDesignated, (IAssemblyBindingPolicy)inner),
             ]);
 
         var selected = Selected(

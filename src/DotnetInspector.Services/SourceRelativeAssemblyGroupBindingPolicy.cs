@@ -291,7 +291,9 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             SelectDelegate(state, route, request);
         AssemblyBindingOccurrence? compositionOrigin = null;
         if (reference is not null
-            && pendingDesignated is not null)
+            && (pendingDesignated is not null
+                || selection
+                    is AssemblyBindingSelection.CompositionRequired))
         {
             bool compositionRequired =
                 selection
@@ -302,23 +304,24 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 selection);
             if (compositionRequired
                 && selection
-                    is AssemblyBindingSelection.Selected)
+                    is AssemblyBindingSelection.Selected
+                && route.Delegate.Policy
+                    is SourceRelativeAssemblyGroupBindingPolicy
+                    {
+                        _composeParticipantSelections: false,
+                    })
             {
                 compositionOrigin = route.RequestingOccurrence;
             }
         }
         if (reference is not null
-            && (selection
-                    is AssemblyBindingSelection.Missing
+            && selection
+                is AssemblyBindingSelection.Missing
             {
                 Disposition:
                             AssemblyBindingMissDisposition.NoNameOwner,
             }
-                || selection
-                    is AssemblyBindingSelection.Selected)
-            && IdentityMismatchSelection(
-                reference.Identity,
-                selection as AssemblyBindingSelection.Selected)
+            && IdentityMismatchSelection(reference.Identity)
                     is { } mismatch)
         {
             selection = mismatch;
@@ -357,7 +360,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
 
     static AssemblyBindingSelection ComposePendingDesignated(
         AssemblyReferenceIdentity requested,
-        AssemblyBindingSelection designated,
+        AssemblyBindingSelection? designated,
         AssemblyBindingSelection policySelection)
     {
         if (policySelection
@@ -367,7 +370,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                     AssemblyBindingMissDisposition.NoNameOwner,
             })
         {
-            return designated;
+            return designated ?? policySelection;
         }
 
         if (policySelection
@@ -416,8 +419,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             ignoreVersion: true);
 
     AssemblyBindingSelection? IdentityMismatchSelection(
-        AssemblyReferenceIdentity requested,
-        AssemblyBindingSelection.Selected? selected)
+        AssemblyReferenceIdentity requested)
     {
         ImmutableArray<ResolvedAssemblyReference> candidates =
         [
@@ -427,27 +429,6 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                     requested.Name,
                     StringComparison.OrdinalIgnoreCase)),
         ];
-        if (selected is not null
-            && (!string.Equals(
-                    selected.Assembly.Identity.Name,
-                    requested.Name,
-                    StringComparison.OrdinalIgnoreCase)
-                || candidates.Any(candidate =>
-                    SameIdentity(
-                        candidate.Identity,
-                        selected.Assembly.Identity))
-                || candidates.All(candidate =>
-                    ReferenceEquals(
-                        candidate.Registration,
-                        selected.Assembly.Registration)
-                    || selected.ShadowedAssemblies.Any(shadow =>
-                        ReferenceEquals(
-                            shadow.Registration,
-                            candidate.Registration)))))
-        {
-            return null;
-        }
-
         return candidates.Length switch
         {
             0 => null,

@@ -930,7 +930,7 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public void AssemblyGroup_SelectedVersionOutsideGroupRequiresIdentityPolicy()
+    public void AssemblyGroup_TerminalSelectedVersionOutsideGroupIsPreserved()
     {
         string path = typeof(AssemblyDependencyResolverTests)
             .Assembly.Location;
@@ -960,13 +960,11 @@ public partial class AssemblyDependencyResolverTests
             AssemblyBindingOrigin.FromAssembly(root),
             AssemblyResolutionScope.Any);
 
-        var unavailable = Assert.IsType<
-            AssemblyBindingSelection.Unavailable>(
+        var actual = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
                 group.Select(request).Selection);
 
-        Assert.Equal(
-            AssemblyBindingFailureKind.IdentityPolicyRequired,
-            unavailable.Failure.Kind);
+        Assert.Same(selected, actual.Assembly);
     }
 
     [Fact]
@@ -1340,7 +1338,7 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public void AssemblyGroup_SkewedDesignatedPreservesOriginNameOwner()
+    public void AssemblyGroup_TerminalLocalSelectionSurvivesSkewedDesignatedRoot()
     {
         var requested = new AssemblyReferenceIdentity(
             "Platform.Library",
@@ -1372,12 +1370,10 @@ public partial class AssemblyDependencyResolverTests
             AssemblyBindingOrigin.FromAssembly(owner),
             AssemblyResolutionScope.Any);
 
-        var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
+        var actual = Assert.IsType<AssemblyBindingSelection.Selected>(
             group.Select(request).Selection);
 
-        Assert.Equal(
-            AssemblyBindingFailureKind.IdentityPolicyRequired,
-            unavailable.Failure.Kind);
+        Assert.Same(sibling, actual.Assembly);
         Assert.Equal(1, policy.SelectionCount);
     }
 
