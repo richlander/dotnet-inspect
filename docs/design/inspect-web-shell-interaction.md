@@ -324,14 +324,14 @@ method composition. Pasting a package coordinate updates results immediately;
 it is not dependent on keyboard events that paste does not emit.
 
 Spotlight's package action is one-shot Workspace composition. Selecting an
-external package constructs a fresh unnamed Workspace with one explicit
-package Root in addition to the default ecosystem registrations, publishes and
-activates it, and makes that package active in the subject strip. Existing
-Workspaces remain available in the Workspace subject. Selecting a loaded
-coordinate, Library, Type, or Member instead performs ordinary Navigation
-within the active Workspace. Spotlight exposes no **Add to current Workspace**
-gesture; multi-package and multi-ecosystem composition remains on the Workspace
-editor.
+external package explicitly requests the Ecosystems-owned curated Workspace,
+adds one explicit package Root before publication, publishes and activates the
+fresh unnamed Workspace, and makes that package active in the subject strip.
+Existing Workspaces remain available in the Workspace subject. Selecting a
+loaded coordinate, Library, Type, or Member instead performs ordinary
+Navigation within the active Workspace. Spotlight exposes no **Add to current
+Workspace** gesture; multi-package and multi-ecosystem composition remains on
+the Workspace editor.
 
 [Package-row removal](inspect-web-package-removal.md) owns the trailing close
 control for open and recent NuGet package rows in Home and modal Spotlight.

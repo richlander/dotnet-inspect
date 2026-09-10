@@ -392,7 +392,7 @@ Workspace registration.
 | --- | --- |
 | [Platform Target Currency](platform-target-currency.md) | Closed family and exact family-target identity |
 | This declaration owner in Source Selection | Registration role, focus/support meaning, source-view separation, declaration equality, and non-action |
-| [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md) | Platform contribution arm, application-pack correspondence, and product-default validation |
+| [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md) | Platform contribution arm, application-pack correspondence, and curated-Workspace validation |
 | Integration above source boundaries | Explicit declaration-to-source correspondence without importing Source Selection into package-free installed realization |
 | Platform source adapters | Source-owned coordinates, target/view/demand selection, inventory, focus/support evidence, completion, and failures |
 | [Platform composition](platform-composition-and-overlays.md) | Coherent package-free installed closure, realization, entitlement, precedence, and compatibility |
@@ -400,7 +400,7 @@ Workspace registration.
 | [Platform/package pruning](platform-package-pruning.md) | Exact target-bound package subsumption evidence |
 | Metadata | Assembly identity, binding, provenance, and guarded inspection |
 | Call Graph | Required implementation view, focal-length population composition, traversal bounds, completeness, and graph result |
-| CLI and Inspect Web | Shared default consumption, user intent, diagnostics, and interaction |
+| CLI and Inspect Web | Explicit raw-versus-curated construction choice, user intent, diagnostics, and interaction |
 
 There are seven counted production-adoption steps:
 
@@ -411,17 +411,20 @@ There are seven counted production-adoption steps:
 3. Adopt the type in the Platform arm of the Queries-owned lower ecosystem
    registration declaration.
 4. Project `DotNetRuntime` from `ecosystem.platform` and `AspNetCore` from
-   `ecosystem.aspnetcore` in the application catalog's shared default manifest.
+   `ecosystem.aspnetcore` in the application catalog's curated Workspace
+   manifest.
 5. Define and implement integration requests and source-realization results
    that preserve the declaration, exact target, view, demand, focus/support
    roles, completion claim, and typed non-success across installed/reference
    and remote implementation sources, without introducing Source Selection
    into the package-free installed adapter closure.
-6. Have the CLI consume the shared defaults and lower selected declarations
+6. Have the CLI choose the Ecosystems-owned curated constructor where its
+   command experience calls for curation, then lower selected declarations
    through the shared realization contract.
-7. Have `DotnetInspect.Web.Interop.Catalog` transport the same declarations and
-   Browser Core consume the shared realization contract, retiring declaration
-   inference from its private platform-index family strings.
+7. Have the Inspect Web application boundary make the same explicit
+   construction choice and Browser Core consume the shared realization
+   contract, retiring declaration inference from its private platform-index
+   family strings.
 
 Steps 3 and 4 compose with the remaining catalog work in #6012 stage 3.
 Workspace Scope, Definitions, focal-length execution, and host editing retain

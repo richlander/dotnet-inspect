@@ -75,20 +75,28 @@ It does not own:
 
 These hold for every inventory independent of how a consumer uses it.
 
-### The platform registration is the switch
+### Explicit Platform presence is the switch
 
-Pruning is on exactly when a platform version is registered, and off exactly
-when none is. There is no second control.
+Pruning is eligible exactly when the operation's exact Workspace revision
+contains the selected `ecosystem.platform` registration, and off when that
+registration is absent. There is no second control. An ASP.NET Core ecosystem
+registration may contribute the `AspNetCore` platform family, but it does not
+substitute for the exact Platform registration that activates pruning.
 
-A new workspace registers one by default, under
-[workspace registration and call-graph focal length](workspace-registration-and-call-graph-scope.md#fresh-workspace-defaults),
-so the ordinary case has an inventory without the user choosing anything. The
-[no-platform workspace](#a-workspace-may-have-no-platform-at-all) is the off
-state, and it is a coherent configuration rather than a broken one.
+The Workspace API constructs empty and therefore starts with pruning off. The
+Ecosystems-owned curated Workspace initially includes Platform and therefore
+makes pruning eligible for operations that select that contribution. A raw
+caller may add Platform explicitly; a command gesture such as `--platform` may
+perform that addition under its command owner. The
+[no-platform workspace](#a-workspace-may-have-no-platform-at-all) remains a
+coherent off state rather than a broken one.
 
-This matters because an inventory is a property of a platform version rather
-than a separate artifact to select. A control of its own is precisely the
-mechanism by which the rules could come to describe libraries the workspace
+The target-independent registration is not itself a prune inventory. Runtime
+comparison begins only after the selected population is associated with one
+exact platform target and its owner-issued family inventories. This matters
+because an inventory is a property of an exact platform target rather than a
+separate artifact to select. A pruning control of its own is precisely the
+mechanism by which the rules could come to describe libraries the Workspace
 does not have.
 
 ### Discovering a newer platform cannot relabel older data
@@ -643,6 +651,8 @@ The first implementation slice is #6239. Its gates live in
 | Family composition decides inventory membership | `FamilyCompositionDecidesInventoryMembership` | implemented — #6239 |
 | Composition refuses mismatched targets and prefers the lower supplied version | `CompositionRefusesMismatchedTargetsAndPrefersTheLowerSuppliedVersion` | implemented — #6239 |
 | An empty inventory subsumes nothing | `EmptyInventorySubsumesNothing` | implemented — #6239 |
+| Only an exact selected `ecosystem.platform` registration activates pruning; absent, unselected, and ASP.NET-Core-only registrations do not | `PruningActivation_RequiresSelectedPlatformRegistration` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
+| The selected Platform registration activates comparison only with its associated exact target inventory | `PruningActivation_RequiresExactTargetInventoryCorrespondence` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
 | An acquired exact pack replaces projected supplied versions | `Pruning_ExactPackReplacesProjectedVersions` | pending — projection slice |
 | Band-floor equality does not infer patch-following behavior | `Pruning_BandFloorEqualityRemainsLiteral` | pending — projection slice |
 | A within-band membership change is reported for review | `Pruning_MembershipChangeIsReported` | pending — projection slice |
@@ -653,9 +663,12 @@ cases that do exist are an identity absent from the inventory and a request
 that cannot be compared.
 
 The gates follow the scenarios above rather than only the implementation
-shape: the newer-package case drives `LeapfroggingPackageIsNotSubsumed`, the
-no-platform case drives `EmptyInventorySubsumesNothing`, the unchanged
-ASP.NET Core pair drives `Pruning_BandFloorEqualityRemainsLiteral`, and the
+shape: the newer-package case drives `LeapfroggingPackageIsNotSubsumed`; the
+no-platform, unselected-Platform, and ASP.NET-Core-only cases drive
+`PruningActivation_RequiresSelectedPlatformRegistration`; the target mismatch
+drives `PruningActivation_RequiresExactTargetInventoryCorrespondence`; the
+unchanged ASP.NET Core pair drives
+`Pruning_BandFloorEqualityRemainsLiteral`; and the
 same-text/different-target table drives
 `ProjectedInventoryIsNotComparableAcrossTargets`.
 
