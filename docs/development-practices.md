@@ -69,12 +69,55 @@ developed closely with the user can reveal the actual boundary before code
 makes an accidental behavior expensive to undo. Much of the architecture is
 the act of bounding a contract and making its important properties invariant.
 
-## Start architectures from production hosts
+## Ground product behavior in real assets
 
-Every new architecture, capability, or substrate must name a concrete consumer
-from the start. The consumer may land in a later slice, but the focused
-specification and implementation issue must identify it, and a single overall
-end-to-end tracking issue must link the architecture and consumer work.
+Every feature and significant fix must be motivated by at least one real asset:
+
+- an exact package ID and version published on nuget.org; or
+- a relevant source construct from a real repository, pinned to a commit and
+  path.
+
+Synthetic packages and authored source examples remain useful for boundary
+coverage and seam isolation, but they cannot be the sole motivation for product
+behavior. Before implementation, record the asset in the owning design
+document, including its stable identity or link, the observed shape or
+behavior, the exact product claim it motivates, and the plan for durable test
+evidence. A reviewer concern, hypothetical edge case, or synthetic
+reconstruction does not replace that record.
+
+Promote the motivating asset into repository evidence in most cases:
+
+- Add a nuget.org package and version to the appropriate pinned test population
+  or corpus, exercising it through the normal product acquisition path.
+- Use repository source to form a focused fixture that preserves the relevant
+  source or compiler-produced shape, and retain the source commit and path as
+  provenance. Copy source only when its license permits; otherwise author the
+  smallest fixture that reproduces the observed shape.
+
+The real asset establishes that the need exists; deterministic fixtures,
+neighboring controls, and synthetic boundary cases establish the supported
+contract. When license, size, nondeterminism, or test-environment constraints
+make direct retention impractical, document the reason and preserve a
+reproducible acquisition or observation procedure.
+
+Starting a feature or significant fix without a qualifying real asset and its
+design record requires explicit user/operator approval. Record the approval,
+its scope, and the residual evidence gap in the owning design before
+implementation.
+
+## Plan every feature through production adoption
+
+Every new feature, architecture, capability, or substrate must have a direct
+path to observable use by a production consumer: the CLI or website. The
+consumer may land later, but the focused specification and implementation issue
+must identify it, and a single overall end-to-end tracking issue must link the
+product work to its adoption.
+
+When work is divided into slices or a stacked PR sequence, the overall plan
+must include at least one slice that adopts the feature in a production
+consumer. A plan that ends at a reusable library, protocol, serializer, or
+other host-neutral substrate is incomplete. The adoption slice may be separate,
+but it is part of the feature's plan rather than optional follow-up work.
 
 The tracker must identify each production host, enumerate the concrete adoption
 slices in order, and state the current total step count from the architecture

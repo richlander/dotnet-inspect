@@ -50,8 +50,8 @@ It consumes without redefining:
 
 `EcosystemPackId` lives in `DotnetInspector.Ecosystems`. That application
 catalog references Queries and is intentionally consumed only by the CLI and
-`InspectWeb.Engine.CatalogExports`. Reusable Queries and
-`InspectWeb.Engine.Core` cannot reference the catalog without reversing the
+`DotnetInspect.Web.Interop.Catalog`. Reusable Queries and
+`DotnetInspect.Web.Core` cannot reference the catalog without reversing the
 layering boundary or creating a project cycle.
 
 Passing only `EcosystemPackId.Value` downward would avoid the project reference
@@ -83,7 +83,7 @@ EcosystemWorkspaceRegistrationProjection
         v
 reusable Workspace consumers
   Queries
-  InspectWeb.Engine.Core
+  DotnetInspect.Web.Core
   future Workspace Scope and Definitions
 ```
 
@@ -304,7 +304,7 @@ removing a default is an application-manifest change, not a Workspace Scope
 default embedded in CLI, Browser, Queries, or persisted data.
 
 The catalog publishes the same lower declaration sequence to the CLI and
-`InspectWeb.Engine.CatalogExports`. Browser Core receives only lower
+`DotnetInspect.Web.Interop.Catalog`. Browser Core receives only lower
 declarations. Neither host copies the three IDs or reconstructs declarations
 from ordinary pack discovery.
 
@@ -439,7 +439,7 @@ There are eight counted adoption steps:
    Workspace Definitions.
 7. Have the CLI obtain fresh defaults only through the catalog projection and
    pass lower declarations into shared Workspace construction.
-8. Have `InspectWeb.Engine.CatalogExports` publish the same projection to
+8. Have `DotnetInspect.Web.Interop.Catalog` publish the same projection to
    Browser Core, then adopt Workspace editing without another default table.
 
 Exact-library registration remains a separate source-owner slice within #6012
