@@ -7,7 +7,7 @@
     <Version>1.0.0</Version>
     <Authors>dotnet-inspect</Authors>
     <Description>Build oracle for compatible empty NuGet compile groups.</Description>
-    <IsPackable>true</IsPackable>
+    <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
     <CheckEolTargetFramework>false</CheckEolTargetFramework>
     <NoPackageAnalysis>true</NoPackageAnalysis>
