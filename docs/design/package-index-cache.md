@@ -470,6 +470,9 @@ durable W-to-S-to-W retained-content evidence. The outcome-level
 `PackageInspector_ColdAndWarmCacheableProjectionAgree` gate verifies the
 end-to-end consumer wiring, including partial-production refusal, warm
 `BuiltDate` recomputation, and cold/warm `RuntimeDependencies` agreement.
+`PackageInspector_WrongShapedDepsPreservesColdResultAndDeclinesPublication`
+verifies that a syntactically valid but structurally malformed deps file keeps
+the ordinary cold result usable while making the projection nonpublishable.
 
 ## Non-claims
 

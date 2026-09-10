@@ -42,13 +42,15 @@ public static class DepsJsonParser
     {
         var result = new DepsJsonData();
         using var doc = HardenedJson.Parse(json);
+        RequireObject(doc.RootElement, "root");
 
         // Get runtime target
         if (doc.RootElement.TryGetProperty("runtimeTarget", out var runtimeTarget))
         {
+            RequireObject(runtimeTarget, "runtimeTarget");
             if (runtimeTarget.TryGetProperty("name", out var name))
             {
-                string targetName = name.GetString() ?? "";
+                string targetName = ReadOptionalString(name, "runtimeTarget.name") ?? "";
                 // Format: .NETCoreApp,Version=v8.0/win-x64 or .NETCoreApp,Version=v8.0
                 int separator = targetName.IndexOf('/');
                 if (separator >= 0 && separator + 1 < targetName.Length)
@@ -61,6 +63,7 @@ public static class DepsJsonParser
         // Get runtime dependencies
         if (doc.RootElement.TryGetProperty("libraries", out var libraries))
         {
+            RequireObject(libraries, "libraries");
             foreach (var lib in libraries.EnumerateObject())
             {
                 int separator = lib.Name.IndexOf('/');
@@ -69,9 +72,12 @@ public static class DepsJsonParser
                     || separator == lib.Name.Length - 1)
                     continue;
 
+                RequireObject(lib.Value, $"libraries.{lib.Name}");
                 if (lib.Value.TryGetProperty("type", out var typeElem))
                 {
-                    string type = typeElem.GetString() ?? "";
+                    string type = ReadOptionalString(
+                        typeElem,
+                        $"libraries.{lib.Name}.type") ?? "";
                     if (type == "package")
                     {
                         result.RuntimeDependencies ??= [];
@@ -86,6 +92,28 @@ public static class DepsJsonParser
         }
 
         return result;
+    }
+
+    private static void RequireObject(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException(
+                $"'{propertyName}' must be a JSON object.");
+        }
+    }
+
+    private static string? ReadOptionalString(
+        JsonElement element,
+        string propertyName)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Null => null,
+            _ => throw new InvalidDataException(
+                $"'{propertyName}' must be a JSON string or null."),
+        };
     }
 }
 

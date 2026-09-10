@@ -188,6 +188,25 @@ public class DepsJsonParserTests : IDisposable
         Assert.NotNull(result.Error);
     }
 
+    [Theory]
+    [InlineData("""[]""")]
+    [InlineData("""{"runtimeTarget":[]}""")]
+    [InlineData("""{"runtimeTarget":{"name":42}}""")]
+    [InlineData("""{"libraries":[]}""")]
+    [InlineData("""{"libraries":{"Package/1.0.0":[]}}""")]
+    [InlineData("""{"libraries":{"Package/1.0.0":{"type":42}}}""")]
+    public void TryParse_WrongShapedJsonReportsIncompleteProjection(
+        string content)
+    {
+        var deps = WriteDepsJson(content);
+
+        DepsJsonParseResult result = DepsJsonParser.TryParse(deps);
+
+        Assert.False(result.IsComplete);
+        Assert.Null(result.Data);
+        Assert.NotNull(result.Error);
+    }
+
     [Fact]
     public void Parse_CombinesRuntimeTargetAndDependencies()
     {

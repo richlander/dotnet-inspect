@@ -586,6 +586,77 @@ public sealed class PackageIndexCacheTests
         }
     }
 
+    [Fact]
+    public async Task PackageInspector_WrongShapedDepsPreservesColdResultAndDeclinesPublication()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "package-index-wrong-deps-").FullName;
+        string packageId = $"Wrong.Deps.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        try
+        {
+            string tools = Path.Combine(root, "tools", "net8.0", "any");
+            Directory.CreateDirectory(tools);
+            await File.WriteAllTextAsync(
+                Path.Combine(tools, "wrong.deps.json"),
+                """{"libraries":[]}""",
+                TestContext.Current.CancellationToken);
+            var content = new InMemoryPackageContent(
+                [9, 10, 11, 12],
+                fromCache: true,
+                producerKey: "wrong-deps-producer");
+            var resolution = new PackageExtractionResult(
+                root,
+                TempDir: null,
+                PackageName: packageId,
+                Version: version,
+                ProducerKey: "wrong-deps-producer")
+            {
+                Authority = new ConfiguredPackageAuthority(
+                    new NuGetFetch.PackageSource("wrong-deps", root)),
+                AcquiredPayload = new AcquiredPackageSourcePayload(
+                    NuGetFetch.PackageSourceCoordinate.Create(
+                        packageId,
+                        version),
+                    content,
+                    "wrong-deps-producer",
+                    PackagePayloadOrigin.Cache),
+            };
+
+            using var client = new HttpClient();
+            InspectionResult cold = await PackageInspector.InspectAsync(
+                resolution,
+                packageId,
+                version,
+                isLocalFile: false,
+                localFilePath: null,
+                NuspecParser.ParseContent($"""
+                    <package>
+                      <metadata>
+                        <id>{packageId}</id>
+                        <version>{version}</version>
+                      </metadata>
+                    </package>
+                    """),
+                client,
+                new VerboseLogger(enabled: false));
+
+            Assert.Equal(packageId, cold.PackageName);
+            PackageIndexCacheSubject subject =
+                Assert.IsType<PackageIndexCacheSubject>(
+                    PackageIndexCacheSubject.TryCreate(
+                        resolution,
+                        _ => { },
+                        TestContext.Current.CancellationToken));
+            Assert.Null(PackageIndexCache.TryGet(subject));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static void WriteBuildDateArchive(
         string path,
         DateTimeOffset timestamp)
