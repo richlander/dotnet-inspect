@@ -11,7 +11,7 @@
 
   <ItemGroup>
     <Compile Include="../ManagedOperationCanary.cs" Link="ManagedOperationCanary.cs" />
-    <ProjectReference Include="../../engine.Core/InspectWeb.Engine.Core.csproj" />
+    <ProjectReference Include="../../DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj" />
   </ItemGroup>
 
 </Project>

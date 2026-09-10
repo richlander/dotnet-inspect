@@ -419,7 +419,7 @@ There are seven counted production-adoption steps:
    into the package-free installed adapter closure.
 6. Have the CLI consume the shared defaults and lower selected declarations
    through the shared realization contract.
-7. Have `InspectWeb.Engine.CatalogExports` transport the same declarations and
+7. Have `DotnetInspect.Web.Interop.Catalog` transport the same declarations and
    Browser Core consume the shared realization contract, retiring declaration
    inference from its private platform-index family strings.
 

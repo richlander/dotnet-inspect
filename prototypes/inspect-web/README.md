@@ -21,8 +21,8 @@ package acquisition, target-framework ranking, symbol acquisition, and member
 identity for itself, and opened assemblies wherever it needed one. It was not
 carried forward.
 
-`InspectWeb.Engine` remains the executable Browser/Wasm host and the owner of
-all current exports and wire DTOs. `InspectWeb.Engine.Core` is its one-way,
+`DotnetInspect.Web` remains the executable Browser/Wasm host and the owner of
+all current exports and wire DTOs. `DotnetInspect.Web.Core` is its one-way,
 implementation-only dependency for shared package/platform workspaces,
 operation lifetimes, browser host policy, and typed internal results. Engine
 maps those results to its wire DTOs; Core contains no `[JSExport]` method or
@@ -31,12 +31,12 @@ generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
 
 The rule is enforced by the compiler, not by a convention.
-`engine/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
+`DotnetInspect.Web/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
 `LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
 factories, and the group's image and retained-descriptor accessors in this
 project, and `Directory.Build.targets` already escalates `RS0030` to an error
 for every project.
-`BrowserEngineLayeringTests` in `engine.Tests` pins that wiring and
+`BrowserEngineLayeringTests` in `DotnetInspect.Web.Tests` pins that wiring and
 resolves every complete banned documentation id, including generic arity and
 parameter types — a renamed or malformed entry bans nothing and fails the gate.
 It also bans opening a retained descriptor, minting one, or invoking
@@ -310,25 +310,19 @@ assemblies that receive a .NET platform lookup on click.
 
 [#3932]: https://github.com/richlander/dotnet-inspect/pull/3932
 
-## Engine layout
+## Managed layout
 
-| File | Owns |
+| Project | Owns |
 | --- | --- |
-| `engine/Program.cs` | the entry point, and nothing else |
-| `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
-| `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
-| `engine/BrowserWorkspaceShareOperations.cs` | typed Browser adaptation over the product-owned workspace packet codec and transposer |
-| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, and the bounded workspace registry |
-| `engine/BrowserPlatformWorkspace.cs` | content-backed platform acquisition, exact family pins, cumulative group replacement, and shared package/workspace accounting |
-| `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
-| `engine/BrowserInspectionScope.cs` | Browser coordinate/asset provenance over product-realized surface/implementation roles, the `InspectionWorkspace` lifetime, and query hand-offs |
-| `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
-| `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
-| `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
-| `engine/InspectionEngine.cs` | the supported `[JSExport]` operations |
-| `engine/BrowserPlatformOperations.cs` | the supported Platform acquisition, Integrations, Opportunities, and call-graph exports |
-| `engine/BrowserSourceOperations.cs` | pathless PDB-mapped-or-decompiled type/member source and Browser source capabilities |
-| `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
+| `DotnetInspect.Web` | Browser/Wasm entry point, host exports, build identity, compiled facade recipe, banned-symbol policy, and static assets |
+| `DotnetInspect.Web.Core` | shared browser workspaces, acquisition and operation coordination, host policy, lifetimes, and internal projections; no `[JSExport]` methods |
+| `DotnetInspect.Web.Interop.Package` | package and platform acquisition, query, documentation, and workspace-occurrence exports and wire contracts |
+| `DotnetInspect.Web.Interop.Metadata` | API and metadata exports and wire contracts |
+| `DotnetInspect.Web.Interop.Analysis` | analysis, integration, opportunity, performance, and clone-search exports and wire contracts |
+| `DotnetInspect.Web.Interop.Source` | source, annotated-source, method-body, and source-comparison exports and wire contracts |
+| `DotnetInspect.Web.Interop.CallGraph` | package and platform call-graph exports and wire contracts |
+| `DotnetInspect.Web.Interop.Catalog` | vocabulary, home-demo, and workspace-share exports and wire contracts |
+| `DotnetInspect.Web.Tests` | managed host, Core, facade-boundary, and wire-contract tests |
 
 Inspected assemblies are read with System.Reflection.Metadata only, are never
 written to a file, and are never loaded into the runtime. Browser/Wasm is
@@ -555,7 +549,7 @@ and activates its occurrence, and reports the matching `IHttpClientFactory`
 and `AddHttpClient` signals. This network-backed case uses the live Gallery CDN;
 the lifecycle and malformed-implementation cases use deterministic local
 archive responses. Run the gate after building the frontend and publishing
-`InspectWeb.Engine.csproj` in Release to `artifacts/inspect-web-publish`.
+`DotnetInspect.Web.csproj` in Release to `artifacts/inspect-web-publish`.
 
 ## Supported
 
@@ -1058,13 +1052,13 @@ It is one mechanism, not a TypeScript feature, and the generated modules
 contain no context construct. The script requires the context output to equal
 the exact seven-entry consumer map, proves each context artifact equals direct
 generation for its rooted assembly, and copies those bytes unchanged into
-`engine/facades/`.
+`DotnetInspect.Web/facades/`.
 
 Those native TypeScript files are the authoritative checked-in handoff. The
 script compiles all seven in one exact program against the SDK-owned
 `dotnet.d.ts` from the Browser/Wasm runtime pack selected for the engine build,
 with LF compiler output on every host. The derived declarations live in
-`src/facades/` and the published modules in `engine/wwwroot/`; `--check`
+`src/facades/` and the published modules in `DotnetInspect.Web/wwwroot/`; `--check`
 compares all 21 artifacts and rejects extra or missing files. The SDK
 declaration is a compile-time input copied only into a temporary workspace and
 is never published.
@@ -1152,7 +1146,7 @@ managed runtime.
 After a Release publish, run the native binding gate:
 
 ```bash
-dotnet publish prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+dotnet publish prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
   -c Release --output artifacts/inspect-web-publish
 cd prototypes/inspect-web
 INSPECT_WEB_WORKER_SOURCE_DLL=\
@@ -1348,7 +1342,7 @@ workspace-navigation tests gate rejection of unknown values.
 Oxlint checks all seven compiler-derived production facade artifact triples and
 the multi-facade and managed-operation canary sources as consumer contracts.
 The `src/facades/*.d.ts` declarations receive the TypeScript rules, while the
-exact seven `engine/wwwroot/inspect-web-*.js` modules receive the JavaScript
+exact seven `DotnetInspect.Web/wwwroot/inspect-web-*.js` modules receive the JavaScript
 correctness and suspicious rules described below. The checked-in production
 and canary TypeScript facades are compiled separately against the exact
 SDK-owned `dotnet.d.ts`; each canary gate compiles its authored coordinator or
@@ -1463,8 +1457,8 @@ document is measured against a file the linter refused to open. Where the two
 do diverge — an authored `src/bin/probe.html`, say — the set comparison fails
 loudly rather than passing quietly. The `bin` and `obj` entries matter only once
 the engine project has been built, which is why they went unnoticed locally and
-surfaced on CI: without them html-validate was linting `engine/bin/**` and
-`engine/obj/**` — MSBuild static-web-asset placeholders and copied `wwwroot`
+surfaced on CI: without them html-validate was linting `DotnetInspect.Web/bin/**` and
+`DotnetInspect.Web/obj/**` — MSBuild static-web-asset placeholders and copied `wwwroot`
 output that no one authored and no one can fix.
 
 Eight toolchain tests hold that wiring honest. They pin the preset list, the
@@ -1716,7 +1710,7 @@ also outside this deployment policy.
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.
 `knip.json` excludes the exact seven generated
-`engine/wwwroot/inspect-web-*.js` publish artifacts: they import
+`DotnetInspect.Web/wwwroot/inspect-web-*.js` publish artifacts: they import
 `./_framework/dotnet.js`, which exists only after Wasm publish. The exclusions
 are specific to Knip reachability; Oxlint still checks every generated module.
 It also ignores `type-fest`, which nothing here imports:
@@ -1783,7 +1777,7 @@ npm test
 npx playwright install firefox
 npm run test:browser
 cd ../..
-dotnet run --project prototypes/inspect-web/engine.Tests -c Release
+dotnet run --project prototypes/inspect-web/DotnetInspect.Web.Tests -c Release
 ```
 
 `BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
@@ -1819,7 +1813,7 @@ The shared product paths are gated by:
   path-less, stream-backed assembly reference, and supplying the whole-assembly
   analysis context that path-keyed resolution cannot provide.
 
-`BrowserEngineLayeringTests` in `engine.Tests` gates the layering rule described
+`BrowserEngineLayeringTests` in `DotnetInspect.Web.Tests` gates the layering rule described
 above on every browser-engine CI run.
 
 Pull requests that change the browser prototype, its shared annotated-source
@@ -2405,7 +2399,7 @@ Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
 project that reaches `CoreCompile` fails unless its exact `Features` property
 selects the deployment's expected lowering, then emits a project-path receipt.
 `verify-async-project-graph.ts` requires those receipts to equal the evaluated
-transitive repository project graph rooted at `InspectWeb.Engine.csproj`;
+transitive repository project graph rooted at `DotnetInspect.Web.csproj`;
 framework/runtime-pack binaries, the separately published MSDL server API, and
 unrelated repository projects are outside that set.
 

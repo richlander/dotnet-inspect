@@ -23,7 +23,7 @@ const publishScript = fileURLToPath(
 const smokeScript = fileURLToPath(
   new URL("../scripts/verify-published-engine-facades.ts", import.meta.url),
 );
-const sourceRoot = fileURLToPath(new URL("../engine/wwwroot/", import.meta.url));
+const sourceRoot = fileURLToPath(new URL("../DotnetInspect.Web/wwwroot/", import.meta.url));
 const target = "./_framework/dotnet.fingerprint.js";
 const sdkSource = 'export const dotnet = { identity: "SDK runtime" };\n';
 

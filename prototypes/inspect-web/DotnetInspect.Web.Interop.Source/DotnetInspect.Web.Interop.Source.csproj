@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>DotnetInspect.Web.Interop.Source</AssemblyName>
+    <RootNamespace>DotnetInspect.Web.Interop.Source</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
+    <AdditionalFiles Include="..\DotnetInspect.Web\BannedSymbols.txt" />
+    <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
+  </ItemGroup>
+</Project>

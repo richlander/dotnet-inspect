@@ -27,7 +27,7 @@
       browser carries the product's injective identity for each. Only the fixture construction
       needs internals; the identities under test are public product projections.
     -->
-    <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
   </ItemGroup>
 
   <ItemGroup>

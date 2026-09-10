@@ -36,29 +36,29 @@ interface HostFacade extends FacadeModule {
 }
 
 const productionFacades: readonly FacadeIdentity[] = [
-  { assembly: "InspectWeb.Engine", module: "inspect-web-host" },
+  { assembly: "DotnetInspect.Web", module: "inspect-web-host" },
   {
-    assembly: "InspectWeb.Engine.PackageExports",
+    assembly: "DotnetInspect.Web.Interop.Package",
     module: "inspect-web-package",
   },
   {
-    assembly: "InspectWeb.Engine.MetadataExports",
+    assembly: "DotnetInspect.Web.Interop.Metadata",
     module: "inspect-web-metadata",
   },
   {
-    assembly: "InspectWeb.Engine.AnalysisExports",
+    assembly: "DotnetInspect.Web.Interop.Analysis",
     module: "inspect-web-analysis",
   },
   {
-    assembly: "InspectWeb.Engine.SourceExports",
+    assembly: "DotnetInspect.Web.Interop.Source",
     module: "inspect-web-source",
   },
   {
-    assembly: "InspectWeb.Engine.CallGraphExports",
+    assembly: "DotnetInspect.Web.Interop.CallGraph",
     module: "inspect-web-call-graph",
   },
   {
-    assembly: "InspectWeb.Engine.CatalogExports",
+    assembly: "DotnetInspect.Web.Interop.Catalog",
     module: "inspect-web-catalog",
   },
 ];

@@ -56,7 +56,7 @@ jobs:
           version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
-            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output artifacts/inspect-web-publish \
             -p:VersionPrefix="$version" \
@@ -71,7 +71,7 @@ jobs:
         run: |
           eng/verify-inspect-web-async-deployment.sh \
             compiler \
-            prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
+            prototypes/inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
             artifacts/inspect-web-publish/wwwroot \
             artifacts/inspect-web-publish/async-lowering.json \
             artifacts/inspect-web-compiler-async-receipts
@@ -108,13 +108,13 @@ jobs:
             and .repository_projects == (.repository_projects | sort | unique)
             and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
             and ([.assemblies[].name] == [
-              "InspectWeb.Engine",
-              "InspectWeb.Engine.AnalysisExports",
-              "InspectWeb.Engine.CallGraphExports",
-              "InspectWeb.Engine.CatalogExports",
-              "InspectWeb.Engine.MetadataExports",
-              "InspectWeb.Engine.PackageExports",
-              "InspectWeb.Engine.SourceExports"
+              "DotnetInspect.Web",
+              "DotnetInspect.Web.Interop.Analysis",
+              "DotnetInspect.Web.Interop.CallGraph",
+              "DotnetInspect.Web.Interop.Catalog",
+              "DotnetInspect.Web.Interop.Metadata",
+              "DotnetInspect.Web.Interop.Package",
+              "DotnetInspect.Web.Interop.Source"
             ])
             and ([.assemblies[].module] == [
               "inspect-web-host",
@@ -242,13 +242,13 @@ jobs:
             and .repository_projects == (.repository_projects | sort | unique)
             and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
             and ([.assemblies[].name] == [
-              "InspectWeb.Engine",
-              "InspectWeb.Engine.AnalysisExports",
-              "InspectWeb.Engine.CallGraphExports",
-              "InspectWeb.Engine.CatalogExports",
-              "InspectWeb.Engine.MetadataExports",
-              "InspectWeb.Engine.PackageExports",
-              "InspectWeb.Engine.SourceExports"
+              "DotnetInspect.Web",
+              "DotnetInspect.Web.Interop.Analysis",
+              "DotnetInspect.Web.Interop.CallGraph",
+              "DotnetInspect.Web.Interop.Catalog",
+              "DotnetInspect.Web.Interop.Metadata",
+              "DotnetInspect.Web.Interop.Package",
+              "DotnetInspect.Web.Interop.Source"
             ])
             and ([.assemblies[].module] == [
               "inspect-web-host",

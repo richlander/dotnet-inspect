@@ -20,7 +20,7 @@
     <PackageReference Include="NuGet.Versioning" />
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
     <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
-    <InternalsVisibleTo Include="InspectWeb.Engine.Core" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Core" />
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
   </ItemGroup>
 

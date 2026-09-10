@@ -140,13 +140,13 @@ jobs:
             and .repository_projects == (.repository_projects | sort | unique)
             and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
             and ([.assemblies[].name] == [
-              "InspectWeb.Engine",
-              "InspectWeb.Engine.AnalysisExports",
-              "InspectWeb.Engine.CallGraphExports",
-              "InspectWeb.Engine.CatalogExports",
-              "InspectWeb.Engine.MetadataExports",
-              "InspectWeb.Engine.PackageExports",
-              "InspectWeb.Engine.SourceExports"
+              "DotnetInspect.Web",
+              "DotnetInspect.Web.Interop.Analysis",
+              "DotnetInspect.Web.Interop.CallGraph",
+              "DotnetInspect.Web.Interop.Catalog",
+              "DotnetInspect.Web.Interop.Metadata",
+              "DotnetInspect.Web.Interop.Package",
+              "DotnetInspect.Web.Interop.Source"
             ])
             and ([.assemblies[].module] == [
               "inspect-web-host",

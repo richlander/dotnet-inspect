@@ -5,7 +5,7 @@ import type {
 
 // BuildIdentity/PackageCacheStats used to be hand-written duplicates of the C# DTOs. They're now
 // aliases of the compiler-derived facade types so this module can't independently drift from
-// InspectWeb.Engine's actual [JSExport] wire shape.
+// DotnetInspect.Web's actual [JSExport] wire shape.
 export type BuildIdentity = BrowserBuildIdentity;
 export type PackageCacheStats = BrowserPackageCacheStats;
 

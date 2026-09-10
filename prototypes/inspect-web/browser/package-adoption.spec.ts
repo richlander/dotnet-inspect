@@ -27,7 +27,7 @@ import {
   type ManifestDependency,
 } from "./package-adoption-nupkg.ts";
 
-// This gate drives the actually published production InspectWeb.Engine Wasm
+// This gate drives the actually published production DotnetInspect.Web Wasm
 // artifact and its public generated facades in a real Firefox page. It proves
 // the artifact-backed package scope adoption contract (issue #5576): ordinary
 // singleton opening via queryPackage, repeated/joined requests, the four-scope

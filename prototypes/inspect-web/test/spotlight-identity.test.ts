@@ -590,7 +590,7 @@ const generatedFacadeModules = [
 type GeneratedFacadeModule = typeof generatedFacadeModules[number];
 const generatedFacadeModuleUrls = new Map<GeneratedFacadeModule, URL>(
   generatedFacadeModules.map(module =>
-    [module, new URL(`../engine/wwwroot/${module}.js`, import.meta.url)]));
+    [module, new URL(`../DotnetInspect.Web/wwwroot/${module}.js`, import.meta.url)]));
 const generatedFacadeSources = new Map<GeneratedFacadeModule, string>(
   generatedFacadeModules.map(module =>
     [module, readFileSync(generatedFacadeModuleUrls.get(module)!, "utf8")]));
@@ -2435,7 +2435,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /const generation = interactionGeneration;[\s\S]*const focusAfterExecution = \(\) => \{[\s\S]*generation === interactionGeneration[\s\S]*Promise\.resolve\(execution\)\.then\(\s*focusAfterExecution,\s*\(error: unknown\) => \{\s*options\.reportCommandError\(error\);\s*focusAfterExecution\(\)/);
 });
 const browserGraphMemberSource = readFileSync(
-  new URL("../engine.MetadataExports/TypeAndGraphMemberExports.cs", import.meta.url),
+  new URL("../DotnetInspect.Web.Interop.Metadata/TypeAndGraphMemberExports.cs", import.meta.url),
   "utf8");
 
 test("dependency graph render identity includes truncation and navigation", () => {
@@ -2516,8 +2516,8 @@ test("bare home paints before wasm engine download", () => {
     appSource.match(/function openPackageQuery[\s\S]*?\n}\n\nconst loadErrorShellActions/)?.[0] ?? "";
   const loadingView =
     appSource.match(/function renderLoading\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberDocumentation/)?.[0] ?? "";
-  assert.doesNotMatch(appSource, /from "\/engine\.js"/);
-  assert.doesNotMatch(appSource, /inspect-web-engine/);
+  assert.doesNotMatch(appSource, /from "\/DotnetInspect.Web\.js"/);
+  assert.doesNotMatch(appSource, /inspect-web-DotnetInspect.Web/);
   assert.match(
     appSource,
     /async function loadEngineModule\(\)[\s\S]*await Promise\.all\(\[/);
@@ -3951,7 +3951,7 @@ test("all dependency navigation paths use one product-owned coordinate matcher",
     6);
   assert.match(
     generatedFacadeSource("inspect-web-package"),
-    /\$requireManagedExports\(\)\["PackageExports"\]\["MatchPackageDependencyCoordinate\.-?\d+"\]/);
+    /\$requireManagedExports\(\)\["DotnetInspect"\]\["Web"\]\["Interop"\]\["Package"\]\["PackageExports"\]\["MatchPackageDependencyCoordinate\.-?\d+"\]/);
   assert.match(
     appSource,
     /matchPackageDependencyCoordinate\([\s\S]*?JSON\.stringify\(dependencyCoordinateCandidates\(packages\)\)/);
@@ -4384,7 +4384,7 @@ test("type source identity includes decompiler taste", () => {
 test("source operations cancel when superseded or hidden", () => {
   assert.match(
     generatedFacadeSource("inspect-web-source"),
-    /\$requireManagedExports\(\)\["SourceExports"\]\["CancelSourceQuery\.-?\d+"\]/);
+    /\$requireManagedExports\(\)\["DotnetInspect"\]\["Web"\]\["Interop"\]\["Source"\]\["SourceExports"\]\["CancelSourceQuery\.-?\d+"\]/);
   assert.match(
     generatedFacadeSource("inspect-web-source"),
     /export function cancelSourceQuery\(\)[\s\S]*?return \$requireManagedExports\(\)/);
@@ -5076,7 +5076,7 @@ test("graph-only members open through the typed member surface", () => {
     /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     generatedFacadeSource("inspect-web-metadata"),
-    /\$requireManagedExports\(\)\["MetadataExports"\]\["QueryGraphMemberSurface\.-?\d+"\]/);
+    /\$requireManagedExports\(\)\["DotnetInspect"\]\["Web"\]\["Interop"\]\["Metadata"\]\["MetadataExports"\]\["QueryGraphMemberSurface\.-?\d+"\]/);
   assert.match(
     generatedFacadeSource("inspect-web-metadata"),
     /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);
@@ -5310,10 +5310,10 @@ test("selector-only accessors use body-aware implementation queries", () => {
   // The absent rejection is claimed across the managed export assemblies that could carry
   // it, not just the host, now that call-graph and source operations have their own owners.
   for (const managedSource of [
-    "../engine/InspectionEngine.cs",
-    "../engine.CallGraphExports/CallGraphExports.cs",
-    "../engine.SourceExports/SourceExports.cs",
-    "../engine.SourceExports/AnnotatedSourceExports.cs",
+    "../DotnetInspect.Web/InspectionEngine.cs",
+    "../DotnetInspect.Web.Interop.CallGraph/CallGraphExports.cs",
+    "../DotnetInspect.Web.Interop.Source/SourceExports.cs",
+    "../DotnetInspect.Web.Interop.Source/AnnotatedSourceExports.cs",
   ]) {
     assert.doesNotMatch(
       readFileSync(new URL(managedSource, import.meta.url), "utf8"),
