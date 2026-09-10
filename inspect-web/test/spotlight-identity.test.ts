@@ -112,6 +112,7 @@ import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
+  styleCallGraphMermaid,
 } from "../src/graph-mermaid.ts";
 import { platformCatalogFramework } from "../src/platform-index.ts";
 import {
@@ -7253,6 +7254,37 @@ test("Mermaid resolves the current theme without inventing missing colors", () =
       "classDef self fill:var(--accent-soft),stroke:var(--accent);",
       name => name === "--accent-soft" ? " #abcdef " : ""),
     "classDef self fill:#abcdef,stroke:var(--accent);");
+});
+
+test("Call graph rendering lowers production roles to the legend palette", () => {
+  const definition = styleCallGraphMermaid(
+    `graph LR
+      n0[Process]:::focus --> n1[Same type]:::normal
+      n0 --> n2[Same assembly]:::normal
+      n0 --> n3[Different assembly]:::external`,
+    [
+      {
+        id: "n0", assembly: "Example", assemblyVersion: "1.0.0.0",
+        typeDefinitionId: "Example.Worker", kind: "focus",
+      },
+      {
+        id: "n1", assembly: "Example", assemblyVersion: "1.0.0.0",
+        typeDefinitionId: "Example.Worker", kind: "normal",
+      },
+      {
+        id: "n2", assembly: "Example", assemblyVersion: "1.0.0.0",
+        typeDefinitionId: "Example.Helper", kind: "normal",
+      },
+      {
+        id: "n3", assembly: "Other", assemblyVersion: "2.0.0.0",
+        typeDefinitionId: "Other.Helper", kind: "external",
+      },
+    ]);
+  assert.match(definition, /classDef target fill:var\(--graph-target-fill\)/);
+  assert.match(definition, /class n0 target;/);
+  assert.match(definition, /class n1 sameType;/);
+  assert.match(definition, /class n2 differentType;/);
+  assert.match(definition, /class n3 differentAssembly;/);
 });
 
 test("dependency graph rendering contains artifact labels", async () => {

@@ -22,6 +22,82 @@ export function resolveMermaidCssVariables(
     (whole: string, name: string) => readProperty(name).trim() || whole);
 }
 
+export interface CallGraphMermaidTarget {
+  id: string;
+  assembly: string;
+  assemblyVersion?: string | null;
+  assemblyCulture?: string | null;
+  assemblyPublicKeyToken?: string | null;
+  typeDefinitionId?: string | null;
+  typeMetadataId?: string | null;
+  kind: string;
+  surfaceAssemblyId?: string | null;
+}
+
+function callGraphTypeId(target: CallGraphMermaidTarget): string {
+  return target.typeDefinitionId || target.typeMetadataId || "";
+}
+
+function callGraphTargetsShareAssembly(
+  left: CallGraphMermaidTarget,
+  right: CallGraphMermaidTarget,
+): boolean {
+  if (left.surfaceAssemblyId && right.surfaceAssemblyId) {
+    return left.surfaceAssemblyId.toLowerCase()
+      === right.surfaceAssemblyId.toLowerCase();
+  }
+  const culture = (value: string | null | undefined) =>
+    value?.toLowerCase() === "neutral" ? "" : value?.toLowerCase() || "";
+  return left.assembly.toLowerCase() === right.assembly.toLowerCase()
+    && (left.assemblyVersion || "") === (right.assemblyVersion || "")
+    && culture(left.assemblyCulture) === culture(right.assemblyCulture)
+    && (left.assemblyPublicKeyToken || "").toLowerCase()
+      === (right.assemblyPublicKeyToken || "").toLowerCase();
+}
+
+export function styleCallGraphMermaid(
+  definition: string,
+  targets: readonly CallGraphMermaidTarget[],
+): string {
+  const focus =
+    targets.find(target => target.kind.toLowerCase() === "focus")
+    ?? targets.find(target => target.id === "n0");
+  if (!focus) return definition;
+
+  const roles = {
+    target: [] as string[],
+    sameType: [] as string[],
+    differentType: [] as string[],
+    differentAssembly: [] as string[],
+  };
+  const focusTypeId = callGraphTypeId(focus);
+  for (const target of targets) {
+    if (target.id === focus.id
+      || target.kind.toLowerCase() === "focus") {
+      roles.target.push(target.id);
+    } else if (focusTypeId
+      && callGraphTypeId(target) === focusTypeId) {
+      roles.sameType.push(target.id);
+    } else if (callGraphTargetsShareAssembly(target, focus)) {
+      roles.differentType.push(target.id);
+    } else {
+      roles.differentAssembly.push(target.id);
+    }
+  }
+
+  const lines = [
+    definition,
+    "classDef target fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;",
+    "classDef sameType fill:var(--graph-same-type-fill),stroke:var(--graph-same-type-stroke),color:var(--graph-same-type-text);",
+    "classDef differentType fill:var(--graph-different-type-fill),stroke:var(--graph-different-type-stroke),color:var(--graph-different-type-text);",
+    "classDef differentAssembly fill:var(--graph-different-assembly-fill),stroke:var(--graph-different-assembly-stroke),color:var(--graph-different-assembly-text);",
+  ];
+  for (const [role, ids] of Object.entries(roles)) {
+    if (ids.length > 0) lines.push(`class ${ids.join(",")} ${role};`);
+  }
+  return lines.join("\n");
+}
+
 function shortTypeName(fullName: string): string {
   const generic = fullName.indexOf("<");
   const head = generic < 0 ? fullName : fullName.slice(0, generic);

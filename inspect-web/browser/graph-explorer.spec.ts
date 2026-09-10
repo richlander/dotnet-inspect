@@ -87,6 +87,33 @@ test("pristine framing follows the viewport while a user-adjusted view stays fix
   expect(await svg.getAttribute("style")).not.toBe(fitted);
 });
 
+test("production Call graph roles match the legend palette in both themes", async ({ page }) => {
+  const colors = async () => ({
+    target: await page.locator("#diagram g.node.target rect.label-container")
+      .evaluate(element => getComputedStyle(element).fill),
+    sameType: await page.locator("#diagram g.node.sameType rect.label-container")
+      .evaluate(element => getComputedStyle(element).fill),
+    differentAssembly:
+      await page.locator("#diagram g.node.differentAssembly rect.label-container")
+        .evaluate(element => getComputedStyle(element).fill),
+  });
+  expect(await colors()).toEqual({
+    target: "rgb(40, 32, 68)",
+    sameType: "rgb(23, 107, 115)",
+    differentAssembly: "rgb(52, 58, 70)",
+  });
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "light";
+    return window.graphExploreProbe.update("ready");
+  });
+  expect(await colors()).toEqual({
+    target: "rgb(240, 228, 244)",
+    sameType: "rgb(185, 225, 223)",
+    differentAssembly: "rgb(224, 227, 232)",
+  });
+});
+
 for (const interaction of ["wheel", "keyboard", "pointer"] as const) {
   test(`${interaction} adjustment survives opening and closing Explore`, async ({ page }) => {
     const viewport = page.locator(".graph-viewport");

@@ -265,6 +265,7 @@ import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
+  styleCallGraphMermaid,
 } from "./graph-mermaid.ts";
 import {
   bindGraphBack,
@@ -12438,7 +12439,8 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
       const id = `call-graph-${Date.now().toString(36)}-${seq}`;
       const rootStyle = getComputedStyle(document.documentElement);
       const renderDefinition = resolveMermaidCssVariables(
-        definition, name => rootStyle.getPropertyValue(name));
+        styleCallGraphMermaid(definition, active.targets),
+        name => rootStyle.getPropertyValue(name));
       const { svg } = await mermaid.render(id, renderDefinition);
       if (seq !== callGraphRenderSeq) {
         return { status: "superseded" };

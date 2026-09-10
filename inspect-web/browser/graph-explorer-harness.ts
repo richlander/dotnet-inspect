@@ -2,13 +2,30 @@ import mermaid from "mermaid";
 import { bindGraphExplore, createGraphExplorer } from "../src/graph-explorer.ts";
 import { bindGraphPanZoom, graphControlsHtml } from "../src/graph-interactions.ts";
 import { callGraphLegendHtml } from "../src/graph-legends.ts";
-import { resolveMermaidCssVariables } from "../src/graph-mermaid.ts";
+import {
+  resolveMermaidCssVariables,
+  styleCallGraphMermaid,
+} from "../src/graph-mermaid.ts";
 import { createWorkbenchKeybindings } from "../src/workbench-keybindings.ts";
 
 const app = document.querySelector<HTMLElement>("#app")!;
 const explorer = createGraphExplorer(document);
 const keybindings = createWorkbenchKeybindings();
 keybindings.attach(document);
+const graphTargets = [
+  {
+    id: "n0", assembly: "Example", assemblyVersion: "1.0.0.0",
+    typeDefinitionId: "Example.Worker", kind: "focus",
+  },
+  {
+    id: "n1", assembly: "System.Private.CoreLib", assemblyVersion: "11.0.0.0",
+    typeDefinitionId: "System.Console", kind: "external",
+  },
+  {
+    id: "n2", assembly: "Example", assemblyVersion: "1.0.0.0",
+    typeDefinitionId: "Example.Worker", kind: "normal",
+  },
+] as const;
 let key = "member-one";
 let state: "ready" | "pending" | "failure" | "no-body" = "ready";
 let depth = 0;
@@ -59,12 +76,11 @@ async function mountGraph() {
   });
   const style = getComputedStyle(document.documentElement);
   const definition = resolveMermaidCssVariables(
-    `graph LR
-      n0[Process]:::target --> n1[Platform method]:::differentAssembly
-      n0 --> n2[Open member]:::sameType
-      classDef target fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;
-      classDef sameType fill:var(--graph-same-type-fill),stroke:var(--graph-same-type-stroke),color:var(--graph-same-type-text);
-      classDef differentAssembly fill:var(--graph-different-assembly-fill),stroke:var(--graph-different-assembly-stroke),color:var(--graph-different-assembly-text);`,
+    styleCallGraphMermaid(
+      `graph LR
+        n0[Process]:::focus --> n1[Platform method]:::external
+        n0 --> n2[Open member]:::normal`,
+      graphTargets),
     name => style.getPropertyValue(name));
   const { svg } = await mermaid.render(`browser-graph-${++mounts}`, definition);
   if (!diagram.isConnected) return;
