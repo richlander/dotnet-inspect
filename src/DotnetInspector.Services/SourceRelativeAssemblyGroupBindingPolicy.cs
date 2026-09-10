@@ -318,8 +318,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                     is AssemblyBindingSelection.Selected)
             && IdentityMismatchSelection(
                 reference.Identity,
-                (selection as AssemblyBindingSelection.Selected)
-                    ?.Assembly)
+                selection as AssemblyBindingSelection.Selected)
                     is { } mismatch)
         {
             selection = mismatch;
@@ -402,102 +401,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                     : handoffDesignatedCandidates);
         }
 
-        ImmutableArray<ResolvedAssemblyReference> policyCandidates =
-            policySelection switch
-            {
-                AssemblyBindingSelection.Selected selected =>
-                    [selected.Assembly],
-                AssemblyBindingSelection.Ambiguous ambiguous =>
-                    ambiguous.Assemblies,
-                _ => [],
-            };
-        if (policyCandidates.IsEmpty
-            || policyCandidates.Any(candidate =>
-                !IsCompatibleEntitled(requested, candidate)))
-        {
-            return policySelection;
-        }
-
-        ImmutableArray<ResolvedAssemblyReference> designatedCandidates =
-            DistinctRegistrations(
-                DesignatedCandidates(designated)
-                    .Concat(policyCandidates.Where(candidate =>
-                        candidate.Provenance
-                            is AssemblyResolutionProvenance
-                                .DesignatedAsset)));
-        ImmutableArray<ResolvedAssemblyReference> policyShadows =
-            ShadowedCandidates(policySelection);
-        ImmutableArray<ResolvedAssemblyReference> designatedShadows =
-            ShadowedCandidates(designated);
-        ImmutableArray<ResolvedAssemblyReference> platforms =
-            DistinctRegistrations(
-                policyCandidates
-                    .Concat(policyShadows)
-                    .Concat(designatedShadows)
-                    .Where(candidate => IsCompatiblePlatform(
-                        requested,
-                        candidate,
-                        ignoreVersion: true)));
-
-        if (designatedCandidates.Length > 1)
-        {
-            return AssemblyBindingCandidateDomain.Create(
-                [.. designatedCandidates, .. platforms])
-                .Finalize(designatedCandidates);
-        }
-
-        ResolvedAssemblyReference chosen = designatedCandidates[0];
-        AssemblyBindingCandidateDomain domain =
-            AssemblyBindingCandidateDomain.Create(
-                [chosen, .. platforms]);
-        return policySelection
-                is AssemblyBindingSelection.Selected delegated
-            && ReferenceEquals(
-                chosen,
-                delegated.Assembly)
-                ? domain.Finalize(delegated.Occurrence)
-                : domain.Finalize([chosen]);
-    }
-
-    static ImmutableArray<ResolvedAssemblyReference> DesignatedCandidates(
-        AssemblyBindingSelection selection) =>
-        selection switch
-        {
-            AssemblyBindingSelection.Selected selected
-                when selected.Assembly.Provenance
-                    is AssemblyResolutionProvenance.DesignatedAsset =>
-                [selected.Assembly],
-            AssemblyBindingSelection.Ambiguous ambiguous =>
-                [
-                    .. ambiguous.Assemblies.Where(candidate =>
-                        candidate.Provenance
-                            is AssemblyResolutionProvenance
-                                .DesignatedAsset),
-                ],
-            _ => [],
-        };
-
-    static ImmutableArray<ResolvedAssemblyReference> ShadowedCandidates(
-        AssemblyBindingSelection selection) =>
-        selection switch
-        {
-            AssemblyBindingSelection.Selected selected =>
-                selected.ShadowedAssemblies,
-            AssemblyBindingSelection.Ambiguous ambiguous =>
-                ambiguous.ShadowedAssemblies,
-            _ => [],
-        };
-
-    static ImmutableArray<ResolvedAssemblyReference> DistinctRegistrations(
-        IEnumerable<ResolvedAssemblyReference> candidates)
-    {
-        var seen = new HashSet<AssemblyAcquisitionRegistration>(
-            ReferenceEqualityComparer.Instance);
-        return
-        [
-            .. candidates.Where(candidate =>
-                seen.Add(candidate.Registration)),
-        ];
+        return policySelection;
     }
 
     static bool IsCompatibleEntitled(
@@ -511,20 +415,9 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             allowVersionRollForward: false,
             ignoreVersion: true);
 
-    static bool IsCompatiblePlatform(
-        AssemblyReferenceIdentity requested,
-        ResolvedAssemblyReference candidate,
-        bool ignoreVersion) =>
-        candidate.Provenance
-            is AssemblyResolutionProvenance.PlatformAsset
-        && requested.MatchesCandidate(
-            candidate.Identity,
-            allowVersionRollForward: false,
-            ignoreVersion);
-
     AssemblyBindingSelection? IdentityMismatchSelection(
         AssemblyReferenceIdentity requested,
-        ResolvedAssemblyReference? selected)
+        AssemblyBindingSelection.Selected? selected)
     {
         ImmutableArray<ResolvedAssemblyReference> candidates =
         [
@@ -536,13 +429,21 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         ];
         if (selected is not null
             && (!string.Equals(
-                    selected.Identity.Name,
+                    selected.Assembly.Identity.Name,
                     requested.Name,
                     StringComparison.OrdinalIgnoreCase)
                 || candidates.Any(candidate =>
                     SameIdentity(
                         candidate.Identity,
-                        selected.Identity))))
+                        selected.Assembly.Identity))
+                || candidates.All(candidate =>
+                    ReferenceEquals(
+                        candidate.Registration,
+                        selected.Assembly.Registration)
+                    || selected.ShadowedAssemblies.Any(shadow =>
+                        ReferenceEquals(
+                            shadow.Registration,
+                            candidate.Registration)))))
         {
             return null;
         }

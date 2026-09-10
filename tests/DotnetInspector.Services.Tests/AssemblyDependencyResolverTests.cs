@@ -1406,7 +1406,10 @@ public partial class AssemblyDependencyResolverTests
                 "test platform",
                 frameworkVersion: null,
                 "group origin-policy test"));
-        var policy = new SelectedPolicy(platform);
+        var policy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [platform, designated])));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -1502,7 +1505,9 @@ public partial class AssemblyDependencyResolverTests
             AssemblyResolutionProvenance.Designated(
                 "policy group overlay"));
         var policy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.Found(policyCandidate));
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [root, policyCandidate])));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -1552,7 +1557,9 @@ public partial class AssemblyDependencyResolverTests
                 frameworkVersion: null,
                 "inactive platform contender"));
         var policy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.Found(platform));
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [first, second, platform])));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -1596,7 +1603,9 @@ public partial class AssemblyDependencyResolverTests
             AssemblyResolutionProvenance.Designated(
                 "policy group overlay"));
         var policy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.Found(policyCandidate));
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [root, policyCandidate])));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -1648,7 +1657,9 @@ public partial class AssemblyDependencyResolverTests
                 frameworkVersion: null,
                 "policy platform"));
         var policy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.Found(policyPlatform));
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [designated, rootPlatform, policyPlatform])));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),

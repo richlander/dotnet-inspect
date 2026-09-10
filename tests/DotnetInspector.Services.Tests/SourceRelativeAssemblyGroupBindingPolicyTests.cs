@@ -132,8 +132,11 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
                 "test platform",
                 frameworkVersion: null,
                 "root inactive evidence"));
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create(
+                [first, platform, second]);
         var policy = new SelectionPolicy(_ =>
-            AssemblyBindingSelection.Found(first));
+            AssemblyBindingSelection.RequireComposition(domain));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -166,8 +169,11 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
                 "test platform",
                 frameworkVersion: null,
                 "delegated inactive evidence"));
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create(
+                [first, platform, second]);
         var policy = new SelectionPolicy(_ =>
-            AssemblyBindingSelection.Found(first));
+            AssemblyBindingSelection.RequireComposition(domain));
         var inner = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -306,7 +312,7 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
         var outer = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)inner),
-                (first, (IAssemblyBindingPolicy)inner),
+                (second, (IAssemblyBindingPolicy)inner),
                 (secondPlatform, (IAssemblyBindingPolicy)inner),
             ]);
 
@@ -317,6 +323,49 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
         Assert.Equal(
             [firstPlatform, secondPlatform],
             ambiguous.ShadowedAssemblies);
+    }
+
+    [Fact]
+    public void Select_TerminalSelectionDoesNotPromoteInactiveDesignatedEvidence()
+    {
+        var owner = NamedDescriptor("Owner");
+        var inactiveDesignated = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated(
+                "inactive designated"));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "inactive platform"));
+        var selectedDesignated = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated(
+                "selected designated"),
+            new Version(2, 0, 0, 0));
+        AssemblyBindingSelection terminal =
+            AssemblyBindingCandidateDomain.Create(
+                [inactiveDesignated, platform, selectedDesignated])
+                .Finalize([selectedDesignated]);
+        var policy = new SelectionPolicy(_ => terminal);
+        var inner =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [(owner, (IAssemblyBindingPolicy)policy)]);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)inner),
+                (inactiveDesignated, (IAssemblyBindingPolicy)inner),
+            ]);
+
+        var selected = Selected(
+            outer,
+            Request(selectedDesignated, owner));
+
+        Assert.Same(selectedDesignated, selected.Assembly);
+        Assert.Equal(
+            [inactiveDesignated, platform],
+            selected.ShadowedAssemblies);
     }
 
     [Fact]

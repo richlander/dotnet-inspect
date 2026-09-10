@@ -1899,9 +1899,14 @@ handoff and finalizing its exact designated contenders before Metadata.
 `Select_RoutingOnlyCompositionPreservesSelectingRoute` gates the delegated
 request occurrence through routing-only handoff forwarding and singleton
 finalization.
-`Select_NestedTerminalAmbiguityPreservesInactiveOrder` gates existing inactive
-projection order when compatibility composition deduplicates adjacent root
-evidence.
+`Select_TerminalSelectionDoesNotPromoteInactiveDesignatedEvidence` gates a
+terminal selected partition through a compatible outer group, including a
+group root already represented by inactive evidence.
+`Select_NestedTerminalAmbiguityPreservesInactiveOrder` gates both active and
+inactive projection order when a compatible outer group names an existing
+terminal contender. These terminal gates require later selection-changing
+arbitration to consume `CompositionRequired`; a composite cannot reconstruct a
+candidate domain from `Selected` or `Ambiguous`.
 `SourceRelativeAssemblyGroupBindingPolicyTests.Select_ForeignCompositionSnapshotEscapesBeforeDomainInterpretation`
 gates
 foreign-snapshot exclusion before a transforming composite can inspect the
