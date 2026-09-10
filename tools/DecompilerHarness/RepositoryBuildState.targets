@@ -10,14 +10,28 @@
       <Output TaskParameter="ConsoleOutput" ItemName="_RepositoryBuildStatusLines" />
       <Output TaskParameter="ExitCode" PropertyName="_RepositoryBuildStatusExitCode" />
     </Exec>
+    <Exec Command="git rev-parse HEAD"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="Low"
+          StandardErrorImportance="Low"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_RepositorySourceRevisionAtBuild" />
+      <Output TaskParameter="ExitCode" PropertyName="_RepositorySourceRevisionExitCode" />
+    </Exec>
     <PropertyGroup>
       <_RepositoryBuildState Condition="'$(_RepositoryBuildStatusExitCode)' != '0'">unknown</_RepositoryBuildState>
       <_RepositoryBuildState Condition="'$(_RepositoryBuildStatusExitCode)' == '0' and '@(_RepositoryBuildStatusLines)' == ''">clean</_RepositoryBuildState>
       <_RepositoryBuildState Condition="'$(_RepositoryBuildStatusExitCode)' == '0' and '@(_RepositoryBuildStatusLines)' != ''">dirty</_RepositoryBuildState>
+      <_RepositorySourceRevisionAtBuild Condition="'$(_RepositorySourceRevisionExitCode)' != '0'">unknown</_RepositorySourceRevisionAtBuild>
       <_RepositoryBuildStateFile>$(IntermediateOutputPath)RepositoryBuildState.g.cs</_RepositoryBuildStateFile>
     </PropertyGroup>
+    <ItemGroup>
+      <_RepositoryBuildMetadataLines Include="[assembly: global::System.Reflection.AssemblyMetadataAttribute(&quot;RepositorySourceStateAtBuild&quot;, &quot;$(_RepositoryBuildState)&quot;)]" />
+      <_RepositoryBuildMetadataLines Include="[assembly: global::System.Reflection.AssemblyMetadataAttribute(&quot;RepositorySourceRevisionAtBuild&quot;, &quot;$(_RepositorySourceRevisionAtBuild)&quot;)]" />
+    </ItemGroup>
     <WriteLinesToFile File="$(_RepositoryBuildStateFile)"
-                      Lines="[assembly: global::System.Reflection.AssemblyMetadataAttribute(&quot;RepositorySourceStateAtBuild&quot;, &quot;$(_RepositoryBuildState)&quot;)]"
+                      Lines="@(_RepositoryBuildMetadataLines)"
                       Overwrite="true"
                       WriteOnlyWhenDifferent="true" />
     <ItemGroup>
