@@ -731,6 +731,16 @@ public class CatalogCallGraphScopeTests
     public void PlanCacheIdentityPreservesRecursiveFunctionPointerPayload()
     {
         TypeRef owner = TypeRef.Definition("Owner", "", "Api");
+        var dependencyV1 = new AssemblyReferenceIdentity(
+            "Dependency",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: "0011223344556677");
+        var dependencyV2 = dependencyV1 with
+        {
+            Version = new Version(2, 0, 0, 0),
+            PublicKeyToken = "8899aabbccddeeff",
+        };
         TypeRef modifier = TypeRef.Definition(
             "System.Runtime",
             "System.Runtime.CompilerServices",
@@ -739,28 +749,42 @@ public class CatalogCallGraphScopeTests
         TypeRef text = TypeRef.CoreLib("System", "String");
         TypeRef voidType = TypeRef.CoreLib("System", "Void");
 
+        MemberRef Member(
+            SignatureCallingConvention convention,
+            TypeRef returnType,
+            TypeRef parameter) =>
+            new(
+                owner,
+                "Store",
+                [
+                    TypeRef.UnsupportedFunctionPointer(
+                        new MethodSignature<TypeRef>(
+                            new SignatureHeader(
+                                SignatureKind.Method,
+                                convention,
+                                SignatureAttributes.None),
+                            returnType,
+                            requiredParameterCount: 1,
+                            genericParameterCount: 0,
+                            [parameter])),
+                ],
+                voidType,
+                MemberKind.Method);
         GraphNodeIdentity Identity(
             SignatureCallingConvention convention,
             TypeRef returnType,
             TypeRef parameter) =>
             GraphNodeIdentity.FromMember(
-                new MemberRef(
-                    owner,
-                    "Store",
-                    [
-                        TypeRef.UnsupportedFunctionPointer(
-                            new MethodSignature<TypeRef>(
-                                new SignatureHeader(
-                                    SignatureKind.Method,
-                                    convention,
-                                    SignatureAttributes.None),
-                                returnType,
-                                requiredParameterCount: 1,
-                                genericParameterCount: 0,
-                                [parameter])),
-                    ],
-                    voidType,
-                    MemberKind.Method));
+                Member(convention, returnType, parameter));
+        TypeRef Dependency(AssemblyReferenceIdentity assembly) =>
+            TypeRef.Definition(
+                assembly.Name,
+                "Dependency",
+                "Value",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.AssemblyReference(
+                        assembly),
+                    TypeName("Dependency", "Value")));
 
         GraphNodeIdentity baseline = Identity(
             SignatureCallingConvention.CDecl,
@@ -815,6 +839,22 @@ public class CatalogCallGraphScopeTests
                     text,
                     isRequired: true),
                 integer));
+        MemberRef dependencyOne = Member(
+            SignatureCallingConvention.Default,
+            voidType,
+            Dependency(dependencyV1));
+        MemberRef dependencyTwo = Member(
+            SignatureCallingConvention.Default,
+            voidType,
+            Dependency(dependencyV2));
+        Assert.Equal(
+            GraphNodeIdentity.FromMember(dependencyOne),
+            GraphNodeIdentity.FromMember(dependencyTwo));
+        Assert.NotEqual(
+            CatalogCallGraphScope.ExactPlanMemberIdentity(
+                dependencyOne),
+            CatalogCallGraphScope.ExactPlanMemberIdentity(
+                dependencyTwo));
     }
 
     [Fact]

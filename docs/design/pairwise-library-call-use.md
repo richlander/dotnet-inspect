@@ -124,6 +124,11 @@ complete signature and the operand names the exact target assembly identity.
 It does not match by simple assembly name or display text, and version-skewed
 assembly references remain unresolved.
 
+Complete retained signature identity includes custom-modifier payloads and each
+function-pointer header, generic and required parameter count, return type,
+parameter type, and nested exact type origin. Structural graph identity alone
+is not sufficient correspondence-plan cache identity.
+
 The stored semantic direction is always caller to callee. Reversing the order
 of the two request arguments does not reverse an occurrence or make one
 participant the permanent "consumer."
