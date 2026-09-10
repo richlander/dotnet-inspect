@@ -75,7 +75,6 @@ It does not define:
 - the concrete Library lease or borrowed Library view;
 - PackageHouse, PlatformHouse, SourceHouse, DocumentationHouse, Workspace, or
   artifact behavior;
-- which package-source contract replaces `PackageHouseSourceLease`;
 - Analysis IL decoding, aliasing, control-flow, interprocedural, confidence,
   Finding, or presentation algorithms;
 - CLI options, configuration-file syntax, browser controls, rendering, or
@@ -164,7 +163,7 @@ shapes are:
 | `IArtifactAcquisitionLease` and artifact-session disposal | `IAsyncDisposable` exposes required asynchronous cleanup and quiescence. | Current C# does not prevent dropping the returned awaitable or treating retirement as completed settlement. |
 | `AssemblyContextGroup` owned-resource registration | One aggregate tracks child `IDisposable` values, releases them before snapshots, and preserves cleanup failures. | Registration, transfer, release ordering, and transitive child cleanup are manually maintained. `IDisposable` supplies no ownership metadata. |
 | `ArtifactContentReference` and assembly openers | Identity, registration, provenance, and usable retained content remain associated. | Some heap-escapable references and delegates close over live access authority, so identity and ownership are not consistently separate. |
-| `PackageHouseSourceLease` | Disposal visibly retires future package settlement. | The House issues a hybrid capability named for its consumer scenario rather than a focused resource, and disposal does not represent ownership of the underlying source clients. |
+| `PackageSourceSettlementLease` | The Package Source Model service issues a resource-named lease; disposal retires settlement without disposing caller-owned clients or contexts. | It remains an ordinary aliasable `IDisposable` value and does not yet declare transfer, borrowing, or async-spanning effects to generalized Analysis. |
 | `ArrayPoolOwnershipFlow` and Resource Triage | Analysis already follows return, storage, caller transfer, forwarding, and exception-path leakage with explicit incompleteness. | The model is API-specific and cannot yet consume repository resource declarations. |
 
 The target does not merely rename these values. It simplifies their shared
@@ -302,11 +301,13 @@ This separates scenario settlement from resource lifetime. A House may return
 an aggregate produced by a Library or Workspace architectural owner, but it
 does not hide service leases inside a House-named capability.
 
-`PackageHouseSourceLease` is a current migration subject because its name and
-issuer combine House settlement with package-source authority. This pattern
-does not choose whether the package owner should expose a
-`PackageSourceLease`, a settlement session, or another focused contract. The
-Package owner decides that in its adoption step.
+`PackageSourceSettlementLease` is current positive adoption evidence.
+[#6548](https://github.com/richlander/dotnet-inspect/pull/6548) moved issuance
+from PackageHouse to `PackageSourceSettlementService`, named the lease for
+package-source settlement, retained caller ownership of source clients and
+contexts, and kept receipts free of the live lease. The remaining work is to
+declare and analyze its ownership effects under this pattern, not to rename or
+reassign its issuer again.
 
 ## References, leases, and explicit borrowing
 
@@ -531,8 +532,10 @@ searches for source-level `try` syntax.
 The residual risk is explicit:
 
 - after generalized declaration-driven Analysis lands, a complete result means
-  the declared lifecycle was satisfied within that analyzer's supported flow
-  set;
+  the analyzer completed its assessment over the declared supported flow set
+  and may contain lifecycle violations;
+- only a complete, violation-free result supports a clean statement within
+  that declared supported flow set;
 - an incomplete result means the analyzer could not establish the lifecycle;
 - no attribute, passing test, or idempotent `Dispose` upgrades unsupported
   flow into compiler-enforced ownership; and
@@ -740,7 +743,7 @@ This pattern does not claim:
 
 - that the repository currently has one coherent lease implementation;
 - that every existing `*Lease` type is ownership-bearing or correctly named;
-- that `ArtifactQueryLease` and `PackageHouseSourceLease` have equivalent
+- that `ArtifactQueryLease` and `PackageSourceSettlementLease` have equivalent
   semantics;
 - that an artifact reference alone retains content;
 - that one Library lease shape is already selected;
@@ -782,9 +785,9 @@ end-to-end tracker. Its current total is 16 steps:
    PackageHouse, PlatformHouse, direct-library adapters, Workspace, and
    Library consumers;
 10. adopt the pattern in the package-source owner and issue a resource-named
-    package-source lease;
-11. adopt that package-source lease in PackageHouse and retire
-    `PackageHouseSourceLease`;
+    package-source lease, completed by #6548;
+11. adopt that package-source lease in PackageHouse and retire the House-issued
+    predecessor, completed by #6548;
 12. adopt the Library ownership contract in PackageHouse;
 13. adopt the Library ownership contract in PlatformHouse;
 14. adopt the Library ownership contract in Workspace and its Workspace-owned
@@ -809,7 +812,8 @@ A change to the count must preserve:
 - CLI and Browser/Wasm product paths;
 - artifact and Library owner adoption;
 - SourceHouse and DocumentationHouse adoption; and
-- retirement of `PackageHouseSourceLease` and conflicting hidden-lease shapes.
+- preservation of #6548's PackageHouse lease retirement and retirement of
+  conflicting hidden-lease shapes.
 
 ## Evidence plan
 
