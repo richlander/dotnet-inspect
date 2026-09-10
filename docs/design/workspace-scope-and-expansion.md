@@ -94,7 +94,7 @@ The acquisition-only context adapter preserves the existing implementation-
 universe compatibility rule when no exact compile selection exists; the CLI
 continues to display the requested coordinate's framework, while the descriptor
 also retains the selected framework.
-[`WorkspaceCommandTests`](../../tests/dotnet-inspect.Tests/WorkspaceCommandTests.cs)
+[`WorkspaceCommandTests`](../../tests/DotnetInspect.Cli.Tests/WorkspaceCommandTests.cs)
 gates duplicate coalescing before row windows/counts, root-only and explicit-empty
 Packages, display/framework preservation, JSON/JSONL shape, and absence of a
 successful prefix after a failed Add batch. Browser adoption remains unverified.

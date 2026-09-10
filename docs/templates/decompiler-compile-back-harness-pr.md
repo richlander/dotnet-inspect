@@ -291,7 +291,7 @@ commit refs for resolved findings}.
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -method "*{FocusedTest}*"
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -class "*{FocusedTestClass}*"
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
-dotnet build src/dotnet-inspect -c Release --nologo --verbosity quiet
+dotnet build src/DotnetInspect.Cli -c Release --nologo --verbosity quiet
 dotnet build tools/DecompilerHarness -c Release --nologo --verbosity quiet
 
 dotnet run --project tools/DecompilerHarness -c Release --no-build -- {assembly} --fidelity-check --fidelity-method-delta {delta-json} --max-examples {N}
@@ -300,5 +300,5 @@ dotnet run --project tools/DecompilerHarness -c Release --no-build -- {assembly}
 dotnet run --project tools/DecompilerHarness -c Release --no-build -- {assembly} --return-to-sender-ab --cap {N} --max-examples {N}
 
 /home/rich/git/dotnet-build-events-vmr-preview5-events/artifacts/preview5-events-sdk-test/dotnet build tools/DecompilerHarness --no-incremental --view types --event-log-stderr -c Release --nologo --verbosity quiet
-dotnet run --project /home/rich/git/dotnet-inspect-build-event-query/src/dotnet-inspect -c Release --no-build -- build {before-log} -S Compare --compare {after-log} --tsv
+dotnet run --project /home/rich/git/dotnet-inspect-build-event-query/src/DotnetInspect.Cli -c Release --no-build -- build {before-log} -S Compare --compare {after-log} --tsv
 ```

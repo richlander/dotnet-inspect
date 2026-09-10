@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using DotnetInspector.Options;
+using DotnetInspect.Cli.Options;
 using SectionRegistrySpike.Capabilities;
 using SectionRegistrySpike.CurrentBaseline;
 using SectionRegistrySpike.Sections;
