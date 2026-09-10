@@ -318,6 +318,12 @@ public sealed class PackageRootAcquisitionTests
                     "net6.0",
                     null,
                     compileTargetFramework: Framework),
+                Request(
+                    Framework,
+                    null,
+                    Framework,
+                    null,
+                    usesCompatibleImplementationSelection: true),
                 Request(null, null, "netstandard2.0", null),
                 Request(null, null, null, null),
             })
@@ -355,9 +361,30 @@ public sealed class PackageRootAcquisitionTests
                 out PackageRootReacquisitionRequest? legacy));
         Assert.Equal(Framework, legacy.CompileTargetFramework);
         Assert.Equal(Framework, legacy.SelectionTargetFramework);
+        Assert.False(legacy.UsesCompatibleImplementationSelection);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
             legacy.Encode(),
+            StringComparison.Ordinal);
+
+        string previousToken = VersionedToken(
+            "pkgroot2",
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            Framework,
+            "net6.0",
+            null);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                previousToken,
+                out PackageRootReacquisitionRequest? previous));
+        Assert.True(previous.UsesCompatibleImplementationSelection);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            previous.Encode(),
             StringComparison.Ordinal);
 
         // Distinct requests do not share a token.
@@ -382,11 +409,11 @@ public sealed class PackageRootAcquisitionTests
                 valid[8..],
                 string.Join('.', valid.Split('.')[..^1]),
                 valid + ".",
-                Token("A!", "1.0.0", "nuget.org", null, null, null, null, null),
-                Token("AAAAA", "1.0.0", "nuget.org", null, null, null, null, null),
-                Token("__4", "1.0.0", "nuget.org", null, null, null, null, null),
-                Token(null, Version, "nuget.org", null, null, null, null, null),
-                Token(PackageId, Version, null, null, null, null, null, null),
+                Token("A!", "1.0.0", "nuget.org", null, null, null, null, null, "exact"),
+                Token("AAAAA", "1.0.0", "nuget.org", null, null, null, null, null, "exact"),
+                Token("__4", "1.0.0", "nuget.org", null, null, null, null, null, "exact"),
+                Token(null, Version, "nuget.org", null, null, null, null, null, "exact"),
+                Token(PackageId, Version, null, null, null, null, null, null, "exact"),
                 Token(
                     "not a package id",
                     Version,
@@ -395,7 +422,8 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     null,
                     null,
-                    null),
+                    null,
+                    "exact"),
                 Token(
                     PackageId,
                     Version,
@@ -404,7 +432,8 @@ public sealed class PackageRootAcquisitionTests
                     "WIN-X64",
                     "net11.0",
                     "net11.0",
-                    "win-x64"),
+                    "win-x64",
+                    "exact"),
                 // Canonical facts spelled non-canonically: refused rather
                 // than normalized, so one request has exactly one token.
                 Token(
@@ -415,7 +444,8 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     ".NETStandard,Version=v2.0",
                     ".NETStandard,Version=v2.0",
-                    null),
+                    null,
+                    "exact"),
                 Token(
                     PackageId,
                     Version,
@@ -424,7 +454,8 @@ public sealed class PackageRootAcquisitionTests
                     "win-x64",
                     "net11.0",
                     "net11.0",
-                    "WIN-X64"),
+                    "WIN-X64",
+                    "exact"),
                 Token(
                     PackageId,
                     Version,
@@ -433,7 +464,8 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     null,
                     "net11.0",
-                    null),
+                    null,
+                    "exact"),
                 Token(
                     PackageId,
                     Version,
@@ -442,7 +474,8 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     "net11.0",
                     null,
-                    null),
+                    null,
+                    "exact"),
                 Token(
                     new string('a', 600),
                     new string('1', 600),
@@ -451,7 +484,18 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     null,
                     null,
-                    null),
+                    null,
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    Framework,
+                    null,
+                    "other"),
             })
         {
             Assert.False(
@@ -563,7 +607,8 @@ public sealed class PackageRootAcquisitionTests
         string? acquisitionRuntimeIdentifier,
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
-        string? compileTargetFramework = null)
+        string? compileTargetFramework = null,
+        bool usesCompatibleImplementationSelection = false)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
@@ -580,13 +625,20 @@ public sealed class PackageRootAcquisitionTests
                 coordinate,
                 compileTargetFramework ?? selectionTargetFramework,
                 selectionTargetFramework,
-                selectionRuntimeIdentifier));
+                selectionRuntimeIdentifier,
+                usesCompatibleImplementationSelection));
     }
 
     static string Token(params string?[] fields)
+        => VersionedToken(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            fields);
+
+    static string VersionedToken(
+        string prefix,
+        params string?[] fields)
     {
-        var builder = new StringBuilder(
-            PackageRootReacquisitionRequest.TokenPrefix);
+        var builder = new StringBuilder(prefix);
         foreach (string? field in fields)
         {
             builder.Append('.');

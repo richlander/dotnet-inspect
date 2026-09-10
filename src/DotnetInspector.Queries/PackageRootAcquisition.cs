@@ -177,14 +177,16 @@ public sealed class PackageRootReacquisitionRequest :
     IEquatable<PackageRootReacquisitionRequest>
 {
     /// <summary>The current opaque token format tag.</summary>
-    public const string TokenPrefix = "pkgroot2";
+    public const string TokenPrefix = "pkgroot3";
 
+    const string PreviousTokenPrefix = "pkgroot2";
     const string LegacyTokenPrefix = "pkgroot1";
 
     /// <summary>The largest token this owner encodes or decodes.</summary>
     public const int MaxEncodedLength = 1024;
 
-    const int FieldCount = 8;
+    const int FieldCount = 9;
+    const int PreviousFieldCount = 8;
     const int LegacyFieldCount = 7;
 
     static readonly UTF8Encoding StrictUtf8 = new(
@@ -220,6 +222,13 @@ public sealed class PackageRootReacquisitionRequest :
         _request.SelectionRuntimeIdentifier;
 
     /// <summary>
+    /// Whether the Root applies compatible implementation selection after an
+    /// exact compile-target miss.
+    /// </summary>
+    public bool UsesCompatibleImplementationSelection =>
+        _request.UsesCompatibleImplementationSelection;
+
+    /// <summary>
     /// Encodes this request as one owner-authored, credential-free token a
     /// host may hand across a transport boundary and back.
     /// </summary>
@@ -241,6 +250,9 @@ public sealed class PackageRootReacquisitionRequest :
         AppendField(builder, CompileTargetFramework);
         AppendField(builder, SelectionTargetFramework);
         AppendField(builder, SelectionRuntimeIdentifier);
+        AppendField(
+            builder,
+            UsesCompatibleImplementationSelection ? "compatible" : "exact");
         if (builder.Length > MaxEncodedLength)
         {
             throw new InvalidOperationException(
@@ -287,17 +299,28 @@ public sealed class PackageRootReacquisitionRequest :
                 parts[0],
                 LegacyTokenPrefix,
                 StringComparison.Ordinal);
-        if (!legacy
-            && (parts.Length != FieldCount + 1
-                || !string.Equals(
-                    parts[0],
-                    TokenPrefix,
-                    StringComparison.Ordinal)))
+        bool previous =
+            parts.Length == PreviousFieldCount + 1
+            && string.Equals(
+                parts[0],
+                PreviousTokenPrefix,
+                StringComparison.Ordinal);
+        bool current =
+            parts.Length == FieldCount + 1
+            && string.Equals(
+                parts[0],
+                TokenPrefix,
+                StringComparison.Ordinal);
+        if (!legacy && !previous && !current)
         {
             return false;
         }
 
-        int fieldCount = legacy ? LegacyFieldCount : FieldCount;
+        int fieldCount = legacy
+            ? LegacyFieldCount
+            : previous
+                ? PreviousFieldCount
+                : FieldCount;
         var fields = new string?[fieldCount];
         for (int index = 0; index < fieldCount; index++)
         {
@@ -340,12 +363,33 @@ public sealed class PackageRootReacquisitionRequest :
         {
             return false;
         }
+        bool usesCompatibleImplementationSelection;
+        if (current)
+        {
+            usesCompatibleImplementationSelection = fields[8] switch
+            {
+                "compatible" => true,
+                "exact" => false,
+                _ => false,
+            };
+            if (fields[8] is not ("compatible" or "exact"))
+                return false;
+        }
+        else
+        {
+            usesCompatibleImplementationSelection =
+                !string.Equals(
+                    compileTargetFramework,
+                    selectionTargetFramework,
+                    StringComparison.Ordinal);
+        }
 
         PackageArtifactRootRequest decoded = PackageArtifactRootRequest.Create(
             coordinate,
             compileTargetFramework,
             selectionTargetFramework,
-            fields[selectionRuntimeIndex]);
+            fields[selectionRuntimeIndex],
+            usesCompatibleImplementationSelection);
 
         // A token that is not already canonical is refused rather than
         // silently normalized, so one request has exactly one token.
@@ -360,7 +404,9 @@ public sealed class PackageRootReacquisitionRequest :
             || !string.Equals(
                 decoded.SelectionRuntimeIdentifier,
                 fields[selectionRuntimeIndex],
-                StringComparison.Ordinal))
+                StringComparison.Ordinal)
+            || decoded.UsesCompatibleImplementationSelection
+                != usesCompatibleImplementationSelection)
         {
             return false;
         }
