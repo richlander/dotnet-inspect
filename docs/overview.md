@@ -281,7 +281,7 @@ substrates, and inspection producers that will extend that space.
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind
   vocabulary, and keeps unanchored facts visible without inventing coordinates.
-- `prototypes/inspect-web/` is the browser/Wasm product host. Its
+- `inspect-web/` is the browser/Wasm product host. Its
   [UI design](design/inspect-web-ui.md) composes the website's shared
   presentation language, reusable
   [SlideStrip](design/inspect-web-slide-strip.md), navigation rendering,

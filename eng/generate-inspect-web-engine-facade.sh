@@ -6,7 +6,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-inspect_web="$repo_root/prototypes/inspect-web"
+inspect_web="$repo_root/inspect-web"
 engine_csproj="$inspect_web/DotnetInspect.Web/DotnetInspect.Web.csproj"
 engine_output="$inspect_web/DotnetInspect.Web/bin/Release/net11.0"
 engine_dll="$engine_output/DotnetInspect.Web.dll"
@@ -97,7 +97,7 @@ esac
 
 tsc=${TSC:-"$inspect_web/node_modules/.bin/tsc"}
 if [[ ! -x "$tsc" ]]; then
-  echo "TypeScript compiler not found at $tsc; run npm ci in prototypes/inspect-web." >&2
+  echo "TypeScript compiler not found at $tsc; run npm ci in inspect-web." >&2
   exit 1
 fi
 

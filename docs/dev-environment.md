@@ -106,8 +106,8 @@ Run the managed Browser/Wasm host suite and the frontend suite from their
 respective repository roots:
 
 ```bash
-dotnet run --project prototypes/inspect-web/DotnetInspect.Web.Tests -c Release
-cd prototypes/inspect-web
+dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
+cd inspect-web
 npm test
 npm run lint
 ```
