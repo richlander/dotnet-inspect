@@ -19,12 +19,15 @@ same query-, source-, or graph-owner request and completion contracts. This
 document creates no host-neutral substrate and does not redefine those
 contracts.
 
-The end-to-end tracker has three steps:
+The end-to-end tracker has four steps:
 
 1. lock this L3 grammar and composition boundary;
-2. adopt it for `find`, with `--take` bounding the patternless package-profile
-   candidate dimension while `-n` selects final semantic rows; and
-3. correct `package search` so `--take` and `-n` remain separate intents.
+2. reconcile Package Query's current semantic `--matches` option with the
+   universal row-selection grammar;
+3. adopt the result command-wide for `find`, with `--take` bounding the
+   patternless package-profile candidate dimension while `-n` selects final
+   semantic rows; and
+4. correct `package search` so `--take` and `-n` remain separate intents.
 
 Other command-owned bounds are evidence for the family, not implicit
 participants in that adoption path.
@@ -190,7 +193,7 @@ Use a dimension-specific option when the unit or role carries information the
 user needs to reason about cost or completeness. Existing shapes include:
 
 - a structural unit such as `--depth`;
-- a role noun such as `--candidates` or `--matches`; and
+- a role noun such as `--candidates`; and
 - an explicit scan ceiling such as `--max-methods` or `--max-packages`.
 
 These spellings are not interchangeable style variants. They preserve
@@ -200,6 +203,11 @@ both; collapsing them into one `--take` would discard which stage may stop.
 An existing option is not automatically classified as an execution bound by
 appearing in this list. Its owning design must show that it constrains upstream
 work rather than selects final semantic rows.
+
+`--matches` demonstrates that names alone do not establish the classification.
+The current Package Query owner defines it as semantic selection over ordered
+matched-package rows. It therefore belongs to row-selection reconciliation,
+not this execution-bound family.
 
 ### Selection spelling
 
@@ -423,7 +431,25 @@ upstream item dimension. Everywhere else, the CLI names the dimension.
 This document, its architecture entry, and the thin composition-map update
 lock only L3 ownership and sequencing. They do not change product behavior.
 
-### Step 2: adopt `find`
+### Step 2: reconcile Package Query
+
+The [Package Query CLI](package-query-cli.md) owner currently defines
+`--matches` as a semantic limit over its final matched-package row set. This
+execution-bound owner cannot reclassify that option merely because the
+implementation uses a `MaximumMatches` budget and may stop enrichment early.
+
+The focused Package Query reconciliation retires `--matches` in favor of
+semantic `-n`. An alternative may survive only if that owner defines a
+different upstream work dimension that is not selection over matched-package
+rows, gives it a correspondingly accurate name, and separately preserves
+semantic `-n`. The low-compatibility default is retirement, not an alias.
+
+`--candidates` remains eligible for evaluation as an execution bound because
+the Package Query owner defines it over candidates admitted before semantic
+matching. That owner still must declare its unit, stage, scope, stopping
+behavior, and completion evidence during adoption.
+
+### Step 3: adopt `find`
 
 The `find` owner defines each mode's final row set and work dimensions.
 Command-wide row-selection adoption then:
@@ -433,7 +459,8 @@ Command-wide row-selection adoption then:
 - exposes `--take` only for the patternless package-prefix profile mode's one
   package-candidate dimension;
 - rejects `--take` in semantic Package Query mode, which retains its
-  independently owned `--candidates` and `--matches` dimensions;
+  independently owned `--candidates` dimension and uses `-n` for final matched
+  packages;
 - rejects `--take`, `--candidates`, and `--matches` in literal Package Query
   mode, which retains its owner-defined explicit package-list bound; and
 - keeps `-n` after owner-defined result construction.
@@ -442,7 +469,7 @@ That focused adoption decides whether ordinary type/member early exit can be
 proven equivalent through source delegation or must be removed. This design
 does not decide it.
 
-### Step 3: correct `package search`
+### Step 4: correct `package search`
 
 The package-search owner separates:
 
@@ -468,10 +495,10 @@ and shipped skills, and replaces tests that treat the two values as one limit.
 
 ### Later evaluations
 
-Owners of `--depth`, `--candidates`, `--matches`, `--max-methods`,
-`--max-results`, or `--max-packages` may evaluate this pattern when their own
-design changes. This issue neither renames those options nor declares that
-their current implementations satisfy the contract.
+Owners of `--depth`, `--candidates`, `--max-methods`, `--max-results`, or
+`--max-packages` may evaluate this pattern when their own design changes. This
+issue neither renames those options nor declares that their current
+implementations satisfy the contract.
 
 ## Required evidence
 
