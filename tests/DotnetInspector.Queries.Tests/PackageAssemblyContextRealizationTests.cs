@@ -324,7 +324,47 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootReacquisitionRequest reacquisition =
             binding.CreateReacquisitionRequest();
         Assert.Equal("net9.0", reacquisition.Coordinate.Framework);
+        Assert.Equal("net9.0", reacquisition.CompileTargetFramework);
         Assert.Equal("net6.0", reacquisition.SelectionTargetFramework);
+    }
+
+    [Fact]
+    public void CompatibleEmptyGroup_ReacquisitionPreservesCompileSelection()
+    {
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create("compatible.reacquired", "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(
+                    ("ref/net6.0/Compatible.Reacquired.dll", [0x01]),
+                    ("ref/net8.0/_._", []),
+                    ("lib/net6.0/Compatible.Reacquired.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding initial =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                payload,
+                "net9.0");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                initial.CreateReacquisitionRequest().Encode(),
+                out PackageRootReacquisitionRequest? request));
+
+        PackageRootBinding reopened =
+            Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                PackageRootAcquisition.BindReacquired(request, payload)).Binding;
+
+        Assert.Equal("net9.0", request.CompileTargetFramework);
+        Assert.Equal("net6.0", request.SelectionTargetFramework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            reopened.Root.AssetSelection.Status);
+        Assert.Empty(reopened.Root.AssetSelection.Assets);
+        Assert.Equal(
+            ["lib/net6.0/Compatible.Reacquired.dll"],
+            reopened.Root.AssetSelection.ImplementationAssets.Select(asset => asset.Path));
+        Assert.Equal(request, reopened.CreateReacquisitionRequest());
     }
 
     [Fact]

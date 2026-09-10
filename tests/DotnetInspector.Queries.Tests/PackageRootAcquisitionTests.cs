@@ -56,6 +56,7 @@ public sealed class PackageRootAcquisitionTests
         // The issued request is the binding's own, so a consumer that started
         // from an explicit coordinate holds a reacquirable handle immediately.
         Assert.Equal(binding.CreateReacquisitionRequest(), acquired.Request);
+        Assert.Equal(Framework, acquired.Request.CompileTargetFramework);
         Assert.Equal(Framework, acquired.Request.SelectionTargetFramework);
     }
 
@@ -311,6 +312,12 @@ public sealed class PackageRootAcquisitionTests
                 Request(Framework, "win-x64", Framework, "win-x64"),
                 Request(Framework, null, "netstandard2.0", null),
                 Request(Framework, "win-x64", "netstandard2.0", "win-x64"),
+                Request(
+                    Framework,
+                    null,
+                    "net6.0",
+                    null,
+                    compileTargetFramework: Framework),
                 Request(null, null, "netstandard2.0", null),
                 Request(null, null, null, null),
             })
@@ -334,6 +341,25 @@ public sealed class PackageRootAcquisitionTests
             Assert.Equal(token, decoded.Encode());
         }
 
+        string legacyToken = LegacyToken(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            Framework,
+            null);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                legacyToken,
+                out PackageRootReacquisitionRequest? legacy));
+        Assert.Equal(Framework, legacy.CompileTargetFramework);
+        Assert.Equal(Framework, legacy.SelectionTargetFramework);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            legacy.Encode(),
+            StringComparison.Ordinal);
+
         // Distinct requests do not share a token.
         Assert.NotEqual(
             Request(Framework, null, Framework, null).Encode(),
@@ -356,15 +382,16 @@ public sealed class PackageRootAcquisitionTests
                 valid[8..],
                 string.Join('.', valid.Split('.')[..^1]),
                 valid + ".",
-                Token("A!", "1.0.0", "nuget.org", null, null, null, null),
-                Token("AAAAA", "1.0.0", "nuget.org", null, null, null, null),
-                Token("__4", "1.0.0", "nuget.org", null, null, null, null),
-                Token(null, Version, "nuget.org", null, null, null, null),
-                Token(PackageId, Version, null, null, null, null, null),
+                Token("A!", "1.0.0", "nuget.org", null, null, null, null, null),
+                Token("AAAAA", "1.0.0", "nuget.org", null, null, null, null, null),
+                Token("__4", "1.0.0", "nuget.org", null, null, null, null, null),
+                Token(null, Version, "nuget.org", null, null, null, null, null),
+                Token(PackageId, Version, null, null, null, null, null, null),
                 Token(
                     "not a package id",
                     Version,
                     "nuget.org",
+                    null,
                     null,
                     null,
                     null,
@@ -376,6 +403,7 @@ public sealed class PackageRootAcquisitionTests
                     "net11.0",
                     "WIN-X64",
                     "net11.0",
+                    "net11.0",
                     "win-x64"),
                 // Canonical facts spelled non-canonically: refused rather
                 // than normalized, so one request has exactly one token.
@@ -386,6 +414,7 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     null,
                     ".NETStandard,Version=v2.0",
+                    ".NETStandard,Version=v2.0",
                     null),
                 Token(
                     PackageId,
@@ -394,11 +423,31 @@ public sealed class PackageRootAcquisitionTests
                     "net11.0",
                     "win-x64",
                     "net11.0",
+                    "net11.0",
                     "WIN-X64"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    "net11.0",
+                    null,
+                    null,
+                    "net11.0",
+                    null),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    "net11.0",
+                    null,
+                    "net11.0",
+                    null,
+                    null),
                 Token(
                     new string('a', 600),
                     new string('1', 600),
                     "nuget.org",
+                    null,
                     null,
                     null,
                     null,
@@ -430,6 +479,7 @@ public sealed class PackageRootAcquisitionTests
             NuGetCache.GetSourceKey(NuGetOrg.Url),
             Framework,
             acquisitionRuntimeIdentifier,
+            Framework,
             Framework,
             selectionRuntimeIdentifier);
 
@@ -512,7 +562,8 @@ public sealed class PackageRootAcquisitionTests
         string? acquisitionFramework,
         string? acquisitionRuntimeIdentifier,
         string? selectionTargetFramework,
-        string? selectionRuntimeIdentifier)
+        string? selectionRuntimeIdentifier,
+        string? compileTargetFramework = null)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
@@ -527,6 +578,7 @@ public sealed class PackageRootAcquisitionTests
         return new PackageRootReacquisitionRequest(
             PackageArtifactRootRequest.Create(
                 coordinate,
+                compileTargetFramework ?? selectionTargetFramework,
                 selectionTargetFramework,
                 selectionRuntimeIdentifier));
     }
@@ -535,6 +587,25 @@ public sealed class PackageRootAcquisitionTests
     {
         var builder = new StringBuilder(
             PackageRootReacquisitionRequest.TokenPrefix);
+        foreach (string? field in fields)
+        {
+            builder.Append('.');
+            if (string.IsNullOrEmpty(field))
+                continue;
+
+            builder.Append(
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(field))
+                    .TrimEnd('=')
+                    .Replace('+', '-')
+                    .Replace('/', '_'));
+        }
+
+        return builder.ToString();
+    }
+
+    static string LegacyToken(params string?[] fields)
+    {
+        var builder = new StringBuilder("pkgroot1");
         foreach (string? field in fields)
         {
             builder.Append('.');
