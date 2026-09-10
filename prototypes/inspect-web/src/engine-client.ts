@@ -19,6 +19,8 @@ type AsyncFacade<
 type PackageOperations =
   | "activateWorkspacePackageOccurrence"
   | "clearWorkspacePackageOccurrences"
+  | "getPlatformCatalog"
+  | "getPlatformVersions"
   | "getPackageDocument"
   | "listGalleryDiscoveryCatalog"
   | "listPackageAssemblyQueryPatterns"
@@ -28,6 +30,7 @@ type PackageOperations =
   | "matchPackageDependencyCoordinate"
   | "openPackageAssemblyQueryResult"
   | "packageCacheStats"
+  | "prefetchPlatformPacks"
   | "queryMemberDocumentation"
   | "queryPackage"
   | "queryPackageDependencies"

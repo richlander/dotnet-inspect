@@ -1,3 +1,4 @@
+import type { PlatformNavigationState } from "./platform-subject.ts";
 import {
   graphMemberShareTarget,
   isLibraryLens,
@@ -29,6 +30,8 @@ import type {
 // Owns navigation stacks and URL-backed workspace snapshots. The composition root remains
 // the sole mutable AppState owner and supplies captures plus explicit transition callbacks.
 export interface WorkspaceView {
+  rootKind?: "package" | "platform";
+  platform?: PlatformNavigationState | null;
   package: string;
   packageKey: string;
   workspaceSubjectOpen: boolean;
@@ -48,11 +51,14 @@ export interface WorkspaceView {
   packageLens: PackageLens;
   libraryLens: LibraryLens;
   libraryScope: string[] | null;
+  platformLibrary?: string | null;
 }
 
 export function workspaceViewSignature(view: WorkspaceView): string {
   const graphTarget = graphMemberShareTarget(view.bodyTarget);
   return JSON.stringify({
+    root: view.rootKind ?? "package",
+    platform: view.platform ?? null,
     p: view.packageKey,
     ws: view.workspaceSubjectOpen,
     l: view.lens,
@@ -71,6 +77,7 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     pl: view.packageLens,
     ll: view.libraryLens,
     ls: view.libraryScope,
+    platformLibrary: view.platformLibrary ?? null,
   });
 }
 
@@ -511,6 +518,19 @@ export function retainedPlatformTargetVersion(
   return tab.version ?? "";
 }
 
+export function resolvedPlatformTargetVersion(
+  tabs: readonly BrowserWorkspaceShareTab[],
+  runtimePack: {
+    version: string;
+    activeFramework: string;
+  } | null | undefined,
+  framework: string,
+): string {
+  const matches = tabs.filter(tab =>
+    retainedPlatformTargetVersion(tab, runtimePack, framework) !== "");
+  return matches.length === 1 ? matches[0]!.version ?? "" : "";
+}
+
 function workspaceShareTabMatchesResolved(
   requested: BrowserWorkspaceShareTab,
   resolved: BrowserWorkspaceShareTab,
@@ -547,7 +567,22 @@ export function retainedMissingPlatformTarget(
   resolvedTabs: readonly BrowserWorkspaceShareTab[],
   framework: string,
 ): RetainedMissingPlatformTarget | null {
-  if (!basisTabs || basisTabs.length !== resolvedTabs.length + 1) return null;
+  const resolvedMatches = resolvedTabs
+    .map((tab, index) => ({ tab, index }))
+    .filter(({ tab }) =>
+      tab.kind === "group"
+      && tab.source === ":Platform"
+      && !tab.runtimeIdentifier
+      && Boolean(tab.version)
+      && Boolean(tab.framework)
+      && tab.framework!.toLowerCase() === framework.toLowerCase());
+  if (resolvedMatches.length === 1) {
+    const { tab, index } = resolvedMatches[0]!;
+    return { tabIndex: index, version: tab.version! };
+  }
+  if (!basisTabs
+    || (basisTabs.length !== resolvedTabs.length
+      && basisTabs.length !== resolvedTabs.length + 1)) return null;
   const matches = basisTabs
     .map((tab, index) => ({ tab, index }))
     .filter(({ tab }) =>
@@ -560,6 +595,13 @@ export function retainedMissingPlatformTarget(
   if (matches.length !== 1) return null;
 
   const { tab, index } = matches[0]!;
+  if (basisTabs.length === resolvedTabs.length) {
+    if (!workspaceShareTabsMatchResolved(basisTabs, resolvedTabs)) return null;
+    return {
+      tabIndex: index,
+      version: tab.version ?? "",
+    };
+  }
   const remaining = basisTabs.filter((_, candidate) => candidate !== index);
   if (!workspaceShareTabsMatchResolved(remaining, resolvedTabs)) return null;
   return {
@@ -914,7 +956,12 @@ function resolveWorkspaceLocation(
   }
 
   const view = resolveView(viewToken);
+  const platform = tabs[active]?.shareKind === "group"
+    && tabs[active]?.shareSource === ":Platform";
+  const atPlatformRoot = platform && !viewToken && !library && !type
+    && !memberAnchor && !memberSignature;
   return {
+    rootKind: platform ? "platform" as const : "package" as const,
     package: pkg,
     version,
     framework,
@@ -927,7 +974,7 @@ function resolveWorkspaceLocation(
     bodyTarget,
     lens: view.lens,
     workspaceSubjectOpen: view.workspaceSubjectOpen,
-    atPackageRoot: view.atPackageRoot,
+    atPackageRoot: view.atPackageRoot || atPlatformRoot,
     atLibraryRoot: view.atLibraryRoot,
     packageLens: view.packageLens,
     libraryLens: view.libraryLens,
@@ -1020,7 +1067,7 @@ export function buildWorkspaceStateUrl(
   const url = new URL(base);
   url.pathname = "/";
   const params = new URLSearchParams();
-  params.set("package", state.package);
+  if (state.package) params.set("package", state.package);
   const shareState = encodeWorkspaceShareState(state, encode);
   params.set("w", shareState);
   url.search = params.toString();

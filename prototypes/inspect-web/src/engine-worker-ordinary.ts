@@ -33,12 +33,15 @@ type PackageFacade = typeof PackageFacadeModule;
 type SourceFacade = typeof SourceFacadeModule;
 
 type PackageOperationName =
+  | "getPlatformCatalog"
+  | "getPlatformVersions"
   | "listPackageAssemblyQueryPatterns"
   | "matchPackageDependencyCoordinate"
   | "searchTypes"
   | "activateWorkspacePackageOccurrence"
   | "clearWorkspacePackageOccurrences"
   | "packageCacheStats"
+  | "prefetchPlatformPacks"
   | "queryPackage"
   | "openPackageAssemblyQueryResult"
   | "loadRuntimePack"
@@ -673,6 +676,22 @@ function voidOperation<TArgs extends readonly unknown[]>(
 
 export const engineWorkerOrdinaryOperations = {
   package: {
+    getPlatformCatalog: valueOperation(
+      "ordinary-package-get-platform-catalog",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["getPlatformCatalog"]>
+      ) => facades.package.getPlatformCatalog(...args),
+    ),
+    getPlatformVersions: valueOperation(
+      "ordinary-package-get-platform-versions",
+      1,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["getPlatformVersions"]>
+      ) => facades.package.getPlatformVersions(...args),
+    ),
     listPackageAssemblyQueryPatterns: valueOperation(
       "ordinary-package-list-assembly-query-patterns",
       0,
@@ -729,6 +748,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["packageCacheStats"]>
       ) => facades.package.packageCacheStats(...args),
     ),
+    prefetchPlatformPacks: voidOperation(
+      "ordinary-package-prefetch-platform-packs",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["prefetchPlatformPacks"]>
+      ) => facades.package.prefetchPlatformPacks(...args),
+    ),
     queryPackage: valueOperation(
       "ordinary-package-query-package",
       3,
@@ -757,7 +784,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     loadRuntimePackAssembly: valueOperation(
       "ordinary-package-load-runtime-pack-assembly",
-      4,
+      5,
       (
         facades,
         ...args: Parameters<PackageFacade["loadRuntimePackAssembly"]>
@@ -1113,6 +1140,12 @@ export function bindEngineWorkerOrdinaryClient(
 
   return {
     package: {
+      getPlatformCatalog: bind(
+        engineWorkerOrdinaryOperations.package.getPlatformCatalog,
+      ),
+      getPlatformVersions: bind(
+        engineWorkerOrdinaryOperations.package.getPlatformVersions,
+      ),
       listPackageAssemblyQueryPatterns: bind(
         engineWorkerOrdinaryOperations.package
           .listPackageAssemblyQueryPatterns,
@@ -1134,6 +1167,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       packageCacheStats: bind(
         engineWorkerOrdinaryOperations.package.packageCacheStats,
+      ),
+      prefetchPlatformPacks: bind(
+        engineWorkerOrdinaryOperations.package.prefetchPlatformPacks,
       ),
       queryPackage: bind(
         engineWorkerOrdinaryOperations.package.queryPackage,

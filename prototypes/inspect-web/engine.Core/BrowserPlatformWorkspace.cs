@@ -508,6 +508,16 @@ internal static class BrowserPlatformWorkspace
         deadline.Token.ThrowIfCancellationRequested();
         using var packageLeases =
             new BrowserPackageWorkspace.PackageLeaseSet();
+        if (ReferenceEquals(host, ProductionHost) && platformVersion is not null)
+        {
+            foreach (string family in selections.Select(selection => selection.Family).Distinct())
+            {
+                BrowserPackage package = await BrowserPlatformCatalog.AcquireRuntimeAsync(
+                    targetFramework, family, platformVersion,
+                    deadline.Remaining, deadline.Token).ConfigureAwait(false);
+                packageLeases.Lease(package.CacheKey);
+            }
+        }
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
         await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
@@ -666,10 +676,25 @@ internal static class BrowserPlatformWorkspace
         deadline.Token.ThrowIfCancellationRequested();
         state.LastAccess = ++_targetClock;
 
+        ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
+            state.Coordinates;
+        if (selections.Length == 1)
+        {
+            PlatformSelection selection = selections[0];
+            coordinates = [.. coordinates.Where(candidate =>
+                !string.Equals(
+                    candidate.Assembly,
+                    selection.Assembly,
+                    StringComparison.OrdinalIgnoreCase)
+                || candidate.Family.Equals(
+                    selection.Family,
+                    StringComparison.Ordinal))];
+        }
+
         foreach (PlatformSelection selection in selections)
         {
             RealizedMemberCoordinate.Platform? otherFamily =
-                state.Coordinates.FirstOrDefault(candidate =>
+                coordinates.FirstOrDefault(candidate =>
                     !candidate.Family.Equals(
                         selection.Family,
                         StringComparison.Ordinal)
@@ -688,7 +713,7 @@ internal static class BrowserPlatformWorkspace
 
         PlatformSelection selected = selections[^1];
         RealizedMemberCoordinate.Platform? requested =
-            state.Coordinates.FirstOrDefault(candidate =>
+            coordinates.FirstOrDefault(candidate =>
                 candidate.Family.Equals(
                     selected.Family,
                     StringComparison.Ordinal)
@@ -697,7 +722,7 @@ internal static class BrowserPlatformWorkspace
                     selected.Assembly,
                     StringComparison.OrdinalIgnoreCase));
         bool allRequested = selections.All(selection =>
-            state.Coordinates.Any(candidate =>
+            coordinates.Any(candidate =>
                 candidate.Family.Equals(
                     selection.Family,
                     StringComparison.Ordinal)
@@ -730,8 +755,6 @@ internal static class BrowserPlatformWorkspace
         await using ScopeReservation candidateReservation =
             reservation ?? await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
                 .ConfigureAwait(false);
-        ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
-            state.Coordinates;
         BrowserPlatformScope? candidate = null;
         ImmutableHashSet<string> packageKeys = [];
         foreach (PlatformSelection selection in selections)

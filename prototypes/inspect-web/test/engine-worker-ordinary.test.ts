@@ -42,6 +42,8 @@ function contractViolation<T>(value: unknown): T {
 
 const defaultFacades: EngineWorkerOrdinaryFacades = {
   package: {
+    getPlatformCatalog: () => unexpected("getPlatformCatalog"),
+    getPlatformVersions: () => unexpected("getPlatformVersions"),
     listPackageAssemblyQueryPatterns: () =>
       unexpected("listPackageAssemblyQueryPatterns"),
     matchPackageDependencyCoordinate: () =>
@@ -52,6 +54,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     clearWorkspacePackageOccurrences: () =>
       unexpected("clearWorkspacePackageOccurrences"),
     packageCacheStats: () => unexpected("packageCacheStats"),
+    prefetchPlatformPacks: () => unexpected("prefetchPlatformPacks"),
     queryPackage: () => unexpected("queryPackage"),
     openPackageAssemblyQueryResult: () =>
       unexpected("openPackageAssemblyQueryResult"),
@@ -503,12 +506,15 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "activateWorkspacePackageOccurrence",
       "clearWorkspacePackageOccurrences",
       "getPackageDocument",
+      "getPlatformCatalog",
+      "getPlatformVersions",
       "listPackageAssemblyQueryPatterns",
       "loadRuntimePack",
       "loadRuntimePackAssembly",
       "matchPackageDependencyCoordinate",
       "openPackageAssemblyQueryResult",
       "packageCacheStats",
+      "prefetchPlatformPacks",
       "queryMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
@@ -570,7 +576,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 46);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 49);
 
   const state = fixture();
   const groups = [

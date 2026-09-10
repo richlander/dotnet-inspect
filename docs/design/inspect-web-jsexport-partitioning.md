@@ -561,7 +561,7 @@ exact asynchronous Worker and managed acknowledgment.
 
 All other managed calls use the closed ordinary-operation catalog in
 [`engine-worker-ordinary.ts`](../../prototypes/inspect-web/src/engine-worker-ordinary.ts).
-Its 46 entries are named at build time across Package (16), Metadata (8),
+Its 49 entries are named at build time across Package (19), Metadata (8),
 Analysis (7), Source (9), Call Graph (2), and Catalog (4). Callers cannot send a
 module, facade, or member name. Arguments and results cross as inert JSON trees
 only, bounded to 1,048,576 characters, 64 nesting levels, and 65,536 collection
