@@ -371,6 +371,45 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void CompatibleFrameworkAlias_ReacquisitionPreservesSelectedUniverse()
+    {
+        const string packageId = "compatible.alias.reacquired";
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(("lib/netcoreapp5.0/Alias.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding initial =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                payload,
+                "net9.0");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                initial.CreateReacquisitionRequest().Encode(),
+                out PackageRootReacquisitionRequest? request));
+
+        PackageRootBinding reopened =
+            Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                PackageRootAcquisition.BindReacquired(request, payload)).Binding;
+
+        Assert.Equal("net9.0", request.CompileTargetFramework);
+        Assert.Equal("net5.0", request.SelectionTargetFramework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.Selected,
+            reopened.Root.AssetSelection.Status);
+        Assert.Equal(
+            "netcoreapp5.0",
+            reopened.Root.AssetSelection.TargetFramework);
+        Assert.Equal(
+            ["lib/netcoreapp5.0/Alias.dll"],
+            reopened.Root.AssetSelection.Assets.Select(asset => asset.Path));
+        Assert.Equal(request, reopened.CreateReacquisitionRequest());
+    }
+
+    [Fact]
     public void ResolvedPackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback()
     {
         var payload = new AcquiredPackagePayload(

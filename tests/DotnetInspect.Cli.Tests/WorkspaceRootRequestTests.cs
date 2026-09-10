@@ -63,6 +63,7 @@ public sealed class WorkspaceRootRequestTests
     [InlineData("pkgroot1.a.b.c")]
     [InlineData("pkgroot2.a.b.c.d.e.f.g")]
     [InlineData("pkgroot1.!!!.b.c.d.e.f.g")]
+    [InlineData("pkgroot3.ZXhhbXBsZQ.MS4wLjA.dGVzdHM......Y29tcGF0aWJsZQ")]
     public async Task RootRequest_RefusesATokenThisToolDidNotIssue(string token)
     {
         var captured = await ConsoleCapture.RunAsync(

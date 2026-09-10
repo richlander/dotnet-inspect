@@ -341,11 +341,29 @@ public sealed class PackageRootBinding
                 : exactSelection;
         }
 
+        string effectiveSelectionTargetFramework =
+            selectionTargetFramework;
+        PackageAssetSelection currentImplementationSelection =
+            PackageAssetSelector.Select(
+                content,
+                compileTargetFramework);
+        if (currentImplementationSelection
+                is PackageAssetSelection.Selected selected
+            && string.Equals(
+                PackageArtifactRootRequest.NormalizeFramework(
+                    selected.Universe.TargetFramework),
+                selectionTargetFramework,
+                StringComparison.Ordinal))
+        {
+            effectiveSelectionTargetFramework =
+                selected.Universe.TargetFramework;
+        }
+
         return PackageCompileAssetSelector.SelectForCompatibleImplementation(
             content,
             packageId,
             compileTargetFramework,
-            selectionTargetFramework,
+            effectiveSelectionTargetFramework,
             request.SelectionRuntimeIdentifier);
     }
 

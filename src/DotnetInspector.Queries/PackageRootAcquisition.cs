@@ -383,6 +383,11 @@ public sealed class PackageRootReacquisitionRequest :
                     selectionTargetFramework,
                     StringComparison.Ordinal);
         }
+        if (usesCompatibleImplementationSelection
+            && compileTargetFramework is null)
+        {
+            return false;
+        }
 
         PackageArtifactRootRequest decoded = PackageArtifactRootRequest.Create(
             coordinate,

@@ -496,6 +496,16 @@ public sealed class PackageRootAcquisitionTests
                     Framework,
                     null,
                     "other"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "compatible"),
             })
         {
             Assert.False(
