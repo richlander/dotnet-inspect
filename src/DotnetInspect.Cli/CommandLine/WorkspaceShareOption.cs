@@ -1,9 +1,9 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Diagnostics;
-using DotnetInspector.Options;
+using DotnetInspect.Cli.Options;
 
-namespace DotnetInspector.CommandLine;
+namespace DotnetInspect.Cli.CommandLine;
 
 internal static class WorkspaceShareOption
 {

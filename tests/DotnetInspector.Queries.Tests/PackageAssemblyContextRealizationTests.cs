@@ -292,6 +292,77 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void PackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback()
+    {
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create("compatible.empty", "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(
+                    ("ref/net8.0/_._", []),
+                    ("lib/net6.0/Compatible.Empty.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                payload,
+                "net9.0");
+
+        Assert.Equal("net9.0", binding.Coordinate.Framework);
+        Assert.Equal("net6.0", binding.Root.RequestedTargetFramework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            binding.Root.AssetSelection.Status);
+        Assert.Equal("net6.0", binding.Root.AssetSelection.TargetFramework);
+        Assert.Empty(binding.Root.AssetSelection.Assets);
+        Assert.Equal(
+            ["lib/net6.0/Compatible.Empty.dll"],
+            binding.Root.AssetSelection.ImplementationAssets.Select(asset => asset.Path));
+        PackageRootReacquisitionRequest reacquisition =
+            binding.CreateReacquisitionRequest();
+        Assert.Equal("net9.0", reacquisition.Coordinate.Framework);
+        Assert.Equal("net6.0", reacquisition.SelectionTargetFramework);
+    }
+
+    [Fact]
+    public void ResolvedPackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback()
+    {
+        var payload = new AcquiredPackagePayload(
+            new ResolvedPackageCoordinate(
+                "compatible.empty",
+                "1.0.0",
+                "net9.0",
+                runtimeIdentifier: null,
+                [PackageSource.NuGetOrg],
+                wasFloating: false),
+            new InMemoryPackageContent(
+                Archive(
+                    ("ref/net8.0/_._", []),
+                    ("lib/net6.0/Compatible.Empty.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromResolvedWithCompatibleSelection(
+                payload,
+                "net9.0");
+
+        Assert.Equal("net9.0", binding.Coordinate.Framework);
+        Assert.Equal("net6.0", binding.Root.RequestedTargetFramework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            binding.Root.AssetSelection.Status);
+        Assert.Empty(binding.Root.AssetSelection.Assets);
+        Assert.Equal(
+            ["lib/net6.0/Compatible.Empty.dll"],
+            binding.Root.AssetSelection.ImplementationAssets.Select(asset => asset.Path));
+    }
+
+    [Fact]
     public void PackageRootSelectionIdentity_SelectionSequencesAreImmutable()
     {
         PackageSourceCoordinate coordinate =

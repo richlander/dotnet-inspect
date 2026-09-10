@@ -1,11 +1,11 @@
-using DotnetInspector.Options;
-using DotnetInspector.Output;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using NuGet.Frameworks;
 using NuGetFetch;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspect.Cli.Commands;
 
 internal static class DependsShareProjection
 {
