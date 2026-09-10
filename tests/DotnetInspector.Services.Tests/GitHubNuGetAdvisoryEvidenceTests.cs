@@ -442,6 +442,46 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
     }
 
     [Fact]
+    public async Task OversizedBodiesCountTowardAggregateByteLimit()
+    {
+        using var handler = new RoutingHandler((_, call) =>
+            call == 1
+                ? Json("[]")
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StreamContent(
+                        new NonSeekableStream(new byte[300])),
+                });
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(
+            client,
+            new GitHubNuGetAdvisoryOptions
+            {
+                MaxPackageIdsPerRequest = 1,
+                MaxResponseBytes = 128,
+                MaxAggregateResponseBytes = 200,
+            });
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(
+                    At("Example.One", "1.0.0"),
+                    At("Example.Two", "1.0.0"),
+                    At("Example.Three", "1.0.0"),
+                    At("Example.Four", "1.0.0")),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, handler.Calls);
+        Assert.Equal(201, result.ResponseBytes);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.AggregateResponseByteLimitReached,
+            result.Failures);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.ResponseByteLimitReached,
+            result.Failures);
+    }
+
+    [Fact]
     public async Task ResponseByteLimitIsDistinctFromCheckedEmpty()
     {
         using var handler = new RoutingHandler((_, _) => Json("[]"));
@@ -731,6 +771,28 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
             result.Failures);
     }
 
+    [Fact]
+    public async Task UriLimitRejectsOversizedSingletonAfterRollover()
+    {
+        using var handler = new RoutingHandler((_, _) => Json("[]"));
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(
+            client,
+            new GitHubNuGetAdvisoryOptions
+            {
+                MaxRequestUriBytes = 512,
+            });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AcquireAsync(
+                Request(
+                    At("Example.One", "1.0.0"),
+                    At(new string('Ж', 100), "1.0.0")),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, handler.Calls);
+    }
+
     [Theory]
     [InlineData(
         "\"type\": \"reviewed\"",
@@ -929,6 +991,45 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
 
         public override long GetTimestamp() =>
             Interlocked.Increment(ref _timestamp);
+    }
+
+    private sealed class NonSeekableStream(byte[] bytes) : Stream
+    {
+        private int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int count = Math.Min(buffer.Length, bytes.Length - _position);
+            if (count == 0)
+                return ValueTask.FromResult(0);
+
+            bytes.AsMemory(_position, count).CopyTo(buffer);
+            _position += count;
+            return ValueTask.FromResult(count);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class RoutingHandler(

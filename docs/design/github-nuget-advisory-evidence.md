@@ -70,7 +70,9 @@ records that scope and the observation time. It does not claim that unreviewed,
 malware, withdrawn, private, or not-yet-published advisories were examined.
 
 Package names are encoded as `affects` values and split by both count and URL
-length. A source-issued continuation may be followed only when it remains an
+length. Every package ID must fit a singleton request, and all singleton sizes
+are validated before acquisition starts so request order cannot bypass the URI
+bound. A source-issued continuation may be followed only when it remains an
 HTTPS GitHub advisory-list URL, preserves every original query parameter, and
 adds only the forward paging cursor. The request and response bounds apply
 across initial and continuation documents.
@@ -125,8 +127,9 @@ local parsing and exact-coordinate evaluation.
 The 1,000-coordinate request bound covers the six-week experiment's roughly
 529 coordinates without making that sample a completion claim. Source
 pagination may still reach the independent request limit. Response bytes are
-bounded before JSON materialization and counted across the acquisition, and
-continuations consume the same request budget as initial batches.
+bounded before JSON materialization and counted across the acquisition,
+including bytes consumed before an oversized or otherwise failed body is
+rejected. Continuations consume the same request budget as initial batches.
 
 ## Trust and platform boundary
 

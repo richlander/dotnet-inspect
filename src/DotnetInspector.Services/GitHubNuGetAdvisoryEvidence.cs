@@ -294,7 +294,7 @@ public sealed class GitHubNuGetAdvisoryAcquisition
     /// <summary>Gets the number of API document requests attempted.</summary>
     public int ApiRequests { get; }
 
-    /// <summary>Gets the response bytes admitted across the acquisition.</summary>
+    /// <summary>Gets the response-body bytes consumed across the acquisition.</summary>
     public long ResponseBytes { get; }
 
     /// <summary>Gets whether every coordinate and category has complete coverage.</summary>
@@ -447,6 +447,7 @@ public sealed class GitHubNuGetAdvisoryService
                     break;
                 }
 
+                state.ResponseBytes += response.BodyBytesRead;
                 if (response.Status
                     != HttpRetryHelper.HttpBodyFetchStatus.Success
                     || response.Bytes is null)
@@ -459,6 +460,7 @@ public sealed class GitHubNuGetAdvisoryService
                             : response.Status
                                 == HttpRetryHelper.HttpBodyFetchStatus.TooLarge
                                 ? remainingBytes < _options.MaxResponseBytes
+                                    || response.BodyBytesRead > remainingBytes
                                     ? GitHubNuGetAdvisoryFailureKind
                                         .AggregateResponseByteLimitReached
                                     : GitHubNuGetAdvisoryFailureKind
@@ -475,7 +477,6 @@ public sealed class GitHubNuGetAdvisoryService
                     break;
                 }
 
-                state.ResponseBytes += response.Bytes.LongLength;
                 batchUsable |= ParsePage(
                     response.Bytes,
                     batch,
@@ -543,6 +544,16 @@ public sealed class GitHubNuGetAdvisoryService
         CreateBatches(
             ImmutableArray<GitHubNuGetAdvisoryRequest.Package> packages)
     {
+        foreach (GitHubNuGetAdvisoryRequest.Package package in packages)
+        {
+            if (Encoding.UTF8.GetByteCount(CreateRequestUri([package]))
+                > _options.MaxRequestUriBytes)
+            {
+                throw new InvalidOperationException(
+                    "A canonical package ID exceeded the advisory request URI bound.");
+            }
+        }
+
         var batch = ImmutableArray.CreateBuilder<
             GitHubNuGetAdvisoryRequest.Package>();
         foreach (GitHubNuGetAdvisoryRequest.Package package in packages)

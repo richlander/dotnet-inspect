@@ -719,6 +719,7 @@ public class HttpRetryHelperTests
 
         Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.TooLarge, result.Status);
         Assert.Null(result.Bytes);
+        Assert.Equal(9, result.BodyBytesRead);
     }
 
     [Fact]
