@@ -606,44 +606,166 @@ public sealed class GitHubNuGetAdvisoryService
         string? next = null;
         foreach (string value in values)
         {
-            foreach (string segment in value.Split(','))
+            int position = 0;
+            while (position < value.Length)
             {
-                string candidate = segment.Trim();
-                bool mentionsNext = candidate.Contains(
-                    "rel=\"next\"",
-                    StringComparison.OrdinalIgnoreCase)
-                    || candidate.Contains(
-                        "rel=next",
-                        StringComparison.OrdinalIgnoreCase);
-                int close = candidate.IndexOf('>');
-                if (close < 0)
+                SkipOptionalWhitespace(value, ref position);
+                if (position == value.Length)
+                    return new LinkResult(null, Invalid: true);
+                if (!TryReadLinkValue(
+                        value,
+                        ref position,
+                        out string? target,
+                        out bool isNext))
                 {
-                    if (mentionsNext)
-                        return new LinkResult(null, Invalid: true);
-                    continue;
-                }
-                bool isNext = candidate[(close + 1)..]
-                    .Split(';', StringSplitOptions.TrimEntries)
-                    .Any(static parameter =>
-                        parameter.Equals(
-                            "rel=\"next\"",
-                            StringComparison.OrdinalIgnoreCase)
-                        || parameter.Equals(
-                            "rel=next",
-                            StringComparison.OrdinalIgnoreCase));
-                if (!isNext)
-                {
-                    continue;
+                    return new LinkResult(null, Invalid: true);
                 }
 
-                int open = candidate.IndexOf('<');
-                if (next is not null || open != 0 || close <= open + 1)
+                if (!isNext)
+                    continue;
+
+                if (next is not null)
                     return new LinkResult(null, Invalid: true);
-                next = candidate[(open + 1)..close];
+                next = target;
             }
         }
 
         return new LinkResult(next, Invalid: false);
+    }
+
+    private static bool TryReadLinkValue(
+        string value,
+        ref int position,
+        out string? target,
+        out bool isNext)
+    {
+        target = null;
+        isNext = false;
+        if (value[position] != '<')
+            return false;
+
+        int close = value.IndexOf('>', position + 1);
+        if (close <= position + 1)
+            return false;
+
+        target = value[(position + 1)..close];
+        position = close + 1;
+        bool foundRelation = false;
+        while (true)
+        {
+            SkipOptionalWhitespace(value, ref position);
+            if (position == value.Length)
+                return true;
+            if (value[position] == ',')
+            {
+                position++;
+                SkipOptionalWhitespace(value, ref position);
+                return position < value.Length;
+            }
+            if (value[position++] != ';')
+                return false;
+
+            SkipOptionalWhitespace(value, ref position);
+            int nameStart = position;
+            while (position < value.Length
+                && IsLinkTokenCharacter(value[position]))
+            {
+                position++;
+            }
+            if (position == nameStart)
+                return false;
+
+            string name = value[nameStart..position];
+            SkipOptionalWhitespace(value, ref position);
+            if (position == value.Length || value[position++] != '=')
+                return false;
+            SkipOptionalWhitespace(value, ref position);
+            if (!TryReadLinkParameterValue(
+                    value,
+                    ref position,
+                    out string parameterValue))
+            {
+                return false;
+            }
+
+            if (name.Equals("rel", StringComparison.OrdinalIgnoreCase))
+            {
+                if (foundRelation)
+                    return false;
+                foundRelation = true;
+                string[] relations = parameterValue.Split(
+                    (char[]?)null,
+                    StringSplitOptions.RemoveEmptyEntries);
+                if (relations.Length == 0)
+                    return false;
+                isNext = relations.Any(static relation =>
+                    relation.Equals(
+                        "next",
+                        StringComparison.OrdinalIgnoreCase));
+            }
+        }
+    }
+
+    private static bool TryReadLinkParameterValue(
+        string value,
+        ref int position,
+        out string parameterValue)
+    {
+        parameterValue = string.Empty;
+        if (position == value.Length)
+            return false;
+
+        if (value[position] != '"')
+        {
+            int start = position;
+            while (position < value.Length
+                && IsLinkTokenCharacter(value[position]))
+            {
+                position++;
+            }
+            if (position == start)
+                return false;
+
+            parameterValue = value[start..position];
+            return true;
+        }
+
+        position++;
+        var builder = new StringBuilder();
+        while (position < value.Length)
+        {
+            char character = value[position++];
+            if (character == '"')
+            {
+                parameterValue = builder.ToString();
+                return true;
+            }
+            if (character == '\\')
+            {
+                if (position == value.Length)
+                    return false;
+                character = value[position++];
+            }
+            if (char.IsControl(character) && character != '\t')
+                return false;
+            builder.Append(character);
+        }
+
+        return false;
+    }
+
+    private static bool IsLinkTokenCharacter(char value) =>
+        char.IsAsciiLetterOrDigit(value)
+        || value is '!' or '#' or '$' or '%' or '&' or '\''
+            or '*' or '+' or '-' or '.' or '^' or '_' or '`' or '|' or '~';
+
+    private static void SkipOptionalWhitespace(string value, ref int position)
+    {
+        while (position < value.Length
+            && value[position] is ' ' or '\t')
+        {
+            position++;
+        }
     }
 
     private bool TryValidateContinuation(

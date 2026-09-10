@@ -75,8 +75,10 @@ are validated before acquisition starts so request order cannot bypass the URI
 bound. A source-issued continuation may be followed only when it remains an
 HTTPS GitHub advisory-list URL, is admitted unchanged by the raw path/query
 request constructor, preserves every original query parameter, and adds only
-the forward paging cursor. The request and response bounds apply across initial
-and continuation documents.
+the forward paging cursor. Recognition of a `next` Link relation permits
+optional whitespace around `=` and whitespace-separated quoted relation types.
+Malformed or ambiguous Link metadata cannot establish complete traversal. The
+request and response bounds apply across initial and continuation documents.
 
 ## Evidence categories
 

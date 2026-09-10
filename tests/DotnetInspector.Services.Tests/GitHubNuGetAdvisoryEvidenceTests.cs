@@ -116,6 +116,34 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
     }
 
     [Fact]
+    public async Task MalformedEscapedPropertyNameProducesInvalidData()
+    {
+        string page = AdvisoryPage(
+                packageId: "Example.Client",
+                range: "< 2.0.0",
+                fixedVersion: "2.0.0")
+            .Replace(
+                "\"ghsa_id\"",
+                "\"\\uD800\": 1, \"ghsa_id\"",
+                StringComparison.Ordinal);
+        using var handler = new RoutingHandler((_, _) => Json(page));
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "1.0.0")),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Unavailable,
+            Assert.Single(result.Packages).CurrentContextAvailability);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.InvalidData,
+            result.Failures);
+    }
+
+    [Fact]
     public async Task MalformedFixedVersionMakesOnlyFixedEvidencePartial()
     {
         using var handler = new RoutingHandler((_, _) => Json(AdvisoryPage(
@@ -296,6 +324,75 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
             GitHubNuGetAdvisoryAvailability.Partial,
             package.CurrentContextAvailability);
         Assert.Single(package.CurrentAdvisories);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.InvalidContinuation,
+            result.Failures);
+    }
+
+    [Theory]
+    [InlineData("rel = \"next\"")]
+    [InlineData("rel=\"next last\"")]
+    public async Task FollowsStructuredNextRelation(string relation)
+    {
+        using var handler = new RoutingHandler((_, call) =>
+        {
+            if (call == 1)
+            {
+                HttpResponseMessage response = Json("[]");
+                response.Headers.TryAddWithoutValidation(
+                    "Link",
+                    "<https://api.github.com/advisories"
+                    + "?ecosystem=nuget&type=reviewed&is_withdrawn=false"
+                    + "&per_page=100&affects=Example.Client&after=cursor>"
+                    + $"; {relation}");
+                return response;
+            }
+
+            return Json(AdvisoryPage(
+                packageId: "Example.Client",
+                range: "< 2.0.0",
+                fixedVersion: "2.0.0"));
+        });
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "1.0.0")),
+                TestContext.Current.CancellationToken);
+
+        Assert.True(result.Complete);
+        Assert.Equal(2, handler.Calls);
+        Assert.Single(Assert.Single(result.Packages).CurrentAdvisories);
+        Assert.Empty(result.Failures);
+    }
+
+    [Fact]
+    public async Task MalformedLinkMetadataCannotEstablishCompletion()
+    {
+        using var handler = new RoutingHandler((_, _) =>
+        {
+            HttpResponseMessage response = Json("[]");
+            response.Headers.TryAddWithoutValidation(
+                "Link",
+                "<https://api.github.com/advisories"
+                + "?ecosystem=nuget&type=reviewed&is_withdrawn=false"
+                + "&per_page=100&affects=Example.Client&after=cursor>"
+                + "; rel=\"next");
+            return response;
+        });
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "1.0.0")),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.Complete);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Partial,
+            Assert.Single(result.Packages).CurrentContextAvailability);
         Assert.Contains(
             GitHubNuGetAdvisoryFailureKind.InvalidContinuation,
             result.Failures);
