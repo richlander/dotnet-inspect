@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.ExceptionServices;
@@ -1372,14 +1373,40 @@ public static class AssemblyContextSourceQuery
             => selection switch
             {
                 AssemblyBindingSelection.Selected selected =>
-                    AssemblyBindingSelection.Found(
+                    FinalizeSelected(
                         Observe(selected.Assembly),
                         [.. selected.ShadowedAssemblies.Select(Observe)]),
                 AssemblyBindingSelection.Ambiguous ambiguous =>
-                    AssemblyBindingSelection.Multiple(
-                        [.. ambiguous.Assemblies.Select(Observe)]),
+                    FinalizeAmbiguous(
+                        [.. ambiguous.Assemblies.Select(Observe)],
+                        [.. ambiguous.ShadowedAssemblies.Select(Observe)]),
+                AssemblyBindingSelection.CompositionRequired required =>
+                    AssemblyBindingSelection.RequireComposition(
+                        AssemblyBindingCandidateDomain.Create(
+                        [
+                            .. required.Domain.Candidates.Select(
+                                Observe),
+                        ])),
                 _ => selection,
             };
+
+        static AssemblyBindingSelection FinalizeSelected(
+            ResolvedAssemblyReference selected,
+            ImmutableArray<ResolvedAssemblyReference> shadows) =>
+            shadows.IsEmpty
+                ? AssemblyBindingSelection.Found(selected)
+                : AssemblyBindingCandidateDomain.Create(
+                    [selected, .. shadows])
+                    .Finalize([selected]);
+
+        static AssemblyBindingSelection FinalizeAmbiguous(
+            ImmutableArray<ResolvedAssemblyReference> active,
+            ImmutableArray<ResolvedAssemblyReference> shadows) =>
+            shadows.IsEmpty
+                ? AssemblyBindingSelection.Multiple(active)
+                : AssemblyBindingCandidateDomain.Create(
+                    [.. active, .. shadows])
+                    .Finalize(active);
 
         ResolvedAssemblyReference Observe(
             ResolvedAssemblyReference assembly)

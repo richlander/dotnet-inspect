@@ -53,9 +53,11 @@ internal abstract class AssemblyBindingPolicyFacade(
                 this,
                 state,
                 selected.Occurrence);
-            transformed = AssemblyBindingSelection.FoundOccurrence(
-                lineage.Issue(adapted.Assembly),
-                adapted.ShadowedAssemblies);
+            transformed = AssemblyBindingCandidateDomain.Create(
+                [
+                    adapted.Assembly,
+                    .. adapted.ShadowedAssemblies,
+                ]).Finalize(lineage.Issue(adapted.Assembly));
         }
 
         return new AssemblyBindingSelectionSnapshot(
