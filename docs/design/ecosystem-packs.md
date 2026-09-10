@@ -280,8 +280,8 @@ The intended host-neutral application component is
 Queries/Workspace Definitions and Metadata/Integrations and contains the
 application manifest and concrete pack source. Its only production consumers
 are the `dotnet-inspect` CLI front end and the
-`InspectWeb.Engine.CatalogExports` managed browser facade.
-`InspectWeb.Engine.Core`, the host and sibling export facades, Packages,
+`DotnetInspect.Web.Interop.Catalog` managed browser facade.
+`DotnetInspect.Web.Core`, the host and sibling export facades, Packages,
 Metadata, Queries, Services, Presentation, Vocabulary, and other reusable
 infrastructure do not reference it. Selected owner-issued package, demo, or
 scanner currencies flow from the catalog or two front ends into existing
@@ -376,7 +376,8 @@ by its engine rules from taking a dependency on
 The implementation adds one focused project-and-assembly rule,
 `ecosystem-catalog-stays-in-approved-hosts`. Within
 `dotnet-inspect.slnx`, it denies `DotnetInspector.Ecosystems` from every
-production target except `dotnet-inspect`.
+production target except the `DotnetInspect.Cli` project and its
+`dotnet-inspect` assembly.
 
 The dependency-policy solution does not include inspect-web, so it does not
 claim to prove that boundary. The browser owner separately gates
@@ -384,14 +385,14 @@ claim to prove that boundary. The browser owner separately gates
 evaluated direct MSBuild `ProjectReference` items for every inspect-web
 production project. For each project whose declared graph can reach the catalog
 facade, it also reads the Release-built assembly's metadata `AssemblyRef` rows.
-`InspectWeb.Engine.CatalogExports` is the sole permitted project and compiled
+`DotnetInspect.Web.Interop.Catalog` is the sole permitted project and compiled
 assembly reference. The compiled check rejects host source that consumes the
 catalog through the transitive host-to-catalog-facade project graph. Public
 demo identities are runtime-valued properties rather than compile-time
 constants, and the same gate rejects public literal fields before relying on
 the compiled reference: a supported source use therefore cannot erase the
 catalog dependency through constant inlining.
-`InspectWeb.Engine.Core`, the host and sibling export facades, and every other
+`DotnetInspect.Web.Core`, the host and sibling export facades, and every other
 inspect-web production project reject both a declared edge and a compiled
 catalog reference. Test projects and the focused
 `DotnetInspector.Ecosystems.Consumer.Tests` non-friend canary may reference the
@@ -650,7 +651,7 @@ independently; source realization and acquisition remain separate
 prerequisites.
 
 The implementation publishes inert knowledge through the shared
-catalog. The CLI and `InspectWeb.Engine.CatalogExports` are its production
+catalog. The CLI and `DotnetInspect.Web.Interop.Catalog` are its production
 consumers; host metadata and operational adoption stay in #6012 stages 6 and 7.
 This focused contract and its catalog implementation are two
 slices within catalog stage 2, not a replacement roadmap. No existing
@@ -724,7 +725,7 @@ registrations or a proposal for tool-prefix discovery.
 
 The contribution follows the existing static metadata pattern within catalog
 stage 2 of #6012, coordinated by #5728. Its production consumers remain CLI
-and `InspectWeb.Engine.CatalogExports`; visible metadata adoption stays with
+and `DotnetInspect.Web.Interop.Catalog`; visible metadata adoption stays with
 their stages 6 and 7. No installation/execution path, new renderer, or source
 contract is introduced. The [tool-reference gates](#tool-reference-gates)
 enforce this catalog slice; they do not certify future package versions.
@@ -856,7 +857,7 @@ explicit selections.
 ## Host plan
 
 The static manifest is host-neutral application product data directly consumed
-only by the CLI and `InspectWeb.Engine.CatalogExports` front ends. Neither
+only by the CLI and `DotnetInspect.Web.Interop.Catalog` front ends. Neither
 copies the pack list, package-set identity, prefix metadata, or scanner
 availability.
 
@@ -876,7 +877,7 @@ and run plan through the existing type/member section pipeline. Product-facing
 title and summary come from the selected catalog descriptor, not from the
 resolved scenario's portable metadata.
 
-`InspectWeb.Engine.CatalogExports` projects an ecosystem action surface from
+`DotnetInspect.Web.Interop.Catalog` projects an ecosystem action surface from
 the same descriptors through its generated facade. The TypeScript front end
 retains interaction and browser presentation. Browser infrastructure retains
 asynchronous acquisition, budget reservation, workspace replacement, rollback,
@@ -897,7 +898,7 @@ catalog or rediscover the pack.
 
 The implemented
 [JSExport facade partition](inspect-web-jsexport-partitioning.md) designates
-`InspectWeb.Engine.CatalogExports` as the sole managed ecosystem-catalog
+`DotnetInspect.Web.Interop.Catalog` as the sole managed ecosystem-catalog
 consumer and assigns the complete discovery, selection, execution adaptation,
 and facade-local DTO closure to it. Sibling export facades neither consume that
 facade nor reference the catalog. The TypeScript application composes the
@@ -1226,8 +1227,8 @@ ordinary non-friend consumer.
 | `PackageSetRegistryConsumerTests.PublicSurfaceSupportsEcosystemDiscoveryAndDemoSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, demo factories, scanner implementation, CLI types, package clients, or workspaces. |
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
-| `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
-| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Public product-demo identities contain no literal fields that source access could inline without an assembly reference. Evaluated direct `ProjectReference` items reject catalog edges from every inspect-web production project except `InspectWeb.Engine.CatalogExports`. For each project whose declared graph can reach that facade, Release-built metadata `AssemblyRef` rows reject compiled catalog consumption through transitive availability. |
+| `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by the `DotnetInspect.Cli` project and its `dotnet-inspect` assembly; existing IL rules independently reject the reusable IL-library edges they select. |
+| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Public product-demo identities contain no literal fields that source access could inline without an assembly reference. Evaluated direct `ProjectReference` items reject catalog edges from every inspect-web production project except `DotnetInspect.Web.Interop.Catalog`. For each project whose declared graph can reach that facade, Release-built metadata `AssemblyRef` rows reject compiled catalog consumption through transitive availability. |
 
 Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and

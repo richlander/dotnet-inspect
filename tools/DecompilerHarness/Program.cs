@@ -54,6 +54,7 @@ static class Program
         bool sequential = false;
         string? renderAb = null;
         string? emitRenderAb = null;
+        string? emitRenderAbStructuralDiffs = null;
         bool idempotenceCheck = false;
         bool slotResidualCensus = false;
         bool slotUnifierCensus = false;
@@ -357,6 +358,7 @@ static class Program
                     case "--sequential": sequential = true; break;
                     case "--render-ab": renderAb = NextArg(args, ref i, flag); break;
                     case "--emit-render-ab": emitRenderAb = NextArg(args, ref i, flag); break;
+                    case "--emit-render-ab-structural-diffs": emitRenderAbStructuralDiffs = NextArg(args, ref i, flag); break;
                     case "--idempotence-check": idempotenceCheck = true; break;
                     case "--slot-residual-census": slotResidualCensus = true; break;
                     case "--slot-unifier-census": slotUnifierCensus = true; break;
@@ -480,6 +482,8 @@ static class Program
 
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
+        if (emitRenderAbStructuralDiffs is not null && renderAb is null)
+            return Fail("--emit-render-ab-structural-diffs requires --render-ab.");
         int harnessReportModes = (returnAddress ? 1 : 0)
             + (notMyType ? 1 : 0)
             + (returnToSenderCatalog ? 1 : 0)
@@ -722,7 +726,15 @@ static class Program
             return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, diffCorpusBaselineRef, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle, corpusProfile, rtsParityKnownGaps, emitRtsParityKnownGaps);
 
         if (renderAb is not null || emitRenderAb is not null)
-            return RenderAbSensor.Run(assemblies, renderAb, emitRenderAb, maxExamples, corpusMethodCap, workers, sequential);
+            return RenderAbSensor.Run(
+                assemblies,
+                renderAb,
+                emitRenderAb,
+                maxExamples,
+                corpusMethodCap,
+                workers,
+                sequential,
+                emitRenderAbStructuralDiffs);
 
         if (idempotenceCheck)
             return IdempotenceSensor.Run(assemblies, maxExamples, corpusMethodCap, workers, sequential);
@@ -2091,8 +2103,9 @@ static class Program
         {
             "compile-back" => CorpusFidelityOracle.CompileBack,
             "rts-parity" or "return-to-sender" or "rts" => CorpusFidelityOracle.ReturnToSender,
+            "rts-cutover" or "return-to-sender-cutover" or "native-rts" => CorpusFidelityOracle.ReturnToSenderCutover,
             _ => throw new ArgumentException(
-                $"Unknown corpus fidelity oracle '{value}'. Expected compile-back or rts-parity."),
+                $"Unknown corpus fidelity oracle '{value}'. Expected compile-back, rts-parity, or rts-cutover."),
         };
 
     static CorpusProfile ParseCorpusProfile(string value)
@@ -2480,6 +2493,13 @@ static class Program
           --keep-generated-fixtures
                                 with --generated-fixtures: keep the temporary
                                 project and print its paths.
+          --emit-render-ab <f>  write a Render A/B baseline with product-issued
+                                structural C# documents for later comparison.
+          --render-ab <f>       compare current product renders with baseline <f>.
+          --emit-render-ab-structural-diffs <directory>
+                                with --render-ab: write one replayable product
+                                structural-diff JSON document per changed method,
+                                plus a deterministic manifest.
           --emit-corpus-baseline <f>     run the selected corpus sensor and write
                                 the current JSON baseline to <f>.
           --emit-corpus-snapshot <f>     alias for --emit-corpus-baseline; intended
@@ -2520,9 +2540,15 @@ static class Program
                                 fidelity oracle (default 0, not run).
           --corpus-fidelity-oracle <name>
                                 with corpus baseline modes: select compile-back
-                                (default) or rts-parity (aliases: return-to-sender,
-                                rts). RTS evaluates the same compile-back-selected
-                                target population without applying the compile-back floor.
+                                (default), rts-parity (aliases: return-to-sender,
+                                rts), or rts-cutover (aliases:
+                                return-to-sender-cutover, native-rts).
+                                Parity evaluates the compile-back-selected
+                                population; cutover independently hash-selects
+                                targets, runs native RTS without its compile-back
+                                floor, then records legacy results for comparison.
+                                Cutover accepts one distinct positive fidelity
+                                cap per run so the snapshot ledger is complete.
           --corpus-profile <name>        label corpus snapshots and cards as
                                 real-world (default), opt-in-net11, or
                                 classic-state-machines. Profiles keep curated

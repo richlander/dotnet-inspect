@@ -340,7 +340,7 @@ The current materializers have these binding rules:
   "capability-bearing", "identity-bearing", or "provenance-bearing" to bypass
   one of its properties or nested unions.
 
-The gate lives in `tests/dotnet-inspect.Tests`, which already has Metadata friend
+The gate lives in `tests/DotnetInspect.Cli.Tests`, which already has Metadata friend
 access and can invoke the physical Queries-to-Research adapter. Its fixture
 matrix obtains at least one owner-produced result for every concrete arm by
 driving `TypeResolutionContext.Resolve` or

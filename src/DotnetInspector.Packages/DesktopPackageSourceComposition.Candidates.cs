@@ -47,8 +47,7 @@ public sealed partial class DesktopPackageSourceComposition
 
             PackageAcquisitionCandidate? candidate = authorities.Count == 0
                 ? null
-                : PackageAcquisitionCandidate.CreatePinned(
-                    _candidateIssuer,
+                : _sourceLease.CreatePinnedCandidate(
                     coordinate,
                     authorities);
             return new PackageAcquisitionCandidateResult(

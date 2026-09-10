@@ -30,6 +30,9 @@ The design depends on:
   consuming exact-target pruning facts;
 - [Structured type-forwarding resolution](type-forwarding-resolution.md) for
   Metadata-owned forwarding and binding outcomes;
+- [Platform Manifest Formats](platform-manifest-formats.md) for host-neutral
+  interpretation of shared-framework runtime configurations and dependency
+  manifests;
 - [Platform composition and overlays](platform-composition-and-overlays.md)
   for source-specific coherent implementation realization;
 - the
@@ -63,6 +66,14 @@ The first production consumer is the applicable-platform rung of the assembly
 reference resolution ladder. PackageHouse delegation, Queries, Workspace
 composition, CLI platform operations, and Inspect Web adopt the same House
 contract in separately reviewed slices.
+
+Production-adoption step 3 is implemented by the resource-free request,
+operation, source-plan, contribution, outcome, and receipt contracts in
+`DotnetInspector.PlatformHouse`. No source implementation or product consumer
+moved in that slice. After the PackageHouse contract floor landed, the request
+origin also gained an orchestration-owned delegation association. It retains
+no PackageHouse type or receipt; orchestration keeps the package and platform
+receipts separate.
 
 This is one owner claim. Documentation evidence is another facet of the same
 exact-target, reference-to-implementation settlement rather than a second
@@ -1365,6 +1376,17 @@ There are eleven counted production steps:
 Each step after the House contract is a separately reviewed owner adoption.
 The stack preserves a usable product after every step; a bypass is retired only
 after its House replacement is live in every supported host that uses it.
+
+Step 4 was staged without changing the eleven-step count. Step 4a is owned by
+[Installed Reference-Pack Realization](installed-reference-pack-realization.md)
+and adds explicit-hive reference target discovery, immutable reference-pack
+realization, and the installed PlatformHouse bridge. Step 4b adds the
+host-neutral
+[Platform Manifest Formats](platform-manifest-formats.md), the manifest-defined
+installed implementation closure owned by
+[Platform Composition and Overlays](platform-composition-and-overlays.md#installed-implementation-platform-realization),
+and its installed PlatformHouse contribution. Both sub-slices are implemented;
+step 5 is the next production-adoption step.
 
 No CLI flag is retained solely for compatibility. User-facing platform
 coordinates project to the shared target and House request, and unsupported

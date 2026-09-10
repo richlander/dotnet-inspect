@@ -6,24 +6,24 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-inspect_web="$repo_root/prototypes/inspect-web"
-engine_csproj="$inspect_web/engine/InspectWeb.Engine.csproj"
-engine_output="$inspect_web/engine/bin/Release/net11.0"
-engine_dll="$engine_output/InspectWeb.Engine.dll"
-context_type="InspectWeb.Engine.InspectWebJsExportContext"
+inspect_web="$repo_root/inspect-web"
+engine_csproj="$inspect_web/DotnetInspect.Web/DotnetInspect.Web.csproj"
+engine_output="$inspect_web/DotnetInspect.Web/bin/Release/net11.0"
+engine_dll="$engine_output/DotnetInspect.Web.dll"
+context_type="DotnetInspect.Web.InspectWebJsExportContext"
 
 # The consumer map. Each canonical context artifact becomes exactly one public module; the
 # map's domain must equal the recipe's output set before any TypeScript is compiled, so it
 # can neither add nor omit a facade. `context_artifacts` and `facade_modules` are read as
 # one ordered map, and every derived path is spelled from `facade_modules`.
 context_artifacts=(
-  "InspectWeb.Engine.ts"
-  "InspectWeb.Engine.PackageExports.ts"
-  "InspectWeb.Engine.MetadataExports.ts"
-  "InspectWeb.Engine.AnalysisExports.ts"
-  "InspectWeb.Engine.SourceExports.ts"
-  "InspectWeb.Engine.CallGraphExports.ts"
-  "InspectWeb.Engine.CatalogExports.ts"
+  "DotnetInspect.Web.ts"
+  "DotnetInspect.Web.Interop.Package.ts"
+  "DotnetInspect.Web.Interop.Metadata.ts"
+  "DotnetInspect.Web.Interop.Analysis.ts"
+  "DotnetInspect.Web.Interop.Source.ts"
+  "DotnetInspect.Web.Interop.CallGraph.ts"
+  "DotnetInspect.Web.Interop.Catalog.ts"
 )
 facade_modules=(
   "inspect-web-host"
@@ -39,9 +39,9 @@ if [[ "${#context_artifacts[@]}" != "${#facade_modules[@]}" ]]; then
   exit 1
 fi
 
-ts_output_directory="$inspect_web/engine/facades"
+ts_output_directory="$inspect_web/DotnetInspect.Web/facades"
 dts_output_directory="$inspect_web/src/facades"
-js_output_directory="$inspect_web/engine/wwwroot"
+js_output_directory="$inspect_web/DotnetInspect.Web/wwwroot"
 
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
@@ -97,7 +97,7 @@ esac
 
 tsc=${TSC:-"$inspect_web/node_modules/.bin/tsc"}
 if [[ ! -x "$tsc" ]]; then
-  echo "TypeScript compiler not found at $tsc; run npm ci in prototypes/inspect-web." >&2
+  echo "TypeScript compiler not found at $tsc; run npm ci in inspect-web." >&2
   exit 1
 fi
 
@@ -109,17 +109,31 @@ runtime_pack_directory=$(
     "$engine_csproj" \
     -nologo \
     -target:ProcessFrameworkReferences \
+    -getProperty:NuGetPackageRoot \
     -getItem:RuntimePack \
   | "$node" -e '
 const data = JSON.parse(require("fs").readFileSync(0, "utf8"));
 const matches = (data.Items?.RuntimePack ?? []).filter(
   pack => pack.Identity === "Microsoft.NETCore.App.Runtime.Mono.browser-wasm");
-if (matches.length !== 1 || !matches[0].PackageDirectory) {
+if (matches.length !== 1) {
   console.error(
     `Expected one resolved browser-wasm runtime pack; found ${matches.length}.`);
   process.exit(1);
 }
-process.stdout.write(matches[0].PackageDirectory);
+const pack = matches[0];
+if (pack.PackageDirectory) {
+  process.stdout.write(pack.PackageDirectory);
+  process.exit(0);
+}
+const packageRoot = data.Properties?.NuGetPackageRoot;
+if (!packageRoot || !pack.NuGetPackageId || !pack.NuGetPackageVersion) {
+  console.error("The resolved browser-wasm runtime pack has no package location.");
+  process.exit(1);
+}
+process.stdout.write(require("path").join(
+  packageRoot,
+  pack.NuGetPackageId.toLowerCase(),
+  pack.NuGetPackageVersion));
 '
 )
 dotnet_dts="$runtime_pack_directory/runtimes/browser-wasm/native/dotnet.d.ts"
@@ -310,7 +324,7 @@ elif [[ "$mode" == check || "$mode" == fast-check ]]; then
   if [[ "$mode" == check ]]; then
     version_prefix=$(
       "$dotnet" msbuild \
-        "$repo_root/src/dotnet-inspect/dotnet-inspect.csproj" \
+        "$repo_root/src/DotnetInspect.Cli/DotnetInspect.Cli.csproj" \
         -getProperty:VersionPrefix \
         -nologo
     )

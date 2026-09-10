@@ -11,19 +11,27 @@ public sealed class ConfiguredPackagePayloadResult
         ConfiguredPackageAuthority? authority,
         AcquiredPackageSourcePayload? payload,
         IReadOnlyList<PackageAuthorityFailure> failures,
-        IReadOnlyList<ConfiguredPackageAuthority>? notFoundAuthorities = null)
+        IReadOnlyList<ConfiguredPackageAuthority>? notFoundAuthorities = null,
+        IReadOnlyList<ConfiguredPackageAuthority>? reportingAuthorities = null,
+        bool selectionUsesOriginalSources = false)
     {
         Authority = authority;
         Payload = payload;
         Failures = new ReadOnlyCollection<PackageAuthorityFailure>([.. failures]);
         NotFoundAuthorities = new ReadOnlyCollection<ConfiguredPackageAuthority>(
             [.. notFoundAuthorities ?? []]);
+        ReportingAuthorities = reportingAuthorities is null
+            ? null
+            : new ReadOnlyCollection<ConfiguredPackageAuthority>([.. reportingAuthorities]);
+        SelectionUsesOriginalSources = selectionUsesOriginalSources;
     }
 
     public ConfiguredPackageAuthority? Authority { get; }
     public AcquiredPackageSourcePayload? Payload { get; }
     public IReadOnlyList<PackageAuthorityFailure> Failures { get; }
     public IReadOnlyList<ConfiguredPackageAuthority> NotFoundAuthorities { get; }
+    internal IReadOnlyList<ConfiguredPackageAuthority>? ReportingAuthorities { get; }
+    internal bool SelectionUsesOriginalSources { get; }
 }
 
 public sealed partial class DesktopPackageSourceComposition
@@ -100,8 +108,7 @@ public sealed partial class DesktopPackageSourceComposition
                 return new(null, null, failures);
             }
 
-            candidate = PackageAcquisitionCandidate.CreatePinned(
-                _candidateIssuer,
+            candidate = _sourceLease.CreatePinnedCandidate(
                 coordinate,
                 matchingAuthorities);
         }
@@ -123,9 +130,10 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetOperationContext operation,
         PackagePayloadLimits? limits,
         IPackagePayloadTransferPolicy? transferPolicy,
-        List<PackageAuthorityFailure> failures)
+        List<PackageAuthorityFailure> failures,
+        bool selectionUsesOriginalSources = false)
     {
-        if (!candidate.HasIssuer(_candidateIssuer))
+        if (!_sourceLease.OwnsCandidate(candidate))
         {
             throw new InvalidOperationException(
                 "The package acquisition candidate belongs to another source composition.");
@@ -161,6 +169,10 @@ public sealed partial class DesktopPackageSourceComposition
                 IPackageStore store = createStore(entry.Authority, entry.Client.Source.Producer);
                 entries.Add((entry, store));
             }
+            ConfiguredPackageAuthority[]? selectedAuthorities =
+                candidate.Kind == PackageAcquisitionCandidateKind.Discovered
+                    ? [.. entries.Select(item => item.Entry.Authority)]
+                    : null;
 
             // Every authorized cache is consulted before cold acquisition.
             // Stable consultation order is not configured declaration precedence.
@@ -175,7 +187,14 @@ public sealed partial class DesktopPackageSourceComposition
                         limits, log, operation.OperationToken).ConfigureAwait(false);
                 operation.ThrowIfExpired();
                 if (cached is not null)
-                    return new(entry.Authority, cached, failures);
+                {
+                    return new(
+                        entry.Authority,
+                        cached,
+                        failures,
+                        reportingAuthorities: selectedAuthorities,
+                        selectionUsesOriginalSources: selectionUsesOriginalSources);
+                }
             }
 
             foreach (var (entry, store) in entries)
@@ -201,7 +220,9 @@ public sealed partial class DesktopPackageSourceComposition
                             entry.Authority,
                             acquired.Payload,
                             failures,
-                            notFoundAuthorities);
+                            notFoundAuthorities,
+                            selectedAuthorities,
+                            selectionUsesOriginalSources);
                     }
                     if (result is PackageSourcePayloadResult.Failed failed)
                     {

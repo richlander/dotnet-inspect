@@ -44,6 +44,13 @@ public class AssemblyReferenceNode
     public string? Path { get; set; }
 
     /// <summary>
+    /// The selected assembly definition identity. It is graph identity, not a
+    /// rendered field in the compatibility reference-tree contract.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblyReferenceIdentity? ResolvedIdentity { get; set; }
+
+    /// <summary>
     /// Why a matching reference candidate could not be selected.
     /// </summary>
     public AssemblyReferenceResolutionFailure? ResolutionFailure { get; set; }

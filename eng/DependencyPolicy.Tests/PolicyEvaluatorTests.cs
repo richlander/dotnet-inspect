@@ -681,6 +681,45 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void CheckedInPolicyKeepsNetworkAccessIndependent()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == "network-access-stays-independent");
+        RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
+            [
+                Node(
+                    "NetworkAccess",
+                    projectReferences: ["Repository.Dependency"],
+                    assemblyReferences: ["Repository.Dependency"]),
+                Node("Repository.Dependency"),
+            ]);
+
+        DependencyViolation[] violations = PolicyEvaluator
+            .Evaluate(
+                new DependencyPolicyDocument
+                {
+                    SchemaVersion = policy.SchemaVersion,
+                    Solution = policy.Solution,
+                    Configuration = policy.Configuration,
+                    Rules = [rule],
+                },
+                graph)
+            .ToArray();
+
+        Assert.Equal(2, violations.Length);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Project);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Assembly);
+    }
+
+    [Fact]
     public void CheckedInBroadProductRulesExcludeCallerGraphFixtures()
     {
         string repository = FindRepositoryRoot();
@@ -782,7 +821,7 @@ public sealed class PolicyEvaluatorTests
         Assert.NotEmpty(productProjects);
         Assert.All(
             productProjects.Where(path =>
-                Path.GetFileNameWithoutExtension(path) != "dotnet-inspect"),
+                Path.GetFileNameWithoutExtension(path) != "DotnetInspect.Cli"),
             path =>
             {
                 string name = Path.GetFileNameWithoutExtension(path);
@@ -795,8 +834,8 @@ public sealed class PolicyEvaluatorTests
         Assert.False(
             DependencyPattern.Selects(
                 rule,
-                "dotnet-inspect",
-                "src/dotnet-inspect/dotnet-inspect.csproj"));
+                "DotnetInspect.Cli",
+                "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj"));
     }
 
     private static ProjectDependencyNode Node(
