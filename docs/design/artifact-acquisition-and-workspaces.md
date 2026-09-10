@@ -3075,18 +3075,23 @@ requests are equal exactly when this owner classifies them as the same logical
 Root. It is not `PackageArtifactRootCorrespondence` and carries no Workspace
 identity.
 
-The request preserves two facts separately:
+The request preserves four facts separately:
 
 - the realized producer-pinned acquisition coordinate, whose acquisition
   framework may be absent for framework-neutral source acquisition; and
-- the normalized selection target framework and runtime identifier that froze
-  the binding's compile-asset selection.
+- the normalized compile target used to reduce reference assets and explicit
+  empty groups; and
+- the normalized implementation-selection target and runtime identifier that
+  froze the binding's implementation universe; and
+- whether an exact compile-target miss invokes compatible implementation
+  selection, including when that selection produces no unique universe.
 
-Keeping them separate is load-bearing. `WorkspaceContextLoader.LoadAsync`
-realizes every assembly in the Root and requires an acquisition target, so it
-cannot by itself express framework-neutral acquisition paired with a real
-selection target; collapsing the two facts would either fail with
-`MissingAcquisitionTarget` or silently select a different asset universe.
+Keeping them separate is load-bearing. Framework-neutral acquisition may pair
+with a real compile target. Compatible implementation selection may instead
+pair a requested compile target with an older implementation target. Collapsing
+either pair, or omitting compatible-selection intent when no unique universe
+exists, would fail with `MissingAcquisitionTarget` or silently select a
+different compile or implementation outcome.
 
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
@@ -3178,21 +3183,26 @@ candidate disposed before the user acts on the result — the owner also issues 
 single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
-encoding are owner-owned, and only the owner's decode reads it. It carries
-exactly the facts the request carries and no content, generation, Workspace
-identity, session, lease, path, source URL, or credential.
+encoding are owner-owned, and only the owner's decode reads it. Current
+`pkgroot3` tokens carry the separate compile and implementation targets plus
+compatible-selection intent. Previous `pkgroot2` tokens infer that intent when
+their two targets differ. Legacy `pkgroot1` tokens decode only with their one
+target applied to both roles. Older tokens re-encode in the current format.
+No form carries content,
+generation, Workspace identity, session, lease, path, source URL, or
+credential.
 
 Decoding is total, because a token can arrive from an untrusted transport. It
-is bounded in length before parsing, requires the exact field count, and
-revalidates every field through the owner's own canonical coordinate and
-request construction, so a malformed, over-long, or forged token is a
-`false` return rather than an exception or a value this owner would not have
-issued. A token that is not already canonical is refused rather than silently
-normalized, so one request has exactly one token. A decoded request is a
-request, **not** an authorization: acquiring the Root it names still passes the
-destination host's own source authorization, transfer policy, and payload
-limits. Host caches, registries, credential handling, and worker transport stay
-outside this owner entirely.
+is bounded in length before parsing, requires the exact field count for its
+version, and revalidates every field through the owner's own canonical
+coordinate and request construction, so a malformed, over-long, or forged
+token is a `false` return rather than an exception or a value this owner would
+not have issued. A current token that is not already canonical is refused
+rather than silently normalized, so one current request has exactly one token.
+A decoded request is a request, **not** an authorization: acquiring the Root it
+names still passes the destination host's own source authorization, transfer
+policy, and payload limits. Host caches, registries, credential handling, and
+worker transport stay outside this owner entirely.
 
 Binding factories use one runtime identifier for acquisition and selection.
 Decoding therefore requires the selection runtime to equal the acquisition
@@ -3221,6 +3231,12 @@ In `PackageRootAcquisitionTests`:
 `Token_RoundTripsExactRequest`, `Token_RejectsMalformedOrNonCanonicalInput`,
 `Token_RejectsSelectionRuntimeNotIssuedByBinding`, and
 `ExplicitRequest_StatesItsTargetContract`.
+
+`PackageAssemblyContextRealizationTests.CompatibleEmptyGroup_ReacquisitionPreservesCompileSelection`
+gates the compatible-selection round trip, including token transport and exact
+empty-group preservation.
+`CompatibleAmbiguousImplementationLayout_ReacquisitionRemainsInvalid` gates
+compatible-selection intent when no unique implementation universe exists.
 
 Acquisition against a live feed over the network is **unverified** in this
 slice: the gates serve exact versions from a cached store and fail the test

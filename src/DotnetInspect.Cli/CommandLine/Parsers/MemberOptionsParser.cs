@@ -592,13 +592,8 @@ public static class MemberOptionsParser
         if (mermaidError is not null)
             return new VersionError(mermaidError.Value);
         var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
-        MemberShareFormat? shareFormat =
-            parseResult.GetValue(args.ShareOption)?.ToLowerInvariant() switch
-            {
-                "packet" => MemberShareFormat.Packet,
-                "url" => MemberShareFormat.Url,
-                _ => null,
-            };
+        WorkspaceShareFormat? shareFormat =
+            WorkspaceShareOption.Parse(parseResult, args.ShareOption);
 
         var outputFormat = opts.ResolveFormat(parseResult);
         var options = new MemberOptions
@@ -653,6 +648,10 @@ public static class MemberOptionsParser
                 parseResult.GetResult(opts.RawUrls) is { Implicit: false }
                 || parseResult.GetResult(opts.BrowsableUrls)
                     is { Implicit: false },
+            LineWindowExplicitlySet =
+                parseResult.GetResult(opts.Limit) is { Implicit: false }
+                || parseResult.GetResult(opts.Head) is { Implicit: false }
+                || parseResult.GetResult(opts.Tail) is { Implicit: false },
             ShareFormat = shareFormat,
             MemberDigest = memberDigest,
             MemberGenericArity = memberGenericArity,
