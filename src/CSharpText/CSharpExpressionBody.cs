@@ -82,6 +82,11 @@ public static class CSharpExpressionBody
 
     static bool IsStatementExpression(string expression)
     {
+        // `unsafe(expr)` is a primary expression, not a statement expression.
+        // It is legal after `return`, on an assignment RHS, or nested in a call,
+        // but cannot by itself form a void expression-bodied member (CS0201).
+        if (expression.StartsWith("unsafe(", StringComparison.Ordinal))
+            return false;
         if (expression.StartsWith("await ", StringComparison.Ordinal))
         {
             var awaited = expression["await ".Length..].TrimStart();

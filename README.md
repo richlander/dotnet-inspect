@@ -52,7 +52,7 @@ and repository-specific guidance.
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/dotnet-inspect`, `project ./src/dotnet-inspect -S Skills --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and dependency package skills; restore/build first if dependencies changed. dotnet-inspect does not restore or build. |
+| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and dependency package skills; restore/build first if dependencies changed. dotnet-inspect does not restore or build. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
@@ -177,7 +177,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
-| `depends X` | Walk type, package, or library dependency graphs; can emit Mermaid diagrams. |
+| `depends X` | Walk type, package, or library dependency graphs with lossless shared edges; emit tree, Mermaid, table, TSV, JSONL, JSON, or edge-count output. |
 | `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -312,7 +312,7 @@ dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S "Integration
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S "Integration: OpenTelemetry"
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
-dotnet-inspect project ./src/dotnet-inspect -S Skills --jsonl -T q
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
 ```
 
 ## Common examples
@@ -393,10 +393,10 @@ share the package id and version.
 ### Projects and local assets
 
 ```bash
-dotnet-inspect project ./src/dotnet-inspect -S Skills
-dotnet-inspect project ./src/dotnet-inspect -S Skills --print --row 1
-dotnet-inspect type Command --project ./src/dotnet-inspect
-dotnet-inspect member Command --project ./src/dotnet-inspect -S "Member Index"
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
+dotnet-inspect type Command --project ./src/DotnetInspect.Cli
+dotnet-inspect member Command --project ./src/DotnetInspect.Cli -S "Member Index"
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S Signals
 ```
 
@@ -523,13 +523,14 @@ inspect each side on its own.
 
 ```bash
 dotnet-inspect depends Stream --markdown --mermaid
+dotnet-inspect depends Int128 --table --rows 1..10
 dotnet-inspect dependency-evidence --package Newtonsoft.Json --tfm net8.0
 dotnet-inspect dependency-evidence \
-  --project ./src/dotnet-inspect \
+  --project ./src/DotnetInspect.Cli \
   --nuspec ./artifacts/package.nuspec \
   -v:n
-dotnet-inspect implements IEquatable --project ./src/dotnet-inspect -v:q
-dotnet-inspect extensions string --project ./src/dotnet-inspect -v:q
+dotnet-inspect implements IEquatable --project ./src/DotnetInspect.Cli -v:q
+dotnet-inspect extensions string --project ./src/DotnetInspect.Cli -v:q
 dotnet-inspect graph integrations \
   --package Microsoft.Extensions.DependencyInjection.Abstractions@10.0.0 \
   --package Microsoft.Extensions.Logging.Abstractions@10.0.0 \

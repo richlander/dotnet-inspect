@@ -19,7 +19,7 @@ Build DEBUG and run a command that should be offline:
 ```bash
 set -e -o pipefail
 : "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
-dotnet build src/dotnet-inspect/dotnet-inspect.csproj -t:Rebuild
+dotnet build src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -t:Rebuild
 export INSPECT="$PWD/artifacts/bin/dotnet-inspect/debug/dotnet-inspect"
 test -x "$INSPECT"
 test "$("$INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
@@ -43,7 +43,7 @@ If you see `Network guard violation` in the output, something is making an unexp
 Since `dotnet run` compiles in DEBUG by default, you can use it to exercise the guard without building separately:
 
 ```bash
-dotnet run --project src/dotnet-inspect/dotnet-inspect.csproj -- library System.Text.Json -v:q
+dotnet run --project src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -- library System.Text.Json -v:q
 ```
 
 ## Offline mode vs network guard
