@@ -361,7 +361,7 @@ architectural subsystem:
 
 | Family | Examples | Host role |
 | ------ | -------- | --------- |
-| Unary subject inspection | `package`, `project`, `library`, `type`, `member` | Resolve one subject and choose inspection lenses. |
+| Unary subject inspection | `package`, `project`, `library`, `type`, `member`, `ecosystem` | Resolve one subject and choose inspection lenses; ecosystem focus reads the product-owned static catalog without acquisition. |
 | Comparison and correlation | `diff`, `timeline`, `match` | Resolve ordered or paired subjects and choose comparison, correlation, or correspondence producers. |
 | Search and relationships | `find`, `depends`, `extensions`, `implements`, `graph` | Resolve a bounded search/workspace scope and project typed relationships. |
 | Product metadata and utilities | `vocabulary`, `workspace-state`, `cache`, `skill`, `demo` | Expose product-owned vocabularies, portable host state, CLI runtime state, embedded guidance, or closed demonstrations. |
