@@ -31,8 +31,10 @@ It does not select or acquire packages, choose comparison targets, match
 libraries, compare API surfaces, classify compatibility, define browser
 transport or interaction, render a text diff, acquire source, or detect clones.
 The first implementation belongs in `DotnetInspector.Presentation`. Its
-immediate adopter is a separately owned Inspect Web facade and Library
-inventory/detail view.
+immediate adopter is the separately owned
+[Inspect Web Compare Experience](inspect-web-compare-experience.md), which uses
+the flat changed-Type inventory for Library drill-down rather than rendering
+selected-Type detail in place.
 
 This design is the contract slice. Its implementation and Browser adoption are
 separate successor changes so neither host transport nor page interaction
@@ -50,37 +52,28 @@ After Package chooses the Diff target, Library needs to answer:
 - whether the complete change population contains breaking, additive, or
   potentially breaking changes.
 
-Those answers are not a mapped text diff. They are a typed inventory and
-master/detail model. Markout becomes directly relevant only after a later
-action opens a declaration or source comparison.
+Those answers are not a mapped text diff. They are a typed changed-Type
+inventory with enough nested evidence for a later Type-scoped projection.
+Markout becomes directly relevant only after an action opens a declaration or
+source comparison.
 
 The intended Browser consumer can present the portable document like this:
 
 ```text
-Library Diff
+Library Compare · Diff
 DiffFixtureSample  v1 -> v2
 
-Changed Types
+Changed Types                                      1 complete
 Breaking  BodyStateSample
-          2 members changed
-          ExistingMethod, AddedMethod
-
-Details
-Type definition: unchanged
-Changes: 1 breaking, 2 additive
-Members changed: 2
-
-Breaking  VirtualRemoved
-Additive  AbstractRemoved
-Additive  MemberAdded
-
-[Open annotated source]
+          2 members changed                        >
 ```
 
 This is a presentation mockup, not a page-layout or wording contract. The
-important point is that one typed document supports both the flat inventory and
-the selected-Type detail without reparsing messages or requesting an eager
-source diff for every Type.
+important point is that Library can render the flat inventory without
+reparsing messages or requesting an eager source diff for every Type. The
+document's nested Type and Member evidence remains available to the
+Type-scoped projection after exact navigation; it does not require an in-place
+Library detail pane.
 
 ## Browser replacement requirement
 
@@ -454,9 +447,9 @@ The Library API Diff delivery path is:
 2. Package-scoped Diff target intent -- implemented by #6161;
 3. this portable Library API diff presentation contract;
 4. the `DotnetInspector.Presentation` adapter implementation; and
-5. a bounded Inspect Web feature facade with its immediate Library
-   inventory/detail consumer, atomically retiring #6076's authored Source
-   comparison interaction under the zero-compatibility plan.
+5. a bounded Inspect Web feature facade with its immediate Library Compare
+   drill-down consumer, atomically retiring #6076's authored Source comparison
+   interaction under the zero-compatibility plan.
 
 Type and Member narrowing reuse the same selected targets but remain later
 consumer slices. **Open annotated source** invokes the existing member
