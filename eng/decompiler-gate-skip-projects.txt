@@ -64,6 +64,8 @@ fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures
 fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
 fixtures/metadata/ILInspector.Metadata.StateMachineFixtures
+fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer
+fixtures/metadata/ILInspector.Metadata.TypeDependencyReference
 fixtures/presentation/LibraryApiDiff.V1
 fixtures/presentation/LibraryApiDiff.V2
 fixtures/queries/DotnetInspector.CloneSearchFixtures
@@ -84,6 +86,7 @@ fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures
 src/DotnetInspect.Cli
 src/DotnetInspector.Ecosystems
+src/DotnetInspector.Libraries
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.PlatformHouse
@@ -107,6 +110,7 @@ tests/DotnetInspector.Ecosystems.Consumer.Tests
 tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
 tests/DotnetInspector.ILRoundtrip.Tests
+tests/DotnetInspector.Libraries.Tests
 tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.PlatformHouse.Tests

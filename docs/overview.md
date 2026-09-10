@@ -203,6 +203,13 @@ substrates, and inspection producers that will extend that space.
   provenance. PackageHouse, PlatformHouse, and direct-library adapters produce
   the shared representation; SourceLink, Decompiler, artifact lifetime,
   documentation, and host presentation remain with their focused owners.
+- `src/DotnetInspector.Libraries/` owns the successful
+  [source-ready library representation](design/source-ready-library.md):
+  one Metadata-projected assembly, an optional companion Portable PDB
+  candidate, and already-retained source content bound to guarded artifact
+  identity, provenance, generation, and lease validity without paths or
+  reacquisition. The broader multi-view bare-library result remains separately
+  owned.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,

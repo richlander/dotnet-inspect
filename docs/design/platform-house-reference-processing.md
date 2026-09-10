@@ -645,10 +645,13 @@ platform target, source, or view correspondence. Shared Library inspection owns
 assembly-level metadata, API, dependency, source, analysis, and decompilation
 behavior after that handoff.
 
-The exact shared type name and project placement belong to the artifact and
-Library inspection owner, not this document. Its focused design must preserve
-the evidence above before any PackageHouse, PlatformHouse, or direct-library
-adoption ships.
+The broader shared bare-library type name and project placement still belong
+to the artifact and Library inspection owner, not this document. The focused
+[source-ready library representation](source-ready-library.md) establishes the
+narrow successful assembly/PDB projection consumed by SourceHouse; it does not
+replace the multi-view bare-library result described here. A focused
+bare-library design must preserve all evidence above before any PackageHouse,
+PlatformHouse, or direct-library library-focused adoption ships.
 
 ### Platform asset handling map
 

@@ -205,6 +205,13 @@ The primary SourceHouse input is an owner-issued, content-backed library
 representation. PackageHouse, PlatformHouse, and direct-library or Workspace
 adapters can produce the same source-neutral shape.
 
+The concrete successful handoff is `SourceReadyLibrary`, owned by
+[Source-ready library representation](source-ready-library.md) in
+`DotnetInspector.Libraries`. It binds one Metadata-projected assembly to its
+guarded retained content and optionally designates one retained artifact as
+that assembly's companion Portable PDB candidate. The designation is not a PDB
+content-match claim; the PDB owner still validates applicability.
+
 The representation supplies:
 
 - one exact logical library and physical assembly correspondence;
@@ -393,7 +400,8 @@ The ordering does not require one implementation method. It requires that:
 Every SourceHouse result preserves:
 
 - the exact source request and target;
-- the source-ready library representation identity and generation;
+- the source-ready assembly registration and every retained artifact
+  generation;
 - the selected source-result demand;
 - the PDB-access policy and operation-plan identity;
 - one PDB contribution: not requested, supplied, acquired, unavailable,
