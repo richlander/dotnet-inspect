@@ -374,7 +374,8 @@ metadata source cannot be opened.
 `MemberCodeAcquisition_ReportsSelectedDecompilerOpenFailure`,
 `MemberCodeAcquisition_CarriesExternalPdb`, and
 `MemberCodeAcquisition_SkipsOrdinaryOutput` gate this composition.
-`MemberCodeAcquisition_LeavesAnalysisRoutePathBased` gates the adjacent
+`MemberCodeAcquisition_LeavesAnalysisRoutePathBased` and
+`MemberCodeAcquisition_LeavesExceptionRegionsRoutePathBased` gate the adjacent
 non-adoption boundary. Existing member-code, source, rendering, and
 descriptorless cases remain neighboring regression evidence.
 

@@ -417,7 +417,8 @@ public static class MemberCommand
             var acquisition = new ApiCommand.TypeAcquisitionContext(
                 loaded.GetLibraryAssetPath(source.PackageExtractPath),
                 packageName, packageVersion ?? source.ApiVersion, apiSource,
-                selectedTfm, sourceAssembly);
+                selectedTfm,
+                MemberCodeSourceAssembly: sourceAssembly);
 
             // Default --docs on for single-type view at Normal+ unless explicitly disabled
             MemberOptions effectiveOptions = options;
@@ -1017,7 +1018,7 @@ public static class MemberCommand
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                 apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                 acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions,
-                sourceAssembly: sourceAssembly);
+                memberCodeSourceAssembly: sourceAssembly);
             if (writeExitCode != 0)
                 return writeExitCode;
 

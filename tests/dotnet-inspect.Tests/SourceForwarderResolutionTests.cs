@@ -2392,6 +2392,57 @@ public class SourceForwarderResolutionTests
         }
     }
 
+    [Fact]
+    public async Task MemberCodeAcquisition_LeavesExceptionRegionsRoutePathBased()
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("member-exception-regions"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                throw new IOException(
+                    "Exception Regions must retain its existing path route.");
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source =
+                CreateApiSource(fixture.AssemblyPath, SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteResolvedAsync(
+                    new MemberOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter =
+                            [nameof(BodyShapeFixture.ReadableLocal)],
+                        OverloadIndex = 1,
+                        Select = [SectionNames.ExceptionRegions],
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                $"## {SectionNames.ExceptionRegions}",
+                output);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Equal(0, opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false, false, false)]
     [InlineData(true, false, false)]
