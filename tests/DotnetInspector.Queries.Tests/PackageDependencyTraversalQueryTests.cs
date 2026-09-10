@@ -1466,8 +1466,8 @@ public sealed class PackageDependencyTraversalQueryTests
         using var successfulClient = new RegistryPackageSourceClient(
             CreateResultFactoryFor(dependencyAuthorization.Authorities[1]),
             successfulRegistry);
-        using PackageHouseSourceLease lease =
-            new PackageHouse().IssueSourceLease(
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
                 authority => ReferenceEquals(
                     authority.Association,
                     dependencyAuthorization.Authorities[0].Association)
@@ -2154,7 +2154,7 @@ public sealed class PackageDependencyTraversalQueryTests
 
         public RegistryPackageSourceClient Client { get; }
 
-        public PackageHouseSourceLease Lease { get; }
+        public PackageSourceSettlementLease Lease { get; }
 
         public IPackageDependencyTraversalCandidateResolver CandidateResolver { get; }
 
@@ -2169,7 +2169,7 @@ public sealed class PackageDependencyTraversalQueryTests
                 .Authorities[0];
             PackageSourceResultFactory factory = CreateResultFactoryFor(authority);
             Client = new RegistryPackageSourceClient(factory, Registry);
-            Lease = new PackageHouse().IssueSourceLease(
+            Lease = PackageSourceSettlementService.IssueLease(
                 _ => Client);
             var candidateSource =
                 new AuthorizedPackageDependencyCandidateSource(

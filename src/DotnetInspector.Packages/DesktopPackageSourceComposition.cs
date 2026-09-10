@@ -228,7 +228,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     private readonly Dictionary<PackageSourceAssociation, AuthorityEntry>
         _authoritiesByAssociation =
             new(ReferenceEqualityComparer.Instance);
-    private readonly PackageHouseSourceLease _sourceLease;
+    private readonly PackageSourceSettlementLease _sourceLease;
     private int _disposed;
 
     /// <summary>
@@ -242,7 +242,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = provider;
         _ownedCredentialSource = provider;
         _createTransport = CreateProductionTransport;
-        _sourceLease = new PackageHouse().IssueSourceLease(
+        _sourceLease = PackageSourceSettlementService.IssueLease(
             GetSourceClient,
             CreateOperationContext);
     }
@@ -257,7 +257,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _options = NuGetFetchOptions.FromRequestTimeout(requestTimeout);
         _credentialSource = credentialSource;
         _createTransport = createTransport;
-        _sourceLease = new PackageHouse().IssueSourceLease(
+        _sourceLease = PackageSourceSettlementService.IssueLease(
             GetSourceClient,
             CreateOperationContext);
     }
