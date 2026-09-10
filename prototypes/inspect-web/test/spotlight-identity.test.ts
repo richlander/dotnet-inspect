@@ -7240,6 +7240,9 @@ test("type graph rendering contains artifact labels", () => {
     /t0\["A&#92;u202E&#92;uD800-Café😀"\]:::self/);
   assert.equal(definition.includes("\u202E"), false);
   assert.equal(definition.includes("\uD800"), false);
+  assert.match(
+    definition,
+    /classDef self fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
 });
 
 test("Mermaid resolves the current theme without inventing missing colors", () => {
@@ -7279,4 +7282,7 @@ test("dependency graph rendering contains artifact labels", async () => {
     /d1\["Dependency&#92;u200D&#92;uDC00-Café😀"\]:::external/);
   assert.equal(definition.definition.includes("\u200D"), false);
   assert.equal(definition.definition.includes("\uDC00"), false);
+  assert.match(
+    definition.definition,
+    /classDef self fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
 });

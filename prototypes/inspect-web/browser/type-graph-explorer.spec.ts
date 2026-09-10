@@ -21,6 +21,13 @@ test("Type relationships relocates the live graph and warnings, not Metadata fac
   await expect(dialog.locator(".graph-explorer-summary"))
     .toHaveText("base · interfaces · derived — select a highlighted node to open");
   await expect(dialog.locator(".call-graph-section > .section-title")).toBeHidden();
+  const legend = dialog.locator(".graph-legend");
+  await expect(legend).toContainText("inspected type");
+  await expect(legend).toContainText("base type");
+  await expect(legend).toContainText("interface");
+  await expect(legend).toContainText("derived type");
+  await expect(legend).toContainText("dashed border: not in browsable surface");
+  await expect(legend.locator(".legend-swatch")).toHaveCount(5);
   await expect(dialog.locator(".metadata-warning")).toContainText("Fixture relationship could not be projected.");
   await expect(dialog.locator(".metadata-shape-section, .metadata-surface-footer, .type-chip-list")).toHaveCount(0);
   await expect(page.locator("#graph-explorer-title")).toBeFocused();
@@ -49,6 +56,37 @@ test("pending Type graph rendering completes across placement changes without an
   await page.evaluate(() => window.typeExploreProbe.finishPending());
   await expect(page.getByRole("dialog").locator("svg")).toBeVisible();
   expect(await page.evaluate(() => window.typeExploreProbe.counts())).toEqual(before);
+});
+
+test("the inspected type follows the shell-purple palette in both themes", async ({ page }) => {
+  const contrast = () => page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    const parse = (value: string) => {
+      const hex = value.trim().replace("#", "");
+      return [0, 2, 4].map(index => Number.parseInt(hex.slice(index, index + 2), 16) / 255);
+    };
+    const luminance = (value: string) => {
+      const channels = parse(value).map(channel =>
+        channel <= 0.04045
+          ? channel / 12.92
+          : ((channel + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+    };
+    const edge = luminance(style.getPropertyValue("--graph-edge"));
+    const background = luminance(style.getPropertyValue("--bg"));
+    return (Math.max(edge, background) + 0.05)
+      / (Math.min(edge, background) + 0.05);
+  });
+  const target =
+    page.locator("#type-graph-diagram g.node.self rect.label-container");
+  await expect(target).toHaveAttribute("style", /stroke:#9d8cff/);
+  expect(await contrast()).toBeGreaterThanOrEqual(3);
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "light";
+    return window.typeExploreProbe.update("ready");
+  });
+  await expect(target).toHaveAttribute("style", /stroke:#702b90/);
+  expect(await contrast()).toBeGreaterThanOrEqual(3);
 });
 
 for (const activation of ["Enter", "Space"]) {
@@ -115,6 +153,9 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     await expect(page.locator(".metadata-warning")).toBeInViewport();
     const warning = await page.locator(".metadata-warning").boundingBox();
     const controls = await page.locator(".graph-controls").boundingBox();
+    const legend = await page.locator(".graph-legend").boundingBox();
+    expect(viewport!.y + viewport!.height).toBeLessThanOrEqual(legend!.y);
+    expect(legend!.y + legend!.height).toBeLessThanOrEqual(warning!.y);
     expect(controls!.y + controls!.height).toBeLessThanOrEqual(warning!.y);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(size.width);
     await page.getByRole("button", { name: "Fit", exact: true }).click();

@@ -23,6 +23,14 @@ test("Explore relocates the live graph without remounting or losing zoom", async
     .toHaveText("Example.Package@1.0.0 · Example.Long.Namespace.Worker");
   await expect(dialog.locator(".graph-explorer-summary")).toHaveText("0 callers · 2 callees");
   await expect(dialog.locator(".call-graph-section > .section-title")).toBeHidden();
+  const legend = dialog.locator(".graph-legend");
+  await expect(legend).toContainText("target member");
+  await expect(legend).toContainText("same declaring type");
+  await expect(legend).toContainText("different type, same assembly");
+  await expect(legend).toContainText("different assembly");
+  await expect(legend).toContainText("solid border: no platform lookup");
+  await expect(legend).toContainText("dashed border: platform lookup on click");
+  await expect(legend.locator(".legend-swatch")).toHaveCount(6);
   await expect(page.locator("#graph-explorer-title")).toBeFocused();
   expect(await page.evaluate(() => window.graphExploreProbe.sameSvg())).toBe(true);
   expect(await page.locator("#diagram svg").getAttribute("style")).toBe(transform);
@@ -36,6 +44,81 @@ test("Explore relocates the live graph without remounting or losing zoom", async
     url: location.href,
   }))).toEqual(before);
 });
+
+test("pristine framing follows the viewport while a user-adjusted view stays fixed", async ({ page }) => {
+  const svg = page.locator("#diagram svg");
+  const inlineTransform = await svg.getAttribute("style");
+  await page.getByRole("button", { name: "Explore", exact: true }).click();
+  await expect.poll(() => svg.getAttribute("style")).not.toBe(inlineTransform);
+
+  const framing = await page.evaluate(() => {
+    const viewport = document.querySelector(".graph-explorer .graph-viewport")!;
+    const renderedSvg = viewport.querySelector("svg")!;
+    const viewportRect = viewport.getBoundingClientRect();
+    const svgRect = renderedSvg.getBoundingClientRect();
+    return {
+      horizontalGap: Math.abs(
+        svgRect.left - viewportRect.left
+        - (viewportRect.right - svgRect.right)),
+      verticalGap: Math.abs(
+        svgRect.top - viewportRect.top
+        - (viewportRect.bottom - svgRect.bottom)),
+      scale: Number(
+        /scale\(([^)]+)\)/
+          .exec(renderedSvg.getAttribute("style") || "")?.[1]),
+    };
+  });
+  expect(framing.horizontalGap).toBeLessThan(2);
+  expect(framing.verticalGap).toBeLessThan(2);
+  expect(framing.scale).toBe(1.5);
+
+  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+  const adjusted = await svg.getAttribute("style");
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.evaluate(() => new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await svg.getAttribute("style")).toBe(adjusted);
+
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
+  const fitted = await svg.getAttribute("style");
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.evaluate(() => new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await svg.getAttribute("style")).not.toBe(fitted);
+});
+
+for (const interaction of ["wheel", "keyboard", "pointer"] as const) {
+  test(`${interaction} adjustment survives opening and closing Explore`, async ({ page }) => {
+    const viewport = page.locator(".graph-viewport");
+    const svg = page.locator("#diagram svg");
+    const box = await viewport.boundingBox();
+    if (interaction === "wheel") {
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await page.mouse.wheel(0, -180);
+    } else if (interaction === "keyboard") {
+      await viewport.focus();
+      await page.keyboard.press("+");
+      await page.keyboard.press("ArrowRight");
+    } else {
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        box!.x + box!.width / 2 + 70,
+        box!.y + box!.height / 2 + 35,
+        { steps: 5 });
+      await page.mouse.up();
+    }
+    const adjusted = await svg.getAttribute("style");
+    await page.getByRole("button", { name: "Explore", exact: true }).click();
+    await page.evaluate(() => new Promise(resolve =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(await svg.getAttribute("style")).toBe(adjusted);
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.evaluate(() => new Promise(resolve =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(await svg.getAttribute("style")).toBe(adjusted);
+  });
+}
 
 test("modal contains keyboard focus and makes the background unavailable", async ({ page }) => {
   await page.getByRole("button", { name: "Explore", exact: true }).click();
@@ -104,9 +187,11 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     await page.getByRole("button", { name: "Explore", exact: true }).click();
     const viewport = await page.locator(".graph-viewport").boundingBox();
     const scope = await page.locator(".graph-scope").boundingBox();
+    const legend = await page.locator(".graph-legend").boundingBox();
     expect(viewport!.width).toBeGreaterThan(size.width - 30);
     expect(viewport!.height).toBeGreaterThan(size.height * 0.6);
     expect(viewport!.y + viewport!.height).toBeLessThanOrEqual(scope!.y);
+    expect(scope!.y + scope!.height).toBeLessThanOrEqual(legend!.y);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(size.width);
     await page.getByRole("button", { name: "Fit", exact: true }).click();
     await page.getByText("Mermaid source", { exact: true }).click();

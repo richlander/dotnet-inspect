@@ -30,9 +30,9 @@
   --code-text: #cdd0c7;
   --syntax-kw: #d98a70;
   --mono: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
-  --graph-target-fill: #b9432c;
-  --graph-target-stroke: #ffb39f;
-  --graph-target-text: #ffffff;
+  --graph-target-fill: #282044;
+  --graph-target-stroke: #9d8cff;
+  --graph-target-text: #e8e9e4;
   --graph-same-type-fill: #176b73;
   --graph-same-type-stroke: #7ed8dc;
   --graph-same-type-text: #ffffff;
@@ -42,6 +42,7 @@
   --graph-different-assembly-fill: #343a46;
   --graph-different-assembly-stroke: #aeb8c8;
   --graph-different-assembly-text: #ffffff;
+  --graph-edge: #66695d;
 }
 
 .platform-subject { padding: 0 24px 24px; }
@@ -115,9 +116,9 @@
   --code-line: #dbded6;
   --code-text: #20231f;
   --syntax-kw: #b04a2c;
-  --graph-target-fill: #b74728;
-  --graph-target-stroke: #7c2814;
-  --graph-target-text: #ffffff;
+  --graph-target-fill: #f0e4f4;
+  --graph-target-stroke: #702b90;
+  --graph-target-text: #1f2320;
   --graph-same-type-fill: #b9e1df;
   --graph-same-type-stroke: #176b73;
   --graph-same-type-text: #102f32;
@@ -127,6 +128,7 @@
   --graph-different-assembly-fill: #e0e3e8;
   --graph-different-assembly-stroke: #596273;
   --graph-different-assembly-text: #252a33;
+  --graph-edge: #7d8378;
 }
 
 * { box-sizing: border-box; }
@@ -1434,10 +1436,14 @@ kbd {
 .graph-viewport g.node.non-nav { cursor: help; }
 .graph-viewport g.node.non-nav rect,
 .graph-viewport g.node.non-nav polygon { stroke-dasharray: 4 3; opacity: .85; }
+.graph-viewport .flowchart-link { stroke: var(--graph-edge) !important; stroke-width: 1.25px !important; }
+.graph-viewport marker path { fill: var(--graph-edge) !important; stroke: var(--graph-edge) !important; }
 .graph-viewport > svg { position: absolute; top: 0; left: 0; transform-origin: 0 0; min-width: 0; max-width: none; height: auto; }
-.graph-controls { position: absolute; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 2; }
-.graph-controls button { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel); color: var(--text); font: 15px var(--mono); line-height: 1; cursor: pointer; }
-.graph-controls button:hover { background: var(--panel-active); border-color: var(--text); }
+.graph-controls { position: absolute; right: 14px; bottom: 14px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel-raised); box-shadow: 0 8px 24px rgb(0 0 0 / 28%); z-index: 2; }
+.graph-controls button { width: 36px; height: 34px; display: grid; place-items: center; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--text); font: 15px var(--mono); line-height: 1; cursor: pointer; }
+.graph-controls button:last-child { border-bottom: 0; }
+.graph-controls button:hover { background: var(--panel-active); color: var(--shell-accent); }
+.graph-controls button:focus-visible { outline: 2px solid var(--blue); outline-offset: -3px; }
 .graph-controls button.reset { font-size: 11px; }
 .call-graph-diagram > p { color: var(--muted); font-size: 11px; }
 .graph-legend { display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 12px 10px; border-top: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
@@ -1447,6 +1453,12 @@ kbd {
 .legend-swatch.same-type { background: var(--graph-same-type-fill); border-color: var(--graph-same-type-stroke); }
 .legend-swatch.different-type { background: var(--graph-different-type-fill); border-color: var(--graph-different-type-stroke); }
 .legend-swatch.different-assembly { background: var(--graph-different-assembly-fill); border-color: var(--graph-different-assembly-stroke); }
+.legend-swatch.base-type { background: var(--panel-active); border-color: var(--line-strong); }
+.legend-swatch.interface-type { background: transparent; border-color: var(--line-strong); }
+.legend-swatch.derived-type { background: var(--panel); border-color: var(--line); }
+.legend-swatch.unavailable-node { background: transparent; border-color: var(--line-strong); border-style: dashed; }
+.legend-swatch.open-package { background: var(--panel-active); border-color: var(--blue); }
+.legend-swatch.external-package { background: transparent; border-color: var(--line-strong); }
 .legend-swatch.loaded-node,
 .legend-swatch.platform-node { background: var(--panel); border-color: var(--line-strong); }
 .legend-swatch.platform-node { border-style: dashed; }

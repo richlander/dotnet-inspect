@@ -62,7 +62,7 @@ export function buildTypeGraphMermaid(meta: TypeGraphMeta): string | null {
     const to = idOf.get(edge.toId);
     if (from && to) lines.push(`  ${from} --> ${to}`);
   }
-  lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
+  lines.push("classDef self fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
   lines.push("classDef base fill:var(--panel-active),stroke:var(--line-strong),color:var(--text);");
   lines.push("classDef interface fill:transparent,stroke:var(--line-strong),color:var(--dim);");
   lines.push("classDef derived fill:var(--panel),stroke:var(--line),color:var(--text);");
@@ -276,7 +276,7 @@ export async function buildDependencyGraphMermaid(
   for (const edge of edges) {
     lines.push(`  ${idOf.get(edge.from)} --> ${idOf.get(edge.to)}`);
   }
-  lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
+  lines.push("classDef self fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
   lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
   lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
   const nodeInfoById = new Map<string, DependencyGraphNodeInfo>();
