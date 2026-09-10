@@ -78,6 +78,24 @@ It does not own Analysis scoring or verification, Workspace membership or
 acquisition, Metadata decoding, portable clone composition, presentation, CLI
 syntax, Browser interaction, or source viewing.
 
+## Real-world motivation
+
+The .NET runtime uses a compiler-generated lambda body in
+[`DispatchProxyGenerator.CreateProxyInstance`](https://github.com/dotnet/runtime/blob/4a29be73a7faf8bfb745e1ce9c08b43175d1d1ec/src/libraries/System.Reflection.DispatchProxy/src/System/Reflection/DispatchProxyGenerator.cs):
+`static x => new ProxyAssembly(x)`. This is a normal implementation body in a
+real library even though ordinary API views intentionally suppress its
+compiler-generated type and method.
+
+That shape motivates one Browser adoption claim: when Library Clone ranks a
+physical MethodDef, exact endpoint navigation must be able to reopen it even
+when it is compiler-generated. The deterministic
+`DotnetInspector.CloneSearchFixtures` lambda preserves the compiler-produced
+shape without copying runtime source. Release
+`BrowserCloneCandidateTransportTests` gates ranking and exact reopening by
+package provenance, complete assembly identity, MVID, and MethodDef token;
+`AssemblyContextApiSurfaceQueryTests` gates that ordinary API projections
+remain filtered unless exact navigation explicitly opts in.
+
 ## Four independent decisions
 
 Clone search keeps four decisions separate:

@@ -550,3 +550,4 @@ export async function queryTypeProjection(packageId: string, version: string, ta
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMetadata;
 }
+

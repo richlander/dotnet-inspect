@@ -3644,6 +3644,9 @@ test("browser history reuses available identities and publishes only unavailable
     /function invalidateWorkspaceAsyncOwners\(\): void \{\s*memberDetailInspection\.invalidate\(\);/);
   assert.match(
     appSource,
+    /function cloneCandidateSurfaceIsActive\(\): boolean \{[\s\S]*state\.explorer\?\.open[\s\S]*state\.credits[\s\S]*state\.packageQueryOpen[\s\S]*state\.loading[\s\S]*Boolean\(state\.error\)[\s\S]*state\.home[\s\S]*return false;/);
+  assert.match(
+    appSource,
     /function retireCloneEndpointNavigationOutsideClone\(\): void \{[\s\S]*cloneCandidateSurfaceIsActive\(\)[\s\S]*retireCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\)[\s\S]*function render\([\s\S]*retireCloneEndpointNavigationOutsideClone\(\);/);
   assert.match(
     appSource,

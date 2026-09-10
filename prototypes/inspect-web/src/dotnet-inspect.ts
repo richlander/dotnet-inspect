@@ -3204,6 +3204,14 @@ function selectedTypeMetadataLibraryIdentity() {
 }
 
 function cloneCandidateSurfaceIsActive(): boolean {
+  if (state.explorer?.open
+    || state.credits
+    || state.packageQueryOpen
+    || state.loading
+    || Boolean(state.error)
+    || state.home) {
+    return false;
+  }
   const activeScope = scope();
   return (activeScope === "library" && state.libraryLens === "clone")
     || (activeScope === "type" && state.lens === "clone")

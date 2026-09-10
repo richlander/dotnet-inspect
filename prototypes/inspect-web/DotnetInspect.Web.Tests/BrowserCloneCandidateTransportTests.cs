@@ -1,4 +1,7 @@
 using System.IO.Compression;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -239,6 +242,50 @@ public sealed class BrowserCloneCandidateTransportTests
                 .SeedMemberHasNoMethodBody,
             bodyless.Failure!.Kind);
         Assert.Null(bodyless.Document);
+    }
+
+    [Fact]
+    public async Task ExactAddressNavigationIncludesCompilerGeneratedCloneMethods()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserCloneCandidateResult result =
+            await fixture.Query(
+                Seed(BrowserCloneCandidateSeedKind.Library),
+                BrowserCloneCandidateBreadth.Self,
+                BrowserCloneCandidateDiscovery.All);
+        BrowserCloneCandidateDocument document =
+            Assert.IsType<BrowserCloneCandidateDocument>(
+                result.Document);
+        int generatedMethodToken = CompilerGeneratedMethodToken();
+        BrowserCloneCandidateMethod endpoint =
+            Assert.Single(
+                document.Seeds,
+                seed => seed.Seed.MethodDefinitionToken
+                    == generatedMethodToken)
+            .Seed;
+        BrowserCloneCandidateProvenance provenance =
+            endpoint.Participant.Provenance;
+
+        string endpointJson =
+            await MetadataExports.QueryGraphMemberSurfaceByMethodAddress(
+                provenance.PackageId!,
+                provenance.PackageVersion!,
+                provenance.Tfm!,
+                endpoint.Participant.Assembly.Name,
+                endpoint.Participant.Assembly.Version ?? "",
+                endpoint.Participant.Assembly.Culture ?? "",
+                endpoint.Participant.Assembly.PublicKeyToken ?? "",
+                endpoint.ModuleVersionId,
+                endpoint.MethodDefinitionToken);
+        BrowserGraphMemberSurface endpointSurface =
+            JsonSerializer.Deserialize(
+                endpointJson,
+                BrowserMetadataJsonContext.Default
+                    .BrowserGraphMemberSurface)!;
+
+        Assert.Equal(
+            generatedMethodToken,
+            endpointSurface.SelectedBody.Token);
     }
 
     [Fact]
@@ -525,6 +572,23 @@ public sealed class BrowserCloneCandidateTransportTests
             Seed(BrowserCloneCandidateSeedKind.Library),
             BrowserCloneCandidateBreadth.Everything,
             BrowserCloneCandidateDiscovery.SimilarNames);
+
+    static int CompilerGeneratedMethodToken()
+    {
+        using FileStream stream = File.OpenRead(
+            FixtureCatalog.CloneSearchMembers.AssemblyPath());
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle handle =
+            Assert.Single(
+                reader.MethodDefinitions,
+                candidate => reader.GetString(
+                        reader.GetMethodDefinition(candidate).Name)
+                    .Contains(
+                        "<ApplyGenerated>",
+                        StringComparison.Ordinal));
+        return MetadataTokens.GetToken(handle);
+    }
 
     sealed class Fixture : IAsyncDisposable
     {

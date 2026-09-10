@@ -201,7 +201,8 @@ internal static class BrowserMemberResolution
                             .ResolveMethodDefinition(
                                 ImplementationSurface(
                                     group,
-                                    participant),
+                                    participant,
+                                    includeCompilerGenerated: true),
                                 metadataToken)
                             ?? throw new InvalidOperationException(
                                 $"MethodDef 0x{metadataToken:X8} is not "
@@ -248,6 +249,12 @@ internal static class BrowserMemberResolution
     internal static ApiSurface ImplementationSurface(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant)
+        => ImplementationSurface(group, participant, includeCompilerGenerated: false);
+
+    private static ApiSurface ImplementationSurface(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        bool includeCompilerGenerated)
     {
         // One participant, under the same browser bounds as the package load: a body selector is
         // resolved against the implementation surface, and an over-budget implementation must
@@ -257,7 +264,8 @@ internal static class BrowserMemberResolution
                     group,
                     ApiSurfaceScope.IncludeAll,
                     BrowserApiSurfacePolicy.Limits,
-                    [participant]);
+                    [participant],
+                    includeCompilerGenerated);
         if (implementationSurfaces.Truncation is { } truncation)
         {
             throw new InvalidOperationException(

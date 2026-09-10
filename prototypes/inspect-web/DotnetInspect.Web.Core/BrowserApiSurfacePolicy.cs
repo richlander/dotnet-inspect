@@ -13,7 +13,7 @@ namespace DotnetInspect.Web;
 /// <see cref="InspectionCost.Unbounded"/> — "potentially large, slow, or fan-out work that must be
 /// explicitly requested" — and a package load is not an explicit request for unbounded work. The
 /// browser therefore invokes only
-/// <see cref="AssemblyContextApiSurfaceQuery.ExecuteBounded(AssemblyContextGroup, ApiSurfaceScope, ApiSurfaceProjectionLimits, IReadOnlyList{AssemblyContextParticipant})"/>,
+/// <see cref="AssemblyContextApiSurfaceQuery.ExecuteBounded(AssemblyContextGroup, ApiSurfaceScope, ApiSurfaceProjectionLimits, IReadOnlyList{AssemblyContextParticipant}, bool)"/>,
 /// and <c>BannedSymbols.txt</c> makes the compiler enforce that: the unbounded entry points do not
 /// bind in this project at all.
 /// </para>

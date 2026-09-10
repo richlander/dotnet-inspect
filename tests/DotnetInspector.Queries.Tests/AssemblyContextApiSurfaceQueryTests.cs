@@ -409,6 +409,44 @@ public sealed class AssemblyContextApiSurfaceQueryTests
             bounded.Accessibility.Select(bucket => (bucket.Id, bucket.Count)));
     }
 
+    [Fact]
+    public void ExecuteBounded_CompilerGeneratedRowsRequireExplicitOptIn()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = SelfGroup(workspace);
+        var limits = new ApiSurfaceProjectionLimits(
+            64,
+            100_000,
+            1_000_000,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue);
+
+        AssemblyApiSurface ordinary = Available(
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                    group,
+                    ApiSurfaceScope.PublicWithNonPublicTypes,
+                    limits)
+                .Assemblies);
+        AssemblyApiSurface physical = Available(
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                    group,
+                    ApiSurfaceScope.PublicWithNonPublicTypes,
+                    limits,
+                    includeCompilerGenerated: true)
+                .Assemblies);
+
+        static bool IsGeneratedProbe(ApiMember member) =>
+            member.Name.Contains("<Apply>b__", StringComparison.Ordinal);
+
+        Assert.DoesNotContain(
+            ordinary.Surface.Types.SelectMany(type => type.Members),
+            IsGeneratedProbe);
+        Assert.Contains(
+            physical.Surface.Types.SelectMany(type => type.Members),
+            IsGeneratedProbe);
+    }
+
     // The exact-fit case: bounds equal to the unbounded projection's own totals must still project
     // the whole surface. An off-by-one in the budget would truncate here.
     [Fact]
@@ -1267,6 +1305,15 @@ public sealed class ApiSurfacePublicProbe
 internal sealed class ApiSurfaceInternalProbe
 {
     public int Visible => 3;
+}
+
+internal static class ApiSurfaceCompilerGeneratedProbe
+{
+    public static int Apply(int value)
+    {
+        Func<int, int> transform = candidate => candidate + 1;
+        return transform(value);
+    }
 }
 
 /// <summary>A public probe the default consumer surface deliberately suppresses.</summary>
