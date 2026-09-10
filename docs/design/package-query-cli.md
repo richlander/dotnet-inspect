@@ -41,10 +41,13 @@ its first CLI host route has landed as `find --literal` plus
 [The landed promoted-tier CLI route](#the-landed-promoted-tier-cli-route).
 Despite the Sections migration landing,
 `find --package-prefix`'s corpus limit is also still spelled `-t`, not the
-historical #4677 `-n` target. [Item and line
-limits](item-and-line-limits.md) records that CLI syntax ownership remains
-pending, so the target does not resolve the repository-wide flag-numbering
-problem this document surfaced.
+semantic `-n` target. [CLI execution bounds](cli-execution-bounds.md) now owns
+the separate `--take` work-bound grammar, and
+[#6547](https://github.com/richlander/dotnet-inspect/issues/6547) reconciles
+this owner's current `--candidates`/`--matches` binding before command-wide
+`find` adoption. Product behavior remains unchanged until that implementation
+slice lands. The reconciled CLI behavior and optional match-budget state below
+are unverified until their named Release gates land.
 
 Related docs:
 
@@ -97,15 +100,20 @@ these same metadata/content contracts.
 
 The four adoption steps are CLI binding/discovery, production execution with
 the admitted-content provider, Sections/Markout rendering, and executable
-examples plus focused Release gates. No new shared substrate or Browser change
-is required. Assembly-pattern and Gallery-input CLI adoption remain separate.
+examples plus focused Release gates. The reconciliation requires one bounded
+extension to the existing shared request/plan/summary contract so absence of a
+match budget survives execution. It requires no Browser control or behavior
+change: Browser requests continue to carry their present budget and receive
+their numeric denominator and existing completion mapping. Assembly-pattern
+and Gallery-input CLI adoption remain separate. The reconciled target spelling
+is:
 
 ```sh
 find -Q Packages
 find --package-prefix dotnet-inspect -S Packages \
-  --where "facet=package.query.dotnet-tool" --candidates 5 --matches 5
+  --where "facet=package.query.dotnet-tool" --take 20 -n 5
 find --package-prefix dotnet-inspect --package-content \
-  --where "facet=package.query.dotnet-tool-v2" --candidates 5 --matches 5
+  --where "facet=package.query.dotnet-tool-v2" --take 20 -n 5
 ```
 
 The `facet` selector reuses the existing equality grammar. Its values come from
@@ -127,32 +135,78 @@ does not borrow the Browser's legacy identity association. The existing
 applies: temporary materialization remains owned through query completion,
 then is cleaned up; legacy persistent payload caches are not reused.
 
-`--candidates` and `--matches` lower to the existing query execution budgets.
-They are not L2 Head/Top operations or a replacement global item-limit grammar.
-The manifest default is the product's 200 candidates; the match default is
-100. The CLI keeps the existing profile's 1,000-item upper bound for both.
-Candidate work includes nonmatches and failed candidates; the match limit
-applies only after the selected facets match. This scoped choice leaves
-`cli-row-selection.md`'s future command adoption and the ordinary profile's
-`-t` retirement unresolved rather than reviving the superseded `-n` proposal.
+`--take` lowers to the query's ordered package-candidate work dimension: one
+aggregate prefix stream in the fixed Gallery source's effective order, not a
+per-source allowance. Candidate work includes nonmatches and failed candidates
+because each admitted candidate may require exact-manifest or package-content
+evaluation before its match status is known. The manifest-only default remains
+200 candidates and an explicit value may raise it to 1,000. Package-content
+queries default to and reject values above 20. Reaching either default or
+explicit candidate bound remains visible bounded incompleteness; the integer
+is not a matched-row count.
 
-A query gesture (`--where`, `--candidates`, `--matches`, or
-`--package-content`) selects semantic Package Query. Without one, the existing
-prefix profile remains unchanged. `-t` is rejected in semantic-query mode.
-Both prefix modes accept `-S Packages`; API search does not gain data-section
-selection. Query-only gestures require a patternless `--package-prefix` and
-reject API scopes and source overrides before acquisition.
+`-n` is semantic Head over final matched-package rows. It applies after every
+candidate in the authorized population has been evaluated, preserving failures
+and terminal accounting as diagnostic context rather than synthetic package
+rows. The CLI does not lower `-n` to the shared query engine's match-stop
+budget unless [source delegation](source-delegation.md) proves the same rows,
+owner-observable failures, exit status, and completion evidence as complete
+execution of that candidate population. No such proof currently exists:
+`PackageQuery.ExecuteAsync` can encounter a later manifest failure after the
+Nth match. The command-wide implementation therefore evaluates the authorized
+candidate population before L2 applies semantic Head.
+
+When `-n` is absent, the semantic row-selection plan is empty and every match
+from the authorized candidate population reaches row shaping. The historical
+implicit 100-match default retires; it is neither an operational ceiling nor a
+user-authored semantic selection. `-n` inherits the row grammar's positive
+integer range rather than the old 1,000 match-budget maximum.
+
+Only query-specific gestures (`--where` or explicit `--package-content`) select
+semantic Package Query. `--take`, `-n`, `--count`, output options, and
+`-S Packages` are mode-neutral; without a query-specific gesture, a
+patternless `--package-prefix` remains ordinary package-profile mode.
+Query-only gestures require a patternless `--package-prefix` and reject API
+scopes and source overrides before acquisition. `-t` is rejected in
+semantic-query mode until command-wide adoption retires its numeric form.
 
 One semantic result row is one matched package, carrying its exact version,
-source, and product-authored nonempty evidence. `--rows` selects those rows
-before projection and Count. Failures and terminal accounting are diagnostic
-context, not synthetic package rows. `--count` rejects explicit `--matches`;
-its implicit match budget covers the candidate budget. Reached candidate and
-match bounds remain visible, and a count is not an unbounded Gallery total.
-Partial failures remain nonzero, empty exhausted success remains zero, and
-cancellation remains a failed operation rather than empty success.
+source, and product-authored nonempty evidence. `-n` and `--rows` select those
+rows before projection and Count. `--count` composes with `-n`: finding N
+ordered matches can witness exact `Head(N) -> Count` while candidate-bound
+incompleteness remains visible. Fewer than N matches at a reached candidate
+bound is not exact, and without `-n`, Count requires completion evidence for
+the candidate population. Partial failures block successful Count, empty
+exhausted success remains zero, and cancellation remains a failed operation
+rather than empty success.
 
-`PackageQueryCliTests` supplies the Release gates:
+The low-compatibility migration removes `--candidates` and `--matches`; they do
+not remain aliases or retirement shims. The shared query engine may retain its
+host-neutral match-budget capability for other consumers, but this CLI binding
+does not expose or infer it.
+
+The owner-issued query request, accepted plan, execution state, and summary
+therefore carry the same optional match budget end to end. Planning preserves
+presence or absence exactly; it does not replace absence with a default,
+candidate count, or sentinel. A present positive budget retains the current
+product behavior, including `MatchLimitReached`; existing Browser and other
+callers continue to supply their current explicit or default budget. An
+explicitly absent budget means that matching rows do not stop candidate
+execution. Validation applies the existing match-budget range only when a
+budget is present. Completion cannot be `MatchLimitReached` when it is absent,
+and the typed summary carries no match-limit denominator. Presentation reports
+the observed match count without manufacturing an infinite or candidate-equal
+ceiling.
+
+The prefix CLI explicitly requests an absent match budget whether or not `-n`
+is authored. Its semantic row intent remains separate and reaches L2 only after
+candidate execution. This optional state is required rather than a sentinel:
+with `--take 1000`, all 1,000 candidates may match, so no larger valid integer
+exists under the owner's 1,000 match-budget maximum. README examples, shipped
+skills, help, completion, and Release gates change with product adoption rather
+than this docs-only reconciliation.
+
+The currently shipped binding is gated by `PackageQueryCliTests`:
 `DiscoveryValues_LowerToExactlyTheProductFacets`,
 `ProductPlanner_OwnsCompatibilityAndDuplicateRejection`, and
 `InvalidBudgets_AreRejected` gate binding and admission;
@@ -209,13 +263,16 @@ and do not manufacture manifest facts. Selecting an inspection facet explicitly
 permits its existing acquisition/evaluation tier; content facets retain their
 explicit provider requirement and 20-candidate ceiling.
 
-The local match bound N selects matching packages in incoming order, independently
-of K. A match limit may stop further enrichment, as it does for prefix queries,
-but cannot shorten the already acquired source response. Completion distinguishes
+The shared L1 local match bound N selects matching packages in incoming order,
+independently of K. A product match budget may stop further enrichment, but
+cannot shorten the already acquired source response. Completion distinguishes
 the acquired candidate count, processed candidates, and displayed matches.
 Finishing this finite response never means exhausting the Gallery population;
 any provider total remains an estimate. Failures and cancellation retain the
-existing visible query-event contract.
+existing visible query-event contract. This host-neutral capability does not
+define CLI `-n` lowering: the prefix CLI route evaluates its authorized
+candidate population before semantic row selection unless source delegation
+proves that an early match stop preserves every observable result.
 
 The user approved this ordinary acquisition/local-evaluation path before the
 general Source Delegation protocol and L2 adapter. This slice claims neither
@@ -395,15 +452,17 @@ boundary took about 284 seconds, so neither that boundary nor the requested
 5,000 and host-neutral 10,000 ceilings are behavior-safe CLI limits under the
 default timeout policy.
 
-**Interaction concern for the next CLI slice:** the Sections migration and the
-`-t`→`-n` flag rename were assumed to be one atomic step; in practice they
-decoupled, and the migration landed first. The CLI facet wiring in
-[Landing sequence](#landing-sequence) step 4 should not silently inherit `-t`
-as precedent. It must hand the spelling decision to a focused CLI item-limit
-owner, naming which PR owns it so the decision does not fall through the gap a
-second time.
+**Resolved interaction for the next CLI slice:** the Sections migration and
+the `-t` retirement were assumed to be one atomic step; in practice they
+decoupled, and the migration landed first. The focused
+[CLI row-selection](cli-row-selection.md) and
+[execution-bound](cli-execution-bounds.md) owners now require independent
+semantic `-n` and candidate-work `--take` intent.
+[#6547](https://github.com/richlander/dotnet-inspect/issues/6547) records this
+owner's adoption decisions so command-wide implementation does not silently
+inherit `-t`, `--candidates`, or `--matches`.
 
-### `-t` is the wrong flag to build on; the historical target proposed `-n`
+### `-t` is the wrong flag to build on; semantic rows use `-n`
 
 The numeric `-t` on `find --package-prefix` reuses `find`'s own pre-existing
 `-t`, whose description #4551 widens from "Limit type count (`-t 5`) or
@@ -419,7 +478,7 @@ row-count flag.
 Working through this surfaced a repository-wide flag-numbering problem:
 rendered-line `-n`, count-form `--rows`, ranked `--top`, and command-owned
 `-t`/`-m`/`--take` counts all answered adjacent "how many" questions.
-The historical #4677 target proposed:
+The focused #4677 designs now require:
 
 - `-n`/bare `-N` is the universal first/last item count;
 - `--rows` carries only absolute row ranges;
@@ -432,8 +491,8 @@ download count") uses `--top 500 --order-by "DownloadCount desc"`; a plain
 "first 500 that match" uses `-n 500`.
 
 The Sections-registry migration was the intended moment to apply that
-historical proposal, but it landed without that part: `find --package-prefix` rows are
-now declared sections, yet the corpus limit is still `-t`, not `-n`. See
+grammar, but it landed without that part: `find --package-prefix` rows are now
+declared sections, yet the corpus limit is still `-t`. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for the resulting follow-up.
 
@@ -448,7 +507,7 @@ predicates:
   ordered vocabulary. `PackageQuery.Plan` validates selected IDs and
   compatibility. `PackageQuery.ExecuteAsync` ANDs independent facets and ORs
   selected combining members of one product-issued selection group before
-  applying the semantic match limit. A facet's tier names the
+  applying the product match-stop budget when present. A facet's tier names the
   production envelope in which it is available, not the narrowest individual
   field its predicate reads; the common nuspec result row still carries exact
   manifest facts.
@@ -538,6 +597,10 @@ dotnet-inspect find --literal TEXT --package ID@VERSION --tfm TFM
   `no-match`, `not-applicable`, or `failed`, so a semantic miss, an
   inapplicable selection, an evaluation failure, and an acquisition failure
   stay distinguishable. Only failures affect the exit code.
+- **Corpus work bounds do not apply.** The explicit 1-5 package list is the
+  candidate admission. Literal mode rejects `--take`, `--candidates`, and
+  `--matches`; command-wide row adoption may bind `-n` to the final Matches
+  row set, but never to the candidate list.
 
 ### Row shaping for the landed route
 
@@ -656,18 +719,15 @@ alongside already-streamed rows) after fifteen rounds of adversarial review —
 the CLI should not reinvent that wording, and the browser experience should
 not need to translate a differently-shaped CLI completion signal.
 
-One ordering question is new once `--where` and `--deepen` exist: does the
-corpus bound apply before or after a nuspec-tier predicate runs?
-The historical #4677 target placed `-n` after filtering and ordering; focused
-CLI ownership for that proposal remains pending in [Item and line
-limits](item-and-line-limits.md). The same before/after question matters
-because a predicate can shrink what the bound counts:
+Package Query composes candidate admission and semantic selection in this
+order:
 
-- **Nuspec-tier `--where`** should filter before `-n` truncates: `-n 500`
-  should mean "the first 500 packages that match," not "the first 500
-  packages, then whichever of those happen to match." The former is the
-  honest reading of "first N matches" and the one #4654's browser review
-  process would flag the latter for overclaiming.
+- **Nuspec-tier `--where`** evaluates every candidate admitted by `--take` or
+  the default candidate ceiling, then `-n` selects matched-package rows. For
+  example, `--take 500 -n 20` means "inspect at most 500 candidates, then keep
+  the first 20 matches," not "inspect 20 candidates." If only seven match
+  before the candidate bound is reached, the command returns seven and
+  preserves bounded incompleteness.
 - **Promoted-tier `--deepen`** bounds the *candidate set fed into assembly
   evaluation*, not the final matched-row count — mirroring the browser
   Deepen action, which bounds cost (how many selected package assemblies get
@@ -677,25 +737,43 @@ because a predicate can shrink what the bound counts:
   candidate bound therefore does not by itself imply either truncation or
   successful semantic evaluation of every candidate.
 
-The implementation must preserve the orderings: nuspec predicates run before
-the semantic `-n` result limit; the package-content candidate cap applies
-before archive evaluation, with manifest prefilters running before acquisition;
-and `--deepen` bounds candidates before future promoted assembly evaluation.
-Help text and rendered completion state must name the candidate bound, and the
-asserted ordering must name its enforcing gate.
+The implementation must preserve the orderings: candidate admission precedes
+facet evaluation, nuspec predicates precede semantic `-n`, the package-content
+candidate cap applies before archive evaluation with manifest prefilters
+running before acquisition, and `--deepen` bounds candidates before future
+promoted assembly evaluation. Help text and rendered completion state must name
+the candidate bound, and each asserted ordering must name its enforcing gate.
 
-`PackageQuery.ExecuteAsync` now implements the nuspec half with separate
-`MaximumCandidates` and `MaximumMatches` bounds.
-`ExecuteAsync_FiltersBeforeMatchLimitAndStopsManifestAcquisition` gates the
-filter-before-match-limit ordering, while
-`ExecuteAsync_PreservesCandidateLimitAfterFiltering` gates honest
-candidate-bound completion. Reaching the semantic match limit is deliberately
-conservative: execution stops without acquiring another manifest, so
-`MatchLimitReached` means more matches may exist even when the last emitted row
-also happened to exhaust the source. This behavior is gated by
-`ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative`. Package-content
-candidate limits and manifest prefiltering are gated by `PackageQueryTests`;
-promoted assembly ordering remains proposal-only and composes
+The current `PackageQuery.ExecuteAsync` product contract still supports
+separate `MaximumCandidates` and `MaximumMatches` and stops before later
+candidate acquisition when the match budget is reached.
+`ExecuteAsync_FiltersBeforeMatchLimitAndStopsManifestAcquisition` and
+`ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative` gate that shared
+behavior. The reconciled CLI does not treat it as semantic `-n`: until an exact
+source-delegation proof exists, the CLI execution request carries the owner's
+new absent match-budget state. It therefore cannot reach a match-budget stop
+before candidate completion. Its completion names candidate exhaustion, a
+candidate work bound, another source bound, failure, or cancellation rather
+than attributing semantic Head to `MatchLimitReached`. Existing callers that
+supply a budget retain the current match-stop contract.
+
+The command-wide implementation adds Release gates for a failure after the Nth
+match, all matches returned when `-n` is absent, sparse matches at the candidate
+bound, independent `--take`/`-n` variation, Count witness and
+Count-insufficient cases, mode-neutral `--take`/`-n`, package-content's
+20-candidate boundary, and output-format parity.
+`NoMatchBudget_AllCandidatesMatchingPreservesTerminalCompletion` must exercise
+1,000 matching candidates and observe candidate/source completion rather than
+`MatchLimitReached`.
+`Plan_PreservesAbsentMatchBudget` must prove that request absence reaches the
+accepted plan and summary unchanged without defaulting or sentinel conversion.
+`NoMatchBudget_LateFailureAfterSelectedHeadRemainsVisible` must place a failure
+after the Nth match and preserve that failure and exit status.
+`PresentMatchBudget_PreservesExistingStopBehavior` must retain the current
+product behavior for Browser and other budgeted callers, including the
+numeric summary denominator and completion mapping. Existing Package Query
+gates continue to own the shared product match-budget behavior; CLI gates do
+not redefine it. Promoted assembly ordering remains proposal-only and composes
 [the focused evaluator](package-query-assembly-evaluation.md).
 
 ## Shared request/outcome shape with the browser
@@ -744,8 +822,8 @@ the CLI's named facets as canonical for the browser's facet rail.
    `SectionPipeline<PackageProfileView>`), so `--count`/`--rows` work the
    same way they do for `library`/`member`/`package`, without a second
    bespoke implementation. What did not land alongside it: retiring
-   `-t`-as-package-limit for the historical #4677 `-n` proposal, and `-S`/`--where`
-   were not part of that slice. See
+   `-t`-as-package-limit for the focused #4677 `-n` grammar, and
+   `-S`/`--where` were not part of that slice. See
    [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
 3. **Product-owned facet contract — implemented in the current sources.**
    `PackageQuery` composes `PackageProfileQuery`, publishes stable ordered
@@ -756,15 +834,24 @@ the CLI's named facets as canonical for the browser's facet rail.
    `PackageQueryPlanner_IsReachableFromBrowserConsumer` are the named Release
    gates.
 4. **CLI metadata facet binding — implemented by #6107.** The finite
-   `facet=<ID>` binding and distinct `--candidates`/`--matches` query budgets
-   preserve filter-before-match-bound behavior. They do not adopt the future
-   global row-selection grammar or retire the ordinary profile's `-t`.
-   That item-limit migration remains with its focused owner.
+   `facet=<ID>` binding and the currently shipped
+   `--candidates`/`--matches` query budgets preserve
+   filter-before-match-bound behavior. They do not implement the reconciled
+   row-selection and execution-bound grammar or retire the ordinary profile's
+   `-t`.
 5. **CLI package-content capability — implemented by #6107.**
    `--package-content` preserves the product-owned candidate cap, uses
    admitted payload acquisition, and retains visible failures. The focused
    Release gates are named in [CLI facet binding](#cli-facet-binding).
-6. **Compose the focused
+6. **CLI limit reconciliation — designed by #6547, implementation pending
+   under #6489.** Retire `--candidates`/`--matches`, use candidate-work
+   `--take` and semantic `-n`, remove the implicit 100-match default, keep
+   `--take`/`-n` mode-neutral, add the shared optional match-budget state, and
+   preserve later failures by applying row selection after the authorized
+   candidate execution until source delegation proves an exact early stop. The
+   same command-wide slice retires numeric `-t` and adopts ordinary
+   package-profile `--take`/`-n`.
+7. **Compose the focused
    [assembly-pattern evaluator](package-query-assembly-evaluation.md) through
    a promoted-tier capability gate and candidate bound.** The first host route
    landed as `find --literal` plus `workspace --root-request`, where the
@@ -773,7 +860,7 @@ the CLI's named facets as canonical for the browser's facet rail.
    open: escalating into the promoted tier from a corpus funnel, which is what
    `--deepen`'s spelling, bound shape, and L2 tier-gating error for an ungated
    promoted-tier field are actually for.
-7. **Define the shared save/resume file shape**, coordinated with whatever
+8. **Define the shared save/resume file shape**, coordinated with whatever
    the browser experience's local-storage record settles on when it is
    implemented.
 
