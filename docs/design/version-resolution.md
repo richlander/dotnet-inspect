@@ -564,7 +564,7 @@ empty snapshot is a cache miss rather than authoritative candidate metadata.
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | Verified SourceLink bytes | `$LOCAL_APP_DATA/dotnet-inspect/source-bytes-v2/` | Permanent when the caller's checksum validator accepts the bytes | dotnet-inspect |
-| SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit-v2/` | Permanent for immutable hits, 1 day for mutable hits and misses | dotnet-inspect |
+| [SourceLink availability markers](source-availability-audit.md#cache-subject-and-reuse) | `$LOCAL_APP_DATA/dotnet-inspect/source-audit-v2/` | Permanent for immutable positives, 1 day for mutable positives; no persisted misses | dotnet-inspect |
 | SourceLink integrity markers | `$LOCAL_APP_DATA/dotnet-inspect/source-integrity-v2/` | Permanent for immutable checksum-verified results | dotnet-inspect |
 
 The app package cache carries a `{source}` segment because cached content is
@@ -576,9 +576,10 @@ feed.
 
 ## Network download/cache behavior
 
-Network calls use the cache behavior below. Negative cache entries are written
-only for definitive 404/not-found responses; transient failures, timeouts,
-offline mode, and unsupported local feed URLs are not cached as misses.
+Network calls use the cache behavior below. Where a cache owner permits
+negative entries, they are written only for definitive 404/not-found responses;
+transient failures, timeouts, offline mode, and unsupported local feed URLs are
+not cached as misses.
 Package-metadata absence is a time-bounded observation rather than a permanent
 coordinate fact; its target semantics are owned by
 [package metadata persistence](package-metadata-persistence.md).
@@ -599,9 +600,8 @@ coordinate fact; its target semantics are owned by
 | Symbol-server PDB 404s | Cached as misses for 1 day, so detailed audit does not retry unavailable PDBs on every run. |
 | Successful `.snupkg` PDB extraction | Extracted PDB is cached permanently under `packages/symbols/{package}/{version}/`. |
 | Missing `.snupkg` URLs and `.snupkg` files without the requested PDB | Cached as misses for 1 day. The `.snupkg` archive itself is not retained. |
-| SourceLink audit source checks | Successful HEAD checks are cached permanently; 404s are cached as misses for 1 day. |
+| SourceLink availability HEAD checks | Origin-validated positives follow the immutable/permanent or mutable/one-day policy; non-success results are not cached. |
 | Selected-member `PDB Source` downloads | Not cached by this command path. |
-| `SourceLink: Availability` URL checks | Not cached by this command path. |
 | Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
 | GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |
 
