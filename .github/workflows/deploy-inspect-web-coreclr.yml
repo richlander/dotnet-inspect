@@ -222,7 +222,7 @@ jobs:
             </packageSourceMapping>
           </configuration>
           EOF
-          version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
+          version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
             prototypes/inspect-web/engine/InspectWeb.Engine.csproj \

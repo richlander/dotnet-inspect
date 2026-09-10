@@ -524,7 +524,7 @@ internal sealed class ChangeRoutingPolicy
     {
         if (BytePattern.MatchesAny(
             path,
-            "src/dotnet-inspect/dotnet-inspect.csproj",
+            "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj",
             "Directory.Build.props",
             "Directory.Build.targets",
             "Directory.Packages.props",
