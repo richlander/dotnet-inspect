@@ -9,60 +9,92 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class DepsJsonParser
 {
-    public static DepsJsonData Parse(string depsPath)
+    /// <summary>
+    /// Parses a deps file while preserving whether the projection was complete.
+    /// </summary>
+    public static DepsJsonParseResult TryParse(string depsPath)
     {
-        var result = new DepsJsonData();
-
         try
         {
-            string json = File.ReadAllText(depsPath);
-            using var doc = HardenedJson.Parse(json);
+            return new DepsJsonParseResult(
+                ParseCore(File.ReadAllText(depsPath)),
+                Error: null);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or JsonException
+                or InvalidDataException)
+        {
+            return new DepsJsonParseResult(
+                Data: null,
+                Error: ex.Message);
+        }
+    }
 
-            // Get runtime target
-            if (doc.RootElement.TryGetProperty("runtimeTarget", out var runtimeTarget))
-            {
-                if (runtimeTarget.TryGetProperty("name", out var name))
-                {
-                    string targetName = name.GetString() ?? "";
-                    // Format: .NETCoreApp,Version=v8.0/win-x64 or .NETCoreApp,Version=v8.0
-                    if (targetName.Contains('/'))
-                    {
-                        string rid = targetName.Split('/')[1];
-                        result.RuntimeTargetRid = rid;
-                    }
-                }
-            }
+    public static DepsJsonData Parse(string depsPath)
+    {
+        DepsJsonParseResult parsed = TryParse(depsPath);
+        return parsed.Data ?? new DepsJsonData();
+    }
 
-            // Get runtime dependencies
-            if (doc.RootElement.TryGetProperty("libraries", out var libraries))
+    private static DepsJsonData ParseCore(string json)
+    {
+        var result = new DepsJsonData();
+        using var doc = HardenedJson.Parse(json);
+
+        // Get runtime target
+        if (doc.RootElement.TryGetProperty("runtimeTarget", out var runtimeTarget))
+        {
+            if (runtimeTarget.TryGetProperty("name", out var name))
             {
-                foreach (var lib in libraries.EnumerateObject())
+                string targetName = name.GetString() ?? "";
+                // Format: .NETCoreApp,Version=v8.0/win-x64 or .NETCoreApp,Version=v8.0
+                int separator = targetName.IndexOf('/');
+                if (separator >= 0 && separator + 1 < targetName.Length)
                 {
-                    string[] parts = lib.Name.Split('/');
-                    if (parts.Length == 2)
-                    {
-                        if (lib.Value.TryGetProperty("type", out var typeElem))
-                        {
-                            string type = typeElem.GetString() ?? "";
-                            if (type == "package")
-                            {
-                                result.RuntimeDependencies ??= [];
-                                result.RuntimeDependencies.Add(new PackageDependency
-                                {
-                                    Id = parts[0],
-                                    Version = parts[1]
-                                });
-                            }
-                        }
-                    }
+                    result.RuntimeTargetRid = targetName[(separator + 1)..];
                 }
             }
         }
-        catch
+
+        // Get runtime dependencies
+        if (doc.RootElement.TryGetProperty("libraries", out var libraries))
         {
-            // Ignore parse errors
+            foreach (var lib in libraries.EnumerateObject())
+            {
+                int separator = lib.Name.IndexOf('/');
+                if (separator <= 0
+                    || separator != lib.Name.LastIndexOf('/')
+                    || separator == lib.Name.Length - 1)
+                    continue;
+
+                if (lib.Value.TryGetProperty("type", out var typeElem))
+                {
+                    string type = typeElem.GetString() ?? "";
+                    if (type == "package")
+                    {
+                        result.RuntimeDependencies ??= [];
+                        result.RuntimeDependencies.Add(new PackageDependency
+                        {
+                            Id = lib.Name[..separator],
+                            Version = lib.Name[(separator + 1)..],
+                        });
+                    }
+                }
+            }
         }
 
         return result;
     }
+}
+
+/// <summary>
+/// Complete parsed deps data or a visible reason why the file could not be projected.
+/// </summary>
+public sealed record DepsJsonParseResult(
+    DepsJsonData? Data,
+    string? Error)
+{
+    public bool IsComplete => Data is not null;
 }

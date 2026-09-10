@@ -177,6 +177,18 @@ public class DepsJsonParserTests : IDisposable
     }
 
     [Fact]
+    public void TryParse_InvalidJsonReportsIncompleteProjection()
+    {
+        var deps = WriteDepsJson("{ invalid json }");
+
+        DepsJsonParseResult result = DepsJsonParser.TryParse(deps);
+
+        Assert.False(result.IsComplete);
+        Assert.Null(result.Data);
+        Assert.NotNull(result.Error);
+    }
+
+    [Fact]
     public void Parse_CombinesRuntimeTargetAndDependencies()
     {
         var deps = WriteDepsJson("""
