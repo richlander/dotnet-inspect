@@ -3240,6 +3240,9 @@ empty-group preservation.
 `CompatibleFrameworkAlias_ReacquisitionPreservesSelectedUniverse` gates
 canonical framework identity across transport while preserving the selected
 raw package framework folder.
+`CompatibleFrameworkAlias_ReacquisitionRejectsDifferentReplacementTarget`
+gates replacement content whose compatible universe has a different canonical
+target, preserving the frozen target as a visible no-match.
 `CompatibleAmbiguousImplementationLayout_ReacquisitionRemainsInvalid` gates
 compatible-selection intent when no unique implementation universe exists.
 

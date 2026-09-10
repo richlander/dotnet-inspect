@@ -410,6 +410,59 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void CompatibleFrameworkAlias_ReacquisitionRejectsDifferentReplacementTarget()
+    {
+        const string packageId = "compatible.alias.replacement";
+        var initialPayload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(("lib/netcoreapp5.0/Alias.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding initial =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                initialPayload,
+                "net9.0");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                initial.CreateReacquisitionRequest().Encode(),
+                out PackageRootReacquisitionRequest? request));
+        var replacementPayload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(("lib/net6.0/Replacement.dll", [0x02])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageAssetSelection.Selected replacementSelection =
+            Assert.IsType<PackageAssetSelection.Selected>(
+                PackageAssetSelector.Select(
+                    replacementPayload.Content,
+                    "net9.0"));
+        Assert.Equal(
+            "net6.0",
+            replacementSelection.Universe.TargetFramework);
+
+        PackageRootBinding reopened =
+            Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                PackageRootAcquisition.BindReacquired(
+                    request,
+                    replacementPayload)).Binding;
+
+        Assert.Equal("net5.0", request.SelectionTargetFramework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            reopened.Root.AssetSelection.Status);
+        Assert.Equal("net5.0", reopened.Root.AssetSelection.TargetFramework);
+        Assert.Empty(reopened.Root.AssetSelection.Assets);
+        Assert.Empty(reopened.Root.AssetSelection.ImplementationAssets);
+        Assert.Equal(request, reopened.CreateReacquisitionRequest());
+    }
+
+    [Fact]
     public void ResolvedPackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback()
     {
         var payload = new AcquiredPackagePayload(
