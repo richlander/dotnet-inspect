@@ -31,6 +31,7 @@ internal static class DependsShareProjection
             || options.Effective
             || options.Schema
             || options.Select is not null
+            || options.SelectDefault
             || options.Columns is not null
             || options.Fields is not null)
         {

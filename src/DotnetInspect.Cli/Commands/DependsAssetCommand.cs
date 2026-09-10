@@ -172,20 +172,6 @@ public partial class DependsCommand
         bool graphRequested,
         bool discoveryMode)
     {
-        if (options.Tfm is { } platformTfm
-            && options.AssetRoots.Any(root =>
-                root.Kind == DependsAssetRootKind.Library
-                && !File.Exists(root.Value)
-                && PlatformResolver.IsPlatformCandidate(root.Value))
-            && !PlatformResolver.TryGetFrameworkSpecsForTargetFramework(
-                platformTfm,
-                out _))
-        {
-            CommandError.Write(
-                $"Target framework '{platformTfm}' cannot select an installed platform library.");
-            return false;
-        }
-
         if (options.Depth is not null && !graphRequested)
         {
             CommandError.Write(

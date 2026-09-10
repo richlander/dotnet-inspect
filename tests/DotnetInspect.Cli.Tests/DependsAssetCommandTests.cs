@@ -1438,6 +1438,46 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task UnsupportedPlatformLibraryTfm_RetainsValidSiblingRoot()
+    {
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            "depends",
+            "--nuspec",
+            NuspecFixture,
+            "--library",
+            "System.Runtime",
+            "--tfm",
+            "net48",
+            "-S",
+            "Roots,Failures",
+            "--json",
+            "--compact",
+        ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("typed failure", error, StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] roots =
+        [
+            .. document.RootElement.GetProperty("roots").EnumerateArray(),
+        ];
+        Assert.Equal(2, roots.Length);
+        Assert.Contains(
+            roots,
+            root =>
+                root.GetProperty("kind").GetString() == "Nuspec"
+                && root.GetProperty("state").GetString() == "Admitted");
+        Assert.Contains(
+            roots,
+            root =>
+                root.GetProperty("kind").GetString() == "Library"
+                && root.GetProperty("state").GetString() == "Failed");
+        Assert.Single(
+            document.RootElement.GetProperty("failures").EnumerateArray());
+    }
+
+    [Fact]
     public async Task GraphAndFailuresJsonl_UsesOneDiscriminatedSchema()
     {
         (int exitCode, string output, string error) = await RunCapturedAsync(
