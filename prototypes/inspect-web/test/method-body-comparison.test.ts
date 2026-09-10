@@ -414,7 +414,7 @@ test("routed history to demos closes the dialog and rejects late inventory", asy
   runInNewContext(stripTypeScriptTypes(`${dismissal}\n${popstate}`), {
     state,
     methodBodyComparison: coordinator,
-    sourceComparison: { dispose: () => false },
+    libraryApiDiff: { dispose: () => false },
     window: {
       addEventListener: (_event: string, handler: () => void) => {
         callbacks.popstate = handler;

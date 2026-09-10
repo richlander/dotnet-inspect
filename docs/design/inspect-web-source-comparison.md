@@ -2,14 +2,26 @@
 
 ## Owner and claim
 
-Inspect Web Source Comparison owns the explicit version-pair interaction, its
-managed feature projection, and the Source Diff view.
-The focused delivery is
+Inspect Web Source Comparison owns the shared paired Source query and its
+managed feature projection. The focused delivery was
 [#6076](https://github.com/richlander/dotnet-inspect/issues/6076).
 
 > An explicitly selected member and two package versions produce a view tied
 > to that ordered request and the shared paired Source query, preserving
 > authored-source changes, exactness, endpoint provenance, and non-success.
+
+**Retirement notice:** the interactive Source Diff consumer this document
+originally described — **Compare authored source** and its modal — was
+atomically retired by
+[#6423](https://github.com/richlander/dotnet-inspect/issues/6423), which
+activates [Library API diff presentation](library-api-diff-presentation.md)
+as the browser's first Library-root comparison instead. See
+[Inspect Web Library API Diff](inspect-web-library-api-diff.md) for that
+owner. This document remains authoritative only for the managed paired
+Source query, its facade projection, and their retained test coverage below —
+not for a browser interaction. The shared query and structured evidence
+remain available for a later on-demand annotated comparison consumer; no
+placeholder browser action exists ahead of that consumer.
 
 The immediate consumer is a person inspecting a package member who wants to
 see how its authored declaration changed in another version. This delivers
@@ -46,23 +58,23 @@ These are dependencies, not contracts redefined by this feature. Comparison
 algorithms, acquisition, retained-image identity, navigation transitions, and
 operation lifetime remain with their existing owners.
 
-## Explicit comparison
+## Explicit comparison (retired browser interaction; managed shape retained)
 
-Offer **Compare authored source** for one selected method in a package.
-Before is the launching package version and member; the user explicitly
-chooses After's version of that same package. The assembly and logical member
-selection remain fixed. An exact version field is sufficient for this bounded
-adopter; it does not require new package discovery or candidate correspondence.
-The same version is valid.
+The retired interaction offered **Compare authored source** for one selected
+method in a package. Before was the launching package version and member; the
+user explicitly chose After's version of that same package. The assembly and
+logical member selection stayed fixed. An exact version field was sufficient
+for this bounded adopter; it did not require new package discovery or
+candidate correspondence. The same version was valid.
 
 An unavailable implementation or a selection that cannot represent one
 MethodDef exposes its reason. Runtime/platform selections and arbitrary
 cross-package or renamed-member comparisons are outside this package-version
 feature. Accessors must not silently become their enclosing declaration.
 
-Opening the dialog and editing its version do not acquire Source. **Compare**
-submits the ordered pair. Editing the pair invalidates the old result before
-another request may publish. The result's labels come from its submitted
+Opening the dialog and editing its version did not acquire Source. **Compare**
+submitted the ordered pair. Editing the pair invalidated the old result before
+another request could publish. The result's labels came from its submitted
 request and resolved endpoints, never from the current version input.
 
 The feature holds the pair and its result in session-local feature state under
@@ -98,22 +110,19 @@ decompiled fallback. Unrequested native C#/IL results are not inferred.
 The Source coordinator and keyed managed bridge retain their existing
 acquisition supersession and cancellation meaning.
 
-## Source Diff presentation
+## Source Diff presentation (retired browser interaction)
 
-Always identify Before and After separately. Show exact, changed,
-unavailable, and failed outcomes explicitly. Available declarations and their
-provenance remain inspectable even when the other endpoint has no Source.
-Missing source is not an empty declaration, a deletion, or decompiled C#.
+The retired interaction always identified Before and After separately and
+showed exact, changed, unavailable, and failed outcomes explicitly. Available
+declarations and their provenance remained inspectable even when the other
+endpoint had no Source. Missing source was not an empty declaration, a
+deletion, or decompiled C#.
 
 The managed projection preserves native line-pair polarity and the independent
 movement facet, including moves mixed with content edits. Both line coordinates
-are declaration-relative and one-based. The browser renders these supplied
-relations; it does not run another matcher or infer exactness from empty rows.
-
-This interactive view deliberately uses the existing Source/Method Body Diff
-DOM presentation rather than parsing CLI output or creating a Markout text
-round trip. Structured native evidence reaches the facade before this
-host-specific lowering; Queries/Findings remain the matching owners.
+are declaration-relative and one-based. A future consumer renders these
+supplied relations directly; it must not run another matcher or infer
+exactness from empty rows.
 
 ## Demo and gates
 
@@ -121,17 +130,17 @@ The canonical demonstration uses compiler-produced versions whose declaration
 changes from `1 + 2` to `3` while native bodies remain equal. Neighboring cases
 cover equal Source, moved comment blocks, moves with content edits, and missing
 PDB/source. Real package/source acquisition and the paired query construct the
-evidence; the UI does not manufacture a successful comparison.
+evidence; no harness manufactures a successful comparison.
 
 `BrowserSourceComparisonOperationTests` exercises the public export for
 independently resolved endpoints, visible non-success, and cancellation/release.
 Its positive query/projection cases use the production Source fetch policy
-with supplied transport. `source-comparison.test.ts` and
-`source-comparison-view.test.ts` cover explicit submission, immutable labels,
-replacement and late completion, non-success, and context disposal.
+with supplied transport. The retired `source-comparison.test.ts` and
+`source-comparison-view.test.ts` UI-unit tests were deleted with the browser
+interaction (#6423); no frontend module owns this facade today.
 
 `eng/test-inspect-web-source-comparison-gate.sh` exercises the public generated
-facade and actual dialog in Firefox against the Release-published engine.
+facade directly (no dialog) in Firefox against the Release-published engine.
 It supplies cataloged compiler-produced packages and their exact SourceLink
 bytes at network acquisition, not source endpoints or comparison results.
 The embedded PDB and allowed SourceLink host preserve real production
@@ -144,9 +153,6 @@ No test-only source-context factory or new corpus lane is needed.
 ```bash
 dotnet run --project prototypes/inspect-web/engine.Tests -c Release -- \
   -class '*BrowserSourceComparisonOperationTests'
-cd prototypes/inspect-web
-node --test test/source-comparison.test.ts test/source-comparison-view.test.ts
-cd ../..
 eng/test-inspect-web-source-comparison-gate.sh
 ```
 

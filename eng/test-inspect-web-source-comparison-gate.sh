@@ -41,4 +41,4 @@ INSPECT_WEB_SOURCE_DIFF_BEFORE_SOURCE="$before_source" \
 INSPECT_WEB_SOURCE_DIFF_AFTER_SOURCE="$after_source" \
   node_modules/.bin/playwright test \
     --config playwright.source-comparison.config.ts --project=firefox \
-    --grep "cataloged Source-only"
+    --grep "cataloged Source-only, exact, moved, and unavailable declarations reach the real managed facade"

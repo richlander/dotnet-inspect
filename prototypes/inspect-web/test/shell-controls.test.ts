@@ -408,6 +408,19 @@ test("workbench shell separates navigation and inspected target rows", () => {
     /Package or Package@version|theme-toggle|shell-command-center/);
 });
 
+test("expanded inspector inventory applies to the complete titlebar", () => {
+  const html = workbenchShellHtml({
+    applicationScopeHtml: "",
+    expandedInspectorInventory: true,
+    inspectedTargetHtml: "",
+    subjectInspectorHtml: "",
+    titleNavigationHtml: "",
+  });
+
+  assert.match(html, /<header class="titlebar expanded-inspector-inventory">/);
+  assert.match(html, /<div class="subject-inspector-region">/);
+});
+
 test("workbench search focus stays with the shell selector owner", () => {
   const root = new FakeRoot();
   const search = root.element();

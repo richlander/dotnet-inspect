@@ -290,4 +290,7 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
+[JsonSerializable(typeof(BrowserLibraryApiDiffRequest))]
+[JsonSerializable(typeof(BrowserLibraryApiDiffResult))]
+[JsonSerializable(typeof(BrowserLibraryApiDiffCancellation))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;

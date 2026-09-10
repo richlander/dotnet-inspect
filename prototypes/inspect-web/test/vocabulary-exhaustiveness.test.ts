@@ -55,8 +55,8 @@ const widenings = [
   {
     vocabulary: "LibraryLens",
     file: "data.ts",
-    find: '  ["metadata", "Metadata"]\n] as const;\n\nexport type PackageLens',
-    replace: '  ["metadata", "Metadata"],\n  ["probe-library-lens", "Probe"]\n] as const;\n\nexport type PackageLens',
+    find: '  ["metadata", "Metadata"],\n  ["diff", "Diff"]\n] as const;\n\nexport type PackageLens',
+    replace: '  ["metadata", "Metadata"],\n  ["diff", "Diff"],\n  ["probe-library-lens", "Probe"]\n] as const;\n\nexport type PackageLens',
     token: "probe-library-lens",
     dispatches: ["libraryLensBody", "libraryLensPresentation"],
   },

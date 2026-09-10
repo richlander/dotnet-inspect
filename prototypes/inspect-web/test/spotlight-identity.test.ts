@@ -3450,7 +3450,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*methodBodyComparison\.dispose\(\);\s*sourceComparison\.dispose\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*methodBodyComparison\.dispose\(\);\s*libraryApiDiff\.dispose\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -3610,7 +3610,7 @@ test("browser history reuses available identities and publishes only unavailable
     /if \(snapshot\.state\.packages\.length === 0 && !snapshot\.state\.platformSelection\) \{\s*snapshot\.state\.workspaceSubjectOpen = true;\s*snapshot\.state\.atPackageRoot = true;\s*snapshot\.state\.atLibraryRoot = false;/);
   assert.match(
     appSource,
-    /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const methodBodyDiff = state\.methodBodyDiff;\s*const sourceDiff = state\.sourceDiff;[\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);\s*Object\.assign\(methodBodyDiff, snapshot\.state\.methodBodyDiff\);\s*Object\.assign\(sourceDiff, snapshot\.state\.sourceDiff\);\s*state\.methodBodyDiff = methodBodyDiff;\s*state\.sourceDiff = sourceDiff;[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);
+    /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const methodBodyDiff = state\.methodBodyDiff;\s*const libraryApiDiffState = state\.libraryApiDiff;[\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);\s*Object\.assign\(methodBodyDiff, snapshot\.state\.methodBodyDiff\);\s*Object\.assign\(libraryApiDiffState, snapshot\.state\.libraryApiDiff\);\s*state\.methodBodyDiff = methodBodyDiff;\s*state\.libraryApiDiff = libraryApiDiffState;[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);
   assert.match(
     appSource,
     /function cloneCanonicalWorkspaceSnapshotForRetention\([\s\S]*const platformIndex = snapshot\.state\.platformIndex;\s*const cloned = structuredClone\(\{\s*\.\.\.snapshot\.state,\s*platformIndex: null,[\s\S]*const retainedState: AppState = \{\s*\.\.\.cloned,\s*platformIndex,/);
@@ -3851,7 +3851,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| state\.methodBodyDiff\.open\s*\|\| state\.sourceDiff\.open\s*\|\| graphExplorer\.isOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| state\.methodBodyDiff\.open\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
@@ -5906,7 +5906,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "opportunities"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "opportunities"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\s*\|\| state\.libraryLens === "diff"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
