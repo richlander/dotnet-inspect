@@ -900,6 +900,73 @@ Examples:
     reason: requested type artifact did not include required generic constraint
 ```
 
+### Native cutover corpus evidence
+
+**Owner:** ReturnToSender / DecompilerHarness, within this reporting contract.
+**Focused issue:** [#6472](https://github.com/richlander/dotnet-inspect/issues/6472),
+step 4 of the six-step adoption and legacy-retirement tracker
+[#6199](https://github.com/richlander/dotnet-inspect/issues/6199).
+
+Before ordinary fidelity consumers can move to RTS, one pinned corpus run must
+measure a target population selected without executing or consulting legacy
+compile-back. For each assembly and positive cap, the corpus-owned stable method
+hash and full stable member key choose exactly that many non-synthesized targets.
+Selection completes before either compiler oracle runs. Because one snapshot
+contains one complete member ledger, a cutover invocation accepts at most one
+distinct positive cap; cap comparisons use separate invocations.
+
+Native RTS evaluates every selected target first with its compile-back floor
+disabled. Legacy compile-back then evaluates the same assembly path, type,
+method, overload, and signature only as reference evidence. A legacy outcome
+cannot admit a target, replace an RTS result, refine its status, or hide a
+missing result. Missing native output remains `ContextFail`; every selected row
+retains the native status and matching legacy status. An expected native
+assembly-context failure (I/O, invalid metadata, access, or compilation-reference
+selection) produces a distinct `ContextFail` row for every selected target in
+that assembly and does not prevent the remaining native assemblies or the later
+legacy-reference phase from running. Unexpected failures still abort the run.
+
+The retained text report enumerates every native/legacy status pair and marks
+every exact or availability loss. The quality diff card remains the bounded
+aggregate projection: it carries provenance, inputs, caps, availability, losses,
+gains, same-status counts, and floor use without duplicating the member ledger
+already present in the snapshot and text artifact.
+
+The typed snapshot records the repository revision and source state captured
+when the harness was built, Roslyn compiler identity, runtime and platform
+identity, corpus profile, caps, input paths and module MVIDs. An assembly that
+cannot supply the exact requested non-synthesized target cap fails the run.
+Aggregate cutover evidence records selected methods; native and legacy
+available/unavailable counts; exact and availability losses; the corresponding
+gains; same-status rows; and the number of compile-back-floor applications,
+which must remain zero. An available result is `Exact`,
+`OpcodeDiff`, or `OperandDiff`; `NotFull`, `FidelityUnavailable`,
+`RecompileFail`, and `ContextFail` remain distinct unavailable outcomes.
+
+`rts-parity` remains a separate transition mode whose population is deliberately
+selected from legacy-useful results. It continues to guard known regressions but
+cannot satisfy independent cutover coverage. `rts-cutover` is opt-in and belongs
+in the on-demand Deep Inspect census lane; this slice does not change ordinary
+defaults, regenerate the primary baseline, make RTS primary, or retire legacy
+reconstruction.
+
+The Release gates
+`DeterministicReturnToSenderCutoverTargets_SelectsExactCapBeforeEitherOracle`,
+`DeterministicReturnToSenderCutoverTargets_FailsWhenExactCapIsUnavailable`,
+`SelectThenEvaluateNativeFirst_CompletesEveryPhaseAcrossAssemblies`,
+`AlignReturnToSenderResults_ReportsUnavailableTarget`,
+`ReturnToSenderCutover_ContextFailureRetainsEverySelectedTarget`,
+`SummarizeReturnToSenderCutover_SeparatesExactAndAvailabilityChanges`,
+`ReturnToSenderCutover_RealFixtureRetainsEveryNativePairWithoutFloor`,
+`ReturnToSenderCutoverReport_RendersEveryStatusPairAndLoss`,
+`QualityDiffCard_ReturnToSenderCutoverDisclosesIdentityAndAllMetrics`,
+`Compare_ReturnToSenderCutover_RejectsDifferentModuleIdentity`, and
+`Compare_ReturnToSenderCutover_GatesLossesAndCompileBackFloor` cover stable
+independent selection, status-pair aggregation, missing-result preservation,
+no-floor execution, snapshot serialization, report disclosure, input identity,
+and same-sample loss regression. The broad pinned-corpus snapshot is retained
+as Deep Inspect evidence rather than added to PR CI.
+
 ### Member comparison query consumption
 
 **Owner:** ReturnToSender / DecompilerHarness.

@@ -40,6 +40,9 @@ substrates, and inspection producers that will extend that space.
   `--share` gesture that projects an inspection command's effective resolved
   source, context, subject, facet, and query state to a canonical Workspace
   packet or Inspect Web URL without a second construction grammar.
+  [Inspection Plan Projections](design/inspection-plan-projections.md) owns the
+  shared resolved basis and closed terminal-purpose split among section
+  execution, effective-section discovery, and portable sharing.
   Its
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
@@ -148,6 +151,15 @@ substrates, and inspection producers that will extend that space.
 - `src/Inspector.Text/` provides the reusable
   `TextFindings` API for exact, ordered line inspection and generic text
   comparison on the shared Finding spine, plus deterministic LF construction.
+- [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md)
+  is the host-neutral resource protocol for service-issued leases, explicit
+  transfer, direct and snapshot-callback borrowing, resource-free references
+  and receipts, C# representation, the residual enforcement overhang before
+  compiler ownership, and the declaration boundary consumed by Analysis.
+  Resource issuers retain their acquisition and cleanup semantics; Analysis
+  retains IL interpretation and Finding semantics; Houses compose and settle
+  scenarios without issuing adjacent-owner leases. Adoption and retirement are
+  tracked by #6544.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its
@@ -265,9 +277,14 @@ substrates, and inspection producers that will extend that space.
   typed transport outcomes. `PdbSourceHouse` retains local, repository, and
   remote ordering, PDB checksum verification, decoding, and settled
   PDB-source outcomes.
+- `src/NetworkAccess/` owns the shared network-destination admission policy
+  used by Core HTTP composition and NuGet feed transports. Its project and
+  compiled assembly dependencies are restricted to the platform by
+  `network-access-stays-independent`.
 - `src/DotnetInspector.Core/` is a transitional runtime bucket beneath
-  Packages, Services, and the CLI. Its cache, networking, untrusted-document,
-  CLI telemetry, and single-consumer helpers move to subject owners under
+  Packages, Services, and the CLI. Its cache, remaining HTTP composition and
+  telemetry, untrusted-document, CLI telemetry, and single-consumer helpers
+  move to subject owners under
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
@@ -281,7 +298,7 @@ substrates, and inspection producers that will extend that space.
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind
   vocabulary, and keeps unanchored facts visible without inventing coordinates.
-- `prototypes/inspect-web/` is the browser/Wasm product host. Its
+- `inspect-web/` is the browser/Wasm product host. Its
   [UI design](design/inspect-web-ui.md) composes the website's shared
   presentation language, reusable
   [SlideStrip](design/inspect-web-slide-strip.md), navigation rendering,
@@ -467,6 +484,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md):
   proposed separation of type/member intent, section resolution, producer
   authorization, shared declaration validation, and C# representability.
+- [Inspection plan projections](design/inspection-plan-projections.md):
+  composition of one resolved inspection basis into distinct section-execution,
+  effective-discovery, or portable-share plans.
 - [Inspection graph document](design/inspection-graph-document.md): typed
   multi-subject graph projection for calls, metadata relationships,
   integrations, Findings, characteristics, and package/type lenses.

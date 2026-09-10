@@ -514,11 +514,32 @@ from rendered content. The duplicate inline graph heading and summary do not
 appear in Explore.
 
 The diagram takes the remaining space rather than retaining the inline
-fixed-height card. Call graph scope remains below the canvas so secondary
-interpretation detail does not precede the primary spatial content; legend and
-Mermaid source follow it. Subject and context wrap completely at narrow widths
-rather than truncating or disappearing. Close and graph controls stay available
-without page-level horizontal overflow.
+fixed-height card. An untouched graph automatically reframes when its viewport
+changes, including relocation into Explore. Automatic framing uses a 92% inset,
+may enlarge a sparse graph to at most 1.5x, and retains a 0.2x legibility floor.
+Explicit Fit may scale as far as 0.05x to reveal more of the complete bounded
+graph; when that floor still exceeds a narrow viewport, the remaining extent
+stays pannable. Wheel, button, keyboard, or pointer pan/zoom makes the view
+user-adjusted; that exact transform survives later relocation and viewport
+changes until Fit restores automatic framing.
+
+The inspected subject uses the shell-purple family in dark and light themes.
+Other graph roles retain their existing distinct fills, strokes, and availability
+or platform border treatments. Connectors remain subordinate and meet 3:1
+contrast against the canvas in both themes so direction remains readable. Zoom
+in, Zoom out, and Fit remain
+bottom-right canvas actions and form one grouped control rail.
+
+Call graph scope remains below the canvas so secondary interpretation detail
+does not precede the primary spatial content. Every graph then supplies a
+consumer-owned bottom legend outside the transformed viewport, so zoom and pan
+cannot move, crop, or shrink its explanation. Call graph names its member and
+assembly roles plus platform lookup; Type relationships names inspected, base,
+interface, derived, and unavailable types; Package Dependencies names inspected,
+open, and load-on-selection packages. Legend rows wrap at narrow widths. Mermaid
+source follows the Call graph legend. Subject and context wrap completely rather
+than truncating or disappearing. Close and graph controls stay available without
+page-level horizontal overflow.
 
 This document owns that placement contract. The existing
 [shared modal semantics](inspect-web-shell-interaction.md#shared-menu-and-modal-semantics)
@@ -528,8 +549,9 @@ shell focus helper rather than adding a second custom inert-background system.
 Annotated Source's explicit Explore action is the local interaction precedent;
 its separate source-viewer sessions are not needed for a graph placement change.
 
-Opening and closing relocate one live graph, without another query, Mermaid
-mount, or loss of pan/zoom. Fit remains explicit for the larger viewport.
+Opening and closing relocate one live graph without another query or Mermaid
+mount. A pristine view reframes for its new viewport; a user-adjusted view does
+not lose or reset its pan/zoom. Fit remains explicit for full-extent framing.
 Ordinary dismissal returns focus to Explore and keeps the selected member and
 platform descent. Existing result replacement, including theme changes, may
 remount the graph as it does inline. Workspace expansion, platform drill/back,
@@ -549,6 +571,8 @@ underlying page. The viewer identifies the inspected package; group buttons
 identify the selected manifest framework independently of the active coordinate.
 The shared header uses the package coordinate as its subject, the active target
 framework as context, and the existing graph-reading guidance as its summary.
+Its bottom legend distinguishes the inspected package, packages already open in
+the Workspace, and packages that load on selection.
 Selecting a group stays in Explore and updates the existing list and graph.
 Closing retains that selection. Pending graph rendering can complete in either
 placement; opening or closing does not restart it.
@@ -572,6 +596,8 @@ activation closes Explore before the existing typed navigation path runs. It
 does not acquire another assembly or reinterpret a display label as identity.
 The shared header uses the selected type as its subject, its package coordinate
 as context, and the existing relationship guidance as its summary.
+Its bottom legend distinguishes the inspected, base, interface, and derived
+roles plus the dashed unavailable state.
 Leaving the selected type, package, framework, assembly, or Metadata inspector
 closes Explore. Same-owner projection loading and failure remain visible in an
 already-open viewer. A replacement without a relationship graph returns to inline
@@ -595,8 +621,12 @@ acquisition, or layout algorithms.
 
 The browser gate covers live DOM and interaction retention across placement
 changes, result replacement, pending completion, no-body/failure visibility,
-dialog focus and dismissal, structured header content, complete narrow-width
-wrapping, content-first scope placement, and narrow geometry. Published Wasm evidence covers
+dialog focus and dismissal, structured header content, pristine and
+user-adjusted resize behavior across wheel, button, keyboard, and pointer
+inputs, bounded sparse-graph enlargement, explicit lower-floor Fit, connector
+contrast, graph-specific legends outside the transform, complete
+narrow-width wrapping, content-first scope placement, and narrow geometry.
+Published Wasm evidence covers
 the production action row and destination navigation. Dependency coverage also
 exercises group changes, empty groups, pending completion, truncation geometry,
 and package navigation/failure. Live platform drill/back evidence is reported

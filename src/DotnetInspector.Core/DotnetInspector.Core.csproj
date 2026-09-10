@@ -18,10 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\NetworkDestinationPolicy.cs" Link="NetworkDestinationPolicy.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\InertText\InertText.csproj" />
+    <ProjectReference Include="..\NetworkAccess\NetworkAccess.csproj" />
   </ItemGroup>
 </Project>

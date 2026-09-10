@@ -317,10 +317,10 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Build and analyze browser frontend
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: |
           npm ci
           npm run analyze
@@ -329,7 +329,7 @@ jobs:
           grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
 
       - name: Test browser frontend
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: node --test
 
       - name: Test annotated-source viewer
@@ -349,7 +349,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -360,7 +360,7 @@ jobs:
         run: dotnet workload install wasm-experimental
 
       - name: Build browser frontend
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: |
           npm ci
           npm run build
@@ -388,7 +388,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -399,7 +399,7 @@ jobs:
         run: dotnet workload install wasm-experimental
 
       - name: Install browser dependencies
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: npm ci
 
       - name: Test shared-runtime multi-facade canary
@@ -425,7 +425,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -436,7 +436,7 @@ jobs:
         run: dotnet workload install wasm-experimental
 
       - name: Install browser dependencies
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: npm ci
 
       - name: Test managed-operation bridge Browser/Wasm canary
@@ -462,7 +462,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -473,7 +473,7 @@ jobs:
         run: dotnet workload install wasm-experimental
 
       - name: Install browser dependencies
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: npm ci
 
       - name: Typecheck generated ts-jsexport facade
@@ -492,7 +492,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -503,16 +503,16 @@ jobs:
         run: dotnet workload install wasm-experimental
 
       - name: Build browser frontend
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: |
           npm ci
           npm run build
 
       - name: Build platform-index generator
-        run: dotnet build prototypes/inspect-web/tools/gen-platform-index/genindex.cs
+        run: dotnet build inspect-web/tools/gen-platform-index/genindex.cs
 
       - name: Test browser engine
-        run: dotnet run --project prototypes/inspect-web/engine.Tests -c Release
+        run: dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
 
   inspect-web-msdl-tests:
     name: inspect-web MSDL managed API tests
@@ -542,7 +542,7 @@ jobs:
           fi
 
       - name: Test MSDL managed API
-        run: dotnet run --project prototypes/inspect-web/msdl-proxy.Tests -c Release
+        run: dotnet run --project inspect-web/msdl-proxy.Tests -c Release
 
   inspect-web-browser:
     name: inspect-web browser (${{ matrix.shard }}/2)
@@ -561,17 +561,17 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Build browser frontend and install dependencies
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: |
           npm ci
           npm run build
           npx playwright install --with-deps firefox
 
       - name: Test browser UI in Firefox
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: npm run test:browser -- --shard=${{ matrix.shard }}/2
 
   inspect-web-published:
@@ -587,7 +587,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -598,7 +598,7 @@ jobs:
         run: dotnet workload install wasm-experimental
 
       - name: Build browser frontend
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: |
           npm ci
           npm run build
@@ -608,12 +608,12 @@ jobs:
         run: |
           set -uo pipefail
           dotnet publish \
-            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output artifacts/inspect-web-publish &
           publish_pid=$!
           (
-            cd prototypes/inspect-web
+            cd inspect-web
             npx playwright install --with-deps firefox
           ) &
           firefox_pid=$!
@@ -656,7 +656,7 @@ jobs:
           test "$published_modules" = "$expected_modules"
           while IFS= read -r module; do
             cmp \
-              "prototypes/inspect-web/engine/wwwroot/$module" \
+              "inspect-web/DotnetInspect.Web/wwwroot/$module" \
               "$site/$module"
           done <<< "$expected_modules"
           test ! -f "$site/inspect-web-engine.js"
@@ -718,7 +718,7 @@ jobs:
       - name: Publish MSDL managed API
         run: >
           dotnet publish
-          prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj
+          inspect-web/msdl-proxy/MsdlProxy.csproj
           -c Release
           --output artifacts/inspect-web-api
 
@@ -992,8 +992,14 @@ jobs:
       - name: Run platform target currency tests
         run: dotnet run --project tests/DotnetInspector.Platforms.Tests -c Release
 
+      - name: Run platform manifest format tests
+        run: dotnet run --project tests/DotnetInspector.Platforms.Formats.Tests -c Release
+
       - name: Run PlatformHouse contract tests
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Tests -c Release
+
+      - name: Run installed PlatformHouse adapter tests
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Installed.Tests -c Release
 
       - name: Run row-selection tests
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
@@ -1027,6 +1033,9 @@ jobs:
 
       - name: Run presentation tests
         run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
+
+      - name: Run NetworkAccess tests
+        run: dotnet run --project tests/NetworkAccess.Tests -c Release
 
       # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
       # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
