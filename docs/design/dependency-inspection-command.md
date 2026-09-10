@@ -3,9 +3,10 @@
 This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
-**Status:** design target. The current `depends` and `dependency-evidence`
-commands remain implemented separately until the migration slices named here
-land.
+**Status:** implementation contract. Asset-mode `depends` implements the
+explicit-root, traversal, section, and output contract in #5994.
+`dependency-evidence` and the positional type-to-library fallback remain
+supported until the focused retirement and cleanup in #5995.
 
 ## Owner and claim
 

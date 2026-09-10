@@ -349,7 +349,7 @@ public static class DependencyEvidenceCommand
         return false;
     }
 
-    private static async Task<(
+    internal static async Task<(
         PackageDependencyEvidenceRequest Request,
         PackageProfileSummary Summary)> AcquirePrefixAsync(
             DependencyEvidenceOptions options,

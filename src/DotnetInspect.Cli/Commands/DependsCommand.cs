@@ -4,6 +4,7 @@ using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
@@ -15,7 +16,7 @@ namespace DotnetInspect.Cli.Commands;
 /// <summary>
 /// Walks dependency graphs upward: type hierarchies, library references, or package dependencies.
 /// </summary>
-public class DependsCommand
+public partial class DependsCommand
 {
     /// <summary>
     /// Returned when the target type was not found. The caller can fall back to library mode.
@@ -44,6 +45,71 @@ public class DependsCommand
     internal static async Task<TypeDependsOutcome> ExecuteTypeDependsAsync(
         DependsOptions options)
     {
+        SectionCatalog<DependsAssetProjection> catalog =
+            DependsAssetSections.GraphCatalog;
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            catalog.SelectableSectionNames,
+            catalog.InfoSectionNames,
+            catalog.SelectionCategoryMap,
+            options.SelectDefault);
+        if (SelectOutput.WriteUnresolved(selection))
+            return new TypeDependsOutcome(1, false);
+
+        if (options.Discover is { } discover)
+        {
+            return new TypeDependsOutcome(
+                DiscoverOutput.Execute(
+                    discover,
+                    DependsAssetSections.CreateGraphSchema(),
+                    tree: options.Tree,
+                    json: options.JsonOutput,
+                    tsv: options.Tsv,
+                    jsonl: options.Jsonl,
+                    sectionCostAnnotations:
+                        catalog.Pipeline.GetCostAnnotations(),
+                    sectionCategories: catalog.SelectionCategoryMap,
+                    projection: options),
+                false);
+        }
+
+        if (options.Schema)
+        {
+            CommandError.Write("--schema requires -D/--discover.");
+            return new TypeDependsOutcome(1, false);
+        }
+        if (IsColumnProjectionRequested(options))
+        {
+            CommandError.Write(
+                "--columns and --fields are not supported in positional type mode.");
+            return new TypeDependsOutcome(1, false);
+        }
+
+        HashSet<string> requestedSections =
+            catalog.Pipeline.GetCandidateSections(
+                options.Verbosity,
+                selection.Sections,
+                fixedOverview: options.SelectDefault);
+        bool emptyQuietSelection =
+            requestedSections.Count == 0
+            && options.Verbosity == Verbosity.Quiet;
+        if (options.Depth is not null
+            && !requestedSections.Contains(
+                DependsAssetSections.DependencyGraph))
+        {
+            CommandError.Write(
+                "--depth requires the Dependency Graph section.");
+            return new TypeDependsOutcome(1, false);
+        }
+        if (!emptyQuietSelection
+            && !requestedSections.Contains(
+                DependsAssetSections.DependencyGraph))
+        {
+            CommandError.Write(
+                $"Type relationship mode currently produces only the '{DependsAssetSections.DependencyGraph}' section.");
+            return new TypeDependsOutcome(1, false);
+        }
+
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -77,6 +143,9 @@ public class DependsCommand
                 return new TypeDependsOutcome(TypeNotFoundExitCode, uncertified);
             }
 
+            if (emptyQuietSelection)
+                return Certified(0, uncertified);
+
             DependencyGraphDocument document =
                 DependencyGraphProjection.Type(result);
             IReadOnlyList<DependencyGraphEdgeRow> rows =
@@ -86,18 +155,6 @@ public class DependsCommand
             if (options.Count)
             {
                 CountOutput.WriteCount(rows.Count);
-            }
-            else if (options.JsonOutput && !options.Tree)
-            {
-                var visibleNodes = TreeRowWindow.Apply(
-                    result.Tree,
-                    options.Rows,
-                    node => node.Children,
-                    (node, children) => node with { Children = children });
-                JsonOutputHelper.Write(visibleNodes,
-                    DependsJsonContext.Default.ListTypeDependencyNode,
-                    DependsCompactJsonContext.Default.ListTypeDependencyNode,
-                    options.CompactJson);
             }
             else
             {
@@ -120,8 +177,54 @@ public class DependsCommand
         }
     }
 
-    public static async Task<int> ExecuteLibraryDependsAsync(DependsOptions options)
+    internal static bool ValidateTypeDepthSelectionBeforeAcquisition(
+        DependsOptions options)
     {
+        if (options.Depth is null
+            || options.Discover is not null
+            || options.Schema
+            || IsColumnProjectionRequested(options))
+        {
+            return true;
+        }
+
+        SectionCatalog<DependsAssetProjection> catalog =
+            DependsAssetSections.GraphCatalog;
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            catalog.SelectableSectionNames,
+            catalog.InfoSectionNames,
+            catalog.SelectionCategoryMap,
+            options.SelectDefault);
+        if (SelectOutput.WriteUnresolved(selection))
+            return false;
+
+        HashSet<string> requestedSections =
+            catalog.Pipeline.GetCandidateSections(
+                options.Verbosity,
+                selection.Sections,
+                fixedOverview: options.SelectDefault);
+        if (requestedSections.Contains(
+                DependsAssetSections.DependencyGraph))
+        {
+            return true;
+        }
+
+        CommandError.Write(
+            "--depth requires the Dependency Graph section.");
+        return false;
+    }
+
+    public static async Task<int> ExecuteLibraryDependsAsync(
+        DependsOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        if (IsColumnProjectionRequested(options))
+        {
+            CommandError.Write(
+                "--columns and --fields are not supported by positional library fallback; use an explicit --library root.");
+            return 1;
+        }
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -129,7 +232,13 @@ public class DependsCommand
         {
             var libraryName = options.LibraryName!;
             var result = await DependencyGraphService.BuildLibraryDependencyTreeAsync(
-                context.HttpClient, libraryName, options.SourceOptions, logger);
+                context.HttpClient,
+                libraryName,
+                options.SourceOptions,
+                logger,
+                options.Depth,
+                cancellationToken,
+                requestedTfm: options.Tfm);
             if (result is LibraryDependencyGraphResult.Error error)
             {
                 CommandError.Write($"{error.Message}");
@@ -162,6 +271,11 @@ public class DependsCommand
                 DependencyGraphProjection.Library(graph),
                 options);
             return 0;
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

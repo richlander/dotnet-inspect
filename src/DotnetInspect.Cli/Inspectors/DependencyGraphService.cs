@@ -34,17 +34,42 @@ internal static class DependencyGraphService
             {
                 logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for type {options.TargetType}");
                 var assemblyPaths = assemblySet.Assemblies.Select(a => a.Path).ToList();
-                return TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
+                return TypeDependencyScanner.BuildDependencyTree(
+                    options.TargetType,
+                    assemblyPaths,
+                    options.Depth);
             });
     }
+
+    public static Task<LibraryDependencyGraphResult> BuildLibraryDependencyTreeAsync(
+        HttpClient httpClient,
+        string libraryName,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        int? maxDepth = null,
+        string? requestedTfm = null) =>
+        BuildLibraryDependencyTreeAsync(
+            httpClient,
+            libraryName,
+            sourceOptions,
+            logger,
+            maxDepth,
+            CancellationToken.None,
+            requestedTfm: requestedTfm);
 
     public static async Task<LibraryDependencyGraphResult> BuildLibraryDependencyTreeAsync(
         HttpClient httpClient,
         string libraryName,
         NuGetSourceOptions? sourceOptions,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        int? maxDepth,
+        CancellationToken cancellationToken,
+        bool traverseReferences = true,
+        string? requestedTfm = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         string? assemblyPath = null;
+        AssemblySetEntry? selectedAssembly = null;
         AssemblySet? ownedAssemblySet = null;
 
         try
@@ -54,21 +79,46 @@ internal static class DependencyGraphService
             {
                 ownedAssemblySet = await AssemblySetResolver.CollectAsync(
                     httpClient,
-                    new AssemblySetRequest { Assemblies = [libraryName], TempDirPrefix = TempDirPrefix },
+                    new AssemblySetRequest
+                    {
+                        Assemblies = [libraryName],
+                        TempDirPrefix = TempDirPrefix,
+                        CancellationToken = cancellationToken,
+                    },
                     logger.Log);
                 AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
-                assemblyPath = ownedAssemblySet.Assemblies.FirstOrDefault()?.Path;
+                selectedAssembly =
+                    ownedAssemblySet.Assemblies.FirstOrDefault();
+                assemblyPath = selectedAssembly?.Path;
             }
             else if (PlatformResolver.IsPlatformCandidate(libraryName))
             {
+                if (requestedTfm is not null
+                    && !PlatformResolver
+                        .TryGetFrameworkSpecsForTargetFramework(
+                            requestedTfm,
+                            out _))
+                {
+                    return new LibraryDependencyGraphResult.Error(
+                        $"Target framework '{requestedTfm}' cannot select an installed platform library.",
+                        libraryName);
+                }
+
                 ownedAssemblySet = await AssemblySetResolver.CollectAsync(
                     httpClient,
-                    new AssemblySetRequest { PlatformAssemblies = [libraryName], TempDirPrefix = TempDirPrefix },
+                    new AssemblySetRequest
+                    {
+                        PlatformAssemblies = [libraryName],
+                        Tfm = requestedTfm,
+                        TempDirPrefix = TempDirPrefix,
+                        CancellationToken = cancellationToken,
+                    },
                     logger.Log);
                 if (ownedAssemblySet.Assemblies.Count > 0)
                 {
                     AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
-                    assemblyPath = ownedAssemblySet.Assemblies[0].Path;
+                    selectedAssembly = ownedAssemblySet.Assemblies[0];
+                    assemblyPath = selectedAssembly.Path;
                 }
                 else
                 {
@@ -86,12 +136,20 @@ internal static class DependencyGraphService
                     {
                         Packages = [libraryName],
                         SourceOptions = sourceOptions,
+                        Tfm = requestedTfm,
                         TempDirPrefix = TempDirPrefix,
-                        PackageSelectionMode = AssemblySetPackageSelectionMode.LibAssembliesDescending,
+                        PackageSelectionMode = requestedTfm is null
+                            ? AssemblySetPackageSelectionMode
+                                .LibAssembliesDescending
+                            : AssemblySetPackageSelectionMode
+                                .TargetFramework,
+                        CancellationToken = cancellationToken,
                     },
                     logger.Log);
 
-                assemblyPath = ownedAssemblySet.Assemblies.FirstOrDefault()?.Path;
+                selectedAssembly =
+                    ownedAssemblySet.Assemblies.FirstOrDefault();
+                assemblyPath = selectedAssembly?.Path;
                 if (assemblyPath == null)
                 {
                     AssemblySetDiagnosticWriter.Write(ownedAssemblySet, includeErrors: false);
@@ -106,8 +164,7 @@ internal static class DependencyGraphService
                 AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
             }
 
-            var (refs, _) =
-                AssemblyInspector.ExtractReferenceIdentitiesAndCompany(assemblyPath);
+            cancellationToken.ThrowIfCancellationRequested();
             ManagedMetadataIdentity? rootIdentity =
                 AssemblyInspector.ExtractManagedMetadataIdentity(assemblyPath);
             var assemblyName = rootIdentity switch
@@ -119,17 +176,38 @@ internal static class DependencyGraphService
                 _ => Path.GetFileNameWithoutExtension(assemblyPath),
             };
 
+            if (!traverseReferences)
+            {
+                return rootIdentity is null
+                    ? new LibraryDependencyGraphResult.NoMetadata(
+                        assemblyName,
+                        selectedAssembly?.SourceKind
+                            ?? AssemblySetSourceKind.Assembly)
+                    : new LibraryDependencyGraphResult.Empty(
+                        assemblyName,
+                        rootIdentity,
+                        selectedAssembly?.SourceKind
+                            ?? AssemblySetSourceKind.Assembly);
+            }
+
+            var (refs, _) =
+                AssemblyInspector.ExtractReferenceIdentitiesAndCompany(
+                    assemblyPath);
             if (refs.Count == 0)
             {
                 if (rootIdentity is null)
                 {
                     return new LibraryDependencyGraphResult.NoMetadata(
-                        assemblyName);
+                        assemblyName,
+                        selectedAssembly?.SourceKind
+                            ?? AssemblySetSourceKind.Assembly);
                 }
 
                 return new LibraryDependencyGraphResult.Empty(
                     assemblyName,
-                    rootIdentity);
+                    rootIdentity,
+                    selectedAssembly?.SourceKind
+                        ?? AssemblySetSourceKind.Assembly);
             }
             if (rootIdentity is null)
             {
@@ -141,11 +219,16 @@ internal static class DependencyGraphService
                     refs,
                     assemblyPath,
                     rootIdentity,
-                    logger);
+                    logger,
+                    maxDepth,
+                    failOnReadError: false,
+                    cancellationToken: cancellationToken);
 
             return new LibraryDependencyGraphResult.Graph(
                 assemblyName,
-                referenceGraph);
+                referenceGraph,
+                selectedAssembly?.SourceKind
+                    ?? AssemblySetSourceKind.Assembly);
         }
         finally
         {
@@ -695,7 +778,8 @@ internal abstract record LibraryDependencyGraphResult
 {
     public sealed record Graph(
         string AssemblyName,
-        LibraryMetadataService.AssemblyReferenceGraph ReferenceGraph) :
+        LibraryMetadataService.AssemblyReferenceGraph ReferenceGraph,
+        AssemblySetSourceKind SourceKind = AssemblySetSourceKind.Assembly) :
         LibraryDependencyGraphResult
     {
         public IReadOnlyList<AssemblyReferenceNode> References =>
@@ -704,10 +788,14 @@ internal abstract record LibraryDependencyGraphResult
 
     public sealed record Empty(
         string AssemblyName,
-        ManagedMetadataIdentity Identity) : LibraryDependencyGraphResult;
+        ManagedMetadataIdentity Identity,
+        AssemblySetSourceKind SourceKind = AssemblySetSourceKind.Assembly) :
+        LibraryDependencyGraphResult;
 
     public sealed record NoMetadata(
-        string AssemblyName) : LibraryDependencyGraphResult;
+        string AssemblyName,
+        AssemblySetSourceKind SourceKind = AssemblySetSourceKind.Assembly) :
+        LibraryDependencyGraphResult;
     /// <summary>
     /// A resolution failure whose message embeds the caller's subject.
     /// </summary>

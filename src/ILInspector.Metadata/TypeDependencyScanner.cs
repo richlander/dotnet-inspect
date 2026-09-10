@@ -29,6 +29,14 @@ public sealed record TypeDependencyRelationship(
     int Ordinal);
 
 /// <summary>
+/// Identifies a type whose outgoing relationships were excluded by a depth
+/// bound.
+/// </summary>
+public sealed record TypeDependencyDepthBoundary(
+    string TypeName,
+    int MaximumDepth);
+
+/// <summary>
 /// Identifies why a candidate assembly was rejected during a dependency scan.
 /// </summary>
 public enum TypeDependencyRejectionKind
@@ -99,6 +107,12 @@ public record TypeDependencyResult(string? MatchedType, List<TypeDependencyNode>
     public IReadOnlyList<TypeDependencyRelationship> Relationships { get; init; } = [];
 
     /// <summary>
+    /// Exact type identities whose outgoing relationships were excluded by the
+    /// requested depth.
+    /// </summary>
+    public IReadOnlyList<TypeDependencyDepthBoundary> DepthBoundaries { get; init; } = [];
+
+    /// <summary>
     /// Candidate assemblies the scan rejected on metadata-format grounds.
     /// </summary>
     public IReadOnlyList<TypeDependencyRejection> Rejections { get; init; } = [];
@@ -118,8 +132,17 @@ public static class TypeDependencyScanner
     /// </summary>
     public static TypeDependencyResult BuildDependencyTree(
         string targetType,
-        IReadOnlyList<string> assemblyPaths)
+        IReadOnlyList<string> assemblyPaths,
+        int? maximumDepth = null)
     {
+        if (maximumDepth is < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumDepth),
+                maximumDepth,
+                "A maximum dependency depth cannot be negative.");
+        }
+
         var typeIndex = new Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)>(
             StringComparer.Ordinal);
         var peReaders = new List<PEReader>();
@@ -322,15 +345,24 @@ public static class TypeDependencyScanner
                 return new TypeDependencyResult(null, []) { Rejections = rejections };
 
             var match = typeIndex[matchKey];
-            var treeSeen = new HashSet<string>(StringComparer.Ordinal);
-            var relationshipSeen =
-                new HashSet<string>(StringComparer.Ordinal);
+            var treeExpansionBudgets =
+                new Dictionary<string, int>(StringComparer.Ordinal);
+            var relationshipExpansionBudgets =
+                new Dictionary<string, int>(StringComparer.Ordinal);
+            var emittedRelationships =
+                new HashSet<(
+                    string Source,
+                    string Target,
+                    TypeDependencyRelationshipKind Kind)>();
             var activeDefinitions =
                 new HashSet<string>(StringComparer.Ordinal)
                 {
                     matchKey,
                 };
             var relationships = new List<TypeDependencyRelationship>();
+            var depthBoundaries =
+                new Dictionary<string, TypeDependencyDepthBoundary>(
+                    StringComparer.Ordinal);
             string matchedType = TypeResolver.FormatDisplayName(matchKey);
             var tree = BuildNode(
                 matchedType,
@@ -338,15 +370,25 @@ public static class TypeDependencyScanner
                 match.TypeDef,
                 GenericContext.ForType(match.MdReader, match.TypeDef),
                 typeIndex,
-                treeSeen,
-                relationshipSeen,
+                treeExpansionBudgets,
+                relationshipExpansionBudgets,
+                emittedRelationships,
                 activeDefinitions,
                 relationships,
+                depthBoundaries,
                 includeTree: true,
-                collectRelationships: true);
+                collectRelationships: true,
+                currentDepth: 0,
+                maximumDepth);
             return new TypeDependencyResult(TypeResolver.FormatDisplayName(matchKey), tree)
             {
                 Relationships = relationships,
+                DepthBoundaries =
+                [
+                    .. depthBoundaries.Values.OrderBy(
+                        static boundary => boundary.TypeName,
+                        StringComparer.Ordinal),
+                ],
                 Rejections = rejections,
             };
         }
@@ -413,12 +455,19 @@ public static class TypeDependencyScanner
         TypeDefinition typeDef,
         GenericContext context,
         Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
-        HashSet<string> treeSeen,
-        HashSet<string> relationshipSeen,
+        Dictionary<string, int> treeExpansionBudgets,
+        Dictionary<string, int> relationshipExpansionBudgets,
+        HashSet<(
+            string Source,
+            string Target,
+            TypeDependencyRelationshipKind Kind)> emittedRelationships,
         HashSet<string> activeDefinitions,
         List<TypeDependencyRelationship> relationships,
+        Dictionary<string, TypeDependencyDepthBoundary> depthBoundaries,
         bool includeTree,
-        bool collectRelationships)
+        bool collectRelationships,
+        int currentDepth,
+        int? maximumDepth)
     {
         // Gather all declared dependencies (base type + interfaces)
         var allDeps =
@@ -467,11 +516,35 @@ public static class TypeDependencyScanner
                 ExpansionKey(d.Name)))
             .ToList();
 
+        string sourceIdentity = ExpansionKey(sourceTypeName);
+        if (maximumDepth is { } bounded && currentDepth >= bounded)
+        {
+            if (directDeps.Count > 0)
+            {
+                depthBoundaries.TryAdd(
+                    sourceIdentity,
+                    new TypeDependencyDepthBoundary(
+                        sourceTypeName,
+                        bounded));
+            }
+            return [];
+        }
+
+        // A shorter path can reach a node after an earlier depth-boundary
+        // encounter. Once its outgoing relationships are admitted, it is no
+        // longer a bounded semantic endpoint.
+        depthBoundaries.Remove(sourceIdentity);
+
         // Build tree nodes for direct deps only
         var results = new List<TypeDependencyNode>();
         foreach (var dep in directDeps)
         {
-            if (collectRelationships)
+            if (collectRelationships
+                && emittedRelationships.Add(
+                    (
+                        ExpansionKey(sourceTypeName),
+                        ExpansionKey(dep.Name),
+                        dep.Kind)))
             {
                 relationships.Add(
                     new TypeDependencyRelationship(
@@ -481,21 +554,34 @@ public static class TypeDependencyScanner
                         relationships.Count));
             }
 
-            var normalized = FqnParser.NormalizeTypeName(dep.Name);
-            bool expandTree = includeTree && treeSeen.Add(normalized);
+            int childDepth = currentDepth + 1;
+            bool expandTree = includeTree
+                && ClaimExpansionBudget(
+                    treeExpansionBudgets,
+                    dep.Name,
+                    childDepth,
+                    maximumDepth);
             bool expandRelationships = collectRelationships
-                && relationshipSeen.Add(ExpansionKey(dep.Name));
+                && ClaimExpansionBudget(
+                    relationshipExpansionBudgets,
+                    dep.Name,
+                    childDepth,
+                    maximumDepth);
             List<TypeDependencyNode> children =
                 expandTree || expandRelationships
                     ? ResolveChildren(
                         dep.Name,
                         typeIndex,
-                        treeSeen,
-                        relationshipSeen,
+                        treeExpansionBudgets,
+                        relationshipExpansionBudgets,
+                        emittedRelationships,
                         activeDefinitions,
                         relationships,
+                        depthBoundaries,
                         expandTree,
-                        expandRelationships)
+                        expandRelationships,
+                        childDepth,
+                        maximumDepth)
                     : [];
 
             if (!includeTree)
@@ -628,15 +714,43 @@ public static class TypeDependencyScanner
     private static string ExpansionKey(string typeName) =>
         typeName.Trim();
 
+    private static bool ClaimExpansionBudget(
+        Dictionary<string, int> expansionBudgets,
+        string typeName,
+        int currentDepth,
+        int? maximumDepth)
+    {
+        int remainingBudget = maximumDepth is { } bounded
+            ? bounded - currentDepth
+            : int.MaxValue;
+        string identity = ExpansionKey(typeName);
+
+        if (expansionBudgets.TryGetValue(identity, out int previousBudget)
+            && previousBudget >= remainingBudget)
+        {
+            return false;
+        }
+
+        expansionBudgets[identity] = remainingBudget;
+        return true;
+    }
+
     private static List<TypeDependencyNode> ResolveChildren(
         string typeName,
         Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
-        HashSet<string> treeSeen,
-        HashSet<string> relationshipSeen,
+        Dictionary<string, int> treeExpansionBudgets,
+        Dictionary<string, int> relationshipExpansionBudgets,
+        HashSet<(
+            string Source,
+            string Target,
+            TypeDependencyRelationshipKind Kind)> emittedRelationships,
         HashSet<string> activeDefinitions,
         List<TypeDependencyRelationship> relationships,
+        Dictionary<string, TypeDependencyDepthBoundary> depthBoundaries,
         bool includeTree,
-        bool collectRelationships)
+        bool collectRelationships,
+        int currentDepth,
+        int? maximumDepth)
     {
         var normalizedName = FqnParser.NormalizeTypeName(typeName);
 
@@ -656,12 +770,16 @@ public static class TypeDependencyScanner
                     match.TypeDef,
                     typeName),
                 typeIndex,
-                treeSeen,
-                relationshipSeen,
+                treeExpansionBudgets,
+                relationshipExpansionBudgets,
+                emittedRelationships,
                 activeDefinitions,
                 relationships,
+                depthBoundaries,
                 includeTree,
-                collectRelationships);
+                collectRelationships,
+                currentDepth,
+                maximumDepth);
         }
         finally
         {

@@ -15,32 +15,34 @@ for a standalone diagram, or `--markdown --mermaid` to embed one.
 dnx dotnet-inspect -y -- <command>
 ```
 
-Scope any of these commands the same way: `--project path/to.csproj` (restored
-project references), `--package Foo` (repeatable), `--library path.dll`,
-`--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (current
-Microsoft.* sets), and `--tfm net9.0`. For `implements` and `extensions`, use
-`--package-prefix Azure.AI` to search up to 500 packages under a NuGet ID
-prefix; the command warns when that bound is reached. `depends` does not accept
-`--package-prefix`.
+With a positional type, scope relationship commands with
+`--project path/to.csproj`, repeatable `--package Foo`, `--library path.dll`,
+`--platform`, `--extensions`, `--aspnetcore`, and `--tfm net9.0`. Without a
+positional type, `depends` treats repeatable `--package`, `--nuspec`,
+`--library`, and `--project` options as explicit roots; exclusive
+`--package-prefix PREFIX` admits up to 500 package roots by default and can be
+bounded explicitly with `--max-packages`.
 
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
 
 ## What does the root declare directly?
 
-`dependency-evidence` reports one normalized snapshot of the direct
-dependencies declared by explicit package, nuspec, restored-project, or
-package-prefix roots. It preserves framework scopes, version constraints,
-restored resolution evidence, and root-set completion without walking the
-transitive dependency tree. Use `depends` when traversal is the goal.
+`depends -S Dependencies` reports normalized direct declarations without
+requesting transitive traversal. Add `Roots`, `Restored Edges`, `Failures`,
+`Dependency Groups`, or `Restored Packages` as needed. The
+`dependency-evidence` command remains supported with its existing
+direct-evidence-only contract.
 
 ```bash
-dnx dotnet-inspect -y -- dependency-evidence \
+dnx dotnet-inspect -y -- depends \
   --package Newtonsoft.Json --tfm net8.0
+dnx dotnet-inspect -y -- depends \
+  --project ./src/App/App.csproj \
+  --nuspec ./artifacts/App.nuspec \
+  -S "Roots,Dependencies,Restored Edges"
 dnx dotnet-inspect -y -- dependency-evidence \
-  --project ./src/App/App.csproj --nuspec ./artifacts/App.nuspec -v:n
-dnx dotnet-inspect -y -- dependency-evidence \
-  --package-prefix Microsoft.Extensions --tfm net10.0 --jsonl
+  --package-prefix Microsoft.Extensions --tfm net10.0 -v:n
 ```
 
 ## What implements or extends it?
@@ -59,17 +61,27 @@ dnx dotnet-inspect -y -- extensions string --project ./src/App/App.csproj -v:n
 
 ## What does it depend on?
 
-`depends Type` walks dependency graphs upward — type hierarchy, library
-references, or package dependencies, depending on scope. Shared targets remain
-distinct incoming edges and appear as revisits in tree output. `--table`,
-`--tsv`, `--jsonl`, `--count`, `--rows`, and `-n` address the same ordered
-logical edges; `--json` retains the existing type-tree contract.
+`depends Type` walks a type hierarchy inside its search scopes. Asset mode
+omits the positional type and walks explicit package manifests, restored
+projects, and library references. `--depth 1` includes direct edges only;
+omitting it follows the complete authorized graph. Shared targets remain
+distinct incoming edges and appear as revisits in tree output. `-D`, `-S`,
+`--table`, `--tsv`, `--jsonl`, `--json`, `--count`, `--rows`, and `-n` address
+the same section and logical-row contracts.
 
 ```bash
 dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
 dnx dotnet-inspect -y -- depends Int128 --table --rows 1..10
+dnx dotnet-inspect -y -- depends \
+  --project ./src/App/App.csproj \
+  --depth 2 \
+  -S "Dependency Graph,Dependencies"
+dnx dotnet-inspect -y -- depends \
+  --package Microsoft.Extensions.Hosting@10.0.0 \
+  --depth 1 \
+  --tree
 ```
 
 ## Who calls it? (reverse edges)
