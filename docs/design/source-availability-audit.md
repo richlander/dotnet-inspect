@@ -58,8 +58,10 @@ The service classifies each considered observation in this order:
 1. Embedded storage is accessible without cache or network work.
 2. No resolved URL is missing.
 3. A non-HTTP(S) URL is missing.
-4. A canonical path beneath `/artifacts/obj/` is missing. It identifies a
-   build-intermediate observation rather than distributable source.
+4. An authored document path beneath `/artifacts/obj/` is missing. The authored
+   path identifies where the compiler consumed the build-intermediate file;
+   the canonical SourceLink remainder is repository identity and does not
+   rewrite that compiler observation.
 5. An admitted reusable positive observation is accessible.
 6. Otherwise, the service performs the owned HEAD operation.
 7. A successful response is accessible only when
@@ -146,8 +148,9 @@ The contract-defining cases are:
 
 - an empty or non-compiler census is not all-accessible;
 - embedded source uses neither cache nor network;
-- unsupported, unresolved, and build-intermediate observations use neither
-  cache nor network;
+- unsupported, unresolved, and authored build-intermediate observations use
+  neither cache nor network, including when SourceLink gives the latter a
+  non-artifact canonical remainder;
 - an immutable positive observation is reused without expiry;
 - a mutable positive observation is reused for at most one day;
 - a 404 and every other non-success remain operation-local;
@@ -161,6 +164,7 @@ The contract-defining cases are:
 `SourceLinkQueryServiceTests` must gate:
 
 - mixed embedded, reachable, missing, and ignored observations;
+- empty and duplicate-URL censuses retain the explicit denominator semantics;
 - positive cache category, URL key, extension, mutability-based age, and reuse;
 - absence of negative publication for 404 and other non-success responses;
 - absence of publication after final-origin rejection; and

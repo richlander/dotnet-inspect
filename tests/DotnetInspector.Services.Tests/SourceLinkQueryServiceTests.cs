@@ -232,9 +232,14 @@ public class SourceLinkQueryServiceTests
             Document("/src/Embedded.cs", SourceDocumentStorage.Embedded),
             Document("/src/Unresolved.cs"),
             Document("/src/Unsupported.cs", url: "ftp://example.test/unsupported.cs"),
-            Document(
+            new(
+                "src/Generated.g.cs",
                 "/repo/artifacts/obj/Generated.g.cs",
-                url: "https://example.test/generated.cs"),
+                DocumentRowId: 4,
+                SourceDocumentStorage.SourceLink,
+                "https://example.test/generated.cs",
+                ChecksumAlgorithm: null,
+                Checksum: null),
         ];
 
         SourceAvailabilitySummary result = await SourceAvailabilityService.InspectAsync(
@@ -248,6 +253,77 @@ public class SourceLinkQueryServiceTests
         Assert.Equal(0, requests);
         Assert.Empty(cache.Lookups);
         Assert.Empty(cache.Writes);
+    }
+
+    [Fact]
+    public async Task Availability_EmptyCensusIsNotAccessible()
+    {
+        int requests = 0;
+        using var client = new HttpClient(new StubHandler(_ =>
+        {
+            requests++;
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }));
+        RecordingSourceLinkQueryCache cache = new();
+
+        SourceAvailabilitySummary result = await SourceAvailabilityService.InspectAsync(
+            [],
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, result.TotalSourceFiles);
+        Assert.Equal(0, result.AccessibleSourceFiles);
+        Assert.False(result.AllSourcesAccessible);
+        Assert.Equal(0, requests);
+        Assert.Empty(cache.Lookups);
+        Assert.Empty(cache.Writes);
+    }
+
+    [Fact]
+    public async Task Availability_DuplicateUrlRetainsEachDocumentInTheDenominator()
+    {
+        const string Url = "https://example.test/src/a.cs";
+        int requests = 0;
+        using var client = new HttpClient(new StubHandler(_ =>
+        {
+            requests++;
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }));
+        RecordingSourceLinkQueryCache cache = new();
+        cache.Seed("source-audit-v2", Url, "1", "ok");
+        SourceDocumentObservation[] documents =
+        [
+            new(
+                "src/A.cs",
+                "/_/src/A.cs",
+                DocumentRowId: 1,
+                SourceDocumentStorage.SourceLink,
+                Url,
+                ChecksumAlgorithm: null,
+                Checksum: null),
+            new(
+                "src/A.cs",
+                "/_2/src/A.cs",
+                DocumentRowId: 2,
+                SourceDocumentStorage.SourceLink,
+                Url,
+                ChecksumAlgorithm: null,
+                Checksum: null),
+        ];
+
+        SourceAvailabilitySummary result = await SourceAvailabilityService.InspectAsync(
+            documents,
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, result.TotalSourceFiles);
+        Assert.Equal(2, result.AccessibleSourceFiles);
+        Assert.True(result.AllSourcesAccessible);
+        Assert.Equal(0, requests);
+        Assert.Equal(2, cache.Lookups.Count);
+        Assert.All(cache.Lookups, lookup => Assert.Equal(Url, lookup.Key));
     }
 
     [Fact]
