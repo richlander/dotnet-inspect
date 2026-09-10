@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -152,6 +153,7 @@ public sealed class PackageRootBinding
                 payload.Coordinate.PackageId,
                 requestedTargetFramework,
                 runtimeIdentifier: null,
+                exact.Root.AssetSelection,
                 out PackageCompileAssetSelection? compatibleSelection)
                 is false)
         {
@@ -237,6 +239,7 @@ public sealed class PackageRootBinding
                 payload.Coordinate.PackageId,
                 requestedTargetFramework,
                 payload.Coordinate.RuntimeIdentifier,
+                exact.Root.AssetSelection,
                 out PackageCompileAssetSelection? compatibleSelection)
                 is false)
         {
@@ -261,21 +264,43 @@ public sealed class PackageRootBinding
         string packageId,
         string requestedTargetFramework,
         string? runtimeIdentifier,
+        PackageCompileAssetSelection exactSelection,
         [NotNullWhen(true)] out PackageCompileAssetSelection? selection)
     {
-        if (PackageAssetSelector.Select(content, requestedTargetFramework)
-            is not PackageAssetSelection.Selected compatible)
+        PackageAssetSelection implementationSelection =
+            PackageAssetSelector.Select(content, requestedTargetFramework);
+        if (implementationSelection is PackageAssetSelection.NoMatch)
         {
             selection = null;
             return false;
         }
 
-        selection = PackageCompileAssetSelector.SelectForCompatibleImplementation(
-            content,
-            packageId,
-            requestedTargetFramework,
-            compatible.Universe.TargetFramework,
-            runtimeIdentifier);
+        selection = implementationSelection switch
+        {
+            PackageAssetSelection.Selected compatible =>
+                PackageCompileAssetSelector.SelectForCompatibleImplementation(
+                    content,
+                    packageId,
+                    requestedTargetFramework,
+                    compatible.Universe.TargetFramework,
+                    runtimeIdentifier),
+            PackageAssetSelection.Ambiguous ambiguous =>
+                exactSelection with
+                {
+                    Status =
+                        PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+                    Message = ambiguous.Message,
+                },
+            PackageAssetSelection.Invalid invalid =>
+                exactSelection with
+                {
+                    Status =
+                        PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+                    Message = invalid.Message,
+                },
+            _ => throw new UnreachableException(
+                "Package asset selection returned an unsupported outcome."),
+        };
         return true;
     }
 

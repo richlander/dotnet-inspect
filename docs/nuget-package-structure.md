@@ -118,6 +118,7 @@ Current behavior is gated by:
 - `PackageAssetSelectorTests.Select_PrefersTheRuntimeSpecificAssetForTheRequestedRid`;
 - `PackageAssetSelectorTests.Select_WithoutARid_UsesOnlyRuntimeNeutralAssets`;
 - `PackageAssemblyContextRealizationTests.PackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback`;
+- `PackageAssemblyContextRealizationTests.CompatibleAmbiguousImplementationLayout_RemainsInvalid`;
 - `PackageAssemblyContextRealizationTests.RidSpecificImplementation_UsesSeparateNeutralCompileRole`;
 - `BrowserEngineBoundaryTests.QueryPackage_CompatibleEmptyCompileGroupSuppressesLibraryFallback`;
 - `BrowserEngineBoundaryTests.QueryPackage_ReferenceOnlyCompatibleFrameworkRetainsDependencies`;

@@ -364,6 +364,62 @@ public sealed class PackageAssemblyContextRealizationTests
             binding.Root.AssetSelection.ImplementationAssets.Select(asset => asset.Path));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompatibleAmbiguousImplementationLayout_RemainsInvalid(
+        bool resolved)
+    {
+        const string packageId = "invalid.compatible";
+        var content = new InMemoryPackageContent(
+            Archive(
+                ("lib/netcoreapp5.0/Legacy.dll", [0x01]),
+                ("lib/net5.0/Modern.dll", [0x02])),
+            fromCache: false,
+            producerKey: "tests");
+        PackageRootBinding binding;
+        if (resolved)
+        {
+            var payload = new AcquiredPackagePayload(
+                new ResolvedPackageCoordinate(
+                    packageId,
+                    "1.0.0",
+                    "net9.0",
+                    runtimeIdentifier: null,
+                    [PackageSource.NuGetOrg],
+                    wasFloating: false),
+                content,
+                "tests",
+                PackagePayloadOrigin.Download);
+            binding =
+                PackageRootBinding.CreateFromResolvedWithCompatibleSelection(
+                    payload,
+                    "net9.0");
+        }
+        else
+        {
+            var payload = new AcquiredPackageSourcePayload(
+                PackageSourceCoordinate.Create(packageId, "1.0.0"),
+                content,
+                "tests",
+                PackagePayloadOrigin.Download);
+            binding =
+                PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                    payload,
+                    "net9.0");
+        }
+
+        Assert.Equal("net9.0", binding.Coordinate.Framework);
+        Assert.Equal("net9.0", binding.Root.RequestedTargetFramework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+            binding.Root.AssetSelection.Status);
+        Assert.Contains(
+            "equally applicable",
+            binding.Root.AssetSelection.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void PackageRootSelectionIdentity_SelectionSequencesAreImmutable()
     {
