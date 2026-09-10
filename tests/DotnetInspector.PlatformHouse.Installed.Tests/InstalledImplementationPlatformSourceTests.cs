@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Installed;
@@ -473,6 +474,41 @@ public sealed class InstalledImplementationPlatformSourceTests
                             InstalledPlatformFamily.AspNetCore,
                             "1.0.0"),
                         work),
+                    TestContext.Current.CancellationToken);
+
+        var rejected = Assert.IsType<
+                InstalledPlatformSourceOutcome<
+                    InstalledImplementationRealization>.Rejected>(outcome);
+        Assert.Equal(
+                InstalledPlatformSourceDiagnosticKind.InvalidManifest,
+                rejected.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public async Task Realize_RejectsInvalidRuntimeConfigurationUtf8()
+    {
+        using var hive = new TestHive();
+        string directory = hive.CreateFramework(
+                "Microsoft.AspNetCore.App",
+                "1.0.0",
+                runtimeConfiguration: "{}",
+                []);
+        byte[] bytes = Encoding.UTF8.GetBytes(
+                """{"runtimeOptions":{"framework":{"name":"X","version":"1.0.0"}}}""");
+        bytes[Array.IndexOf(bytes, (byte)'X')] = 0xff;
+        File.WriteAllBytes(
+                Path.Combine(
+                    directory,
+                    "Microsoft.AspNetCore.App.runtimeconfig.json"),
+                bytes);
+
+        InstalledPlatformSourceOutcome<InstalledImplementationRealization>
+                outcome = await hive.CreateSource().RealizeAsync(
+                    new InstalledImplementationRealizationRequest(
+                        hive.Coordinate(
+                            InstalledPlatformFamily.AspNetCore,
+                            "1.0.0"),
+                        Work()),
                     TestContext.Current.CancellationToken);
 
         var rejected = Assert.IsType<

@@ -227,6 +227,26 @@ public sealed class PlatformManifestReaderTests
     }
 
     [Fact]
+    public void RuntimeConfiguration_RejectsInvalidUtf8()
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(
+                """{"runtimeOptions":{"framework":{"name":"X","version":"1.0.0"}}}""");
+        bytes[Array.IndexOf(bytes, (byte)'X')] = 0xff;
+
+        PlatformManifestParseOutcome<PlatformRuntimeConfiguration> outcome =
+                PlatformRuntimeConfigurationReader.Parse(
+                    bytes,
+                    cancellationToken: TestContext.Current.CancellationToken);
+
+        var rejected = Assert.IsType<
+                PlatformManifestParseOutcome<
+                    PlatformRuntimeConfiguration>.Rejected>(outcome);
+        Assert.Equal(
+                PlatformManifestDiagnosticKind.MalformedJson,
+                rejected.Diagnostic.Kind);
+    }
+
+    [Fact]
     public void DependencyManifest_UsesNamedTargetManagedAssets()
     {
         PlatformManifestParseOutcome<PlatformDependencyManifest> outcome =
@@ -386,6 +406,26 @@ public sealed class PlatformManifestReaderTests
                     PlatformDependencyManifest>.Rejected>(outcome);
         Assert.Equal(
                 PlatformManifestDiagnosticKind.InvalidAssetCoordinate,
+                rejected.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void DependencyManifest_RejectsInvalidUtf8()
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(
+                """{"runtimeTarget":{"name":"X"},"targets":{"X":{}}}""");
+        bytes[Array.IndexOf(bytes, (byte)'X')] = 0xff;
+
+        PlatformManifestParseOutcome<PlatformDependencyManifest> outcome =
+                PlatformDependencyManifestReader.Parse(
+                    bytes,
+                    cancellationToken: TestContext.Current.CancellationToken);
+
+        var rejected = Assert.IsType<
+                PlatformManifestParseOutcome<
+                    PlatformDependencyManifest>.Rejected>(outcome);
+        Assert.Equal(
+                PlatformManifestDiagnosticKind.MalformedJson,
                 rejected.Diagnostic.Kind);
     }
 

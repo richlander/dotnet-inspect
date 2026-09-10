@@ -182,7 +182,7 @@ it observes, including entries that do not become managed members.
 
 - global and per-reference runtime settings;
 - dependency-free runtime configurations;
-- duplicate-property and duplicate-framework rejection;
+- malformed UTF-8, duplicate-property, and duplicate-framework rejection;
 - portable framework-name and canonical-version validation;
 - exact runtime-target selection;
 - runtime assets plus only the historical CoreLib native asset;

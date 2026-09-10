@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using DotnetInspector.Core;
 
@@ -22,6 +23,9 @@ public static class PlatformRuntimeConfigurationReader
 
         try
         {
+            PlatformManifestReaderHelpers.ValidateUtf8(
+                utf8Json.Span,
+                "runtime configuration");
             using JsonDocument document = ParseDocument(utf8Json);
             JsonElement root = RequireObject(document.RootElement, "root");
             if (!root.TryGetProperty(
@@ -75,9 +79,6 @@ public static class PlatformRuntimeConfigurationReader
                     .OrderBy(
                         static entry =>
                             FrameworkElementSortKey(entry.Element),
-                        StringComparer.Ordinal)
-                    .ThenBy(
-                        static entry => entry.Element.GetRawText(),
                         StringComparer.Ordinal))
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -260,20 +261,14 @@ public static class PlatformRuntimeConfigurationReader
                 out JsonElement name)
             && name.ValueKind == JsonValueKind.String)
         {
-            try
-            {
-                return "0:" + name.GetString();
-            }
-            catch (InvalidOperationException)
-            {
-                return "1:string:" + name.GetRawText();
-            }
+            return "0:"
+                + ReadRequiredString(
+                    name,
+                    "framework name");
         }
 
         return "1:"
-            + element.ValueKind
-            + ":"
-            + element.GetRawText();
+            + element.ValueKind;
     }
 
     private static JsonDocument ParseDocument(
@@ -384,6 +379,9 @@ public static class PlatformDependencyManifestReader
 
         try
         {
+            PlatformManifestReaderHelpers.ValidateUtf8(
+                utf8Json.Span,
+                "dependency manifest");
             using JsonDocument document = ParseDocument(utf8Json);
             JsonElement root = PlatformManifestReaderHelpers.RequireObject(
                 document.RootElement,
@@ -614,6 +612,28 @@ public static class PlatformDependencyManifestReader
 
 internal static class PlatformManifestReaderHelpers
 {
+    private static readonly UTF8Encoding StrictUtf8 =
+        new(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true);
+
+    internal static void ValidateUtf8(
+        ReadOnlySpan<byte> utf8,
+        string name)
+    {
+        try
+        {
+            StrictUtf8.GetCharCount(utf8);
+        }
+        catch (DecoderFallbackException ex)
+        {
+            throw new ManifestReadException(
+                PlatformManifestDiagnosticKind.MalformedJson,
+                $"The {name} contains invalid UTF-8.",
+                ex);
+        }
+    }
+
     internal static JsonElement RequireObject(
         JsonElement element,
         string name)
