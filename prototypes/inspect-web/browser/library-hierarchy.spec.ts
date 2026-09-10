@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -134,8 +136,9 @@ interface PlatformFixture {
   mismatchedFile?: boolean;
 }
 
-// Exercise the production composition root and bindings with deterministic facade
-// responses. Codec and participant-query behavior have separate engine outcome gates.
+// Exercise the production composition root and Worker with deterministic facade
+// responses. Firefox cannot route imports made inside a dedicated Worker, so the
+// served Worker entry receives data-URL facades and a channel bridges fixture signals.
 async function installFacades(
   page: Page,
   model = surface,
@@ -146,6 +149,45 @@ async function installFacades(
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
 ) {
+  const bridgeName = `inspect-web-facade-${randomUUID()}`;
+  const fixtureSignals = [
+    "finish-platform-catalog",
+    "finish-platform-library",
+    "finish-platform-warmup",
+    ...[model, ...additionalSurfaces].flatMap(item =>
+      item.assemblies.flatMap(assembly => [
+        `fixture-analysis-ready:${assembly.id}`,
+        `fixture-integrations-ready:${assembly.id}`,
+        `fixture-opportunities-ready:${assembly.id}`,
+        `fixture-references-ready:${assembly.id}`,
+      ])),
+  ];
+  await page.addInitScript(({ name, signals }) => {
+    // Routed documents do not reliably publish Firefox paint entries at narrow widths.
+    if (globalThis.PerformanceObserver?.supportedEntryTypes?.includes("paint")) {
+      Object.defineProperty(PerformanceObserver, "supportedEntryTypes", {
+        value: PerformanceObserver.supportedEntryTypes.filter(entryType => entryType !== "paint"),
+      });
+    }
+    const channel = new BroadcastChannel(name);
+    globalThis.addEventListener("pagehide", () => channel.close(), { once: true });
+    channel.addEventListener("message", (
+      event: MessageEvent<{ kind?: string; name?: string; value?: string }>,
+    ) => {
+      const message = event.data;
+      if (message.kind === "dataset" && message.name && message.value !== undefined) {
+        document.documentElement.dataset[message.name] = message.value;
+      }
+    });
+    for (const signal of signals) {
+      document.addEventListener(signal, () => {
+        BroadcastChannel.prototype.postMessage.call(
+          channel,
+          { kind: "signal", name: signal },
+        );
+      });
+    }
+  }, { name: bridgeName, signals: fixtureSignals });
   const catalogTarget: PlatformCatalogTarget = {
     ...platformTarget,
     rows: [
@@ -155,7 +197,27 @@ async function installFacades(
       ...(platform?.nativeCoreLib ? [{ ...platformRow("System.Private.CoreLib", "impl", false), publicTypes: 1 }] : []),
     ],
   };
-  const common = "export async function initializeRuntime() {}";
+  const common = `
+    const fixtureBridge = new BroadcastChannel(${JSON.stringify(bridgeName)});
+    const fixtureWaiters = new Map();
+    fixtureBridge.addEventListener("message", event => {
+      const message = event.data;
+      if (message?.kind !== "signal") return;
+      const waiters = fixtureWaiters.get(message.name);
+      fixtureWaiters.delete(message.name);
+      waiters?.forEach(resolve => resolve());
+    });
+    function fixtureMark(name, value) {
+      fixtureBridge.postMessage({ kind: "dataset", name, value });
+    }
+    function fixtureWait(name) {
+      return new Promise(resolve => {
+        const waiters = fixtureWaiters.get(name) ?? [];
+        waiters.push(resolve);
+        fixtureWaiters.set(name, waiters);
+      });
+    }
+    export async function initializeRuntime() {}`;
   const surfaceLookup = `
     const surfaces = ${JSON.stringify([model, ...additionalSurfaces])};
     function surfaceFor(id) {
@@ -166,6 +228,9 @@ async function installFacades(
       export async function createRuntime() { return {}; }
       export function configureHost() {}
       export async function runEntryPoint() { return 0; }
+      export function registerEpochWorkReporter() {}
+      export async function drainEpochWorkReporter() {}
+      export function unregisterEpochWorkReporter() {}
       export function buildIdentity() {
         return { version: "fixture", commit: null, builtAtUtc: null, commitUrl: null };
       }`,
@@ -175,13 +240,13 @@ async function installFacades(
       const platformOptions = ${JSON.stringify(platform ?? {})};
       let warmupAttempts = 0;
       export async function getPlatformVersions(tfm) {
-        document.documentElement.dataset.platformVersionsRequest = tfm;
+        fixtureMark("platformVersionsRequest", tfm);
         if (platformOptions.discoveryFailure) throw new Error("Version discovery offline");
         return ["${alternatePlatformVersion}", "${platformVersion}"];
       }
       export async function getPlatformCatalog(tfm, version) {
-        document.documentElement.dataset.platformCatalogRequest = JSON.stringify([tfm, version]);
-        if (platformOptions.catalogPending) await new Promise(resolve => document.addEventListener("finish-platform-catalog", resolve, { once: true }));
+        fixtureMark("platformCatalogRequest", JSON.stringify([tfm, version]));
+        if (platformOptions.catalogPending) await fixtureWait("finish-platform-catalog");
         if (platformOptions.catalogFailure) throw new Error("Catalog offline");
         const actualVersion = platformOptions.wrongCatalog ? platformTarget.version : version;
         return {
@@ -194,9 +259,9 @@ async function installFacades(
         };
       }
       export async function prefetchPlatformPacks(tfm, version) {
-        document.documentElement.dataset.platformWarmup = JSON.stringify([tfm, version]);
-        document.documentElement.dataset.platformWarmupAttempts = String(++warmupAttempts);
-        if (platformOptions.warmup === "pending") await new Promise(resolve => document.addEventListener("finish-platform-warmup", resolve, { once: true }));
+        fixtureMark("platformWarmup", JSON.stringify([tfm, version]));
+        fixtureMark("platformWarmupAttempts", String(++warmupAttempts));
+        if (platformOptions.warmup === "pending") await fixtureWait("finish-platform-warmup");
         if (platformOptions.warmup === "fail-once" && warmupAttempts === 1) throw new Error("Archive offline");
       }
       export async function loadRuntimePackAssembly(tfm, version, file, pack, assetFileName = file) {
@@ -211,10 +276,10 @@ async function installFacades(
             version: version || surface.version,
           });
         }
-        document.documentElement.dataset.platformLibraryRequest = JSON.stringify([tfm, version, file, pack, assetFileName]);
+        fixtureMark("platformLibraryRequest", JSON.stringify([tfm, version, file, pack, assetFileName]));
         if (platformOptions.libraryPending
           && (!platformOptions.libraryPendingPack || platformOptions.libraryPendingPack === pack)) {
-          await new Promise(resolve => document.addEventListener("finish-platform-library", resolve, { once: true }));
+          await fixtureWait("finish-platform-library");
         }
         if (platformOptions.libraryFailure) throw new Error("Library offline");
         const row = platformTarget.rows.find(row => row.assembly + ".dll" === file && row.pack === pack)
@@ -249,7 +314,7 @@ async function installFacades(
         return { versions: ["1.0.0", "0.9.0"], currentVersionInsertionIndex: 0, previousVersion: "0.9.0", previousVersionUnavailableReason: null };
       }
       export async function loadRuntimePack(framework, version) {
-        document.documentElement.dataset.runtimePackRequest = JSON.stringify([framework, version]);
+        fixtureMark("runtimePackRequest", JSON.stringify([framework, version]));
         const surface = surfaceFor("Microsoft.NETCore.App");
         return JSON.stringify({ ...surface, activeFramework: framework, version: version || surface.version });
       }
@@ -274,19 +339,28 @@ async function installFacades(
       export function packageCacheStats() {
         return { packages: 1, resident: 1, workspaces: 1, residentBytes: 0 };
       }
+      export function listPackageAssemblyQueryPatterns() { return []; }
       export function listPackageQueryFacets() { return { facets: [] }; }
+      export function listGalleryDiscoveryCatalog() {
+        return {
+          packageType: {
+            id: "package-type", label: "Package type", summary: "Package type",
+            suggestions: [],
+          },
+          orders: [],
+        };
+      }
       export async function queryMemberDocumentation() {
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
       }
       export async function queryPackageDependencies(id, version, framework, asset) {
-        document.documentElement.dataset.referenceRequest = asset;
+        fixtureMark("referenceRequest", asset);
         const surface = surfaceFor(id);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         const scenario = ${JSON.stringify(references)};
         if (scenario === "deferred") {
-          await new Promise(resolve => document.addEventListener(
-            "fixture-references-ready:" + asset, resolve, { once: true }));
+          await fixtureWait("fixture-references-ready:" + asset);
         }
         if (scenario === "query-error") throw new Error("Reference query unavailable.");
         return {
@@ -306,7 +380,7 @@ async function installFacades(
     metadata: `
       ${surfaceLookup}
       export async function queryPlatformMetadata(tfm, version, file, pack) {
-        document.documentElement.dataset.platformMetadataRequest = JSON.stringify([tfm, version, file, pack]);
+        fixtureMark("platformMetadataRequest", JSON.stringify([tfm, version, file, pack]));
         return {
           assemblies: [{
             assembly: file,
@@ -326,7 +400,7 @@ async function installFacades(
         };
       }
       export async function queryPackageMetadata(id, version, framework, asset) {
-        document.documentElement.dataset.metadataRequest = asset;
+        fixtureMark("metadataRequest", asset);
         const surface = surfaceFor(id);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
@@ -350,13 +424,13 @@ async function installFacades(
       }
       export async function queryPackageMetadataTable(
         id, version, framework, asset, metadataRoot, index, startRowId) {
-        document.documentElement.dataset.tableRequest = asset;
+        fixtureMark("tableRequest", asset);
         return { index, name: "Module", rowCount: 1, startRowId, columns: [], rows: [], error: null };
       }`,
     analysis: `
       ${surfaceLookup}
       export async function queryPackageIntegrations(id, version, framework, asset) {
-        document.documentElement.dataset.integrationRequest = asset;
+        fixtureMark("integrationRequest", asset);
         const surface = surfaceFor(id);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
@@ -365,8 +439,7 @@ async function installFacades(
       async function integrationsFor(surface, selected, version, framework, asset) {
         const scenario = ${JSON.stringify(integrations)};
         if (scenario === "deferred") {
-          await new Promise(resolve => document.addEventListener(
-            "fixture-integrations-ready:" + asset, resolve, { once: true }));
+          await fixtureWait("fixture-integrations-ready:" + asset);
         }
         if (scenario === "query-error") throw new Error("Integration query unavailable.");
         const categories = scenario === "empty" || scenario === "partial-empty" ? [] : [
@@ -395,7 +468,7 @@ async function installFacades(
         };
       }
       export async function queryPlatformIntegrations(framework, version, file, pack) {
-        document.documentElement.dataset.platformIntegrationRequest = file + ":" + pack;
+        fixtureMark("platformIntegrationRequest", file + ":" + pack);
         const row = ${JSON.stringify(catalogTarget.rows)}.find(item => item.assembly + ".dll" === file && item.pack === pack);
         if (!row) throw new Error("Unknown platform library: " + file);
         const surface = {
@@ -409,8 +482,7 @@ async function installFacades(
       async function opportunitiesFor(id, surface, selected, version, framework, asset) {
         const scenario = ${JSON.stringify(opportunities)};
         if (scenario === "deferred") {
-          await new Promise(resolve => document.addEventListener(
-            "fixture-opportunities-ready:" + asset, resolve, { once: true }));
+          await fixtureWait("fixture-opportunities-ready:" + asset);
         }
         if (scenario === "query-error") throw new Error("Opportunity query unavailable.");
         const item = (api, integrationType, lookFor) => ({
@@ -450,14 +522,14 @@ async function installFacades(
         };
       }
       export async function queryPackageOpportunities(id, version, framework, asset) {
-        document.documentElement.dataset.opportunityRequest = asset;
+        fixtureMark("opportunityRequest", asset);
         const surface = surfaceFor(id);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         return opportunitiesFor(id, surface, selected, version, framework, asset);
       }
       export async function queryPlatformOpportunities(framework, version, file, pack) {
-        document.documentElement.dataset.platformOpportunityRequest = file + ":" + pack;
+        fixtureMark("platformOpportunityRequest", file + ":" + pack);
         const row = ${JSON.stringify(catalogTarget.rows)}.find(item => item.assembly + ".dll" === file && item.pack === pack);
         if (!row) throw new Error("Unknown platform library: " + file);
         const surface = {
@@ -481,8 +553,7 @@ async function installFacades(
         if (!selectedType) throw new Error("Library has no projected type: " + selected.asset);
         const scenario = ${JSON.stringify(analysis)};
         if (scenario === "deferred") {
-          await new Promise(resolve => document.addEventListener(
-            "fixture-analysis-ready:" + requestKey, resolve, { once: true }));
+          await fixtureWait("fixture-analysis-ready:" + requestKey);
         }
         if (scenario === "query-error") throw new Error("Analysis query unavailable.");
         const member = (memberName, opportunityCount, inLoopCount, shapes, confidence) => ({
@@ -519,14 +590,14 @@ async function installFacades(
         };
       }
       export async function queryPackagePerformance(id, version, framework, asset) {
-        document.documentElement.dataset.analysisRequest = asset;
+        fixtureMark("analysisRequest", asset);
         const surface = surfaceFor(id);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         return performanceFor(surface, selected, version, framework, asset);
       }
       export async function queryPlatformPerformance(framework, version, file, pack) {
-        document.documentElement.dataset.platformAnalysisRequest = file + ":" + pack;
+        fixtureMark("platformAnalysisRequest", file + ":" + pack);
         const row = ${JSON.stringify(catalogTarget.rows)}.find(item => item.assembly + ".dll" === file && item.pack === pack);
         if (!row) throw new Error("Unknown platform library: " + file);
         const selected = {
@@ -557,7 +628,7 @@ async function installFacades(
     source: "",
     "call-graph": "",
     catalog: `
-      export function listVocabulary() { return { sections: [] }; }
+      export function listVocabulary() { return { schema_version: 1, sections: [] }; }
       export function listHomeDemos() { return { demos: [] }; }
       export function encodeWorkspaceShareState(json) {
         return { succeeded: true, packet: btoa(json), failure: null };
@@ -567,21 +638,19 @@ async function installFacades(
       }`,
   };
   await page.route("https://cdn.jsdelivr.net/**", route => route.abort());
-  await page.route("**/inspect-web-*.js", route => {
-    const name = new URL(route.request().url()).pathname
-      .replace("/inspect-web-", "").replace(".js", "");
-    const body = modules[name];
-    if (body === undefined) throw new Error(`Unexpected facade: ${name}`);
-    return route.fulfill({
-      contentType: "text/javascript",
-      body: `${common}\n${body}`,
-    });
+  await page.route(/\/assets\/[^/]+\.(?:js|css|woff2?|ttf)$/, route => {
+    const assetName = basename(new URL(route.request().url()).pathname);
+    const path = fileURLToPath(new URL(`../dist/assets/${assetName}`, import.meta.url));
+    if (!assetName.startsWith("engine-worker-entry-")) {
+      return route.fulfill({ path });
+    }
+    let body = readFileSync(path, "utf8");
+    for (const [name, module] of Object.entries(modules)) {
+      const dataUrl = `data:text/javascript;base64,${Buffer.from(`${common}\n${module}`).toString("base64")}`;
+      body = body.replaceAll(`/inspect-web-${name}.js`, dataUrl);
+    }
+    return route.fulfill({ contentType: "text/javascript", body });
   });
-  await page.route(/\/assets\/[^/]+\.(?:js|css|woff2?|ttf)$/, route => route.fulfill({
-    path: fileURLToPath(new URL(
-      `../dist/assets/${basename(new URL(route.request().url()).pathname)}`,
-      import.meta.url)),
-  }));
   await page.route("**/assets/platform-index.json", route =>
     route.fulfill(platform ? {
       contentType: "application/json",
@@ -601,6 +670,7 @@ const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
 async function openPlatform(page: Page, options: PlatformFixture = {}) {
   await installFacades(page, surface, [], "ready", "ready", options);
   await page.goto("/");
+  await expect(page.getByRole("contentinfo")).toContainText("browser wasm ready");
   await page.locator("[data-sl-load-runtime]").click();
   await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
 }
@@ -736,6 +806,7 @@ test("history-restored cached Platform Libraries remain usable through Spotlight
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page);
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
   const libraryLocation = page.url();
   await page.locator(".type-browser .nav-back-row").click();
   await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
