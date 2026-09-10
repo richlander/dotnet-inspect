@@ -203,6 +203,49 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    public void ResolvedCallsEnumeratesExactPairWithoutTraversalBounds()
+    {
+        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        LibraryBodyIndex target = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        using CatalogCallGraphScope scope =
+            CatalogCallGraphTestExtensions.CreateScope(
+                caller,
+                [target]);
+
+        ImmutableArray<CatalogResolvedCallSite> calls =
+            scope.ResolvedCalls(caller, target);
+
+        Assert.Contains(
+            calls,
+            call => call.SourceMethod.Name == "Run"
+                && call.TargetMethod.Name == "Ping"
+                && call.Call.Kind == CallKind.Call);
+        Assert.Contains(
+            calls,
+            call => call.SourceMethod.Name == "CallBodiless"
+                && call.TargetMethod.Name == "Invoke"
+                && call.Call.Kind == CallKind.CallVirtual);
+        Assert.Contains(
+            calls,
+            call => call.SourceMethod.Name == "UseBox"
+                && call.TargetMethod.Name == ".ctor"
+                && call.Call.Kind == CallKind.NewObject);
+        Assert.All(
+            calls,
+            call =>
+            {
+                Assert.Same(caller, call.Source.Index);
+                Assert.Same(target, call.Target.Index);
+                Assert.Equal(
+                    call.SourceMethod.MetadataToken,
+                    call.Call.Caller.MetadataToken);
+            });
+        Assert.Empty(scope.ResolvedCalls(target, caller));
+    }
+
+    [Fact]
     public void ExactVersionSkewedParticipantRetainsTypedConflictEvidence()
     {
         LibraryBodyIndex targetV2 = LibraryBodyIndex.Open(

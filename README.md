@@ -178,6 +178,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
+| `graph libraries` | Show exact resolved `call`, `callvirt`, and `newobj` occurrences crossing between two explicit local libraries. |
 | `depends X` | Walk type, package, or library dependency graphs with lossless shared edges; emit tree, Mermaid, table, TSV, JSONL, JSON, or edge-count output. |
 | `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -551,6 +552,9 @@ dotnet-inspect graph integrations \
   --package Microsoft.Extensions.Http@10.0.0 \
   --tfm net10.0 \
   --relationship integration.observed
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll
 ```
 
 ### Workspace sharing and built-in guidance
