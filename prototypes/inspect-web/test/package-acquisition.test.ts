@@ -159,7 +159,11 @@ function generatedPackageSurfaceRejectsMutation(
 void generatedPackageSurfaceRejectsMutation;
 
 test("root-only package surfaces remain inspectable without inventing a Library", () => {
-  for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
+  for (const status of [
+    "NoCompileAssets",
+    "EmptyCompileGroup",
+    "NoMatchingTargetFramework",
+  ] as const) {
     const model = createNuGetPackageModel(packageSurface({
       defaultAssemblyId: null,
       compileLibrary: {
@@ -179,17 +183,16 @@ test("root-only package surfaces remain inspectable without inventing a Library"
   }
 });
 
-test("failed compile-library selection remains a visible acquisition failure", () => {
-  for (const status of ["NoMatchingTargetFramework", "InvalidImplementationAssets"] as const) {
-    assert.throws(
-      () => createNuGetPackageModel(packageSurface({
-        defaultAssemblyId: null,
-        compileLibrary: { status, targetFramework: null, message: null },
-        assemblies: [],
-        types: [],
-      })),
-      new RegExp(status));
-  }
+test("invalid implementation assets remain a visible acquisition failure", () => {
+  const status = "InvalidImplementationAssets";
+  assert.throws(
+    () => createNuGetPackageModel(packageSurface({
+      defaultAssemblyId: null,
+      compileLibrary: { status, targetFramework: null, message: null },
+      assemblies: [],
+      types: [],
+    })),
+    new RegExp(status));
 });
 
 test("NuGet package models retain the product-issued icon descriptor", () => {

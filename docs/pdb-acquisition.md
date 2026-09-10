@@ -30,6 +30,14 @@ verification, source decoding, and typed failure outcomes into one settled
 result. It intentionally does not include decompiler-generated source.
 `AssemblyContextSourceQuery` owns that higher Queries-layer fallback.
 
+The target [SourceHouse composition](design/source-house.md), tracked by
+[#6512](https://github.com/richlander/dotnet-inspect/issues/6512), replaces
+that product composition with one content-first House over
+`SourceLinkService`, `CSharpDecompilerService`, and authorized acquisition
+capabilities. Product candidate ordering moves from `PdbSourceHouse` to
+SourceHouse, while this document continues to own PDB acquisition, SourceLink
+interpretation, checksum semantics, and authored-source evidence.
+
 Every successful path must satisfy the shared Portable PDB checksum verifier
 (exact or accepted line-ending-normalized correspondence) before its content
 becomes evidence. Local-clone acquisition reads the addressed Git blob rather

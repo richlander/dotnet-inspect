@@ -756,10 +756,24 @@ function decodeWorkspaceShareResult(
   const memberSection = section && isMemberSection(section)
     ? section
     : null;
+  const packageLens = isPackageLens(state.view.lens)
+    ? state.view.lens
+    : null;
   const libraryLens = state.view.lens?.startsWith("library:")
       ? state.view.lens.slice("library:".length)
       : null;
+  if (packageLens
+    && (state.view.type
+      || state.view.memberAnchor
+      || state.view.memberSignature
+      || state.view.section
+      || state.view.libraries.length > 0)) {
+    return {
+      error: "The shared package view cannot also select a type, member, section, or library.",
+    };
+  }
   if (state.view.lens
+    && !packageLens
     && !isTypeLens(state.view.lens)
     && !isLibraryLens(libraryLens)) {
     return {
@@ -778,7 +792,7 @@ function decodeWorkspaceShareResult(
     active,
     contexts: state.contexts,
     selectedContextId: state.selectedContextId,
-    view: state.view.lens ?? "",
+    view: packageLens ? `pkg:${packageLens}` : state.view.lens ?? "",
     type: state.view.type,
     memberAnchor: state.view.memberAnchor,
     memberSignature: state.view.memberSignature,
