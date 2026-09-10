@@ -2561,8 +2561,11 @@ test("bare home paints before wasm engine download", () => {
     appSource,
     /state\.retryAction = \(\) => window\.location\.reload\(\)/);
   assert.match(
+    appSource,
+    /failure: failure => \{[\s\S]*if \(state\.engineReady\) \{\s*terminalEngineFailure\.fail\(state, detail\);[\s\S]*if \(!state\.credits\) render\(\)/);
+  assert.match(
     errorPackageRecovery,
-    /findOpenPackageForQuery\(state, query\)[\s\S]*selectWorkspacePackage\(openPackage\);[\s\S]*return;[\s\S]*if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*observeAsync\(\s*loadPackageFromSpotlight\(query\.packageId, query\.version, ""\)/);
+    /terminalEngineFailure\.reloadIfFailed\(\)[\s\S]*findOpenPackageForQuery\(state, query\)[\s\S]*selectWorkspacePackage\(openPackage\);[\s\S]*return;[\s\S]*if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*observeAsync\(\s*loadPackageFromSpotlight\(query\.packageId, query\.version, ""\)/);
   assert.match(
     loadingView,
     /id="error-package-query"[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
@@ -3404,7 +3407,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.doesNotMatch(route, /packageQueryController\.run/);
   assert.match(
     appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\("package-query-route"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*terminalEngineFailure\.reassert\(state\);\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\("package-query-route"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
   assert.match(
     stylesSource,
     /@media \(max-width: 860px\) \{\s*body\.package-query-route \{ min-width: 0; \}/);

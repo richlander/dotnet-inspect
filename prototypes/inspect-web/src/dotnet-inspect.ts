@@ -470,6 +470,9 @@ import {
   createPackageCacheStatsRefresh,
 } from "./package-cache-stats.ts";
 import {
+  createTerminalEngineFailureLatch,
+} from "./terminal-engine-failure.ts";
+import {
   bindCreditsPanel,
   isCreditsPath,
   renderCreditsPage,
@@ -623,15 +626,20 @@ async function loadEngineModule() {
     operationAuthority,
     callbacks: {
       failure: failure => {
-        state.loading = false;
-        state.engineReady = false;
-        state.engineStartupFailed = true;
-        state.engineStatus = "";
-        state.errorTitle = "Inspection Worker stopped";
-        state.error =
-          "The inspection engine stopped. Reload to start a new Worker.";
-        state.errorDetail = errorMessage(failure.diagnostic);
-        state.retryAction = () => window.location.reload();
+        const detail = errorMessage(failure.diagnostic);
+        if (state.engineReady) {
+          terminalEngineFailure.fail(state, detail);
+        } else {
+          state.loading = false;
+          state.engineReady = false;
+          state.engineStartupFailed = true;
+          state.engineStatus = "";
+          state.errorTitle = "Inspection Worker stopped";
+          state.error =
+            "The inspection engine stopped. Reload to start a new Worker.";
+          state.errorDetail = detail;
+          state.retryAction = () => window.location.reload();
+        }
         if (!state.credits) render();
         return undefined;
       },
@@ -1097,6 +1105,8 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+const terminalEngineFailure =
+  createTerminalEngineFailureLatch(() => window.location.reload());
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
@@ -4342,6 +4352,7 @@ function typeDisplayName(
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  terminalEngineFailure.reassert(state);
   sourceInspection.cancelHiddenRequest();
   const graphExplorerWasOpen = graphExplorer.isOpen;
   graphExplorer.beforeRender(graphExplorerKey());
@@ -10405,10 +10416,21 @@ function loadSelectionData() {
 async function share() {
   const focusOwner = captureApplicationMenuFocusOwner(document);
   try {
-    const snapshot = captureWorkspaceUrlState();
-    const destination = snapshot
-      ? preparedWorkspaceUrl(snapshot)
-      : null;
+    const destination =
+      scope() !== "workspace"
+        && state.atPackageRoot
+        && state.rootKind === "package"
+        && state.package
+        ? buildPackageRootStateUrl(location.href, {
+          package: state.package.id,
+          version: state.package.version,
+          framework: state.package.activeFramework,
+          lens: state.packageLens,
+        })
+        : (() => {
+          const snapshot = captureWorkspaceUrlState();
+          return snapshot ? preparedWorkspaceUrl(snapshot) : null;
+        })();
     if (destination === null) {
       throw new Error(
         "The share link is still being prepared. Try again.");
@@ -11693,6 +11715,7 @@ function interstitialBotSrc(): string {
 }
 
 function openPackageQuery(query: ParsedPackageQuery) {
+  if (terminalEngineFailure.reloadIfFailed()) return;
   const openPackage = findOpenPackageForQuery(state, query);
   if (openPackage) {
     state.loading = false;
@@ -15216,6 +15239,7 @@ async function refreshPackageStats(): Promise<void> {
 }
 
 function requestPackageStatsRefresh(): void {
+  if (terminalEngineFailure.reassert(state)) return;
   observeAsync(
     packageCacheStatsRefresh.refreshAndPublish(),
     "Refreshing package cache statistics");

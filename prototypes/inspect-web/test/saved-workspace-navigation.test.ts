@@ -44,6 +44,7 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  buildPackageRootStateUrl,
   buildWorkspaceStateUrlFromPacket,
   parseWorkspaceLocation,
   selectedBrowserCallGraphPackageTabIds,
@@ -73,7 +74,7 @@ const hostNames = new Set([
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "selectedCallGraphWorkspacePackages",
   "workspaceCoordinateCount",
-  "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
+  "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl", "share",
   "synchronizeUrl", "buildStateUrl", "workspaceShareKey",
   "rememberWorkspaceShare", "buildWorkspaceUrl", "preparedWorkspaceUrl",
   "openSavedWorkspace", "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
@@ -303,6 +304,7 @@ function harness() {
   const invalidations: string[] = [];
   const publications: unknown[] = [];
   const toasts: string[] = [];
+  const clipboard: string[] = [];
   const picker: {
     current: {
       pickResult: (result: SpotlightPackageResult) => void;
@@ -437,6 +439,13 @@ function harness() {
     inspectClearWorkspacePackageOccurrences: () => invalidations.push("occurrences"),
     applicationMenuOwnsFocus: () => false,
     showToast: (message: string) => toasts.push(message),
+    navigator: {
+      clipboard: {
+        writeText: async (value: string) => { clipboard.push(value); },
+      },
+    },
+    captureApplicationMenuFocusOwner: () => null,
+    restoreApplicationMenuFocusIfOwned: () => false,
     spotlight: {
       openForPackageAddition: (purpose: NonNullable<typeof picker.current>) => {
         picker.current = purpose;
@@ -455,6 +464,7 @@ function harness() {
     parseWorkspaceLocation, parseWorkspaceLocationAsync,
     isProductHomeDemosPath,
     buildWorkspaceStateUrlFromPacket,
+    buildPackageRootStateUrl,
     workspaceUrlProjection: () => JSON.stringify({
       packages: state.packages.map(packageIdentityKey),
       basis: state.workspaceShareBasis,
@@ -594,7 +604,7 @@ function harness() {
   return {
     state, context, controls, location, history, writes, decoded, encoded,
     acquisitions, focus, effects, operations, navigationHistory, navigationSequence,
-    queries, retained, recent, invalidations, toasts, picker, previousEntries,
+    queries, retained, recent, invalidations, toasts, clipboard, picker, previousEntries,
     catalogRequests, packageComparisonTargets,
     demoResolutions, callGraphRuns, publications,
     capture: async (): Promise<string> => {
@@ -626,6 +636,9 @@ function harness() {
       assert.ok(result === null || result instanceof URL);
       return result;
     },
+    share: (): Promise<void> => Promise.resolve(runInNewContext(
+      "share()",
+      context)),
     open: (entry: SavedWorkspace = saved): void => {
       const operation = Promise.resolve(runInNewContext(
         "openSavedWorkspace(entry)",
@@ -663,6 +676,41 @@ function harness() {
     flushFocus: () => { for (const frame of frames.splice(0)) frame(); },
   };
 }
+
+test("package-root Share copies its canonical URL without workspace capture", async () => {
+  const h = harness();
+  h.state.workspaceSubjectOpen = false;
+  h.state.atPackageRoot = true;
+  h.state.rootKind = "package";
+  h.state.packageLens = "dependencies";
+
+  await h.share();
+
+  assert.equal(h.clipboard.length, 1);
+  const shared = new URL(h.clipboard[0]!);
+  assert.equal(shared.searchParams.get("package"), "Source");
+  assert.equal(shared.searchParams.get("version"), "1.2.3");
+  assert.equal(shared.searchParams.get("framework"), "net10.0");
+  assert.equal(shared.searchParams.get("w"), null);
+  assert.equal(shared.hash, "#pkg:dependencies");
+  assert.deepEqual(h.toasts, ["selection link copied"]);
+});
+
+test("Workspace Share keeps the prepared workspace packet at a package root", async () => {
+  const h = harness();
+  h.state.workspaceSubjectOpen = true;
+  h.state.atPackageRoot = true;
+
+  await h.synchronize();
+  await h.settle();
+  await h.share();
+
+  assert.equal(h.clipboard.length, 1);
+  const shared = new URL(h.clipboard[0]!);
+  assert.equal(shared.searchParams.get("w"), packet);
+  assert.equal(shared.hash, "#workspace");
+  assert.deepEqual(h.toasts, ["selection link copied"]);
+});
 
 test("canonical restoration preserves coordinator-owned comparison state identities", () => {
   const h = harness();
