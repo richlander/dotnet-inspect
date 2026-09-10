@@ -8,7 +8,7 @@ contract; it does not decide which subject, coordinate, or lens is active,
 and it does not own the consumer effect lifecycle that installs navigation
 results.
 
-The rules are normative targets for `prototypes/inspect-web`. When the
+The rules are normative targets for `inspect-web`. When the
 current implementation differs, this document describes the intended
 behavior rather than preserving the inconsistency.
 

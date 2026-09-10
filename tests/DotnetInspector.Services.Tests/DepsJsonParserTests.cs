@@ -177,6 +177,40 @@ public class DepsJsonParserTests : IDisposable
     }
 
     [Fact]
+    public void TryParse_InvalidJsonReportsIncompleteProjection()
+    {
+        var deps = WriteDepsJson("{ invalid json }");
+
+        DepsJsonParseResult result = DepsJsonParser.TryParse(deps);
+
+        Assert.False(result.IsComplete);
+        Assert.Null(result.Data);
+        Assert.NotNull(result.Error);
+    }
+
+    [Theory]
+    [InlineData("""[]""")]
+    [InlineData("""{"runtimeTarget":[]}""")]
+    [InlineData("""{"runtimeTarget":{"name":42}}""")]
+    [InlineData("""{"libraries":[]}""")]
+    [InlineData("""{"libraries":{"Package/1.0.0":[]}}""")]
+    [InlineData("""{"libraries":{"Package/1.0.0":{"type":42}}}""")]
+    [InlineData("""{"runtimeTarget":{"name":"\uD800"}}""")]
+    [InlineData("""{"libraries":{"\uD800/1.0.0":{"type":"package"}}}""")]
+    [InlineData("""{"libraries":{"Package/1.0.0":{"type":"\uD800"}}}""")]
+    public void TryParse_WrongShapedJsonReportsIncompleteProjection(
+        string content)
+    {
+        var deps = WriteDepsJson(content);
+
+        DepsJsonParseResult result = DepsJsonParser.TryParse(deps);
+
+        Assert.False(result.IsComplete);
+        Assert.Null(result.Data);
+        Assert.NotNull(result.Error);
+    }
+
+    [Fact]
     public void Parse_CombinesRuntimeTargetAndDependencies()
     {
         var deps = WriteDepsJson("""

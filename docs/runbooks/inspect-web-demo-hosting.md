@@ -54,7 +54,7 @@ The build host needs:
 
 - the exact branch in its own clean development worktree;
 - the repository-selected .NET SDK and WebAssembly workload;
-- Node.js at the version required by `prototypes/inspect-web/package.json`;
+- Node.js at the version required by `inspect-web/package.json`;
 - an SSH destination already proven from the viewer when using viewer-side
   forwarding; or
 - a user-provided standing Serve session on the build host when using Serve.
@@ -89,12 +89,12 @@ cannot identify the content they are seeing.
 Build the frontend and publish the WebAssembly engine from the same worktree:
 
 ```bash
-cd "$repo_root/prototypes/inspect-web"
+cd "$repo_root/inspect-web"
 npm ci
 npm run build
 
 cd "$repo_root"
-dotnet publish prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+dotnet publish inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
   -c Release \
   --disable-build-servers \
   -p:UseSharedCompilation=false \
@@ -108,10 +108,10 @@ framework in scripts:
 
 ```bash
 target_framework="$(
-  dotnet msbuild prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+  dotnet msbuild inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
     -nologo -getProperty:TargetFramework
 )"
-site_root="$repo_root/prototypes/inspect-web/engine/bin/Release/$target_framework/publish/wwwroot"
+site_root="$repo_root/inspect-web/DotnetInspect.Web/bin/Release/$target_framework/publish/wwwroot"
 dotnet_loader="$(
   grep -oE '_framework/dotnet\.[a-z0-9]+\.js' "$site_root/index.html" |
     head -n 1
@@ -153,7 +153,7 @@ Do not use:
 Keep this process in a dedicated persistent terminal or tmux window:
 
 ```bash
-cd "$repo_root/prototypes/inspect-web"
+cd "$repo_root/inspect-web"
 
 if [ -n "${DEMO_PUBLIC_HOST:-}" ]; then
   export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="$DEMO_PUBLIC_HOST"
