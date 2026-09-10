@@ -403,6 +403,13 @@ Each stage lands only when its own result and failure states are complete. An
 unimplemented downstream destination remains unavailable; the UI does not
 advertise an action backed by a placeholder or success-shaped fallback.
 
+The stage-3 Navigation capability follows Navigation's existing shared
+two-host plan: #6111 and #5513 consume its stateless exact-pair evaluator in
+the CLI, while #6113, #5510, and #5511 supply retained Browser/Wasm action and
+result authority. Compare mode and history remain Browser-only presentation
+concerns; the exact descendant and Registry mapping are shared product
+behavior.
+
 ## Acceptance scenarios
 
 1. Open Library Compare Diff and confirm that every current-side result row is

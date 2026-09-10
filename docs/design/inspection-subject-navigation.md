@@ -91,6 +91,24 @@ neither vocabulary creates a Navigation subject.
 The pre-adoption decision to keep this grammar package-specific is recorded on
 [PR #6184](https://github.com/richlander/dotnet-inspect/pull/6184#issuecomment-5574458614).
 
+The atomic descendant-subject plus exact-lens capability added by #6490 follows
+that same two-host adoption:
+
+- #6111's stateless Navigation producer evaluates one exact descendant pair,
+  and #5513 exposes that result through the agent-oriented CLI surface when a
+  CLI request supplies an exact subject and facet. The CLI receives the same
+  exact Registry mapping and complete snapshot result, but no action ID,
+  retained effect authority, Browser history, or Compare mode.
+- #6113's retained Navigation session binds the same request to current intent
+  and synchronization authority. #5510 and #5511 adopt the resulting opaque
+  interactive action and complete result in Browser/Wasm; Compare uses it in
+  stages 4 and 5 of its nine-stage adoption path.
+
+The pure exact-pair evaluator and retained wrapper are one Navigation
+capability, not separate host policies. The CLI does not acquire a retained
+terminal session, and Browser/Wasm does not reconstruct the exact pair from
+display state.
+
 The exact Workspace and retained-occurrence ancestry is necessary for
 correctness: without it, distinct logical occurrences inside one Workspace can
 alias, and display keys can target the wrong retained occurrence. A
@@ -841,29 +859,34 @@ when the complete snapshot is unchanged.
 #### Atomic descendant subject and lens activation
 
 Issue [#6490](https://github.com/richlander/dotnet-inspect/issues/6490)
-adds one product-owned action for a current subject row that must retain an
-exact destination lens. Its first consumer is Library-to-Type and
-Type-to-Member drill-down in
+adds one product-owned request for a current subject that must activate an
+exact descendant with an exact destination lens. Its first retained consumer
+is Library-to-Type and Type-to-Member drill-down in
 [Inspect Web Compare Experience](inspect-web-compare-experience.md), under the
 end-to-end tracker
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[#5083](https://github.com/richlander/dotnet-inspect/issues/5083). The
+stateless CLI consumer is tracked by #5513 under #5512.
 
-The action binds:
+The host-neutral request binds:
 
 ```text
-DescendantSubjectLensAction
+DescendantSubjectLensRequest
   Source       exact current structural subject
   Destination  NavigationLensIdentity
-  Action       opaque generation-scoped action ID
 ```
 
 The destination lens already binds its exact descendant subject and exact
-Registry facet. The action is issued only from an available owner-issued
-descendant row under the current Navigation generation. Its destination must
-be in the same Workspace and retained Package occurrence as its source and
-must be an eligible descendant admitted by that exact row. The first consumer
-uses Library-to-Type and Type-to-Member edges; callers do not construct or
-broaden the relationship from metadata, display text, or hierarchy position.
+Registry facet. A retained interactive session issues an opaque
+generation-scoped action ID bound to the complete request for an available
+owner-issued descendant row. A canonical stateless product peer may submit the
+structured pair through the typed evaluation seam. Browser display state never
+becomes request identity.
+
+The destination must be in the same Workspace and retained Package occurrence
+as its source and must be an eligible descendant admitted by that exact row.
+The first retained consumer uses Library-to-Type and Type-to-Member edges;
+callers do not construct or broaden the relationship from metadata, display
+text, or hierarchy position.
 
 For one-Library sources, an eligible Type retains that exact Library as its
 defining Library. For `All libraries`, each eligible Type row names one exact
@@ -879,6 +902,11 @@ ancestry, and exact subject-bound lens before Registry resolution. A stale,
 foreign-Workspace, foreign-occurrence, duplicated, source-mismatched, or
 non-descendant action is `Rejected` without Registry evaluation,
 recommendation, correspondence, or fallback.
+
+Stateless evaluation validates the same exact source, destination, Workspace,
+occurrence, and descendant relationship without issuing retained action or
+effect authority. It returns the same semantic mapping and complete evaluated
+snapshot as data, while retained execution alone may install that snapshot.
 
 After validation, Navigation resolves the destination facet against the exact
 destination subject. It never activates the subject first and never runs lens
@@ -1315,6 +1343,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `DescendantLensAction_BindsExactSourceDestinationAndFacet`
 - `DescendantLensAction_RejectsStaleForeignAndNonDescendantBeforeRegistryResolution`
 - `DescendantLensResolution_MapsEveryRegistryOutcomeWithoutRecommendation`
+- `StatelessAndRetainedDescendantLens_UseSameExactMapping`
 - `AppliedDescendantLens_InstallsExactPairInOneSnapshot`
 - `NonAppliedDescendantLens_InstallsNeitherRequestedHalf`
 - `SupersededDescendantLens_PublishesNoEffect`
@@ -1459,6 +1488,7 @@ publication protocol. The exact pair and descendant relationship remain
 | Descendant lens unavailable, failed, inapplicable, unknown, or preparation-failed | Prior installed subject and lens remain; the exact destination evidence is returned and neither requested half is installed |
 | Stale, foreign-occurrence, or non-descendant subject+lens action | Rejected before Registry resolution or recommendation |
 | Descendant subject+lens action superseded by a newer intent | No visible effect from the superseded action |
+| Stateless CLI evaluates the same exact descendant pair | Same exact Registry mapping and complete snapshot data as retained evaluation; no action ID, effect authority, history, or Compare mode |
 | Failed recommendation becomes available on refresh | Recommendation reruns and installs the newly effective exact lens |
 | Recommended fallback then preferred role becomes available | Recommendation replaces the fallback with the preferred exact lens |
 | Explicit unavailable lens becomes available on refresh | Exact identity is re-resolved without considering a sibling fallback |
