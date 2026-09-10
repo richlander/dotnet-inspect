@@ -157,6 +157,14 @@ public static class EcosystemCommand
             return 0;
         }
 
+        if (!ValidateStructuredEmptyProjection(
+                selected,
+                projectedColumns,
+                options.Format))
+        {
+            return 1;
+        }
+
         if (options.Format
                 is OutputFormat.Table
                 or OutputFormat.Tsv
@@ -574,6 +582,50 @@ public static class EcosystemCommand
                     ? KnownIntegrationsSection
                     : value),
         ];
+    }
+
+    private static bool ValidateStructuredEmptyProjection(
+        IEnumerable<EcosystemSection> sections,
+        string[]? projectedColumns,
+        OutputFormat format)
+    {
+        if (projectedColumns is not { Length: > 0 }
+            || format is not (
+                OutputFormat.Table
+                or OutputFormat.Tsv
+                or OutputFormat.Jsonl
+                or OutputFormat.Json))
+        {
+            return true;
+        }
+
+        foreach (EcosystemSection section in sections)
+        {
+            if (section.Rows.Length != 0
+                || section.StructuredEmptyRow is null
+                || !MarkoutProjection.WithColumns(projectedColumns)
+                    .TryResolveColumns(section.Labels, out var resolution)
+                || resolution.ColumnMap.Count == 0)
+            {
+                continue;
+            }
+
+            int binding = Array.IndexOf(section.Ids, "binding");
+            int knowledgeScope =
+                Array.IndexOf(section.Ids, "knowledge_scope");
+            if (resolution.ColumnMap.Contains(binding)
+                && resolution.ColumnMap.Contains(knowledgeScope))
+            {
+                continue;
+            }
+
+            CommandError.Write(
+                $"Projection of an empty '{section.Name}' section must include "
+                + "both 'Binding' and 'Knowledge Scope' so its status remains explicit.");
+            return false;
+        }
+
+        return true;
     }
 
     private static string[]? ResolveProjectedColumns(EcosystemOptions options)

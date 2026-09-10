@@ -30,7 +30,7 @@ public sealed class EcosystemCommandTests
             "Integrations",
             "--json",
             "--rows",
-            "1",
+            "1..1",
         ];
 
         var result = CommandLineBuilder.CreateRootCommand().Parse(arguments);
@@ -54,7 +54,6 @@ public sealed class EcosystemCommandTests
     [Fact]
     public async Task CommandLine_OutOfRangeRowWindowDoesNotClaimConfiguredSectionIsEmpty()
     {
-        var root = CommandLineBuilder.CreateRootCommand();
         string[] arguments =
         [
             "ecosystem",
@@ -64,8 +63,7 @@ public sealed class EcosystemCommandTests
             "--rows",
             "2..2",
         ];
-        var result = await ConsoleCapture.RunAsync(
-            () => CommandLineBuilder.InvokeAsync(root.Parse(arguments), arguments));
+        var result = await ExecuteCommandLineAsync(arguments);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -74,6 +72,63 @@ public sealed class EcosystemCommandTests
         Assert.DoesNotContain(
             "No Integration concepts are explicitly bound",
             result.Output);
+    }
+
+    [Fact]
+    public async Task CommandLine_SemanticLimitsApplyToRowsAndCounts()
+    {
+        var head = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "microsoft-extensions",
+            "-S",
+            "Core Packages",
+            "-n",
+            "1",
+            "--tsv");
+        var tail = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "microsoft-extensions",
+            "-S",
+            "Core Packages",
+            "-n",
+            "1",
+            "--tail",
+            "--tsv");
+        var count = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "microsoft-extensions",
+            "-S",
+            "Core Packages",
+            "-n",
+            "1",
+            "--count");
+
+        Assert.Equal(0, head.ExitCode);
+        Assert.Empty(head.Error);
+        Assert.Equal(
+            "package\nMicrosoft.Extensions.DependencyInjection.Abstractions",
+            head.Output.Trim());
+        Assert.Equal(0, tail.ExitCode);
+        Assert.Empty(tail.Error);
+        Assert.Equal(
+            "package\nMicrosoft.Extensions.Logging.Abstractions",
+            tail.Output.Trim());
+        Assert.Equal(0, count.ExitCode);
+        Assert.Empty(count.Error);
+        Assert.Equal("1", count.Output.Trim());
+    }
+
+    [Fact]
+    public async Task CommandLine_ExplicitMarkdownIsAvailable()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "aspire",
+            "--markdown");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("# Aspire", result.Output);
     }
 
     [Fact]
@@ -230,6 +285,47 @@ public sealed class EcosystemCommandTests
         Assert.Contains("\"binding\":\"not configured\"", result.Output);
         Assert.Contains(
             "This does not mean the external ecosystem has no integrations.",
+            result.Output);
+    }
+
+    [Theory]
+    [InlineData("--jsonl")]
+    [InlineData("--json")]
+    public async Task UnboundIntegrations_RejectProjectionThatDropsDisclosure(
+        string format)
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "microsoft-extensions",
+            "-S",
+            "Integrations",
+            "--columns",
+            "ID",
+            format);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "must include both 'Binding' and 'Knowledge Scope'",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task UnboundIntegrations_AllowsCompleteDisclosureProjection()
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "microsoft-extensions",
+            Select = ["Integrations"],
+            Columns = ["Binding", "Knowledge Scope"],
+            Format = OutputFormat.Jsonl,
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("\"binding\":\"not configured\"", result.Output);
+        Assert.Contains(
+            "\"knowledge_scope\":\"No Integration concepts are explicitly bound",
             result.Output);
     }
 
@@ -395,4 +491,14 @@ public sealed class EcosystemCommandTests
         EcosystemOptions options) =>
         ConsoleCapture.RunAsync(
             () => Task.FromResult(EcosystemCommand.Execute(options)));
+
+    private static Task<(int ExitCode, string Output, string Error)>
+        ExecuteCommandLineAsync(params string[] arguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        return ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(arguments),
+                arguments));
+    }
 }
