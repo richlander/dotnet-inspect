@@ -261,7 +261,7 @@ public static class AssemblyPairCallUseQuery
             IsAdmittedKind(call.Kind)
             && NamesTargetAssembly(
                 call,
-                target.ResultParticipant.Subject.Identity.Name)
+                target.ResultParticipant.Subject.Identity)
             && !resolvedSites.Contains(
                 PhysicalSite(
                     source.ResultParticipant,
@@ -269,18 +269,23 @@ public static class AssemblyPairCallUseQuery
 
     static bool NamesTargetAssembly(
         Analysis.DirectCall call,
-        string targetAssemblyName)
+        AssemblyReferenceIdentity targetAssembly)
     {
         Analysis.TypeRef declaringType =
             Analysis.GenericMemberIdentity.OpenDeclaringType(
                 call.Callee.DeclaringType);
         return declaringType.Resolution?.Origin
                 is Analysis.TypeReferenceOrigin.AssemblyReference reference
-            && string.Equals(
-                reference.Assembly.Name,
-                targetAssemblyName,
-                StringComparison.OrdinalIgnoreCase);
+            && IsPairRelevantAssemblyReference(
+                reference.Assembly,
+                targetAssembly);
     }
+
+    internal static bool IsPairRelevantAssemblyReference(
+        AssemblyReferenceIdentity reference,
+        AssemblyReferenceIdentity target) =>
+        (reference with { Version = target.Version })
+            .IsEquivalentTo(target);
 
     static bool IsAdmittedKind(Analysis.CallKind kind) =>
         kind is

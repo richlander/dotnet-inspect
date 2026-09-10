@@ -75,6 +75,10 @@ The request is invalid when:
 
 - either registration is absent from the group;
 - both values identify the same registration.
+- both registrations describe the same physical assembly artifact, identified
+  by equivalent assembly identity and module version ID; the Analysis catalog
+  intentionally canonicalizes one physical artifact and cannot attribute its
+  definitions to two pair endpoints.
 
 ## Occurrence currency
 
@@ -148,6 +152,11 @@ targeted it, so that pair-specific gap prevents an absence claim even when the
 result contains some exact rows. Exact rows remain useful positive evidence in
 an incomplete result. Unrelated unresolved calls to framework or third-party
 assemblies do not make the pair incomplete.
+
+For completion, an unresolved assembly reference names the selected participant
+when its name, normalized culture, and public-key token match. Its version may
+differ so that genuine version skew remains visible; a same-simple-name
+reference with a different culture or public-key token is unrelated.
 
 The query does not claim that virtual dispatch is closed. A `callvirt`
 occurrence identifies its selected static operand. `DirectCall.ExactTarget`

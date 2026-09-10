@@ -22,7 +22,7 @@ public sealed class AssemblyPairCallUseQueryTests
 
         Assert.True(result.IsComplete);
         Assert.Empty(result.Failures);
-        Assert.Contains(
+        AssemblyPairCallUseOccurrence direct = Assert.Single(
             result.Occurrences,
             occurrence =>
                 occurrence.Source.Identity.Name
@@ -32,20 +32,23 @@ public sealed class AssemblyPairCallUseQueryTests
                     == "ILInspector.Analysis.CallerGraphTarget"
                 && occurrence.TargetMethod.Name == "Ping"
                 && occurrence.Call.Kind == Analysis.CallKind.Call);
-        Assert.Contains(
+        Assert.True(direct.Call.ExactTarget);
+        AssemblyPairCallUseOccurrence openVirtual = Assert.Single(
             result.Occurrences,
             occurrence =>
                 occurrence.SourceMethod.Name == "CallBodiless"
                 && occurrence.TargetMethod.Name == "Invoke"
                 && occurrence.Call.Kind
                     == Analysis.CallKind.CallVirtual);
-        Assert.Contains(
+        Assert.False(openVirtual.Call.ExactTarget);
+        AssemblyPairCallUseOccurrence constructor = Assert.Single(
             result.Occurrences,
             occurrence =>
                 occurrence.SourceMethod.Name == "UseBox"
                 && occurrence.TargetMethod.Name == ".ctor"
                 && occurrence.Call.Kind
                     == Analysis.CallKind.NewObject);
+        Assert.True(constructor.Call.ExactTarget);
         Assert.DoesNotContain(
             result.Occurrences,
             occurrence =>
@@ -118,6 +121,63 @@ public sealed class AssemblyPairCallUseQueryTests
             0,
             result.Diagnostics.UnresolvedCandidateCallCount);
         Assert.Empty(result.Occurrences);
+    }
+
+    [Fact]
+    public void PairRelevantAssemblyReferenceIgnoresOnlyVersion()
+    {
+        var target = new AssemblyReferenceIdentity(
+            "Dependency",
+            new Version(2, 0, 0, 0),
+            "neutral",
+            "b03f5f7f11d50a3a");
+        AssemblyReferenceIdentity versionSkewed = target with
+        {
+            Version = new Version(1, 0, 0, 0),
+            Culture = null,
+        };
+
+        Assert.True(
+            AssemblyPairCallUseQuery
+                .IsPairRelevantAssemblyReference(
+                    versionSkewed,
+                    target));
+        Assert.False(
+            AssemblyPairCallUseQuery
+                .IsPairRelevantAssemblyReference(
+                    versionSkewed with
+                    {
+                        PublicKeyToken = null,
+                    },
+                    target));
+        Assert.False(
+            AssemblyPairCallUseQuery
+                .IsPairRelevantAssemblyReference(
+                    versionSkewed with
+                    {
+                        Culture = "fr-FR",
+                    },
+                    target));
+    }
+
+    [Fact]
+    public void ExecuteRejectsDistinctRegistrationsForTheSamePhysicalImage()
+    {
+        string path =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        using PairContext context = PairContext.Create(path, path);
+
+        AssemblyPairCallUseRequestException exception =
+            Assert.Throws<AssemblyPairCallUseRequestException>(
+                () => AssemblyPairCallUseQuery.Execute(
+                context.Group,
+                context.First,
+                context.Second));
+
+        Assert.Contains(
+            "distinct physical assembly artifacts",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

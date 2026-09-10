@@ -256,6 +256,11 @@ public sealed class InspectionGraphCommandTests
                         .GetProperty("evidence_token")
                         .GetString(),
                     StringComparison.Ordinal);
+                Assert.Equal(
+                    "yes",
+                    row.RootElement
+                        .GetProperty("exact_target")
+                        .GetString());
             });
         Assert.Empty(captured.Error);
     }

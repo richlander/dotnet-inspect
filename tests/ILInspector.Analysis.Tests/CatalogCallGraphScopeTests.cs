@@ -246,13 +246,8 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
-    public void FallbackSignatureRequiresExactDependencyAssemblyScopes()
+    public void FallbackSignatureRequiresCompleteRetainedTypeIdentity()
     {
-        var sourceIdentity = new AssemblyReferenceIdentity(
-            "Caller",
-            new Version(1, 0, 0, 0),
-            Culture: null,
-            PublicKeyToken: null);
         var targetIdentity = new AssemblyReferenceIdentity(
             "Provider",
             new Version(1, 0, 0, 0),
@@ -303,6 +298,37 @@ public class CatalogCallGraphScopeTests
             new ResolvableTypeReference(
                 new TypeReferenceOrigin.IntrinsicCoreLibrary(),
                 TypeName("System", "Void")));
+        var untrustedSystemRuntime = new AssemblyReferenceIdentity(
+            "System.Runtime",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        TypeRef untrustedCoreLibraryVoid = TypeRef.Definition(
+            untrustedSystemRuntime.Name,
+            "System",
+            "Void",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    untrustedSystemRuntime),
+                TypeName("System", "Void")),
+            trustedFrameworkAssembly: false);
+        MetadataTypeDefinitionName literalNestedName =
+            TypeName("Dependency", "Outer+Inner");
+        MetadataTypeDefinitionName structuredNestedName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Dependency",
+                    ["Outer", "Inner"])).Name;
+        TypeRef StructuredDependency(
+            MetadataTypeDefinitionName typeName) =>
+            TypeRef.Definition(
+                dependencyV1.Name,
+                typeName.Namespace,
+                "Outer+Inner",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.AssemblyReference(
+                        dependencyV1),
+                    typeName));
         MemberRef callSite = new(
             providerReference,
             "Use",
@@ -329,25 +355,66 @@ public class CatalogCallGraphScopeTests
             GraphNodeIdentity.FromMember(callSite),
             GraphNodeIdentity.FromMethod(Definition(dependencyV2)));
         Assert.True(
-            CatalogCallGraphScope.ExactFallbackSignatureScopesMatch(
+            CatalogCallGraphScope.ExactFallbackSignaturesMatch(
                 callSite,
-                Definition(dependencyV1),
-                sourceIdentity,
-                targetIdentity));
+                Definition(dependencyV1)));
         Assert.True(
-            CatalogCallGraphScope.ExactFallbackSignatureScopesMatch(
+            CatalogCallGraphScope.ExactFallbackSignaturesMatch(
                 callSite,
                 Definition(
                     dependencyV1,
-                    retainedCoreLibraryVoid),
-                sourceIdentity,
-                targetIdentity));
+                    retainedCoreLibraryVoid)));
         Assert.False(
-            CatalogCallGraphScope.ExactFallbackSignatureScopesMatch(
+            CatalogCallGraphScope.ExactFallbackSignaturesMatch(
                 callSite,
-                Definition(dependencyV2),
-                sourceIdentity,
-                targetIdentity));
+                Definition(dependencyV2)));
+        Assert.False(
+            CatalogCallGraphScope.ExactFallbackSignaturesMatch(
+                callSite,
+                Definition(
+                    dependencyV1,
+                    untrustedCoreLibraryVoid)));
+
+        MemberRef literalNestedCall = callSite with
+        {
+            ParameterTypes = [StructuredDependency(literalNestedName)],
+        };
+        MethodIdentity structuredNestedDefinition =
+            Definition(dependencyV1) with
+            {
+                ParameterTypes =
+                    [StructuredDependency(structuredNestedName)],
+            };
+        Assert.Equal(
+            GraphNodeIdentity.FromMember(literalNestedCall),
+            GraphNodeIdentity.FromMethod(
+                structuredNestedDefinition));
+        Assert.False(
+            CatalogCallGraphScope.ExactFallbackSignaturesMatch(
+                literalNestedCall,
+                structuredNestedDefinition));
+
+        MethodIdentity closedTarget = Definition(dependencyV1);
+        MethodIdentity openTarget = closedTarget with
+        {
+            IsVirtualDispatchOpen = true,
+        };
+        Assert.True(
+            CatalogCallGraphScope.IsResolvedExactTarget(
+                CallKind.Call,
+                openTarget));
+        Assert.True(
+            CatalogCallGraphScope.IsResolvedExactTarget(
+                CallKind.NewObject,
+                openTarget));
+        Assert.True(
+            CatalogCallGraphScope.IsResolvedExactTarget(
+                CallKind.CallVirtual,
+                closedTarget));
+        Assert.False(
+            CatalogCallGraphScope.IsResolvedExactTarget(
+                CallKind.CallVirtual,
+                openTarget));
     }
 
     [Fact]
