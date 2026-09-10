@@ -618,6 +618,80 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void CompatibleRidAmbiguity_ReacquisitionRemainsUnresolved()
+    {
+        const string packageId = "compatible.rid.unresolved";
+        const string runtimeIdentifier = "linux-x64";
+        var initialPayload = new AcquiredPackagePayload(
+            new ResolvedPackageCoordinate(
+                packageId,
+                "1.0.0",
+                "net9.0",
+                runtimeIdentifier,
+                [PackageSource.NuGetOrg],
+                wasFloating: false),
+            new InMemoryPackageContent(
+                Archive(
+                    ("lib/net6.0/A.dll", [0x01]),
+                    ("runtimes/linux-x64/lib/net6.0/A.dll", [0x02]),
+                    ("runtimes/linux-x64/lib/netcoreapp6.0/B.dll", [0x03])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding initial =
+            PackageRootBinding.CreateFromResolvedWithCompatibleSelection(
+                initialPayload,
+                "net9.0");
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+            initial.Root.AssetSelection.Status);
+        PackageRootReacquisitionRequest request =
+            initial.CreateReacquisitionRequest();
+        Assert.Equal("net9.0", request.CompileTargetFramework);
+        Assert.Equal("net6.0", request.SelectionTargetFramework);
+        Assert.True(request.UsesCompatibleImplementationSelection);
+        Assert.False(request.HasFrozenImplementationSelection);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                request.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+        request = decoded;
+        var replacementPayload = new AcquiredPackagePayload(
+            new ResolvedPackageCoordinate(
+                packageId,
+                "1.0.0",
+                "net9.0",
+                runtimeIdentifier,
+                [PackageSource.NuGetOrg],
+                wasFloating: false),
+            new InMemoryPackageContent(
+                Archive(
+                    ("lib/net8.0/A.dll", [0x04]),
+                    ("runtimes/linux-x64/lib/net8.0/A.dll", [0x05])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding reopened =
+            PackageRootBinding.CreateFromReacquiredResolved(
+                replacementPayload,
+                request);
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.Selected,
+            reopened.Root.AssetSelection.Status);
+        Assert.Equal(
+            ["runtimes/linux-x64/lib/net8.0/A.dll"],
+            reopened.Root.AssetSelection.ImplementationAssets.Select(asset => asset.Path));
+        Assert.Equal(request, reopened.CreateReacquisitionRequest());
+        Assert.False(
+            reopened.CreateReacquisitionRequest()
+                .HasFrozenImplementationSelection);
+    }
+
+    [Fact]
     public void CompatibleFrameworkAliases_ReacquisitionRemainsInvalid()
     {
         const string packageId = "compatible.alias.ambiguous";

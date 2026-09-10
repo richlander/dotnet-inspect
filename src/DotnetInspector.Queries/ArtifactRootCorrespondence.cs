@@ -97,13 +97,7 @@ internal readonly record struct PackageArtifactRootRequest(
                 normalizedCompileTarget,
                 normalizedSelectionTarget,
                 StringComparison.Ordinal);
-        bool effectiveFrozenSelection =
-            hasFrozenImplementationSelection
-            || !string.Equals(
-                normalizedCompileTarget,
-                normalizedSelectionTarget,
-                StringComparison.Ordinal);
-        if (effectiveFrozenSelection && !effectiveCompatibleSelection)
+        if (hasFrozenImplementationSelection && !effectiveCompatibleSelection)
         {
             throw new ArgumentException(
                 "A frozen implementation selection requires compatible implementation selection.",
@@ -116,7 +110,7 @@ internal readonly record struct PackageArtifactRootRequest(
             normalizedSelectionTarget,
             NormalizeRuntime(selectionRuntimeIdentifier),
             effectiveCompatibleSelection,
-            effectiveFrozenSelection);
+            hasFrozenImplementationSelection);
     }
 
     internal static string? NormalizeFramework(string? framework)

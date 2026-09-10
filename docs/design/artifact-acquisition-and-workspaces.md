@@ -3093,9 +3093,11 @@ with a real compile target. Compatible implementation selection may instead
 pair a requested compile target with an older implementation target. A raw
 framework alias may also normalize the compile and implementation targets to
 the same text even though compatible selection froze a distinct package
-folder. Collapsing either pair, inferring frozen state from target equality, or
-omitting compatible-selection intent when no unique universe exists would fail
-with `MissingAcquisitionTarget` or silently select a different compile or
+folder. Conversely, provisional neutral selection may name a different target
+before final RID-aware selection remains unresolved. Collapsing either pair,
+inferring frozen state from target equality or inequality, or omitting
+compatible-selection intent when no unique universe exists would fail with
+`MissingAcquisitionTarget` or silently select a different compile or
 implementation outcome.
 
 The request carries no generation, selection identity, Workspace identity,
@@ -3273,6 +3275,9 @@ equality cannot erase frozen-selection state.
 `CompatibleUnresolvedSelection_ReacquisitionCanSelectReplacementUniverse`
 gates the neighboring unresolved-compatible mode that may still reduce a
 replacement generation.
+`CompatibleRidAmbiguity_ReacquisitionRemainsUnresolved` gates a provisional
+neutral target followed by unresolved RID-aware alias selection, proving target
+difference cannot manufacture frozen state.
 `CompatibleFrameworkAliases_ReacquisitionRemainsInvalid` gates multiple raw
 implementation folders for one frozen canonical identity.
 `CompatibleAmbiguousImplementationLayout_ReacquisitionRemainsInvalid` gates
