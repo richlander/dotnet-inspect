@@ -1192,6 +1192,7 @@ export function createAsyncWorkspaceLocationPersistence(
       );
     },
     replace(url, historyState = null) {
+      syncRevision++;
       try {
         dependencies.replace(url, historyState);
         return true;
@@ -1201,6 +1202,7 @@ export function createAsyncWorkspaceLocationPersistence(
       }
     },
     push(url, historyState = null) {
+      syncRevision++;
       try {
         dependencies.push(url, historyState);
       } catch {

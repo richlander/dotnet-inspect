@@ -50,6 +50,7 @@ import {
   workspaceShareCaptureTopology,
   workspaceShareTabsMatchResolved,
   type ParsedWorkspaceLocation,
+  type WorkspaceUrlState,
 } from "../src/workspace-navigation.ts";
 import { createMethodBodyDiffState } from "../src/method-body-comparison.ts";
 import { createSourceDiffState } from "../src/source-comparison.ts";
@@ -315,6 +316,12 @@ function harness() {
     } as BrowserWorkspaceShareEncodeResult,
     decodeError: null as Error | null,
     decodeFailure: "",
+    decodeWorkspace: null as
+      | ((value: string) => Promise<BrowserWorkspaceShareDecodeResult>)
+      | null,
+    buildWorkspaceUrl: null as
+      | ((state: WorkspaceUrlState, base?: string) => Promise<URL>)
+      | null,
     acquisition: async (_id: string): Promise<boolean> => true,
     queryPackage: async (_id: string, _version: string, _framework: string) => packageSurface(),
     selection: async (): Promise<void> => {},
@@ -342,6 +349,12 @@ function harness() {
     push: (url, entryState) => write("push", url, entryState),
     replace: (url, entryState) => write("replace", url, entryState),
   });
+  const asyncWorkspaceLocation = {
+    ...workspaceLocation,
+    build: (workspaceState: WorkspaceUrlState, base?: string) =>
+      controls.buildWorkspaceUrl?.(workspaceState, base)
+      ?? Promise.resolve(workspaceLocation.build(workspaceState, base)),
+  };
   function write(kind: "push" | "replace", url: string, entryState: unknown) {
     if (kind === "push") previousEntries.push({ url: location.href, state: history.state });
     writes.push({ kind, url, state: entryState });
@@ -358,7 +371,7 @@ function harness() {
     },
   };
   const context = {
-    state, location, history, document, workspaceLocation,
+    state, location, history, document, workspaceLocation: asyncWorkspaceLocation,
     app: {
       inert: false,
       setAttribute: () => {},
@@ -446,7 +459,8 @@ function harness() {
     selectedBrowserCallGraphPackageTabIds,
     workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
     parseWorkspaceLocation, parseWorkspaceLocationAsync, isProductHomeDemosPath,
-    inspectDecodeWorkspaceShareState: decode,
+    inspectDecodeWorkspaceShareState: (value: string) =>
+      controls.decodeWorkspace?.(value) ?? Promise.resolve(decode(value)),
     requestAnimationFrame: (action: () => void) => frames.push(action),
     observeAsync: (operation: Promise<unknown>) => operations.push(operation),
     sourceInspection: {
@@ -756,6 +770,19 @@ test("capture uses the original share projection and retains Workspace presentat
   assert.deepEqual(h.focus, []);
 });
 
+test("superseded asynchronous URL projection cannot replace newer navigation", async () => {
+  const h = harness();
+  const build = deferred<URL>();
+  h.controls.buildWorkspaceUrl = () => build.promise;
+
+  runInNewContext("syncUrl()", h.context);
+  h.navigationSequence.begin();
+  build.resolve(new URL("https://inspect.test/?package=Stale&w=stale"));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.deepEqual(h.writes, []);
+});
+
 test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete projection", async () => {
   for (const mutate of [
     (h: ReturnType<typeof harness>) => { h.state.home = true; },
@@ -924,6 +951,30 @@ test("saved Open restores into an empty Workspace without a separate loader", as
   assert.deepEqual(h.publications, [null]);
   h.flushFocus();
   assert.deepEqual(h.focus, ["heading"]);
+});
+
+test("superseded saved Open stops after pending packet decoding", async () => {
+  const h = harness();
+  const decode = deferred<BrowserWorkspaceShareDecodeResult>();
+  h.controls.decodeWorkspace = () => decode.promise;
+  const packages = h.state.packages;
+
+  h.open();
+  h.navigationSequence.begin();
+  h.state.home = true;
+  decode.resolve({
+    succeeded: true,
+    state: h.controls.share,
+    failure: null,
+  });
+  await h.settle();
+
+  assert.equal(h.state.home, true);
+  assert.equal(h.state.packages, packages);
+  assert.equal(h.context.app.inert, false);
+  assert.equal(h.context.pendingWorkspaceConstruction, null);
+  assert.equal(h.context.pendingDemoNavigation, null);
+  assert.deepEqual(h.writes, []);
 });
 
 test("saved Platform Open commits its staged URL after Platform selection completes", async () => {

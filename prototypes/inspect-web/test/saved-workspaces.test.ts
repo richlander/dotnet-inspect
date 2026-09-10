@@ -7,6 +7,12 @@ import {
 } from "../src/saved-workspaces.ts";
 import { renderSavedWorkspaces, renderWorkspaceSaveButton } from "../src/saved-workspaces-view.ts";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(accept => { resolve = accept; });
+  return { promise, resolve };
+}
+
 function harness(initial: string | null = null) {
   let stored = initial;
   let failRead = false;
@@ -119,6 +125,63 @@ test("failed projection cannot persist a partial or empty save", () => {
   assert.deepEqual(h.saves.state.entries, []);
   assert.equal(h.saves.state.name, "Study");
   assert.match(h.saves.state.error, /not projectable/);
+});
+
+test("overlapping Save submissions share one pending capture", async () => {
+  let stored: string | null = null;
+  const capture = deferred<string>();
+  let captures = 0;
+  const saves = createSavedWorkspaces({
+    read: () => stored,
+    write: value => { stored = value; },
+    capture: () => {
+      captures++;
+      return capture.promise;
+    },
+    open: () => {},
+    render: () => {},
+  });
+
+  saves.beginSave();
+  saves.setName("My Workspace");
+  const first = saves.save();
+  const second = saves.save();
+  assert.equal(captures, 1);
+  capture.resolve("owner-issued-packet");
+  await Promise.all([first, second]);
+
+  assert.deepEqual(saves.state.entries, [{
+    name: "My Workspace",
+    packet: "owner-issued-packet",
+  }]);
+  assert.equal(createSavedWorkspaces({
+    read: () => stored,
+    write: () => {},
+    capture: () => "unused",
+    open: () => {},
+    render: () => {},
+  }).state.available, true);
+});
+
+test("asynchronous capture reports a following write failure", async () => {
+  const capture = deferred<string>();
+  const saves = createSavedWorkspaces({
+    read: () => null,
+    write: () => { throw new Error("Quota exceeded"); },
+    capture: () => capture.promise,
+    open: () => {},
+    render: () => {},
+  });
+
+  saves.beginSave();
+  saves.setName("My Workspace");
+  const operation = saves.save();
+  capture.resolve("owner-issued-packet");
+  await operation;
+
+  assert.deepEqual(saves.state.entries, []);
+  assert.equal(saves.state.name, "My Workspace");
+  assert.match(saves.state.error, /Could not save Workspace: Error: Quota exceeded/);
 });
 
 for (const raw of [

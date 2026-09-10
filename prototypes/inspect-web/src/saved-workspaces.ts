@@ -89,6 +89,51 @@ export function createSavedWorkspaces(options: {
     return entry;
   }
 
+  let saveOperation: Promise<void> | null = null;
+
+  function persistSave(name: string, packet: string): SavedWorkspaceFocus {
+    const entry = { name, packet };
+    persist([...state.entries, entry]);
+    state.formOpen = false;
+    state.name = "";
+    state.error = "";
+    return { kind: "saved-open", name, index: state.entries.length - 1 };
+  }
+
+  function save(): Promise<void> {
+    if (saveOperation) return saveOperation;
+    try {
+      const name = validateName(state.name);
+      if (state.entries.some(entry => entry.name.toLowerCase() === name.toLowerCase())) {
+        throw new Error(`A saved Workspace named "${name}" already exists. Choose another name.`);
+      }
+      const captured = options.capture();
+      if (typeof captured === "string") {
+        options.render(persistSave(name, captured));
+        return Promise.resolve();
+      }
+      let focus: SavedWorkspaceFocus = { kind: "save-name" };
+      saveOperation = captured
+        .then(packet => {
+          focus = persistSave(name, packet);
+          return undefined;
+        })
+        .catch((error: unknown) => {
+          state.error = `Could not save Workspace: ${String(error)}`;
+          return undefined;
+        })
+        .finally(() => {
+          saveOperation = null;
+          options.render(focus);
+        });
+      return saveOperation;
+    } catch (error) {
+      state.error = `Could not save Workspace: ${String(error)}`;
+      options.render({ kind: "save-name" });
+      return Promise.resolve();
+    }
+  }
+
   load();
 
   return {
@@ -108,28 +153,7 @@ export function createSavedWorkspaces(options: {
       state.error = "";
       options.render({ kind: "save" });
     },
-    async save() {
-      let focus: SavedWorkspaceFocus = { kind: "save-name" };
-      try {
-        const name = validateName(state.name);
-        if (state.entries.some(entry => entry.name.toLowerCase() === name.toLowerCase())) {
-          throw new Error(`A saved Workspace named "${name}" already exists. Choose another name.`);
-        }
-        const captured = options.capture();
-        const packet = typeof captured === "string"
-          ? captured
-          : await captured;
-        const entry = { name, packet };
-        persist([...state.entries, entry]);
-        state.formOpen = false;
-        state.name = "";
-        state.error = "";
-        focus = { kind: "saved-open", name, index: state.entries.length - 1 };
-      } catch (error) {
-        state.error = `Could not save Workspace: ${String(error)}`;
-      }
-      options.render(focus);
-    },
+    save,
     open(name: string) {
       try {
         const entry = find(name);

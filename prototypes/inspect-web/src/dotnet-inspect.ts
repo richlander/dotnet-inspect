@@ -9215,11 +9215,13 @@ async function loadPackageFromSpotlight(
     );
     return;
   }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loaded) {
     let destination: string;
     try {
       destination = (await buildStateUrl()).toString();
     } catch (error) {
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       failWorkspaceCatalogAction(
         `Couldn’t open ${id}@${version}: ${errorMessage(error)}`,
         rollbackSnapshot,
@@ -9228,6 +9230,7 @@ async function loadPackageFromSpotlight(
       );
       return;
     }
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     publishCurrentWorkspace(retainedSnapshot);
     workspaceLocation.push(destination);
     render({ synchronizeUrl: false });
@@ -9335,6 +9338,7 @@ async function openPlatformLibrary(
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     if (construction) {
       const destination = (await buildStateUrl()).toString();
+      if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.push(destination);
       render({ synchronizeUrl: false });
@@ -9963,11 +9967,13 @@ function syncUrl() {
     isProductHomeDemosPath(location.pathname);
   if (state.loading) return;
   document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
+  const navigationSeq = navigationSequence.current();
   if (state.atPackageRoot && state.package) {
     const revision = ++syncUrlRevision;
     void buildStateUrl().then(
       url => {
-        if (revision !== syncUrlRevision) return undefined;
+        if (revision !== syncUrlRevision
+          || !navigationSequence.isCurrent(navigationSeq)) return undefined;
         const destination = url.toString();
         if (pushFromProductDemos) {
           workspaceLocation.push(destination);
@@ -9992,22 +9998,30 @@ function syncUrl() {
     return;
   }
   if (!snapshot) return;
-  if (!pushFromProductDemos) {
-    workspaceLocation.sync(snapshot, history.state);
+  const revision = ++syncUrlRevision;
+  const publish = (url: URL) => {
+    if (revision !== syncUrlRevision
+      || !navigationSequence.isCurrent(navigationSeq)) return;
+    const destination = url.toString();
+    if (pushFromProductDemos) {
+      workspaceLocation.push(destination);
+    } else {
+      workspaceLocation.replace(destination, history.state);
+    }
     if (retainedWorkspaces.activeWorkspaceId !== null)
-      activeWorkspaceUrl = location.href;
+      activeWorkspaceUrl = destination;
+  };
+  if (!pushFromProductDemos) {
+    void workspaceLocation.build(snapshot).then(
+      publish,
+      () => {
+        // Keep the current URL while the active Browser state is not projectable.
+      },
+    );
     return;
   }
-  const revision = ++syncUrlRevision;
   void workspaceLocation.build(snapshot).then(
-    url => {
-      if (revision !== syncUrlRevision) return undefined;
-      const destination = url.toString();
-      workspaceLocation.push(destination);
-      if (retainedWorkspaces.activeWorkspaceId !== null)
-        activeWorkspaceUrl = destination;
-      return undefined;
-    },
+    publish,
     () => {
       // Keep the current URL while the active Browser state is not projectable.
       return undefined;
@@ -10720,6 +10734,7 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
         resolved,
         inspectEncodeWorkspaceShareState);
     } catch (error) {
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       failDemoWorkspaceOpen(
         kind,
         errorMessage(error),
@@ -10727,6 +10742,7 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
         false);
       return;
     }
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (!link) {
       const construction =
         captureWorkspaceConstructionSnapshots(navigationSeq);
@@ -10745,6 +10761,7 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
       destination = new URL(link, location.href).toString();
       loc = await parseWorkspaceHref(destination);
     } catch (error) {
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       failDemoWorkspaceOpen(
         kind,
         errorMessage(error),
@@ -10752,6 +10769,7 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
         false);
       return;
     }
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     stageDemoNavigation(navigationSeq, destination);
     const construction =
       captureWorkspaceConstructionSnapshots(navigationSeq);
@@ -10853,6 +10871,7 @@ async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void
     state.atPackageRoot = true;
     state.loading = false;
     const destination = (await buildStateUrl()).toString();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     ensureCurrentWorkspacePublished();
     stageDemoNavigation(navigationSeq, destination);
     if (!commitDemoNavigation(navigationSeq)) return;
@@ -10898,11 +10917,19 @@ async function openSavedWorkspaceCore(entry: SavedWorkspace): Promise<void> {
   try {
     loc = await parseWorkspaceHref(destination);
   } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) {
+      cancelDemoNavigation(navigationSeq);
+      return;
+    }
     try {
       fail(errorMessage(error), false);
     } finally {
       cancelDemoNavigation(navigationSeq);
     }
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) {
+    cancelDemoNavigation(navigationSeq);
     return;
   }
   const construction =
@@ -10944,6 +10971,7 @@ async function restoreWorkspaceCatalogEntry(
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
       await buildStateUrl();
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       publishCurrentWorkspace(previousSnapshot);
       if (!commitDemoNavigation(navigationSeq)) return;
       syncUrl();
@@ -11010,6 +11038,7 @@ async function restoreFreshWorkspaceFromHistory(
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
       const destination = (await buildStateUrl()).toString();
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.replace(destination, history.state);
       render({ synchronizeUrl: false });
@@ -11053,6 +11082,7 @@ async function restoreRetainedWorkspaceFromHistory(
       false);
     if (!failed && navigationSequence.isCurrent(navigationSeq)) {
       const destination = (await buildStateUrl()).toString();
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       discardPendingWorkspaceConstruction();
       activeWorkspaceUrl = destination;
       workspaceLocation.replace(destination, history.state);
@@ -11322,7 +11352,7 @@ async function selectWorkspaceApplicationScope() {
     }
     return;
   }
-  navigationSequence.begin();
+  const navigationSeq = navigationSequence.begin();
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
@@ -11330,6 +11360,7 @@ async function selectWorkspaceApplicationScope() {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   const projected = await buildStateUrl();
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   const successor = resolvePackageQueryWorkspaceSuccessor(
     () => projected,
     () => {
@@ -11497,6 +11528,7 @@ async function openPackageQueryRow(
   try {
     destination = (await buildStateUrl()).toString();
   } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     discardPendingWorkspaceConstruction();
     if (rollbackSnapshot) {
       restoreCanonicalWorkspaceRestoreSnapshot(rollbackSnapshot);
@@ -11518,6 +11550,7 @@ async function openPackageQueryRow(
         ?.focus());
     return;
   }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   publishCurrentWorkspace(retainedSnapshot);
   workspaceLocation.push(destination);
   render();
@@ -14475,9 +14508,9 @@ async function runCallGraphDemo(
       overload,
       true);
     state.loading = false;
-    stageDemoNavigation(
-      navigationSeq,
-      (await buildStateUrl()).toString());
+    const destination = (await buildStateUrl()).toString();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    stageDemoNavigation(navigationSeq, destination);
     render();
     let renderResult = await renderMermaidCallGraph();
     while (renderResult.status === "superseded"
@@ -14956,6 +14989,7 @@ function applyLocationView(loc: ParsedLocation) {
 async function restoreInitialWorkspace() {
   const navigationSeq = navigationSequence.current();
   const loc = await workspaceLocation.preflightCurrent().resolve();
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
     await restoreWorkspaceFromLocation(
       loc,
@@ -15277,6 +15311,7 @@ async function openFreshWorkspaceLink(
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
       const destination = (await buildStateUrl()).toString();
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.push(destination);
       render({ synchronizeUrl: false });
@@ -15315,7 +15350,14 @@ async function navigateInAppUrl(url: URL) {
   if (focusWorkspaceAfterQuery) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
-  const loc = await parseWorkspaceHref(url.toString());
+  let loc: ParsedLocation;
+  try {
+    loc = await parseWorkspaceHref(url.toString());
+  } catch (error) {
+    if (navigationSequence.isCurrent(navigationSeq)) throw error;
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.hasWorkspaceState && !loc.shareState) {
     appendQueryNotice(
       `Workspace restore failed: ${loc.workspaceNotice
@@ -15980,6 +16022,7 @@ window.addEventListener("popstate", () => {
     return;
   }
   const loc = await parseLocation();
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
     failWorkspaceRoute(loc.routeFailure.message);
     return;
