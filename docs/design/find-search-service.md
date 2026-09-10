@@ -66,14 +66,25 @@ described under [Implementation and validation status](#implementation-and-valid
 5. projects; and
 6. binary directories.
 
-The service owns an ephemeral `AssemblySetInspectionWorkspace` for one
-invocation. Each admitted assembly executes
-`AssemblyContextTypeInventoryQuery`; the service projects its type name,
-namespace, full name, kind, library file base name, source, and source version
-into the internal `TypeSearchResult` currency. The library value is path
-provenance, not metadata assembly identity. The service does not reopen
-assemblies, infer metadata facts from display text, or replace a typed query
-failure with a candidate.
+For one normalized package reference with an exact NuGet version, one explicit
+target framework other than `all`, no other source, and no numeric result
+limit, the service owns an asynchronous `InspectionWorkspace`. It acquires and
+commits one package Root, then executes `AssemblyContextTypeInventoryQuery`
+against the Root's surface group. Direct and fallback census passes reuse that
+committed Root. Floating, `@latest`, and wildcard version selectors remain on
+the legacy route so this adoption does not redefine their version-selection
+semantics. Package candidates project library, source, and version from typed
+Root and asset provenance; a package-relative asset is not represented as a
+host filesystem path.
+
+All other source shapes retain an ephemeral
+`AssemblySetInspectionWorkspace`. Each admitted assembly executes the same
+query, and the service projects its type name, namespace, full name, kind,
+library file base name, source, and source version into the internal
+`TypeSearchResult` currency. The library value on this route is path
+provenance, not metadata assembly identity. Neither route reopens assemblies,
+infers metadata facts from display text, or replaces a typed query failure with
+a candidate.
 
 A non-null collection pattern may be pushed into each inventory scan. With a
 non-tabular single pattern and an active result limit, `FindTypesAsync` selects
@@ -145,19 +156,22 @@ established.
 ## Failure and lifetime
 
 The invocation workspace and every resolved assembly set are disposed within
-the service call. Per-assembly rejection, query failure, and skipped metadata
-rows produce visible CLI warnings while healthy assemblies continue to
-contribute candidates. Verbose diagnostics retain the failed metadata
-operation, token, failure kind, and detail. An operation-wide exception
-propagates to `FindCommand`, which owns the hard error and exit status.
+the service call. The configured package route also observes artifact-session
+cleanup failures when the Workspace closes. Per-assembly rejection, query
+failure, and skipped metadata rows produce visible CLI warnings while healthy
+assemblies continue to contribute candidates. Typed package acquisition,
+publication, and Root-query admission failures are likewise visible. Verbose
+diagnostics retain the failed metadata operation, token, failure kind, and
+detail. An operation-wide exception propagates to `FindCommand`, which owns
+the hard error and exit status.
 
 An empty result is therefore not proof that every source succeeded; the stderr
 diagnostic stream is part of the CLI operation outcome. Structured completion
 evidence is not part of this CLI compatibility result.
 
-`FindTypesAsync` does not currently accept the command cancellation token.
-Cancellation ownership is therefore not fully adopted at this boundary and
-must not be inferred from the command signature.
+`FindTypesAsync` accepts the command cancellation token and carries it through
+package Root acquisition, publication, query admission, and the boundaries
+around each synchronous typed query execution.
 
 ## Implementation and validation status
 
@@ -187,8 +201,7 @@ particular, the following properties are unverified or known gaps:
 - partial suggestions are selected by similarity but emitted in collected
   candidate order and are not additionally capped by `Limit`;
 - mixed-pattern result order is grouped by outcome dictionaries rather than
-  explicitly preserving request order; and
-- the command cancellation token does not reach collection or classification.
+  explicitly preserving request order.
 
 The minimum pathological fixture for future adoption is one non-wildcard
 pattern with no direct, namespace-prefix, or similarity match, exercised

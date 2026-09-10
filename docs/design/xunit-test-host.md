@@ -238,6 +238,11 @@ pinned outcome-level host gate without changing the suite's typed-language,
 reference-evaluator, failure, or separately compiled non-friend consumer
 evidence.
 
+`DotnetInspector.Sections.Tests` is the fifteenth migrated adopter. Its
+required PR and developer commands remain unfiltered. These paths reuse the
+pinned outcome-level host gate without changing the suite's unresolved-intent,
+cohort-binding, owner-identity, selection, or structured-failure evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

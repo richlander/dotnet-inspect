@@ -91,7 +91,7 @@ export function benchmarkUsage(): string {
   return [
     "Usage:",
     "  npm run benchmark:published -- \\",
-    "    --site mono=https://dotnet-inspect.ca \\",
+    "    --site mono=https://dotnet-inspect.net \\",
     "    --site coreclr=https://coreclr.dotnet-inspect.ca \\",
     "    [--samples 3] [--member-count 10] [--output <report.json>] \\",
     "    [--trend-output <trend-point.json>] \\",

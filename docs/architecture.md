@@ -124,7 +124,7 @@ alphabetically.
 | `Inspector.Artifacts.Local` | Source adapter canary | Snapshotting explicitly supplied local files into artifact contracts for the current local-acquisition canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md), [library family boundaries](design/library-family-boundaries.md) |
 | `NuGetFetch` | Protocol adapter | NuGet feeds, downloads, authentication, and protocol behavior. | [NuGet authentication](design/nuget-authentication.md) |
 | Target `SourceFetch` | Transport adapter | Bounded host-authorized source-byte retrieval, redirect and origin enforcement, content-store integration, and typed transport outcomes. | [PDB acquisition](pdb-acquisition.md), [library family boundaries](design/library-family-boundaries.md), [#6335](https://github.com/richlander/dotnet-inspect/issues/6335) |
-| `DotnetInspector.Packages` | Package domain | Package identity, configured-source authority, version and pruning policy, payload acquisition, archive content, asset selection, and lower PackageHouse contracts. | [PackageHouse composition](design/package-house.md), [package source model](design/package-source-model.md), [version resolution](design/version-resolution.md) |
+| `DotnetInspector.Packages` | Package domain | Package identity, configured-source authority, resource-free version-selection requests and receipts, pruning policy, payload acquisition, archive content, asset selection, and lower PackageHouse contracts. | [PackageHouse composition](design/package-house.md), [package source model](design/package-source-model.md), [version resolution](design/version-resolution.md) |
 | Target `PackageHouse` composition | Package service | Sole host-neutral package settlement facade over typed demands, House-issued source leases over borrowed host capabilities, authorized source and input plans, package policy, payload and asset realization, dependency-edge correspondence, platform delegation, and provenance-retaining Workspace/library handoffs. | [PackageHouse composition](design/package-house.md), [#6426](https://github.com/richlander/dotnet-inspect/issues/6426) |
 | `DotnetInspector.Platforms` contract floor | Platform identity | Package-neutral logical family and exact family-target currency shared by declarations, source composition, pruning, workspaces, CLI, and Browser/Wasm. | [Platform target currency](design/platform-target-currency.md), [#6361](https://github.com/richlander/dotnet-inspect/issues/6361), [#6378](https://github.com/richlander/dotnet-inspect/issues/6378) |
 | `DotnetInspector.PlatformHouse` contract seam | Platform service contract | Host-neutral target demands, operations, source authorization plans, contributions, terminal outcomes, and resource-free settlement receipts. Source adapters and product adoption remain separately staged. | [PlatformHouse realization and reference processing](design/platform-house-reference-processing.md), [#6301](https://github.com/richlander/dotnet-inspect/issues/6301) |
@@ -137,7 +137,10 @@ substitution of Git blob bytes for one PDB source request. PDB acquisition
 retains the surrounding source-selection, checksum, and fallback policy.
 The existing `SourceFetch` implementation targets the independent transport
 root rather than the PDB owner: it retrieves authorized source bytes, while
-`PdbSourceHouse` decides when and how those bytes satisfy a PDB document.
+`PdbSourceHouse` currently decides when and how those bytes satisfy a PDB
+document. The target [SourceHouse composition](design/source-house.md)
+consumes content-backed authored-source and decompiler services; migration and
+retirement of the current source composition are tracked by #6512.
 
 The artifact floor is intentionally package- and Metadata-free. Its contracts,
 local adapter, and workspace session are implemented migration foundations, not
@@ -154,6 +157,7 @@ and query workspaces while migration continues.
 | `CSharpText.MemberSlicing` | Member-text processor | Conservative selection of one complete C# member declaration from caller-supplied line evidence, using only public `CSharpText` contracts. | [Library family boundaries](design/library-family-boundaries.md), [untrusted-data threat model](design/untrusted-data-threat-model.md) |
 | `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, ReadyToRun image envelopes, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), [ReadyToRun image projection](design/readytorun-image-projection.md), focused Metadata designs |
 | `ILInspector.SourceLink` | Source interpreter and composer | SourceLink map matching, provenance grammar, extraction, canonical paths, URL decoration, source correlation, and source Findings. | [PDB acquisition](pdb-acquisition.md), [source Finding producers](design/source-finding-producers.md) |
+| Target `SourceHouse` composition | Source service | Content-first settlement of SourceLink-authored or C#-decompiled source for one exact target, with independent consumer-selected source and PDB policy and retained producer evidence. | [SourceHouse composition](design/source-house.md), [#6512](https://github.com/richlander/dotnet-inspect/issues/6512) |
 | `ILInspector.CSharp` | Typed projection | Model-bound C# spelling and typed type/member views. | [Type, member, and API representation](design/type-member-api-representation.md) |
 
 Metadata owns metadata facts. SourceLink owns SourceLink interpretation.

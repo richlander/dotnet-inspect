@@ -186,4 +186,66 @@ public class DotnetToolSettingsParserTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void Probe_MalformedOrAmbiguousManifestIsIndeterminate()
+    {
+        string malformed = Path.Combine(
+            Path.GetTempPath(),
+            $"tool-settings-{Guid.NewGuid():N}");
+        string ambiguous = Path.Combine(
+            Path.GetTempPath(),
+            $"tool-settings-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(malformed);
+            File.WriteAllText(
+                Path.Combine(malformed, "DotnetToolSettings.xml"),
+                "<DotNetCliTool>");
+            Assert.False(
+                DotnetToolSettingsParser.TryProject(
+                    malformed,
+                    out DotnetToolSettingsData? malformedData));
+            Assert.Null(malformedData);
+
+            Directory.CreateDirectory(Path.Combine(ambiguous, "net8.0"));
+            File.WriteAllText(
+                Path.Combine(ambiguous, "DotnetToolSettings.xml"),
+                """<DotNetCliTool Version="1" />""");
+            File.WriteAllText(
+                Path.Combine(
+                    ambiguous,
+                    "net8.0",
+                    "DotnetToolSettings.xml"),
+                """<DotNetCliTool Version="1" />""");
+            Assert.True(
+                DotnetToolSettingsParser.TryProject(
+                    ambiguous,
+                    out DotnetToolSettingsData? equivalentData));
+            Assert.NotNull(equivalentData);
+
+            File.WriteAllText(
+                Path.Combine(
+                    ambiguous,
+                    "net8.0",
+                    "DotnetToolSettings.xml"),
+                """
+                <DotNetCliTool Version="1">
+                  <Commands><Command Name="different" /></Commands>
+                </DotNetCliTool>
+                """);
+            Assert.False(
+                DotnetToolSettingsParser.TryProject(
+                    ambiguous,
+                    out DotnetToolSettingsData? ambiguousData));
+            Assert.NotNull(ambiguousData);
+        }
+        finally
+        {
+            if (Directory.Exists(malformed))
+                Directory.Delete(malformed, recursive: true);
+            if (Directory.Exists(ambiguous))
+                Directory.Delete(ambiguous, recursive: true);
+        }
+    }
 }

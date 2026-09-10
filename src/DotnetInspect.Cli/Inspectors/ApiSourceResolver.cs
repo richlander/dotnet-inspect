@@ -145,16 +145,31 @@ internal static class ApiSourceResolver
                 var (requestedPackageName, _) =
                     PackageExtractor.ParsePackageReference(packagePath);
                 var target = PackageExtractor.ParsePackageTarget(packagePath);
-                var outcome = rangeOutcome
-                    ?? (!target.IsLocalFile && !Core.HttpClientFactory.IsOffline
-                        && PackageExtractor.TryNormalizePackageVersion(target.Version, out string pinnedVersion)
+                PackageExtractionOutcome outcome;
+                if (rangeOutcome is not null)
+                {
+                    outcome = rangeOutcome.Value;
+                }
+                else if (!target.IsLocalFile && !Core.HttpClientFactory.IsOffline)
+                {
+                    outcome = PackageExtractor.TryNormalizePackageVersion(
+                        target.Version, out string pinnedVersion)
                         ? await PackageExtractor.ExtractPinnedPackageAsync(
                             context.HttpClient, target.PackageName, pinnedVersion,
                             context.Logger.Log, "inspect-api", acquisitionSourceOptions,
                             context.CreatePackageSourceComposition)
-                        : await PackageExtractor.ExtractPackageAsync(
-                            context.HttpClient, packagePath, context.Logger.Log,
-                            "inspect-api", acquisitionSourceOptions));
+                        : await PackageExtractor.ExtractSelectedPackageAsync(
+                            context.HttpClient, target.PackageName,
+                            target.Version.Length == 0 ? null : target.Version,
+                            context.Logger.Log, "inspect-api", acquisitionSourceOptions,
+                            createComposition: context.CreatePackageSourceComposition);
+                }
+                else
+                {
+                    outcome = await PackageExtractor.ExtractPackageAsync(
+                        context.HttpClient, packagePath, context.Logger.Log,
+                        "inspect-api", acquisitionSourceOptions);
+                }
                 if (!outcome.IsSuccess)
                 {
                     CommandError.Write($"{outcome.ErrorMessage}");

@@ -40,16 +40,10 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         const string packageId = "Authority.Index";
         const string version = "1.0.0";
         const string producer = "shared-test-producer";
-        PackageIndexCache.Set(packageId, version, producer,
-            new InspectionResult
-            {
-                PackageName = packageId,
-                Version = version,
-                Description = new InertString(TextPolicy.Field, "Legacy index", maxLength: 100),
-            });
         using var client = new HttpClient(new RoutingHandler(_ =>
             throw new InvalidOperationException("This inspection does not request remote metadata.")));
 
+        var subjects = new List<PackageIndexCacheSubject>();
         foreach (string name in new[] { "first", "second" })
         {
             string root = Path.Combine(_root, name);
@@ -60,7 +54,15 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 root, TempDir: null, packageId, version, ProducerKey: producer)
             {
                 Authority = authority,
+                AcquiredPayload = Payload(packageId, version, producer),
             };
+            PackageIndexCacheSubject? subject =
+                PackageIndexCacheSubject.TryCreate(
+                    resolution,
+                    _ => { },
+                    TestContext.Current.CancellationToken);
+            if (subject is not null)
+                subjects.Add(subject);
             NuspecData nuspec = NuspecParser.ParseContent($"""
                 <package><metadata><id>{packageId}</id><version>{version}</version>
                 <description>{name}</description></metadata></package>
@@ -72,16 +74,27 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             Assert.Equal(name, result.Description?.ToString());
             if (local)
             {
-                Assert.Equal(authority.PersistentCacheKey, resolution.CacheScopeKey);
-                Assert.Equal(name,
-                    PackageIndexCache.TryGet(packageId, version, resolution.CacheScopeKey!)?.Description?.ToString());
+                Assert.NotNull(subject);
+                Assert.Equal(
+                    name,
+                    PackageIndexCache.TryGet(subject)?.Description?.ToString());
             }
             else
             {
-                Assert.Null(resolution.CacheScopeKey);
+                Assert.Null(subject);
             }
         }
-        Assert.Equal("Legacy index", PackageIndexCache.TryGet(packageId, version, producer)?.Description?.ToString());
+
+        if (local)
+        {
+            Assert.NotEqual(
+                PackageIndexCache.CacheKey(subjects[0]),
+                PackageIndexCache.CacheKey(subjects[1]));
+        }
+        else
+        {
+            Assert.Empty(subjects);
+        }
     }
 
     [Fact]
@@ -456,12 +469,34 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         }));
         const string payloadPackage = "Wrapper.Package.any";
         const string payloadProducer = "payload-source";
+        var payloadAuthority = new ConfiguredPackageAuthority(
+            new NuGetFetch.PackageSource(
+                "private",
+                payloadRoot));
+        var resolution = new PackageExtractionResult(
+            payloadRoot,
+            TempDir: null,
+            PackageName: payloadPackage,
+            Version: "1.0.0",
+            ProducerKey: usePayloadCache ? payloadProducer : null)
+        {
+            Authority = usePayloadCache ? payloadAuthority : null,
+            AcquiredPayload = usePayloadCache
+                ? Payload(payloadPackage, "1.0.0", payloadProducer)
+                : null,
+            ToolWrapperChain =
+            [
+                new ToolWrapperPackage(
+                    wrapperRoot,
+                    "Wrapper.Package",
+                    "1.0.0",
+                    ProducerKey: "private"),
+            ],
+        };
         if (usePayloadCache)
         {
-            PackageIndexCache.Set(
-                payloadPackage,
-                "1.0.0",
-                payloadProducer,
+            SetCachedPackage(
+                Subject(resolution),
                 new InspectionResult
                 {
                     PackageName = payloadPackage,
@@ -477,23 +512,6 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                     ],
                 });
         }
-
-        var resolution = new PackageExtractionResult(
-            payloadRoot,
-            TempDir: null,
-            PackageName: payloadPackage,
-            Version: "1.0.0",
-            ProducerKey: usePayloadCache ? payloadProducer : null)
-        {
-            ToolWrapperChain =
-            [
-                new ToolWrapperPackage(
-                    wrapperRoot,
-                    "Wrapper.Package",
-                    "1.0.0",
-                    ProducerKey: "private"),
-            ],
-        };
 
         InspectionResult result = await PackageInspector.InspectAsync(
             resolution,
@@ -522,10 +540,21 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         const string version = "1.0.0";
         const string source = "https://feed.example/v3/index.json";
         string producerKey = NuGetCache.GetSourceKey(source);
-        PackageIndexCache.Set(
-            packageName,
-            version,
-            producerKey,
+        var authority = new ConfiguredPackageAuthority(
+            new NuGetFetch.PackageSource("fixture", _root));
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: packageName,
+            Version: version,
+            ProducerKey: producerKey)
+        {
+            Authority = authority,
+            AcquiredPayload = Payload(packageName, version, producerKey),
+        };
+        PackageIndexCacheSubject subject = Subject(resolution);
+        SetCachedPackage(
+            subject,
             new InspectionResult
             {
                 PackageName = packageName,
@@ -566,13 +595,6 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                     """),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound),
             }));
-        var resolution = new PackageExtractionResult(
-            _root,
-            TempDir: null,
-            PackageName: packageName,
-            Version: version,
-            ProducerKey: producerKey);
-
         InspectionResult result = await PackageInspector.InspectAsync(
             resolution,
             packageName,
@@ -589,10 +611,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             Assert.Single(result.RuntimeIdentifierPackages!).Exists);
         Assert.Null(
             Assert.Single(
-                PackageIndexCache.TryGet(
-                    packageName,
-                    version,
-                    producerKey)!.RuntimeIdentifierPackages!).Exists);
+                PackageIndexCache.TryGet(subject)!
+                    .RuntimeIdentifierPackages!).Exists);
     }
 
     [Fact]
@@ -605,10 +625,21 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         const string Version = "1.0.0";
         const string Source = "https://fixture.example/v3/index.json";
         string producerKey = NuGetCache.GetSourceKey(Source);
-        PackageIndexCache.Set(
-            packageName,
-            Version,
-            producerKey,
+        var authority = new ConfiguredPackageAuthority(
+            new NuGetFetch.PackageSource("fixture", _root));
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: packageName,
+            Version: Version,
+            ProducerKey: producerKey)
+        {
+            Authority = authority,
+            AcquiredPayload = Payload(packageName, Version, producerKey),
+        };
+        PackageIndexCacheSubject subject = Subject(resolution);
+        SetCachedPackage(
+            subject,
             new InspectionResult
             {
                 PackageName = packageName,
@@ -669,13 +700,6 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound),
             };
         }));
-        var resolution = new PackageExtractionResult(
-            _root,
-            TempDir: null,
-            PackageName: packageName,
-            Version: Version,
-            ProducerKey: producerKey);
-
         InspectionResult result = await PackageInspector.InspectAsync(
             resolution,
             packageName,
@@ -696,10 +720,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             package => Assert.True(package.Exists));
         Assert.True(probedSecondPackage);
         Assert.All(
-            PackageIndexCache.TryGet(
-                packageName,
-                Version,
-                producerKey)!.RuntimeIdentifierPackages!,
+            PackageIndexCache.TryGet(subject)!
+                .RuntimeIdentifierPackages!,
             package => Assert.Null(package.Exists));
     }
 
@@ -1700,6 +1722,38 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             Directory.Delete(_root, recursive: true);
         }
     }
+
+    private static AcquiredPackageSourcePayload Payload(
+        string packageId,
+        string version,
+        string producerKey)
+        => new(
+            NuGetFetch.PackageSourceCoordinate.Create(packageId, version),
+            new InMemoryPackageContent(
+                [1, 2, 3],
+                fromCache: true,
+                producerKey),
+            producerKey,
+            PackagePayloadOrigin.Cache);
+
+    private static PackageIndexCacheSubject Subject(
+        PackageExtractionResult resolution)
+        => Assert.IsType<PackageIndexCacheSubject>(
+            PackageIndexCacheSubject.TryCreate(
+                resolution,
+                _ => { },
+                TestContext.Current.CancellationToken));
+
+    private static void SetCachedPackage(
+        PackageIndexCacheSubject subject,
+        InspectionResult result)
+        => PackageIndexCache.Set(
+            Assert.IsType<PackageIndexProduction.Complete>(
+                PackageIndexProduction.Create(
+                    subject,
+                    subject.Generation,
+                    result,
+                    isComplete: true)));
 
     private static CommandContext PayloadContext(
         HttpClient client, Func<HttpRequestMessage, HttpResponseMessage> respond) =>

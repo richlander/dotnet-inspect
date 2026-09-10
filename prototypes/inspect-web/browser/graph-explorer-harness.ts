@@ -13,6 +13,14 @@ let depth = 0;
 let mounts = 0;
 let navigations = 0;
 let retainedSvg: SVGSVGElement | null = null;
+const longHeader = new URLSearchParams(location.search).get("header") === "long";
+
+const subject = longHeader
+  ? "System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Example.Result>> ProcessAsync<TRequest, TResponse>(TRequest request, System.Threading.CancellationToken cancellationToken)"
+  : "Process(int)";
+const context = longHeader
+  ? "Example.Package.Experimental.Extensions@12.0.0-preview.7.26381.103 · Example.Long.Namespace.Containing.Multiple.Nested.Types.Worker<TRequest, TResponse>"
+  : "Example.Package@1.0.0 · Example.Long.Namespace.Worker";
 
 declare global {
   interface Window {
@@ -30,8 +38,10 @@ declare global {
 function target() {
   return {
     key,
-    title: "Call graph",
-    context: "Example.Package@1.0.0 > Example.Long.Namespace.Worker > Process(int)",
+    kind: "Call graph",
+    subject,
+    context,
+    summary: "0 callers · 2 callees",
     content: document.querySelector<HTMLElement>("[data-call-graph-surface]")!,
     invoker: document.querySelector<HTMLElement>("#explore")!,
   };
