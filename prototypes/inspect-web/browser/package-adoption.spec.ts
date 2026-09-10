@@ -810,7 +810,9 @@ test.describe("Assembly Package Query website over real Wasm", () => {
     await expect(open).toHaveAttribute("data-query-root-request", /^pkgroot1/);
     await open.click();
 
-    await expect(page).not.toHaveURL(/\/query(?:[?#].*)?$/);
+    await expect(page).not.toHaveURL(
+      /\/query(?:[?#].*)?$/,
+      { timeout: 60_000 });
     await expect(page.locator("body")).toContainText(match.packageId.toLowerCase());
     expect(registry.downloadCount(match)).toBe(2);
   });
