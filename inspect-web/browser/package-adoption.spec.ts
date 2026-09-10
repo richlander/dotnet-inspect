@@ -69,7 +69,8 @@ const workerClientUrl = `/${workerClientEntry.file}`;
 // rendering the available case. Package acquisition leaves the browser as
 // ordinary NuGet Gallery CDN fetches, which this spec intercepts to serve
 // deterministic local fixtures; a separate test exercises the immutable real
-// Microsoft.Extensions.Http@10.0.0/net10.0 coordinate over the network.
+// Microsoft.Extensions.Http@10.0.0/net10.0 and the formerly oversized
+// System.Text.Json@10.0.0/net10.0 coordinates over the network.
 
 function locateFixtureAssembly(variable: string): Buffer {
   const configured = process.env[variable];
@@ -1123,7 +1124,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 test.describe("bounded network-backed two-host demo", () => {
   test.describe.configure({ timeout: 240_000 });
 
-  test("opens Microsoft.Extensions.Http@10.0.0/net10.0 over the real Gallery CDN", async ({
+  test("opens ordinary and large net10.0 packages over the real Gallery CDN", async ({
     page,
   }) => {
     await boot(page);
@@ -1141,6 +1142,20 @@ test.describe("bounded network-backed two-host demo", () => {
     expect(surface.activeFramework).toBe("net10.0");
     expect(surface.assemblies.length).toBeGreaterThan(0);
     expect(surface.types.length).toBeGreaterThan(0);
+
+    // System.Text.Json is an ordinary supported package whose complete surface
+    // crossed both former ordinary-transport bounds. The published Worker must
+    // carry that generated result without weakening its finite envelope.
+    const largeSurface = await engine.queryCoordinate(
+      "System.Text.Json",
+      "10.0.0",
+      "net10.0",
+    );
+    expect(largeSurface.package).toBe("System.Text.Json");
+    expect(largeSurface.version).toBe("10.0.0");
+    expect(largeSurface.activeFramework).toBe("net10.0");
+    expect(largeSurface.assemblies.length).toBeGreaterThan(0);
+    expect(largeSurface.types.length).toBeGreaterThan(0);
 
     // The awaitable Workspace occurrence for the same real coordinate activates
     // and yields the same package surface.

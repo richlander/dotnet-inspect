@@ -567,10 +567,17 @@ All other managed calls use the closed ordinary-operation catalog in
 Its 49 entries are named at build time across Package (19), Metadata (8),
 Analysis (7), Source (9), Call Graph (2), and Catalog (4). Callers cannot send a
 module, facade, or member name. Arguments and results cross as inert JSON trees
-only, bounded to 1,048,576 characters, 64 nesting levels, and 65,536 collection
-entries. The reader rejects accessors, symbols, prototype drift, sparse or
-extended arrays, cycles, functions, `undefined`, and non-finite numbers rather
-than converting malformed data into an empty or partial result.
+only, bounded to 8,388,608 characters, 64 nesting levels, and 262,144
+collection entries. The production projection for the immutable
+`System.Text.Json@10.0.0/net10.0` package measures 3,843,729 JSON characters and
+137,151 collection entries; both exceed the former 1,048,576-character and
+65,536-entry bounds. The larger finite envelope admits that complete ordinary
+package surface with approximately twice its observed capacity in each
+dimension, and the published package-adoption gate acquires the same coordinate
+through the normal product path as its durable pathological case. The reader
+rejects accessors, symbols, prototype drift, sparse or extended arrays, cycles,
+functions, `undefined`, and non-finite numbers rather than converting malformed
+data into an empty or partial result.
 
 Page consumers await formerly synchronous managed behavior. Workspace packet
 encoding and decoding, demo resolution, Spotlight ranking, package-cache
