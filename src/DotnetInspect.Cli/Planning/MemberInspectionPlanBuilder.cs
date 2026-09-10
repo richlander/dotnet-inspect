@@ -8,7 +8,8 @@ namespace DotnetInspect.Cli.Planning;
 internal static class MemberInspectionPlanBuilder
 {
     internal static MemberInspectionTerminalPlan Create(
-        ResolvedAssemblyReference sourceAssembly,
+        ResolvedAssemblyReference? sourceAssembly,
+        string sourcePath,
         string? selectedFramework,
         string typeName,
         MetadataTypeDefinitionName? typeDefinition,
@@ -16,7 +17,7 @@ internal static class MemberInspectionPlanBuilder
         ResolvedMemberInspectionPlan structuralPlan,
         MemberOptions options)
     {
-        ArgumentNullException.ThrowIfNull(sourceAssembly);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(typeName);
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(structuralPlan);
@@ -24,12 +25,11 @@ internal static class MemberInspectionPlanBuilder
 
         var basis = new ResolvedMemberInspectionBasis(
             new ResolvedInspectionSource(
-                sourceAssembly.Provenance,
-                sourceAssembly.Identity,
-                string.IsNullOrWhiteSpace(sourceAssembly.Path)
-                    ? sourceAssembly.Identity.Name
-                    : Path.GetFileNameWithoutExtension(
-                        sourceAssembly.Path),
+                sourceAssembly?.Provenance
+                    ?? AssemblyResolutionProvenance.Local(sourcePath),
+                sourceAssembly?.Identity,
+                Path.GetFileNameWithoutExtension(
+                    sourceAssembly?.Path ?? sourcePath),
                 selectedFramework),
             new ResolvedInspectionMemberTarget(
                 typeName,
@@ -78,7 +78,10 @@ internal static class MemberInspectionPlanBuilder
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(plan);
 
-        InspectionSemanticDemand demand = plan.Basis.SemanticDemand;
+        if (plan is not SectionExecutionPlan execution)
+            return options;
+
+        InspectionSemanticDemand demand = execution.Basis.SemanticDemand;
         MemberOptions resolved = options with
         {
             IncludeSections = demand.Sections.IsEmpty
@@ -88,12 +91,10 @@ internal static class MemberInspectionPlanBuilder
             ExactIncludeSectionsOverride = demand.ExactSections.ToHashSet(
                 StringComparer.OrdinalIgnoreCase),
         };
-        return plan is SectionExecutionPlan execution
-            ? resolved with
-            {
-                Verbosity = MapVerbosity(execution.Verbosity),
-            }
-            : resolved;
+        return resolved with
+        {
+            Verbosity = MapVerbosity(execution.Verbosity),
+        };
     }
 
     static InspectionRequestVerbosity MapVerbosity(Verbosity verbosity) =>

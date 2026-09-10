@@ -15598,6 +15598,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_LibraryNetmoduleExactMemberPreservesExecutionAndDiscovery()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-{Guid.NewGuid():N}-Widget.dll");
+        WriteNetmodule(path);
+        try
+        {
+            var execution = await RunAppAsync(
+                "member", "N.Widget", "--library", path,
+                "Value:1", "-S", "Signature", "--tips", "q");
+            var discovery = await RunAppAsync(
+                "member", "N.Widget", "--library", path,
+                "Value:1", "-D", "Signature", "--tips", "q");
+
+            Assert.Equal(0, execution.Exit);
+            Assert.Empty(execution.Error);
+            Assert.Contains("public int Value", execution.Output);
+            Assert.Equal(0, discovery.Exit);
+            Assert.Empty(discovery.Error);
+            Assert.Contains("| Signature |", discovery.Output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Type_SourceFiles_Value_RowSelectsUrl()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -18120,6 +18149,24 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Member_FindingCensusDiscovery_UsesResolvedIndexerAccessor()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "Cases.Lookup",
+            "--library",
+            FixtureCatalog.CloneSearchMembers.AssemblyPath(),
+            "Item:2",
+            "-D",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("| Finding Census |", result.Output);
     }
 
     [Theory]

@@ -396,6 +396,7 @@ public sealed class InspectionPlanningTests
         SectionExecutionPlan plan = Assert.IsType<SectionExecutionPlan>(
             MemberInspectionPlanBuilder.Create(
                 sourceAssembly: source,
+                sourcePath: source.Path!,
                 selectedFramework: null,
                 typeName: anchor.TypeFullName,
                 typeDefinition: null,
@@ -424,6 +425,11 @@ public sealed class InspectionPlanningTests
             Assert.IsType<HashSet<string>>(
                 applied.ExactIncludeSectionsOverride));
         Assert.Equal(Verbosity.Detailed, applied.Verbosity);
+        Assert.Same(
+            finalOptions,
+            MemberInspectionPlanBuilder.ApplySemanticDemand(
+                finalOptions,
+                new EffectiveDiscoveryPlan(plan.Basis)));
     }
 
     [Fact]

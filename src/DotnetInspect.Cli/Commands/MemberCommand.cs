@@ -567,9 +567,17 @@ public static class MemberCommand
                     DllPath = detailDllPath,
                     OverloadIndex = target.Body?.DeclaringOverloadIndex ?? target.DeclaringOverloadIndex
                 };
+                if (effectiveOptions.EffectiveDiscovery)
+                {
+                    executionPlan =
+                        ResolvedMemberInspectionPlan
+                            .FromCompatibilityOptions(
+                                effectiveOptions);
+                }
 
                 terminalPlan = MemberInspectionPlanBuilder.Create(
-                    loaded.GetSourceAssembly(apiType),
+                    sourceAssembly,
+                    detailDllPath,
                     selectedTfm,
                     apiType.FullName,
                     apiType.DefinitionName,
@@ -970,12 +978,8 @@ public static class MemberCommand
                     return 1;
                 }
                 if (terminalPlan is null)
-                {
-                    executionPlan =
-                        ResolvedMemberInspectionPlan
-                            .FromCompatibilityOptions(
-                                effectiveOptions);
-                }
+                    executionPlan = ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(effectiveOptions);
                 return ApiCommand.ExecuteEffectiveDiscovery(
                     apiType,
                     ApiInspectionCatalogRegistry.CreateMemberPipeline(

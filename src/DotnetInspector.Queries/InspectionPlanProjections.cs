@@ -142,12 +142,11 @@ public sealed record ResolvedInspectionSource
 {
     public ResolvedInspectionSource(
         AssemblyResolutionProvenance provenance,
-        AssemblyReferenceIdentity assembly,
+        AssemblyReferenceIdentity? assembly,
         string libraryKey,
         string? framework)
     {
         ArgumentNullException.ThrowIfNull(provenance);
-        ArgumentNullException.ThrowIfNull(assembly);
         ArgumentException.ThrowIfNullOrWhiteSpace(libraryKey);
 
         Provenance = provenance;
@@ -158,7 +157,11 @@ public sealed record ResolvedInspectionSource
 
     public AssemblyResolutionProvenance Provenance { get; }
 
-    public AssemblyReferenceIdentity Assembly { get; }
+    /// <summary>
+    /// The ECMA assembly identity, or null when the selected source is a
+    /// descriptorless managed module.
+    /// </summary>
+    public AssemblyReferenceIdentity? Assembly { get; }
 
     public string LibraryKey { get; }
 
