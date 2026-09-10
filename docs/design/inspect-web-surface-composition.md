@@ -498,11 +498,19 @@ outcomes remain owned by
 
 Member Call graph retains its inline default and exposes `Explore` in the
 working-surface action row when a graph result is available. Explore places
-the existing interactive result in a full-viewport dialog: a quiet heading,
-selected-member context, and Close above the graph, with scope, legend, and
-Mermaid source remaining accessible as secondary information. The diagram
-takes the remaining space rather than retaining the inline fixed-height card.
-At narrow widths context may elide, but Close and graph controls stay available
+the existing interactive result in a full-viewport dialog. Its shared header
+centers the active subject: graph kind and result summary are quiet metadata,
+the selected overload signature is the primary heading, its package and
+declaring-type path is secondary context, and Close remains a stable action.
+These are structured values supplied by the graph consumer, not strings parsed
+from rendered content. The duplicate inline graph heading and summary do not
+appear in Explore.
+
+The diagram takes the remaining space rather than retaining the inline
+fixed-height card. Call graph scope remains below the canvas so secondary
+interpretation detail does not precede the primary spatial content; legend and
+Mermaid source follow it. Subject and context wrap completely at narrow widths
+rather than truncating or disappearing. Close and graph controls stay available
 without page-level horizontal overflow.
 
 This document owns that placement contract. The existing
@@ -532,6 +540,8 @@ notice, graph, and workspace/diagram diagnostics. Package coordinate controls,
 dependency lists, assembly references, and the coordinate footer remain on the
 underlying page. The viewer identifies the inspected package; group buttons
 identify the selected manifest framework independently of the active coordinate.
+The shared header uses the package coordinate as its subject, the active target
+framework as context, and the existing graph-reading guidance as its summary.
 Selecting a group stays in Explore and updates the existing list and graph.
 Closing retains that selection. Pending graph rendering can complete in either
 placement; opening or closing does not restart it.
@@ -553,6 +563,8 @@ Browsable nodes use the shared keyboard activation and drag suppression;
 unavailable types remain non-interactive with an accessible explanation. Type
 activation closes Explore before the existing typed navigation path runs. It
 does not acquire another assembly or reinterpret a display label as identity.
+The shared header uses the selected type as its subject, its package coordinate
+as context, and the existing relationship guidance as its summary.
 Leaving the selected type, package, framework, assembly, or Metadata inspector
 closes Explore. Same-owner projection loading and failure remain visible in an
 already-open viewer. A replacement without a relationship graph returns to inline
@@ -576,7 +588,8 @@ acquisition, or layout algorithms.
 
 The browser gate covers live DOM and interaction retention across placement
 changes, result replacement, pending completion, no-body/failure visibility,
-dialog focus and dismissal, and narrow geometry. Published Wasm evidence covers
+dialog focus and dismissal, structured header content, complete narrow-width
+wrapping, content-first scope placement, and narrow geometry. Published Wasm evidence covers
 the production action row and destination navigation. Dependency coverage also
 exercises group changes, empty groups, pending completion, truncation geometry,
 and package navigation/failure. Live platform drill/back evidence is reported

@@ -15,7 +15,14 @@ test("Explore relocates the live graph without remounting or losing zoom", async
     url: location.href,
   }));
   await page.getByRole("button", { name: "Explore", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Call graph" })).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: "Call graph" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".graph-explorer-kind")).toHaveText("Call graph");
+  await expect(dialog.locator("#graph-explorer-title")).toHaveText("Process(int)");
+  await expect(dialog.locator(".graph-explorer-context"))
+    .toHaveText("Example.Package@1.0.0 · Example.Long.Namespace.Worker");
+  await expect(dialog.locator(".graph-explorer-summary")).toHaveText("0 callers · 2 callees");
+  await expect(dialog.locator(".call-graph-section > .section-title")).toBeHidden();
   await expect(page.locator("#graph-explorer-title")).toBeFocused();
   expect(await page.evaluate(() => window.graphExploreProbe.sameSvg())).toBe(true);
   expect(await page.locator("#diagram svg").getAttribute("style")).toBe(transform);
@@ -96,8 +103,10 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     await page.setViewportSize(size);
     await page.getByRole("button", { name: "Explore", exact: true }).click();
     const viewport = await page.locator(".graph-viewport").boundingBox();
+    const scope = await page.locator(".graph-scope").boundingBox();
     expect(viewport!.width).toBeGreaterThan(size.width - 30);
     expect(viewport!.height).toBeGreaterThan(size.height * 0.6);
+    expect(viewport!.y + viewport!.height).toBeLessThanOrEqual(scope!.y);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(size.width);
     await page.getByRole("button", { name: "Fit", exact: true }).click();
     await page.getByText("Mermaid source", { exact: true }).click();
@@ -106,3 +115,21 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     await expect(page.getByRole("button", { name: "Fit", exact: true })).toBeInViewport();
   });
 }
+
+test("long subjects and context wrap completely without displacing Close", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 900 });
+  await page.goto("/browser/graph-explorer.html?header=long");
+  await expect(page.locator("#diagram svg")).toBeVisible();
+  await page.getByRole("button", { name: "Explore", exact: true }).click();
+
+  const subject = page.locator("#graph-explorer-title");
+  const context = page.locator(".graph-explorer-context");
+  await expect(subject).toHaveText(
+    "System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Example.Result>> ProcessAsync<TRequest, TResponse>(TRequest request, System.Threading.CancellationToken cancellationToken)");
+  await expect(context).toHaveText(
+    "Example.Package.Experimental.Extensions@12.0.0-preview.7.26381.103 · Example.Long.Namespace.Containing.Multiple.Nested.Types.Worker<TRequest, TResponse>");
+  await expect(subject).toBeInViewport();
+  await expect(context).toBeInViewport();
+  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(360);
+});
