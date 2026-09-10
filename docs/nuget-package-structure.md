@@ -120,6 +120,7 @@ Current behavior is gated by:
 - `PackageAssemblyContextRealizationTests.PackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback`;
 - `PackageAssemblyContextRealizationTests.RidSpecificImplementation_UsesSeparateNeutralCompileRole`;
 - `BrowserEngineBoundaryTests.QueryPackage_CompatibleEmptyCompileGroupSuppressesLibraryFallback`;
+- `BrowserEngineBoundaryTests.QueryPackage_ReferenceOnlyCompatibleFrameworkRetainsDependencies`;
 - `BrowserEngineBoundaryTests.RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
 For the upstream role semantics, NuGet's

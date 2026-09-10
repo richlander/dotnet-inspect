@@ -383,6 +383,8 @@ scalar output against the outer legacy line writer.
 projection.
 `PackageDependencies_UsesCompatibleAssetsWithoutChangingRequestedFramework`,
 `PackageDependencies_SelectsUngroupedDependenciesWithCompatibleAssets`,
+`QueryPackage_ReferenceOnlyCompatibleFrameworkRetainsDependencies`,
+`root-only package surfaces remain inspectable without inventing a Library`,
 `canonical package dependency views restore the package root lens`,
 `canonical package views reject contradictory structural selection`, `capture
 projects package Dependencies through the packet lens`, `capture refuses a
