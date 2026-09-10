@@ -289,27 +289,94 @@ call-graph, and later operation/query adoptions remain separate slices under
 exposes `--share` only when its first useful scenario closes
 through the receiving host.
 
+### Real asset for Member Call Graph adoption
+
+[#6540](https://github.com/richlander/dotnet-inspect/issues/6540) owns the next
+focused adoption: sharing a real package member Call Graph from the CLI to
+Inspect Web. Its motivating asset is `System.Text.Json@9.0.4` for `net9.0`,
+using the exact public member
+`System.Text.Json.Utf8JsonWriter.WriteStringValue(string?)`.
+
+The immutable nuget.org archive is already retained at
+`fixtures/services/signatures/system.text.json.9.0.4.nupkg`, with SHA-256
+`a083aa7ce2085175d591f1624c223dc302090444d0a85ed970e26fda262eab5b`.
+Its nuspec identifies
+[`dotnet/runtime` commit
+`f57e6dc747158ab7ade4e62a75a6750d16b771e8`](https://github.com/dotnet/runtime/commit/f57e6dc747158ab7ade4e62a75a6750d16b771e8).
+The corresponding source is
+[`Utf8JsonWriter.WriteValues.String.cs`](https://github.com/dotnet/runtime/blob/f57e6dc747158ab7ade4e62a75a6750d16b771e8/src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.WriteValues.String.cs).
+Both source and archive are MIT licensed; the unchanged archive retains
+`LICENSE.TXT` and `THIRD-PARTY-NOTICES.TXT`.
+
+The ordinary CLI invocation selects this overload as `WriteStringValue:7`.
+Its resolved member anchor is `7a7f0afab9`. The real package graph has two
+inbound serializer-converter callers, `EnumConverter<T>.Write` and
+`UriConverter.Write`, and two outbound branches: null values call
+`WriteNullValue`, while non-null values flow through `AsSpan`,
+`WriteStringValue(ReadOnlySpan<char>)`, value validation, escape detection,
+escaped or direct writing, and list-separator state. That bounded graph
+demonstrates why preserving Call Graph selection matters; a link that silently
+opens member Overview loses the inspection the agent was discussing.
+
+The adoption has two planned steps:
+
+1. This design records the real asset, observed graph, exact invocation,
+   compatibility mapping, boundaries, and required gates.
+2. One production-adoption PR implements CLI projection and Inspect Web
+   restoration together and gates the published Browser against the unchanged
+   committed package archive.
+
+Step 2 is the production-consumer adoption slice for both hosts. The feature is
+not complete with only a packet writer, decoder test, or host-neutral
+projection. Release and deployment follow the existing separately authorized
+flow rather than becoming another feature slice.
+
+This first useful scenario carries only the existing Call Graph facet. The CLI
+has no `--depth` option, and this slice does not add graph query, caller-scope,
+field, tree, Mermaid, or other rendering choices. Packet format 1 represents
+the selection with its exact legacy Browser token `call-graph`; Workspace
+Definitions owns its lowering to the Registry identity `member.call-graph`.
+The CLI never serializes either spelling from display text.
+
+The production slice requires these gates:
+
+- an ordinary CLI invocation over `System.Text.Json@9.0.4`,
+  `WriteStringValue:7`, and `net9.0` continues to expose the observed real
+  Call Graph neighborhood;
+- `--share packet` carries the exact package coordinate, framework, type,
+  member anchor, selected library, and packet-v1 section `call-graph`, with no
+  graph nodes, edges, or rendered rows;
+- the share path exits before CLI Call Graph analysis, while bare `--share`
+  emits exactly one Inspect Web URL;
+- the published Browser opens that CLI-produced URL against the exact
+  committed package archive, selects Call Graph rather than Overview, and
+  renders the matching member graph through the normal Browser engine;
+- neighboring member Overview sharing continues to omit the section; and
+- unsupported member sections, caller-scope modifiers, graph rendering
+  choices, and competing terminal-output choices remain visible pre-acquisition
+  projection errors.
+
 ## Pathological and neighboring cases
 
-The contract-defining pathological case is a rich invocation whose source,
-subject, and selected view are already correct:
+The contract-defining pathological case for the Member Call Graph adoption is
+a working invocation over the recorded real package whose source, subject, and
+selected view are already correct:
 
 ```console
-dotnet-inspect member JsonSerializer DeserializeAsync:1 \
-  --package System.Text.Json \
-  --tfm net10.0 \
+dotnet-inspect member Utf8JsonWriter WriteStringValue:7 \
+  --package System.Text.Json@9.0.4 \
+  --tfm net9.0 \
   -S "Call Graph" \
-  --depth 3 \
   --share
 ```
 
-Once the Call Graph query has a portable packet codec and Browser restoration
-binding, this invocation resolves the package version and exact member once,
-pins them in the packet, preserves the Call Graph selection and depth, and
-emits the URL without running the graph in the CLI. Before that complete path
-exists, it fails visibly at the unsupported Call Graph projection. It never
-silently emits member Overview and never asks the user to restate the package,
-type, member, and graph options under `workspace`.
+Once the adoption lands, this invocation resolves the package and exact member
+once, preserves the Call Graph facet, and emits the URL without running the
+graph in the CLI. Inspect Web reacquires the package and runs its normal Call
+Graph operation. Before that complete path exists, the invocation fails
+visibly at the unsupported Call Graph projection. It never silently emits
+member Overview and never asks the user to restate the package, type, member,
+and section under `workspace`.
 
 Neighboring cases prove the boundary:
 
@@ -345,6 +412,8 @@ adoption proves that an omitted or `latest` NuGet.org version can be resolved
 to an exact coordinate without acquiring the package or traversing its graph,
 then restored by Inspect Web as the Dependencies facet. Those restrictions and
 completed slices are implementation status, not the general sharing contract.
+The real-package Member Call Graph adoption is designed and tracked by #6540
+but remains unverified until its CLI-to-Browser production slice lands.
 
 Each adoption must add focused Release gates proving:
 
