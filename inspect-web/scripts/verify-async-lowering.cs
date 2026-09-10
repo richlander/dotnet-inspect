@@ -117,7 +117,7 @@ foreach (string assemblyName in contextAssemblies.Order(StringComparer.Ordinal))
         compilerAsyncCount,
         runtimeAsyncCount,
         asyncExports.Count(method =>
-            method.DeclaringType == "InspectionEngine"
+            SimpleTypeName(method.DeclaringType) == "InspectionEngine"
             && method.MethodName == "AsyncLoweringCanary")));
 }
 
