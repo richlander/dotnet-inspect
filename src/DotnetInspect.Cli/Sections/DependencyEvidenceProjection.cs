@@ -295,6 +295,7 @@ public sealed record DependencyEvidenceProjection(
             foreach (PackageDependencyEvidenceGroup group in available.Groups)
             {
                 int groupIndex = nextGroupIndex++;
+                string groupOrderKey = ProjectGroupOrderKey(group, groupIndex);
                 groupIndexes[group.Identity] = groupIndex;
                 bool isSelected = root.Selection.SelectedGroup is { } selected
                     && selected == group.Identity;
@@ -306,7 +307,7 @@ public sealed record DependencyEvidenceProjection(
                         root.InputKind,
                         groupIndex,
                         group.Identity,
-                        group.OrderKey,
+                        groupOrderKey,
                         group.SourceOccurrences,
                         group.FrameworkScope.Kind,
                         group.FrameworkScope.CanonicalFramework,
@@ -332,7 +333,7 @@ public sealed record DependencyEvidenceProjection(
                             root.Provenance.AcquisitionForm,
                             groupIndex,
                             group.Identity,
-                            group.OrderKey,
+                            groupOrderKey,
                             declaration.Identity,
                             group.FrameworkScope.Kind,
                             group.FrameworkScope.CanonicalFramework,
@@ -494,6 +495,18 @@ public sealed record DependencyEvidenceProjection(
                 root.RestoredTarget?.SourceRuntimeIdentifierSpelling,
                 root.RestoredTarget?.Provenance));
     }
+
+    private static string ProjectGroupOrderKey(
+        PackageDependencyEvidenceGroup group,
+        int groupIndex) =>
+        group.FrameworkScope.Kind is
+            PackageDependencyFrameworkScopeKind.UnrecognizedFramework
+            or PackageDependencyFrameworkScopeKind.UnresolvedFramework
+                ? "group:"
+                    + groupIndex.ToString(
+                        "D10",
+                        System.Globalization.CultureInfo.InvariantCulture)
+                : group.OrderKey;
 
     private static DependencyEvidenceFailureRow ProjectRootFailure(
         PackageDependencyEvidenceRootFailure failure) =>

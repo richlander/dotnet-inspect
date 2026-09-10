@@ -378,6 +378,41 @@ public sealed class PackageDependencyEvidenceQueryTests
     }
 
     [Fact]
+    public void Compare_AuthoredPrereleaseConstraintUsesNuGetEquivalence()
+    {
+        PackageDependencyEvidenceRoot authored = NormalizeAuthored(
+            AuthoredFacts(
+                """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net8.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+                    <PackageReference Include="Example.Dependency"
+                                      Version="[1.0.0-BETA]" />
+                  </ItemGroup>
+                </Project>
+                """));
+        PackageDependencyEvidenceRoot package = NormalizePackage(
+            Manifest(
+                """
+                <group targetFramework="net8.0">
+                  <dependency id="Example.Dependency"
+                              version="[1.0.0-BETA]" />
+                </group>
+                """),
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
+
+        PackageDependencyEvidenceComparison comparison =
+            PackageDependencyEvidenceQuery.Compare(authored, package);
+
+        Assert.IsType<PackageDependencyEvidenceComparisonResult.Equal>(
+            comparison.Core);
+        Assert.IsType<PackageDependencyEvidenceComparisonResult.Equal>(
+            comparison.Scoped);
+    }
+
+    [Fact]
     public void CreateAuthoredProjectInput_RequiresProjectXmlAcquisition()
     {
         AuthoredProjectDependencyFactsResult result =

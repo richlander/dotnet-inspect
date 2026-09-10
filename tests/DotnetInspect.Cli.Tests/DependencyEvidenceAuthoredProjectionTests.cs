@@ -107,30 +107,53 @@ public sealed class DependencyEvidenceAuthoredProjectionTests
                           <PropertyGroup>
                             <TargetFramework>$(FutureTarget)</TargetFramework>
                           </PropertyGroup>
+                          <ItemGroup Condition="'$(Configuration)' == 'Release'">
+                            <PackageReference Include="Example.Package"
+                                              Version="1.0.0" />
+                          </ItemGroup>
                         </Project>
                         """)));
+        PackageDependencyEvidenceOutcome outcome =
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest(
+                    [
+                        PackageDependencyEvidenceQuery
+                            .CreateAuthoredProjectInput(provider),
+                    ]));
         DependencyEvidenceProjection projection =
-            DependencyEvidenceProjection.Create(
-                PackageDependencyEvidenceQuery.Execute(
-                    new PackageDependencyEvidenceRequest(
-                        [
-                            PackageDependencyEvidenceQuery
-                                .CreateAuthoredProjectInput(provider),
-                        ])));
+            DependencyEvidenceProjection.Create(outcome);
         DependencyEvidenceDocument document = DependencyEvidenceDocument.Create(
             projection,
             new HashSet<string>(
-                [DependencyEvidenceSections.DependencyGroups],
+                [
+                    DependencyEvidenceSections.Dependencies,
+                    DependencyEvidenceSections.DependencyGroups,
+                ],
                 StringComparer.Ordinal),
             rows: null);
 
-        Assert.Equal(2, document.DependencyGroups!.Count);
+        Assert.Equal(3, document.DependencyGroups!.Count);
         Assert.All(
             document.DependencyGroups,
             group => Assert.Null(group.Identity.AuthoredProject?.ScopeIdentity));
+        Assert.All(
+            projection.DependencyGroups,
+            group => Assert.StartsWith("group:", group.OrderKey));
+        DependencyEvidenceDependencyJson dependency =
+            Assert.Single(document.Dependencies!);
+        Assert.Equal(
+            document.DependencyGroups.Single(
+                group => group.Group == dependency.Group).OrderKey,
+            dependency.GroupOrderKey);
         string json = JsonSerializer.Serialize(
             document,
             DependencyEvidenceJsonContext.Default.DependencyEvidenceDocument);
+        PackageDependencyEvidenceDeclarationResult.Available declarations =
+            Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
+                Assert.Single(outcome.Roots).Declaration);
+        Assert.All(
+            declarations.Groups,
+            group => Assert.DoesNotContain(group.OrderKey, json));
         Assert.Contains("\"source_spelling\": \"future-tfm\"", json);
         Assert.Contains("\"source_spelling\": \"$(FutureTarget)\"", json);
         Assert.DoesNotContain("\"scope_identity\"", json);

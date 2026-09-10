@@ -2599,7 +2599,20 @@ public static class PackageDependencyEvidenceQuery
         PackageDependencyEvidenceGroup group) =>
         string.Concat(group.Declarations.Select(declaration =>
             EncodePart(declaration.CanonicalPackageId)
-            + EncodePart(declaration.CanonicalVersionConstraint)));
+            + EncodePart(
+                CanonicalVersionConstraintIdentity(
+                    declaration.CanonicalVersionConstraint))));
+
+    private static string CanonicalVersionConstraintIdentity(string value)
+    {
+        if (!VersionRange.TryParse(value, out VersionRange? range))
+        {
+            throw new InvalidOperationException(
+                "A normalized package dependency requires a valid NuGet version constraint.");
+        }
+
+        return range.ToNormalizedString().ToLowerInvariant();
+    }
 
     private static string CanonicalScopeIdentity(
         PackageDependencyFrameworkScopeIdentity scope) =>

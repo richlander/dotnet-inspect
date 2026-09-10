@@ -512,6 +512,8 @@ implementation remains NativeAOT- and Browser-Wasm-compatible.
 An unrecognized or unresolved scope's opaque identity is internal comparison
 state, not renderable artifact text. Sinks receive its kind and `InertString`
 display evidence; they do not serialize or render the raw identity token.
+Presentation projections replace an order key containing opaque identity with
+a document-stable ordinal key while retaining normalized ordering internally.
 
 The selected restored target framework is resolution context, not a substitute
 for an authored declaration scope the input owner did not supply. Such an input
