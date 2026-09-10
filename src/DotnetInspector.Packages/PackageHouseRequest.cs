@@ -121,6 +121,18 @@ public abstract class PackageHouseDemand
 
         public PackageSourceCoordinate Coordinate { get; }
     }
+
+    /// <summary>One unresolved package version-selection request.</summary>
+    public sealed class Selecting : PackageHouseDemand
+    {
+        public Selecting(PackageVersionSelectionRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            Request = request;
+        }
+
+        public PackageVersionSelectionRequest Request { get; }
+    }
 }
 
 /// <summary>One package-owned target-selection context.</summary>
