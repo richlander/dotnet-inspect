@@ -89,6 +89,307 @@ public sealed class PackageDependencyEvidenceQueryTests
     }
 
     [Fact]
+    public void Execute_AuthoredSyntaxRetainsTargetsDeclarationsAndProvenance()
+    {
+        var sourceLabel = new InertString(
+            TextPolicy.Field,
+            "Example.csproj");
+        AuthoredProjectDependencyFactsResult result = AuthoredFacts(
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+              </PropertyGroup>
+              <ItemGroup>
+                <PackageReference Include="Example.Common" Version="[1.0, 2.0)" />
+              </ItemGroup>
+              <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
+                <PackageReference Include="Example.Specific" Version="3.0.0" />
+              </ItemGroup>
+            </Project>
+            """);
+
+        PackageDependencyEvidenceRoot root = NormalizeAuthored(
+            result,
+            sourceLabel);
+        var identity =
+            Assert.IsType<
+                PackageDependencyEvidenceRootIdentity.AuthoredProject>(
+                root.Identity);
+        var provenance =
+            Assert.IsType<
+                PackageDependencyEvidenceRootProvenance.AuthoredProject>(
+                root.Provenance);
+        AuthoredProjectDependencyFacts facts =
+            Assert.IsType<AuthoredProjectDependencyFactsResult.Available>(
+                result).Value;
+        PackageDependencyEvidenceDeclarationResult.Available declarations =
+            Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
+                root.Declaration);
+
+        Assert.Equal(facts.Identity, identity.Identity);
+        Assert.Equal(facts.ContentProvenance, provenance.ContentProvenance);
+        Assert.Equal(
+            PackageDependencyEvidenceAcquisitionForm.ProjectXml,
+            provenance.AcquisitionForm);
+        Assert.Equal("Example.csproj", provenance.SourceLabel?.ToString());
+        Assert.Equal(
+            PackageDependencyEvidenceInputKind.AuthoredProject,
+            root.InputKind);
+        Assert.Equal(
+            PackageDependencyEvidenceDeclarationBasis.AuthoredProjectSyntax,
+            root.DeclarationBasis);
+        Assert.True(declarations.IsComplete);
+        Assert.Equal(3, declarations.Groups.Length);
+        Assert.Equal(
+            [
+                PackageDependencyFrameworkScopeKind.AnyFramework,
+                PackageDependencyFrameworkScopeKind.ExactFramework,
+                PackageDependencyFrameworkScopeKind.ExactFramework,
+            ],
+            declarations.Groups.Select(group => group.FrameworkScope.Kind));
+        Assert.Equal(
+            [null, "net8.0", "net9.0"],
+            declarations.Groups.Select(
+                group => group.FrameworkScope.CanonicalFramework));
+        Assert.Empty(declarations.Groups[1].Declarations);
+        Assert.Equal(
+            "example.common",
+            Assert.Single(declarations.Groups[0].Declarations)
+                .CanonicalPackageId);
+        PackageDependencyEvidenceDeclaration specific =
+            Assert.Single(declarations.Groups[2].Declarations);
+        Assert.Equal("example.specific", specific.CanonicalPackageId);
+        Assert.Equal("[3.0.0, )", specific.CanonicalVersionConstraint);
+        Assert.Equal(
+            PackageDependencyEvidenceAuthorship.ApplicationAuthored,
+            specific.Authorship);
+        Assert.Equal(
+            PackageDependencyEvidenceSelectionStatus.Unavailable,
+            root.Selection.Status);
+        Assert.Null(root.RestoredTarget);
+        Assert.IsType<PackageDependencyEvidenceRelationshipResult.NotApplicable>(
+            root.Relationships);
+        Assert.IsType<PackageDependencyEvidenceProcessingResult.NotApplicable>(
+            root.Processing);
+    }
+
+    [Fact]
+    public void Execute_AuthoredCompleteEmptyProjectIsNotUnavailable()
+    {
+        PackageDependencyEvidenceRoot root = NormalizeAuthored(
+            AuthoredFacts("<Project Sdk=\"Microsoft.NET.Sdk\" />"));
+        PackageDependencyEvidenceDeclarationResult.Available declarations =
+            Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
+                root.Declaration);
+
+        Assert.True(declarations.IsComplete);
+        Assert.Empty(declarations.Groups);
+        Assert.Empty(declarations.Failures);
+    }
+
+    [Fact]
+    public void Execute_AuthoredDuplicateSyntaxRetainsSourceOccurrenceCount()
+    {
+        PackageDependencyEvidenceRoot root = NormalizeAuthored(
+            AuthoredFacts(
+                """
+                <Project>
+                  <ItemGroup>
+                    <PackageReference Include="Example.Package" Version="1.0" />
+                    <PackageReference Include="example.package" Version="1.0.0" />
+                  </ItemGroup>
+                </Project>
+                """));
+        PackageDependencyEvidenceGroup group = Assert.Single(
+            Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
+                root.Declaration).Groups);
+        PackageDependencyEvidenceDeclaration declaration =
+            Assert.Single(group.Declarations);
+        var occurrence = Assert.IsType<
+            PackageDependencyEvidenceGroupOccurrence
+                .AuthoredProjectDeclaration>(
+                Assert.Single(group.SourceOccurrences));
+
+        Assert.Equal(2, declaration.SourceOccurrenceCount);
+        Assert.Equal(2, occurrence.SourceOccurrenceCount);
+    }
+
+    [Fact]
+    public void Execute_AuthoredIncompleteFactsRetainUsableAndOpaqueEvidence()
+    {
+        PackageDependencyEvidenceRoot root = NormalizeAuthored(
+            AuthoredFacts(
+                """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <Import Project="Directory.Build.props" />
+                  <PropertyGroup>
+                    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+                    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <PackageReference Include="Example.Valid" Version="1.0.0" />
+                    <PackageReference Include="Example.Managed" />
+                    <PackageReference Include="Example.Conditional"
+                                      Version="3.0.0"
+                                      Condition="'$(Configuration)' == 'Release'" />
+                  </ItemGroup>
+                </Project>
+                """));
+        PackageDependencyEvidenceDeclarationResult.Available declarations =
+            Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
+                root.Declaration);
+
+        Assert.False(declarations.IsComplete);
+        Assert.Contains(
+            declarations.Failures,
+            failure => failure is
+                PackageDependencyEvidenceDeclarationFailure.AuthoredProject
+                {
+                    Limitation.Reason:
+                        AuthoredProjectDependencyLimitationReason.ExplicitImport,
+                });
+        Assert.DoesNotContain(
+            declarations.Failures,
+            failure => failure is
+                PackageDependencyEvidenceDeclarationFailure
+                    .InvalidPackageDeclaration);
+        Assert.Contains(
+            declarations.Failures,
+            failure => failure is
+                PackageDependencyEvidenceDeclarationFailure.AuthoredProject
+                {
+                    Limitation.Reason:
+                        AuthoredProjectDependencyLimitationReason
+                            .MissingVersionConstraint,
+                });
+        Assert.Equal(
+            2,
+            declarations.Groups.Count(group =>
+                group.FrameworkScope.Kind
+                    == PackageDependencyFrameworkScopeKind.UnresolvedFramework));
+        PackageDependencyEvidenceGroup any = declarations.Groups.Single(group =>
+            group.FrameworkScope.Kind
+                == PackageDependencyFrameworkScopeKind.AnyFramework);
+        Assert.Equal(
+            ["example.valid"],
+            any.Declarations.Select(declaration =>
+                declaration.CanonicalPackageId));
+        Assert.DoesNotContain(
+            declarations.Groups.Where(group =>
+                group.FrameworkScope.Kind
+                    != PackageDependencyFrameworkScopeKind.AnyFramework),
+            group => group.Declarations.Any(declaration =>
+                declaration.CanonicalPackageId == "example.valid"));
+    }
+
+    [Fact]
+    public void Execute_AuthoredUnprojectedSyntaxRetainsOpaqueIdentity()
+    {
+        AuthoredProjectDependencyFactsResult.Incomplete provider =
+            Assert.IsType<AuthoredProjectDependencyFactsResult.Incomplete>(
+                AuthoredFacts(
+                    """
+                    <Project>
+                      <ItemGroup>
+                        <PackageReference Version="1.0.0" />
+                      </ItemGroup>
+                    </Project>
+                    """));
+        PackageDependencyEvidenceRoot root = NormalizeAuthored(provider);
+        PackageDependencyEvidenceDeclarationResult.Available declarations =
+            Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
+                root.Declaration);
+        var failure = Assert.IsType<
+            PackageDependencyEvidenceDeclarationFailure
+                .AuthoredProjectUnresolvedSyntax>(
+                declarations.Failures.Single(candidate =>
+                    candidate is
+                        PackageDependencyEvidenceDeclarationFailure
+                            .AuthoredProjectUnresolvedSyntax));
+
+        Assert.Equal(
+            Assert.Single(provider.Value.UnresolvedDependencySyntax),
+            failure.Syntax);
+    }
+
+    [Fact]
+    public void Execute_AuthoredProviderFailureBecomesFailedRoot()
+    {
+        AuthoredProjectDependencyFactsResult result =
+            AuthoredFacts("<Project>");
+        PackageDependencyEvidenceOutcome outcome =
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest(
+                    [
+                        PackageDependencyEvidenceQuery
+                            .CreateAuthoredProjectInput(result),
+                    ]));
+
+        Assert.Empty(outcome.Roots);
+        var failure =
+            Assert.IsType<
+                PackageDependencyEvidenceRootFailure.AuthoredProject>(
+                Assert.Single(outcome.FailedRoots));
+        Assert.Equal(
+            AuthoredProjectDependencyFactsFailureReason.MalformedXml,
+            failure.Failure.Reason);
+        Assert.Equal(
+            PackageDependencyEvidenceRootSetCompletion.Incomplete,
+            outcome.RootSet.Completion);
+        Assert.Equal(0, outcome.RootSet.AdmittedRootCount);
+        Assert.Equal(1, outcome.RootSet.FailedRootCount);
+    }
+
+    [Fact]
+    public void Compare_AuthoredExactScopeMatchesEquivalentPackageManifest()
+    {
+        PackageDependencyEvidenceRoot authored = NormalizeAuthored(
+            AuthoredFacts(
+                """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net8.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+                    <PackageReference Include="Example.Dependency"
+                                      Version="[2.0.0]" />
+                  </ItemGroup>
+                </Project>
+                """));
+        PackageDependencyEvidenceRoot package = NormalizePackage(
+            Manifest(
+                """
+                <group targetFramework="net8.0">
+                  <dependency id="Example.Dependency" version="[2.0.0]" />
+                </group>
+                """),
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
+
+        PackageDependencyEvidenceComparison comparison =
+            PackageDependencyEvidenceQuery.Compare(authored, package);
+
+        Assert.IsType<PackageDependencyEvidenceComparisonResult.Equal>(
+            comparison.Core);
+        Assert.IsType<PackageDependencyEvidenceComparisonResult.Equal>(
+            comparison.Scoped);
+        AssertSelectionUnavailable(comparison.SelectedCore);
+        AssertSelectionUnavailable(comparison.SelectedScoped);
+    }
+
+    [Fact]
+    public void CreateAuthoredProjectInput_RequiresProjectXmlAcquisition()
+    {
+        AuthoredProjectDependencyFactsResult result =
+            AuthoredFacts("<Project />");
+
+        Assert.Throws<ArgumentException>(() =>
+            PackageDependencyEvidenceQuery.CreateAuthoredProjectInput(
+                result,
+                PackageDependencyEvidenceAcquisitionForm.ProjectLocator));
+    }
+
+    [Fact]
     public void PackageInput_InputKindAndBasisRequireMatchingIdentityAndProvenance()
     {
         PackageDependencyEvidenceRoot package = NormalizePackage(
@@ -1481,6 +1782,24 @@ public sealed class PackageDependencyEvidenceQueryTests
                             facts,
                             PackageDependencyEvidenceAcquisitionForm.ProjectAssets),
                     ])).Roots);
+
+    private static PackageDependencyEvidenceRoot NormalizeAuthored(
+        AuthoredProjectDependencyFactsResult result,
+        InertString? sourceLabel = null) =>
+        Assert.Single(
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest(
+                    [
+                        PackageDependencyEvidenceQuery
+                            .CreateAuthoredProjectInput(
+                                result,
+                                sourceLabel: sourceLabel),
+                    ])).Roots);
+
+    private static AuthoredProjectDependencyFactsResult AuthoredFacts(
+        string projectXml) =>
+        AuthoredProjectDependencyFactsQuery.Execute(
+            Encoding.UTF8.GetBytes(projectXml));
 
     private static PackageDependencyEvidenceRelationshipResult.Available
         RestoredRelationships() =>

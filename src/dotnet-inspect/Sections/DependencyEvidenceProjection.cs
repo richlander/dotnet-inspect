@@ -119,7 +119,12 @@ public sealed record DependencyEvidenceGroupRow(
     bool IsSelected)
 {
     /// <summary>The owner-issued occurrence count, read from the retained occurrences.</summary>
-    public int SourceOccurrenceCount => SourceOccurrences.Length;
+    public int SourceOccurrenceCount => SourceOccurrences.Sum(occurrence =>
+        occurrence is
+            PackageDependencyEvidenceGroupOccurrence.AuthoredProjectDeclaration
+            authored
+                ? authored.SourceOccurrenceCount
+                : 1);
 }
 
 /// <summary>One owner-issued restored package graph edge.</summary>
@@ -169,7 +174,8 @@ public sealed record DependencyEvidenceFailureRow(
     string? PackageVersion,
     InertString? SourceLabel,
     InertString Message,
-    int Occurrences);
+    int Occurrences,
+    string? EvidenceIdentity = null);
 
 /// <summary>
 /// Root-set and aggregate phase completion, retained as document fields at every verbosity.
@@ -449,7 +455,9 @@ public sealed record DependencyEvidenceProjection(
                     ?.IdentityProvenance,
                 (root.Provenance as PackageDependencyEvidenceRootProvenance.Package)
                     ?.Source,
-                (root.Provenance as PackageDependencyEvidenceRootProvenance.RestoredProject)
+                (root.Provenance as PackageDependencyEvidenceRootProvenance.AuthoredProject)
+                    ?.ContentProvenance.Sha256
+                ?? (root.Provenance as PackageDependencyEvidenceRootProvenance.RestoredProject)
                     ?.ContentProvenance.Sha256,
                 coordinate.RestoredSelection,
                 declarationState,
@@ -522,6 +530,22 @@ public sealed record DependencyEvidenceProjection(
                     null,
                     restored.SourceLabel,
                     Prose(restored.Failure.Message),
+                    1),
+            PackageDependencyEvidenceRootFailure.AuthoredProject authored =>
+                new DependencyEvidenceFailureRow(
+                    DependencyEvidenceFailurePhase.Root,
+                    authored.Failure.Reason.ToString(),
+                    authored.AcquisitionForm,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    authored.SourceLabel,
+                    null,
+                    null,
+                    authored.SourceLabel,
+                    Prose(authored.Failure.Message),
                     1),
             PackageDependencyEvidenceRootFailure.PackageProfile profile =>
                 new DependencyEvidenceFailureRow(
@@ -634,6 +658,43 @@ public sealed record DependencyEvidenceProjection(
                     root.Provenance.SourceLabel,
                     Prose(restored.Failure.Message),
                     restored.Failure.Count),
+            PackageDependencyEvidenceDeclarationFailure.AuthoredProject authored =>
+                new DependencyEvidenceFailureRow(
+                    DependencyEvidenceFailurePhase.Declaration,
+                    authored.Limitation.Reason.ToString(),
+                    root.Provenance.AcquisitionForm,
+                    index,
+                    root.Identity,
+                    null,
+                    null,
+                    RootSource(root),
+                    root.Display,
+                    null,
+                    null,
+                    root.Provenance.SourceLabel,
+                    Prose(
+                        DescribeAuthoredProjectLimitation(
+                            authored.Limitation.Reason)),
+                    authored.Limitation.Count),
+            PackageDependencyEvidenceDeclarationFailure
+                .AuthoredProjectUnresolvedSyntax unresolved =>
+                new DependencyEvidenceFailureRow(
+                    DependencyEvidenceFailurePhase.Declaration,
+                    unresolved.Syntax.Kind.ToString(),
+                    root.Provenance.AcquisitionForm,
+                    index,
+                    root.Identity,
+                    null,
+                    null,
+                    RootSource(root),
+                    root.Display,
+                    null,
+                    null,
+                    root.Provenance.SourceLabel,
+                    Prose(
+                        "Authored package-reference syntax could not establish a direct declaration."),
+                    1,
+                    unresolved.Syntax.OpaqueIdentity),
             _ => throw new InvalidOperationException(
                 "Unknown package dependency evidence declaration failure."),
         };
@@ -758,8 +819,45 @@ public sealed record DependencyEvidenceProjection(
                     null,
                     null,
                     restored.Identity.Selection),
+            PackageDependencyEvidenceRootIdentity.AuthoredProject =>
+                new PackageSourceCoordinateParts(null, null, null),
             _ => throw new InvalidOperationException(
                 "Unknown package dependency evidence root identity."),
+        };
+
+    private static string DescribeAuthoredProjectLimitation(
+        AuthoredProjectDependencyLimitationReason reason) =>
+        reason switch
+        {
+            AuthoredProjectDependencyLimitationReason.ExplicitImport =>
+                "An explicit import requires MSBuild evaluation.",
+            AuthoredProjectDependencyLimitationReason.PropertyIndirection =>
+                "A dependency value uses property indirection.",
+            AuthoredProjectDependencyLimitationReason.ItemOrMetadataExpression =>
+                "A dependency value uses an item or metadata expression.",
+            AuthoredProjectDependencyLimitationReason.CentralPackageManagement =>
+                "A package version depends on central package management.",
+            AuthoredProjectDependencyLimitationReason.UnsupportedTargetDeclaration =>
+                "A target-framework declaration could not be projected.",
+            AuthoredProjectDependencyLimitationReason.ConflictingTargetDeclarations =>
+                "Target-framework declarations conflict.",
+            AuthoredProjectDependencyLimitationReason.UnsupportedCondition =>
+                "A package declaration condition could not be evaluated.",
+            AuthoredProjectDependencyLimitationReason.UnsupportedPackageReferenceShape =>
+                "A package reference has an unsupported authored shape.",
+            AuthoredProjectDependencyLimitationReason.PackageItemOperation =>
+                "A package item operation requires evaluated project semantics.",
+            AuthoredProjectDependencyLimitationReason.MissingVersionConstraint =>
+                "A package declaration has no established version constraint.",
+            AuthoredProjectDependencyLimitationReason.InvalidPackageId =>
+                "A package declaration has an invalid package identity.",
+            AuthoredProjectDependencyLimitationReason.InvalidVersionConstraint =>
+                "A package declaration has an invalid version constraint.",
+            AuthoredProjectDependencyLimitationReason.ConflictingVersionForms =>
+                "A package declaration contains conflicting version forms.",
+            AuthoredProjectDependencyLimitationReason.ConflictingPackageDeclaration =>
+                "Package declarations conflict within one authored scope.",
+            _ => "The authored-project declaration projection is incomplete.",
         };
 
     private static string DescribeAcquisition(
