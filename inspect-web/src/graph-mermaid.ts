@@ -72,13 +72,15 @@ export function styleCallGraphMermaid(
   };
   const focusTypeId = callGraphTypeId(focus);
   for (const target of targets) {
+    const sharesAssembly = callGraphTargetsShareAssembly(target, focus);
     if (target.id === focus.id
       || target.kind.toLowerCase() === "focus") {
       roles.target.push(target.id);
-    } else if (focusTypeId
+    } else if (sharesAssembly
+      && focusTypeId
       && callGraphTypeId(target) === focusTypeId) {
       roles.sameType.push(target.id);
-    } else if (callGraphTargetsShareAssembly(target, focus)) {
+    } else if (sharesAssembly) {
       roles.differentType.push(target.id);
     } else {
       roles.differentAssembly.push(target.id);

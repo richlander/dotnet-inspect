@@ -7261,7 +7261,8 @@ test("Call graph rendering lowers production roles to the legend palette", () =>
     `graph LR
       n0[Process]:::focus --> n1[Same type]:::normal
       n0 --> n2[Same assembly]:::normal
-      n0 --> n3[Different assembly]:::external`,
+      n0 --> n3[Different assembly]:::external
+      n0 --> n4[Same type name, different assembly]:::external`,
     [
       {
         id: "n0", assembly: "Example", assemblyVersion: "1.0.0.0",
@@ -7279,12 +7280,16 @@ test("Call graph rendering lowers production roles to the legend palette", () =>
         id: "n3", assembly: "Other", assemblyVersion: "2.0.0.0",
         typeDefinitionId: "Other.Helper", kind: "external",
       },
+      {
+        id: "n4", assembly: "Other", assemblyVersion: "2.0.0.0",
+        typeDefinitionId: "Example.Worker", kind: "external",
+      },
     ]);
   assert.match(definition, /classDef target fill:var\(--graph-target-fill\)/);
   assert.match(definition, /class n0 target;/);
   assert.match(definition, /class n1 sameType;/);
   assert.match(definition, /class n2 differentType;/);
-  assert.match(definition, /class n3 differentAssembly;/);
+  assert.match(definition, /class n3,n4 differentAssembly;/);
 });
 
 test("dependency graph rendering contains artifact labels", async () => {
