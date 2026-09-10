@@ -1025,15 +1025,17 @@ test("Browser data source counts only exact acknowledged match credit", async ()
     new AbortController().signal);
 
   assert.equal(source.initialMatchCredit, 20);
-  assert.equal(source.requestMore?.(10), true);
-  assert.equal(source.requestMore?.(5), false);
+  const granted = source.requestMore?.(10);
+  const overlapping = source.requestMore?.(5);
+  assert.equal(await overlapping, false);
+  assert.equal(await granted, true);
   assert.deepEqual(requested, [
     ["credit-operation", 10],
     ["credit-operation", 5],
   ]);
   release();
   await running;
-  assert.equal(source.requestMore?.(10), false);
+  assert.equal(await source.requestMore?.(10), false);
 });
 
 test("old-run controls cannot target the replacement operation", async () => {
@@ -1077,7 +1079,7 @@ test("old-run controls cannot target the replacement operation", async () => {
     replacementAbort.signal);
 
   oldAbort.abort("superseded");
-  assert.equal(source.requestMore?.(10), true);
+  assert.equal(await source.requestMore?.(10), true);
   assert.deepEqual(cancellations, [
     ["old-operation", "superseded"],
   ]);

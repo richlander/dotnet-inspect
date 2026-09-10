@@ -3075,20 +3075,23 @@ requests are equal exactly when this owner classifies them as the same logical
 Root. It is not `PackageArtifactRootCorrespondence` and carries no Workspace
 identity.
 
-The request preserves three facts separately:
+The request preserves four facts separately:
 
 - the realized producer-pinned acquisition coordinate, whose acquisition
   framework may be absent for framework-neutral source acquisition; and
 - the normalized compile target used to reduce reference assets and explicit
   empty groups; and
 - the normalized implementation-selection target and runtime identifier that
-  froze the binding's implementation universe.
+  froze the binding's implementation universe; and
+- whether an exact compile-target miss invokes compatible implementation
+  selection, including when that selection produces no unique universe.
 
 Keeping them separate is load-bearing. Framework-neutral acquisition may pair
 with a real compile target. Compatible implementation selection may instead
 pair a requested compile target with an older implementation target. Collapsing
-either pair would fail with `MissingAcquisitionTarget` or silently select a
-different compile or implementation universe.
+either pair, or omitting compatible-selection intent when no unique universe
+exists, would fail with `MissingAcquisitionTarget` or silently select a
+different compile or implementation outcome.
 
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
@@ -3181,9 +3184,11 @@ single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
 encoding are owner-owned, and only the owner's decode reads it. Current
-`pkgroot2` tokens carry the separate compile and implementation targets.
-Legacy `pkgroot1` tokens decode only with their one target applied to both
-roles, then re-encode in the current format. Neither form carries content,
+`pkgroot3` tokens carry the separate compile and implementation targets plus
+compatible-selection intent. Previous `pkgroot2` tokens infer that intent when
+their two targets differ. Legacy `pkgroot1` tokens decode only with their one
+target applied to both roles. Older tokens re-encode in the current format.
+No form carries content,
 generation, Workspace identity, session, lease, path, source URL, or
 credential.
 
@@ -3230,6 +3235,8 @@ In `PackageRootAcquisitionTests`:
 `PackageAssemblyContextRealizationTests.CompatibleEmptyGroup_ReacquisitionPreservesCompileSelection`
 gates the compatible-selection round trip, including token transport and exact
 empty-group preservation.
+`CompatibleAmbiguousImplementationLayout_ReacquisitionRemainsInvalid` gates
+compatible-selection intent when no unique implementation universe exists.
 
 Acquisition against a live feed over the network is **unverified** in this
 slice: the gates serve exact versions from a cached store and fail the test
