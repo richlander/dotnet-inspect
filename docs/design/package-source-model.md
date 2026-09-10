@@ -818,3 +818,12 @@ authorization plus the remaining consumer migrations remain later slices of
 [#5400](https://github.com/richlander/dotnet-inspect/issues/5400). The legacy
 `Sources` projection remains available during those migrations; it is not an
 alternative authority identity.
+
+Every `PackageVersionDiscoveryResult` produced after package-ID validation
+retains the canonical package ID whose configured-authority operation produced
+it, including authoritative empty, filtered-empty, partial, and failed
+results. A failure produced before a valid package ID exists retains no
+package ID. Candidate evidence is validated against the retained ID during
+construction. Consumers use this owner-issued identity for request
+correspondence rather than inferring the package from candidate presence, feed
+labels, or failure text.
