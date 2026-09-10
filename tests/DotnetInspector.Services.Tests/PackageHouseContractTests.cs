@@ -982,6 +982,110 @@ public sealed class PackageHouseContractTests
         Assert.All(results, result => Assert.Same(request, result.Request));
     }
 
+    [Fact]
+    public async Task SourceLeaseSettlesManifestAndRetiresWithoutDisposingClient()
+    {
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                [
+                    new PackageSource(
+                        "browser",
+                        "https://browser.example/v3/index.json"),
+                ]);
+        ConfiguredPackageAuthority authority =
+            Assert.Single(authorization.Authorities);
+        TrackingPackageSourceClient? tracking = null;
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateCustom(
+                PackageSourceDescriptor.NuGetGallery,
+                authority.Association,
+                factory =>
+                {
+                    tracking = new TrackingPackageSourceClient(factory);
+                    return tracking;
+                });
+        NuGetOperationContext? createdContext = null;
+        using PackageHouseSourceLease lease =
+            new PackageHouse().IssueSourceLease(
+                _ => client,
+                cancellationToken =>
+                    createdContext = new NuGetOperationContext(
+                        requestTimeout: TimeSpan.FromSeconds(7),
+                        operationTimeout: TimeSpan.FromSeconds(31),
+                        cancellationToken));
+
+        PackageAcquisitionCandidateResult resolution =
+            lease.ResolvePinnedCandidate(
+                authorization,
+                Coordinate);
+        PackageAcquisitionCandidate candidate =
+            Assert.IsType<PackageAcquisitionCandidate>(
+                resolution.Candidate);
+        ConfiguredPackageManifestResult manifest =
+            await lease.AcquireCandidateManifestAsync(
+                candidate,
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(manifest.Manifest);
+        Assert.Equal(
+            PackageAuthorityFailureKind.ResponseRejected,
+            Assert.Single(manifest.Failures).Kind);
+        Assert.Same(createdContext, tracking!.ObservedOperationContext);
+
+        lease.Dispose();
+
+        Assert.False(tracking!.IsDisposed);
+        Assert.Same(candidate, resolution.Candidate);
+        Assert.Throws<ObjectDisposedException>(
+            () => lease.ResolvePinnedCandidate(
+                authorization,
+                Coordinate));
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            async () => await lease.AcquireCandidateManifestAsync(
+                candidate,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SourceLeaseRejectsForeignCandidateAndClientAssociation()
+    {
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
+        ConfiguredPackageAuthority authority =
+            Assert.Single(authorization.Authorities);
+        ConfiguredPackageAuthority foreignAuthority =
+            new(new PackageSource(
+                "foreign",
+                "https://foreign.example/v3/index.json"));
+        using IPackageSourceClient foreignClient =
+            PackageSourceClientFactory.Create(
+                foreignAuthority.Source,
+                foreignAuthority.Association);
+        using PackageHouseSourceLease lease =
+            new PackageHouse().IssueSourceLease(_ => foreignClient);
+        using PackageHouseSourceLease foreignLease =
+            new PackageHouse().IssueSourceLease(_ => foreignClient);
+        PackageAcquisitionCandidate candidate =
+            Assert.IsType<PackageAcquisitionCandidate>(
+                lease.ResolvePinnedCandidate(
+                    authorization,
+                    Coordinate).Candidate);
+        PackageAcquisitionCandidate foreignCandidate =
+            Assert.IsType<PackageAcquisitionCandidate>(
+                foreignLease.ResolvePinnedCandidate(
+                    authorization,
+                    Coordinate).Candidate);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await lease.AcquireCandidateManifestAsync(
+                foreignCandidate,
+                TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await lease.AcquireCandidateManifestAsync(
+                candidate,
+                TestContext.Current.CancellationToken));
+    }
+
     private static PackageHouseRequest Request(
         PackageHouseOperationProfile profile,
         string? requestedFramework = "net10.0",
@@ -1080,4 +1184,75 @@ public sealed class PackageHouseContractTests
         PackageSourceResultIdentity Source,
         PackageContentGenerationIdentity Generation,
         PackageHouseAcquisitionReceipt Acquisition);
+
+    private sealed class TrackingPackageSourceClient(
+        PackageSourceResultFactory factory) : IPackageSourceClient
+    {
+        public PackageSourceResultIdentity Source => factory.Source;
+
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.Manifest;
+
+        public bool IsDisposed { get; private set; }
+
+        public NuGetOperationContext? ObservedOperationContext { get; private set; }
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+            string query,
+            int take = 20,
+            bool prerelease = false,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+            string prefix,
+            int take = 100,
+            bool prerelease = false,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+            string packageId,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+        {
+            ObservedOperationContext = operationContext;
+            return Task.FromResult(
+                factory.FailedManifest(
+                    PackageSourceCoordinate.Create(packageId, version),
+                    PackageSourceFailureKind.NotFound));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public void Dispose() =>
+            IsDisposed = true;
+    }
 }

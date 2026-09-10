@@ -207,6 +207,24 @@ public sealed record BrowserPackageCacheStats(
     int Workspaces,
     long ResidentBytes);
 
+public sealed record BrowserPlatformCatalog(
+    string Tfm,
+    string Version,
+    BrowserPlatformLibrary[] Rows);
+
+public sealed record BrowserPlatformLibrary(
+    string Tfm,
+    string Pack,
+    string Assembly,
+    string File,
+    string Kind,
+    string? ForwardsTo,
+    string Version,
+    int PublicTypes,
+    bool InReferencePack,
+    bool HasImplementation,
+    string PackVersion);
+
 public sealed record BrowserWorkspacePackage(
     string Package,
     string Version,
@@ -589,6 +607,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
+[JsonSerializable(typeof(BrowserPlatformCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
 [JsonSerializable(typeof(BrowserPackageAssemblyQueryPattern[]))]
 [JsonSerializable(typeof(BrowserGalleryDiscoveryCatalog))]

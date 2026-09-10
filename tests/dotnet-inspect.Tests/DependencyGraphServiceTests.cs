@@ -1,5 +1,8 @@
 using System.IO.Compression;
 using System.Net;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
@@ -49,14 +52,19 @@ public class DependencyGraphServiceTests : IDisposable
     {
         var packageDir = Directory.CreateTempSubdirectory("depends-package-root-test").FullName;
         var packagePath = Path.Combine(packageDir, "DependsRoot.1.0.0.nupkg");
-        var sourceAssembly = typeof(DependencyGraphServiceTests).Assembly.Location;
 
         try
         {
             using (var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create))
             {
-                archive.CreateEntryFromFile(sourceAssembly, "lib/net6.0/A.dll");
-                archive.CreateEntryFromFile(sourceAssembly, "lib/netstandard2.0/Z.dll");
+                WriteAssemblyEntry(
+                    archive,
+                    "lib/net6.0/A.dll",
+                    "Net6Root");
+                WriteAssemblyEntry(
+                    archive,
+                    "lib/netstandard2.0/Z.dll",
+                    "NetStandardRoot");
             }
 
             using var httpClient = new HttpClient();
@@ -69,12 +77,59 @@ public class DependencyGraphServiceTests : IDisposable
                 logger);
 
             var graph = Assert.IsType<LibraryDependencyGraphResult.Graph>(result);
-            Assert.Equal("Z", graph.AssemblyName);
+            Assert.Equal("NetStandardRoot", graph.AssemblyName);
         }
         finally
         {
             Directory.Delete(packageDir, recursive: true);
         }
+    }
+
+    private static void WriteAssemblyEntry(
+        ZipArchive archive,
+        string entryName,
+        string assemblyName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                Path.GetFileName(entryName)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        ZipArchiveEntry entry = archive.CreateEntry(entryName);
+        using Stream stream = entry.Open();
+        image.WriteContentTo(stream);
     }
 
     [Fact]

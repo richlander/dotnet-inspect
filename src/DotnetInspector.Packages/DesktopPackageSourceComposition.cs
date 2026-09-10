@@ -186,7 +186,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     private readonly Dictionary<PackageSourceAssociation, AuthorityEntry>
         _authoritiesByAssociation =
             new(ReferenceEqualityComparer.Instance);
-    private readonly object _candidateIssuer = new();
+    private readonly PackageHouseSourceLease _sourceLease;
     private int _disposed;
 
     /// <summary>
@@ -200,6 +200,9 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = provider;
         _ownedCredentialSource = provider;
         _createTransport = CreateProductionTransport;
+        _sourceLease = new PackageHouse().IssueSourceLease(
+            GetSourceClient,
+            CreateOperationContext);
     }
 
     internal DesktopPackageSourceComposition(
@@ -212,6 +215,9 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _options = NuGetFetchOptions.FromRequestTimeout(requestTimeout);
         _credentialSource = credentialSource;
         _createTransport = createTransport;
+        _sourceLease = new PackageHouse().IssueSourceLease(
+            GetSourceClient,
+            CreateOperationContext);
     }
 
     internal NuGetOperationContext CreateOperationContext(CancellationToken cancellationToken = default) =>
@@ -271,7 +277,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 failures,
                 hasAnyCandidate: false,
                 contract: contract,
-                candidateIssuer: _candidateIssuer);
+                candidateIssuer: _sourceLease.CandidateIssuerIdentity);
         }
 
         using NuGetOperationContext? ownedOperation = operationContext is null
@@ -327,7 +333,10 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             if (outcome.Failure is { } failure)
             {
                 RequireAuthority(failure.Source, authority);
-                failures.Add(DescribeFailure(source, failure));
+                failures.Add(
+                    PackageAuthorityFailureAdapter.DescribeVersionFailure(
+                        source,
+                        failure));
             }
             else
             {
@@ -448,7 +457,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             hasAnyCandidate,
             retainedCandidates,
             contract,
-            _candidateIssuer);
+            _sourceLease.CandidateIssuerIdentity);
     }
 
     /// <summary>
@@ -760,35 +769,20 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             : HttpClientFactory.CreateCredentialFreePackageSourceHandler(
                 source.Url);
 
-    internal static PackageAuthorityFailure DescribeFailure(
-        PackageSource source,
-        PackageSourceFailure failure)
+    private IPackageSourceClient GetSourceClient(
+        ConfiguredPackageAuthority authority)
     {
-        InertString authority = PackageSourceDisplay.ForDiagnostics(source);
-        PackageAuthorityFailureKind kind = ClassifySourceFailure(failure.Kind);
-        string message = kind switch
+        ArgumentNullException.ThrowIfNull(authority);
+        if (!_authoritiesByAssociation.TryGetValue(
+                authority.Association,
+                out AuthorityEntry? entry)
+            || !ReferenceEquals(entry.Authority, authority))
         {
-            PackageAuthorityFailureKind.AuthenticationRequired =>
-                $"Package source {authority} requires credentials or rejected the supplied credentials.",
-            PackageAuthorityFailureKind.Timeout =>
-                $"Package source {authority} timed out while enumerating versions.",
-            PackageAuthorityFailureKind.Unsupported =>
-                $"Package source {authority} does not support version enumeration.",
-            PackageAuthorityFailureKind.IncompleteMetadata =>
-                $"Package source {authority} did not provide complete version metadata.",
-            PackageAuthorityFailureKind.InvalidResponse =>
-                $"Package source {authority} returned invalid version metadata.",
-            PackageAuthorityFailureKind.ResponseRejected =>
-                $"Package source {authority} returned version metadata outside the configured safety limits.",
-            PackageAuthorityFailureKind.Transport =>
-                $"Package source {authority} could not be reached while enumerating versions.",
-            _ => failure.Message,
-        };
-        return new PackageAuthorityFailure(authority, kind, message)
-        {
-            SourceFailure = failure,
-            ResultSource = failure.Source,
-        };
+            throw new InvalidOperationException(
+                "The package acquisition candidate refers to an inactive configured authority.");
+        }
+
+        return entry.Client;
     }
 
     private static PackageVersionDiscoveryResult Failed(
@@ -826,6 +820,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
+        _sourceLease.Dispose();
         List<Exception>? failures = null;
         foreach (AuthorityEntry authority in _authorities.Values)
         {

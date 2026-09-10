@@ -209,13 +209,20 @@ comments or claiming the original source used the same form.
 
 The `unsafe(expr)` compiler gate is met: roslyn #84012 / csharplang #10196
 shipped, and `unsafe(expression)` parses and compiles on the SDK selected by the
-repository. Emission remains gated by the compile-back rail's pinned
-`Microsoft.CodeAnalysis.CSharp`, which does not yet parse the form. Until that
-package advances, the printer uses the same minimal-region policy with
-`unsafe { }` blocks. Once the rail can validate expressions, any legal
-expression position may use the tighter form; it is not limited to return
-statements. Tracked: #2021.
+repository and with the compile-back rail's pinned
+`Microsoft.CodeAnalysis.CSharp` 5.9.0. The printer uses the expression form when
+one rendered value or header expression contains every unsafe-required
+operation. It retains a block when the obligation belongs to a void invocation,
+an implicit statement operation, multiple expressions or statements, or a
+scope/data-flow dependency. Roslyn 5.9.0 also still reports CS9362 when the
+unsafe expression's direct operand is a requires-unsafe property access or
+method-address conversion, and CS8346 when a pointer-targeted stack allocation
+loses its target type inside the wrapper. Those direct operands retain blocks;
+a larger enclosing expression may still use the expression form when the
+compile-back rail demonstrates that exact shape is accepted. Address-form
+`fixed` initializers also retain a block because wrapping their `&place`
+operand makes Roslyn report CS0212. Legal expression positions are not limited
+to returns.
 
 Still future (not built): emit `// SAFETY-TODO` audit comments at introduced
-contexts. Expression emission remains tracked by #2021 until the pinned
-compile-back compiler can validate it.
+contexts.

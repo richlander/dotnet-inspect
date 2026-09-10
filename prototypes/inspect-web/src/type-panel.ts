@@ -308,7 +308,7 @@ export interface TypeNavOptions {
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
   library: string;
-  parentSubject: "package" | "library";
+  parentSubject: "package" | "platform" | "library";
   filtersExpanded: boolean;
   filterSummary: string;
   escapeHtml: EscapeHtml;
@@ -496,8 +496,14 @@ export function renderGraphMemberPending(options: RenderGraphMemberPendingOption
     </section>`;
 }
 
-export function typeMetadataSignature(item: TypeSummary, packageContext: TypePanelPackageContext): string {
-  return `${packageContext.id}@${packageContext.version}/${packageContext.activeFramework}/${item.assembly}/${item.id}`;
+export function typeMetadataSignature(
+  item: TypeSummary,
+  packageContext: TypePanelPackageContext,
+  libraryIdentity = "",
+): string {
+  const signature =
+    `${packageContext.id}@${packageContext.version}/${packageContext.activeFramework}/${item.assembly}/${item.id}`;
+  return libraryIdentity ? `${signature}/${libraryIdentity}` : signature;
 }
 
 export interface TypeMetadataStateSlice {
@@ -510,6 +516,7 @@ export interface TypeMetadataStateSlice {
 export interface RenderTypeMetadataOptions {
   item: TypeSummary;
   packageContext: TypePanelPackageContext;
+  libraryIdentity?: string;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
   escapeHtml: EscapeHtml;
@@ -519,10 +526,13 @@ export interface RenderTypeMetadataOptions {
 
 export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const {
-    item, packageContext, metadataState, memberCompositionHtml,
+    item, packageContext, libraryIdentity, metadataState, memberCompositionHtml,
     escapeHtml, relatedTypeChip, factRows,
   } = options;
-  const current = typeMetadataSignature(item, packageContext);
+  const current = typeMetadataSignature(
+    item,
+    packageContext,
+    libraryIdentity);
   const fresh = metadataState.typeMetadataKey === current;
   const meta = fresh ? metadataState.typeMetadata : null;
   const renderSurface = (content: string) => {

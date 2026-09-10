@@ -18,7 +18,8 @@ internal static class BrowserPlatformSurfaceProjection
     internal static BrowserPlatformProjectionInfo Project(
         BrowserPlatformScope scope,
         WorkspaceContextMember participant,
-        RealizedMemberCoordinate.Platform coordinate)
+        RealizedMemberCoordinate.Platform coordinate,
+        string? assetFileName = null)
     {
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(participant);
@@ -42,7 +43,7 @@ internal static class BrowserPlatformSurfaceProjection
                         participant.Participant,
                         assembly,
                         assembly,
-                        $"{assembly}.dll"),
+                        assetFileName ?? $"{assembly}.dll"),
                 ],
                 qualifyTypeIds: true,
                 platformPack:

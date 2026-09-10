@@ -7,10 +7,9 @@ description: Map how code connects — implementors and subclasses, extension me
 # dotnet-inspect: relationships and dependency graphs
 
 Use this skill to map how code connects: what implements or extends a type, what
-it depends on, and who calls it. Dependency views already render as trees; add
-`--mermaid` for a standalone diagram or `--markdown --mermaid` to embed one.
-Member Call Graphs instead default to Markdown edge tables and offer an
-explicit `--tree` path view.
+it depends on, and who calls it. Dependency graphs and Member Call Graphs share
+the same graph gestures: add `--tree` for a standalone path view, `--mermaid`
+for a standalone diagram, or `--markdown --mermaid` to embed one.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -61,13 +60,16 @@ dnx dotnet-inspect -y -- extensions string --project ./src/App/App.csproj -v:n
 ## What does it depend on?
 
 `depends Type` walks dependency graphs upward — type hierarchy, library
-references, or package dependencies, depending on scope. Add `--mermaid` for a
-diagram.
+references, or package dependencies, depending on scope. Shared targets remain
+distinct incoming edges and appear as revisits in tree output. `--table`,
+`--tsv`, `--jsonl`, `--count`, `--rows`, and `-n` address the same ordered
+logical edges; `--json` retains the existing type-tree contract.
 
 ```bash
 dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
+dnx dotnet-inspect -y -- depends Int128 --table --rows 1..10
 ```
 
 ## Who calls it? (reverse edges)

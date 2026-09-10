@@ -803,6 +803,19 @@ test("type metadata signature keys on the exact package, framework, and type coo
     "System.Text.Json@9.0.0/net9.0/System.Text.Json.dll/System.Text.Json.JsonSerializer");
 });
 
+test("type metadata signature distinguishes exact Platform Libraries", () => {
+  const packageContext = { id: "Microsoft.NETCore.App", version: "11.0.0", activeFramework: "net11.0" };
+  assert.notEqual(
+    typeMetadataSignature(
+      jsonSerializer,
+      packageContext,
+      '["netcore.app","System.Text.Json.dll"]'),
+    typeMetadataSignature(
+      jsonSerializer,
+      packageContext,
+      '["aspnetcore.app","System.Text.Json.dll"]'));
+});
+
 test("type source signature routes through the shared decompiler-taste-aware key", () => {
   const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
   const calls: {

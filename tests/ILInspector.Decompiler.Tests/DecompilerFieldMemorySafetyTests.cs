@@ -19,21 +19,23 @@ namespace ILInspector.Decompiler.Tests;
 public class DecompilerFieldMemorySafetyTests
 {
     [Theory]
-    [InlineData(nameof(NewFixtures.ReadUnsafeField), "FieldMemorySafetyFixtures.UnsafeField")]
-    [InlineData(nameof(NewFixtures.WriteUnsafeField), "FieldMemorySafetyFixtures.UnsafeField = value")]
-    [InlineData(nameof(NewFixtures.AddressUnsafeField), "return ref FieldMemorySafetyFixtures.UnsafeField")]
-    [InlineData(nameof(NewFixtures.ReadOrInitializeUnsafeField), "FieldMemorySafetyFixtures.UnsafeTextField")]
-    [InlineData(nameof(NewFixtures.ReadGenericUnsafeField), "GenericUnsafeFieldHolder<T>.Value")]
-    [InlineData(nameof(NewFixtures.ReadInstanceUnsafeField), "holder.UnsafeField")]
-    [InlineData(nameof(NewFixtures.WriteInstanceUnsafeField), "holder.UnsafeField = value")]
-    [InlineData(nameof(NewFixtures.AddressInstanceUnsafeField), "return ref holder.UnsafeField")]
-    public void UpdatedFieldContract_WrapsAllFieldOperationShapes(
+    [InlineData(nameof(NewFixtures.ReadUnsafeField), "return unsafe(FieldMemorySafetyFixtures.UnsafeField);", false)]
+    [InlineData(nameof(NewFixtures.WriteUnsafeField), "FieldMemorySafetyFixtures.UnsafeField = value", true)]
+    [InlineData(nameof(NewFixtures.AddressUnsafeField), "return ref unsafe(FieldMemorySafetyFixtures.UnsafeField);", false)]
+    [InlineData(nameof(NewFixtures.ReadOrInitializeUnsafeField), "unsafe(FieldMemorySafetyFixtures.UnsafeTextField", false)]
+    [InlineData(nameof(NewFixtures.ReadGenericUnsafeField), "return unsafe(GenericUnsafeFieldHolder<T>.Value);", false)]
+    [InlineData(nameof(NewFixtures.ReadInstanceUnsafeField), "return unsafe(holder.UnsafeField);", false)]
+    [InlineData(nameof(NewFixtures.WriteInstanceUnsafeField), "holder.UnsafeField = value", true)]
+    [InlineData(nameof(NewFixtures.AddressInstanceUnsafeField), "return ref unsafe(holder.UnsafeField);", false)]
+    public void UpdatedFieldContract_UsesSmallestValidContext(
         string method,
-        string expected)
+        string expected,
+        bool expectsBlock)
     {
         DecompilerResult result = DecompileNew(method);
 
-        Assert.Contains(expected, UnsafeBlockBody(result.Output!));
+        Assert.Contains(expected, result.Output);
+        Assert.Equal(expectsBlock, result.Output!.Contains("unsafe\n{", StringComparison.Ordinal));
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
     }
 
@@ -51,19 +53,21 @@ public class DecompilerFieldMemorySafetyTests
     }
 
     [Theory]
-    [InlineData(nameof(ChainB.ReadContractField), "return LibraryA.ContractField")]
-    [InlineData(nameof(ChainB.WriteContractField), "LibraryA.ContractField = value")]
-    [InlineData(nameof(ChainB.AddressContractField), "return ref LibraryA.ContractField")]
+    [InlineData(nameof(ChainB.ReadContractField), "return unsafe(LibraryA.ContractField);", false)]
+    [InlineData(nameof(ChainB.WriteContractField), "LibraryA.ContractField = value", true)]
+    [InlineData(nameof(ChainB.AddressContractField), "return ref unsafe(LibraryA.ContractField);", false)]
     public void CrossAssemblyFieldContract_UsesExactResolvedFieldDef(
         string method,
-        string expected)
+        string expected,
+        bool expectsBlock)
     {
         DecompilerResult result = Decompile(
             typeof(ChainB).Assembly.Location,
             typeof(ChainB).FullName!,
             method);
 
-        Assert.Contains(expected, UnsafeBlockBody(result.Output!));
+        Assert.Contains(expected, result.Output);
+        Assert.Equal(expectsBlock, result.Output!.Contains("unsafe\n{", StringComparison.Ordinal));
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
     }
 
@@ -89,7 +93,8 @@ public class DecompilerFieldMemorySafetyTests
             "ILInspector.Decompiler.Fixtures.ForwardedFieldCaller.FieldCaller",
             "Read");
 
-        Assert.Contains("return Holder.Self", UnsafeBlockBody(result.Output!));
+        Assert.Contains("return unsafe(Holder.Self);", result.Output);
+        Assert.DoesNotContain("unsafe\n{", result.Output);
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
     }
 
@@ -108,8 +113,9 @@ public class DecompilerFieldMemorySafetyTests
         DecompilerResult result = CSharpPrinter.PrintRaised(function);
 
         Assert.Contains(
-            "return FieldMemorySafetyFixtures.LegacyPointerField",
-            UnsafeBlockBody(result.Output!));
+            "return unsafe(FieldMemorySafetyFixtures.LegacyPointerField);",
+            result.Output);
+        Assert.DoesNotContain("unsafe\n{", result.Output);
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
     }
 
@@ -249,7 +255,8 @@ public class DecompilerFieldMemorySafetyTests
 
         DecompilerResult result = CSharpPrinter.Print(function);
 
-        Assert.Contains("Value ??=", UnsafeBlockBody(result.Output!));
+        Assert.Contains("return unsafe(Holder.Value ??= \"initialized\");", result.Output);
+        Assert.DoesNotContain("unsafe\n{", result.Output);
     }
 
     [Fact]
@@ -336,24 +343,6 @@ public class DecompilerFieldMemorySafetyTests
         DecompilerResult result = CSharpPrinter.PrintRaised(function);
         Assert.NotNull(result.Output);
         return result;
-    }
-
-    static string UnsafeBlockBody(string output)
-    {
-        int keyword = output.IndexOf("unsafe", StringComparison.Ordinal);
-        Assert.True(keyword >= 0, "no unsafe block in output:\n" + output);
-        int open = output.IndexOf('{', keyword);
-        Assert.True(open >= 0);
-        int depth = 0;
-        for (int i = open; i < output.Length; i++)
-        {
-            if (output[i] == '{')
-                depth++;
-            else if (output[i] == '}' && --depth == 0)
-                return output[(open + 1)..i];
-        }
-        throw new Xunit.Sdk.XunitException(
-            "unbalanced unsafe block:\n" + output);
     }
 
     sealed class ForwardedFieldDeployment : IDisposable

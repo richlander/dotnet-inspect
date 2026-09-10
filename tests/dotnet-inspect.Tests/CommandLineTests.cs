@@ -453,6 +453,39 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--tree")]
+    public void DependsCommand_WithGraphFormat_ParsesCorrectly(string format)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["depends", "System.Int128", format]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Theory]
+    [InlineData("--mermaid")]
+    [InlineData("--json")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("-v:q")]
+    public void DependsCommand_TreeWithAnotherFormat_IsRejected(string format)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", "--tree", format]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--tree",
+                StringComparison.Ordinal));
+    }
+
     [Fact]
     public void TypeCommand_WithPlatform_ParsesCorrectly()
     {

@@ -15,6 +15,7 @@ import {
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
+  resolvedPlatformTargetVersion,
   retainWorkspaceUrlPreservation,
   resolveWorkspaceRoute,
   selectedBrowserCallGraphPackageTabIds,
@@ -610,6 +611,18 @@ test("Platform drill target version preserves exact versus floating packet ident
   assert.equal(
     retainedPlatformTargetVersion(null, runtimePack, "net10.0"),
     "");
+  assert.equal(
+    resolvedPlatformTargetVersion([
+      { ...tab, id: "t2" },
+      { ...tab, id: "t0", source: "Example.Package", kind: "package" },
+    ], runtimePack, "net10.0"),
+    "10.0.10");
+  assert.equal(
+    resolvedPlatformTargetVersion([
+      tab,
+      { ...tab, id: "t1" },
+    ], runtimePack, "net10.0"),
+    "");
 });
 
 test("canonical tabs must remain distinct and ordered after resolution", () => {
@@ -645,6 +658,12 @@ test("missing Platform reacquisition retains only an aligned canonical pin", () 
 
   assert.deepEqual(
     retainedMissingPlatformTarget(basis, [packageTab], "net10.0"),
+    { tabIndex: 1, version: "10.0.10" });
+  assert.deepEqual(
+    retainedMissingPlatformTarget(basis, basis, "net10.0"),
+    { tabIndex: 1, version: "10.0.10" });
+  assert.deepEqual(
+    retainedMissingPlatformTarget(undefined, basis, "net10.0"),
     { tabIndex: 1, version: "10.0.10" });
   assert.deepEqual(
     retainedMissingPlatformTarget(
@@ -1076,10 +1095,71 @@ test("history signatures distinguish captured library scope", () => {
     libraryScope: ["System.Collections", "System.Runtime"],
   });
 
+  test("catalog-only Platform history retains its exact target independently of an acquired package", () => {
+    const view = workspaceView({
+      rootKind: "platform", package: "", packageKey: "",
+      atPackageRoot: true, atLibraryRoot: false, selectedTypeId: "",
+      platform: { tfm: "net11.0", version: "11.0.0-preview.7.26381.103", includeAllLibraries: false, filter: "" },
+    });
+    assert.notEqual(workspaceViewSignature(view), workspaceViewSignature({ ...view, rootKind: "package" }));
+    assert.notEqual(workspaceViewSignature(view), workspaceViewSignature({
+      ...view, platform: { ...view.platform!, version: "11.0.0" },
+    }));
+    assert.notEqual(workspaceViewSignature(view), workspaceViewSignature({
+      ...view, platform: { ...view.platform!, includeAllLibraries: true },
+    }));
+    let current = view;
+    const history = createNavigationHistory({
+      capture: () => current, signature: workspaceViewSignature,
+      apply: restored => { current = restored; return true; }, onExhausted() {},
+    });
+    history.record();
+    current = { ...view, atPackageRoot: false, atLibraryRoot: true, libraryScope: ["exact-platform-assembly-id"] };
+    history.record();
+    assert.equal(history.back(), true);
+    assert.equal(current.package, "");
+    assert.equal(current.atPackageRoot, true);
+    assert.equal(current.platform?.version, "11.0.0-preview.7.26381.103");
+    assert.equal(history.forward(), true);
+    assert.deepEqual(current.libraryScope, ["exact-platform-assembly-id"]);
+  });
+
+  test("Platform root and Library locations round-trip typed grouping without a package courtesy label", () => {
+    const root = workspaceState({
+      package: "",
+      tabs: [{ id: "p", kind: "group", source: ":Platform", version: "11.0.0-preview.7.26381.103",
+        framework: "net11.0", runtimeIdentifier: null }],
+      contexts: [{ id: "g", tabIds: ["p"] }], activeTabId: "p", selectedContextId: "g",
+      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [] },
+    });
+    for (const library of [null, '["aspnetcore.app","Microsoft.AspNetCore.dll"]']) {
+      const state = { ...root, view: { ...root.view,
+        lens: library ? "library:metadata" : null, libraries: library ? [library] : [] } };
+      const url = buildWorkspaceStateUrl("https://example.test/?package=Old", state, () => encoded());
+      assert.equal(url.searchParams.has("package"), false);
+      const restored = parseWorkspaceLocation(locationSnapshot(url), () => decoded(state));
+      assert.equal(restored.rootKind, "platform");
+      assert.equal(restored.version, "11.0.0-preview.7.26381.103");
+      assert.equal(restored.atPackageRoot, library === null);
+      assert.equal(restored.atLibraryRoot, library !== null);
+      assert.equal(restored.library, library);
+      assert.equal(restored.type, null);
+    }
+  });
+
   assert.notEqual(
     workspaceViewSignature(original),
     workspaceViewSignature(workspaceView({
       libraryScope: ["System.Text.Json"],
+    })));
+  assert.notEqual(
+    workspaceViewSignature(workspaceView({
+      rootKind: "platform",
+      platformLibrary: '["netcore.app","System.Text.Json.dll"]',
+    })),
+    workspaceViewSignature(workspaceView({
+      rootKind: "platform",
+      platformLibrary: '["aspnetcore.app","System.Text.Json.dll"]',
     })));
 });
 

@@ -91,7 +91,10 @@ public sealed class PackageAcquisitionCandidateManifestAcquirer
                 operation.ThrowIfExpired();
                 if (outcome.Failure is { } failure)
                 {
-                    RequireAuthority(failure.Source, authority);
+                    RequireAuthority(
+                        failure.Source,
+                        authority,
+                        client.Source);
                     failures.Add(DescribeFailure(authority.Source, failure));
                     continue;
                 }
@@ -99,7 +102,10 @@ public sealed class PackageAcquisitionCandidateManifestAcquirer
                 PackageSourceManifest manifest = outcome.Value
                     ?? throw new InvalidOperationException(
                         "The package source manifest operation returned neither a value nor a failure.");
-                RequireAuthority(manifest.Source, authority);
+                RequireAuthority(
+                    manifest.Source,
+                    authority,
+                    client.Source);
                 if (manifest.Coordinate != candidate.Coordinate)
                 {
                     failures.Add(new PackageAuthorityFailure(
@@ -202,14 +208,17 @@ public sealed class PackageAcquisitionCandidateManifestAcquirer
 
     private static void RequireAuthority(
         PackageSourceResultIdentity result,
-        ConfiguredPackageAuthority authority)
+        ConfiguredPackageAuthority authority,
+        PackageSourceResultIdentity? expectedSource = null)
     {
         if (!ReferenceEquals(
                 result.Association,
-                authority.Association))
+                authority.Association)
+            || (expectedSource is not null
+                && !ReferenceEquals(result, expectedSource)))
         {
             throw new InvalidOperationException(
-                "The package source result belongs to another configured authority.");
+                "The package source result belongs to another configured authority or client.");
         }
     }
 

@@ -108,8 +108,7 @@ public sealed partial class DesktopPackageSourceComposition
                 return new(null, null, failures);
             }
 
-            candidate = PackageAcquisitionCandidate.CreatePinned(
-                _candidateIssuer,
+            candidate = _sourceLease.CreatePinnedCandidate(
                 coordinate,
                 matchingAuthorities);
         }
@@ -134,7 +133,7 @@ public sealed partial class DesktopPackageSourceComposition
         List<PackageAuthorityFailure> failures,
         bool selectionUsesOriginalSources = false)
     {
-        if (!candidate.HasIssuer(_candidateIssuer))
+        if (!_sourceLease.OwnsCandidate(candidate))
         {
             throw new InvalidOperationException(
                 "The package acquisition candidate belongs to another source composition.");

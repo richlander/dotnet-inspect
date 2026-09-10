@@ -12,6 +12,8 @@ public sealed class PackageAcquisitionCandidateIssuer
 {
     private readonly object _issuer = new();
 
+    internal object Identity => _issuer;
+
     internal bool OwnsCandidate(
         PackageAcquisitionCandidate candidate)
     {
@@ -213,7 +215,7 @@ public sealed class PackageAcquisitionCandidateIssuer
             {
                 RequireAuthority(failure.Source, authority);
                 failures.Add(
-                    DesktopPackageSourceComposition.DescribeFailure(
+                    PackageAuthorityFailureAdapter.DescribeVersionFailure(
                         authority.Source,
                         failure));
                 continue;

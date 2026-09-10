@@ -1,267 +1,199 @@
-// Offline generator for the static platform-assembly/facade index (Pillar A).
-// SRM-only, metadata-only (no assembly loading). Downloads Microsoft.NETCore.App
-// ref + runtime packs for net6.0-net10.0 and NETStandard ref packs, enumerates
-// each assembly, detects facades (ExportedType-only) and their impl target, and
-// emits a compact TSV. This is an offline build tool, not part of the WASM app.
-//
-// Usage: dotnet run genindex.cs -- <output.tsv>
-
-using System.Reflection;
 using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using DotnetInspector.Packages;
+using ILInspector.Metadata;
+using NuGet.Versioning;
 
-var outputPath = args.Length > 0 ? args[0] : "platform-index.tsv";
+var outputPath = args.Length > 0 ? args[0] : "platform-index.json";
 var cacheDir = Path.Combine(Path.GetTempPath(), "inspect-pack-cache");
 Directory.CreateDirectory(cacheDir);
 
 using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-
-const string RefPackId = "microsoft.netcore.app.ref";
-const string RuntimePackId = "microsoft.netcore.app.runtime.linux-x64";
-const string AspNetRefPackId = "microsoft.aspnetcore.app.ref";
-const string AspNetRuntimePackId = "microsoft.aspnetcore.app.runtime.linux-x64";
-
-var rows = new List<Row>();
-
-// --- Shared frameworks: net6.0 .. net10.0 ---------------------------------
-// Each shared framework is its own runtime pack. Microsoft.NETCore.App is the
-// base (CoreCLR); Microsoft.AspNetCore.App layers on top with the routing/
-// hosting/Microsoft.Extensions.* surface. Rows carry a pack label so a per-pack
-// consumer (e.g. the resident-pack overview count) does not conflate the two.
-await AddSharedFrameworkAsync(RefPackId, RuntimePackId, "netcore.app");
-await AddSharedFrameworkAsync(AspNetRefPackId, AspNetRuntimePackId, "aspnetcore.app");
-
-async Task AddSharedFrameworkAsync(string refPackId, string runtimePackId, string pack)
+var versionsByPackage = new Dictionary<string, NuGetVersion[]>(StringComparer.Ordinal);
+var targets = new List<CatalogTarget>();
+var families = new[]
 {
-    foreach (var major in new[] { 6, 7, 8, 9, 10 })
+    new Family("netcore.app", "microsoft.netcore.app.ref", "microsoft.netcore.app.runtime.linux-x64"),
+    new Family("aspnetcore.app", "microsoft.aspnetcore.app.ref", "microsoft.aspnetcore.app.runtime.linux-x64"),
+};
+
+foreach (var major in new[] { 6, 7, 8, 9, 10, 11 })
+{
+    var tfm = $"net{major}.0";
+    HashSet<NuGetVersion>? common = null;
+    foreach (var package in families.SelectMany(family => new[] { family.ReferencePackage, family.RuntimePackage }))
     {
-        var tfm = $"net{major}.0";
-        Console.Error.WriteLine($"== {tfm} ({pack}) ==");
-
-        var refVersion = await ResolveVersionAsync(refPackId, major);
-        var runtimeVersion = await ResolveVersionAsync(runtimePackId, major);
-        if (refVersion is null || runtimeVersion is null)
-        {
-            Console.Error.WriteLine($"  skip {tfm}: ref={refVersion ?? "?"} runtime={runtimeVersion ?? "?"}");
-            continue;
-        }
-        Console.Error.WriteLine($"  ref={refVersion}  runtime={runtimeVersion}");
-
-        // Reference assemblies give the logical public API surface per assembly name.
-        var refPack = await GetPackAsync(refPackId, refVersion);
-        var refInfo = ReadPack(refPack, name =>
-            name.StartsWith($"ref/{tfm}/", StringComparison.OrdinalIgnoreCase) &&
-            name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
-
-        // Runtime assemblies reveal which physical files are facades + their targets.
-        var runtimePack = await GetPackAsync(runtimePackId, runtimeVersion);
-        var runtimeInfo = ReadPack(runtimePack, name =>
-            name.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase) &&
-            name.Contains($"/lib/{tfm}/", StringComparison.OrdinalIgnoreCase) &&
-            name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
-
-        MergeInto(rows, tfm, pack, refInfo, runtimeInfo);
-        Console.Error.WriteLine($"  ref assemblies={refInfo.Count}  runtime assemblies={runtimeInfo.Count}");
+        HashSet<NuGetVersion> versions = new((await GetVersionsAsync(package))
+            .Where(version => version.Major == major && version.Minor == 0),
+            VersionComparer.VersionRelease);
+        if (common is null) common = versions;
+        else common.IntersectWith(versions);
     }
+    var selected = common?.OrderByDescending(version => version, VersionComparer.VersionRelease).FirstOrDefault()
+        ?? throw new InvalidDataException($"No common reference/runtime pack version for {tfm}.");
+    var version = selected.ToNormalizedString();
+    Console.Error.WriteLine($"== {tfm} @ {version} ==");
+    var rows = new List<Row>();
+    foreach (var family in families)
+    {
+        var reference = ReadPack(await GetPackAsync(family.ReferencePackage, version), name =>
+            name.StartsWith($"ref/{tfm}/", StringComparison.OrdinalIgnoreCase)
+            && !name[$"ref/{tfm}/".Length..].Contains('/')
+            && name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase),
+            AssemblyResolutionProvenance.Package(family.ReferencePackage, version, tfm, null));
+        var runtimeBytes = await GetPackAsync(family.RuntimePackage, version);
+        var content = new InMemoryPackageContent(runtimeBytes, fromCache: false,
+            producerKey: "https://api.nuget.org/v3/index.json");
+        var selection = PackageAssetSelector.SelectPlatformPack(content, tfm, "linux-x64");
+        if (selection is not PackageAssetSelection.Selected selectedAssets)
+            throw new InvalidDataException($"Cannot select {family.RuntimePackage}@{version}: {selection}.");
+        var entries = selectedAssets.Universe.Assets.Select(asset => asset.EntryPath)
+            .ToHashSet(StringComparer.Ordinal);
+        var runtime = ReadPack(runtimeBytes, entries.Contains,
+            AssemblyResolutionProvenance.Package(family.RuntimePackage, version, tfm, "linux-x64"));
+        if (reference.Count == 0 || runtime.Count == 0)
+            throw new InvalidDataException($"Missing managed reference/runtime inventory for {family.Pack} {tfm}@{version}.");
+        MergeInto(rows, tfm, version, family.Pack, reference, runtime);
+        Console.Error.WriteLine($"  {family.Pack}: {reference.Count} reference, {runtime.Count} runtime libraries");
+    }
+    targets.Add(new(tfm, version, Ordered(rows)));
 }
 
-// --- netstandard ref packs ------------------------------------------------
-await AddNetStandardAsync("netstandard.library.ref", null, "netstandard2.1", "ref/netstandard2.1/");
+await AddNetStandardAsync("netstandard.library.ref", "2.1.0", "netstandard2.1", "ref/netstandard2.1/");
 await AddNetStandardAsync("netstandard.library", "2.0.3", "netstandard2.0", "build/netstandard2.0/ref/");
 
-async Task AddNetStandardAsync(string packId, string? pinnedVersion, string tfm, string prefix)
+await using (var output = File.Create(outputPath))
+await using (var writer = new StreamWriter(output))
 {
-    Console.Error.WriteLine($"== {tfm} ({packId}) ==");
-    var version = pinnedVersion ?? await ResolveLatestStableAsync(packId);
-    if (version is null) { Console.Error.WriteLine($"  skip {tfm}: no version"); return; }
-    Console.Error.WriteLine($"  version={version}");
-    var pack = await GetPackAsync(packId, version);
-    var info = ReadPack(pack, name =>
-        name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-        name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
-    MergeInto(rows, tfm, "netstandard", info, new Dictionary<string, AsmInfo>(StringComparer.OrdinalIgnoreCase));
-    Console.Error.WriteLine($"  assemblies={info.Count}");
-}
-
-// --- Emit TSV -------------------------------------------------------------
-var sb = new StringBuilder();
-sb.Append("tfm\tpack\tassembly\tfile\tkind\tforwardsTo\tversion\tpublicTypes\n");
-foreach (var r in rows
-    .OrderBy(r => TfmSortKey(r.Tfm))
-    .ThenBy(r => r.Pack, StringComparer.OrdinalIgnoreCase)
-    .ThenBy(r => r.Assembly, StringComparer.OrdinalIgnoreCase))
-{
-    sb.Append($"{r.Tfm}\t{r.Pack}\t{r.Assembly}\t{r.File}\t{r.Kind}\t{r.ForwardsTo}\t{r.Version}\t{r.PublicTypes}\n");
-}
-File.WriteAllText(outputPath, sb.ToString());
-Console.Error.WriteLine($"\nWrote {rows.Count} rows -> {outputPath} ({new FileInfo(outputPath).Length} bytes)");
-
-// ==========================================================================
-
-void MergeInto(List<Row> sink, string tfm, string pack,
-    Dictionary<string, AsmInfo> refInfo, Dictionary<string, AsmInfo> runtimeInfo)
-{
-    var files = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-    foreach (var k in refInfo.Keys) files.Add(k);
-    foreach (var k in runtimeInfo.Keys) files.Add(k);
-
-    foreach (var file in files)
+    await writer.WriteLineAsync("{\"schemaVersion\":1,\"defaultFramework\":\"net11.0\",\"targets\":[");
+    for (var i = 0; i < targets.Count; i++)
     {
-        refInfo.TryGetValue(file, out var r);
-        runtimeInfo.TryGetValue(file, out var rt);
-        var assembly = Path.GetFileNameWithoutExtension(file);
-
-        string kind;
-        string forwardsTo = "";
-        // Facade detection prefers the physical (runtime) assembly, but for packs
-        // with no runtime counterpart (netstandard) the ref assembly's own
-        // type-forwards are authoritative.
-        var physical = rt ?? r;
-        if (physical is not null && physical.TopLevelPublicTypes == 0 && physical.ForwardCount > 0)
+        var target = targets[i];
+        await writer.WriteLineAsync(
+            $"{{\"tfm\":{JsonSerializer.Serialize(target.Tfm, CatalogJsonContext.Default.String)},\"version\":{JsonSerializer.Serialize(target.Version, CatalogJsonContext.Default.String)},\"rows\":[");
+        for (var j = 0; j < target.Rows.Length; j++)
         {
-            kind = "facade";
-            forwardsTo = physical.DominantForwardTarget ?? "";
+            await writer.WriteAsync(JsonSerializer.Serialize(target.Rows[j], CatalogJsonContext.Default.Row));
+            await writer.WriteLineAsync(j + 1 == target.Rows.Length ? "" : ",");
         }
-        else if (rt is not null)
-        {
-            kind = "impl";
-        }
-        else
-        {
-            kind = "ref"; // present only in the ref/targeting pack
-        }
+        await writer.WriteLineAsync(i + 1 == targets.Count ? "]}" : "]},");
+    }
+    await writer.WriteLineAsync("]}");
+}
+Console.Error.WriteLine($"Wrote {targets.Sum(target => target.Rows.Length)} libraries -> {outputPath}.");
 
-        // Logical public API count: prefer the ref assembly; fall back to runtime.
-        var publicTypes = r?.TopLevelPublicTypes ?? rt?.TopLevelPublicTypes ?? 0;
-        var version = r?.Version ?? rt?.Version ?? "";
+async Task AddNetStandardAsync(string package, string version, string tfm, string prefix)
+{
+    var reference = ReadPack(await GetPackAsync(package, version), name =>
+        name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+        && !name[prefix.Length..].Contains('/')
+        && name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase),
+        AssemblyResolutionProvenance.Package(package, version, tfm, null));
+    if (reference.Count == 0)
+        throw new InvalidDataException($"Missing reference inventory for {tfm}@{version}.");
+    var rows = new List<Row>();
+    MergeInto(rows, tfm, version, "netstandard", reference, new(StringComparer.OrdinalIgnoreCase));
+    targets.Add(new(tfm, version, Ordered(rows)));
+}
 
-        sink.Add(new Row(tfm, pack, assembly, file, kind, forwardsTo, version, publicTypes));
+static Row[] Ordered(List<Row> rows) => [.. rows
+    .OrderBy(row => row.Pack, StringComparer.Ordinal)
+    .ThenBy(row => row.Assembly, StringComparer.OrdinalIgnoreCase)];
+
+static void MergeInto(List<Row> rows, string tfm, string packVersion, string pack,
+    Dictionary<string, AssemblyInfo> reference, Dictionary<string, AssemblyInfo> runtime)
+{
+    foreach (var name in reference.Keys.Union(runtime.Keys, StringComparer.OrdinalIgnoreCase))
+    {
+        reference.TryGetValue(name, out var contract);
+        runtime.TryGetValue(name, out var implementation);
+        var physical = implementation ?? contract
+            ?? throw new InvalidDataException($"Missing metadata for {name}.");
+        var facade = implementation?.IsFacade == true;
+        rows.Add(new(
+            tfm, pack, physical.Name, physical.File,
+            facade ? "facade" : implementation is not null ? "impl" : "ref",
+            facade ? physical.DominantForwardTarget : null,
+            physical.Version, contract?.PublicTypes ?? physical.PublicTypes,
+            contract is not null, implementation is not null, packVersion));
     }
 }
 
-Dictionary<string, AsmInfo> ReadPack(byte[] packBytes, Func<string, bool> match)
+static Dictionary<string, AssemblyInfo> ReadPack(
+    byte[] bytes, Func<string, bool> match, AssemblyResolutionProvenance provenance)
 {
-    var result = new Dictionary<string, AsmInfo>(StringComparer.OrdinalIgnoreCase);
-    using var stream = new MemoryStream(packBytes, writable: false);
+    var result = new Dictionary<string, AssemblyInfo>(StringComparer.OrdinalIgnoreCase);
+    using var stream = new MemoryStream(bytes, writable: false);
     using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-    foreach (var entry in archive.Entries)
+    foreach (var entry in archive.Entries.Where(entry => match(entry.FullName)))
     {
-        if (!match(entry.FullName)) continue;
-        var file = Path.GetFileName(entry.FullName);
-        using var es = entry.Open();
-        using var ms = new MemoryStream();
-        es.CopyTo(ms);
-        var info = ReadAssembly(ms.ToArray());
-        if (info is not null)
-            result[file] = info; // last write wins (rid dirs are equivalent)
+        using var content = entry.Open();
+        using var image = new MemoryStream();
+        content.CopyTo(image);
+        image.Position = 0;
+        using var pe = new PEReader(image);
+        if (!pe.HasMetadata) continue;
+        var reader = pe.GetMetadataReader();
+        if (!reader.IsAssembly || reader.MetadataKind != MetadataKind.Ecma335)
+            throw new InvalidDataException($"Unsupported platform library {entry.FullName}.");
+        var definition = reader.GetAssemblyDefinition();
+        var name = reader.GetString(definition.Name);
+        var imageBytes = image.ToArray();
+        var descriptor = ResolvedAssemblyReference.Create(
+            AssemblyReferenceIdentity.FromAssemblyDefinition(reader), path: null,
+            () => new MemoryStream(imageBytes, writable: false), provenance);
+        var classification = AssemblySurfaceClassifier.Classify(descriptor) switch
+        {
+            AssemblySurfaceClassificationOutcome.Classified classified => classified.Classification,
+            AssemblySurfaceClassificationOutcome.Rejected rejected =>
+                throw new InvalidDataException($"{entry.FullName}: {rejected.Failure.Detail}"),
+            _ => throw new InvalidDataException("Unknown assembly classification outcome."),
+        };
+        var dominant = AssemblyDetailScanner.ScanTypeForwarders(pe)
+            .GroupBy(forwarder => forwarder.TargetAssembly, StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => group.Key).FirstOrDefault();
+        if (!result.TryAdd(name, new(name, Path.GetFileName(entry.FullName), definition.Version.ToString(),
+            classification.MeaningfulPublicTypeCount, classification.Kind == AssemblySurfaceKind.Facade, dominant)))
+            throw new InvalidDataException($"Duplicate managed assembly {name} in the platform pack.");
     }
     return result;
 }
 
-AsmInfo? ReadAssembly(byte[] bytes)
+async Task<NuGetVersion[]> GetVersionsAsync(string package)
 {
-    try
-    {
-        using var pe = new PEReader(new MemoryStream(bytes, writable: false));
-        if (!pe.HasMetadata) return null;
-        var reader = pe.GetMetadataReader();
-
-        int publicTypes = 0;
-        foreach (var handle in reader.TypeDefinitions)
-        {
-            var def = reader.GetTypeDefinition(handle);
-            if (reader.GetString(def.Name) == "<Module>") continue;
-            var attr = def.Attributes & TypeAttributes.VisibilityMask;
-            if (attr == TypeAttributes.Public) // top-level public only
-                publicTypes++;
-        }
-
-        var forwardCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var handle in reader.ExportedTypes)
-        {
-            var exported = reader.GetExportedType(handle);
-            if (exported.Implementation.Kind != HandleKind.AssemblyReference) continue;
-            var asmRef = reader.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation);
-            var target = reader.GetString(asmRef.Name);
-            forwardCounts[target] = forwardCounts.GetValueOrDefault(target) + 1;
-        }
-
-        string version = "";
-        if (reader.IsAssembly)
-        {
-            var asm = reader.GetAssemblyDefinition();
-            version = asm.Version.ToString();
-        }
-
-        string? dominant = forwardCounts.Count == 0
-            ? null
-            : forwardCounts.OrderByDescending(kv => kv.Value).First().Key;
-
-        return new AsmInfo(publicTypes, forwardCounts.Values.Sum(), dominant, version);
-    }
-    catch
-    {
-        return null;
-    }
+    if (versionsByPackage.TryGetValue(package, out var cached)) return cached;
+    using var document = JsonDocument.Parse(await http.GetByteArrayAsync(
+        $"https://api.nuget.org/v3-flatcontainer/{package}/index.json"));
+    var versions = document.RootElement.GetProperty("versions").EnumerateArray()
+        .Select(value => NuGetVersion.Parse(value.GetString()
+            ?? throw new InvalidDataException($"Null version in {package}."))).ToArray();
+    versionsByPackage.Add(package, versions);
+    return versions;
 }
 
-async Task<string?> ResolveVersionAsync(string packId, int major)
+async Task<byte[]> GetPackAsync(string package, string version)
 {
-    var versions = await GetVersionsAsync(packId);
-    if (versions is null) return null;
-    var prefix = $"{major}.";
-    return versions.LastOrDefault(v => v.StartsWith(prefix, StringComparison.Ordinal) && !v.Contains('-'))
-        ?? versions.LastOrDefault(v => v.StartsWith(prefix, StringComparison.Ordinal));
-}
-
-async Task<string?> ResolveLatestStableAsync(string packId)
-{
-    var versions = await GetVersionsAsync(packId);
-    return versions?.LastOrDefault(v => !v.Contains('-')) ?? versions?.LastOrDefault();
-}
-
-async Task<string[]?> GetVersionsAsync(string packId)
-{
-    try
-    {
-        var url = $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/index.json";
-        var bytes = await http.GetByteArrayAsync(url);
-        using var doc = JsonDocument.Parse(bytes);
-        return doc.RootElement.GetProperty("versions").EnumerateArray()
-            .Select(e => e.GetString()).Where(v => !string.IsNullOrWhiteSpace(v)).Cast<string>().ToArray();
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"  version lookup failed for {packId}: {ex.Message}");
-        return null;
-    }
-}
-
-async Task<byte[]> GetPackAsync(string packId, string version)
-{
-    var cacheFile = Path.Combine(cacheDir, $"{packId}.{version}.nupkg");
-    if (File.Exists(cacheFile))
-        return await File.ReadAllBytesAsync(cacheFile);
-    var url = $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/" +
-              $"{Uri.EscapeDataString(version)}/{Uri.EscapeDataString(packId)}.{Uri.EscapeDataString(version)}.nupkg";
-    Console.Error.WriteLine($"  downloading {url}");
+    var cacheFile = Path.Combine(cacheDir, $"{package}.{version}.nupkg");
+    if (File.Exists(cacheFile)) return await File.ReadAllBytesAsync(cacheFile);
+    var url = $"https://api.nuget.org/v3-flatcontainer/{package}/{version}/{package}.{version}.nupkg";
+    Console.Error.WriteLine($"  downloading {package}@{version}");
     var bytes = await http.GetByteArrayAsync(url);
     await File.WriteAllBytesAsync(cacheFile, bytes);
     return bytes;
 }
 
-static int TfmSortKey(string tfm)
-{
-    if (tfm.StartsWith("netstandard", StringComparison.Ordinal))
-        return 1000 + (tfm == "netstandard2.0" ? 0 : 1);
-    if (tfm.StartsWith("net", StringComparison.Ordinal) &&
-        int.TryParse(tfm.AsSpan(3).ToString().Split('.')[0], out var major))
-        return major;
-    return 9999;
-}
+record Family(string Pack, string ReferencePackage, string RuntimePackage);
+record CatalogTarget(string Tfm, string Version, Row[] Rows);
+record Row(string Tfm, string Pack, string Assembly, string File, string Kind,
+    string? ForwardsTo, string Version, int PublicTypes, bool InReferencePack, bool HasImplementation, string PackVersion);
+record AssemblyInfo(string Name, string File, string Version, int PublicTypes, bool IsFacade, string? DominantForwardTarget);
 
-record Row(string Tfm, string Pack, string Assembly, string File, string Kind, string ForwardsTo, string Version, int PublicTypes);
-record AsmInfo(int TopLevelPublicTypes, int ForwardCount, string? DominantForwardTarget, string Version);
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(Row))]
+[JsonSerializable(typeof(string))]
+partial class CatalogJsonContext : JsonSerializerContext;

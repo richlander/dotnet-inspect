@@ -445,9 +445,10 @@ function edgeIndicators(): string {
 
 function subjectDefinitions(
   showMemberScope: boolean,
+  platform: boolean,
 ): readonly (readonly [Exclude<WorkspaceScope, "workspace">, string])[] {
   return [
-    ["package", "Package"],
+    platform ? ["platform", "Platform"] : ["package", "Package"],
     ["library", "Library"],
     ["type", "Type"],
     ...(showMemberScope
@@ -499,6 +500,8 @@ export function renderScopeBar<TId extends string>(
     : strip.findIndex(([id]) => id === activeStripId);
   const subjectLabel = scope === "workspace"
     ? "Workspace"
+    : scope === "platform"
+      ? "Platform"
     : scope === "package"
       ? "Package"
       : scope === "library"
@@ -506,8 +509,9 @@ export function renderScopeBar<TId extends string>(
       : scope === "type"
         ? "Type"
         : "Member";
-  const subjects = subjectDefinitions(showMemberScope)
+  const subjects = subjectDefinitions(showMemberScope, availableScopes?.includes("platform") ?? scope === "platform")
     .filter(([id]) => availableScopes?.includes(id) ?? true);
+  if (subjects.length === 0 && strip.length === 0) return "";
   const subjectIds = subjects.map(([id]) => id).join(",");
   const inspectorIds = strip.map(([id]) => id).join(",");
   const inspectorAnchor = activeIndex >= 0

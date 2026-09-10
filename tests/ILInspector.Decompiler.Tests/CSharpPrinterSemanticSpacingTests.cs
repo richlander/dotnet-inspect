@@ -251,10 +251,11 @@ public class CSharpPrinterSemanticSpacingTests
             nameof(ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives.StackallocBooleanInitializer));
 
         Assert.Contains(
-            "    values = (bool*)S_256;\n\n" +
-            "    if (!(*values))",
+            "    values = (bool*)S_256;\n" +
+            "}\n\n" +
+            "if (unsafe(!(*values)))",
             output);
-        Assert.Contains("    }\n}\n\nreturn true;", output);
+        Assert.Contains("}\n\nreturn true;", output);
     }
 
     [Fact]
@@ -495,13 +496,13 @@ public class CSharpPrinterSemanticSpacingTests
 
         var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
 
-        Assert.Contains("_ = 2;\n\nunsafe\n{", output);
+        Assert.Contains("_ = 2;\n\nif (unsafe((*pointer) != 0))", output);
         Assert.Contains(
             "return 1;\n" +
-            "    }\n\n" +
-            "    if ((*pointer) != 0)",
+            "}\n\n" +
+            "if (unsafe((*pointer) != 0))",
             output);
-        Assert.Contains("    }\n}\n\nreturn 0;", output);
+        Assert.Contains("}\n\nreturn 0;", output);
         Assert.Equal(3, output.Split("\n\n", StringSplitOptions.None).Length - 1);
     }
 
@@ -536,7 +537,7 @@ public class CSharpPrinterSemanticSpacingTests
 
         var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
 
-        Assert.Contains("return 7;\n}\n\nunsafe\n{", output);
+        Assert.Contains("return 7;\n}\n\nif (unsafe((*pointer) != 0))", output);
     }
 
     [Fact]
@@ -580,13 +581,15 @@ public class CSharpPrinterSemanticSpacingTests
         Assert.Contains("return 7;\n}\n\nunsafe\n{", output);
         Assert.Contains(
             "    /* unsupported cpblk */\n" +
-            "    if ((*pointer) != 0)",
+            "}\n" +
+            "if (unsafe((*pointer) != 0))",
             output);
         Assert.DoesNotContain(
-            "    /* unsupported cpblk */\n\n" +
-            "    if ((*pointer) != 0)",
+            "    /* unsupported cpblk */\n" +
+            "}\n\n" +
+            "if (unsafe((*pointer) != 0))",
             output);
-        Assert.Contains("    }\n}\n\n_ = 3;", output);
+        Assert.Contains("}\n\n_ = 3;", output);
     }
 
     [Theory]
