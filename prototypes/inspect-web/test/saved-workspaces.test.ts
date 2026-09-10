@@ -302,6 +302,42 @@ test("a replacement save is the only capture allowed to publish", async () => {
   assert.doesNotMatch(stored ?? "", /first-packet/);
 });
 
+test("opening a saved Workspace immediately retires a pending Save form", async () => {
+  const capture = deferred<string>();
+  let rendered = "";
+  const opened: SavedWorkspace[] = [];
+  let saves!: ReturnType<typeof createSavedWorkspaces>;
+  saves = createSavedWorkspaces({
+    read: () =>
+      '{"version":1,"entries":[{"name":"Existing","packet":"existing-packet"}]}',
+    write: () => {},
+    capture: () => capture.promise,
+    open: entry => { opened.push(entry); },
+    render: () => {
+      rendered = renderSavedWorkspaces(
+        { state: saves.state, canSave: true, canOpen: true },
+        escapeHtml);
+    },
+  });
+  saves.beginSave();
+  saves.setName("Pending");
+  const pending = saves.save();
+  assert.match(rendered, /data-workspace-save-submit disabled/);
+  saves.open("Existing");
+  assert.equal(saves.state.formOpen, false);
+  assert.equal(saves.state.saving, false);
+  assert.doesNotMatch(rendered, /data-workspace-save-form/);
+  assert.deepEqual(opened, [
+    { name: "Existing", packet: "existing-packet" },
+  ]);
+  capture.resolve("stale-packet");
+  await pending;
+  assert.doesNotMatch(rendered, /data-workspace-save-form/);
+  assert.deepEqual(saves.state.entries, [
+    { name: "Existing", packet: "existing-packet" },
+  ]);
+});
+
 test("the save form disables capture inputs while preserving Cancel", () => {
   const h = harness();
   h.saves.beginSave();

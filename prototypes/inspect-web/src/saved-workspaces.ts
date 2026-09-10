@@ -160,12 +160,14 @@ export function createSavedWorkspaces(options: {
       }
     },
     open(name: string) {
+      const formWasOpen = state.formOpen;
       saveSequence++;
       state.saving = false;
       try {
         const entry = find(name);
         state.formOpen = false;
         state.error = "";
+        if (formWasOpen) options.render();
         options.open(entry);
       } catch (error) {
         state.error = `Could not open saved Workspace: ${String(error)}`;
