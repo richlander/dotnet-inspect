@@ -22,8 +22,8 @@ contracts.
 The end-to-end tracker has three steps:
 
 1. lock this L3 grammar and composition boundary;
-2. adopt it for `find`, with `--take` bounding package-prefix candidates while
-   `-n` selects final semantic rows; and
+2. adopt it for `find`, with `--take` bounding the patternless package-profile
+   candidate dimension while `-n` selects final semantic rows; and
 3. correct `package search` so `--take` and `-n` remain separate intents.
 
 Other command-owned bounds are evidence for the family, not implicit
@@ -432,8 +432,10 @@ Command-wide row-selection adoption then:
 - retains long-form `--type` only where it is a genuine type filter;
 - exposes `--take` only for the patternless package-prefix profile mode's one
   package-candidate dimension;
-- rejects `--take` in semantic and literal Package Query modes, which retain
-  their independently owned `--candidates` and `--matches` dimensions; and
+- rejects `--take` in semantic Package Query mode, which retains its
+  independently owned `--candidates` and `--matches` dimensions;
+- rejects `--take`, `--candidates`, and `--matches` in literal Package Query
+  mode, which retains its owner-defined explicit package-list bound; and
 - keeps `-n` after owner-defined result construction.
 
 That focused adoption decides whether ordinary type/member early exit can be
@@ -444,8 +446,22 @@ does not decide it.
 
 The package-search owner separates:
 
-- `--take`, which bounds the upstream package-search stream; and
+- `--take`, which bounds the owner-defined package-search candidate dimension;
+  and
 - `-n`, which selects final package rows.
+
+Before exposing the corrected `--take`, that owner selects and documents one
+dimension scope:
+
+- **per source**, in which case help and disclosure say so and N selected
+  sources may admit up to N times the requested maximum before merge; or
+- **aggregate across selected sources**, in which case the owner defines
+  cross-source order, stopping, which sources remain unvisited, and how that
+  absence limits completion claims.
+
+The current hybrid of sending the same `take` to each source and independently
+clamping the merged result is not one coherent bound identity. The adoption
+must either replace it or expose the distinct constraints separately.
 
 The adoption preserves source failures and truncation evidence, updates help
 and shipped skills, and replaces tests that treat the two values as one limit.
