@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <!-- This standalone prototype has no dependency on the product CLI's
+         CommandError containment layer. -->
+    <NoWarn>$(NoWarn);RS0030</NoWarn>
+  </PropertyGroup>
+
+</Project>
