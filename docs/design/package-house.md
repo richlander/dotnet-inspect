@@ -193,12 +193,16 @@ An unresolved version demand retains its original constraint beside every
 selection observation. Resolution issues one exact coordinate or a typed
 non-success; it does not replace the request with a display version.
 
-The initial resource-free contract floor in #6433 deliberately exposes only
-the exact-coordinate demand. The selecting and resolved-edge arms remain
-architectural requirements, but they do not enter the public contract until
-their owners issue a version-selection request and resolution receipt, or an
-edge correspondence, that PackageHouse can consume without interpreting
-selector text.
+The initial resource-free contract floor in #6433 exposed only the
+exact-coordinate demand. The selecting arm now consumes the owner-issued
+`PackageVersionSelectionRequest` and
+`PackageVersionResolutionReceipt` defined by
+[Package Version Selection](version-resolution.md). A selected package
+decision must use the receipt's exact candidate and coordinate; a typed
+non-success can only stop package settlement without manufacturing either.
+PackageHouse does not interpret selector text or reproduce semantic version
+ordering. The resolved-edge arm remains staged until its owner issues the
+required correspondence.
 
 ## Package target context
 
@@ -321,8 +325,10 @@ Every terminal House result retains:
 - completion and every typed failure; and
 - one owner-issued settlement identity that consumers retain opaquely.
 
-The result contains three separable receipts when the corresponding work ran:
+The result contains four separable receipts when the corresponding work ran:
 
+- a **version resolution receipt** binds an unresolved request to complete
+  configured-authority discovery and one exact candidate or typed non-success;
 - a **package decision receipt** records coordinate settlement, authority,
   pruning, and the decision to acquire, delegate, or stop; and
 - a **package acquisition receipt** binds the retained decision and candidate
@@ -350,6 +356,11 @@ evidence, but it does make content access visibly unavailable.
 The settlement identity does not replace package coordinate, content
 generation, Workspace membership, or dependency-edge identity. It associates
 them for this operation.
+
+The implemented selecting-demand floor does not yet permit pruning or platform
+delegation after version resolution. That composition remains in the pruning
+adoption step; it cannot be inferred by attaching an exact coordinate to the
+selecting request.
 
 ## Terminal outcomes
 

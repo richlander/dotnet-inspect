@@ -11,6 +11,8 @@ import type {
 } from "../src/operation-authority.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 import {
+  bindTypeSourceFacade,
+  createSharedEngineOperationAuthority,
   registerEngineWorkerTypeSourceAdapter,
   type EngineWorkerTypeSourceAdapter,
 } from "../src/engine-worker-client.ts";
@@ -28,6 +30,7 @@ import {
   engineWorkerTypeSourceValue,
   mapEngineWorkerTypeSourceResult,
   registerEngineWorkerTypeSourceOperation,
+  type EngineWorkerTypeSourceFailure,
   type EngineWorkerTypeSourceFacade,
 } from "../src/engine-worker-source.ts";
 import type { TypeSourceLoadRequest } from "../src/source-inspection.ts";
@@ -112,6 +115,22 @@ function canceled(reason: string): BrowserTypeSourceResult {
   };
 }
 
+function failed(
+  failureKind: "Expected" | "Unexpected",
+  error: string,
+  diagnostic: string,
+): BrowserTypeSourceResult {
+  return {
+    version: 1,
+    kind: "Failed",
+    value: null,
+    failureKind,
+    error,
+    diagnostic,
+    reason: null,
+  };
+}
+
 interface Harness {
   readonly environment: ManualWorkerRuntimeEnvironment;
   readonly worker: FakeWorkerRuntime<string, string>;
@@ -181,17 +200,25 @@ async function startReady(harness: Harness): Promise<void> {
 function startSource(
   adapter: EngineWorkerTypeSourceAdapter,
 ): {
-  readonly handle: OperationHandle<BrowserSource, string>;
-  readonly events: OperationFeatureEvent<BrowserSource, string, never>[];
+  readonly handle: OperationHandle<BrowserSource, EngineWorkerTypeSourceFailure>;
+  readonly events: OperationFeatureEvent<
+    BrowserSource,
+    EngineWorkerTypeSourceFailure,
+    never
+  >[];
 } {
-  const events: OperationFeatureEvent<BrowserSource, string, never>[] = [];
+  const events: OperationFeatureEvent<
+    BrowserSource,
+    EngineWorkerTypeSourceFailure,
+    never
+  >[] = [];
   const page = createOperationAuthorityPage({
     allocation: { createId: () => "source-operation" },
   });
   const session = page.createSession<
     TypeSourceLoadRequest,
     BrowserSource,
-    string,
+    EngineWorkerTypeSourceFailure,
     never,
     WorkerRuntimePreparationError
   >({
@@ -254,6 +281,47 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
   harness.host.dispose();
 });
 
+test("Type Source binding preserves caller identity and expected diagnostics", async () => {
+  const calls: unknown[][] = [];
+  const facade: EngineWorkerTypeSourceFacade = {
+    queryTypeSource: (...args) => {
+      calls.push(args);
+      return Promise.resolve(failed(
+        "Expected",
+        "source unavailable",
+        "restore the package before requesting source",
+      ));
+    },
+    cancelTypeSourceQuery: () => ({ kind: "NotActive", reason: null }),
+  };
+  const harness = createHarness(operations =>
+    registerEngineWorkerTypeSourceOperation(operations, () => facade));
+  await startReady(harness);
+  const binding = bindTypeSourceFacade(
+    harness.adapter,
+    () => undefined,
+    createSharedEngineOperationAuthority(),
+  );
+
+  assert.deepEqual(await binding.queryTypeSource(
+    "caller-source-operation",
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type,
+    request.taste,
+  ), failed(
+    "Expected",
+    "source unavailable",
+    "restore the package before requesting source",
+  ));
+  assert.equal(calls[0]?.[0], "caller-source-operation");
+
+  binding.dispose();
+  harness.host.dispose();
+});
+
 test("Type Source Worker operation forwards keyed cancellation", async () => {
   const result = deferred<BrowserTypeSourceResult>();
   const cancellations: unknown[][] = [];
@@ -301,7 +369,11 @@ test("Type Source managed terminal results map without losing failure kind", () 
   }), {
     kind: "failed",
     failureKind: "expected",
-    error: "source unavailable",
+    error: {
+      failureKind: "Expected",
+      error: "source unavailable",
+      diagnostic: "expected detail",
+    },
     diagnostic: "expected detail",
   });
   assert.deepEqual(mapEngineWorkerTypeSourceResult({
@@ -315,7 +387,11 @@ test("Type Source managed terminal results map without losing failure kind", () 
   }), {
     kind: "failed",
     failureKind: "unexpected",
-    error: "source crashed",
+    error: {
+      failureKind: "Unexpected",
+      error: "source crashed",
+      diagnostic: "stack",
+    },
     diagnostic: "stack",
   });
   assert.deepEqual(mapEngineWorkerTypeSourceResult(canceled("timeout")), {
@@ -328,7 +404,11 @@ test("Type Source managed terminal results map without losing failure kind", () 
   })), {
     kind: "failed",
     failureKind: "unexpected",
-    error: "Type Source exceeded Worker transport limits.",
+    error: {
+      failureKind: "Unexpected",
+      error: "Type Source exceeded Worker transport limits.",
+      diagnostic: "Type Source metadata exceeds 65536 characters.",
+    },
     diagnostic: "Type Source metadata exceeds 65536 characters.",
   });
 });
@@ -436,7 +516,11 @@ test("Page adapter rejects a malformed Worker settlement as boundary failure", a
 
   assert.deepEqual(await handle.outcome, {
     kind: "failed",
-    error: "Worker protocol failed.",
+    error: {
+      failureKind: "Unexpected",
+      error: "Worker protocol failed.",
+      diagnostic: "Worker protocol failed.",
+    },
   });
   harness.environment.advanceActive(21);
   await handle.quiesced;
@@ -460,7 +544,11 @@ test("Worker adapter contains malformed generated results to one operation", asy
 
   assert.deepEqual(await handle.outcome, {
     kind: "failed",
-    error: "Type Source returned invalid Worker boundary data.",
+    error: {
+      failureKind: "Unexpected",
+      error: "Type Source returned invalid Worker boundary data.",
+      diagnostic: "Expected a version 1 Type Source result.",
+    },
   });
   await handle.quiesced;
   assert.equal(harness.host.snapshot().phase, "ready");
