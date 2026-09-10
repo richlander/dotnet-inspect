@@ -268,7 +268,7 @@ public static class EcosystemCommand
         out EcosystemPackDescriptor? focus)
     {
         focus = null;
-        if (string.IsNullOrWhiteSpace(value)
+        if (value is null
             || value.Equals("list", StringComparison.OrdinalIgnoreCase))
         {
             return true;

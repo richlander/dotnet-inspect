@@ -530,6 +530,23 @@ public sealed class EcosystemCommandTests
         Assert.Contains("aspire (ecosystem.aspire)", result.Error);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CommandLine_ExplicitBlankSelectorFailsVisibly(
+        string selector)
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            selector,
+            "--json");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("Unknown ecosystem", result.Error);
+        Assert.Contains("Available ecosystems:", result.Error);
+    }
+
     private static Task<(int ExitCode, string Output, string Error)> ExecuteAsync(
         EcosystemOptions options) =>
         ConsoleCapture.RunAsync(
