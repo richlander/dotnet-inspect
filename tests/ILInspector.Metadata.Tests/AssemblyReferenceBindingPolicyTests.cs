@@ -224,7 +224,9 @@ public class AssemblyReferenceBindingPolicyTests
                 frameworkVersion: null,
                 "shadow"));
         var resolver = new RecordingResolverPolicy(
-            _ => AssemblyBindingSelection.Found(selected, [shadow]));
+            _ => AssemblyBindingCandidateDomain.Create(
+                [selected, shadow])
+                .Finalize([selected]));
         var policy = new AssemblyReferenceBindingPolicy(resolver);
 
         var result = Assert.IsType<AssemblyBindingSelection.Selected>(
