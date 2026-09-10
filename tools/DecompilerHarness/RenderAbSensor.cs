@@ -34,7 +34,23 @@ internal static class RenderAbSensor
         string? structuralDiffDirectory = null)
     {
         Console.WriteLine($"Evaluating render A/B...");
-        var current = CollectRenders(assemblies, methodCap, workers, sequential);
+        BaselineArtifact? comparisonBaseline = diffPath is null
+            ? null
+            : LoadBaseline(diffPath);
+        if (diffPath is not null
+            && comparisonBaseline is null
+            && emitPath is null)
+        {
+            return 2;
+        }
+
+        var current = CollectRenders(
+            assemblies,
+            methodCap,
+            workers,
+            sequential,
+            comparisonBaseline?.Methods,
+            captureAllStructuralDocuments: emitPath is not null);
         
         if (emitPath is not null)
         {
@@ -60,11 +76,10 @@ internal static class RenderAbSensor
 
         if (diffPath is not null)
         {
-            var baseline = LoadBaseline(diffPath);
-            return baseline is null
+            return comparisonBaseline is null
                 ? 2
                 : Compare(
-                    baseline.Methods,
+                    comparisonBaseline.Methods,
                     current,
                     maxExamples,
                     structuralDiffDirectory);
@@ -101,7 +116,7 @@ internal static class RenderAbSensor
                 throw new JsonException("baseline methods are missing");
             if (parsed.Methods.Any(static pair =>
                     pair.Value.SourceDocument?.Source is null
-                    || !StringComparer.Ordinal.Equals(
+                    || !MatchesStructuralProjection(
                         pair.Value.Body,
                         pair.Value.SourceDocument.Text.Trim())))
             {
@@ -129,7 +144,9 @@ internal static class RenderAbSensor
         IReadOnlyList<string> assemblies,
         int methodCap,
         int? workers,
-        bool sequential)
+        bool sequential,
+        IReadOnlyDictionary<string, BaselineMethod>? comparisonBaseline,
+        bool captureAllStructuralDocuments)
     {
         var renders = new ConcurrentDictionary<string, RenderedMethod>(StringComparer.Ordinal);
         var options = new ParallelOptions { MaxDegreeOfParallelism = sequential ? 1 : (workers ?? Math.Max(1, Environment.ProcessorCount - 2)) };
@@ -147,7 +164,7 @@ internal static class RenderAbSensor
                 var typeName = item.TypeName;
                 var methodName = item.MethodName;
                 var function = item.Build(source);
-                
+                DecompilerResult projection;
                 try
                 {
                     // PrintRaised runs IrPasses.Default itself — a preceding
@@ -155,9 +172,28 @@ internal static class RenderAbSensor
                     // sensor measured a second-run pipeline the product never
                     // ships (the double run folded goto-region diamonds the
                     // single run leaves raw — found via slice F1 scoping).
-                    var projection = RenderProjection(source, function);
-                    var rendered = projection.Output;
-                    if (rendered is not null)
+                    projection = RenderProjection(source, function);
+                }
+                catch
+                {
+                    // Ignore compilation crashes in A/B
+                    return;
+                }
+
+                var rendered = projection.Output;
+                if (rendered is not null)
+                {
+                    string body = rendered.Trim();
+                    string signature = CorpusMethodIdentity.SignatureText(function.Signature);
+                    string key = $"{portablePath}!{typeName}::{methodName}{signature}";
+                    bool captureStructuralDocument =
+                        captureAllStructuralDocuments
+                        || (comparisonBaseline is not null
+                            && comparisonBaseline.TryGetValue(key, out var before)
+                            && !StringComparer.Ordinal.Equals(before.Body, body));
+                    AnnotatedSourceDocument? structuralDocument = null;
+                    string? documentFailure = null;
+                    if (captureStructuralDocument)
                     {
                         var documentProjection = ResearchViews.ProjectMember(
                             new ResearchViews.MemberProjectionRequest(
@@ -167,31 +203,26 @@ internal static class RenderAbSensor
                                 Registry: s_emptyFactRegistry,
                                 MethodToken: MetadataTokens.GetToken(item.MethodHandle),
                                 SourceDocument: true));
-                        var structuralDocument = CreateStructuralDocument(
-                            rendered.Trim(),
+                        structuralDocument = CreateStructuralDocument(
+                            body,
                             documentProjection.SourceDocument,
                             documentProjection.SourceDocumentFailure,
-                            out string? documentFailure);
-                        string signature = CorpusMethodIdentity.SignatureText(function.Signature);
-                        string key = $"{portablePath}!{typeName}::{methodName}{signature}";
-                        renders.TryAdd(key, new RenderedMethod(
-                            typeName,
-                            methodName,
-                            signature,
-                            assemblyPath,
-                            portablePath,
-                            rendered.Trim(),
-                            ValidityCheck.MethodShellContext.Create(
-                                function,
-                                projection.RequiresUnsafeBodyModifier),
-                            PrecomputedSemanticContext: null,
-                            SourceDocument: structuralDocument,
-                            SourceDocumentFailure: documentFailure));
+                            out documentFailure);
                     }
-                }
-                catch
-                {
-                    // Ignore compilation crashes in A/B
+
+                    renders.TryAdd(key, new RenderedMethod(
+                        typeName,
+                        methodName,
+                        signature,
+                        assemblyPath,
+                        portablePath,
+                        body,
+                        ValidityCheck.MethodShellContext.Create(
+                            function,
+                            projection.RequiresUnsafeBodyModifier),
+                        PrecomputedSemanticContext: null,
+                        SourceDocument: structuralDocument,
+                        SourceDocumentFailure: documentFailure));
                 }
             });
         }
@@ -232,7 +263,7 @@ internal static class RenderAbSensor
             var structuralDocument = CSharpStructuralDiffDocument
                 .Create(sourceDocument, sourceDocument)
                 .Before;
-            if (!StringComparer.Ordinal.Equals(
+            if (!MatchesStructuralProjection(
                     body,
                     structuralDocument.Text.Trim()))
             {
@@ -274,7 +305,7 @@ internal static class RenderAbSensor
                     ?? "product annotated-source document with physical method provenance was unavailable"}");
         }
 
-        if (!StringComparer.Ordinal.Equals(
+        if (!MatchesStructuralProjection(
                 rendered.Body,
                 rendered.SourceDocument.Text.Trim()))
         {
@@ -370,6 +401,7 @@ internal static class RenderAbSensor
                 removed++;
         }
 
+        Console.WriteLine("A: stored baseline; B: current product render.");
         Console.WriteLine($"Render A/B Check: {total} methods evaluated");
         Console.WriteLine(changed == 0
             ? "Changed: 0"
@@ -491,10 +523,10 @@ internal static class RenderAbSensor
                 change.Current.SourceDocument);
             string structuralBefore = document.Before.Text.Trim();
             string structuralAfter = document.After.Text.Trim();
-            if (!StringComparer.Ordinal.Equals(
+            if (!MatchesStructuralProjection(
                     structuralBefore,
                     change.Before.Body)
-                || !StringComparer.Ordinal.Equals(
+                || !MatchesStructuralProjection(
                     structuralAfter,
                     change.Current.Body))
             {
@@ -719,6 +751,18 @@ internal static class RenderAbSensor
         var tree = CSharpSyntaxTree.ParseText($"class C {{ async void M() {{\n{body}\n}} }}");
         var root = tree.GetRoot();
         return tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error) ? null : root;
+    }
+
+    static bool MatchesStructuralProjection(string body, string structuralText)
+    {
+        if (StringComparer.Ordinal.Equals(body, structuralText))
+            return true;
+
+        var bodyRoot = ParseBody(body);
+        var structuralRoot = ParseBody(structuralText);
+        return bodyRoot is not null
+            && structuralRoot is not null
+            && SyntaxFactory.AreEquivalent(bodyRoot, structuralRoot, topLevel: false);
     }
 
     sealed class ParenStripper : CSharpSyntaxRewriter

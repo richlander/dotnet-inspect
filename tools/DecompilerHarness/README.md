@@ -1334,10 +1334,13 @@ For every changed body, Render A/B passes the stored A document and freshly
 issued B document to `CSharpStructuralDiffDocument`. Selected examples render
 through the same `StructuralReview` Markdown path as standalone
 `--structural-review`; unsupported or ambiguous correspondence stays visibly
-partial. Add `--emit-render-ab-structural-diffs <directory>` to retain every
-changed method as one strict, replayable structural-diff JSON document plus a
-deterministic manifest. The directory must be absent or empty, preventing stale
-artifacts from being mistaken for current evidence:
+partial. Replay acquires B documents only for methods whose rendered body
+changed. Both runs must inspect the same immutable assembly bytes: structural
+correspondence deliberately rejects a rebuilt input with a different MVID or
+method-body fingerprint. Add `--emit-render-ab-structural-diffs <directory>` to
+retain every changed method as one strict, replayable structural-diff JSON
+document plus a deterministic manifest. The directory must be absent or empty,
+preventing stale artifacts from being mistaken for current evidence:
 
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- \
