@@ -213,14 +213,8 @@ public static class ApiCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
-        var shareOption = new Option<string?>("--share")
-        {
-            Description = "Emit one exact public NuGet member as a canonical Workspace packet or complete URL",
-        };
-        shareOption.AcceptOnlyFromAmong(
-            StringComparer.OrdinalIgnoreCase,
-            "packet",
-            "url");
+        var shareOption = WorkspaceShareOption.Create(
+            "Emit one exact public NuGet member as a canonical Workspace packet or complete URL");
         var binOption = new Option<string[]>("--bin")
         {
             Description = "Scan output directory(s) for cross-assembly callers and Call Graph traversal. Can repeat.",
