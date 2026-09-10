@@ -39,7 +39,7 @@ single-image and MVID correctness contract.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
 [workspace-scope-and-expansion.md](workspace-scope-and-expansion.md) owns
-committed logical Root membership, occurrence order, selective dependency
+committed logical Package membership, occurrence order, selective dependency
 expansion, scope revisions, and scope-operation results, and
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
 subjects and relationships.
@@ -130,8 +130,8 @@ package dependency closure.
 | `ArtifactSetSession` | One sealed artifact generation admitted to a workspace | child acquisition leases and artifact handles | source-specific resolution or assembly binding |
 | Root scope projection | Resource-free facts about one admitted or replacing Root | logical correspondence, current-generation freshness, typed realization status | logical membership, Root order, scope policy, or physical access authority |
 | Root preparation receipt | One complete provisional physical Root batch | prepared resources, candidate correspondence, budget reservation, one-shot publication or release | logical membership, order, expansion policy, Navigation, or portable state |
-| Workspace | One live physical inspection composition | process-local identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Root membership, dependency-expansion eligibility, or scope-operation policy |
-| Workspace scope | One committed logical inspection scope | [Root membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or Workspace lifetime |
+| Workspace | One live physical inspection composition | process-local identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Package membership, dependency-expansion eligibility, or scope-operation policy |
+| Workspace scope | One committed logical inspection scope | [Package membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or Workspace lifetime |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
 | Assembly inspection session | One opened PE inspection lifetime | [reader/image lifetime and session-scoped operations](assembly-image-lifetime.md) | artifact acquisition |
@@ -2214,7 +2214,9 @@ is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
 #### Durable package-content identity adoption
 
-[#5484](https://github.com/richlander/dotnet-inspect/issues/5484) tracks the
+`AcquiredPackagePayload.GetContentDigest` and
+`AcquiredPackageSourcePayload.GetContentDigest` implement
+[#5484](https://github.com/richlander/dotnet-inspect/issues/5484) as the
 durable content-identity prerequisite for the existing CLI
 `PackageInspector -> PackageIndexCache` consumer. The user
 [approved CLI-first production adoption on 2026-09-06](https://github.com/richlander/dotnet-inspect/issues/5484#issuecomment-5560862576).
@@ -2223,22 +2225,96 @@ acquisition remains host-neutral and all existing Browser/Wasm compatibility
 requirements remain in force. No browser persistent-result cache, UI, or
 browser delivery commitment is introduced.
 
-The package-index workstream of
-[#3738](https://github.com/richlander/dotnet-inspect/issues/3738) has two
-remaining production-adoption steps:
+Only an acquisition-issued payload exposes this operation. Its
+construction-controlled content has already passed the package payload
+admission contract; arbitrary `IPackageContent` handles do not expose a public
+digest operation. A successful request returns an owner-issued
+`PackageContentDigest` containing:
 
-1. Acquisition supplies the retained-content identity tracked by #5484,
-   reusing the existing configured authority and acquired-payload carriers.
-2. The CLI producer/cache path adopts that subject under the
-   [package-index contract](package-index-cache.md), retiring the predecessor
-   namespace and establishing its cold/warm-equivalence gate.
+- lowercase hexadecimal SHA-256 over the retained nupkg bytes;
+- the exact process-local `PackageContentGenerationIdentity` whose retained
+  bytes were hashed; and
+- no path, content handle, package coordinate, producer, authority, or
+  credentials.
 
-This is sequencing between owners, not a new definition of either owner's
-internals. The existing extraction result already carries `Authority` and
-`AcquiredPayload`; their presence does not itself supply the durable identity
-or bind a filesystem-scanning producer to one retained subject. The durable
-identity and consumer adoption remain unimplemented. Rendering is unchanged:
-the prerequisite carries typed acquisition evidence, not presentation.
+For filesystem content, immutable store provenance
+`RequiresArchiveTreeMatch` is the eligibility gate. Acquisition issues the
+payload only after admission has verified that such a product-owned extracted
+tree matches the retained archive's paths, sizes, and CRC-32 values. A later
+tree-derived producer may inherit the archive digest only by consuming that
+same acquired payload and checking the returned digest's generation against
+the content it inspects. The digest operation accepts no caller-supplied path
+or stream that could name a different subject.
+
+A legacy product-owned commit that had no source archive hashes the retained
+archive synthesized from its admitted tree. That value identifies the durable
+retained package snapshot; it does not claim to reproduce absent feed bytes.
+
+Foreign global-packages trees never carry that immutable provenance, so they
+cannot issue a digest even when a neighboring retained archive exists.
+Archive-less filesystem content is likewise ineligible. Direct local-package
+extraction and legacy results without `AcquiredPayload` do not gain identity
+through this API. In-memory content hashes its private retained archive and
+therefore remains eligible on Browser/Wasm hosts without adding a persistent
+browser consumer.
+
+An unavailable digest is returned as `null`. It means only that this acquired
+payload cannot establish durable identity now; it is not a durable negative
+observation and must not be persisted or reused for a later acquisition.
+A missing or concurrently unreadable retained filesystem archive is likewise a
+retryable unavailable result and is not memoized. Other failures remain
+visible. Ordinary acquisition does not hash.
+
+The operation is explicit and lazy. The first successful request invokes its
+required `chargeWork` callback with the retained archive length immediately
+before hashing. Callback failure propagates and publishes no value. Successful
+work is memoized on the content-generation identity, so concurrent requests
+and multiple in-memory cache-hit wrappers over one generation share one
+charge, hash pass, and digest object. The synchronous callback must not
+re-enter the operation for the same generation or wait for work that may
+request that generation; direct re-entry fails visibly. Cancellation is
+observed before and after the synchronous pass: cancellation during the pass
+prevents delivery to that caller while preserving the completed value for a
+later request. Filesystem reacquisition may mint another process-local
+generation and therefore perform another charged hash; no digest is persisted
+by acquisition.
+
+`Algorithm` plus `HexValue` is the future durable cache-key component.
+`Generation` is the process-local correspondence check and is never serialized
+or reconstructed. Equal digest bytes do not coalesce generations and do not
+grant authority; the cache owner must still combine this evidence with its
+configured-authority and coordinate subject.
+
+Release gates are:
+
+- `PackageContentDigest_ChargesColdPassAndReusesGenerationValue`;
+- `PackageContentDigest_ChargeFailureDoesNotPublish`;
+- `PackageContentDigest_ReentrantChargeFailsVisibly`;
+- `PackageContentDigest_CancellationAfterChargeMemoizesButCancelsCaller`;
+- `PackageContentDigest_ConcurrentRequestsShareColdPass`;
+- `PackageContentDigest_ReplacementChangesGenerationAndDigestSubject`,
+  including W-to-S-to-W replacement;
+- `PackageContentDigest_ProductOwnedArchiveBindsAdmittedTreeAcrossHosts`;
+- `PackageContentDigest_ForeignGlobalPackagesTreesAreIneligible`;
+- `PackageContentDigest_MissingRetainedArchiveDoesNotPublish`; and
+- `PackageContentDigest_OrdinaryAcquisitionDoesNotHash`.
+
+Existing admission gates
+`ProductOwned_WithoutMarker_StillRequiresArchiveTreeMatch`,
+`ProductOwned_DeletedNupkg_DoesNotAdmitMutatedTree`, and
+`GlobalPackagesShapedTree_IsAdmittedWithoutExactArchiveMatch` establish the
+correspondence and foreign-layout boundary that the digest eligibility rule
+consumes.
+
+The acquisition step in the package-index workstream of
+[#3738](https://github.com/richlander/dotnet-inspect/issues/3738) is now
+complete. One production-adoption step remains: the CLI producer/cache path
+must consume this subject under the
+[package-index contract](package-index-cache.md), retire the predecessor
+namespace, and establish its cold/warm-equivalence gate. This is a handoff
+between owners, not a definition of cache internals. Rendering remains
+unchanged: the prerequisite carries typed acquisition evidence, not
+presentation.
 
 #### Sparse selected-assembly projection
 
@@ -2999,18 +3075,23 @@ requests are equal exactly when this owner classifies them as the same logical
 Root. It is not `PackageArtifactRootCorrespondence` and carries no Workspace
 identity.
 
-The request preserves two facts separately:
+The request preserves four facts separately:
 
 - the realized producer-pinned acquisition coordinate, whose acquisition
   framework may be absent for framework-neutral source acquisition; and
-- the normalized selection target framework and runtime identifier that froze
-  the binding's compile-asset selection.
+- the normalized compile target used to reduce reference assets and explicit
+  empty groups; and
+- the normalized implementation-selection target and runtime identifier that
+  froze the binding's implementation universe; and
+- whether an exact compile-target miss invokes compatible implementation
+  selection, including when that selection produces no unique universe.
 
-Keeping them separate is load-bearing. `WorkspaceContextLoader.LoadAsync`
-realizes every assembly in the Root and requires an acquisition target, so it
-cannot by itself express framework-neutral acquisition paired with a real
-selection target; collapsing the two facts would either fail with
-`MissingAcquisitionTarget` or silently select a different asset universe.
+Keeping them separate is load-bearing. Framework-neutral acquisition may pair
+with a real compile target. Compatible implementation selection may instead
+pair a requested compile target with an older implementation target. Collapsing
+either pair, or omitting compatible-selection intent when no unique universe
+exists, would fail with `MissingAcquisitionTarget` or silently select a
+different compile or implementation outcome.
 
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
@@ -3102,21 +3183,26 @@ candidate disposed before the user acts on the result — the owner also issues 
 single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
-encoding are owner-owned, and only the owner's decode reads it. It carries
-exactly the facts the request carries and no content, generation, Workspace
-identity, session, lease, path, source URL, or credential.
+encoding are owner-owned, and only the owner's decode reads it. Current
+`pkgroot3` tokens carry the separate compile and implementation targets plus
+compatible-selection intent. Previous `pkgroot2` tokens infer that intent when
+their two targets differ. Legacy `pkgroot1` tokens decode only with their one
+target applied to both roles. Older tokens re-encode in the current format.
+No form carries content,
+generation, Workspace identity, session, lease, path, source URL, or
+credential.
 
 Decoding is total, because a token can arrive from an untrusted transport. It
-is bounded in length before parsing, requires the exact field count, and
-revalidates every field through the owner's own canonical coordinate and
-request construction, so a malformed, over-long, or forged token is a
-`false` return rather than an exception or a value this owner would not have
-issued. A token that is not already canonical is refused rather than silently
-normalized, so one request has exactly one token. A decoded request is a
-request, **not** an authorization: acquiring the Root it names still passes the
-destination host's own source authorization, transfer policy, and payload
-limits. Host caches, registries, credential handling, and worker transport stay
-outside this owner entirely.
+is bounded in length before parsing, requires the exact field count for its
+version, and revalidates every field through the owner's own canonical
+coordinate and request construction, so a malformed, over-long, or forged
+token is a `false` return rather than an exception or a value this owner would
+not have issued. A current token that is not already canonical is refused
+rather than silently normalized, so one current request has exactly one token.
+A decoded request is a request, **not** an authorization: acquiring the Root it
+names still passes the destination host's own source authorization, transfer
+policy, and payload limits. Host caches, registries, credential handling, and
+worker transport stay outside this owner entirely.
 
 Binding factories use one runtime identifier for acquisition and selection.
 Decoding therefore requires the selection runtime to equal the acquisition
@@ -3145,6 +3231,12 @@ In `PackageRootAcquisitionTests`:
 `Token_RoundTripsExactRequest`, `Token_RejectsMalformedOrNonCanonicalInput`,
 `Token_RejectsSelectionRuntimeNotIssuedByBinding`, and
 `ExplicitRequest_StatesItsTargetContract`.
+
+`PackageAssemblyContextRealizationTests.CompatibleEmptyGroup_ReacquisitionPreservesCompileSelection`
+gates the compatible-selection round trip, including token transport and exact
+empty-group preservation.
+`CompatibleAmbiguousImplementationLayout_ReacquisitionRemainsInvalid` gates
+compatible-selection intent when no unique implementation universe exists.
 
 Acquisition against a live feed over the network is **unverified** in this
 slice: the gates serve exact versions from a cached store and fail the test
@@ -4272,7 +4364,7 @@ workspace roles remain unverified.
 - Replacing assembly context groups with artifact sets; artifact lifetime and
   assembly binding remain separate axes.
 - Requiring every workspace artifact to be an assembly.
-- Defining logical Root membership, selective dependency expansion, scope
+- Defining logical Package membership, selective dependency expansion, scope
   revisions, or scope-operation results.
 - Scraping arbitrary deployed Wasm applications for runtime assemblies. A
   cooperating application may supply an explicit manifest or adapter, but

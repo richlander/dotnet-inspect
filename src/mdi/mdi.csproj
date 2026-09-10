@@ -37,7 +37,7 @@
   </PropertyGroup>
 
   <!-- Native AOT publish settings. Must come after PublishAot is set above; see the
-       matching comment in dotnet-inspect.csproj for why the ordering matters.
+       matching comment in DotnetInspect.Cli.csproj for why the ordering matters.
        mdi ships from the same RID list as dotnet-inspect, so the two tools carry the
        same codegen settings. Rationale: issue #3675. -->
   <PropertyGroup Condition="'$(PublishAot)' == 'true'">

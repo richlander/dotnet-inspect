@@ -295,10 +295,13 @@ public sealed class PackageDependencyCandidateQueryTests
         var authorization = new DelayedPackageSourceAuthorization(
             configuredSource,
             TimeSpan.FromMilliseconds(100));
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "Pinned authorization must not create a source client."));
         var source = new AuthorizedPackageDependencyCandidateSource(
             authorization,
-            _ => throw new InvalidOperationException(
-                "Pinned authorization must not create a source client."));
+            lease);
         using var context = new NuGetOperationContext(
             requestTimeout: TimeSpan.FromSeconds(1),
             operationTimeout: TimeSpan.FromMilliseconds(30),
@@ -331,14 +334,17 @@ public sealed class PackageDependencyCandidateQueryTests
         var configuredSource = new PackageSource(
             "browser",
             "https://browser.example/v3/index.json");
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                authority => CreateVersionSourceClient(
+                    authority,
+                    hasAuthoritativeListingState: true,
+                    PackageListingState.Listed,
+                    "1.0.0",
+                    "2.0.0"));
         var source = new AuthorizedPackageDependencyCandidateSource(
             new UniformPackageSourceAuthorization([configuredSource]),
-            authority => CreateVersionSourceClient(
-                authority,
-                hasAuthoritativeListingState: true,
-                PackageListingState.Listed,
-                "1.0.0",
-                "2.0.0"));
+            lease);
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
@@ -363,13 +369,16 @@ public sealed class PackageDependencyCandidateQueryTests
         var configuredSource = new PackageSource(
             "gallery",
             "https://api.nuget.org/v3/index.json");
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                authority => CreateVersionSourceClient(
+                    authority,
+                    hasAuthoritativeListingState,
+                    PackageListingState.Unknown,
+                    "1.0.0"));
         var source = new AuthorizedPackageDependencyCandidateSource(
             new UniformPackageSourceAuthorization([configuredSource]),
-            authority => CreateVersionSourceClient(
-                authority,
-                hasAuthoritativeListingState,
-                PackageListingState.Unknown,
-                "1.0.0"));
+            lease);
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
@@ -402,15 +411,18 @@ public sealed class PackageDependencyCandidateQueryTests
             new("second", "https://second.example/v3/index.json"),
         ];
         var observedContexts = new List<NuGetOperationContext?>();
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                authority => CreateVersionSourceClient(
+                    authority,
+                    hasAuthoritativeListingState: true,
+                    PackageListingState.Listed,
+                    PackageDiscoveryContract.CompleteVersionEnumeration,
+                    observedContexts.Add,
+                    "1.0.0"));
         var source = new AuthorizedPackageDependencyCandidateSource(
             new UniformPackageSourceAuthorization(configuredSources),
-            authority => CreateVersionSourceClient(
-                authority,
-                hasAuthoritativeListingState: true,
-                PackageListingState.Listed,
-                PackageDiscoveryContract.CompleteVersionEnumeration,
-                observedContexts.Add,
-                "1.0.0"));
+            lease);
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
@@ -434,19 +446,22 @@ public sealed class PackageDependencyCandidateQueryTests
             new("later", "https://later.example/v3/index.json"),
         ];
         int clientCount = 0;
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                {
+                    clientCount++;
+                    return clientCount == 1
+                        ? CreateDelayedVersionSourceClient(
+                            authority,
+                            TimeSpan.FromMilliseconds(100),
+                            "1.0.0")
+                        : throw new InvalidOperationException(
+                            "A terminal operation timeout must stop later authorities.");
+                });
         var source = new AuthorizedPackageDependencyCandidateSource(
             new UniformPackageSourceAuthorization(configuredSources),
-            authority =>
-            {
-                clientCount++;
-                return clientCount == 1
-                    ? CreateDelayedVersionSourceClient(
-                        authority,
-                        TimeSpan.FromMilliseconds(100),
-                        "1.0.0")
-                    : throw new InvalidOperationException(
-                        "A terminal operation timeout must stop later authorities.");
-            });
+            lease);
         using var context = new NuGetOperationContext(
             requestTimeout: TimeSpan.FromSeconds(1),
             operationTimeout: TimeSpan.FromMilliseconds(30),
@@ -490,15 +505,18 @@ public sealed class PackageDependencyCandidateQueryTests
         var configuredSource = new PackageSource(
             "browser",
             "https://browser.example/v3/index.json");
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                authority => CreateVersionSourceClient(
+                    authority,
+                    hasAuthoritativeListingState: true,
+                    PackageListingState.Listed,
+                    PackageDiscoveryContract.KeywordSearch,
+                    null,
+                    "1.0.0"));
         var source = new AuthorizedPackageDependencyCandidateSource(
             new UniformPackageSourceAuthorization([configuredSource]),
-            authority => CreateVersionSourceClient(
-                authority,
-                hasAuthoritativeListingState: true,
-                PackageListingState.Listed,
-                PackageDiscoveryContract.KeywordSearch,
-                null,
-                "1.0.0"));
+            lease);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             async () =>
@@ -630,6 +648,7 @@ public sealed class PackageDependencyCandidateQueryTests
                         "The configured authority did not answer."),
                 ];
         return new PackageVersionDiscoveryResult(
+            PackageId,
             state,
             [
                 .. versions.Select(version =>

@@ -14,6 +14,9 @@ public sealed class PackageContentGenerationIdentity
 {
     static readonly ConditionalWeakTable<IPackageContent, PackageContentGenerationIdentity>
         Identities = new();
+    private readonly object _digestGate = new();
+    private PackageContentDigest? _digest;
+    private bool _creatingDigest;
 
     internal PackageContentGenerationIdentity()
     {
@@ -23,6 +26,32 @@ public sealed class PackageContentGenerationIdentity
         Identities.GetValue(
             content,
             static _ => new PackageContentGenerationIdentity());
+
+    internal PackageContentDigest? GetOrCreateDigest(
+        Func<PackageContentDigest?> create)
+    {
+        ArgumentNullException.ThrowIfNull(create);
+        lock (_digestGate)
+        {
+            if (_digest is not null)
+                return _digest;
+            if (_creatingDigest)
+            {
+                throw new InvalidOperationException(
+                    "Digest computation cannot re-enter the same package-content generation.");
+            }
+
+            _creatingDigest = true;
+            try
+            {
+                return _digest = create();
+            }
+            finally
+            {
+                _creatingDigest = false;
+            }
+        }
+    }
 }
 
 /// <summary>

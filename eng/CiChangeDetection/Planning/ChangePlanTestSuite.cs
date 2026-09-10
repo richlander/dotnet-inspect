@@ -69,18 +69,18 @@ internal static class ChangePlanTestSuite
     {
         (string Path, string Selected)[] canaries =
         [
-            ("src/NetworkDestinationPolicy.cs",
+            ("src/NetworkAccess/NetworkDestinationPolicy.cs",
                 "code,decompiler,shipped,web"),
             ("src/UnionPolyfill.cs",
                 "code,decompiler,shipped,web"),
-            ("src/dotnet-inspect/Program.cs", "code,shipped"),
+            ("src/DotnetInspect.Cli/Program.cs", "code,shipped"),
             ("src/ILInspector.Decompiler/Raise.cs",
                 "code,csharpdiff,decompiler,shipped,web"),
             ("src/ILInspector.Metadata/Reader.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
             ("src/DotnetInspector.Core/Core.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
-            ("src/dotnet-inspect/dotnet-inspect.csproj",
+            ("src/DotnetInspect.Cli/DotnetInspect.Cli.csproj",
                 "code,packaging,shipped"),
             ("src/Directory.Build.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
@@ -174,8 +174,8 @@ internal static class ChangePlanTestSuite
             ("eng/decompiler-gate-known-red.txt", "decompiler,docs"),
             ("eng/decompiler-gate-skip-projects.txt", "decompiler,docs"),
             ("eng/restore-ilassembler.sh", "code,ilroundtrip"),
-            ("prototypes/inspect-web/README.md", "docs"),
-            ("prototypes/inspect-web/index.html", "web"),
+            ("inspect-web/README.md", "docs"),
+            ("inspect-web/index.html", "web"),
             ("prototypes/annotated-source-viewer/app.js",
                 "web"),
             ("Directory.Build.props",
@@ -240,15 +240,15 @@ internal static class ChangePlanTestSuite
             "src/ts-jsexport/Program.cs",
             "src/ILInspector.JsExportSurface/JsExportSurface.cs",
             "src/ILInspector.TypeScriptGeneration/TypeScriptGeneration.cs",
-            "prototypes/inspect-web/multi-facade-canary/Alpha/Exports.cs",
-            "prototypes/inspect-web/managed-operation-bridge-canary/Bridge/Exports.cs",
-            "prototypes/inspect-web/scripts/verify-multi-facade-canary.ts",
-            "prototypes/inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
-            "prototypes/inspect-web/engine/InspectWebJsExportContext.cs",
-            "prototypes/inspect-web/engine.Core/BrowserManagedOperationBridge.cs",
-            "prototypes/inspect-web/engine.Core/BrowserManagedSharedProducer.cs",
-            "prototypes/inspect-web/engine.Core/BrowserManagedEpochWorkReporter.cs",
-            "prototypes/inspect-web/engine.Core/BrowserManagedEpochWorkRegistration.cs",
+            "inspect-web/multi-facade-canary/Alpha/Exports.cs",
+            "inspect-web/managed-operation-bridge-canary/Bridge/Exports.cs",
+            "inspect-web/scripts/verify-multi-facade-canary.ts",
+            "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
+            "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedOperationBridge.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedSharedProducer.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkReporter.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkRegistration.cs",
         })
         {
             RoutingSelections actual = policy.Route(Evidence(path));
@@ -295,7 +295,7 @@ internal static class ChangePlanTestSuite
 
             // A missing inspect-web inventory broadens `web` to every src
             // change rather than narrowing it.
-            if (Render(policy.Route(Evidence("src/dotnet-inspect/Program.cs")))
+            if (Render(policy.Route(Evidence("src/DotnetInspect.Cli/Program.cs")))
                 != "code,decompiler,shipped,web")
             {
                 throw new InvalidOperationException(
@@ -304,7 +304,7 @@ internal static class ChangePlanTestSuite
             }
 
             // A missing decompiler skip inventory exempts nothing.
-            if (!policy.Route(Evidence("src/dotnet-inspect/Program.cs"))
+            if (!policy.Route(Evidence("src/DotnetInspect.Cli/Program.cs"))
                 .Decompiler)
             {
                 throw new InvalidOperationException(
@@ -313,7 +313,7 @@ internal static class ChangePlanTestSuite
 
             PlanningResult result = ChangePlanner.Compose(
                 Provenance(PlanEventKind.PullRequestSyntheticCandidate),
-                Evidence("src/dotnet-inspect/Program.cs"),
+                Evidence("src/DotnetInspect.Cli/Program.cs"),
                 policy);
             if (result.Plan.Diagnostics.Count != 2
                 || !result.Plan.Validations.Test)
@@ -420,7 +420,7 @@ internal static class ChangePlanTestSuite
         }
 
         RoutingSelections directOwner = policy.Route(Evidence(
-            "prototypes/inspect-web/scripts/verify-managed-operation-bridge-canary.ts"));
+            "inspect-web/scripts/verify-managed-operation-bridge-canary.ts"));
         foreach (PlanEventKind kind in new[]
         {
             PlanEventKind.PullRequestSyntheticCandidate,

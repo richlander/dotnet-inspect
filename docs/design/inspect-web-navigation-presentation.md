@@ -17,8 +17,9 @@ This owner defines:
 
 - the application-scope strip that composes the presentation-owned Query route
   entry with the product-issued Workspace subject entry;
-- the Package, Library, Type, and Member subject hierarchy, the inspected-target
-  rendering, and the adaptive subject and inspector navigation groups;
+- the Package, Library, Type, and Member subject hierarchy, the Browser-local
+  Platform target surface, the inspected-target rendering, and the adaptive
+  subject and inspector navigation groups;
 - the separately presented Workspace subject that owns retained-coordinate
   management;
 - lens-tab rendering, roving-tabindex interaction, and no-effective-lens
@@ -55,6 +56,8 @@ It does not own:
   which remain
   [Inspection Subject Navigation](inspection-subject-navigation.md)'s product
   data model; and
+- shared Platform Scope membership, product-issued Platform subject identity,
+  or Platform facet applicability; and
 - lens membership, identity, labels, summaries, or order, which remain the
   [View Facet Registry](view-facet-registry.md)'s product data model.
 
@@ -85,22 +88,26 @@ owners:
 - **Workspace** is the product-issued Workspace subject presented as the entry
   to retained-coordinate management.
 
-Inspection Subject Navigation continues to own Workspace, Package or
-non-package Root, Library, Type, and Member identity. Inspect Web presents
-Workspace separately because it manages retained coordinates, while Package,
-Library, Type, and Member form the progressively narrower active-coordinate
-subject strip:
+Inspection Subject Navigation continues to own Workspace, Package, Library,
+Type, and Member identity. Inspect Web presents Workspace separately because it
+manages retained Packages. Inspect Web also composes the approved Browser-local
+Platform target surface in the same visual position without issuing a shared
+Navigation subject. The visible paths therefore narrow from Package or
+Platform through Library, Type, and Member, while only the Package path belongs
+to the shared Navigation grammar:
 
 - **Package** means one selected package-adapter coordinate.
+- **Platform** means the Browser-local library catalog for one exact selected
+  platform target.
 - **Library** means all admitted libraries or one library in that coordinate.
 - **Type** means one selected type in the active Library subject.
 - **Member** means one selected member of the active Type.
 
-A local file, restored project, or another non-package artifact source occupies
-the same coordinate position without being mislabelled as a Package. Package is
-one common root subject, not the universal acquisition model. A non-package
-coordinate uses its product-owned root subject and overview when no Library,
-Type, or Member is active. This document does not invent package lenses for it.
+Issue #6013 extends the current Browser platform rows with a host-local catalog
+surface outside shared Scope and Navigation. It neither relabels those rows
+Package nor gives them product-owned subject identity or shared facet
+applicability. A future shared Platform structural subject must extend Scope,
+Navigation, and inventory behavior together through its own focused contract.
 
 ### Persistent navigation composition
 
@@ -381,9 +388,9 @@ encoded-file contract because the shell renders the image at 20 CSS pixels.
 The UI never fetches the deprecated nuspec `<iconUrl>`. When no usable embedded
 icon exists, the package uses NuGet Gallery's default package icon:
 `https://nuget.org/Content/gallery/img/default-package-icon-256x256.png`.
-Platform and other root subjects may use their own marks. The
-`dotnet-inspect` bot retains its product-mark slot before the adjacent inspected
-target.
+Current host-local Platform rows may use their own marks without creating a
+shared structural subject. The `dotnet-inspect` bot retains its product-mark
+slot before the adjacent inspected target.
 
 NuGet Gallery's header logo is recorded separately for a future
 source-attribution affordance:
@@ -748,8 +755,74 @@ coordinate or Package Overview.
 Non-package inputs use their product-owned coordinate display instead of
 inventing package/version/TFM fields.
 
-Platform libraries may be present in the workspace, but Platform is not a
-workspace entry or subject.
+## Browser Platform target
+
+Issue #6013 adopts Platform as a distinct host-local target in the existing
+retained Browser Workspace. It does not add shared Scope membership, a
+product-issued Navigation subject, or a generic non-package Root. It is not a
+Package renamed for runtime-pack inputs, another live Workspace, or a new
+Library inspector hierarchy. Existing package-shaped acquisition transport may
+remain internal while Browser target state, controls, history, and presentation
+distinguish Platform from Package.
+
+The production path is Spotlight -> Platform -> Library -> Type -> Member.
+Opening Platform selects its catalog, with no implicit Library or Type.
+Selecting a platform-library search result opens that exact Library with
+Platform as its parent. A search such as `System.Text.Json` can offer both the
+NuGet package and the platform library; source and target labeling distinguish
+the destinations rather than merging names.
+
+Platform content owns its target/version control, library-name filter, and
+`Include all libraries` control. It does not expose package version/TFM editors
+or package-only inspectors. The default release line is .NET 11, including
+previews. The platform source supplies the exact version and matching catalog
+under [Version resolution](version-resolution.md#browser-platform-catalog-targets).
+An already-open target does not change when newer versions are discovered.
+
+The default inventory contains libraries represented in the selected
+reference pack. This is an inventory policy, not a request to inspect
+reference bytes: selecting a Library opens its runtime implementation.
+`Include all libraries` expands the inventory to all managed platform
+libraries. It is not the aggregate `All libraries` inspection subject and
+does not grant traversal permission.
+
+Rows consistently distinguish three source-supplied roles:
+
+| Role | Presentation meaning |
+| --- | --- |
+| Facade | A forwarding library, identified with a distinct outline/forwarding mark. |
+| Implementation | An implementation represented in the reference pack, using ordinary library styling. |
+| Private implementation | An implementation outside the reference-pack inventory, with an internal-library mark and secondary styling. |
+
+Role remains distinct from type accessibility. `System.Private.CoreLib` has
+public Types despite its private-implementation platform role. Text or an
+accessible label accompanies the mark; color alone is insufficient. Private
+implementations are selectable, not disabled. A catalog entry without an
+inspectable runtime counterpart instead exposes its actual unavailability.
+
+The small shipped catalog supplies search and browsing before pack acquisition
+or library decoding. Opening Platform may warm the exact runtime archives in
+parallel; typing into Search does not. Catalog rows remain usable while that
+operation runs or fails, with visible progress, failure, and retry. Selecting
+a Library shares acquisition and requests only its existing inspection
+surface. Missing or failed catalog information is not an empty Platform.
+
+Back, Forward, refresh, and shared locations retain the Platform target and
+explicit Library selection. Returning from Library reaches Platform without
+selecting a neighboring library. A Library with no Types still opens its
+Library inspectors. The existing Library selection and consumer
+history/focus contracts continue to apply.
+
+This is the user-approved Browser experience, rendered through the existing
+typed browser UI rather than a new multi-format renderer. #6013 tracks four
+adoption steps: exact catalog/discovery production, host-local Platform target
+and shared Library integration, end-to-end browser adoption with retirement of
+the package-shaped Platform presentation, and separately authorized
+release/site deployment. The generator and catalog tests, engine Platform
+catalog/acquisition tests, and built-frontend Platform/Library browser cases
+provide the respective gates. Shared target-currency transport and a
+product-issued Platform subject remain later adoption work under their
+respective owners.
 
 ## Type navigation
 

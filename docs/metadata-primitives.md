@@ -85,7 +85,7 @@ which differences are intentional policy.
 
 `ILInspector.MetadataPrimitives` is currently an SRM-only leaf with no project
 references. `LayeringTests.MetadataPrimitives_RemainsLeaf` in
-`src/dotnet-inspect.Tests` gates that property.
+`tests/DotnetInspect.Cli.Tests` gates that property.
 
 ```text
                      ILInspector.MetadataPrimitives

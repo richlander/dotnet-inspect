@@ -102,14 +102,14 @@ runtime identifiers, and a managed fallback:
 | `dotnet-inspect.any` | Managed fallback at the supported runtime floor |
 
 The package version is owned by `VersionPrefix` in
-`src/dotnet-inspect/dotnet-inspect.csproj`. Do not copy the current value into
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj`. Do not copy the current value into
 guidance. The publish workflow reads it from the selected commit when creating
 the GitHub release tag.
 
 ### What is packable and publishable
 
 Pack and publish flows are separate from the normal build and build
-`src/dotnet-inspect` directly. Packaging is off by default (`IsPackable=false`
+`src/DotnetInspect.Cli` directly. Packaging is off by default (`IsPackable=false`
 in the root `Directory.Build.props`). Every CLI project declares `IsTool`, and
 solution publishing is off by default there as well (`IsPublishable=false`).
 Every CLI project declares `IsTool`; `Directory.Build.targets` uses that
@@ -147,13 +147,13 @@ Before dispatching a release:
 repository-side notes. They are release artifacts:
 
 - `README.md` is the package readme (`PackageReadmeFile` in
-  `src/dotnet-inspect/dotnet-inspect.csproj`, packed via the `None Include`
+  `src/DotnetInspect.Cli/DotnetInspect.Cli.csproj`, packed via the `None Include`
   entry beside it), so it is the first thing a consumer of the published
   package reads.
 - Every shipped `SKILL.md` is embedded into the tool binary as an
   `EmbeddedResource` and served by `dotnet-inspect skill`, so the published tool
   teaches agents whatever those files said at build time. The embeds are
-  enumerated one line per skill in `src/dotnet-inspect/dotnet-inspect.csproj`,
+  enumerated one line per skill in `src/DotnetInspect.Cli/DotnetInspect.Cli.csproj`,
   not globbed.
 
 Repo-local maintainer skills under `.github/skills/` and `.claude/skills/` are
@@ -172,7 +172,7 @@ both before dispatching, and expect to update them:
   stale listing.
 - **Does every product skill added under `skills/` since the last release appear
   in both places?** A product skill needs an `EmbeddedResource` line in
-  `src/dotnet-inspect/dotnet-inspect.csproj` *and* an entry in
+  `src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` *and* an entry in
   `SkillCommand.Skills`.
   `SkillCommandTests.FocusedSkillFilesRegistryAndEmbeddedResourcesAgree`
   enforces equality between `skills/*/SKILL.md` on disk, the runtime registry,
@@ -181,6 +181,17 @@ both before dispatching, and expect to update them:
   `dotnet-inspect skill list`.
 - Record the outcome either way. If neither needed a change, say so; silence
   reads the same as an unchecked box.
+
+The thin bootstrap skill distributed from the peer
+[`richlander/dotnet-skills`](https://github.com/richlander/dotnet-skills)
+marketplace is a release checkpoint too. Compare it with the selected
+`VersionPrefix` and the generated `dotnet-inspect skill list`. It must stay at
+or below 60 lines, teach the basic command UX, enumerate every embedded focused
+skill, and defer details to the version-matched guide in the tool. When the
+content or version changes, align every peer skill and plugin manifest version
+with the dotnet-inspect release and publish the peer update. When the peer is
+already current and the reconciliation produces no diff, do not make a no-op
+peer release.
 
 ## Dispatching
 

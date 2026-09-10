@@ -373,7 +373,7 @@ decide whether a query may use their content. Authorization remains a decision
 for the current query plan, not a permanent property of the group.
 
 [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) owns
-the committed logical Root occurrences above those physical contexts,
+the committed logical Package occurrences above those physical contexts,
 closed-by-default selective dependency expansion, revision-bound scope edits,
 and closure completeness. Artifact Acquisition retains realization, admission,
 binding-context publication, query authorization, and physical lifetime.
@@ -627,10 +627,10 @@ the implementation of
 
 **Status:** no approved product caller.
 
-The `inspect-web` prototype is the only current multi-operation consumer of
+Inspect Web is the only current multi-operation consumer of
 package roles. Its `BrowserPackageWorkspace` retains a bounded registry of
 complete `BrowserInspectionScope` instances keyed by an exact
-package-coordinate set; the prototype's README owns that retention and eviction
+package-coordinate set; the workspace README owns that retention and eviction
 policy. Each scope owns one `InspectionWorkspace` and one package-role
 realization. The registry returns the already-open scope for a later exact
 request, so the workspace never receives a second independent package-role

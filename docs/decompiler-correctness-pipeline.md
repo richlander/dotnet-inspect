@@ -216,7 +216,7 @@ Notes:
   of the entry gate for behavior changes, but iterate against a class filter and
   run the full suite before requesting review.
 - **PR CI runs only the fast unit subset.** The `test` job in `ci.yml` runs
-  `dotnet run --project src/dotnet-inspect.Tests -c Release --
+  `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --
   --filter-not-trait
   "Speed=Slow"`, `dotnet run --project tests/ILInspector.Decompiler.Tests -c
   Release -- -trait- "Speed=Slow"`, and the matching fast Analysis/IL
@@ -251,7 +251,7 @@ the pipeline — test suite, harness, sweep, benchmark — validates after every
 pass in the same build users run.
 
 The shipped CLI is the one sanctioned opt-out
-(`IrInvariants.DisableForShippedTool()` in `src/dotnet-inspect/Program.cs`), so
+(`IrInvariants.DisableForShippedTool()` in `src/DotnetInspect.Cli/Program.cs`), so
 the tool pays nothing on the decompile hot path. Declining validation has
 exactly one form — `Enabled`'s setter is private, so the compiler rejects any
 other spelling — and `IrInvariantsHostContractTests` pins that one call site, so

@@ -176,123 +176,156 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
-    public async Task ResolveDependencyGraph_PreservesEverySharedTargetEdge()
+    public async Task ResolveDependencyGraph_RevisitRetainsIncomingRelationship()
+    {
+        var root = new PackageDependencyIdentity("root", "1.0.0");
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = "shared", Version = "1.0.0" },
+        };
+        using var client = new HttpClient(new UnexpectedRequestHandler());
+
+        PackageDependencyGraph graph =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                root,
+                rootAuthor: null,
+                dependencies,
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "shared",
+                },
+                log: null);
+
+        PackageDependencyRelationship relationship =
+            Assert.Single(graph.Relationships);
+        Assert.Equal(root, relationship.Source);
+        Assert.Equal(
+            new PackageDependencyIdentity("shared", "1.0.0"),
+            relationship.Target);
+        Assert.Equal(
+            PackageDependencyResolutionState.Declared,
+            relationship.Resolution);
+        Assert.Empty(graph.Tree);
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_NormalizesEquivalentCycleCoordinates()
+    {
+        var root = new PackageDependencyIdentity("Root.Package", "1.0");
+        using var client = new HttpClient(new UnexpectedRequestHandler());
+
+        PackageDependencyGraph graph =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                root,
+                rootAuthor: null,
+                [new PackageDependency
+                {
+                    Id = "Root.Package",
+                    Version = "1.0",
+                }],
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log: null);
+
+        PackageDependencyGraphNode node =
+            Assert.Single(graph.Nodes);
+        PackageDependencyRelationship cycle =
+            Assert.Single(graph.Relationships);
+        Assert.Equal("1.0.0", node.Identity.Version);
+        Assert.Equal(node.Identity, cycle.Source);
+        Assert.Equal(node.Identity, cycle.Target);
+        Assert.Equal(
+            PackageDependencyResolutionState.Resolved,
+            cycle.Resolution);
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_SharedTargetRetainsBothIncomingRelationships()
     {
         CoreCache.Initialize("dotnet-inspect-test");
-        const string index = "https://graph.example/v3/index.json";
-        const string flat = "https://graph.example/v3-flatcontainer/";
         string suffix = Guid.NewGuid().ToString("N");
         string leftId = $"Left.Package.{suffix}";
         string rightId = $"Right.Package.{suffix}";
         string sharedId = $"Shared.Package.{suffix}";
-        var handler = new GraphNuspecHandler(
-            index,
-            flat,
-            new Dictionary<string, string[]>(
-                StringComparer.OrdinalIgnoreCase)
-            {
-                [leftId] = [sharedId],
-                [rightId] = [sharedId],
-                [sharedId] = [],
-            });
-        using var client = new HttpClient(handler);
+        string index = $"https://private.example/{suffix}/v3/index.json";
+        string flat = $"https://private.example/{suffix}/flat/";
+        using var client = new HttpClient(
+            new SharedDependencyNuspecHandler(
+                index,
+                flat,
+                leftId,
+                rightId,
+                sharedId));
         var dependencies = new List<PackageDependency>
         {
             new() { Id = leftId, Version = "1.0.0" },
             new() { Id = rightId, Version = "1.0.0" },
         };
 
-        List<DependencyNode> result =
+        PackageDependencyGraph graph =
             await DependencyResolutionService.ResolveDependencyGraphAsync(
                 client,
+                new PackageDependencyIdentity("Root.Package", "1.0.0"),
+                rootAuthor: null,
                 dependencies,
                 "net10.0",
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 log: null,
-                sourceOptions: new NuGetSourceOptions
-                {
-                    Sources = [index],
-                });
+                new NuGetSourceOptions { Sources = [index] });
 
-        Assert.Equal([leftId, rightId], result.Select(node => node.PackageId));
+        Assert.Equal(5, graph.Relationships.Count);
         Assert.Equal(
-            sharedId,
-            Assert.Single(result[0].Children).PackageId);
+            2,
+            graph.Relationships.Count(relationship =>
+                relationship.Target.PackageId == sharedId));
+        Assert.All(
+            graph.Relationships.Where(relationship =>
+                relationship.Target.PackageId == sharedId),
+            relationship => Assert.Equal(
+                PackageDependencyResolutionState.Resolved,
+                relationship.Resolution));
+        PackageDependencyRelationship cycle = Assert.Single(
+            graph.Relationships,
+            relationship =>
+                relationship.Source.PackageId == sharedId
+                && relationship.Target.PackageId == leftId);
         Assert.Equal(
-            sharedId,
-            Assert.Single(result[1].Children).PackageId);
-        Assert.Equal(1, handler.NuspecRequestCount(sharedId));
+            PackageDependencyResolutionState.Resolved,
+            cycle.Resolution);
     }
 
     [Fact]
-    public async Task ResolveDependencyGraph_PreservesCycleClosingEdge()
-    {
-        CoreCache.Initialize("dotnet-inspect-test");
-        const string index = "https://cycle.example/v3/index.json";
-        const string flat = "https://cycle.example/v3-flatcontainer/";
-        string suffix = Guid.NewGuid().ToString("N");
-        string leftId = $"Left.Cycle.{suffix}";
-        string rightId = $"Right.Cycle.{suffix}";
-        var handler = new GraphNuspecHandler(
-            index,
-            flat,
-            new Dictionary<string, string[]>(
-                StringComparer.OrdinalIgnoreCase)
-            {
-                [leftId] = [rightId],
-                [rightId] = [leftId],
-            });
-        using var client = new HttpClient(handler);
-
-        List<DependencyNode> result =
-            await DependencyResolutionService.ResolveDependencyGraphAsync(
-                client,
-                [new PackageDependency
-                {
-                    Id = leftId,
-                    Version = "1.0.0",
-                }],
-                "net10.0",
-                new HashSet<string>(
-                    StringComparer.OrdinalIgnoreCase),
-                log: null,
-                sourceOptions: new NuGetSourceOptions
-                {
-                    Sources = [index],
-                });
-
-        DependencyNode left = Assert.Single(result);
-        DependencyNode right = Assert.Single(left.Children);
-        DependencyNode cycle = Assert.Single(right.Children);
-        Assert.Equal(leftId, cycle.PackageId);
-        Assert.Empty(cycle.Children);
-    }
-
-    [Fact]
-    public async Task ResolveDependencyGraph_ReportsMissingManifestAsUnresolved()
+    public async Task ResolveDependencyGraph_ExpandsDistinctVersionsWithoutChangingCompatibilityTree()
     {
         CoreCache.Initialize("dotnet-inspect-test");
         string suffix = Guid.NewGuid().ToString("N");
-        string leftId = $"Left.Missing.{suffix}";
-        string rightId = $"Right.Missing.{suffix}";
-        string missingId = $"Missing.Package.{suffix}";
-        string index = $"https://missing.example/{suffix}/index.json";
-        string flat =
-            $"https://missing.example/{suffix}/v3-flatcontainer/";
-        var handler = new GraphNuspecHandler(
-            index,
-            flat,
-            new Dictionary<string, string[]>(
-                StringComparer.OrdinalIgnoreCase)
-            {
-                [leftId] = [missingId],
-                [rightId] = [missingId],
-            });
-        using var client = new HttpClient(handler);
+        string leftId = $"Left.Package.{suffix}";
+        string rightId = $"Right.Package.{suffix}";
+        string sharedId = $"Shared.Package.{suffix}";
+        string firstLeafId = $"Leaf.One.{suffix}";
+        string secondLeafId = $"Leaf.Two.{suffix}";
+        string index = $"https://private.example/{suffix}/v3/index.json";
+        string flat = $"https://private.example/{suffix}/flat/";
+        using var client = new HttpClient(
+            new VersionedSharedDependencyNuspecHandler(
+                index,
+                flat,
+                leftId,
+                rightId,
+                sharedId,
+                firstLeafId,
+                secondLeafId));
 
-        List<DependencyNode> result =
+        PackageDependencyGraph graph =
             await DependencyResolutionService.ResolveDependencyGraphAsync(
                 client,
+                new PackageDependencyIdentity(
+                    "Root.Package",
+                    "1.0.0"),
+                rootAuthor: null,
                 [
                     new PackageDependency
                     {
@@ -309,131 +342,53 @@ public class DependencyResolutionServiceTests
                 new HashSet<string>(
                     StringComparer.OrdinalIgnoreCase),
                 log: null,
-                sourceOptions: new NuGetSourceOptions
-                {
-                    Sources = [index],
-                });
+                new NuGetSourceOptions { Sources = [index] });
 
-        Assert.Equal(2, result.Count);
-        foreach (DependencyNode parent in result)
-        {
-            DependencyNode missing =
-                Assert.Single(parent.Children);
-            Assert.Equal(missingId, missing.PackageId);
-            Assert.Equal("1.0.0", missing.ResolvedVersion);
-            Assert.Equal(
-                DependencyNodeResolutionState.Unresolved,
-                missing.Resolution);
-            Assert.Empty(missing.Children);
-        }
-        Assert.Equal(1, handler.NuspecRequestCount(missingId));
+        Assert.Contains(
+            graph.Relationships,
+            relationship =>
+                relationship.Source.PackageId == sharedId
+                && relationship.Source.Version == "1.0.0"
+                && relationship.Target.PackageId == firstLeafId);
+        Assert.Contains(
+            graph.Relationships,
+            relationship =>
+                relationship.Source.PackageId == sharedId
+                && relationship.Source.Version == "2.0.0"
+                && relationship.Target.PackageId == secondLeafId);
+
+        Assert.Equal(2, graph.Tree.Count);
+        Assert.Single(graph.Tree[0].Children);
+        Assert.Empty(graph.Tree[1].Children);
     }
 
     [Fact]
-    public async Task ResolveDependencyGraph_DistinguishesPackageVersions()
+    public async Task ResolveDependencyGraph_UnavailableTargetIsNotReportedAsResolved()
     {
         CoreCache.Initialize("dotnet-inspect-test");
-        string suffix = Guid.NewGuid().ToString("N");
-        string leftId = $"Left.Version.{suffix}";
-        string rightId = $"Right.Version.{suffix}";
-        string sharedId = $"Shared.Version.{suffix}";
-        string index = $"https://versions.example/{suffix}/index.json";
-        string flat =
-            $"https://versions.example/{suffix}/v3-flatcontainer/";
-        var handler = new GraphNuspecHandler(
-            index,
-            flat,
-            new Dictionary<string, string[]>(
-                StringComparer.OrdinalIgnoreCase)
-            {
-                [leftId] = [$"{sharedId}@1.0.0"],
-                [rightId] = [$"{sharedId}@2.0.0"],
-                [$"{sharedId}@1.0.0"] = [],
-                [$"{sharedId}@2.0.0"] = [],
-            });
-        using var client = new HttpClient(handler);
+        string packageId = $"Unavailable.Package.{Guid.NewGuid():N}";
+        string index = $"https://private.example/{Guid.NewGuid():N}/v3/index.json";
+        using var client = new HttpClient(
+            new MissingNuspecHandler(index));
 
-        List<DependencyNode> result =
+        PackageDependencyGraph graph =
             await DependencyResolutionService.ResolveDependencyGraphAsync(
                 client,
-                [
-                    new PackageDependency
-                    {
-                        Id = leftId,
-                        Version = "1.0.0",
-                    },
-                    new PackageDependency
-                    {
-                        Id = rightId,
-                        Version = "1.0.0",
-                    },
-                ],
-                "net10.0",
-                new HashSet<string>(
-                    StringComparer.OrdinalIgnoreCase),
-                log: null,
-                sourceOptions: new NuGetSourceOptions
-                {
-                    Sources = [index],
-                });
-
-        Assert.Equal(
-            "1.0.0",
-            Assert.Single(result[0].Children).ResolvedVersion);
-        Assert.Equal(
-            "2.0.0",
-            Assert.Single(result[1].Children).ResolvedVersion);
-    }
-
-    [Fact]
-    public async Task ResolveDependencyGraph_NormalizesRootCycleCoordinate()
-    {
-        CoreCache.Initialize("dotnet-inspect-test");
-        string suffix = Guid.NewGuid().ToString("N");
-        string rootId = $"Root.Version.{suffix}";
-        string childId = $"Child.Version.{suffix}";
-        string index =
-            $"https://root-version.example/{suffix}/index.json";
-        string flat =
-            $"https://root-version.example/{suffix}/v3-flatcontainer/";
-        var handler = new GraphNuspecHandler(
-            index,
-            flat,
-            new Dictionary<string, string[]>(
-                StringComparer.OrdinalIgnoreCase)
-            {
-                [childId] = [$"{rootId}@1.0.0"],
-            });
-        using var client = new HttpClient(handler);
-
-        List<DependencyNode> result =
-            await DependencyResolutionService.ResolveDependencyGraphAsync(
-                client,
+                new PackageDependencyIdentity("Root.Package", "1.0.0"),
+                rootAuthor: null,
                 [new PackageDependency
                 {
-                    Id = childId,
+                    Id = packageId,
                     Version = "1.0.0",
                 }],
                 "net10.0",
-                new HashSet<string>(
-                    StringComparer.OrdinalIgnoreCase)
-                {
-                    DependencyResolutionService
-                        .PackageTraversalIdentity(
-                            rootId,
-                            "1.0"),
-                },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 log: null,
-                sourceOptions: new NuGetSourceOptions
-                {
-                    Sources = [index],
-                });
+                new NuGetSourceOptions { Sources = [index] });
 
-        DependencyNode rootCycle =
-            Assert.Single(Assert.Single(result).Children);
-        Assert.Equal(rootId, rootCycle.PackageId);
-        Assert.Empty(rootCycle.Children);
-        Assert.Equal(0, handler.NuspecRequestCount(rootId));
+        Assert.Equal(
+            PackageDependencyResolutionState.Unavailable,
+            Assert.Single(graph.Relationships).Resolution);
     }
 
     [Fact]
@@ -952,29 +907,143 @@ public class DependencyResolutionServiceTests
         }
     }
 
-    private sealed class GraphNuspecHandler(
+    private sealed class UnexpectedRequestHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                $"Unexpected request: {request.RequestUri}");
+    }
+
+    private sealed class MissingNuspecHandler(string index) :
+        HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string? body = request.RequestUri!.ToString() == index
+                ? """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://private.example/flat/"}]}"""
+                : null;
+            return Task.FromResult(new HttpResponseMessage(
+                body is null ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+            {
+                Content = new StringContent(body ?? "", Encoding.UTF8),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    private sealed class SharedDependencyNuspecHandler(
         string index,
         string flat,
-        IReadOnlyDictionary<string, string[]> dependencies)
-        : HttpMessageHandler
+        string leftId,
+        string rightId,
+        string sharedId) : HttpMessageHandler
     {
-        private readonly List<string> requested = [];
-
-        public int NuspecRequestCount(string packageId) =>
-            requested.Count(url =>
-                url.EndsWith(
-                    $"/{packageId.ToLowerInvariant()}.nuspec",
-                    StringComparison.Ordinal));
-
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             string url = request.RequestUri!.ToString();
-            requested.Add(url);
-            string? body = url == index
-                ? $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"{{flat}}"}]}"""
-                : Nuspec(url);
+            string? body = url switch
+            {
+                _ when url == index =>
+                    $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"{{flat}}"}]}""",
+                _ when EndsWithNuspec(url, leftId) =>
+                    PackageWithDependency(leftId, sharedId),
+                _ when EndsWithNuspec(url, rightId) =>
+                    PackageWithDependency(rightId, sharedId),
+                _ when EndsWithNuspec(url, sharedId) =>
+                    PackageWithDependency(sharedId, leftId),
+                _ => null,
+            };
+
+            return Task.FromResult(new HttpResponseMessage(
+                body is null ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+            {
+                Content = new StringContent(body ?? "", Encoding.UTF8),
+                RequestMessage = request,
+            });
+        }
+
+        private static bool EndsWithNuspec(string url, string packageId) =>
+            url.EndsWith(
+                $"/{packageId.ToLowerInvariant()}.nuspec",
+                StringComparison.Ordinal);
+
+        private static string PackageWithDependency(
+            string packageId,
+            string dependencyId) =>
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>1.0.0</version>
+                <dependencies>
+                  <group targetFramework="net10.0">
+                    <dependency id="{{dependencyId}}" version="1.0.0" />
+                  </group>
+                </dependencies>
+              </metadata>
+            </package>
+            """;
+    }
+
+    private sealed class VersionedSharedDependencyNuspecHandler(
+        string index,
+        string flat,
+        string leftId,
+        string rightId,
+        string sharedId,
+        string firstLeafId,
+        string secondLeafId) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = url switch
+            {
+                _ when url == index =>
+                    $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"{{flat}}"}]}""",
+                _ when EndsWithNuspec(url, leftId, "1.0.0") =>
+                    PackageWithDependency(
+                        leftId,
+                        "1.0.0",
+                        sharedId,
+                        "1.0.0"),
+                _ when EndsWithNuspec(url, rightId, "1.0.0") =>
+                    PackageWithDependency(
+                        rightId,
+                        "1.0.0",
+                        sharedId,
+                        "2.0.0"),
+                _ when EndsWithNuspec(url, sharedId, "1.0.0") =>
+                    PackageWithDependency(
+                        sharedId,
+                        "1.0.0",
+                        firstLeafId,
+                        "1.0.0"),
+                _ when EndsWithNuspec(url, sharedId, "2.0.0") =>
+                    PackageWithDependency(
+                        sharedId,
+                        "2.0.0",
+                        secondLeafId,
+                        "1.0.0"),
+                _ when EndsWithNuspec(url, firstLeafId, "1.0.0") =>
+                    PackageWithoutDependencies(
+                        firstLeafId,
+                        "1.0.0"),
+                _ when EndsWithNuspec(url, secondLeafId, "1.0.0") =>
+                    PackageWithoutDependencies(
+                        secondLeafId,
+                        "1.0.0"),
+                _ => null,
+            };
+
             return Task.FromResult(new HttpResponseMessage(
                 body is null
                     ? HttpStatusCode.NotFound
@@ -987,59 +1056,44 @@ public class DependencyResolutionServiceTests
             });
         }
 
-        private string? Nuspec(string url)
-        {
-            foreach (var entry in dependencies)
-            {
-                var (packageId, version) =
-                    ParseCoordinate(entry.Key);
-                string normalizedId =
-                    packageId.ToLowerInvariant();
-                if (!url.EndsWith(
-                    $"/{normalizedId}/{version}/{normalizedId}.nuspec",
-                    StringComparison.Ordinal))
-                {
-                    continue;
-                }
+        private static bool EndsWithNuspec(
+            string url,
+            string packageId,
+            string version) =>
+            url.EndsWith(
+                $"/{packageId.ToLowerInvariant()}/{version}/"
+                + $"{packageId.ToLowerInvariant()}.nuspec",
+                StringComparison.Ordinal);
 
-                string dependencyElements = string.Join(
-                    Environment.NewLine,
-                    entry.Value.Select(coordinate =>
-                    {
-                        var (id, dependencyVersion) =
-                            ParseCoordinate(coordinate);
-                        return $"<dependency id=\"{id}\" "
-                            + $"version=\"{dependencyVersion}\" />";
-                    }));
-                return
-                    $"""
-                    <package>
-                      <metadata>
-                        <id>{packageId}</id>
-                        <version>{version}</version>
-                        <authors>Test</authors>
-                        <dependencies>
-                          <group targetFramework="net10.0">
-                            {dependencyElements}
-                          </group>
-                        </dependencies>
-                      </metadata>
-                    </package>
-                    """;
-            }
+        private static string PackageWithDependency(
+            string packageId,
+            string version,
+            string dependencyId,
+            string dependencyVersion) =>
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>{{version}}</version>
+                <dependencies>
+                  <group targetFramework="net10.0">
+                    <dependency id="{{dependencyId}}" version="{{dependencyVersion}}" />
+                  </group>
+                </dependencies>
+              </metadata>
+            </package>
+            """;
 
-            return null;
-        }
-
-        private static (string PackageId, string Version)
-            ParseCoordinate(string coordinate)
-        {
-            int separator = coordinate.LastIndexOf('@');
-            return separator > 0
-                ? (
-                    coordinate[..separator],
-                    coordinate[(separator + 1)..])
-                : (coordinate, "1.0.0");
-        }
+        private static string PackageWithoutDependencies(
+            string packageId,
+            string version) =>
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>{{version}}</version>
+              </metadata>
+            </package>
+            """;
     }
 }

@@ -843,7 +843,7 @@ emits two spellings:
 | `Render()` | `:41` | Display, presentation-refined | `(int count, string name)`, `dynamic`, `string?` |
 | `RenderCanonical()` | `:50` | Tuple-canonical identity seam; every non-tuple facet is unchanged | `System.ValueTuple<int, string>`, `dynamic`, `string?` |
 
-**`TypeNode` is `internal`**, visible only to `dotnet-inspect.Tests` and
+**`TypeNode` is `internal`**, visible only to `DotnetInspect.Cli.Tests` and
 `ILInspector.Metadata.Tests` (`src/ILInspector.Metadata/ILInspector.Metadata.csproj:17-18`). This is the
 structural reason every other layer receives strings from Metadata rather than a
 type: the fact owner is not in their vocabulary. It is a deliberate encapsulation

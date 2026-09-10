@@ -103,6 +103,43 @@ Commands may have specialized acquisition and projection steps, but those
 steps retain the same ownership boundary: the host composes the request;
 reusable owners produce the facts.
 
+### Configured package search Roots
+
+The first production adoption in
+[#6170](https://github.com/richlander/dotnet-inspect/issues/6170) routes the
+existing `find`, member-find, `implements`, `extensions`, and reachable
+extension implementations through one invocation-owned asynchronous
+`InspectionWorkspace` for a deliberately bounded source shape:
+
+- normalized source intent contains exactly one explicitly versioned package
+  reference whose version is an exact NuGet version;
+- the resolved request contains that package and no assembly, platform,
+  project, or directory sources;
+- the request has one explicit target framework other than `all`; and
+- `find` and member-find have no numeric result limit.
+
+The host acquires one package Root, commits it with `ReplaceScopeAsync`, retains
+the committed correspondence and generation, and executes the existing typed
+group queries through `ExecutePackageRootQueryAsync`. Type search reuses that
+same committed Root for its direct and fallback census passes. Package results
+project library and source provenance from `PackageRootIdentity` and
+`PackageCompileAsset`; the CLI does not manufacture host filesystem paths for
+package-relative assets.
+
+Floating, `@latest`, and wildcard package versions; package archives, package
+groups and prefixes; multiple or mixed sources; implicit and `all` target
+frameworks; and limited searches retain the `AssemblySetResolver` and
+`AssemblySetInspectionWorkspace` path. That boundary preserves the CLI's
+existing version-selection and streaming-limit behavior rather than making
+Workspace acquisition redefine either contract. Type-mode `depends` remains
+outside this slice: its group-scoped dependency query and production caller
+land together rather than adding another caller-free query surface.
+
+This cutover consumes the package Root's reference-preferred compile surface.
+An explicit empty compile group therefore remains an empty configured Root and
+does not reactivate platform defaults, package fallback, or an implementation
+assembly.
+
 ### Library inspection subject
 
 After a `library` source resolver identifies a physical participant, the
@@ -310,8 +347,88 @@ path is still supplied to the body source.
 
 Descriptorless and standalone-member callers keep their existing path route.
 This does not select another runtime image or establish API/runtime
-correspondence. Whole-type decompilation, further acquired-PDB propagation and
-other-host adoption remain separate work; this adds no shared substrate.
+correspondence. Whole-type decompilation, remaining acquired-PDB propagation
+and other-host adoption remain separate work; this adds no shared substrate.
+
+### Type whole-type decompiler acquisition
+
+When type whole-type `Decompiled Source` receives a selected root or forwarded
+API supplier, `MemberBodyProducer` opens that descriptor rather than
+reconstructing an acquisition from its path projection. The already acquired
+external portable-PDB path is carried with the descriptor into Decompiler's
+metadata source, preserving local-name evidence. The descriptor path remains
+the dependency resolver's configuration root; it is not an alternative opener.
+
+A selected descriptor composition failure reaches the command error boundary
+rather than retrying through the readable path or becoming successful
+decompiler output. Genuine no-source results retain their existing empty
+section behavior. Descriptorless and standalone-member callers keep their
+existing path routes.
+
+`TypeWholeTypeDecompilerAcquisition_UsesSelectedSupplier`,
+`TypeWholeTypeDecompilerAcquisition_ReportsSelectedOpenFailure`,
+`TypeWholeTypeDecompilerAcquisition_CarriesExternalPdb`, and
+`TypeWholeTypeDecompilerAcquisition_SkipsOrdinaryOutput` gate this composition.
+`TypeWholeTypeDecompilerAcquisition_DiscoveryStaysLazy` gates effective
+discovery without decompiler acquisition.
+Existing whole-type decompiler and render-style cases gate source composition,
+member filtering, style and diagnostics. Effective discovery continues to
+report section applicability from the selected API model without opening the
+decompiler.
+
+This is [#6256](https://github.com/richlander/dotnet-inspect/issues/6256)'s
+three-step production adoption under #4867: TypeCommand retains the selected
+supplier; the CLI chooses Decompiler's descriptor producer route; existing
+typed output and Markout rendering, or command error reporting, publish the
+result. The producer's descriptor overload carries the optional PDB path into
+Decompiler's existing descriptor-plus-PDB metadata-source contract; it adds no
+new acquisition substrate.
+
+Decompiler continues to own type composition, metadata-source opening, symbol
+probing, raising and C# rendering. The CLI continues to own section
+authorization, supplier selection, dependency-resolver configuration and
+failure publication. This slice does not change PDB acquisition, select a
+runtime implementation, establish API/runtime correspondence, or migrate
+standalone `member`, comparison commands or Browser hosts.
+
+### Standalone member code acquisition
+
+When standalone `member` code projection receives a selected root or forwarded
+API supplier, `MemberCodeProvider` opens that descriptor for both its
+metadata/body session and Decompiler metadata source rather than reopening the
+descriptor's path projection. The resolved external portable-PDB path is
+carried into the Decompiler open. The descriptor path remains the
+dependency resolver's configuration root; it is not an alternative opener.
+
+A selected descriptor opening failure reaches the command error boundary
+rather than retrying through the readable path or becoming successful empty
+member-code output. Descriptorless callers retain the existing path route,
+including its established partial-output behavior when only the Decompiler
+metadata source cannot be opened.
+
+`MemberCodeAcquisition_UsesSelectedSupplier`,
+`MemberCodeAcquisition_ReportsSelectedMetadataOpenFailure`,
+`MemberCodeAcquisition_ReportsSelectedDecompilerOpenFailure`,
+`MemberCodeAcquisition_CarriesExternalPdb`, and
+`MemberCodeAcquisition_SkipsOrdinaryOutput` gate this composition.
+`MemberCodeAcquisition_LeavesAnalysisRoutePathBased` and
+`MemberCodeAcquisition_LeavesExceptionRegionsRoutePathBased` gate the adjacent
+non-adoption boundary. Existing member-code, source, rendering, and
+descriptorless cases remain neighboring regression evidence.
+
+This is [#6480](https://github.com/richlander/dotnet-inspect/issues/6480)'s
+three-step production adoption under #4867: `MemberCommand` retains the
+supplier; `ApiCommand` and `ApiOutputFormatter` pass it into
+`MemberCodeProvider`; existing typed member-code views and Markout rendering,
+or command error reporting, publish the result. Metadata and Decompiler
+continue to own their existing descriptor openers; this adds no shared
+acquisition substrate or rendering shape.
+
+This slice covers sections produced by `MemberCodeProvider`. The separately
+composed Analysis-backed sections, Exception Regions and Body Shapes retain
+their current routes. PDB acquisition policy, runtime-image selection,
+API/runtime correspondence, `diff`, `match` and Browser hosts remain separate
+work.
 
 ## Command families
 
@@ -320,7 +437,7 @@ architectural subsystem:
 
 | Family | Examples | Host role |
 | ------ | -------- | --------- |
-| Unary subject inspection | `package`, `project`, `library`, `type`, `member` | Resolve one subject and choose inspection lenses. |
+| Unary subject inspection | `package`, `project`, `library`, `type`, `member`, `ecosystem` | Resolve one subject and choose inspection lenses; ecosystem focus reads the product-owned static catalog without acquisition. |
 | Comparison and correlation | `diff`, `timeline`, `match` | Resolve ordered or paired subjects and choose comparison, correlation, or correspondence producers. |
 | Search and relationships | `find`, `depends`, `extensions`, `implements`, `graph` | Resolve a bounded search/workspace scope and project typed relationships. |
 | Product metadata and utilities | `vocabulary`, `workspace-state`, `cache`, `skill`, `demo` | Expose product-owned vocabularies, portable host state, CLI runtime state, embedded guidance, or closed demonstrations. |
@@ -462,7 +579,7 @@ commands and output modes.
 ## Implementation map
 
 ```text
-src/dotnet-inspect/
+src/DotnetInspect.Cli/
 ├── CommandLine/    command definitions, option binding, and help
 ├── Commands/       command orchestration and host policy
 ├── Options/        parsed command option records

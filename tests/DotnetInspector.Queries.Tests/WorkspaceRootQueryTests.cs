@@ -1,6 +1,6 @@
 using System.IO.Compression;
 
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.QueriesConsumer;
@@ -25,10 +25,10 @@ public sealed class WorkspaceRootQueryTests
         WorkspaceScopeSnapshot scope = await Replace(workspace, shared, separate);
 
         PackageRootInventory sharedResult = Available(await PackageRootQueryConsumer.QueryAsync(
-            workspace, Correspondence(scope.Roots[0]), Ready(scope.Roots[0]),
+            workspace, Correspondence(scope.Packages[0]), Ready(scope.Packages[0]),
             cancellationToken: TestCancellation));
         PackageRootInventory separateResult = Available(await PackageRootQueryConsumer.QueryAsync(
-            workspace, Correspondence(scope.Roots[1]), Ready(scope.Roots[1]),
+            workspace, Correspondence(scope.Packages[1]), Ready(scope.Packages[1]),
             cancellationToken: TestCancellation));
 
         Assert.True(sharedResult.HasAssemblyContexts);
@@ -65,7 +65,7 @@ public sealed class WorkspaceRootQueryTests
         Assert.NotNull(separateResult.SurfacePolicy);
         Assert.NotSame(sharedResult.SurfacePolicy, separateResult.SurfacePolicy);
         PackageRootInventory repeated = Available(await PackageRootQueryConsumer.QueryAsync(
-            workspace, Correspondence(scope.Roots[0]), Ready(scope.Roots[0]),
+            workspace, Correspondence(scope.Packages[0]), Ready(scope.Packages[0]),
             sharedResult.SurfacePolicy, TestCancellation));
         Assert.Same(sharedSurface.Subject.Registration,
             Inventory(repeated.Surface, "Shared.Package").Subject.Registration);
@@ -82,12 +82,12 @@ public sealed class WorkspaceRootQueryTests
             ? Binding("Empty.Package", entry, "lib/net11.0/Fixture.dll")
             : Binding("Empty.Package", entry);
         WorkspaceScopeSnapshot scope = await Replace(workspace, binding);
-        WorkspaceRootOccurrenceDescriptor root = Assert.Single(scope.Roots);
+        WorkspacePackageOccurrenceDescriptor package = Assert.Single(scope.Packages);
         Assert.Equal(expected,
-            Assert.IsType<WorkspaceRootDescriptor.Package>(root.Occurrence.Root).SelectionStatus);
+            package.Occurrence.Package.SelectionStatus);
 
         PackageRootInventory result = Available(await PackageRootQueryConsumer.QueryAsync(
-            workspace, Correspondence(root), Ready(root), cancellationToken: TestCancellation));
+            workspace, Correspondence(package), Ready(package), cancellationToken: TestCancellation));
 
         Assert.False(result.HasAssemblyContexts);
         Assert.False(result.HasImplementationGroup);
@@ -106,29 +106,29 @@ public sealed class WorkspaceRootQueryTests
         await using InspectionWorkspace foreign = InspectionWorkspace.CreateAsynchronous();
         WorkspaceScopeSnapshot first = await Replace(workspace, Binding("Same.Package"));
         WorkspaceScopeSnapshot other = await Replace(foreign, Binding("Same.Package"));
-        WorkspaceRootOccurrenceDescriptor oldRoot = first.Roots[0];
-        WorkspaceRootOccurrenceDescriptor foreignRoot = other.Roots[0];
+        WorkspacePackageOccurrenceDescriptor oldPackage = first.Packages[0];
+        WorkspacePackageOccurrenceDescriptor foreignPackage = other.Packages[0];
         AssemblyBindingPolicyVersion foreignPolicy = Available(await foreign.ExecutePackageRootQueryAsync(
-            Correspondence(foreignRoot), Ready(foreignRoot),
+            Correspondence(foreignPackage), Ready(foreignPackage),
             static (realization, _) => ValueTask.FromResult(realization.SurfaceGroup.BindingPolicyVersion),
             cancellationToken: TestCancellation));
 
         WorkspaceScopeSnapshot cleared = await Clear(workspace, first);
-        Assert.Empty(cleared.Roots);
-        await Reject(Correspondence(oldRoot), Ready(oldRoot), null,
+        Assert.Empty(cleared.Packages);
+        await Reject(Correspondence(oldPackage), Ready(oldPackage), null,
             ArtifactRootFailure.ArtifactGenerationMismatch);
         WorkspaceScopeSnapshot readded = await Replace(workspace, Binding("Same.Package"));
-        WorkspaceRootOccurrenceDescriptor current = readded.Roots[0];
-        Assert.Equal(Correspondence(oldRoot), Correspondence(current));
-        Assert.NotSame(Ready(oldRoot), Ready(current));
+        WorkspacePackageOccurrenceDescriptor current = readded.Packages[0];
+        Assert.Equal(Correspondence(oldPackage), Correspondence(current));
+        Assert.NotSame(Ready(oldPackage), Ready(current));
 
-        await Reject(Correspondence(current), Ready(oldRoot), foreignPolicy,
+        await Reject(Correspondence(current), Ready(oldPackage), foreignPolicy,
             ArtifactRootFailure.ArtifactGenerationMismatch);
-        await Reject(Correspondence(current), Ready(foreignRoot), foreignPolicy,
+        await Reject(Correspondence(current), Ready(foreignPackage), foreignPolicy,
             ArtifactRootFailure.ArtifactGenerationMismatch);
-        await Reject(Correspondence(foreignRoot), Ready(current), foreignPolicy,
+        await Reject(Correspondence(foreignPackage), Ready(current), foreignPolicy,
             ArtifactRootFailure.ArtifactGenerationMismatch);
-        await Reject(Correspondence(foreignRoot), Ready(foreignRoot), foreignPolicy,
+        await Reject(Correspondence(foreignPackage), Ready(foreignPackage), foreignPolicy,
             ArtifactRootFailure.ArtifactGenerationMismatch);
         await Reject(Correspondence(current), Ready(current), foreignPolicy,
             ArtifactRootFailure.BindingPolicyMismatch);
@@ -160,24 +160,25 @@ public sealed class WorkspaceRootQueryTests
     {
         await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
         WorkspaceScopeSnapshot scope = await Replace(workspace, Binding("Unavailable.Package"));
-        WorkspaceRootOccurrenceDescriptor root = scope.Roots[0];
+        WorkspacePackageOccurrenceDescriptor package = scope.Packages[0];
         ArtifactRootCompositionGenerationIdentity pending = Available(
-            await workspace.RetireArtifactRootAsync(Correspondence(root), Ready(root)));
-        Assert.IsType<ArtifactRootRealizationStatus.Pending>((await Current(workspace)).Roots[0].Realization.Status);
+            await workspace.RetireArtifactRootAsync(Correspondence(package), Ready(package)));
+        Assert.IsType<ArtifactRootRealizationStatus.Pending>(
+            (await Current(workspace)).Packages[0].Realization.Status);
         await Reject();
 
         Available(await workspace.FailArtifactRootReplacementAsync(
-            Correspondence(root), pending, ArtifactRootFailure.PreparationFailed));
+            Correspondence(package), pending, ArtifactRootFailure.PreparationFailed));
         Assert.Equal(ArtifactRootFailure.PreparationFailed,
             Assert.IsType<ArtifactRootRealizationStatus.Failed>(
-                (await Current(workspace)).Roots[0].Realization.Status).Failure);
+                (await Current(workspace)).Packages[0].Realization.Status).Failure);
         await Reject();
 
         async Task Reject()
         {
             bool invoked = false;
             ArtifactRootResult<int> result = await workspace.ExecutePackageRootQueryAsync(
-                Correspondence(root), Ready(root), (_, _) =>
+                Correspondence(package), Ready(package), (_, _) =>
                 {
                     invoked = true;
                     return ValueTask.FromResult(1);
@@ -198,7 +199,7 @@ public sealed class WorkspaceRootQueryTests
         try
         {
             WorkspaceScopeSnapshot scope = await Replace(workspace, Binding("Throwing.Package"));
-            WorkspaceRootOccurrenceDescriptor root = scope.Roots[0];
+            WorkspacePackageOccurrenceDescriptor root = scope.Packages[0];
             var expected = new InvalidOperationException("The query callback failed.");
             Task<ArtifactRootResult<int>> operation = workspace.ExecutePackageRootQueryAsync(
                 Correspondence(root), Ready(root), Query, cancellationToken: TestCancellation).AsTask();
@@ -213,7 +214,7 @@ public sealed class WorkspaceRootQueryTests
             InvalidOperationException actual = await Assert.ThrowsAsync<InvalidOperationException>(
                 () => operation.WaitAsync(WaitLimit, TestCancellation));
             Assert.Same(expected, actual);
-            Assert.Empty((await Clear(workspace, scope)).Roots);
+            Assert.Empty((await Clear(workspace, scope)).Packages);
 
             ValueTask<int> Query(PackageAssemblyContextRealization _, CancellationToken token)
             {
@@ -248,7 +249,7 @@ public sealed class WorkspaceRootQueryTests
         try
         {
             WorkspaceScopeSnapshot scope = await Replace(workspace, Binding("Cancelled.Package"));
-            WorkspaceRootOccurrenceDescriptor root = scope.Roots[0];
+            WorkspacePackageOccurrenceDescriptor root = scope.Packages[0];
             if (whileWaiting)
                 read = Available(await workspace.ReadArtifactRootCompositionAsync(workspace.Identity));
             else
@@ -282,7 +283,7 @@ public sealed class WorkspaceRootQueryTests
             Inventory(Available(await PackageRootQueryConsumer.QueryAsync(
                 workspace, Correspondence(root), Ready(root),
                 cancellationToken: TestCancellation)).Surface, "Cancelled.Package");
-            Assert.Empty((await Clear(workspace, scope)).Roots);
+            Assert.Empty((await Clear(workspace, scope)).Packages);
         }
         finally
         {
@@ -303,7 +304,7 @@ public sealed class WorkspaceRootQueryTests
         try
         {
             WorkspaceScopeSnapshot scope = await Replace(workspace, Binding("Cooperative.Package"));
-            WorkspaceRootOccurrenceDescriptor root = scope.Roots[0];
+            WorkspacePackageOccurrenceDescriptor root = scope.Packages[0];
             Task<ArtifactRootResult<int>> operation = workspace.ExecutePackageRootQueryAsync<int>(
                 Correspondence(root), Ready(root), async (_, token) =>
                 {
@@ -332,7 +333,7 @@ public sealed class WorkspaceRootQueryTests
 
             if (!observeCancellation)
                 Assert.Equal(42, Available(await operation.WaitAsync(WaitLimit, TestCancellation)));
-            Assert.Empty((await Clear(workspace, scope)).Roots);
+            Assert.Empty((await Clear(workspace, scope)).Packages);
         }
         finally
         {
@@ -350,7 +351,7 @@ public sealed class WorkspaceRootQueryTests
         try
         {
             WorkspaceScopeSnapshot scope = await Replace(workspace, Binding("Cleared.Package"));
-            WorkspaceRootOccurrenceDescriptor root = scope.Roots[0];
+            WorkspacePackageOccurrenceDescriptor root = scope.Packages[0];
             Task<ArtifactRootResult<AssemblyContextResult<AssemblyTypeInventory>>> operation =
                 workspace.ExecutePackageRootQueryAsync<AssemblyContextResult<AssemblyTypeInventory>>(
                     Correspondence(root), Ready(root), async (realization, token) =>
@@ -362,7 +363,7 @@ public sealed class WorkspaceRootQueryTests
             try
             {
                 await entered.Task.WaitAsync(WaitLimit, TestCancellation);
-                Assert.Empty((await Clear(workspace, scope)).Roots);
+                Assert.Empty((await Clear(workspace, scope)).Packages);
                 Assert.False(operation.IsCompleted);
                 bool invoked = false;
                 Assert.Equal(ArtifactRootFailure.ArtifactGenerationMismatch, Rejected(
@@ -393,7 +394,7 @@ public sealed class WorkspaceRootQueryTests
         try
         {
             WorkspaceScopeSnapshot scope = await Replace(workspace, Binding("Closing.Package"));
-            WorkspaceRootOccurrenceDescriptor root = scope.Roots[0];
+            WorkspacePackageOccurrenceDescriptor root = scope.Packages[0];
             Task<ArtifactRootResult<bool>> operation =
                 workspace.ExecutePackageRootQueryAsync(
                     Correspondence(root), Ready(root), async (realization, token) =>
@@ -479,10 +480,10 @@ public sealed class WorkspaceRootQueryTests
     static ArtifactRootFailure Rejected<T>(ArtifactRootResult<T> result) =>
         Assert.IsType<ArtifactRootResult<T>.Rejected>(result).Failure;
 
-    static PackageArtifactRootCorrespondence Correspondence(WorkspaceRootOccurrenceDescriptor root) =>
+    static PackageArtifactRootCorrespondence Correspondence(WorkspacePackageOccurrenceDescriptor root) =>
         Assert.IsType<PackageArtifactRootCorrespondence>(root.Occurrence.Correspondence);
 
-    static ArtifactRootGenerationReference Ready(WorkspaceRootOccurrenceDescriptor root) =>
+    static ArtifactRootGenerationReference Ready(WorkspacePackageOccurrenceDescriptor root) =>
         Assert.IsType<ArtifactRootRealizationStatus.Ready>(root.Realization.Status).Generation;
 
     static async Task<WorkspaceScopeSnapshot> Current(InspectionWorkspace workspace) =>

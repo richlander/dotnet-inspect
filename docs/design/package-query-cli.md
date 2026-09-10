@@ -243,7 +243,7 @@ Core. Concretely:
   This is what makes the facet engine reachable from a second consumer (the
   browser/Wasm engine) without re-deriving it, the exact failure mode
   [inspection-layers.md](inspection-layers.md) exists to prevent.
-- **L2 — `Sections` (currently `src/dotnet-inspect/Sections`).** Row
+- **L2 — `Sections` (currently `src/DotnetInspect.Cli/Sections`).** Row
   declaration, `--where` predicate evaluation, and the shape-ladder
   projection into a Table belong here.
   [inspection-layers.md](inspection-layers.md) already places row predicates
@@ -595,12 +595,13 @@ dotnet-inspect workspace --root-request TOKEN
   `ProducerNotAuthorized`, `SelectionRequestNotReproduced`) is reported as
   itself. There is no fallback to opening the package by id and version.
 - The acquired binding is committed through the Workspace Scope owner's
-  `AddRootsAsync` and rendered from the returned snapshot, exactly as
+  `AddPackagesAsync` and rendered from the returned snapshot, exactly as
   `workspace --package` does (see
   [Workspace scope and expansion](workspace-scope-and-expansion.md)). The
-  binding is handed over as acquired, so no Root is reconstructed from archive
-  bytes or a store path, and root-only and explicit-empty compile selections
-  remain reportable Roots rather than a refusal.
+  binding is handed over as acquired, so no physical Artifact Root is
+  reconstructed from archive bytes or a store path, and root-only and
+  explicit-empty compile selections remain reportable Packages rather than a
+  refusal.
 
 Its Release gates are `PackageAssemblyQueryOutputTests` (row shaping, ordinal
 substring semantics, inert rendering, section ordering, JSON token presence,

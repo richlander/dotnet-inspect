@@ -24,9 +24,9 @@ jobs:
           - scope: solution
             project: dotnet-inspect.slnx
           - scope: inspect-web
-            project: prototypes/inspect-web/engine.Tests/InspectWeb.Engine.Tests.csproj
+            project: inspect-web/DotnetInspect.Web.Tests/DotnetInspect.Web.Tests.csproj
           - scope: msdl-proxy
-            project: prototypes/inspect-web/msdl-proxy.Tests/MsdlProxy.Tests.csproj
+            project: inspect-web/msdl-proxy.Tests/MsdlProxy.Tests.csproj
           - scope: il-roundtrip
             project: tests/DotnetInspector.ILRoundtrip.Tests/DotnetInspector.ILRoundtrip.Tests.csproj
     steps:

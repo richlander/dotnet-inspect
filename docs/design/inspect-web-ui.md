@@ -2,7 +2,7 @@
 
 This document is the composition map for the `dotnet-inspect` website
 redesign. It states the overall redesign summary, the product dependencies
-the redesign composes, the document map for its six focused owners, the
+the redesign composes, the document map for its focused owners, the
 relationships among them, and the boundary with the reference product. It
 does not itself define selector visual language, navigation rendering,
 consumer effect lifecycle, shell interaction, or page-level composition; each
@@ -25,8 +25,8 @@ boundary. It does not own:
   validity;
 - canonical packet encoding or decoding;
 - CLI and library output formatting; or
-- any UI-internal visual language, rendering, consumer, shell, or
-  composition behavior claimed by the six focused owners in the
+- any UI-internal visual language, rendering, consumer, shell, Compare, or
+  composition behavior claimed by the focused owners in the
   [document map](#document-map) below.
 
 ## Document map
@@ -38,6 +38,7 @@ boundary. It does not own:
 | [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors, including adaptive full-label Tabs or current-label Choosers for subject and inspector navigation. |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | The browser-side navigation-result consumer model: canonical location and refresh, browser history, product transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
 | [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) | The persistent shell and shared transient/routed surface interaction: shell actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry, the command palette, and routed-versus-modal classification. |
+| [Inspect Web Compare Experience](inspect-web-compare-experience.md) | One Diff/Clone Compare inspector whose Library Type rows and Type Member rows drill down with mode retained, whose Type Diff alone offers whole-Type exploration, and whose detailed results begin at Member. |
 | [Inspect Web Surface Composition](inspect-web-surface-composition.md) | Browser host page-level composition and placement: working surfaces including Member Diff, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
 
 Each focused document states its own Ownership and boundaries, Inputs or
@@ -46,10 +47,10 @@ and acceptance scenarios. This document does not repeat those contracts.
 
 ## Product dependencies
 
-This document composes six adjacent owner contracts without defining them:
+This document composes adjacent owner contracts without defining them:
 
 - [Inspection Subject Navigation](inspection-subject-navigation.md) owns
-  Workspace-bound Package or non-package Root, Library, Type, and Member
+  Workspace-bound Package, Library, Type, and Member
   descriptors, availability, initial recommendation, and reconciliation, plus
   retained-session intent and effect authority. Workspace is the inventory
   container for retained coordinate occurrences; the website does not recreate package
@@ -101,6 +102,7 @@ independent cosmetic changes.
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
 | Source provenance | Keep compact provenance in the bottom footer and page-owned Copy/Open actions in the separate working-surface action group |
+| Compare | Use one Diff/Clone inspector at Library, Type, and Member; Library lists Types, Type lists Members, Type Diff alone offers whole-Type exploration, and detailed results begin at Member |
 | Member Diff | Place the same-member PDB-versus-decompiled viewer beside Source and Annotated Source as a full-area Member working surface; keep mode, change navigation, position, and authorized endpoint Open actions outside its scroller |
 | Search and opening | Open Spotlight from a responsive flush-right title-line control immediately after Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
@@ -136,9 +138,9 @@ behavior.
 
 ## Cross-document relationships
 
-The six focused owners compose in one direction, from product data to
-rendered pixels, with the effect-authority handoff running the other way on
-every user action:
+The focused owners compose in one direction, from product data to rendered
+pixels, with the effect-authority handoff running the other way on every user
+action:
 
 1. [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
    renders the subject, hierarchy, Library, and lens descriptors issued by
@@ -159,12 +161,19 @@ every user action:
    Open, Settings, Diagnostics). It hands committed navigation actions to the
    same consumer for focus resolution and history commitment, and it hosts
    the persistent live region and focus anchor the consumer targets.
-4. [Inspect Web Surface Composition](inspect-web-surface-composition.md)
+4. [Inspect Web Compare Experience](inspect-web-compare-experience.md) projects
+   complete Diff or Clone evidence into Browser drill-down rows and
+   Member-detail state without redefining the producer contracts. Its
+   descendant activation consumes the Navigation-owned atomic subject/lens
+   transition tracked by
+   [#6490](https://github.com/richlander/dotnet-inspect/issues/6490).
+5. [Inspect Web Surface Composition](inspect-web-surface-composition.md)
    places the working surfaces those other owners render -- Source,
-   Annotated Source, Member Diff, Package query, Settings, and Diagnostics --
-   into the page layout, deferring their internal behavior to each surface's
-   existing focused owner (`package-query-experience.md`,
+   Annotated Source, Compare, Member Diff, Package query, Settings, and
+   Diagnostics -- into the page layout, deferring their internal behavior to
+   each surface's existing focused owner (`package-query-experience.md`,
    `package-query-cli.md`,
+   [Inspect Web Compare Experience](inspect-web-compare-experience.md),
    [Annotated Source viewer interaction](annotated-source-viewer-interaction.md),
    [Member source diff presentation](member-source-diff-presentation.md),
    [Inspect Web source-diff transport](inspect-web-source-diff-transport.md),

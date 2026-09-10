@@ -26,8 +26,6 @@ public class AssemblyReferenceNode
 {
     public string Name { get; set; } = "";
     public string Version { get; set; } = "";
-    [JsonIgnore]
-    public string? Culture { get; set; }
     public string? PublicKeyToken { get; set; }
 
     /// <summary>
@@ -44,6 +42,13 @@ public class AssemblyReferenceNode
     /// Resolved file path, or null if not found.
     /// </summary>
     public string? Path { get; set; }
+
+    /// <summary>
+    /// The selected assembly definition identity. It is graph identity, not a
+    /// rendered field in the compatibility reference-tree contract.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblyReferenceIdentity? ResolvedIdentity { get; set; }
 
     /// <summary>
     /// Why a matching reference candidate could not be selected.
