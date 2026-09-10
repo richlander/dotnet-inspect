@@ -42,22 +42,29 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         int? resultLimit = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return resultLimit is null
-            && !string.IsNullOrWhiteSpace(targetFramework)
-            && !string.Equals(targetFramework, "all", StringComparison.OrdinalIgnoreCase)
-            && selection is
+        if (resultLimit is not null
+            || string.IsNullOrWhiteSpace(targetFramework)
+            || string.Equals(targetFramework, "all", StringComparison.OrdinalIgnoreCase)
+            || selection is not
             {
                 UsesImplicitPlatform: false,
                 Frameworks.Count: 0,
                 OtherSources.Count: 0,
-                Packages: [SourceSelector.PackageReference],
+                Packages: [SourceSelector.PackageReference package],
             }
-            && request.Packages.Count == 1
-            && request.Assemblies.Count == 0
-            && request.PlatformAssemblies.Count == 0
-            && request.PlatformFrameworks.Count == 0
-            && request.Projects.Count == 0
-            && request.Directories.Count == 0;
+            || request.Packages.Count != 1
+            || request.Assemblies.Count != 0
+            || request.PlatformAssemblies.Count != 0
+            || request.PlatformFrameworks.Count != 0
+            || request.Projects.Count != 0
+            || request.Directories.Count != 0
+            || package.Version is null)
+        {
+            return false;
+        }
+
+        return PackageCoordinateResolver.Validate(
+            new PackageCoordinate(package.PackageId, package.Version)) is null;
     }
 
     internal static async ValueTask<ConfiguredPackageSearchWorkspace?>
@@ -104,7 +111,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                             new SourcePolicyPackageSourceAuthorization(
                                 request.SourceOptions),
                         PackageStore = new FileSystemPackageStore(),
-                        UseVersionCache = true,
+                        UseVersionCache = false,
                         Log = log,
                     },
                     cancellationToken).ConfigureAwait(false);

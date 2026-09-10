@@ -111,7 +111,8 @@ existing `find`, member-find, `implements`, `extensions`, and reachable
 extension implementations through one invocation-owned asynchronous
 `InspectionWorkspace` for a deliberately bounded source shape:
 
-- normalized source intent contains exactly one explicit package reference;
+- normalized source intent contains exactly one explicitly versioned package
+  reference whose version is an exact NuGet version;
 - the resolved request contains that package and no assembly, platform,
   project, or directory sources;
 - the request has one explicit target framework other than `all`; and
@@ -125,13 +126,14 @@ project library and source provenance from `PackageRootIdentity` and
 `PackageCompileAsset`; the CLI does not manufacture host filesystem paths for
 package-relative assets.
 
-Package archives, package groups and prefixes, multiple or mixed sources,
-implicit and `all` target frameworks, and limited searches retain the
-`AssemblySetResolver` and `AssemblySetInspectionWorkspace` path. In particular,
-the legacy path preserves streaming limit behavior that can stop before later
-sources are acquired. Type-mode `depends` remains outside this slice: its
-group-scoped dependency query and production caller land together rather than
-adding another caller-free query surface.
+Floating, `@latest`, and wildcard package versions; package archives, package
+groups and prefixes; multiple or mixed sources; implicit and `all` target
+frameworks; and limited searches retain the `AssemblySetResolver` and
+`AssemblySetInspectionWorkspace` path. That boundary preserves the CLI's
+existing version-selection and streaming-limit behavior rather than making
+Workspace acquisition redefine either contract. Type-mode `depends` remains
+outside this slice: its group-scoped dependency query and production caller
+land together rather than adding another caller-free query surface.
 
 This cutover consumes the package Root's reference-preferred compile surface.
 An explicit empty compile group therefore remains an empty configured Root and

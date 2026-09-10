@@ -60,6 +60,42 @@ public sealed class ConfiguredPackageSearchWorkspaceTests
     }
 
     [Fact]
+    public void Eligibility_RejectsFloatingAndSelectorVersions()
+    {
+        var request = new AssemblySetRequest
+        {
+            Packages = ["Example.Package"],
+        };
+
+        Assert.False(
+            ConfiguredPackageSearchWorkspace.IsEligible(
+                Normalize(new SourceSelector.PackageReference(
+                    "Example.Package")),
+                request,
+                "net11.0"));
+        Assert.False(
+            ConfiguredPackageSearchWorkspace.IsEligible(
+                Normalize(new SourceSelector.PackageReference(
+                    "Example.Package",
+                    "latest")),
+                request with
+                {
+                    Packages = ["Example.Package@latest"],
+                },
+                "net11.0"));
+        Assert.False(
+            ConfiguredPackageSearchWorkspace.IsEligible(
+                Normalize(new SourceSelector.PackageReference(
+                    "Example.Package",
+                    "2.*")),
+                request with
+                {
+                    Packages = ["Example.Package@2.*"],
+                },
+                "net11.0"));
+    }
+
+    [Fact]
     public void Eligibility_RejectsArchiveGroupAndPrefixSources()
     {
         var request = new AssemblySetRequest
