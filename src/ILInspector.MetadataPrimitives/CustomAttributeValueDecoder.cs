@@ -134,6 +134,27 @@ internal static class CustomAttributeValueDecoder
 
         public long Operations =>
             TypeDefinitionCandidatesVisited + StructuralMatchFrames;
+
+        internal void VisitTypeDefinitionCandidate()
+        {
+            EnsureBudget();
+            TypeDefinitionCandidatesVisited++;
+        }
+
+        internal void VisitStructuralMatchFrame()
+        {
+            EnsureBudget();
+            StructuralMatchFrames++;
+        }
+
+        void EnsureBudget()
+        {
+            if (Operations >= MaxEnumResolutionWork)
+            {
+                throw new BadImageFormatException(
+                    "Custom-attribute enum resolution exceeds the work budget.");
+            }
+        }
     }
 
     /// <summary>

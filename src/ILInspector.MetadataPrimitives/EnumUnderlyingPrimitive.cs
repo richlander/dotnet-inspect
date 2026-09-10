@@ -332,7 +332,7 @@ static class EnumUnderlyingPrimitive
         foreach (var candidate in reader.TypeDefinitions)
         {
             if (work is not null)
-                work.TypeDefinitionCandidatesVisited++;
+                work.VisitTypeDefinitionCandidate();
             if (Matches(reader, handle, candidate, work))
             {
                 definition = candidate;
@@ -387,7 +387,7 @@ static class EnumUnderlyingPrimitive
         int depth = 0)
     {
         if (work is not null)
-            work.StructuralMatchFrames++;
+            work.VisitStructuralMatchFrame();
         if (depth > MaxNestingDepth)
             return false;
 

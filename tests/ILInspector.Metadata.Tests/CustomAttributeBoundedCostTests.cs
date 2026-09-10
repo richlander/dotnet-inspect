@@ -8,12 +8,15 @@ namespace ILInspector.Metadata.Tests;
 
 public sealed class CustomAttributeBoundedCostTests
 {
-    [Fact]
-    public void DistinctUnresolvedEnums_BelowBudgetPreservesValuesAndCounts()
+    [Theory]
+    [InlineData(1, 192)]
+    [InlineData(192, 1)]
+    [InlineData(8, 8)]
+    public void DistinctUnresolvedEnums_BelowBudgetPreservesValuesAndCounts(
+        int referenceCount,
+        int decoyTypeCount)
     {
-        const int ReferenceCount = 8;
-        const int DecoyTypeCount = 8;
-        using var image = Open(BuildImage(ReferenceCount, DecoyTypeCount));
+        using var image = Open(BuildImage(referenceCount, decoyTypeCount));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         var work = new CustomAttributeValueDecoder.EnumResolutionWork();
 
@@ -32,9 +35,9 @@ public sealed class CustomAttributeBoundedCostTests
             AttributeDecoder.TryDecode(image.Reader, attribute);
 
         Assert.NotNull(ordinary);
-        Assert.Equal(ReferenceCount, measured.FixedArguments.Length);
-        Assert.Equal(ReferenceCount, ordinary.Value.FixedArguments.Length);
-        for (int i = 0; i < ReferenceCount; i++)
+        Assert.Equal(referenceCount, measured.FixedArguments.Length);
+        Assert.Equal(referenceCount, ordinary.Value.FixedArguments.Length);
+        for (int i = 0; i < referenceCount; i++)
         {
             Assert.Equal(i, measured.FixedArguments[i].Value);
             Assert.Equal(
@@ -43,7 +46,7 @@ public sealed class CustomAttributeBoundedCostTests
         }
 
         long expectedCandidates =
-            ReferenceCount * image.Reader.TypeDefinitions.Count;
+            referenceCount * image.Reader.TypeDefinitions.Count;
         Assert.Equal(
             expectedCandidates,
             work.TypeDefinitionCandidatesVisited);
@@ -74,6 +77,7 @@ public sealed class CustomAttributeBoundedCostTests
         CustomAttributeValue<string>? ordinary =
             AttributeDecoder.TryDecode(image.Reader, attribute);
 
+        Assert.Equal(ordinary is not null, measured);
         Assert.False(measured);
         Assert.Null(ordinary);
         Assert.Equal(
@@ -85,7 +89,11 @@ public sealed class CustomAttributeBoundedCostTests
     [Trait("Speed", "Slow")]
     public void DistinctUnresolvedEnums_JointDimensionSweepStaysWithinBudget()
     {
-        int[] dimensions = [1, 8, 64, 192, 512];
+        int[] dimensions =
+        [
+            1, 2, 4, 8, 16, 32, 64, 96,
+            128, 160, 192, 256, 384, 512, 768, 1024,
+        ];
         foreach (int referenceCount in dimensions)
         {
             foreach (int decoyTypeCount in dimensions)
