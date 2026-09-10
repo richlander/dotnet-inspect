@@ -13,7 +13,7 @@ set -euo pipefail
 # published production facades in a real browser.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-frontend="$repo_root/prototypes/inspect-web"
+frontend="$repo_root/inspect-web"
 resolver="$repo_root/tools/InspectWebFixtureResolver/InspectWebFixtureResolver.csproj"
 site="${INSPECT_WEB_PACKAGE_ADOPTION_SITE:-$repo_root/artifacts/inspect-web-publish/wwwroot}"
 dotnet=${DOTNET:-dotnet}
@@ -24,7 +24,7 @@ fi
 
 if [[ ! -f "$site/inspect-web-package.js" ]]; then
   echo "Published engine artifact not found at $site." >&2
-  echo "Publish it first (dotnet publish prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj -c Release --output artifacts/inspect-web-publish)." >&2
+  echo "Publish it first (dotnet publish inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj -c Release --output artifacts/inspect-web-publish)." >&2
   exit 1
 fi
 

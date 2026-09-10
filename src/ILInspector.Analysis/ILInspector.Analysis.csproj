@@ -22,7 +22,7 @@
     <InternalsVisibleTo Include="ILInspector.JsExportSurface.Tests" />
     <InternalsVisibleTo Include="ILInspector.Research.Tests" />
     <!--
-      The browser prototype's boundary tests build genuinely distinct declaring types — a nested
+      Inspect Web's boundary tests build genuinely distinct declaring types — a nested
       chain and a type whose own metadata name contains the nesting delimiter — to prove the
       browser carries the product's injective identity for each. Only the fixture construction
       needs internals; the identities under test are public product projections.

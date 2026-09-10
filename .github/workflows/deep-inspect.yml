@@ -378,7 +378,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -389,7 +389,7 @@ jobs:
         run: dotnet workload install wasm-experimental
 
       - name: Build browser frontend
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: |
           npm ci
           npm run build

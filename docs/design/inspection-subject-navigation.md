@@ -582,7 +582,7 @@ Registry-backed lens-recommendation protocol below.
 Root-only `NoCompileAssets` and `EmptyCompileGroup` outcomes open Package with
 their explanation visible. Failed selection is not treated as an empty package.
 Browser entry and restoration are gated by
-`prototypes/inspect-web/browser/library-hierarchy.spec.ts`; root-only and failed
+`inspect-web/browser/library-hierarchy.spec.ts`; root-only and failed
 selection modeling is gated by `test/package-acquisition.test.ts` in that host.
 This is a default-entry adoption, not completion of #5510/#5511's broader
 snapshot and result-authority migration.
