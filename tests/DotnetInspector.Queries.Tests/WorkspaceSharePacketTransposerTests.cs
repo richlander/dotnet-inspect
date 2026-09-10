@@ -1,5 +1,8 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using DotnetInspector.Queries.Definitions;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -10,6 +13,73 @@ public sealed class WorkspaceSharePacketTransposerTests
         + "WyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCIsbnVsbF1dLCJnIjpb"
         + "WzAsMV1dLCJhIjoxLCJ4IjowLCJ2IjoiYXBpIiwieSI6IlN5c3RlbS5UZXh0Lkpzb24u"
         + "SnNvblNlcmlhbGl6ZXIiLCJsIjpbIlN5c3RlbS5UZXh0Lkpzb24iXX0";
+
+    [Fact]
+    public void ToPacket_ShareProjectionPlan_LowersMemberOverview()
+    {
+        ShareProjectionPlan plan = CreateSharePlan(
+            libraryKey: "System.Text.Json.Asset");
+
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                plan,
+                TestContext.Current.CancellationToken);
+
+        Assert.True(projection.Succeeded);
+        Assert.Null(projection.Failure);
+        WorkspaceSharePacket packet = Assert.IsType<WorkspaceSharePacket>(
+            projection.Packet);
+        WorkspaceShareTab tab = Assert.Single(packet.Tabs);
+        Assert.Equal(WorkspaceShareSourceKind.Package, tab.SourceKind);
+        Assert.Equal("System.Text.Json", tab.Source);
+        Assert.Equal("9.0.4", tab.Version);
+        Assert.Equal("net9.0", tab.Framework);
+        Assert.Equal("api", packet.Lens);
+        Assert.Equal("System.Text.Json.Utf8JsonWriter", packet.Type);
+        Assert.Equal("7a7f0afab9", packet.MemberAnchor);
+        Assert.Null(packet.Section);
+        Assert.Equal(["System.Text.Json.Asset"], packet.Libraries);
+    }
+
+    [Fact]
+    public void ToPacket_ShareProjectionPlan_RejectsNonOverviewFacet()
+    {
+        Assert.True(
+            InspectionViewFacetCatalog.Registry.TryGetDescriptor(
+                "member.call-graph",
+                out ViewFacetDescriptor? callGraph));
+
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                CreateSharePlan(facet: callGraph.Id),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(projection.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.Equal("plan.facet", projection.Failure?.Path);
+    }
+
+    [Theory]
+    [InlineData(SharePlanOmission.NonPackageSource, "plan.basis.source")]
+    [InlineData(SharePlanOmission.Framework, "plan.basis.source.framework")]
+    [InlineData(SharePlanOmission.MetadataType, "plan.basis.target.type")]
+    public void ToPacket_ShareProjectionPlan_RejectsMissingPortableIdentity(
+        SharePlanOmission omission,
+        string expectedPath)
+    {
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                CreateSharePlan(omission: omission),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(projection.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.Equal(expectedPath, projection.Failure?.Path);
+    }
 
     [Fact]
     public void ToDefinitions_TransposesCanonicalComposition()
@@ -1253,6 +1323,64 @@ public sealed class WorkspaceSharePacketTransposerTests
             scenario);
     }
 
+    private static ShareProjectionPlan CreateSharePlan(
+        ViewFacetId? facet = null,
+        string libraryKey = "System.Text.Json",
+        SharePlanOmission omission = SharePlanOmission.None)
+    {
+        MetadataTypeDefinitionName metadataType = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "System.Text.Json",
+                    ImmutableArray.Create("Utf8JsonWriter")))
+            .Name;
+        var member = new MemberAnchor(
+            "WriteStringValue:7",
+            "instance void WriteStringValue(string)",
+            "7a7f0afab9",
+            "System.Text.Json.Utf8JsonWriter",
+            "WriteStringValue");
+        var basis = new ResolvedMemberInspectionBasis(
+            new ResolvedInspectionSource(
+                omission == SharePlanOmission.NonPackageSource
+                    ? AssemblyResolutionProvenance.Local("test")
+                    : AssemblyResolutionProvenance.Package(
+                        "System.Text.Json",
+                        "9.0.4",
+                        "net9.0",
+                        rid: null),
+                new AssemblyReferenceIdentity(
+                    "System.Text.Json",
+                    new Version(9, 0, 0, 0),
+                    Culture: null,
+                    PublicKeyToken: null),
+                libraryKey,
+                omission == SharePlanOmission.Framework
+                    ? null
+                    : "net9.0"),
+            new ResolvedInspectionMemberTarget(
+                member.TypeFullName,
+                omission == SharePlanOmission.MetadataType
+                    ? null
+                    : metadataType,
+                member),
+            new InspectionCatalogReference("test-catalog", version: 1),
+            new InspectionSemanticDemand(
+                ImmutableArray<string>.Empty,
+                ImmutableArray<string>.Empty),
+            new InspectionCapabilityRequestProvenance(
+                InspectionRequestVerbosity.Normal,
+                ImmutableArray<string>.Empty,
+                InspectionDiscoveryRequest.None));
+
+        return new ShareProjectionPlan(
+            basis,
+            facet
+                ?? InspectionViewFacetCatalog.Registry.GetRequiredDescriptor(
+                    StructuralSubjectKind.Member,
+                    ViewFacetRole.MemberOverview).Id);
+    }
+
     private static WorkspaceSharePacketDefinitionSet Transpose(
         WorkspaceSharePacket packet) =>
         WorkspaceSharePacketTransposer.ToDefinitions(
@@ -1288,6 +1416,14 @@ public sealed class WorkspaceSharePacketTransposerTests
             version,
             framework,
             runtimeIdentifier);
+
+    public enum SharePlanOmission
+    {
+        None,
+        NonPackageSource,
+        Framework,
+        MetadataType,
+    }
 
     private static WorkspaceShareTab Group(
         string expression,

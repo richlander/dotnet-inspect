@@ -40,6 +40,47 @@ public partial class CommandExecutionTests
         Assert.Equal("Newtonsoft.Json", Assert.Single(packet.Libraries));
     }
 
+    [Fact]
+    public async Task MemberShare_VerbosityDoesNotChangeCanonicalPacket()
+    {
+        string[] common =
+        [
+            "member",
+            "Utf8JsonWriter",
+            "--package",
+            "System.Text.Json@9.0.4",
+            "WriteStringValue:7",
+            "--tfm",
+            "net9.0",
+            "--share",
+            "packet",
+            "--tips",
+            "q",
+        ];
+
+        var normal = await RunAppAsync(common);
+        var detailed = await RunAppAsync(
+            ["-v:d", .. common]);
+
+        Assert.Equal(0, normal.Exit);
+        Assert.Equal(0, detailed.Exit);
+        Assert.Empty(normal.Error);
+        Assert.Empty(detailed.Error);
+        Assert.Equal(normal.Output, detailed.Output);
+
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            normal.Output.Trim(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            "System.Text.Json.Utf8JsonWriter",
+            packet.Type);
+        Assert.Equal("7a7f0afab9", packet.MemberAnchor);
+        Assert.Null(packet.Section);
+        Assert.Equal(
+            "System.Text.Json",
+            Assert.Single(packet.Libraries));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("url")]

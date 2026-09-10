@@ -4,8 +4,12 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
+using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using Fixtures = DotnetInspector.Fixtures;
 
 namespace DotnetInspect.Cli.Tests;
@@ -274,6 +278,186 @@ public sealed class InspectionPlanningTests
         Assert.Contains(
             SectionNames.PdbSource,
             plan.Selection.ResolvedSections);
+    }
+
+    [Fact]
+    public void ExactMemberBasis_LowersToOneClosedTerminalPurpose()
+    {
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized(
+                    "System.Text.Json.Utf8JsonWriter"))
+            .Name;
+        var anchor = new MemberAnchor(
+            "WriteStringValue:7",
+            "void System.Text.Json.Utf8JsonWriter.WriteStringValue(string?)",
+            "7a7f0afab9",
+            "System.Text.Json.Utf8JsonWriter",
+            "WriteStringValue");
+        var basis = new ResolvedMemberInspectionBasis(
+            new ResolvedInspectionSource(
+                AssemblyResolutionProvenance.Package(
+                    "System.Text.Json",
+                    "9.0.4",
+                    "net9.0",
+                    rid: null),
+                new AssemblyReferenceIdentity(
+                    "System.Text.Json",
+                    new Version(9, 0, 0, 0),
+                    Culture: null,
+                    PublicKeyToken: null),
+                "System.Text.Json",
+                "net9.0"),
+            new ResolvedInspectionMemberTarget(
+                "System.Text.Json.Utf8JsonWriter",
+                type,
+                anchor),
+            new InspectionCatalogReference(
+                InspectionCatalogIdentity.ApiMemberDetail.ToString(),
+                1),
+            new InspectionSemanticDemand(
+                [SectionNames.Signature],
+                [SectionNames.Signature]),
+            new InspectionCapabilityRequestProvenance(
+                InspectionRequestVerbosity.Normal,
+                [SectionNames.Signature],
+                InspectionDiscoveryRequest.None));
+        ViewFacetId overview = InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Member,
+                ViewFacetRole.MemberOverview)
+            .Id;
+
+        MemberInspectionTerminalPlan[] plans =
+        [
+            new SectionExecutionPlan(
+                basis,
+                InspectionRequestVerbosity.Normal),
+            new EffectiveDiscoveryPlan(basis),
+            new ShareProjectionPlan(basis, overview),
+        ];
+
+        Assert.All(plans, plan => Assert.Same(basis, plan.Basis));
+        Assert.Collection(
+            plans,
+            plan => Assert.IsType<SectionExecutionPlan>(plan),
+            plan => Assert.IsType<EffectiveDiscoveryPlan>(plan),
+            plan => Assert.IsType<ShareProjectionPlan>(plan));
+        Assert.DoesNotContain(
+            plans.SelectMany(plan =>
+                plan.GetType().GetProperties()),
+            property =>
+                typeof(Delegate).IsAssignableFrom(property.PropertyType)
+                || property.PropertyType == typeof(WorkspaceSharePacket));
+    }
+
+    [Fact]
+    public void ExactMemberBasis_CapturesFinalResolvedSectionDemand()
+    {
+        var structuralPlan = new ResolvedMemberInspectionPlan(
+            ParsedInspectionIntent.FromOptions(new MemberOptions()),
+            new StructuralSelection(
+                InspectionCatalogIdentity.ApiMemberDetail,
+                CatalogVersion: 1,
+                ResolvedSections: [SectionNames.Signature],
+                ExactSections: [SectionNames.Signature],
+                UnresolvedSelectors: [],
+                CompleteCatalog: false,
+                InspectionTargetRequirement.ExactMember));
+        var finalOptions = new MemberOptions
+        {
+            IncludeSections =
+                new HashSet<string>(
+                   [SectionNames.Calls],
+                   StringComparer.OrdinalIgnoreCase),
+            ExactIncludeSectionsOverride =
+                new HashSet<string>(
+                   [SectionNames.Calls],
+                   StringComparer.OrdinalIgnoreCase),
+            Verbosity = Verbosity.Detailed,
+        };
+        var source = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                "Fixture",
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            "Fixture.dll",
+            static () => throw new InvalidOperationException(
+                "Plan construction must not open the assembly."),
+            AssemblyResolutionProvenance.Local("test"));
+        var anchor = new MemberAnchor(
+            "Run:1",
+            "void Fixture.Type.Run()",
+            "0123456789",
+            "Fixture.Type",
+            "Run");
+
+        SectionExecutionPlan plan = Assert.IsType<SectionExecutionPlan>(
+            MemberInspectionPlanBuilder.Create(
+                sourceAssembly: source,
+                selectedFramework: null,
+                typeName: anchor.TypeFullName,
+                typeDefinition: null,
+                member: anchor,
+                structuralPlan: structuralPlan,
+                options: finalOptions));
+        MemberOptions applied =
+            MemberInspectionPlanBuilder.ApplySemanticDemand(
+                finalOptions with
+                {
+                   IncludeSections = null,
+                   ExactIncludeSectionsOverride = null,
+                   Verbosity = Verbosity.Quiet,
+                },
+                plan);
+
+        Assert.Equal([SectionNames.Calls], plan.Basis.SemanticDemand.Sections);
+        Assert.Equal(
+            [SectionNames.Calls],
+            plan.Basis.SemanticDemand.ExactSections);
+        Assert.Equal(
+            [SectionNames.Calls],
+            Assert.IsType<HashSet<string>>(applied.IncludeSections));
+        Assert.Equal(
+            [SectionNames.Calls],
+            Assert.IsType<HashSet<string>>(
+                applied.ExactIncludeSectionsOverride));
+        Assert.Equal(Verbosity.Detailed, applied.Verbosity);
+    }
+
+    [Fact]
+    public async Task ExactMemberPlan_PreservesRealExecutionAndDiscovery()
+    {
+        string[] target =
+        [
+            "member",
+            "Utf8JsonWriter",
+            "--package",
+            "System.Text.Json@9.0.4",
+            "WriteStringValue:7",
+            "--tfm",
+            "net9.0",
+            "--markdown",
+            "--tips",
+            "q",
+        ];
+
+        var execution = await RunAppAsync(
+            [.. target, "-S", SectionNames.Signature]);
+        var discovery = await RunAppAsync(
+            [.. target, "-D", SectionNames.Signature]);
+
+        Assert.Equal(0, execution.Exit);
+        Assert.Empty(execution.Error);
+        Assert.Contains(
+            "public void WriteStringValue(string? value)",
+            execution.Output);
+        Assert.Contains("`7a7f0afab9`", execution.Output);
+
+        Assert.Equal(0, discovery.Exit);
+        Assert.Empty(discovery.Error);
+        Assert.Contains("| Signature | column |", discovery.Output);
     }
 
     [Theory]

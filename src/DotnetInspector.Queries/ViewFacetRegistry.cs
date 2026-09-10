@@ -658,6 +658,20 @@ public sealed class ViewFacetRegistry
         return false;
     }
 
+    public ViewFacetDescriptor GetRequiredDescriptor(
+        StructuralSubjectKind kind,
+        ViewFacetRole role)
+    {
+        if (!Enum.IsDefined(kind))
+            throw new ArgumentOutOfRangeException(nameof(kind));
+        if (!Enum.IsDefined(role))
+            throw new ArgumentOutOfRangeException(nameof(role));
+
+        return Descriptors.Single(descriptor =>
+            descriptor.Kind == kind
+            && descriptor.Role == role);
+    }
+
     public ImmutableArray<ViewFacetOption> Discover(
         ViewFacetTarget target,
         IViewFacetAvailabilityFacts facts)

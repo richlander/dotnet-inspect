@@ -55,6 +55,7 @@ public static class MemberCommand
                 "A member command requires a member inspection plan.",
                 nameof(plan));
         ResolvedMemberInspectionPlan executionPlan = plan;
+        MemberInspectionTerminalPlan? terminalPlan = null;
 
         // Validate that member command has a type argument
         if (string.IsNullOrEmpty(options.TypeName))
@@ -567,13 +568,26 @@ public static class MemberCommand
                     OverloadIndex = target.Body?.DeclaringOverloadIndex ?? target.DeclaringOverloadIndex
                 };
 
-                if (effectiveOptions.ShareFormat is { } shareFormat)
+                terminalPlan = MemberInspectionPlanBuilder.Create(
+                    loaded.GetSourceAssembly(apiType),
+                    selectedTfm,
+                    apiType.FullName,
+                    apiType.DefinitionName,
+                    ApiMemberIdentity.GetMemberAnchor(apiType, selected),
+                    executionPlan,
+                    effectiveOptions);
+                effectiveOptions =
+                    MemberInspectionPlanBuilder.ApplySemanticDemand(
+                        effectiveOptions,
+                        terminalPlan);
+                if (terminalPlan is ShareProjectionPlan sharePlan
+                    && effectiveOptions.ShareFormat is { } shareFormat)
                 {
                     return MemberShareProjection.Write(
                         source,
                         loaded,
                         apiType,
-                        selected,
+                        sharePlan,
                         shareFormat);
                 }
             }
@@ -939,6 +953,12 @@ public static class MemberCommand
 
             if (effectiveOptions.EffectiveDiscovery)
             {
+                if (terminalPlan is not null
+                    && terminalPlan is not EffectiveDiscoveryPlan)
+                {
+                    throw new InvalidOperationException(
+                        "Exact-member effective discovery requires an effective-discovery plan.");
+                }
                 if (!effectiveOptions.BodyKindQuery.HasFilter
                     && ApiCommand.TargetsBodyShapes(
                         effectiveOptions,
@@ -949,10 +969,13 @@ public static class MemberCommand
                         + "\"Kind=<C# Body Kinds ID>\".");
                     return 1;
                 }
-                executionPlan =
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(
-                            effectiveOptions);
+                if (terminalPlan is null)
+                {
+                    executionPlan =
+                        ResolvedMemberInspectionPlan
+                            .FromCompatibilityOptions(
+                                effectiveOptions);
+                }
                 return ApiCommand.ExecuteEffectiveDiscovery(
                     apiType,
                     ApiInspectionCatalogRegistry.CreateMemberPipeline(
@@ -993,6 +1016,12 @@ public static class MemberCommand
                 };
             }
 
+            if (terminalPlan is not null
+                && terminalPlan is not SectionExecutionPlan)
+            {
+                throw new InvalidOperationException(
+                    "Exact-member output requires a section-execution plan.");
+            }
             var projectionSections = effectiveOptions.IncludeSections;
             if (projectionSections is null && ApiOutputFormatter.ShouldRenderSectionedTabularView(apiType, effectiveOptions))
             {
