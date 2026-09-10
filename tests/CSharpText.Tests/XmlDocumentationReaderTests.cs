@@ -229,6 +229,58 @@ public sealed class XmlDocumentationReaderTests
             defaults with { MaxCharactersInDocument = 16 });
     }
 
+    [Fact]
+    public void ReaderAndCatalog_ValidateChildLimitsOnUnselectedMembers()
+    {
+        var identity = new XmlDocMemberIdentity("M:Samples.Target");
+        XmlDocumentationReadLimits defaults =
+            XmlDocumentationReadLimits.Default;
+
+        AssertParityLimit(
+            """
+            <doc><members>
+              <member name="M:Samples.Other">
+                <param name="a"/><param name="b"/>
+              </member>
+              <member name="M:Samples.Target"/>
+            </members></doc>
+            """,
+            identity,
+            defaults with { MaxParametersPerMember = 1 });
+        AssertParityLimit(
+            """
+            <doc><members>
+              <member name="M:Samples.Other">
+                <exception/><exception/>
+              </member>
+              <member name="M:Samples.Target"/>
+            </members></doc>
+            """,
+            identity,
+            defaults with { MaxExceptionsPerMember = 1 });
+        AssertParityLimit(
+            """
+            <doc><members>
+              <member name="M:Samples.Other"><example>
+                <code source="a"/><code source="b"/>
+              </example></member>
+              <member name="M:Samples.Target"/>
+            </members></doc>
+            """,
+            identity,
+            defaults with { MaxSamplesPerMember = 1 });
+    }
+
+    static void AssertParityLimit(
+        string xml,
+        XmlDocMemberIdentity identity,
+        XmlDocumentationReadLimits limits)
+    {
+        AssertLimit(xml, identity, limits);
+        Assert.Throws<XmlException>(
+            () => XmlDocumentationCatalog.Load(Stream(xml), limits));
+    }
+
     static void AssertLimit(
         string xml,
         XmlDocMemberIdentity identity,
