@@ -421,6 +421,53 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
   assert.equal(parsed.workspaceNotice, "");
 });
 
+test("canonical package dependency views restore the package root lens", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view,
+      lens: "dependencies",
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+    },
+  });
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(
+      "https://inspect.example/?package=Example.Second&w=canonical"),
+    () => decoded(state));
+
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.workspaceSubjectOpen, false);
+  assert.equal(parsed.packageLens, "dependencies");
+  assert.equal(parsed.lens, null);
+  assert.equal(parsed.type, null);
+});
+
+test("canonical package views reject contradictory structural selection", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view,
+      lens: "dependencies",
+      type: "Example.Widget",
+    },
+  });
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(
+      "https://inspect.example/?package=Example.Second&w=canonical"),
+    () => decoded(state));
+
+  assert.deepEqual(parsed.tabs, []);
+  assert.match(
+    parsed.workspaceNotice,
+    /package view cannot also select a type, member, section, or library/);
+});
+
 test("canonical Library views restore one exact library and its lens", () => {
   const initial = workspaceState();
   const state = workspaceState({

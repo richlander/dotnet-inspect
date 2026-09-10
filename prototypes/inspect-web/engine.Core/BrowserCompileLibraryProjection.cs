@@ -85,16 +85,22 @@ internal static class BrowserCompileLibraryProjection
 [SupportedOSPlatform("browser")]
 internal static class BrowserFrameworkText
 {
-    internal static string[] Available(PackageCompileAssetSelection selection)
+    internal static string[] Available(BrowserPackageCoordinate coordinate)
     {
-        ArgumentNullException.ThrowIfNull(selection);
-        return
+        ArgumentNullException.ThrowIfNull(coordinate);
+        string[] available =
         [
-            .. selection.AvailableTargetFrameworks
+            .. coordinate.Selection.AvailableTargetFrameworks
                 .Select(Project)
                 .OfType<string>()
                 .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
+        string active = Active(coordinate);
+        return coordinate.Selection.IsSelected
+            && active.Length > 0
+            && !available.Contains(active, StringComparer.OrdinalIgnoreCase)
+                ? [active, .. available]
+                : available;
     }
 
     internal static string Active(BrowserPackageCoordinate coordinate)

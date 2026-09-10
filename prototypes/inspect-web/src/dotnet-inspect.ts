@@ -9783,12 +9783,13 @@ function activeShareTabIndex(
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (!state.package && !state.platformSelection) return null;
-  const workspaceSubjectOpen = scope() === "workspace";
-  const platformRoot = scope() === "platform";
-  if (state.atPackageRoot && !workspaceSubjectOpen && !platformRoot) {
-    throw new Error(
-      "Package views do not yet have product-owned share facet identities.");
-  }
+  const currentScope = scope();
+  const workspaceSubjectOpen = currentScope === "workspace";
+  const platformRoot = currentScope === "platform";
+  const packageSubjectOpen = currentScope === "package";
+  const librarySubjectOpen = currentScope === "library";
+  const structuralRootOpen =
+    workspaceSubjectOpen || platformRoot || packageSubjectOpen || librarySubjectOpen;
   if (!workspaceSubjectOpen && state.pendingGraphMemberDeepLink) {
     throw new Error(
       "The pending graph member must resolve before this workspace can be shared.");
@@ -9806,13 +9807,23 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     activeIndex,
     basis,
     captured.preservesBasis,
-    !workspaceSubjectOpen && !platformRoot && state.memberSection === "call-graph");
+    !structuralRootOpen && state.memberSection === "call-graph");
 
-  const librarySubjectOpen = state.atLibraryRoot;
-  const type = workspaceSubjectOpen || platformRoot || librarySubjectOpen
+  if (packageSubjectOpen
+    && state.packageLens === "dependencies"
+    && state.dependenciesGroupIndex !== null) {
+    const selectedDependencyGroup =
+      state.packageDependencies?.dependencyGroups.find(
+        group => group.index === state.dependenciesGroupIndex);
+    if (selectedDependencyGroup && !selectedDependencyGroup.isActive) {
+      throw new Error(
+        "The selected dependency group differs from the package target framework and cannot be shared.");
+    }
+  }
+  const type = structuralRootOpen
     ? null
     : selectedType();
-  const member = workspaceSubjectOpen || platformRoot || librarySubjectOpen
+  const member = structuralRootOpen
     ? null
     : selectedMember(type);
   let memberAnchor: string | null = null;
@@ -9846,12 +9857,17 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     }
   }
 
-  if (state.libraryScope && state.libraryScope.size > 1) {
+  if (!packageSubjectOpen
+    && state.libraryScope
+    && state.libraryScope.size > 1) {
     throw new Error(
       "Select one library before sharing this Browser workspace.");
   }
   const library = selectedLibraryShareKey();
-  const libraries = workspaceSubjectOpen || platformRoot || !library ? [] : [library];
+  const libraries =
+    workspaceSubjectOpen || platformRoot || packageSubjectOpen || !library
+      ? []
+      : [library];
   return {
     package: state.rootKind === "platform" ? "" : state.package?.id ?? "",
     subject: workspaceSubjectOpen ? "workspace" : null,
@@ -9862,10 +9878,12 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     view: {
       lens: workspaceSubjectOpen || platformRoot
         ? null
-        : librarySubjectOpen
-          ? `library:${state.libraryLens}`
-          : state.lens,
-      type: workspaceSubjectOpen || platformRoot || librarySubjectOpen
+        : packageSubjectOpen
+          ? state.packageLens
+          : librarySubjectOpen
+            ? `library:${state.libraryLens}`
+            : state.lens,
+      type: structuralRootOpen
         ? null
         : state.selectedTypeId || null,
       memberAnchor,
@@ -9939,6 +9957,13 @@ async function buildStateUrl(base = location.href): Promise<URL> {
       lens: state.packageLens,
     });
   }
+  const snapshot = captureWorkspaceUrlState();
+  return snapshot
+    ? await workspaceLocation.build(snapshot, base)
+    : new URL(base);
+}
+
+async function buildShareUrl(base = location.href): Promise<URL> {
   const snapshot = captureWorkspaceUrlState();
   return snapshot
     ? await workspaceLocation.build(snapshot, base)
@@ -10056,7 +10081,9 @@ function canonicalViewRestorationFailure(
   deep: DeepLink,
   requestedLens: TypeLens | null,
   requestedLibraryLens: LibraryLens | null = null,
+  requestedPackageLens: PackageLens | null = null,
 ): string | null {
+  if (requestedPackageLens) return null;
   if (requestedLibraryLens) {
     if (!libraryLensesFor(pkg).some(([id]) => id === requestedLibraryLens)) {
       return `The shared Library '${requestedLibraryLens}' inspector is not available for ${pkg.id}.`;
@@ -10396,7 +10423,7 @@ async function share() {
       throw new Error(
         "This browser cannot copy an asynchronously generated Workspace link.");
     }
-    const content = buildStateUrl().then(url =>
+    const content = buildShareUrl().then(url =>
       new Blob([url.toString()], { type: "text/plain" }));
     await navigator.clipboard.write([
       new ClipboardItem({ "text/plain": content }),
@@ -14858,7 +14885,14 @@ async function restoreWorkspaceFromLocation(
     }
     applyLocationView(loc);
     const viewFailure = loc.shareState
-      ? canonicalViewRestorationFailure(targetModel, deep, loc.lens, loc.libraryLens)
+      ? canonicalViewRestorationFailure(
+          targetModel,
+          deep,
+          loc.lens,
+          loc.libraryLens,
+          loc.atPackageRoot && !loc.workspaceSubjectOpen
+            ? loc.packageLens
+            : null)
       : null;
     if (loc.shareState && viewFailure) {
       failRestore(viewFailure);
@@ -15014,6 +15048,11 @@ function applyLocationView(loc: ParsedLocation) {
   state.rootKind = loc.rootKind;
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
+  if (loc.hasWorkspaceState
+    && state.atPackageRoot
+    && loc.packageLens === "dependencies") {
+    state.dependenciesGroupIndex = null;
+  }
   state.atLibraryRoot = !state.atPackageRoot
     && (loc.atLibraryRoot || false);
   state.workspaceSubjectOpen =
@@ -15302,7 +15341,14 @@ async function navigateWithinCurrentWorkspace(
   const libraryFailure = applyLoadedPackageLibraryScope(pkg, loc.library);
   applyLocationView(loc);
   const viewFailure = loc.shareState
-    ? canonicalViewRestorationFailure(pkg, loc, loc.lens, loc.libraryLens)
+    ? canonicalViewRestorationFailure(
+        pkg,
+        loc,
+        loc.lens,
+        loc.libraryLens,
+        loc.atPackageRoot && !loc.workspaceSubjectOpen
+          ? loc.packageLens
+          : null)
     : null;
   const restorationFailure = libraryFailure ?? viewFailure;
   if (loc.shareState && restorationFailure) {
@@ -16174,7 +16220,14 @@ window.addEventListener("popstate", () => {
         loc.library);
       applyLocationView(loc);
       const viewFailure = loc.shareState
-        ? canonicalViewRestorationFailure(state.package, loc, loc.lens, loc.libraryLens)
+        ? canonicalViewRestorationFailure(
+            state.package,
+            loc,
+            loc.lens,
+            loc.libraryLens,
+            loc.atPackageRoot && !loc.workspaceSubjectOpen
+              ? loc.packageLens
+              : null)
         : null;
       const restorationFailure = libraryFailure ?? viewFailure;
       if (loc.shareState && restorationFailure) {
@@ -16233,7 +16286,14 @@ async function restorePlatformScopeThenDeepLink(
   }
   const pkg = state.package;
   const viewFailure = pkg && loc.shareState
-    ? canonicalViewRestorationFailure(pkg, loc, loc.lens, loc.libraryLens)
+    ? canonicalViewRestorationFailure(
+        pkg,
+        loc,
+        loc.lens,
+        loc.libraryLens,
+        loc.atPackageRoot && !loc.workspaceSubjectOpen
+          ? loc.packageLens
+          : null)
     : null;
   if (loc.shareState && viewFailure) {
     failCanonicalWorkspaceRestore(

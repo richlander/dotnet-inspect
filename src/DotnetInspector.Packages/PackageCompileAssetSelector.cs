@@ -186,6 +186,28 @@ public static class PackageCompileAssetSelector
             runtimeIdentifier).Selection;
 
     /// <summary>
+    /// Selects compile roles for an already-selected compatible implementation
+    /// universe while reducing explicit empty reference groups against the
+    /// original requested framework.
+    /// </summary>
+    public static PackageCompileAssetSelection SelectForCompatibleImplementation(
+        IPackageContent content,
+        string packageId,
+        string requestedTargetFramework,
+        string implementationTargetFramework,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetFramework);
+        ArgumentException.ThrowIfNullOrWhiteSpace(implementationTargetFramework);
+        return SelectCore(
+            content,
+            packageId,
+            implementationTargetFramework,
+            runtimeIdentifier,
+            requestedTargetFramework);
+    }
+
+    /// <summary>
     /// Selects compile assets and retains the exact invocation correspondence
     /// without retaining package content.
     /// </summary>
@@ -212,7 +234,8 @@ public static class PackageCompileAssetSelector
         IPackageContent content,
         string packageId,
         string? targetFramework = null,
-        string? runtimeIdentifier = null)
+        string? runtimeIdentifier = null,
+        string? emptyGroupTargetFramework = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -296,6 +319,16 @@ public static class PackageCompileAssetSelector
                     selectedFramework,
                     StringComparison.OrdinalIgnoreCase)),
         ];
+        string compileTargetFramework =
+            emptyGroupTargetFramework ?? selectedFramework;
+        PackageCompileAsset[] referenceAssets =
+        [
+            .. discovered.Where(
+                asset => asset.Kind == PackageCompileAssetKind.Reference
+                    && asset.TargetFramework.Equals(
+                        compileTargetFramework,
+                        StringComparison.OrdinalIgnoreCase)),
+        ];
         PackageAssetSelection implementationSelection =
             PackageAssetSelector.Select(
                 content,
@@ -343,11 +376,13 @@ public static class PackageCompileAssetSelector
 
         // An explicit empty compile group is a statement, not an absence: NuGet's nearest-group
         // rule picks the closest compatible ref group, and when that group is `_._` the package
-        // contributes no compile-time assembly for the selected framework. Falling back to lib/
-        // there would compile against assets the package deliberately withheld. A real ref group
-        // at the selected framework is nearer than any compatible empty group, so it still wins.
-        if (!frameworkAssets.Any(asset => asset.Kind == PackageCompileAssetKind.Reference)
-            && NearestCompatibleEmptyGroup(emptyReferenceGroups, selectedFramework) is not null)
+        // contributes no compile-time assembly for the request. Falling back to lib/ there would
+        // compile against assets the package deliberately withheld. Compatible implementation
+        // selection still reduces empty groups against the original requested framework.
+        if (referenceAssets.Length == 0
+            && NearestCompatibleEmptyGroup(
+                emptyReferenceGroups,
+                compileTargetFramework) is not null)
         {
             return new PackageCompileAssetSelection(
                 PackageCompileAssetSelectionStatus.EmptyCompileGroup,
@@ -359,8 +394,6 @@ public static class PackageCompileAssetSelector
                 implementationAssets);
         }
 
-        bool hasReferenceAssets = frameworkAssets.Any(
-            asset => asset.Kind == PackageCompileAssetKind.Reference);
         PackageCompileAsset[] libraryFallback =
         [
             .. frameworkAssets
@@ -372,9 +405,8 @@ public static class PackageCompileAssetSelector
         ];
         PackageCompileAsset[] selected =
         [
-            .. (hasReferenceAssets
-                    ? frameworkAssets.Where(
-                        asset => asset.Kind == PackageCompileAssetKind.Reference)
+            .. (referenceAssets.Length > 0
+                    ? referenceAssets
                     : libraryFallback)
                 .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(asset => asset.Path, StringComparer.Ordinal),
