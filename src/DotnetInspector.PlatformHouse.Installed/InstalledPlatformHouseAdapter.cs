@@ -8,14 +8,20 @@ public sealed record InstalledPlatformHouseCapabilities
 {
     internal InstalledPlatformHouseCapabilities(
         PlatformSourceCapabilityIdentity targetDiscovery,
-        PlatformSourceCapabilityIdentity referenceRealization)
+        PlatformSourceCapabilityIdentity referenceRealization,
+        PlatformSourceCapabilityIdentity implementationRealization,
+        InstalledImplementationWorkBudget implementationMaximums)
     {
         TargetDiscovery = targetDiscovery;
         ReferenceRealization = referenceRealization;
+        ImplementationRealization = implementationRealization;
+        ImplementationMaximums = implementationMaximums;
     }
 
     public PlatformSourceCapabilityIdentity TargetDiscovery { get; }
     public PlatformSourceCapabilityIdentity ReferenceRealization { get; }
+    public PlatformSourceCapabilityIdentity ImplementationRealization { get; }
+    public InstalledImplementationWorkBudget ImplementationMaximums { get; }
 }
 
 /// <summary>
@@ -62,25 +68,48 @@ public abstract record InstalledPlatformHouseResult<T>
 
 /// <summary>
 /// Translates PlatformHouse target currency into one package-free explicit
-/// installed reference-pack source.
+/// installed platform sources.
 /// </summary>
 public sealed class InstalledPlatformHouseAdapter
 {
     private static long s_nextEvidence;
-    private readonly InstalledReferencePackSource _source;
+    private readonly InstalledReferencePackSource _referenceSource;
+    private readonly InstalledImplementationPlatformSource
+        _implementationSource;
 
     public InstalledPlatformHouseAdapter(
-        InstalledReferencePackSource source,
+        InstalledReferencePackSource referenceSource,
+        InstalledImplementationPlatformSource implementationSource,
         string capabilityName)
     {
-        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(referenceSource);
+        ArgumentNullException.ThrowIfNull(implementationSource);
         ArgumentException.ThrowIfNullOrWhiteSpace(capabilityName);
-        _source = source;
+        if (!ReferenceEquals(
+                referenceSource.Hive,
+                implementationSource.Hive))
+        {
+            throw new ArgumentException(
+                "Installed reference and implementation sources must belong to the same dotnet hive.",
+                nameof(implementationSource));
+        }
+
+        _referenceSource = referenceSource;
+        _implementationSource = implementationSource;
         Capabilities = new InstalledPlatformHouseCapabilities(
             PlatformSourceCapabilityIdentity.Create(
                 capabilityName + "-target-discovery"),
             PlatformSourceCapabilityIdentity.Create(
-                capabilityName + "-reference-realization"));
+                capabilityName + "-reference-realization"),
+            PlatformSourceCapabilityIdentity.Create(
+                capabilityName + "-implementation-realization"),
+            new InstalledImplementationWorkBudget(
+                maxFrameworks: 16,
+                maxResolutionSteps: 256,
+                maxManifestLibraries: 4096,
+                maxManifestAssets: 8192,
+                maxAssemblies: 4096,
+                maxBytes: 2L * 1024 * 1024 * 1024));
     }
 
     public InstalledPlatformHouseCapabilities Capabilities { get; }
@@ -124,7 +153,7 @@ public sealed class InstalledPlatformHouseAdapter
             CreateBudgetCancellation(request);
         try
         {
-            ownerOutcome = _source.Discover(
+            ownerOutcome = _referenceSource.Discover(
                 new InstalledReferenceDiscoveryRequest(
                     MapFamily(selecting.Family),
                     selecting.TargetFramework,
@@ -219,10 +248,10 @@ public sealed class InstalledPlatformHouseAdapter
             CreateBudgetCancellation(request);
         try
         {
-            ownerOutcome = await _source.RealizeAsync(
+            ownerOutcome = await _referenceSource.RealizeAsync(
                     new InstalledReferenceRealizationRequest(
                         new InstalledReferencePackCoordinate(
-                            _source.Hive,
+                            _referenceSource.Hive,
                             MapFamily(exact.Target.Family),
                             exact.Target.TargetFramework,
                             exact.Target.Version),
@@ -243,6 +272,119 @@ public sealed class InstalledPlatformHouseAdapter
         }
 
         return ProjectRealization(
+            request,
+            exact.Target,
+            ownerOutcome);
+    }
+
+    public async ValueTask<
+        InstalledPlatformHouseResult<InstalledImplementationRealization>>
+        RealizeImplementationAsync(PlatformHouseRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Target is not PlatformTargetDemand.Exact exact)
+        {
+            throw new ArgumentException(
+                "Installed implementation realization requires an exact House target.",
+                nameof(request));
+        }
+
+        if (!request.Sources.Authorizes(
+                PlatformSourceFacet.Implementation,
+                Capabilities.ImplementationRealization))
+        {
+            return RejectImplementation(
+                request,
+                exact.Target,
+                "The installed implementation capability is not authorized by the House source plan.");
+        }
+
+        if (request.Operation is not PlatformHouseOperation.Realize realize
+            || realize.View == PlatformViewDemand.Reference)
+        {
+            return RejectImplementation(
+                request,
+                exact.Target,
+                "The House operation does not request implementation realization.");
+        }
+        if (realize.Population is PlatformPopulationDemand.Library
+            {
+                Value: PlatformLibraryDemand.PlatformLibrary
+            })
+        {
+            return RejectImplementation(
+                request,
+                exact.Target,
+                "An opaque platform-library identity cannot be projected to an installed implementation member.");
+        }
+
+        request.CancellationToken.ThrowIfCancellationRequested();
+        if (request.Work.MaxSourceOperations == 0
+            || request.Work.MaxDuration == TimeSpan.Zero
+            || request.Work.MaxAssemblies == 0
+            || request.Work.MaxBytes == 0)
+        {
+            return IncompleteImplementation(
+                request,
+                exact.Target,
+                "The House work budget does not permit installed implementation realization.");
+        }
+
+        InstalledImplementationWorkBudget maximums =
+            Capabilities.ImplementationMaximums;
+        var sourceRequest = new InstalledImplementationRealizationRequest(
+            new InstalledImplementationPlatformCoordinate(
+                _implementationSource.Hive,
+                MapFamily(exact.Target.Family),
+                exact.Target.Version),
+            new InstalledImplementationWorkBudget(
+                maximums.MaxFrameworks,
+                maximums.MaxResolutionSteps,
+                maximums.MaxManifestLibraries,
+                maximums.MaxManifestAssets,
+                Math.Min(
+                    request.Work.MaxAssemblies,
+                    maximums.MaxAssemblies),
+                Math.Min(request.Work.MaxBytes, maximums.MaxBytes)));
+
+        InstalledPlatformSourceOutcome<InstalledImplementationRealization>
+            ownerOutcome;
+        using CancellationTokenSource budgetCancellation =
+            CreateBudgetCancellation(request);
+        try
+        {
+            ownerOutcome = await _implementationSource.RealizeAsync(
+                    sourceRequest,
+                    budgetCancellation.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (!request.CancellationToken.IsCancellationRequested)
+        {
+            return IncompleteImplementation(
+                request,
+                exact.Target,
+                "Installed implementation realization exceeded the House duration budget.");
+        }
+
+        if (ownerOutcome is InstalledPlatformSourceOutcome<
+                InstalledImplementationRealization>.Succeeded succeeded
+            && realize.Population is PlatformPopulationDemand.Library
+            {
+                Value: PlatformLibraryDemand.Assembly assembly
+            }
+            && !succeeded.Value.Libraries.Any(
+                library => assembly.Identity.IsEquivalentTo(
+                    library.Identity)))
+        {
+            return UnavailableImplementation(
+                request,
+                exact.Target,
+                succeeded.Value.Generation,
+                "The requested assembly is absent from the installed implementation closure.");
+        }
+
+        return ProjectImplementation(
             request,
             exact.Target,
             ownerOutcome);
@@ -424,6 +566,98 @@ public sealed class InstalledPlatformHouseAdapter
                     contribution);
     }
 
+    InstalledPlatformHouseResult<InstalledImplementationRealization>
+        ProjectImplementation(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget exactTarget,
+            InstalledPlatformSourceOutcome<
+                InstalledImplementationRealization> outcome)
+    {
+        PlatformSourceGeneration generation =
+            PlatformSourceGeneration.Create(outcome.Generation.Name);
+        PlatformSourceEvidenceIdentity evidence = NextEvidence();
+        return outcome switch
+        {
+            InstalledPlatformSourceOutcome<
+                InstalledImplementationRealization>.Succeeded succeeded =>
+                new InstalledPlatformHouseResult<
+                    InstalledImplementationRealization>.Succeeded(
+                        succeeded.Value,
+                        new PlatformSourceContribution.Realization(
+                            PlatformSourceFacet.Implementation,
+                            Capabilities.ImplementationRealization,
+                            request.Snapshot,
+                            generation,
+                            exactTarget,
+                            PlatformSourceCoordinateIdentity.Create(
+                                CoordinateName(
+                                    succeeded.Value.Coordinate)),
+                            PlatformTargetCorrespondenceIdentity.Create(
+                                NextName("installed-implementation-target")),
+                            ((PlatformHouseOperationSnapshot.Realize)
+                                request.Snapshot.Operation).Population,
+                            PlatformSourceContributionCompleteness
+                                .Authoritative,
+                            evidence)),
+            InstalledPlatformSourceOutcome<
+                InstalledImplementationRealization>.Unavailable unavailable =>
+                NotSucceeded(
+                    unavailable.Diagnostic,
+                    new PlatformSourceContribution.Unavailable(
+                        PlatformSourceFacet.Implementation,
+                        Capabilities.ImplementationRealization,
+                        request.Snapshot,
+                        generation,
+                        exactTarget,
+                        MapUnavailable(unavailable.Reason),
+                        evidence)),
+            InstalledPlatformSourceOutcome<
+                InstalledImplementationRealization>.Rejected rejected =>
+                NotSucceeded(
+                    rejected.Diagnostic,
+                    new PlatformSourceContribution.Rejected(
+                        PlatformSourceFacet.Implementation,
+                        Capabilities.ImplementationRealization,
+                        request.Snapshot,
+                        generation,
+                        exactTarget,
+                        evidence)),
+            InstalledPlatformSourceOutcome<
+                InstalledImplementationRealization>.Incomplete incomplete =>
+                NotSucceeded(
+                    incomplete.Diagnostic,
+                    new PlatformSourceContribution.Incomplete(
+                        PlatformSourceFacet.Implementation,
+                        Capabilities.ImplementationRealization,
+                        request.Snapshot,
+                        generation,
+                        exactTarget,
+                        evidence)),
+            InstalledPlatformSourceOutcome<
+                InstalledImplementationRealization>.Failed failed =>
+                NotSucceeded(
+                    failed.Diagnostic,
+                    new PlatformSourceContribution.Failed(
+                        PlatformSourceFacet.Implementation,
+                        Capabilities.ImplementationRealization,
+                        request.Snapshot,
+                        generation,
+                        exactTarget,
+                        evidence)),
+            _ => throw new InvalidOperationException(
+                "Unknown installed implementation realization outcome."),
+        };
+
+        static InstalledPlatformHouseResult<
+            InstalledImplementationRealization> NotSucceeded(
+                InstalledPlatformSourceDiagnostic diagnostic,
+                PlatformSourceContribution contribution) =>
+            new InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.NotSucceeded(
+                    diagnostic,
+                    contribution);
+    }
+
     static InstalledPlatformFamily MapFamily(PlatformFamily family) =>
         family switch
         {
@@ -468,6 +702,11 @@ public sealed class InstalledPlatformHouseAdapter
         + $"{coordinate.Version.Value}:"
         + $"{coordinate.TargetFramework}";
 
+    static string CoordinateName(
+        InstalledImplementationPlatformCoordinate coordinate) =>
+        $"{coordinate.Hive.Name}:{coordinate.Family}:"
+        + coordinate.Version.Value;
+
     static PlatformSourceEvidenceIdentity NextEvidence() =>
         PlatformSourceEvidenceIdentity.Create(
             NextName("installed-reference-evidence"));
@@ -491,7 +730,7 @@ public sealed class InstalledPlatformHouseAdapter
                     Capabilities.TargetDiscovery,
                     request.Snapshot,
                     PlatformSourceGeneration.Create(
-                        NextName(_source.Hive.Name + "-bridge")),
+                        NextName(_referenceSource.Hive.Name + "-bridge")),
                     exactTarget: null,
                     NextEvidence()));
     }
@@ -513,7 +752,7 @@ public sealed class InstalledPlatformHouseAdapter
                     Capabilities.ReferenceRealization,
                     request.Snapshot,
                     PlatformSourceGeneration.Create(
-                        NextName(_source.Hive.Name + "-bridge")),
+                        NextName(_referenceSource.Hive.Name + "-bridge")),
                     exactTarget,
                     NextEvidence()));
     }
@@ -534,7 +773,7 @@ public sealed class InstalledPlatformHouseAdapter
                     Capabilities.TargetDiscovery,
                     request.Snapshot,
                     PlatformSourceGeneration.Create(
-                        NextName(_source.Hive.Name + "-bridge")),
+                        NextName(_referenceSource.Hive.Name + "-bridge")),
                     exactTarget: null,
                     NextEvidence()));
     }
@@ -556,8 +795,77 @@ public sealed class InstalledPlatformHouseAdapter
                     Capabilities.ReferenceRealization,
                     request.Snapshot,
                     PlatformSourceGeneration.Create(
-                        NextName(_source.Hive.Name + "-bridge")),
+                        NextName(_referenceSource.Hive.Name + "-bridge")),
                     exactTarget,
+                    NextEvidence()));
+    }
+
+    InstalledPlatformHouseResult<InstalledImplementationRealization>
+        RejectImplementation(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget exactTarget,
+            string summary)
+    {
+        var diagnostic = new InstalledPlatformSourceDiagnostic(
+            InstalledPlatformSourceDiagnosticKind.InvalidRequest,
+            summary);
+        return new InstalledPlatformHouseResult<
+            InstalledImplementationRealization>.NotSucceeded(
+                diagnostic,
+                new PlatformSourceContribution.Rejected(
+                    PlatformSourceFacet.Implementation,
+                    Capabilities.ImplementationRealization,
+                    request.Snapshot,
+                    PlatformSourceGeneration.Create(
+                        NextName(
+                            _implementationSource.Hive.Name + "-bridge")),
+                    exactTarget,
+                    NextEvidence()));
+    }
+
+    InstalledPlatformHouseResult<InstalledImplementationRealization>
+        IncompleteImplementation(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget exactTarget,
+            string summary)
+    {
+        var diagnostic = new InstalledPlatformSourceDiagnostic(
+            InstalledPlatformSourceDiagnosticKind.WorkLimitExceeded,
+            summary);
+        return new InstalledPlatformHouseResult<
+            InstalledImplementationRealization>.NotSucceeded(
+                diagnostic,
+                new PlatformSourceContribution.Incomplete(
+                    PlatformSourceFacet.Implementation,
+                    Capabilities.ImplementationRealization,
+                    request.Snapshot,
+                    PlatformSourceGeneration.Create(
+                        NextName(
+                            _implementationSource.Hive.Name + "-bridge")),
+                    exactTarget,
+                    NextEvidence()));
+    }
+
+    InstalledPlatformHouseResult<InstalledImplementationRealization>
+        UnavailableImplementation(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget exactTarget,
+            InstalledPlatformSourceGeneration sourceGeneration,
+            string summary)
+    {
+        var diagnostic = new InstalledPlatformSourceDiagnostic(
+            InstalledPlatformSourceDiagnosticKind.InvalidMember,
+            summary);
+        return new InstalledPlatformHouseResult<
+            InstalledImplementationRealization>.NotSucceeded(
+                diagnostic,
+                new PlatformSourceContribution.Unavailable(
+                    PlatformSourceFacet.Implementation,
+                    Capabilities.ImplementationRealization,
+                    request.Snapshot,
+                    PlatformSourceGeneration.Create(sourceGeneration.Name),
+                    exactTarget,
+                    PlatformSourceUnavailabilityKind.Absent,
                     NextEvidence()));
     }
 

@@ -30,6 +30,9 @@ The design depends on:
   consuming exact-target pruning facts;
 - [Structured type-forwarding resolution](type-forwarding-resolution.md) for
   Metadata-owned forwarding and binding outcomes;
+- [Platform Manifest Formats](platform-manifest-formats.md) for host-neutral
+  interpretation of shared-framework runtime configurations and dependency
+  manifests;
 - [Platform composition and overlays](platform-composition-and-overlays.md)
   for source-specific coherent implementation realization;
 - the
@@ -1374,13 +1377,16 @@ Each step after the House contract is a separately reviewed owner adoption.
 The stack preserves a usable product after every step; a bypass is retired only
 after its House replacement is live in every supported host that uses it.
 
-Step 4 is staged without changing the eleven-step count. Step 4a is owned by
+Step 4 was staged without changing the eleven-step count. Step 4a is owned by
 [Installed Reference-Pack Realization](installed-reference-pack-realization.md)
 and adds explicit-hive reference target discovery, immutable reference-pack
-realization, and the installed PlatformHouse bridge. Step 4b remains the
-manifest-defined installed implementation closure owned by
-[Platform Composition and Overlays](platform-composition-and-overlays.md#installed-implementation-platform-realization).
-Step 4 is not complete until both sub-slices are implemented.
+realization, and the installed PlatformHouse bridge. Step 4b adds the
+host-neutral
+[Platform Manifest Formats](platform-manifest-formats.md), the manifest-defined
+installed implementation closure owned by
+[Platform Composition and Overlays](platform-composition-and-overlays.md#installed-implementation-platform-realization),
+and its installed PlatformHouse contribution. Both sub-slices are implemented;
+step 5 is the next production-adoption step.
 
 No CLI flag is retained solely for compatibility. User-facing platform
 coordinates project to the shared target and House request, and unsupported
