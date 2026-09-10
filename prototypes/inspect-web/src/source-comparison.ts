@@ -52,11 +52,21 @@ export function isExactSourceComparisonVersion(value: string): boolean {
 export interface SourceComparisonDependencies {
   state: SourceDiffState;
   operationAuthority: OperationAuthorityPage;
-  queryComparison(
+  comparisonAdapter?: OperationProducerAdapter<
+    BrowserSourceComparisonRequest,
+    BrowserSourceComparison,
+    unknown,
+    never,
+    unknown
+  >;
+  readonly queryComparison?: (
     operationId: OperationId,
     requestJson: string,
-  ): Promise<BrowserSourceComparisonResult>;
-  cancelComparison(operationId: OperationId, reason: OperationCancelReason): void;
+  ) => Promise<BrowserSourceComparisonResult>;
+  readonly cancelComparison?: (
+    operationId: OperationId,
+    reason: OperationCancelReason,
+  ) => void;
   reportOperationDiagnostic(diagnostic: OperationDiagnostic): undefined;
   describeError(error: unknown): string;
   render(): void;
@@ -67,7 +77,11 @@ export function createSourceComparisonCoordinator(
 ) {
   const { state } = dependencies;
   type Session = OperationSession<
-    BrowserSourceComparisonRequest, BrowserSourceComparison, unknown, never, never
+    BrowserSourceComparisonRequest,
+    BrowserSourceComparison,
+    unknown,
+    never,
+    unknown
   >;
   let session: Session | null = null;
   const scheduleRender = (): void => {
@@ -78,9 +92,20 @@ export function createSourceComparisonCoordinator(
       kind: "producer-contract", operationId: null, error: new Error(message),
     });
   };
-  const adapter: OperationProducerAdapter<
-    BrowserSourceComparisonRequest, BrowserSourceComparison, unknown, never, never
-  > = {
+  const legacyAdapter = (): OperationProducerAdapter<
+    BrowserSourceComparisonRequest,
+    BrowserSourceComparison,
+    unknown,
+    never,
+    unknown
+  > => {
+    const queryComparison = dependencies.queryComparison;
+    const cancelComparison = dependencies.cancelComparison;
+    if (queryComparison === undefined || cancelComparison === undefined) {
+      throw new Error(
+        "Source comparison requires either a producer adapter or query and cancellation bindings.");
+    }
+    return {
     prepare(identity, request, sink) {
       let cancellationRequested = false;
       const quiesce = (): undefined => {
@@ -97,14 +122,14 @@ export function createSourceComparisonCoordinator(
           requestCancellation(reason) {
             if (!cancellationRequested) {
               cancellationRequested = true;
-              dependencies.cancelComparison(identity.id, reason);
+              cancelComparison(identity.id, reason);
             }
             return undefined;
           },
           activate() {
             let query: Promise<BrowserSourceComparisonResult>;
             try {
-              query = dependencies.queryComparison(identity.id, JSON.stringify(request));
+              query = queryComparison(identity.id, JSON.stringify(request));
             } catch (error: unknown) {
               return boundaryFailure(error);
             }
@@ -122,6 +147,8 @@ export function createSourceComparisonCoordinator(
       };
     },
   };
+  };
+  const adapter = dependencies.comparisonAdapter ?? legacyAdapter();
 
   const shutdown = (): boolean => {
     const wasOpen = state.open;

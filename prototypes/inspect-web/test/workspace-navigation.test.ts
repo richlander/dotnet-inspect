@@ -1394,7 +1394,7 @@ for (const navigate of ["push", "replace"] as const) {
       encode: () => encode.promise,
     });
 
-    persistence.sync(workspaceState());
+    void persistence.sync(workspaceState());
     persistence[navigate]("/credits");
     encode.resolve(encoded());
     await new Promise(resolve => setTimeout(resolve, 0));

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Worker } from "@playwright/test";
 
 declare global {
   interface Window {
@@ -53,6 +53,26 @@ test("published CSP blocks unapproved inline and external scripts", async ({ pag
     ]),
   );
   expect(await page.locator("html").getAttribute("data-csp-canary")).toBeNull();
+});
+
+test("production Worker startup failure is visible without a page fallback", async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([{
+    name: "worker-runtime-gate",
+    value: "reject-bootstrap",
+    url: "http://127.0.0.1:4186",
+  }]);
+  const workers: Worker[] = [];
+  page.on("worker", worker => workers.push(worker));
+  await page.goto("/index.html");
+  await expect(page.getByText("Startup failed", { exact: true }))
+    .toBeVisible({ timeout: 60_000 });
+  await expect(page.locator(".load-error-detail")).not.toBeEmpty();
+  expect(workers).toHaveLength(1);
+  await page.waitForTimeout(250);
+  expect(workers).toHaveLength(1);
 });
 
 test("published Mermaid renders styled diagrams under CSP", async ({ page }) => {

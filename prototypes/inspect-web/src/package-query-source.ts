@@ -12,16 +12,30 @@ import type {
   BrowserPackageQueryResult,
 } from "./facades/inspect-web-package.d.ts";
 import type {
+  EngineWorkerPackageQueryAdapter,
+  EngineWorkerPackageQueryCompletionEvent,
+  EngineWorkerPackageQueryDurableEvent,
+} from "./engine-worker-package-query.ts";
+import type {
+  OperationAuthorityPage,
+  OperationCancelReason,
+  OperationDiagnostic,
+  OperationId,
+  OperationSession,
+} from "./operation-authority.ts";
+import type {
   PackageQueryDataSource,
   QueryAssemblyAssessment,
   QueryAssemblyPatternDescriptor,
   QueryAssemblyPatternRequest,
   QueryFacetTerm,
+  QueryRequest,
   QueryProgress,
   QueryResultRow,
   TerminalQueryCompletion,
 } from "./package-query.ts";
 import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
+import type { WorkerRuntimePreparationError } from "./worker-runtime-core.ts";
 
 export type { BrowserPackageAssemblyQueryPattern } from "./facades/inspect-web-package.d.ts";
 
@@ -299,6 +313,143 @@ export function createBrowserPackageQueryDataSource(
   };
 }
 
+export interface EngineWorkerPackageQueryDataSourceOptions {
+  readonly reportOperationDiagnostic: (
+    diagnostic: OperationDiagnostic,
+  ) => undefined;
+}
+
+type EngineWorkerPackageQuerySession = OperationSession<
+  QueryRequest,
+  EngineWorkerPackageQueryCompletionEvent,
+  string,
+  never,
+  WorkerRuntimePreparationError,
+  EngineWorkerPackageQueryDurableEvent
+>;
+
+export function createEngineWorkerPackageQueryDataSource(
+  operationAuthority: OperationAuthorityPage,
+  adapter: EngineWorkerPackageQueryAdapter,
+  options: EngineWorkerPackageQueryDataSourceOptions,
+): PackageQueryDataSource {
+  let active: {
+    readonly operationId: OperationId;
+    readonly session: EngineWorkerPackageQuerySession;
+  } | null = null;
+
+  return {
+    initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+    async requestMore(additionalMatchCredit) {
+      const operationId = active?.operationId;
+      if (operationId === undefined) return false;
+      const result = await adapter.requestControl(
+        operationId,
+        additionalMatchCredit);
+      if (result.kind === "not-active") return false;
+      if (result.kind === "failed") throw new Error(result.error);
+      if (result.value !== additionalMatchCredit) {
+        throw new Error(
+          "Package Query Worker acknowledged different match credit.");
+      }
+      return true;
+    },
+    async run(
+      request,
+      onPage,
+      onFailure,
+      onProgress,
+      abortSignal,
+      onAssessment,
+    ) {
+      if (abortSignal.aborted) return { kind: "cancelled" };
+      let observerFailure: unknown;
+      let completion: TerminalQueryCompletion | null = null;
+      const dispatch = (
+        event:
+          | EngineWorkerPackageQueryDurableEvent
+          | EngineWorkerPackageQueryCompletionEvent,
+      ): void => {
+        dispatchEvent(
+          event,
+          onPage,
+          onFailure,
+          onProgress,
+          onAssessment,
+          terminal => { completion = terminal; });
+      };
+      const session: EngineWorkerPackageQuerySession =
+        operationAuthority.createSession({
+          feature: {
+            publish(event) {
+              try {
+                if (event.kind === "durable") {
+                  dispatch(event.durable.value);
+                }
+              } catch (error: unknown) {
+                observerFailure = error;
+                throw error;
+              }
+              return undefined;
+            },
+          },
+          diagnostic: {
+            report: diagnostic =>
+              options.reportOperationDiagnostic(diagnostic),
+          },
+        });
+      const started = session.start(request, adapter);
+      if (started.kind === "rejected") {
+        session.dispose();
+        const reason = started.reason.kind === "producer-rejected"
+          ? started.reason.error.kind
+          : started.reason.kind;
+        throw new Error(`Package Query Worker could not start: ${reason}.`);
+      }
+      const current = {
+        operationId: started.handle.id,
+        session,
+      };
+      active = current;
+      const cancel = (): void => {
+        const reason = cancellationReason(abortSignal.reason);
+        const result = session.cancelCurrent(reason);
+        if (result.kind === "rejected") {
+          options.reportOperationDiagnostic({
+            kind: "producer-contract",
+            operationId: started.handle.id,
+            error: new Error(
+              "Package Query Worker cancellation was rejected during feature publication."),
+          });
+        }
+      };
+      abortSignal.addEventListener("abort", cancel, { once: true });
+      try {
+        const outcome = await started.handle.outcome;
+        await started.handle.quiesced;
+        if (observerFailure !== undefined) {
+          throw new Error(
+            "The Package Query Worker event observer failed.",
+            { cause: observerFailure });
+        }
+        if (outcome.kind === "canceled") return { kind: "cancelled" };
+        if (outcome.kind === "failed") throw new Error(outcome.error);
+        if (abortSignal.aborted) return { kind: "cancelled" };
+        dispatch(outcome.value);
+        return completion ?? {
+          kind: "failed",
+          reason:
+            "The Package Query Worker stream ended without a completion event.",
+        };
+      } finally {
+        abortSignal.removeEventListener("abort", cancel);
+        if (active === current) active = null;
+        session.dispose();
+      }
+    },
+  };
+}
+
 async function runAssemblyQuery(
   engine: BrowserPackageQueryEngine,
   operationId: string,
@@ -319,7 +470,7 @@ async function runAssemblyQuery(
     eventSink);
 }
 
-function cancellationReason(reason: unknown): string {
+function cancellationReason(reason: unknown): OperationCancelReason {
   switch (reason) {
     case "user":
     case "superseded":

@@ -699,7 +699,7 @@ async function openPlatform(page: Page, options: PlatformFixture = {}) {
   await page.goto("/");
   await page.locator("[data-sl-load-runtime]").click();
   await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page).toHaveURL(/\/\?package=&w=/);
+  await expect(page).toHaveURL(/\/\?w=/);
 }
 
 test("Platform opens its catalog before warm-up, with reference membership and role labels", async ({ page }) => {

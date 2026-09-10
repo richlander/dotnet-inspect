@@ -461,21 +461,21 @@ test("controller replenishes only near the granted match-window edge", async () 
   const running = controller.run(createQueryRequest("Microsoft."));
 
   publish(Array.from({ length: 14 }, (_, index) => row(`P${index}`)));
-  controller.requestMore();
+  await controller.requestMore();
   assert.deepEqual(requested, []);
 
   publish([row("P14")]);
-  controller.requestMore();
-  controller.requestMore();
+  await controller.requestMore();
+  await controller.requestMore();
   assert.deepEqual(requested, [10]);
 
   publish(Array.from({ length: 10 }, (_, index) => row(`Q${index}`)));
-  controller.requestMore();
+  await controller.requestMore();
   assert.deepEqual(requested, [10, 10]);
 
   finish({ kind: "exhausted" });
   await running;
-  controller.requestMore();
+  await controller.requestMore();
   assert.deepEqual(requested, [10, 10]);
 });
 
@@ -500,10 +500,68 @@ test("controller does not count rejected replenishment as granted credit", async
   const running = controller.run(createQueryRequest("Microsoft."));
 
   publish(Array.from({ length: 15 }, (_, index) => row(`P${index}`)));
-  controller.requestMore();
-  controller.requestMore();
+  await controller.requestMore();
+  await controller.requestMore();
 
   assert.equal(requests, 2);
+  finish({ kind: "cancelled" });
+  await running;
+});
+
+test("controller suppresses rejected credit from a superseded query", async () => {
+  const state = initialQueryState();
+  let publish!: (rows: readonly QueryResultRow[]) => void;
+  let finish!: (completion: TerminalQueryCompletion) => void;
+  let rejectCredit!: (reason: unknown) => void;
+  const credit = new Promise<boolean>((_resolve, reject) => {
+    rejectCredit = reject;
+  });
+  const source: PackageQueryDataSource = {
+    initialMatchCredit: 20,
+    requestMore: () => credit,
+    async run(_request, onPage) {
+      publish = onPage;
+      return await new Promise<TerminalQueryCompletion>(
+        resolve => { finish = resolve; });
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+  const running = controller.run(createQueryRequest("First."));
+  publish(Array.from({ length: 15 }, (_, index) => row(`P${index}`)));
+  const replenishment = controller.requestMore();
+  const replacement = createQueryRequest("Second.");
+  controller.configure(replacement);
+
+  rejectCredit(new Error("old operation closed"));
+  await replenishment;
+  assert.equal(state.request, replacement);
+  assert.equal(state.outcome.completion.kind, "idle");
+
+  finish({ kind: "cancelled" });
+  await running;
+});
+
+test("controller preserves rejected credit for the current query", async () => {
+  const state = initialQueryState();
+  let publish!: (rows: readonly QueryResultRow[]) => void;
+  let finish!: (completion: TerminalQueryCompletion) => void;
+  const source: PackageQueryDataSource = {
+    initialMatchCredit: 20,
+    requestMore: () => Promise.reject(new Error("credit unavailable")),
+    async run(_request, onPage) {
+      publish = onPage;
+      return await new Promise<TerminalQueryCompletion>(
+        resolve => { finish = resolve; });
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+  const running = controller.run(createQueryRequest("Current."));
+  publish(Array.from({ length: 15 }, (_, index) => row(`P${index}`)));
+
+  await assert.rejects(
+    controller.requestMore(),
+    /credit unavailable/);
+
   finish({ kind: "cancelled" });
   await running;
 });
@@ -554,7 +612,7 @@ test("controller retains assembly assessments without spending row credit", asyn
     "literal",
     ["Contoso.Library@1.2.3"],
     "net10.0"));
-  controller.requestMore();
+  await controller.requestMore();
 
   assert.deepEqual(state.outcome.assessments, [NO_MATCH_ASSESSMENT]);
   assert.deepEqual(state.outcome.rows, []);

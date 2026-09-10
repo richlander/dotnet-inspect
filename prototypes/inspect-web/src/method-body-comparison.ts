@@ -133,18 +133,32 @@ export function methodBodyChoiceForKey(
 export interface MethodBodyComparisonDependencies {
   state: MethodBodyDiffState;
   operationAuthority: OperationAuthorityPage;
-  queryTargets(
+  targetsAdapter?: OperationProducerAdapter<
+    MethodBodyComparisonContext,
+    BrowserMethodBodyTargets,
+    unknown,
+    never,
+    unknown
+  >;
+  comparisonAdapter?: OperationProducerAdapter<
+    BrowserMethodBodyComparisonRequest,
+    BrowserMethodBodyComparison,
+    unknown,
+    never,
+    unknown
+  >;
+  readonly queryTargets?: (
     operationId: OperationId,
     context: MethodBodyComparisonContext,
-  ): Promise<BrowserMethodBodyTargetsResult>;
-  queryComparison(
+  ) => Promise<BrowserMethodBodyTargetsResult>;
+  readonly queryComparison?: (
     operationId: OperationId,
     requestJson: string,
-  ): Promise<BrowserMethodBodyComparisonResult>;
-  cancelMethodBodyComparison(
+  ) => Promise<BrowserMethodBodyComparisonResult>;
+  readonly cancelMethodBodyComparison?: (
     operationId: OperationId,
     reason: OperationCancelReason,
-  ): void;
+  ) => void;
   readonly reportOperationDiagnostic: (
     diagnostic: OperationDiagnostic,
   ) => undefined;
@@ -180,14 +194,14 @@ export function createMethodBodyComparisonCoordinator(
     BrowserMethodBodyTargets,
     unknown,
     never,
-    never
+    unknown
   >;
   type ComparisonSession = OperationSession<
     BrowserMethodBodyComparisonRequest,
     BrowserMethodBodyComparison,
     unknown,
     never,
-    never
+    unknown
   >;
   interface DialogSessions {
     readonly targets: TargetsSession;
@@ -284,13 +298,22 @@ export function createMethodBodyComparisonCoordinator(
     return undefined;
   };
 
-  const targetsAdapter: OperationProducerAdapter<
+  const legacyTargetsAdapter = (): OperationProducerAdapter<
     MethodBodyComparisonContext,
     BrowserMethodBodyTargets,
     unknown,
     never,
-    never
-  > = {
+    unknown
+  > => {
+    const queryTargets = dependencies.queryTargets;
+    const cancelMethodBodyComparison =
+      dependencies.cancelMethodBodyComparison;
+    if (queryTargets === undefined
+      || cancelMethodBodyComparison === undefined) {
+      throw new Error(
+        "Method Body target discovery requires either a producer adapter or query and cancellation bindings.");
+    }
+    return {
     prepare: (identity, context, sink) => {
       let cancellationRequested = false;
       const quiesce = (): undefined => {
@@ -307,13 +330,13 @@ export function createMethodBodyComparisonCoordinator(
           requestCancellation: reason => {
             if (cancellationRequested) return undefined;
             cancellationRequested = true;
-            dependencies.cancelMethodBodyComparison(identity.id, reason);
+            cancelMethodBodyComparison(identity.id, reason);
             return undefined;
           },
           activate: () => {
             let query: Promise<BrowserMethodBodyTargetsResult>;
             try {
-              query = dependencies.queryTargets(identity.id, context);
+              query = queryTargets(identity.id, context);
             } catch (error: unknown) {
               return boundaryFailure(error);
             }
@@ -337,19 +360,29 @@ export function createMethodBodyComparisonCoordinator(
       };
     },
   };
+  };
+  const targetsAdapter =
+    dependencies.targetsAdapter ?? legacyTargetsAdapter();
 
-  const comparisonAdapter: OperationProducerAdapter<
+  const legacyComparisonAdapter = (): OperationProducerAdapter<
     BrowserMethodBodyComparisonRequest,
     BrowserMethodBodyComparison,
     unknown,
     never,
-    never
-  > = {
+    unknown
+  > => {
+    const queryComparison = dependencies.queryComparison;
+    const cancelMethodBodyComparison =
+      dependencies.cancelMethodBodyComparison;
+    if (queryComparison === undefined
+      || cancelMethodBodyComparison === undefined) {
+      throw new Error(
+        "Method Body comparison requires either a producer adapter or query and cancellation bindings.");
+    }
+    return {
     prepare: (identity, request, sink) => {
-      comparisonRequests.set(identity.id, request);
       let cancellationRequested = false;
       const quiesce = (): undefined => {
-        comparisonRequests.delete(identity.id);
         sink.reportQuiesced();
         return undefined;
       };
@@ -363,13 +396,13 @@ export function createMethodBodyComparisonCoordinator(
           requestCancellation: reason => {
             if (cancellationRequested) return undefined;
             cancellationRequested = true;
-            dependencies.cancelMethodBodyComparison(identity.id, reason);
+            cancelMethodBodyComparison(identity.id, reason);
             return undefined;
           },
           activate: () => {
             let query: Promise<BrowserMethodBodyComparisonResult>;
             try {
-              query = dependencies.queryComparison(
+              query = queryComparison(
                 identity.id,
                 JSON.stringify(request));
             } catch (error: unknown) {
@@ -390,9 +423,52 @@ export function createMethodBodyComparisonCoordinator(
             }, boundaryFailure);
             return undefined;
           },
-          abandon: () => {
+          abandon: () => undefined,
+        },
+      };
+    },
+  };
+  };
+  const comparisonProducerAdapter =
+    dependencies.comparisonAdapter ?? legacyComparisonAdapter();
+  const comparisonAdapter: OperationProducerAdapter<
+    BrowserMethodBodyComparisonRequest,
+    BrowserMethodBodyComparison,
+    unknown,
+    never,
+    unknown
+  > = {
+    prepare(identity, request, sink, cancellation) {
+      comparisonRequests.set(identity.id, request);
+      const contextualSink = {
+        reportProgress: sink.reportProgress,
+        reportDurable: sink.reportDurable,
+        commitTerminal: sink.commitTerminal,
+        reportTerminal: sink.reportTerminal,
+        reportUnexpectedTerminal: sink.reportUnexpectedTerminal,
+        reportUnexpectedFailure: sink.reportUnexpectedFailure,
+        reportQuiesced: (): undefined => {
+          comparisonRequests.delete(identity.id);
+          return sink.reportQuiesced();
+        },
+      };
+      const prepared = comparisonProducerAdapter.prepare(
+        identity,
+        request,
+        contextualSink,
+        cancellation);
+      if (prepared.kind === "rejected") {
+        comparisonRequests.delete(identity.id);
+        return prepared;
+      }
+      return {
+        kind: "prepared",
+        binding: {
+          requestCancellation: prepared.binding.requestCancellation,
+          activate: prepared.binding.activate,
+          abandon: (): undefined => {
             comparisonRequests.delete(identity.id);
-            return undefined;
+            return prepared.binding.abandon();
           },
         },
       };

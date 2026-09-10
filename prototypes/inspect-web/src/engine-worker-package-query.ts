@@ -13,6 +13,7 @@ import type {
 } from "./package-query.ts";
 import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
 import type {
+  WorkerRuntimeControlledOperationAdapter,
   WorkerRuntimeControlledOperationRegistration,
   WorkerRuntimePreparationError,
 } from "./worker-runtime-core.ts";
@@ -27,12 +28,9 @@ import type {
   WorkerOperationCatalog,
   WorkerOperationContext,
 } from "./worker-runtime-realm.ts";
-import {
-  engineWorkerBoundaryErrors,
-  mapEngineWorkerBoundaryErrors,
-} from "./engine-worker-contract.ts";
+import { engineWorkerBoundaryErrors } from "./engine-worker-contract.ts";
 
-const engineWorkerPackageQueryKind = "package-query";
+export const engineWorkerPackageQueryKind = "package-query";
 
 const maximumRequestCharacters = 1_048_576;
 const maximumEventCharacters = 1_048_576;
@@ -143,17 +141,24 @@ export type EngineWorkerPackageQueryInput =
       readonly initialMatchCredit: number;
     };
 
-export interface EngineWorkerPackageQueryTerminalFailure {
-  readonly failureKind: "Expected" | "Unexpected";
-  readonly error: string;
-  readonly diagnostic: string;
-}
-
 type PackageQuerySettlement = ManagedOperationSettlement<
   EngineWorkerPackageQueryCompletionEvent,
-  EngineWorkerPackageQueryTerminalFailure,
+  string,
   string
 >;
+
+export type EngineWorkerPackageQueryAdapter =
+  WorkerRuntimeControlledOperationAdapter<
+    QueryRequest,
+    EngineWorkerPackageQueryCompletionEvent,
+    string,
+    never,
+    WorkerRuntimePreparationError,
+    EngineWorkerPackageQueryDurableEvent,
+    number,
+    number,
+    string
+  >;
 
 type PackageFacade =
   typeof import("./facades/inspect-web-package.d.ts");
@@ -922,57 +927,14 @@ function boundedDiagnostic(value: unknown, description: string): string {
   return decoded.value;
 }
 
-const engineWorkerPackageQueryFailure:
-BoundedPayloadDecoder<EngineWorkerPackageQueryTerminalFailure> = {
-  decode(value) {
-    try {
-      const failure = dataRecord(value, [
-        "failureKind",
-        "error",
-        "diagnostic",
-      ], "Package Query failure");
-      return {
-        kind: "decoded",
-        value: {
-          failureKind: literal(
-            failure.failureKind,
-            ["Expected", "Unexpected"] as const,
-            "Package Query failure kind"),
-          error: boundedDiagnostic(
-            failure.error,
-            "Package Query error"),
-          diagnostic: boundedDiagnostic(
-            failure.diagnostic,
-            "Package Query diagnostic"),
-        },
-      };
-    } catch (error: unknown) {
-      return rejected(error);
-    }
-  },
-};
-
-function packageQueryFailure(
-  failureKind: EngineWorkerPackageQueryTerminalFailure["failureKind"],
-  error: string,
-  diagnostic: string,
-): EngineWorkerPackageQueryTerminalFailure {
-  return { failureKind, error, diagnostic };
-}
-
-const packageQueryBoundaryErrors = mapEngineWorkerBoundaryErrors(message =>
-  packageQueryFailure("Unexpected", message, message));
-
 function transportLimitFailure(
   diagnostic: string,
 ): PackageQuerySettlement {
-  const error = "Package Query exceeded Worker transport limits.";
-  const bounded = diagnostic.slice(0, maximumDiagnosticCharacters);
   return {
     kind: "failed",
     failureKind: "unexpected",
-    error: packageQueryFailure("Unexpected", error, bounded),
-    diagnostic: bounded,
+    error: "Package Query exceeded Worker transport limits.",
+    diagnostic: diagnostic.slice(0, maximumDiagnosticCharacters),
   };
 }
 
@@ -981,15 +943,13 @@ function invalidResultFailure(error: unknown): PackageQuerySettlement {
     && error.reason === "oversized") {
     return transportLimitFailure(error.message);
   }
-  const failure = "Package Query returned invalid Worker boundary data.";
-  const diagnostic = error instanceof Error
-    ? error.message.slice(0, maximumDiagnosticCharacters)
-    : "Package Query result validation failed.";
   return {
     kind: "failed",
     failureKind: "unexpected",
-    error: packageQueryFailure("Unexpected", failure, diagnostic),
-    diagnostic,
+    error: "Package Query returned invalid Worker boundary data.",
+    diagnostic: error instanceof Error
+      ? error.message.slice(0, maximumDiagnosticCharacters)
+      : "Package Query result validation failed.",
   };
 }
 
@@ -1026,23 +986,20 @@ export function mapEngineWorkerPackageQueryResult(
     if (result.kind === "Failed") {
       nullValue(result.value, "Package Query failure value");
       nullValue(result.reason, "Package Query failure reason");
-      const failureKind = literal(
-        result.failureKind,
-        ["Expected", "Unexpected"] as const,
-        "Package Query failure kind");
-      const error = boundedDiagnostic(
-        result.error,
-        "Package Query error");
-      const diagnostic = boundedDiagnostic(
-        result.diagnostic,
-        "Package Query diagnostic");
       return {
         kind: "failed",
-        failureKind: failureKind === "Expected"
+        failureKind: literal(
+          result.failureKind,
+          ["Expected", "Unexpected"] as const,
+          "Package Query failure kind") === "Expected"
           ? "expected"
           : "unexpected",
-        error: packageQueryFailure(failureKind, error, diagnostic),
-        diagnostic,
+        error: boundedDiagnostic(
+          result.error,
+          "Package Query error"),
+        diagnostic: boundedDiagnostic(
+          result.diagnostic,
+          "Package Query diagnostic"),
       };
     }
     if (result.kind === "Canceled") {
@@ -1163,7 +1120,7 @@ function mapControlRequestError(
       WorkerRuntimeControlledOperationRegistration<
         QueryRequest,
         EngineWorkerPackageQueryCompletionEvent,
-        EngineWorkerPackageQueryTerminalFailure,
+        string,
         string,
         never,
         WorkerRuntimePreparationError,
@@ -1193,7 +1150,7 @@ export function createEngineWorkerPackageQueryHostRegistration():
 WorkerRuntimeControlledOperationRegistration<
   QueryRequest,
   EngineWorkerPackageQueryCompletionEvent,
-  EngineWorkerPackageQueryTerminalFailure,
+  string,
   string,
   never,
   WorkerRuntimePreparationError,
@@ -1207,12 +1164,12 @@ WorkerRuntimeControlledOperationRegistration<
     allowance: { kind: "unbounded" },
     encodeInput: encodeQueryRequest,
     value: engineWorkerPackageQueryCompletionEvent,
-    error: engineWorkerPackageQueryFailure,
+    error: packageQueryText,
     diagnostic: packageQueryText,
     progress: packageQueryNoProgress,
     durable: engineWorkerPackageQueryDurableEvent,
     mapPreparationError: error => error,
-    boundaryErrors: packageQueryBoundaryErrors,
+    boundaryErrors: engineWorkerBoundaryErrors,
     control: {
       encodeInput: value => packageQueryCredit.decode(value),
       value: packageQueryCredit,
@@ -1281,11 +1238,7 @@ export function registerEngineWorkerPackageQueryOperation(
     allowance: { kind: "unbounded" },
     input: engineWorkerPackageQueryInput,
     rejectInvalidPayload: failure => ({
-      error: packageQueryFailure(
-        "Unexpected",
-        failure.message,
-        failure.message,
-      ),
+      error: failure.message,
       diagnostic: failure.message,
     }),
     invoke: async (input, context) => {

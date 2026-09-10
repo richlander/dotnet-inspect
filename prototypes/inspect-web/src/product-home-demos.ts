@@ -126,10 +126,9 @@ function packageTab(
  * Returns null when the demo runs through an engine operation instead
  * (member-bound Call Graph today).
  */
-export async function productHomeDemoLocationHref(
+function productHomeDemoLocationState(
   demo: ProductHomeDemoResolved,
-  encode: AsyncWorkspaceShareEncoder,
-): Promise<string | null> {
+): WorkspaceUrlState | null {
   const section = demo.view.section;
   if (section === "Call Graph" && demo.view.memberAnchor) {
     return null;
@@ -156,7 +155,7 @@ export async function productHomeDemoLocationHref(
     ...groupTabs.map(tab => tab.id),
     ...tabs.filter(tab => tab.kind === "package").map(tab => tab.id),
   ];
-  return await locationHref({
+  return {
     package: focusTab.kind === "group"
       ? BROWSER_RUNTIME_PACKAGE
       : focusTab.source,
@@ -176,7 +175,22 @@ export async function productHomeDemoLocationHref(
       section: null,
       libraries: demo.view.library ? [demo.view.library] : [],
     },
-  }, encode);
+  };
+}
+
+export async function productHomeDemoLocationHref(
+  demo: ProductHomeDemoResolved,
+  encode: AsyncWorkspaceShareEncoder,
+): Promise<string | null> {
+  const state = productHomeDemoLocationState(demo);
+  return state === null ? null : await locationHref(state, encode);
+}
+
+export async function productHomeDemoLocationHrefAsync(
+  demo: ProductHomeDemoResolved,
+  encode: AsyncWorkspaceShareEncoder,
+): Promise<string | null> {
+  return await productHomeDemoLocationHref(demo, encode);
 }
 
 export function homeDemosEntryHtml(

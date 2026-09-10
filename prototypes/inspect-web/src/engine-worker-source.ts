@@ -18,7 +18,7 @@ import {
   isWorkerOperationCancelReason,
   type ManagedOperationSettlement,
 } from "./worker-runtime-protocol.ts";
-import { mapEngineWorkerBoundaryErrors } from "./engine-worker-contract.ts";
+import { engineWorkerBoundaryErrors } from "./engine-worker-contract.ts";
 
 export const engineWorkerTypeSourceKind = "type-source";
 
@@ -51,18 +51,8 @@ export interface EngineWorkerTypeSourceFacade {
   ): BrowserTypeSourceCancellation;
 }
 
-export interface EngineWorkerTypeSourceFailure {
-  readonly failureKind: "Expected" | "Unexpected";
-  readonly error: string;
-  readonly diagnostic: string;
-}
-
 type TypeSourceSettlement =
-  ManagedOperationSettlement<
-    BrowserSource,
-    EngineWorkerTypeSourceFailure,
-    string
-  >;
+  ManagedOperationSettlement<BrowserSource, string, string>;
 
 function dataRecord(value: unknown): object | null {
   return typeof value === "object"
@@ -244,47 +234,6 @@ export const engineWorkerTypeSourceValue: BoundedPayloadDecoder<BrowserSource> =
 const typeSourceError = boundedString("Type Source error");
 const typeSourceDiagnostic = boundedString("Type Source diagnostic");
 
-const engineWorkerTypeSourceFailure:
-BoundedPayloadDecoder<EngineWorkerTypeSourceFailure> = {
-  decode(value) {
-    const candidate = dataRecord(value);
-    if (candidate === null || !hasExactData(candidate, [
-      "failureKind",
-      "error",
-      "diagnostic",
-    ])) {
-      return rejected("Expected a Type Source failure.");
-    }
-    const failureKind = ownData(candidate, "failureKind");
-    if (failureKind !== "Expected" && failureKind !== "Unexpected")
-      return rejected("Type Source failure kind is invalid.");
-    const error = typeSourceError.decode(ownData(candidate, "error"));
-    if (error.kind === "rejected") return error;
-    const diagnostic =
-      typeSourceDiagnostic.decode(ownData(candidate, "diagnostic"));
-    if (diagnostic.kind === "rejected") return diagnostic;
-    return {
-      kind: "decoded",
-      value: {
-        failureKind,
-        error: error.value,
-        diagnostic: diagnostic.value,
-      },
-    };
-  },
-};
-
-function typeSourceFailure(
-  failureKind: EngineWorkerTypeSourceFailure["failureKind"],
-  error: string,
-  diagnostic: string,
-): EngineWorkerTypeSourceFailure {
-  return { failureKind, error, diagnostic };
-}
-
-const typeSourceBoundaryErrors = mapEngineWorkerBoundaryErrors(message =>
-  typeSourceFailure("Unexpected", message, message));
-
 export const engineWorkerTypeSourceProgress: BoundedPayloadDecoder<never> = {
   decode() {
     return rejected("Type Source does not publish progress payloads.");
@@ -302,25 +251,22 @@ function cancellationReason(
 function transportLimitFailure(
   diagnostic: string,
 ): TypeSourceSettlement {
-  const error = "Type Source exceeded Worker transport limits.";
   return {
     kind: "failed",
     failureKind: "unexpected",
-    error: typeSourceFailure("Unexpected", error, diagnostic),
+    error: "Type Source exceeded Worker transport limits.",
     diagnostic,
   };
 }
 
 function invalidResultFailure(error: unknown): TypeSourceSettlement {
-  const failure = "Type Source returned invalid Worker boundary data.";
-  const diagnostic = error instanceof Error
-    ? error.message.slice(0, maxAuxiliaryCharacters)
-    : "Type Source result validation failed.";
   return {
     kind: "failed",
     failureKind: "unexpected",
-    error: typeSourceFailure("Unexpected", failure, diagnostic),
-    diagnostic,
+    error: "Type Source returned invalid Worker boundary data.",
+    diagnostic: error instanceof Error
+      ? error.message.slice(0, maxAuxiliaryCharacters)
+      : "Type Source result validation failed.",
   };
 }
 
@@ -382,7 +328,7 @@ export function mapEngineWorkerTypeSourceResult(
     return {
       kind: "failed",
       failureKind: failureKind === "Expected" ? "expected" : "unexpected",
-      error: typeSourceFailure(failureKind, error.value, diagnostic.value),
+      error: error.value,
       diagnostic: diagnostic.value,
     };
   }
@@ -434,7 +380,7 @@ export function createEngineWorkerTypeSourceHostRegistration():
 WorkerRuntimeOperationRegistration<
   TypeSourceLoadRequest,
   BrowserSource,
-  EngineWorkerTypeSourceFailure,
+  string,
   string,
   never,
   WorkerRuntimePreparationError
@@ -453,11 +399,11 @@ WorkerRuntimeOperationRegistration<
       });
     },
     value: engineWorkerTypeSourceValue,
-    error: engineWorkerTypeSourceFailure,
+    error: typeSourceError,
     diagnostic: typeSourceDiagnostic,
     progress: engineWorkerTypeSourceProgress,
     mapPreparationError: error => error,
-    boundaryErrors: typeSourceBoundaryErrors,
+    boundaryErrors: engineWorkerBoundaryErrors,
   };
 }
 
@@ -470,11 +416,7 @@ export function registerEngineWorkerTypeSourceOperation(
     allowance: { kind: "unbounded" },
     input: engineWorkerTypeSourceInput,
     rejectInvalidPayload: failure => ({
-      error: typeSourceFailure(
-        "Unexpected",
-        failure.message,
-        failure.message,
-      ),
+      error: failure.message,
       diagnostic: failure.message,
     }),
     invoke: async (input, context) => {

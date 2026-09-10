@@ -1,5 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+
+import {
+  bindEngineWorkerAnalysisClient,
+  engineWorkerAnalysisOperationKinds,
+  registerEngineWorkerAnalysisOperations,
+  type EngineWorkerAnalysisFacade,
+} from "../src/engine-worker-analysis.ts";
+import {
+  bindEngineWorkerCallGraphClient,
+  engineWorkerCallGraphOperationKinds,
+  registerEngineWorkerCallGraphOperations,
+  type EngineWorkerCallGraphFacade,
+} from "../src/engine-worker-call-graph.ts";
+import {
+  bindEngineWorkerCatalogClient,
+  engineWorkerCatalogOperationKinds,
+  registerEngineWorkerCatalogOperations,
+  type EngineWorkerCatalogFacade,
+} from "../src/engine-worker-catalog.ts";
 import {
   createEngineWorkerProducerClasses,
   engineWorkerDiagnostic,
@@ -7,15 +26,52 @@ import {
   engineWorkerText,
 } from "../src/engine-worker-contract.ts";
 import {
-  bindEngineWorkerOrdinaryClient,
-  engineWorkerOrdinaryMaximumCollectionEntries,
-  engineWorkerOrdinaryMaximumJsonCharacters,
-  engineWorkerOrdinaryMaximumNesting,
-  engineWorkerOrdinaryOperationKinds,
-  engineWorkerOrdinaryOperations,
-  registerEngineWorkerOrdinaryOperations,
-  type EngineWorkerOrdinaryFacades,
+  bindEngineWorkerMetadataClient,
+  engineWorkerMetadataOperationKinds,
+  registerEngineWorkerMetadataOperations,
+  type EngineWorkerMetadataFacade,
+} from "../src/engine-worker-metadata.ts";
+import {
+  engineWorkerOrdinaryMaximumInputJsonCharacters,
+  engineWorkerOrdinaryMaximumResultJsonCharacters,
+  setEngineWorkerBindingPage,
 } from "../src/engine-worker-ordinary.ts";
+import { engineWorkerCanaryKind } from "../src/engine-worker-contract.ts";
+import { engineWorkerCpuKind } from "../src/engine-worker-cpu.ts";
+import { engineWorkerPackageQueryKind } from "../src/engine-worker-package-query.ts";
+import { engineStartupOperations } from "../src/engine-worker-startup-contract.ts";
+import { engineWorkerTypeSourceKind } from "../src/engine-worker-source.ts";
+import {
+  engineWorkerMemberSourceComparisonKind,
+  engineWorkerMethodBodyComparisonKind,
+  engineWorkerMethodBodyTargetsKind,
+} from "../src/engine-worker-source-authority.ts";
+import {
+  bindEngineWorkerPackageClient,
+  engineWorkerPackageOperationKinds,
+  engineWorkerPackageOperations,
+  registerEngineWorkerPackageOperations,
+  type EngineWorkerPackageFacade,
+} from "../src/engine-worker-package.ts";
+import {
+  bindEngineWorkerStartupClient,
+  registerEngineWorkerStartupOperations,
+} from "../src/engine-worker-startup.ts";
+import {
+  bindEngineWorkerOrdinarySourceClient,
+  engineWorkerOrdinarySourceOperationKinds,
+  registerEngineWorkerOrdinarySourceOperations,
+  type EngineWorkerOrdinarySourceFacade,
+} from "../src/engine-worker-source-ordinary.ts";
+import type { BrowserCallGraph } from "../src/facades/inspect-web-call-graph.d.ts";
+import type { BrowserWorkspaceShareDecodeResult } from "../src/facades/inspect-web-catalog.d.ts";
+import type { BrowserHeapListing } from "../src/facades/inspect-web-metadata.d.ts";
+import type { BrowserPackageAssemblyQueryPattern } from "../src/facades/inspect-web-package.d.ts";
+import type { BrowserSource } from "../src/facades/inspect-web-source.d.ts";
+import {
+  createOperationAuthorityPage,
+  type OperationAuthorityPage,
+} from "../src/operation-authority.ts";
 import {
   FakeWorkerRuntime,
   ManualWorkerRuntimeEnvironment,
@@ -24,159 +80,234 @@ import {
 } from "../src/worker-runtime-core.ts";
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 
-type FacadeOverrides = {
-  readonly [TGroup in keyof EngineWorkerOrdinaryFacades]?:
-    Partial<EngineWorkerOrdinaryFacades[TGroup]>;
+const patterns: readonly BrowserPackageAssemblyQueryPattern[] = [{
+  id: "implements",
+  label: "Implements",
+  summary: "Find implementations.",
+  maximumOperandLength: 200,
+  maximumPackages: 20,
+}];
+
+const heap: BrowserHeapListing = {
+  assembly: "Example.dll",
+  heap: "strings",
+  streamName: "#Strings",
+  coverage: "Complete",
+  entries: [],
+  rowsTruncated: false,
+  entriesTruncated: false,
+  error: null,
 };
 
-function unexpected(name: string): never {
-  throw new Error(`Unexpected facade call: ${name}.`);
-}
+const source: BrowserSource = {
+  provider: "decompiled",
+  provenance: "fixture",
+  url: null,
+  pdbSourceLimitation: null,
+  text: "public sealed class Widget {}",
+};
 
-// oxlint-disable-next-line typescript/no-unnecessary-type-parameters
-function contractViolation<T>(value: unknown): T {
-  // Tests use this one cast to exercise runtime rejection beyond declarations.
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return value as T;
-}
+const graphNode = {
+  label: "Widget.Run",
+  status: "Resolved",
+  inLoop: false,
+  source: null,
+  children: [],
+  assembly: "Example",
+  typeFullName: "Example.Widget",
+  memberName: "Run",
+};
 
-const defaultFacades: EngineWorkerOrdinaryFacades = {
-  package: {
-    getPlatformCatalog: () => unexpected("getPlatformCatalog"),
-    getPlatformVersions: () => unexpected("getPlatformVersions"),
-    listPackageAssemblyQueryPatterns: () =>
-      unexpected("listPackageAssemblyQueryPatterns"),
-    matchPackageDependencyCoordinate: () =>
-      unexpected("matchPackageDependencyCoordinate"),
-    searchTypes: () => unexpected("searchTypes"),
-    activateWorkspacePackageOccurrence: () =>
-      unexpected("activateWorkspacePackageOccurrence"),
-    clearWorkspacePackageOccurrences: () =>
-      unexpected("clearWorkspacePackageOccurrences"),
-    packageCacheStats: () => unexpected("packageCacheStats"),
-    prefetchPlatformPacks: () => unexpected("prefetchPlatformPacks"),
-    queryPackage: () => unexpected("queryPackage"),
-    openPackageAssemblyQueryResult: () =>
-      unexpected("openPackageAssemblyQueryResult"),
-    loadRuntimePack: () => unexpected("loadRuntimePack"),
-    loadRuntimePackAssembly: () =>
-      unexpected("loadRuntimePackAssembly"),
-    getPackageDocument: () => unexpected("getPackageDocument"),
-    queryMemberDocumentation: () =>
-      unexpected("queryMemberDocumentation"),
-    queryPackageDependencies: () =>
-      unexpected("queryPackageDependencies"),
-    queryPackageVersions: () => unexpected("queryPackageVersions"),
-    queryWorkspacePackageOccurrences: () =>
-      unexpected("queryWorkspacePackageOccurrences"),
-    resolvePackageDependencyVersion: () =>
-      unexpected("resolvePackageDependencyVersion"),
+const graph: BrowserCallGraph = {
+  mermaid: "graph TD",
+  callers: graphNode,
+  callees: graphNode,
+  scope: {
+    packages: 1,
+    assemblies: 1,
+    callerAssemblies: 1,
+    calleeScope: "Workspace",
   },
-  metadata: {
-    queryTypeProjection: () => unexpected("queryTypeProjection"),
-    queryPackageMetadataTable: () =>
-      unexpected("queryPackageMetadataTable"),
-    queryPlatformMetadataTable: () =>
-      unexpected("queryPlatformMetadataTable"),
-    queryPackageHeapEntries: () =>
-      unexpected("queryPackageHeapEntries"),
-    queryPlatformHeapEntries: () =>
-      unexpected("queryPlatformHeapEntries"),
-    queryPackageMetadata: () => unexpected("queryPackageMetadata"),
-    queryPlatformMetadata: () => unexpected("queryPlatformMetadata"),
-    queryGraphMemberSurface: () =>
-      unexpected("queryGraphMemberSurface"),
+  targets: [],
+  diagnostics: {
+    incompleteNodes: 0,
+    incompleteEdges: 0,
+    bindingIdentityConflicts: 0,
+    hasUnexploredTraversalBoundary: false,
+    hasAnalysisFailureBoundary: false,
+    isIncomplete: false,
   },
-  analysis: {
-    queryMemberFacts: () => unexpected("queryMemberFacts"),
-    queryPackageIntegrations: () =>
-      unexpected("queryPackageIntegrations"),
-    queryPlatformIntegrations: () =>
-      unexpected("queryPlatformIntegrations"),
-    queryPackageOpportunities: () =>
-      unexpected("queryPackageOpportunities"),
-    queryPlatformOpportunities: () =>
-      unexpected("queryPlatformOpportunities"),
-    queryPackagePerformance: () =>
-      unexpected("queryPackagePerformance"),
-    queryPlatformPerformance: () =>
-      unexpected("queryPlatformPerformance"),
-  },
-  source: {
-    queryMemberSource: () => unexpected("queryMemberSource"),
-    queryTypeMemberSource: () => unexpected("queryTypeMemberSource"),
-    cancelSourceQuery: () => unexpected("cancelSourceQuery"),
-    queryMethodBodyComparisonTargets: () =>
-      unexpected("queryMethodBodyComparisonTargets"),
-    queryMethodBodyComparison: () =>
-      unexpected("queryMethodBodyComparison"),
-    cancelMethodBodyComparison: () =>
-      unexpected("cancelMethodBodyComparison"),
-    queryMemberSourceComparison: () =>
-      unexpected("queryMemberSourceComparison"),
-    cancelMemberSourceComparison: () =>
-      unexpected("cancelMemberSourceComparison"),
-    queryMemberFindingCensus: () =>
-      unexpected("queryMemberFindingCensus"),
-  },
-  callGraph: {
-    queryMemberCallGraph: () => unexpected("queryMemberCallGraph"),
-    expandPlatformCallGraph: () =>
-      unexpected("expandPlatformCallGraph"),
-  },
-  catalog: {
-    resolveHomeDemo: () => unexpected("resolveHomeDemo"),
-    decodeWorkspaceShareState: () =>
-      unexpected("decodeWorkspaceShareState"),
-    encodeWorkspaceShareState: () =>
-      unexpected("encodeWorkspaceShareState"),
-    runHomeDemo: () => unexpected("runHomeDemo"),
+  noBody: false,
+};
+
+const decodedShare: BrowserWorkspaceShareDecodeResult = {
+  succeeded: false,
+  state: null,
+  failure: {
+    kind: "InvalidPacket",
+    path: "$",
+    message: "Packet is invalid.",
   },
 };
 
-function createFacades(
-  overrides: FacadeOverrides = {},
-): EngineWorkerOrdinaryFacades {
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolvePromise: ((value: T) => void) | undefined;
+  const promise = new Promise<T>(resolve => {
+    resolvePromise = resolve;
+  });
   return {
-    package: { ...defaultFacades.package, ...overrides.package },
-    metadata: { ...defaultFacades.metadata, ...overrides.metadata },
-    analysis: { ...defaultFacades.analysis, ...overrides.analysis },
-    source: { ...defaultFacades.source, ...overrides.source },
-    callGraph: { ...defaultFacades.callGraph, ...overrides.callGraph },
-    catalog: { ...defaultFacades.catalog, ...overrides.catalog },
+    promise,
+    resolve: value => {
+      resolvePromise?.(value);
+    },
   };
 }
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>(accept => {
-    resolve = accept;
-  });
-  return { promise, resolve };
+function unavailable(): never {
+  throw new Error("Unexpected facade call.");
 }
 
-function fixture(overrides: FacadeOverrides = {}) {
+interface FixtureOptions {
+  readonly loadRuntimePack?: EngineWorkerPackageFacade["loadRuntimePack"];
+  readonly runHomeDemo?: EngineWorkerCatalogFacade["runHomeDemo"];
+  readonly queryMemberSource?:
+    EngineWorkerOrdinarySourceFacade["queryMemberSource"];
+  readonly bindingPage?: OperationAuthorityPage;
+}
+
+function fixture(options: FixtureOptions = {}) {
   const environment = new ManualWorkerRuntimeEnvironment();
+  const calls: Array<{
+    readonly operation: string;
+    readonly arguments: readonly unknown[];
+  }> = [];
   const diagnostics: string[] = [];
   const failures: string[] = [];
+
+  const packageFacade: EngineWorkerPackageFacade = {
+    activateWorkspacePackageOccurrence: unavailable,
+    clearWorkspacePackageOccurrences() {
+      calls.push({ operation: "clearWorkspacePackageOccurrences", arguments: [] });
+    },
+    getPackageDocument: unavailable,
+    getPlatformCatalog: unavailable,
+    getPlatformVersions: unavailable,
+    listPackageAssemblyQueryPatterns() {
+      calls.push({ operation: "listPackageAssemblyQueryPatterns", arguments: [] });
+      return patterns;
+    },
+    loadRuntimePack: options.loadRuntimePack ?? unavailable,
+    loadRuntimePackAssembly: unavailable,
+    matchPackageDependencyCoordinate: unavailable,
+    openPackageAssemblyQueryResult: unavailable,
+    packageCacheStats: unavailable,
+    prefetchPlatformPacks: unavailable,
+    queryMemberDocumentation: unavailable,
+    queryPackage: unavailable,
+    queryPackageDependencies: unavailable,
+    queryPackageVersions: unavailable,
+    queryWorkspacePackageOccurrences: unavailable,
+    resolvePackageDependencyVersion: unavailable,
+    searchTypes: unavailable,
+  };
+  const metadataFacade: EngineWorkerMetadataFacade = {
+    queryGraphMemberSurface: unavailable,
+    queryPackageHeapEntries(...arguments_) {
+      calls.push({ operation: "queryPackageHeapEntries", arguments: arguments_ });
+      return Promise.resolve(heap);
+    },
+    queryPackageMetadata: unavailable,
+    queryPackageMetadataTable: unavailable,
+    queryPlatformHeapEntries: unavailable,
+    queryPlatformMetadata: unavailable,
+    queryPlatformMetadataTable: unavailable,
+    queryTypeProjection: unavailable,
+  };
+  const analysisFacade: EngineWorkerAnalysisFacade = {
+    queryMemberFacts: unavailable,
+    queryPackageIntegrations: unavailable,
+    queryPackageOpportunities: unavailable,
+    queryPackagePerformance: unavailable,
+    queryPlatformIntegrations: unavailable,
+    queryPlatformOpportunities: unavailable,
+    queryPlatformPerformance(...arguments_) {
+      calls.push({ operation: "queryPlatformPerformance", arguments: arguments_ });
+      return Promise.resolve("{\"members\":[]}");
+    },
+  };
+  const sourceFacade: EngineWorkerOrdinarySourceFacade = {
+    cancelSourceQuery() {
+      calls.push({ operation: "cancelSourceQuery", arguments: [] });
+    },
+    queryMemberFindingCensus: unavailable,
+    queryMemberSource(...arguments_) {
+      calls.push({ operation: "queryMemberSource", arguments: arguments_ });
+      return options.queryMemberSource?.(...arguments_)
+        ?? Promise.resolve(source);
+    },
+    queryTypeMemberSource: unavailable,
+  };
+  const callGraphFacade: EngineWorkerCallGraphFacade = {
+    expandPlatformCallGraph: unavailable,
+    queryMemberCallGraph(...arguments_) {
+      calls.push({ operation: "queryMemberCallGraph", arguments: arguments_ });
+      return Promise.resolve(graph);
+    },
+  };
+  const catalogFacade: EngineWorkerCatalogFacade = {
+    decodeWorkspaceShareState(...arguments_) {
+      calls.push({ operation: "decodeWorkspaceShareState", arguments: arguments_ });
+      return decodedShare;
+    },
+    encodeWorkspaceShareState: unavailable,
+    resolveHomeDemo(scenarioId) {
+      calls.push({ operation: "resolveHomeDemo", arguments: [scenarioId] });
+      return { found: false, demo: null };
+    },
+    runHomeDemo: options.runHomeDemo ?? unavailable,
+  };
+
   const operations = new WorkerOperationCatalog();
-  const facades = createFacades(overrides);
-  registerEngineWorkerOrdinaryOperations(operations, () => facades);
-  const workers = Array.from({ length: 2 }, () =>
-    new FakeWorkerRuntime({
-      scheduler: environment,
-      bootstrap: {
-        decoder: engineWorkerText,
-        bootstrap: () => undefined,
-      },
-      diagnostic: engineWorkerDiagnostic,
-      unknownOperationRejection: () => ({
-        error: "Unknown operation.",
-        diagnostic: "Unknown operation.",
-      }),
-      operations,
-      producerClasses: createEngineWorkerProducerClasses(),
-    }));
+  registerEngineWorkerPackageOperations(operations, () => packageFacade);
+  registerEngineWorkerMetadataOperations(operations, () => metadataFacade);
+  registerEngineWorkerAnalysisOperations(operations, () => analysisFacade);
+  registerEngineWorkerOrdinarySourceOperations(operations, () => sourceFacade);
+  registerEngineWorkerCallGraphOperations(operations, () => callGraphFacade);
+  registerEngineWorkerCatalogOperations(operations, () => catalogFacade);
+  registerEngineWorkerStartupOperations(operations, {
+    async buildIdentity() {
+      return {
+        version: "1.0",
+        commit: null,
+        builtAtUtc: null,
+        commitUrl: null,
+      };
+    },
+    listVocabulary: unavailable,
+    listHomeDemos: unavailable,
+    listPackageQueryFacets: unavailable,
+    listGalleryDiscoveryCatalog: unavailable,
+  });
+
+  const workers = Array.from({ length: 2 }, () => new FakeWorkerRuntime({
+    scheduler: environment,
+    bootstrap: {
+      decoder: engineWorkerText,
+      bootstrap: () => undefined,
+    },
+    diagnostic: engineWorkerDiagnostic,
+    unknownOperationRejection: kind => ({
+      error: `Unknown operation: ${kind}`,
+      diagnostic: `Unknown operation: ${kind}`,
+    }),
+    operations,
+    producerClasses: createEngineWorkerProducerClasses(),
+  }));
   const host = new WorkerRuntimeHost({
     ...engineWorkerPolicy,
     transport: new QueueWorkerRuntimeTransportFactory(workers),
@@ -192,422 +323,373 @@ function fixture(overrides: FacadeOverrides = {}) {
     callbacks: {
       failure: failure => {
         failures.push(failure.kind);
-        return undefined;
       },
       diagnostic: diagnostic => {
         diagnostics.push(diagnostic.kind);
-        return undefined;
       },
       realmReleased: () => undefined,
     },
   });
   assert.equal(host.start("https://inspect.example").kind, "started");
-  const client = bindEngineWorkerOrdinaryClient(host, diagnostic => {
+  if (options.bindingPage !== undefined) {
+    const epoch = host.snapshot().epochToken;
+    assert.notEqual(epoch, null);
+    setEngineWorkerBindingPage(host, epoch!, options.bindingPage);
+  }
+  const reportDiagnostic = (diagnostic: { readonly kind: string }) => {
     diagnostics.push(diagnostic.kind);
     return undefined;
-  });
+  };
   return {
-    client,
-    diagnostics,
     environment,
-    failures,
     host,
-    workers,
+    calls,
+    diagnostics,
+    failures,
+    startup: bindEngineWorkerStartupClient(host, reportDiagnostic),
+    package: bindEngineWorkerPackageClient(host, reportDiagnostic),
+    metadata: bindEngineWorkerMetadataClient(host, reportDiagnostic),
+    analysis: bindEngineWorkerAnalysisClient(host, reportDiagnostic),
+    source: bindEngineWorkerOrdinarySourceClient(host, reportDiagnostic),
+    callGraph: bindEngineWorkerCallGraphClient(host, reportDiagnostic),
+    catalog: bindEngineWorkerCatalogClient(host, reportDiagnostic),
   };
 }
 
-test("ordinary transport preserves sync, async DTO, void, null, and arguments", async () => {
-  const searchResult = [{
-    key: "System.String",
-    kind: "type",
-    future: { nested: [null, true, 42] },
-  }];
-  const activation = {
-    activated: false,
-    superseded: false,
-    package: null,
-    future: { message: "preserved" },
-  };
-  let cleared = 0;
-  let matchArguments: readonly unknown[] = [];
-  const state = fixture({
-    package: {
-      searchTypes: () => searchResult,
-      activateWorkspacePackageOccurrence: async () => activation,
-      clearWorkspacePackageOccurrences: () => {
-        cleared++;
-      },
-      queryMemberDocumentation: async () =>
-        contractViolation(null),
-      matchPackageDependencyCoordinate: (...args) => {
-        matchArguments = args;
-        return { outcome: "Unique", candidateKey: "candidate" };
-      },
+test("ordinary and specialized operations share one epoch sequence", async () => {
+  let nextId = 1;
+  const operationAuthority = createOperationAuthorityPage({
+    allocation: { createId: () => `operation-${nextId++}` },
+  });
+  const state = fixture({ bindingPage: operationAuthority });
+
+  const startup = state.startup.host.buildIdentity();
+  await state.environment.flushAsync();
+  await startup;
+  const ordinary = state.package.listPackageAssemblyQueryPatterns();
+  await state.environment.flushAsync();
+  await ordinary;
+
+  let nextSequence: number | null = null;
+  const session = operationAuthority.createSession<
+    null,
+    string,
+    string,
+    string,
+    string
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: () => undefined },
+  });
+  const started = session.start(null, {
+    prepare(identity) {
+      nextSequence = identity.sequence;
+      return { kind: "rejected", error: "expected" };
     },
   });
+  assert.equal(started.kind, "rejected");
+  assert.equal(nextSequence, 3);
+  session.dispose();
+});
 
-  const sync = state.client.package.searchTypes("String", "[]");
-  const asyncDto =
-    state.client.package.activateWorkspacePackageOccurrence("open");
-  const voidResult =
-    state.client.package.clearWorkspacePackageOccurrences();
-  const nullResult = state.client.package.queryMemberDocumentation(
-    "Example",
-    "1.0.0",
-    "net10.0",
-    "Example.dll",
-    "M:Example.Api.Run",
-  );
-  const matched = state.client.package.matchPackageDependencyCoordinate(
-    "Dependency",
-    null,
-    "[{\"key\":\"candidate\"}]",
-  );
-  await state.environment.flushAsync();
-
-  assert.deepEqual(await sync, searchResult);
-  assert.deepEqual(await asyncDto, activation);
-  assert.equal(await voidResult, undefined);
-  assert.equal(await nullResult, null);
-  assert.deepEqual(await matched, {
-    outcome: "Unique",
-    candidateKey: "candidate",
-  });
-  assert.deepEqual(matchArguments, [
-    "Dependency",
-    null,
-    "[{\"key\":\"candidate\"}]",
+test("facade bindings preserve exact argument order and generated-shaped results", async () => {
+  const state = fixture();
+  const packageResult = state.package.listPackageAssemblyQueryPatterns();
+  assert.equal(packageResult instanceof Promise, true);
+  const results = Promise.all([
+    packageResult,
+    state.metadata.queryPackageHeapEntries(
+      "Example",
+      "1.2.3",
+      "net11.0",
+      "Example.dll",
+      "cli",
+      "strings",
+    ),
+    state.analysis.queryPlatformPerformance(
+      "net11.0",
+      "11.0.0",
+      "System.Runtime.dll",
+      "Microsoft.NETCore.App.Ref",
+    ),
+    state.source.queryMemberSource(
+      "Example",
+      "1.2.3",
+      "net11.0",
+      "Example.dll",
+      "Example.Widget",
+      "Run",
+      "selector",
+      0x06000001,
+      "[\"readable-locals\"]",
+    ),
+    state.callGraph.queryMemberCallGraph(
+      "Example",
+      "1.2.3",
+      "net11.0",
+      "Example.dll",
+      "Example.Widget",
+      "type-query",
+      "Run",
+      "void Run()",
+      "selector",
+      0x06000001,
+      "{\"packages\":[]}",
+    ),
+    state.catalog.decodeWorkspaceShareState("share-packet"),
   ]);
-  assert.equal(cleared, 1);
+
+  await state.environment.flushAsync();
+  assert.deepEqual(await results, [
+    patterns,
+    heap,
+    "{\"members\":[]}",
+    source,
+    graph,
+    decodedShare,
+  ]);
+  assert.deepEqual(state.calls, [
+    { operation: "listPackageAssemblyQueryPatterns", arguments: [] },
+    {
+      operation: "queryPackageHeapEntries",
+      arguments: [
+        "Example",
+        "1.2.3",
+        "net11.0",
+        "Example.dll",
+        "cli",
+        "strings",
+      ],
+    },
+    {
+      operation: "queryPlatformPerformance",
+      arguments: [
+        "net11.0",
+        "11.0.0",
+        "System.Runtime.dll",
+        "Microsoft.NETCore.App.Ref",
+      ],
+    },
+    {
+      operation: "queryMemberSource",
+      arguments: [
+        "Example",
+        "1.2.3",
+        "net11.0",
+        "Example.dll",
+        "Example.Widget",
+        "Run",
+        "selector",
+        0x06000001,
+        "[\"readable-locals\"]",
+      ],
+    },
+    {
+      operation: "queryMemberCallGraph",
+      arguments: [
+        "Example",
+        "1.2.3",
+        "net11.0",
+        "Example.dll",
+        "Example.Widget",
+        "type-query",
+        "Run",
+        "void Run()",
+        "selector",
+        0x06000001,
+        "{\"packages\":[]}",
+      ],
+    },
+    {
+      operation: "decodeWorkspaceShareState",
+      arguments: ["share-packet"],
+    },
+  ]);
   assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
 });
 
-test("concurrent ordinary calls use independent authority sessions", async () => {
+test("ordinary calls complete independently out of order", async () => {
   const first = deferred<string>();
   const second = deferred<string>();
-  let calls = 0;
+  let count = 0;
   const state = fixture({
-    package: {
-      resolvePackageDependencyVersion: () =>
-        ++calls === 1 ? first.promise : second.promise,
-    },
+    loadRuntimePack: () => (++count === 1 ? first.promise : second.promise),
   });
-  const one = state.client.package.resolvePackageDependencyVersion(
-    "Dependency",
-    "[1.0.0,)",
-  );
-  const two = state.client.package.resolvePackageDependencyVersion(
-    "Dependency",
-    "[2.0.0,)",
-  );
+  const one = state.package.loadRuntimePack("net11.0", "first");
+  const two = state.package.loadRuntimePack("net11.0", "second");
   await state.environment.flushAsync();
-  assert.equal(state.host.snapshot().activeOperations, 2);
 
-  second.resolve("2.1.0");
-  assert.equal(await two, "2.1.0");
-  assert.equal(state.host.snapshot().activeOperations, 1);
-  first.resolve("1.5.0");
-  assert.equal(await one, "1.5.0");
-  assert.equal(state.host.snapshot().activeOperations, 0);
-  assert.deepEqual(state.diagnostics, []);
+  second.resolve("second-pack");
+  assert.equal(await two, "second-pack");
+  first.resolve("first-pack");
+  assert.equal(await one, "first-pack");
+  assert.deepEqual(state.failures, []);
   state.host.dispose();
 });
 
-test("generated rejection fails visibly without poisoning neighboring calls", async () => {
+test("startup and ordinary bindings share independent operation identity", async () => {
+  const state = fixture();
+  const identity = state.startup.host.buildIdentity();
+  const ordinary = state.package.listPackageAssemblyQueryPatterns();
+  await state.environment.flushAsync();
+
+  assert.equal((await identity).version, "1.0");
+  assert.deepEqual(await ordinary, patterns);
+  assert.deepEqual(state.failures, []);
+  state.host.dispose();
+});
+
+test("one ordinary failure does not fail a neighboring operation", async () => {
   const state = fixture({
-    catalog: {
-      async runHomeDemo() {
-        throw new Error("Demo generation failed.");
-      },
-    },
-    package: {
-      packageCacheStats: () => ({
-        packages: 4,
-        resident: 2,
-        workspaces: 1,
-        residentBytes: 1024,
-      }),
+    runHomeDemo: async () => {
+      throw new Error("Demo failed.");
     },
   });
   const failure = assert.rejects(
-    state.client.catalog.runHomeDemo("source"),
-    /Demo generation failed/,
+    state.catalog.runHomeDemo("broken"),
+    /Demo failed/,
   );
-  const neighbor = state.client.package.packageCacheStats();
+  const neighbor = state.catalog.resolveHomeDemo("neighbor");
   await state.environment.flushAsync();
+
   await failure;
-  assert.deepEqual(await neighbor, {
-    packages: 4,
-    resident: 2,
-    workspaces: 1,
-    residentBytes: 1024,
-  });
+  assert.deepEqual(await neighbor, { found: false, demo: null });
   assert.equal(state.host.snapshot().phase, "ready");
   assert.deepEqual(state.failures, []);
   state.host.dispose();
 });
 
-test("malformed and oversized generated results reject only their calls", async () => {
+test("singleton Source cancellation dispatches while a query remains pending", async () => {
+  const pending = deferred<BrowserSource>();
   const state = fixture({
-    package: {
-      queryPackageVersions: async () =>
-        contractViolation({ versions: [undefined] }),
-      loadRuntimePack: async () =>
-        "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
-      packageCacheStats: () => ({
-        packages: 1,
-        resident: 1,
-        workspaces: 0,
-        residentBytes: 64,
-      }),
-    },
+    queryMemberSource: () => pending.promise,
   });
-  const malformed = assert.rejects(
-    state.client.package.queryPackageVersions("Example", "1.0.0"),
-    /non-JSON undefined data/,
-  );
-  const oversized = assert.rejects(
-    state.client.package.loadRuntimePack("net10.0", "10.0.0"),
-    /exceeds 1048576 characters/,
-  );
-  const neighbor = state.client.package.packageCacheStats();
+  let querySettled = false;
+  const query = state.source.queryMemberSource(
+    "Example",
+    "1.2.3",
+    "net11.0",
+    "Example.dll",
+    "Example.Widget",
+    "Run",
+    "selector",
+    0x06000001,
+    "[]",
+  ).then(value => {
+    querySettled = true;
+    return value;
+  });
+  const cancel = state.source.cancelSourceQuery();
   await state.environment.flushAsync();
-  await Promise.all([malformed, oversized]);
-  assert.equal((await neighbor).residentBytes, 64);
-  assert.equal(state.host.snapshot().phase, "ready");
-  assert.deepEqual(state.failures, []);
+
+  assert.equal(await cancel, undefined);
+  assert.equal(querySettled, false);
+  pending.resolve(source);
+  assert.deepEqual(await query, source);
   state.host.dispose();
 });
 
-test("malformed and oversized inputs are rejected before facade invocation", async () => {
-  let calls = 0;
-  const state = fixture({
-    package: {
-      queryWorkspacePackageOccurrences: async () => {
-        calls++;
-        return { occurrences: [], superseded: false };
-      },
-    },
-  });
-  const accessor = {};
-  Object.defineProperty(accessor, "value", {
-    enumerable: true,
-    get: () => "not data",
-  });
-  await assert.rejects(
-    state.client.package.queryWorkspacePackageOccurrences(
-      contractViolation(accessor),
-    ),
-    /own data property/,
-  );
-  await assert.rejects(
-    state.client.package.queryWorkspacePackageOccurrences(
-      "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
-    ),
-    /exceeds 1048576 characters/,
-  );
-  assert.equal(calls, 0);
-  assert.equal(state.host.snapshot().activeOperations, 0);
+test("void ordinary operations settle successfully and remain independent", async () => {
+  const state = fixture();
+  const clear = state.package.clearWorkspacePackageOccurrences();
+  const cancel = state.source.cancelSourceQuery();
+  await state.environment.flushAsync();
+
+  assert.equal(await clear, undefined);
+  assert.equal(await cancel, undefined);
+  assert.deepEqual(state.calls, [
+    { operation: "clearWorkspacePackageOccurrences", arguments: [] },
+    { operation: "cancelSourceQuery", arguments: [] },
+  ]);
   state.host.dispose();
 });
 
-test("JSON tuple codec rejects unsafe trees and enforces explicit bounds", () => {
-  const operation =
-    engineWorkerOrdinaryOperations.package
-      .matchPackageDependencyCoordinate;
-  type Input = Parameters<typeof operation.encodeInput>[0];
-  const encode = (value: unknown) =>
-    operation.encodeInput(contractViolation<Input>(value));
-  assert.equal(operation.input.decode("{").kind, "rejected");
-  assert.equal(operation.input.decode("[\"id\",null]").kind, "rejected");
-
-  const cyclic: unknown[] = [];
-  cyclic.push(cyclic);
-  assert.equal(encode(["id", null, cyclic]).kind, "rejected");
-
-  const sparse: unknown[] = [];
-  sparse.length = 1;
-  assert.equal(encode(["id", null, sparse]).kind, "rejected");
-
-  const extra = ["id", null, "[]"];
-  Object.defineProperty(extra, "extra", {
-    value: true,
-    enumerable: true,
-  });
-  assert.equal(encode(extra).kind, "rejected");
-
-  const symbolKey = { value: "candidate" };
-  Object.defineProperty(symbolKey, Symbol("hidden"), {
-    value: true,
-    enumerable: true,
-  });
-  assert.equal(encode(["id", null, symbolKey]).kind, "rejected");
-
-  assert.equal(encode(["id", null, Number.NaN]).kind, "rejected");
-  assert.equal(encode(["id", null, undefined]).kind, "rejected");
-  assert.equal(
-    encode(["id", null, () => undefined]).kind,
-    "rejected",
+test("ordinary codecs reject malformed and oversized boundary payloads", () => {
+  const input = engineWorkerPackageOperations.loadRuntimePack.arguments.decoder;
+  assert.equal(input.decode("[\"net11.0\"]").kind, "rejected");
+  assert.equal(input.decode("[42,\"11.0.0\"]").kind, "rejected");
+  assert.deepEqual(
+    input.decode("x".repeat(
+      engineWorkerOrdinaryMaximumInputJsonCharacters + 1,
+    )),
+    {
+      kind: "rejected",
+      reason: "oversized",
+      message: `Ordinary Worker argument JSON exceeds ${
+        engineWorkerOrdinaryMaximumInputJsonCharacters
+      } characters.`,
+    },
   );
 
-  let nested: unknown = [];
-  for (let index = 0;
-    index <= engineWorkerOrdinaryMaximumNesting;
-    index++) {
-    nested = [nested];
-  }
-  assert.equal(encode(["id", null, nested]).kind, "rejected");
-
-  const excessive = Array.from(
-    { length: engineWorkerOrdinaryMaximumCollectionEntries },
-    () => null,
+  const result = engineWorkerPackageOperations.loadRuntimePack.result.decoder;
+  assert.equal(result.decode("{").kind, "rejected");
+  assert.equal(result.decode("{}").kind, "rejected");
+  assert.deepEqual(
+    result.decode("x".repeat(
+      engineWorkerOrdinaryMaximumResultJsonCharacters + 1,
+    )),
+    {
+      kind: "rejected",
+      reason: "oversized",
+      message: `Ordinary Worker result JSON exceeds ${
+        engineWorkerOrdinaryMaximumResultJsonCharacters
+      } characters.`,
+    },
   );
-  assert.equal(encode(["id", null, excessive]).kind, "rejected");
 });
 
-test("a closed-epoch ordinary client cannot dispatch into a replacement", async () => {
-  let calls = 0;
+test("oversized page arguments reject visibly without reaching the facade", async () => {
   const state = fixture({
-    package: {
-      packageCacheStats: () => {
-        calls++;
-        return {
-          packages: 0,
-          resident: 0,
-          workspaces: 0,
-          residentBytes: 0,
-        };
-      },
-    },
+    loadRuntimePack: async () => "must-not-run",
+  });
+  await assert.rejects(
+    state.package.loadRuntimePack(
+      "x".repeat(engineWorkerOrdinaryMaximumInputJsonCharacters),
+      "11.0.0",
+    ),
+    /argument JSON exceeds 1048576 characters/,
+  );
+  assert.deepEqual(state.calls, []);
+  state.host.dispose();
+});
+
+test("the complete production Worker operation catalog is unique", () => {
+  const kinds = [
+    ...engineWorkerPackageOperationKinds,
+    ...engineWorkerMetadataOperationKinds,
+    ...engineWorkerAnalysisOperationKinds,
+    ...engineWorkerOrdinarySourceOperationKinds,
+    ...engineWorkerCallGraphOperationKinds,
+    ...engineWorkerCatalogOperationKinds,
+    ...Object.values(engineStartupOperations).map(operation => operation.kind),
+    engineWorkerPackageQueryKind,
+    engineWorkerTypeSourceKind,
+    engineWorkerMethodBodyTargetsKind,
+    engineWorkerMethodBodyComparisonKind,
+    engineWorkerMemberSourceComparisonKind,
+    engineWorkerCpuKind,
+    engineWorkerCanaryKind,
+  ];
+  assert.equal(kinds.length, 56);
+  assert.equal(new Set(kinds).size, kinds.length);
+});
+
+test("an ordinary client cannot follow a replacement Worker epoch", async () => {
+  const state = fixture({
+    loadRuntimePack: async () => "pack",
   });
   const pending = assert.rejects(
-    state.client.package.packageCacheStats(),
+    state.package.loadRuntimePack("net11.0", "11.0.0"),
     /worker-restarted/,
   );
   state.host.restart();
   await pending;
-  assert.equal(
-    state.host.start("https://inspect.example").kind,
-    "started",
-  );
+  assert.equal(state.host.start("https://inspect.example").kind, "started");
   await state.environment.flushAsync();
   await assert.rejects(
-    state.client.package.packageCacheStats(),
+    state.package.loadRuntimePack("net11.0", "11.0.0"),
     /closed Worker epoch/,
   );
-  assert.equal(calls, 0);
-  state.host.dispose();
-});
-
-test("the page client and Worker catalog expose only the closed allow-list", () => {
-  const expected = {
-    package: [
-      "activateWorkspacePackageOccurrence",
-      "clearWorkspacePackageOccurrences",
-      "getPackageDocument",
-      "getPlatformCatalog",
-      "getPlatformVersions",
-      "listPackageAssemblyQueryPatterns",
-      "loadRuntimePack",
-      "loadRuntimePackAssembly",
-      "matchPackageDependencyCoordinate",
-      "openPackageAssemblyQueryResult",
-      "packageCacheStats",
-      "prefetchPlatformPacks",
-      "queryMemberDocumentation",
-      "queryPackage",
-      "queryPackageDependencies",
-      "queryPackageVersions",
-      "queryWorkspacePackageOccurrences",
-      "resolvePackageDependencyVersion",
-      "searchTypes",
-    ],
-    metadata: [
-      "queryGraphMemberSurface",
-      "queryPackageHeapEntries",
-      "queryPackageMetadata",
-      "queryPackageMetadataTable",
-      "queryPlatformHeapEntries",
-      "queryPlatformMetadata",
-      "queryPlatformMetadataTable",
-      "queryTypeProjection",
-    ],
-    analysis: [
-      "queryMemberFacts",
-      "queryPackageIntegrations",
-      "queryPackageOpportunities",
-      "queryPackagePerformance",
-      "queryPlatformIntegrations",
-      "queryPlatformOpportunities",
-      "queryPlatformPerformance",
-    ],
-    source: [
-      "cancelMemberSourceComparison",
-      "cancelMethodBodyComparison",
-      "cancelSourceQuery",
-      "queryMemberFindingCensus",
-      "queryMemberSource",
-      "queryMemberSourceComparison",
-      "queryMethodBodyComparison",
-      "queryMethodBodyComparisonTargets",
-      "queryTypeMemberSource",
-    ],
-    callGraph: [
-      "expandPlatformCallGraph",
-      "queryMemberCallGraph",
-    ],
-    catalog: [
-      "decodeWorkspaceShareState",
-      "encodeWorkspaceShareState",
-      "resolveHomeDemo",
-      "runHomeDemo",
-    ],
-  } as const;
-  const expectedKinds = [
-    ...Object.values(engineWorkerOrdinaryOperations.package),
-    ...Object.values(engineWorkerOrdinaryOperations.metadata),
-    ...Object.values(engineWorkerOrdinaryOperations.analysis),
-    ...Object.values(engineWorkerOrdinaryOperations.source),
-    ...Object.values(engineWorkerOrdinaryOperations.callGraph),
-    ...Object.values(engineWorkerOrdinaryOperations.catalog),
-  ].map(operation => operation.kind).sort();
-  assert.deepEqual(
-    [...engineWorkerOrdinaryOperationKinds].sort(),
-    expectedKinds,
-  );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 49);
-
-  const state = fixture();
-  const groups = [
-    "package",
-    "metadata",
-    "analysis",
-    "source",
-    "callGraph",
-    "catalog",
-  ] as const;
-  for (const group of groups) {
-    assert.deepEqual(
-      Object.keys(state.client[group]).sort(),
-      [...expected[group]].sort(),
-    );
-  }
-  for (const excluded of [
-    "cancelPackageQuery",
-    "requestPackageQueryMatches",
-    "runPackageAssemblyQuery",
-    "runPackageQuery",
-  ]) {
-    assert.equal(excluded in state.client.package, false);
-  }
-  for (const excluded of [
-    "cancelTypeSourceQuery",
-    "queryTypeSource",
-  ]) {
-    assert.equal(excluded in state.client.source, false);
-  }
-  assert.equal("dispatch" in state.client, false);
-  assert.equal("invoke" in state.client, false);
   state.host.dispose();
 });

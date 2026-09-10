@@ -33,8 +33,8 @@ export function renderSavedWorkspaces(
   const form = state.formOpen
     ? `<form class="workspace-save-form" data-workspace-save-form>
         <label for="workspace-save-name">Workspace name</label>
-        <input id="workspace-save-name" value="${escapeHtml(state.name)}" maxlength="${savedWorkspaceNameLimit}" required autocomplete="off"${state.error ? ' aria-describedby="workspace-saves-error"' : ""} />
-        <button type="submit" data-workspace-save-submit${canSave && state.available ? "" : " disabled"}>Save</button>
+        <input id="workspace-save-name" value="${escapeHtml(state.name)}" maxlength="${savedWorkspaceNameLimit}" required autocomplete="off"${state.error ? ' aria-describedby="workspace-saves-error"' : ""}${state.saving ? " disabled" : ""} />
+        <button type="submit" data-workspace-save-submit${canSave && state.available && !state.saving ? "" : " disabled"}>Save</button>
         <button type="button" data-workspace-save-cancel>Cancel</button>
       </form>`
     : "";

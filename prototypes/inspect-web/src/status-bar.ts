@@ -149,6 +149,14 @@ function packageCacheHtml(
       <span class="diag" title="${title}">◇ ${cache.packages} package${packagePlural} · ${cache.resident} resident in cache · ${cache.workspaces} workspace${workspacePlural}</span>`;
 }
 
+export function patchPackageCacheStats(
+  root: ParentNode,
+  cache: PackageCacheStats | null | undefined,
+): void {
+  const target = root.querySelector<HTMLElement>("[data-package-cache-stats]");
+  if (target) target.innerHTML = packageCacheHtml(cache);
+}
+
 export function packageSourceLabel(source?: unknown): string {
   if (!source || typeof source !== "object" || !("kind" in source)) {
     return "Unknown";
@@ -202,7 +210,7 @@ export function statusBarHtml(
 
   const expandedExtras = expanded
     ? `
-      ${packageCacheHtml(model.packageCache)}
+      <span data-package-cache-stats>${packageCacheHtml(model.packageCache)}</span>
       ${model.variant !== "home" && model.assembly && model.framework
         ? `
       <span class="status-spacer"></span>
