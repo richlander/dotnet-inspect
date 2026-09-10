@@ -2,13 +2,13 @@
 
 Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
-The [page-facing engine client](#page-facing-engine-client) is **partially
-implemented**: startup reads, home-demo resolution, and dependency-coordinate
-matching have Promise-valued main-thread bindings, and the Worker-only host has
-a typed Type Source producer adapter with no production caller.
-The single-runtime Worker cutover remains unimplemented, tracked by
-[#5987](https://github.com/richlander/dotnet-inspect/issues/5987) and its Source
-consumer [#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
+The [page-facing engine client](#page-facing-engine-client) and single-runtime
+Worker cutover are **implemented** by
+[#6435](https://github.com/richlander/dotnet-inspect/issues/6435) under the
+end-to-end tracker
+[#5987](https://github.com/richlander/dotnet-inspect/issues/5987). The broader
+Source workload remains tracked by
+[#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
 
 This is the owning document for the inspect-web production facade partition:
 which existing browser-host exports belong together, how independently
