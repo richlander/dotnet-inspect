@@ -1,7 +1,13 @@
 import { packageIdentityKey, retainWorkspacePackage } from "../src/data.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import type { PackageControlPackage } from "../src/package-controls.ts";
-import { createSpotlightPackageSearch } from "../src/spotlight-package-search.ts";
+import {
+  createSpotlightPackageSearch,
+  spotlightPackageSearchError,
+  spotlightPackageSearchIsLoading,
+  visibleSpotlightPackageHits,
+  type SpotlightPackageSearchState,
+} from "../src/spotlight-package-search.ts";
 import {
   createSpotlight, type SpotlightPackageResult, type SpotlightResult,
   type SpotlightState,
@@ -32,10 +38,9 @@ const search: SpotlightState = {
   spotlightOpen: false, spotlightQuery: "", spotlightIndex: 0,
   spotlightScope: "all", spotlightFocus: "input", spotlightChipIndex: 0,
 };
-const discoveryState = {
+const discoveryState: SpotlightState & SpotlightPackageSearchState = {
   ...search,
-  spotlightPkgHits: [] as { id: string; version: string }[],
-  spotlightPkgQuery: "", spotlightPkgLoading: false, spotlightPkgError: "",
+  spotlightPackageSearch: { status: "idle" },
 };
 const escapeHtml = (value: unknown) => String(value)
   .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
@@ -60,7 +65,10 @@ const spotlight = createSpotlight({
     ...state.packages.filter(pkg =>
       pkg.id.toLowerCase().includes(search.spotlightQuery.toLowerCase()))
       .map(pkg => ({ kind: "pkg-loaded" as const, pkg, ranges: [] })),
-    ...discoveryState.spotlightPkgHits.filter(hit =>
+    ...visibleSpotlightPackageHits(
+      discoveryState.spotlightPackageSearch,
+      search.spotlightQuery.trim(),
+    ).filter(hit =>
       !state.packages.some(pkg => pkg.id === hit.id))
       .map(hit => ({ kind: "pkg-nuget" as const, hit, ranges: [] })),
     { kind: "package-query", prefix: search.spotlightQuery },
@@ -75,8 +83,10 @@ const spotlight = createSpotlight({
     discovery.schedule();
   },
   resetPackageSearch: () => discovery.reset(),
-  packageSearchLoading: () => discoveryState.spotlightPkgLoading,
-  packageSearchError: () => discoveryState.spotlightPkgError,
+  packageSearchLoading: () =>
+    spotlightPackageSearchIsLoading(discoveryState.spotlightPackageSearch),
+  packageSearchError: () =>
+    spotlightPackageSearchError(discoveryState.spotlightPackageSearch),
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework ?? "",
   render,
