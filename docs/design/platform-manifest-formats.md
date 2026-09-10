@@ -11,8 +11,10 @@ may supply the same bytes without adopting installed-location semantics.
 This is the format-owner portion of PlatformHouse production-adoption step 4b
 in
 [PlatformHouse realization and reference processing](platform-house-reference-processing.md).
-The end-to-end Workspace and call-graph adoption remains tracked by
-[#6012](https://github.com/richlander/dotnet-inspect/issues/6012).
+The end-to-end PlatformHouse adoption remains tracked by
+[#6301](https://github.com/richlander/dotnet-inspect/issues/6301), while the
+installed implementation-closure contract is specified by
+[#5139](https://github.com/richlander/dotnet-inspect/issues/5139).
 
 ## Authority and exact claim
 
