@@ -1,9 +1,9 @@
-using DotnetInspector.Inspectors;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 
-namespace DotnetInspector.Tests;
+namespace DotnetInspect.Cli.Tests;
 
 public sealed class ConfiguredPackageSearchWorkspaceTests
 {

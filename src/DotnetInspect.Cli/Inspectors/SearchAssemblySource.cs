@@ -3,7 +3,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using Inspector.Findings;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspect.Cli.Inspectors;
 
 internal sealed record SearchAssemblySource(
     string Library,

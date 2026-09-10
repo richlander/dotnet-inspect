@@ -4,7 +4,7 @@ using DotnetInspector.Services;
 
 using CoreHttpClientFactory = DotnetInspector.Core.HttpClientFactory;
 
-namespace DotnetInspector.Tests;
+namespace DotnetInspect.Cli.Tests;
 
 public sealed partial class ConfiguredPayloadAcquisitionTests
 {

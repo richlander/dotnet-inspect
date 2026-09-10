@@ -1,15 +1,15 @@
 using System.Collections.Immutable;
 
-using DotnetInspector.Commands;
-using DotnetInspector.Options;
-using DotnetInspector.Output;
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
 /// CLI-owned execution over one explicit package Root committed to an
