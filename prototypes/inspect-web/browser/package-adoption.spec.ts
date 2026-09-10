@@ -55,7 +55,7 @@ if (typeof workerClientEntry !== "object" || workerClientEntry === null
 }
 const workerClientUrl = `/${workerClientEntry.file}`;
 
-// This gate drives the actually published production InspectWeb.Engine Wasm
+// This gate drives the actually published production DotnetInspect.Web Wasm
 // artifact through the production single-runtime Worker client in Firefox. It proves
 // the artifact-backed package scope adoption contract (issue #5576): ordinary
 // singleton opening via queryPackage, repeated/joined requests, the four-scope

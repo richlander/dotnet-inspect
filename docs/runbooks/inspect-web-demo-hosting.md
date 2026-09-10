@@ -94,7 +94,7 @@ npm ci
 npm run build
 
 cd "$repo_root"
-dotnet publish prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+dotnet publish prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
   -c Release \
   --disable-build-servers \
   -p:UseSharedCompilation=false \
@@ -108,10 +108,10 @@ framework in scripts:
 
 ```bash
 target_framework="$(
-  dotnet msbuild prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+  dotnet msbuild prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
     -nologo -getProperty:TargetFramework
 )"
-site_root="$repo_root/prototypes/inspect-web/engine/bin/Release/$target_framework/publish/wwwroot"
+site_root="$repo_root/prototypes/inspect-web/DotnetInspect.Web/bin/Release/$target_framework/publish/wwwroot"
 dotnet_loader="$(
   grep -oE '_framework/dotnet\.[a-z0-9]+\.js' "$site_root/index.html" |
     head -n 1

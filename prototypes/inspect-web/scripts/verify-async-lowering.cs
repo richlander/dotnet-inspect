@@ -10,7 +10,7 @@ if (args.Length != 3)
 {
     Console.Error.WriteLine(
         "Usage: verify-async-lowering.cs "
-        + "<InspectWeb.Engine.dll> <compiler|runtime> <census.json>");
+        + "<DotnetInspect.Web.dll> <compiler|runtime> <census.json>");
     return 1;
 }
 
@@ -216,13 +216,13 @@ static string[] ReadContextAssemblyNames(string hostAssemblyPath)
         .FirstOrDefault(handle =>
         {
             TypeDefinition type = reader.GetTypeDefinition(handle);
-            return reader.GetString(type.Namespace) == "InspectWeb.Engine"
+            return reader.GetString(type.Namespace) == "DotnetInspect.Web"
                 && reader.GetString(type.Name) == "InspectWebJsExportContext";
         });
     if (contextHandle.IsNil)
     {
         throw new InvalidOperationException(
-            "InspectWeb.Engine.InspectWebJsExportContext was not found.");
+            "DotnetInspect.Web.InspectWebJsExportContext was not found.");
     }
 
     var assemblies = new List<string>();

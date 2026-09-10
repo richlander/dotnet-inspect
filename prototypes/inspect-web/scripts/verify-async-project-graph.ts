@@ -69,7 +69,7 @@ for (const projectPath of Object.keys(projects)) {
 repositoryProjects.sort();
 
 const engineProject = realpathSync(
-  resolve(repository, "prototypes/inspect-web/engine/InspectWeb.Engine.csproj"));
+  resolve(repository, "prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj"));
 const serverProject = realpathSync(
   resolve(repository, "prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj"));
 assert.ok(expected.has(engineProject), "browser engine graph omitted its root");

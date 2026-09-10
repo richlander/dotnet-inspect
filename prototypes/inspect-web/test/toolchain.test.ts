@@ -395,10 +395,10 @@ const facadeModules = [
   "inspect-web-catalog",
 ] as const;
 const generatedFacadeSources =
-  facadeModules.map(module => `engine/facades/${module}.ts`);
+  facadeModules.map(module => `DotnetInspect.Web/facades/${module}.ts`);
 const publishedFacadeModules =
-  facadeModules.map(module => `engine/wwwroot/${module}.js`);
-const runtimeLoaderSource = "engine/wwwroot/runtime-loader.js";
+  facadeModules.map(module => `DotnetInspect.Web/wwwroot/${module}.js`);
+const runtimeLoaderSource = "DotnetInspect.Web/wwwroot/runtime-loader.js";
 
 const typeScriptExtensions = typeScriptSourceExtensions;
 const javaScriptExtensions = javaScriptSourceExtensions;
@@ -940,7 +940,7 @@ test("no HTML document carries script the gates cannot read", () => {
 // `--listFilesOnly` reports the files the program actually consists of, which is the
 // real answer to "what is checked?" and a stronger one than the resolved `include` list:
 // it includes files reached only by import. Round 2 (Gemini 3.1 Pro) needed exactly that
-// distinction, hiding `engine.Tests/bin/hidden/bypass.ts` in a pruned build-output
+// distinction, hiding `DotnetInspect.Web.Tests/bin/hidden/bypass.ts` in a pruned build-output
 // directory and importing it from `src/`, where the bundler traced the import and shipped
 // code the lint had never seen.
 const compilerProjects = ["tsconfig.json", "test/tsconfig.json", "tsconfig.node.json"];
@@ -1069,13 +1069,13 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
   ]);
   assert.match(
     engineGenerationScript,
-    /ts_output_directory="\$inspect_web\/engine\/facades"/);
+    /ts_output_directory="\$inspect_web\/DotnetInspect.Web\/facades"/);
   assert.match(
     engineGenerationScript,
     /dts_output_directory="\$inspect_web\/src\/facades"/);
   assert.match(
     engineGenerationScript,
-    /js_output_directory="\$inspect_web\/engine\/wwwroot"/);
+    /js_output_directory="\$inspect_web\/DotnetInspect.Web\/wwwroot"/);
   // The consumer map is the whole membership claim: its domain must be the exact set of
   // canonical artifacts, and its range the exact set of public modules, in one place.
   for (const module of facadeModules) {
@@ -1083,13 +1083,13 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
       `the generation script does not map ${module}`);
   }
   for (const artifact of [
-    "InspectWeb.Engine.ts",
-    "InspectWeb.Engine.PackageExports.ts",
-    "InspectWeb.Engine.MetadataExports.ts",
-    "InspectWeb.Engine.AnalysisExports.ts",
-    "InspectWeb.Engine.SourceExports.ts",
-    "InspectWeb.Engine.CallGraphExports.ts",
-    "InspectWeb.Engine.CatalogExports.ts",
+    "DotnetInspect.Web.ts",
+    "DotnetInspect.Web.Interop.Package.ts",
+    "DotnetInspect.Web.Interop.Metadata.ts",
+    "DotnetInspect.Web.Interop.Analysis.ts",
+    "DotnetInspect.Web.Interop.Source.ts",
+    "DotnetInspect.Web.Interop.CallGraph.ts",
+    "DotnetInspect.Web.Interop.Catalog.ts",
   ]) {
     assert.ok(engineGenerationScript.includes(`  "${artifact}"\n`),
       `the generation script does not root ${artifact}`);
@@ -1099,7 +1099,7 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /emitted_artifacts" != "\$expected_artifacts/);
   assert.match(
     engineGenerationScript,
-    /context_type="InspectWeb\.Engine\.InspectWebJsExportContext"/);
+    /context_type="DotnetInspect\.Web\.InspectWebJsExportContext"/);
   assert.match(
     engineGenerationScript,
     /--context "\$context_type"/);
@@ -2880,7 +2880,7 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "multi-facade-canary/facades "
       + "managed-operation-bridge-canary/initialize.ts "
       + "managed-operation-bridge-canary/exercise.ts "
-      + "managed-operation-bridge-canary/facades engine/facades "
+      + "managed-operation-bridge-canary/facades DotnetInspect.Web/facades "
       + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
       + "playwright.config.ts playwright.worker.config.ts "
       + "playwright.worker-cpu.config.ts "
@@ -2910,7 +2910,7 @@ test("the lint gate includes all compiler-derived facade artifacts", () => {
     /(?:^| )multi-facade-canary\/exercise\.ts(?: |$)/,
   );
   assert.match(lintScript, /(?:^| )multi-facade-canary\/facades(?: |$)/);
-  assert.match(lintScript, /(?:^| )engine\/facades(?: |$)/);
+  assert.match(lintScript, /(?:^| )DotnetInspect.Web\/facades(?: |$)/);
   for (const module of publishedFacadeModules) {
     assert.ok(
       new RegExp(`(?:^| )${module.replaceAll(/[./]/g, String.raw`\$&`)}(?: |$)`)

@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Text.Json;
-using InspectWeb.Engine;
+using DotnetInspect.Web;
 using BodyResult =
-    InspectWeb.Engine.BrowserManagedOperationBodyResult<string, string, string>;
+    DotnetInspect.Web.BrowserManagedOperationBodyResult<string, string, string>;
 
 namespace InspectWeb.ManagedOperationBridge.BrowserCanary;
 
