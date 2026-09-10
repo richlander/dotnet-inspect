@@ -129,17 +129,15 @@ public class LadderRung6GateTests
         string NewBody(string name) => newRules.Single(m => m.Name == name).Body;
         string LegacyBody(string name) => legacy.Single(m => m.Name == name).Body;
 
-        var deref = FirstUnsafeBlockBody(NewBody("DerefPointer"));
-        Assert.Contains("return *", deref);
-        Assert.Contains("*(int*)(&value)", NewBody("DerefPointer"));
+        Assert.Contains("return unsafe(*(int*)(&value));", NewBody("DerefPointer"));
         Assert.Contains("ConsumePointer((int*)(&value))", NewBody("PassAddress"));
-        Assert.Contains("callback(x);", FirstUnsafeBlockBody(NewBody("InvokeFunctionPointer")));
-        Assert.Contains("Risky()", FirstUnsafeBlockBody(NewBody("CallRisky")));
+        Assert.Contains("return unsafe(callback(x));", NewBody("InvokeFunctionPointer"));
+        Assert.Contains("return unsafe(Risky());", NewBody("CallRisky"));
         Assert.Contains("NativeMemory.Free(p);", FirstUnsafeBlockBody(NewBody("FreePointer")));
 
         var skipInit = NewBody("StackAllocSkipInit");
-        Assert.Contains("scoped Span<int> s", skipInit);
-        Assert.Contains("stackalloc int[", FirstUnsafeBlockBody(skipInit));
+        Assert.Contains("Span<int> s = unsafe(stackalloc int[", skipInit);
+        Assert.DoesNotContain("scoped", skipInit);
 
         var defaultStackAlloc = NewBody("StackAllocDefault");
         Assert.DoesNotContain("unsafe", defaultStackAlloc);
@@ -147,13 +145,15 @@ public class LadderRung6GateTests
 
         var eventData = FirstUnsafeBlockBody(NewBody("StackAllocEventData"));
         Assert.Contains("byte* __stackalloc = stackalloc byte[", eventData);
-        Assert.Contains("int* values = (int*)__stackalloc;", eventData);
+        Assert.Contains("values = (int*)__stackalloc;", eventData);
         Assert.Contains("*(values + 1)", eventData);
         Assert.DoesNotContain("*(values + 4)", eventData);
+        Assert.Contains("return unsafe(*values + values[1]);", NewBody("StackAllocEventData"));
 
         var pinned = NewBody("SumPinned");
         Assert.Contains("fixed (int* p = ", pinned);
-        Assert.Contains("sum += p[i];", FirstUnsafeBlockBody(pinned));
+        Assert.Contains("sum += unsafe(p[i]);", pinned);
+        Assert.DoesNotContain("unsafe\n{", pinned);
         Assert.DoesNotContain("pinned", pinned);
 
         Assert.All(ExpectedUnsafeMembers, name =>
@@ -209,7 +209,7 @@ public class LadderRung6GateTests
             new Return(new LoadField(fieldX, (IrExpression)p.Clone())))).Output!;
 
         Assert.Contains("p->X += p->Y;", body);
-        Assert.Contains("return p->X;", body);
+        Assert.Contains("return unsafe(p->X);", body);
         Assert.DoesNotContain("p.X", body);
         Assert.DoesNotContain("p.Y", body);
         AssertNoErrors(
@@ -236,7 +236,7 @@ public class LadderRung6GateTests
             [],
             new Return(new LoadField(backing, new LoadArgument(0, "p", recordPointer))))).Output!;
 
-        Assert.Contains("return p->X;", body);
+        Assert.Contains("return unsafe(p->X);", body);
         Assert.DoesNotContain("p.X", body);
         AssertNoErrors(
             RecompileNewRules(
@@ -259,7 +259,7 @@ public class LadderRung6GateTests
             [],
             new Return(new LoadField(field, new LoadArgument(0, "p", capturePointer))))).Output!;
 
-        Assert.Contains("return p->X;", body);
+        Assert.Contains("return unsafe(p->X);", body);
         Assert.DoesNotContain("p.X", body);
         AssertNoErrors(
             RecompileNewRules(
@@ -503,7 +503,7 @@ public class LadderRung6GateTests
             [],
             new Return(new Call(toString, isVirtual: true, [new LoadArgument(0, "p", pointPointer)])))).Output!;
 
-        Assert.Contains("return p->ToString();", body);
+        Assert.Contains("return unsafe(p->ToString());", body);
         Assert.DoesNotContain("p.ToString()", body);
         AssertNoErrors(
             RecompileNewRules(
@@ -526,7 +526,7 @@ public class LadderRung6GateTests
             [],
             new Return(new Call(toString, isVirtual: true, [new LoadArgument(0, "p", enumPointer)])))).Output!;
 
-        Assert.Contains("return p->ToString();", body);
+        Assert.Contains("return unsafe(p->ToString());", body);
         Assert.DoesNotContain("p.ToString()", body);
         AssertNoErrors(
             RecompileNewRules(
@@ -552,7 +552,7 @@ public class LadderRung6GateTests
             [],
             new Return(new Call(extension, isVirtual: false, [new LoadArgument(0, "p", pointPointer)])))).Output!;
 
-        Assert.Contains("return p->ExtRef();", body);
+        Assert.Contains("return unsafe(p->ExtRef());", body);
         Assert.DoesNotContain("Extensions.ExtRef(ref p)", body);
         Assert.DoesNotContain("p.ExtRef()", body);
         AssertNoErrors(
@@ -690,7 +690,7 @@ public class LadderRung6GateTests
                 new Return(null)),
             "static unsafe void M(int* p)",
             "public sealed class Holder { public Holder(ref int value) { } }",
-            "new Holder(ref *p);");
+            "_ = unsafe(new Holder(ref *p));");
 
         AssertCall(
             () => Function(
@@ -853,7 +853,7 @@ public class LadderRung6GateTests
     }
 
     [Fact]
-    public void Rung6UnsafeEvaluationBeforeAwait_UsesExplicitBlockUnderBothRuleSets()
+    public void Rung6UnsafeEvaluationBeforeAwait_UsesExpressionUnderUpdatedRules()
     {
         var holder = TypeRef.Definition("Synthetic", "", "Holder");
         var intPointer = TypeRef.Pointer(Int32);
@@ -911,9 +911,9 @@ public class LadderRung6GateTests
 
         Assert.False(updated.RequiresUnsafeBodyModifier);
         Assert.False(legacy.RequiresUnsafeBodyModifier);
-        Assert.Contains("unsafe\n{", updated.Output);
+        Assert.Contains("int V_0 = unsafe(*holder.Risky);", updated.Output);
+        Assert.DoesNotContain("unsafe\n{", updated.Output);
         Assert.Contains("unsafe\n{", legacy.Output);
-        Assert.DoesNotContain("unsafe\n{\n    return await", updated.Output);
         Assert.DoesNotContain("unsafe\n{\n    return await", legacy.Output);
         AssertNoErrors(RecompileNewRules(header, updated.Output!, declarations), updated.Output!);
         AssertNoErrors(RecompileLegacyRules(header, legacy.Output!, declarations), legacy.Output!);
@@ -1110,14 +1110,14 @@ public class LadderRung6GateTests
         const string declarations = "using System.Threading.Tasks;";
         const string header = "static async System.Threading.Tasks.Task M()";
 
-        Assert.Contains("static int Read(int* pointer)\n{\n    unsafe", updated.Output);
+        Assert.Contains("static int Read(int* pointer) => unsafe(*pointer);", updated.Output);
         Assert.Contains("static int Read(int* pointer)\n{\n    unsafe", legacy.Output);
         AssertNoErrors(RecompileNewRules(header, updated.Output!, declarations), updated.Output!);
         AssertNoErrors(RecompileLegacyRules(header, legacy.Output!, declarations), legacy.Output!);
     }
 
     [Fact]
-    public void Rung6LocalFunctionRefReturn_UsesLocalReturnTypeForUnsafeBlock()
+    public void Rung6LocalFunctionRefReturn_UsesUnsafeExpression()
     {
         var refInt = TypeRef.ByRef(Int32);
 
@@ -1140,9 +1140,9 @@ public class LadderRung6GateTests
 
         var (updated, legacy) = PrintRulePair(CreateFunction);
 
-        Assert.Contains("unsafe\n    {\n        return ref *p;\n    }", updated);
+        Assert.Contains("=> ref unsafe(*p);", updated);
         Assert.Contains("=> ref *p;", legacy);
-        Assert.DoesNotContain("unsafe\n    {\n        return ref *p;\n    }", legacy);
+        Assert.DoesNotContain("ref unsafe(*p)", legacy);
         AssertNoErrors(RecompileNewRules("static void M()", updated), updated);
         AssertNoErrors(RecompileLegacyRules("static unsafe void M()", legacy), legacy);
     }
@@ -1267,7 +1267,7 @@ public class LadderRung6GateTests
 
         var (updated, legacy) = PrintRulePair(CreateFunction);
 
-        Assert.Contains("return p->Field ??= 1;", updated);
+        Assert.Contains("return unsafe(p->Field ??= 1);", updated);
         Assert.Contains("unsafe", updated);
         Assert.DoesNotContain("unsafe", legacy);
         const string declarations = "public struct Point { public int? Field; }";
@@ -1432,7 +1432,7 @@ public class LadderRung6GateTests
                 public static unsafe Counter operator ++(Counter value) => value;
             }
             """,
-            "value++;");
+            "value++");
 
         var holder = TypeRef.Definition("Synthetic", "", "Holder");
         var holderConstructor = new MethodRef(holder, ".ctor", Void, [], HasThis: true);
@@ -1728,15 +1728,15 @@ public class LadderRung6GateTests
         AssertBinding(
             CreateDeclaration,
             "static unsafe void M(int* p)",
-            "ref int V_0 = ref *p;");
+            "ref int V_0 = ref unsafe(*p);");
         AssertBinding(
             CreateRebind,
             "static unsafe void M(ref int seed, int* p)",
-            "V_0 = ref *p;");
+            "V_0 = ref unsafe(*p);");
         AssertBinding(
             CreateReturn,
             "static unsafe ref int M(int* p)",
-            "return ref *p;");
+            "return ref unsafe(*p);");
 
         static void AssertBinding(
             Func<IrFunction> createFunction,
