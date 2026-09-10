@@ -19,6 +19,8 @@ internal static class DependsShareProjection
         if (options.OutputFormatExplicitlySet
             || options.LineWindowExplicitlySet
             || options.CompactJson
+            || options.Tree
+            || options.NoHeader
             || options.Rows is not null
             || options.Count
             || options.Tree
