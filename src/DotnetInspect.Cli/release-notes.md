@@ -27,14 +27,16 @@
   that reported the chosen version, even on a payload-cache hit. Local payload
   caches and HTTP temporary ownership match exact-pin inspection. HTTP payloads
   are downloaded anew in each invocation (#5400).
-- Online `type`, `member`, and `match` exact pins and addressed package ranges,
-  plus `timeline` ranges, now support configured folder feeds and preserve
-  reporting authority through acquisition and executable replay. Timeline
-  retains one fresh vector for sparse or dense probes; without `--at`, it
-  remains metadata-only. Ranges keep their listed-only semantics. Suggested
-  probes retain source/configuration and selection options. API floating
-  selectors, multi-package commands, dependency acquisition, and offline
-  extraction remain on their existing paths (#5400).
+- Online `type`, `member`, and `match` omitted/latest/wildcard selectors, exact
+  pins, and addressed package ranges, plus `timeline` ranges, now support
+  configured folder feeds and preserve reporting authority through acquisition
+  and executable replay. Omitted/latest API selection remains stable-only;
+  wildcards retain their prerelease-prefix semantics. Timeline retains one
+  fresh vector for sparse or dense probes; without `--at`, it remains
+  metadata-only. Ranges keep their listed-only semantics. Suggested probes
+  retain source/configuration and selection options. Multi-package commands,
+  dependency acquisition, and offline extraction remain on their existing
+  paths (#5400).
 - **Breaking:** Renames `match --implementation` to `match --body`, with
   a `Method Body Diff` view. Body comparison now consumes the shared Queries
   designated-pair path and retains native endpoint and failure outcomes.
