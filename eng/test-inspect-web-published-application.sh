@@ -3,7 +3,7 @@ set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 site="${1:-$repo_root/artifacts/inspect-web-publish/wwwroot}"
-frontend="$repo_root/prototypes/inspect-web"
+frontend="$repo_root/inspect-web"
 resolver="$repo_root/tools/InspectWebFixtureResolver"
 dotnet=${DOTNET:-dotnet}
 
