@@ -5,6 +5,7 @@ import {
   buildIdentityHtml,
   fmtBytes,
   fmtMs,
+  patchPackageCacheStats,
   packageSourceLabel,
   statusBarHtml,
 } from "../src/status-bar.ts";
@@ -69,6 +70,25 @@ test("status values use stable compact units", () => {
   assert.equal(fmtBytes(0), "—");
   assert.equal(fmtBytes(1536), "1.5 KB");
   assert.equal(fmtBytes(8 * 1024 * 1024), "8.0 MB");
+});
+
+test("package cache statistics patch the rendered status slot", () => {
+  const target = { innerHTML: "" };
+  const root = {
+    querySelector: (selector: string) =>
+      selector === "[data-package-cache-stats]" ? target : null,
+  };
+
+  patchPackageCacheStats(fakeDom.parentNode(root), {
+    packages: 2,
+    resident: 1,
+    residentBytes: 1024,
+    workspaces: 1,
+  });
+
+  assert.match(
+    target.innerHTML,
+    /2 packages · 1 resident in cache · 1 workspace/);
 });
 
 test("package sources disclose file, gallery, feed host, or platform provenance", () => {
@@ -185,6 +205,7 @@ test("the expanded workspace data bar shows every field, including full diagnost
   assert.match(html, /aria-label="Collapse"/);
   assert.match(html, /↓ download 20 ms · 1\.0 KB → 2\.0 KB/);
   assert.match(html, /3 packages · 2 resident in cache · 1 workspace/);
+  assert.match(html, /data-package-cache-stats/);
   assert.match(html, /Source: packages\.&quot;&lt;example&gt;/);
   assert.match(html, /Example&quot;&lt;Assembly&gt;/);
   assert.match(html, /net10\.0/);

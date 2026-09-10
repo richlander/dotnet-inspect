@@ -460,7 +460,15 @@ import {
   createPackageComparisonTargets,
   renderPackageComparisonTargets,
 } from "./package-comparison-targets.ts";
-import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
+import {
+  bindStatusBar,
+  fmtBytes,
+  patchPackageCacheStats,
+  statusBarHtml,
+} from "./status-bar.ts";
+import {
+  createPackageCacheStatsRefresh,
+} from "./package-cache-stats.ts";
 import {
   bindCreditsPanel,
   isCreditsPath,
@@ -1339,9 +1347,7 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   spotlightMemberCache = null;
   persistRecentPackages();
   persistPlatformRecent();
-  observeAsync(
-    refreshPackageStats(),
-    "Refreshing package cache statistics");
+  requestPackageStatsRefresh();
 }
 
 function cloneCanonicalWorkspaceSnapshotForRetention(
@@ -1456,9 +1462,7 @@ function restoreRetainedWorkspaceSnapshot(
   }
   persistRecentPackages();
   persistPlatformRecent();
-  observeAsync(
-    refreshPackageStats(),
-    "Refreshing package cache statistics");
+  requestPackageStatsRefresh();
 }
 
 function captureWorkspaceConstructionSnapshots(navigationSeq: number) {
@@ -15201,14 +15205,19 @@ function computeDiagnostics(
   };
 }
 
+const packageCacheStatsRefresh = createPackageCacheStatsRefresh({
+  load: () => inspectPackageCacheStats(),
+  update: stats => { state.packageCacheStats = stats; },
+  publish: () => patchPackageCacheStats(document, state.packageCacheStats),
+});
+
 async function refreshPackageStats(): Promise<void> {
-  const stats = await inspectPackageCacheStats();
-  if (stats) state.packageCacheStats = stats;
+  await packageCacheStatsRefresh.refresh();
 }
 
 function requestPackageStatsRefresh(): void {
   observeAsync(
-    refreshPackageStats(),
+    packageCacheStatsRefresh.refreshAndPublish(),
     "Refreshing package cache statistics");
 }
 
