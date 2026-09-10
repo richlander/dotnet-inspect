@@ -23,7 +23,7 @@ const publishScript = fileURLToPath(
 const smokeScript = fileURLToPath(
   new URL("../scripts/verify-published-engine-facades.ts", import.meta.url),
 );
-const sourceRoot = fileURLToPath(new URL("../engine/wwwroot/", import.meta.url));
+const sourceRoot = fileURLToPath(new URL("../DotnetInspect.Web/wwwroot/", import.meta.url));
 const runtimeModules = [
   {
     specifier: "./_framework/dotnet.js",

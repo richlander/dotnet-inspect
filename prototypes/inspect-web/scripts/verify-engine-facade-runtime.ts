@@ -28,7 +28,7 @@ const typeSourceResult: BrowserTypeSourceResult = {
 interface FacadeIdentity {
   readonly module: string;
   readonly assembly: string;
-  readonly root: string;
+  readonly rootPath: readonly string[];
 }
 
 interface JsExportRuntime {
@@ -42,36 +42,40 @@ interface JsExportRuntime {
 // The exact production facade set, stated here independently of the generation script so a
 // module that silently changes its assembly, root type or membership fails this gate.
 const facades: readonly FacadeIdentity[] = [
-  { module: "inspect-web-host", assembly: "InspectWeb.Engine", root: "InspectionEngine" },
+  {
+    module: "inspect-web-host",
+    assembly: "DotnetInspect.Web",
+    rootPath: ["DotnetInspect", "Web", "InspectionEngine"],
+  },
   {
     module: "inspect-web-package",
-    assembly: "InspectWeb.Engine.PackageExports",
-    root: "PackageExports",
+    assembly: "DotnetInspect.Web.Interop.Package",
+    rootPath: ["DotnetInspect", "Web", "Interop", "Package", "PackageExports"],
   },
   {
     module: "inspect-web-metadata",
-    assembly: "InspectWeb.Engine.MetadataExports",
-    root: "MetadataExports",
+    assembly: "DotnetInspect.Web.Interop.Metadata",
+    rootPath: ["DotnetInspect", "Web", "Interop", "Metadata", "MetadataExports"],
   },
   {
     module: "inspect-web-analysis",
-    assembly: "InspectWeb.Engine.AnalysisExports",
-    root: "AnalysisExports",
+    assembly: "DotnetInspect.Web.Interop.Analysis",
+    rootPath: ["DotnetInspect", "Web", "Interop", "Analysis", "AnalysisExports"],
   },
   {
     module: "inspect-web-source",
-    assembly: "InspectWeb.Engine.SourceExports",
-    root: "SourceExports",
+    assembly: "DotnetInspect.Web.Interop.Source",
+    rootPath: ["DotnetInspect", "Web", "Interop", "Source", "SourceExports"],
   },
   {
     module: "inspect-web-call-graph",
-    assembly: "InspectWeb.Engine.CallGraphExports",
-    root: "CallGraphExports",
+    assembly: "DotnetInspect.Web.Interop.CallGraph",
+    rootPath: ["DotnetInspect", "Web", "Interop", "CallGraph", "CallGraphExports"],
   },
   {
     module: "inspect-web-catalog",
-    assembly: "InspectWeb.Engine.CatalogExports",
-    root: "CatalogExports",
+    assembly: "DotnetInspect.Web.Interop.Catalog",
+    rootPath: ["DotnetInspect", "Web", "Interop", "Catalog", "CatalogExports"],
   },
 ];
 
@@ -204,7 +208,7 @@ interface ManagedOperation {
 
 const managedAssemblies: {
   readonly assembly: string;
-  readonly root: string;
+  readonly rootPath: readonly string[];
   readonly operations: readonly ManagedOperation[];
 }[] = [];
 
@@ -223,18 +227,28 @@ for (const facade of facades) {
     `${facade.module}.js must acquire exactly its own managed export assembly`);
 
   const dispatches = [...source.matchAll(
-    /export\s+(async\s+)?function\s+\w+\([\s\S]*?\["(\w+)"\]\["([^"]+)"\]/g)];
-  const roots = [...new Set(dispatches.map(match => match[2]))];
-  assert.deepEqual(roots, [facade.root],
-    `${facade.module}.js must dispatch only through its own root type`);
-  const operations = dispatches.map(match => ({
-    key: match[3] ?? "",
-    asynchronous: match[1] !== undefined,
-  }));
+    /export\s+(async\s+)?function\s+\w+\([^)]*\)[^{]*\{[\s\S]*?\$requireManagedExports\(\)((?:\["[^"]+"\])+)\(/g)];
+  const operations: ManagedOperation[] = [];
+  for (const match of dispatches) {
+    const chain = match[2];
+    assert.ok(chain !== undefined,
+      `${facade.module}.js has a managed dispatch without a property chain`);
+    const path = [...chain.matchAll(/\["([^"]+)"\]/g)]
+      .map(segment => segment[1] ?? "");
+    const key = path.pop();
+    assert.ok(key !== undefined,
+      `${facade.module}.js has a managed dispatch without an operation key`);
+    assert.deepEqual(path, facade.rootPath,
+      `${facade.module}.js must dispatch only through its own root type`);
+    operations.push({
+      key,
+      asynchronous: match[1] !== undefined,
+    });
+  }
   assert.ok(operations.length > 0, `${facade.module}.js has no managed dispatch keys`);
   managedAssemblies.push({
     assembly: facade.assembly,
-    root: facade.root,
+    rootPath: facade.rootPath,
     operations,
   });
 }
@@ -249,8 +263,8 @@ writeFileSync(
   runtimePath,
   `import { calls } from "./probe-state.js";
 const managedAssemblies = ${JSON.stringify(managedAssemblies)};
-const assemblies = new Map(managedAssemblies.map(entry => [entry.assembly, {
-  [entry.root]: Object.fromEntries(entry.operations.map(operation => [
+function managedRoot(entry) {
+  let value = Object.fromEntries(entry.operations.map(operation => [
     operation.key,
     (...args) => {
       calls.push(\`managed:\${entry.assembly}:\${operation.key}:\${JSON.stringify(args)}\`);
@@ -265,8 +279,14 @@ const assemblies = new Map(managedAssemblies.map(entry => [entry.assembly, {
       }
       return operation.asynchronous ? Promise.resolve("null") : "null";
     },
-  ])),
-}]));
+  ]));
+  for (const segment of entry.rootPath.toReversed()) {
+    value = { [segment]: value };
+  }
+  return value;
+}
+const assemblies = new Map(
+  managedAssemblies.map(entry => [entry.assembly, managedRoot(entry)]));
 export const dotnet = {
   async create() {
     calls.push("create");
@@ -335,7 +355,10 @@ assert.ok(isHostFacade(host), "the host facade has an unexpected public shape");
 host.configureHost("https://dotnet-inspect.test");
 assert.match(
   importedState.calls.at(-1) ?? "",
-  /^managed:InspectWeb\.Engine:ConfigureHost\.-?\d+:\["https:\/\/dotnet-inspect\.test"\]$/);
+  new RegExp(
+    `^managed:${ownerIdentity.assembly.replaceAll(".", String.raw`\.`)}:` +
+      String.raw`ConfigureHost\.-?\d+:\["https:\/\/dotnet-inspect\.test"\]$`,
+  ));
 assert.equal(
   await host.asyncLoweringCanary(),
   "inspect-web-async-lowering-ok");

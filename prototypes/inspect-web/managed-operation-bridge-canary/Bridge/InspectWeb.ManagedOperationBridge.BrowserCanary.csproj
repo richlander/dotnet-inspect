@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../engine.Core/InspectWeb.Engine.Core.csproj" />
+    <ProjectReference Include="../../DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj" />
   </ItemGroup>
 
 </Project>

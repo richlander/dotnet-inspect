@@ -32,15 +32,15 @@ with seven independently generated facade modules:
 
 | Facade | Managed assembly | Context artifact | Checked-in source | Responsibility |
 | --- | --- | --- | --- | --- |
-| `inspect-web-host` | `InspectWeb.Engine` | `InspectWeb.Engine.ts` | `engine/facades/inspect-web-host.ts` | Browser/Wasm lifecycle, host configuration, and build identity |
-| `inspect-web-package` | `InspectWeb.Engine.PackageExports` | `InspectWeb.Engine.PackageExports.ts` | `engine/facades/inspect-web-package.ts` | Package and platform acquisition, package queries, and package content |
-| `inspect-web-metadata` | `InspectWeb.Engine.MetadataExports` | `InspectWeb.Engine.MetadataExports.ts` | `engine/facades/inspect-web-metadata.ts` | API and metadata projection |
-| `inspect-web-analysis` | `InspectWeb.Engine.AnalysisExports` | `InspectWeb.Engine.AnalysisExports.ts` | `engine/facades/inspect-web-analysis.ts` | Analysis, integration, opportunity, and performance results |
-| `inspect-web-source` | `InspectWeb.Engine.SourceExports` | `InspectWeb.Engine.SourceExports.ts` | `engine/facades/inspect-web-source.ts` | Source and annotated-source projection |
-| `inspect-web-call-graph` | `InspectWeb.Engine.CallGraphExports` | `InspectWeb.Engine.CallGraphExports.ts` | `engine/facades/inspect-web-call-graph.ts` | Package and platform call-graph expansion |
-| `inspect-web-catalog` | `InspectWeb.Engine.CatalogExports` | `InspectWeb.Engine.CatalogExports.ts` | `engine/facades/inspect-web-catalog.ts` | Product vocabulary, home demos, and workspace-share transport |
+| `inspect-web-host` | `DotnetInspect.Web` | `DotnetInspect.Web.ts` | `DotnetInspect.Web/facades/inspect-web-host.ts` | Browser/Wasm lifecycle, host configuration, and build identity |
+| `inspect-web-package` | `DotnetInspect.Web.Interop.Package` | `DotnetInspect.Web.Interop.Package.ts` | `DotnetInspect.Web/facades/inspect-web-package.ts` | Package and platform acquisition, package queries, and package content |
+| `inspect-web-metadata` | `DotnetInspect.Web.Interop.Metadata` | `DotnetInspect.Web.Interop.Metadata.ts` | `DotnetInspect.Web/facades/inspect-web-metadata.ts` | API and metadata projection |
+| `inspect-web-analysis` | `DotnetInspect.Web.Interop.Analysis` | `DotnetInspect.Web.Interop.Analysis.ts` | `DotnetInspect.Web/facades/inspect-web-analysis.ts` | Analysis, integration, opportunity, and performance results |
+| `inspect-web-source` | `DotnetInspect.Web.Interop.Source` | `DotnetInspect.Web.Interop.Source.ts` | `DotnetInspect.Web/facades/inspect-web-source.ts` | Source and annotated-source projection |
+| `inspect-web-call-graph` | `DotnetInspect.Web.Interop.CallGraph` | `DotnetInspect.Web.Interop.CallGraph.ts` | `DotnetInspect.Web/facades/inspect-web-call-graph.ts` | Package and platform call-graph expansion |
+| `inspect-web-catalog` | `DotnetInspect.Web.Interop.Catalog` | `DotnetInspect.Web.Interop.Catalog.ts` | `DotnetInspect.Web/facades/inspect-web-catalog.ts` | Product vocabulary, home demos, and workspace-share transport |
 
-`InspectWeb.Engine` declares the production set in compiled metadata:
+`DotnetInspect.Web` declares the production set in compiled metadata:
 
 ```csharp
 using TsJsExport;
@@ -77,19 +77,19 @@ memoizes repeated creation.
 The managed project graph has three roles:
 
 ```text
-InspectWeb.Engine
+DotnetInspect.Web
   executable host and host exports;
   references every capability export assembly
         |
-        +-- InspectWeb.Engine.PackageExports
-        +-- InspectWeb.Engine.MetadataExports
-        +-- InspectWeb.Engine.AnalysisExports
-        +-- InspectWeb.Engine.SourceExports
-        +-- InspectWeb.Engine.CallGraphExports
-        `-- InspectWeb.Engine.CatalogExports
+        +-- DotnetInspect.Web.Interop.Package
+        +-- DotnetInspect.Web.Interop.Metadata
+        +-- DotnetInspect.Web.Interop.Analysis
+        +-- DotnetInspect.Web.Interop.Source
+        +-- DotnetInspect.Web.Interop.CallGraph
+        `-- DotnetInspect.Web.Interop.Catalog
                          |
                          v
-              InspectWeb.Engine.Core
+              DotnetInspect.Web.Core
        shared workspace and host services;
              contains no [JSExport]
                      |
@@ -97,11 +97,11 @@ InspectWeb.Engine
       owner-issued DotnetInspector.* and ILInspector.* APIs
 ```
 
-`InspectWeb.Engine` remains the executable Browser/Wasm host, static-web asset
-owner, and assembly read by `BuildIdentity`. `InspectWeb.Engine.Core` is a
+`DotnetInspect.Web` remains the executable Browser/Wasm host, static-web asset
+owner, and assembly read by `BuildIdentity`. `DotnetInspect.Web.Core` is a
 non-exported implementation dependency for shared package/platform workspaces,
 operation coordinators, host policy, and typed internal projections. Export
-assemblies may reference `InspectWeb.Engine.Core` and the product projects
+assemblies may reference `DotnetInspect.Web.Core` and the product projects
 needed by their own capability. They do not reference sibling export
 assemblies.
 
@@ -120,26 +120,26 @@ After the seven assemblies build, one context invocation generates the complete
 source set into a fresh scratch directory:
 
 ```text
-ts-jsexport InspectWeb.Engine.dll
-  --context InspectWeb.Engine.InspectWebJsExportContext
+ts-jsexport DotnetInspect.Web.dll
+  --context DotnetInspect.Web.InspectWebJsExportContext
   --assembly-search-path <browser-output>
   --runtime-module ./runtime-loader.js
   --output <fresh-scratch>/facades
 
 <fresh-scratch>/facades/
-  InspectWeb.Engine.ts
-  InspectWeb.Engine.AnalysisExports.ts
-  InspectWeb.Engine.CallGraphExports.ts
-  InspectWeb.Engine.CatalogExports.ts
-  InspectWeb.Engine.MetadataExports.ts
-  InspectWeb.Engine.PackageExports.ts
-  InspectWeb.Engine.SourceExports.ts
+  DotnetInspect.Web.ts
+  DotnetInspect.Web.Interop.Analysis.ts
+  DotnetInspect.Web.Interop.CallGraph.ts
+  DotnetInspect.Web.Interop.Catalog.ts
+  DotnetInspect.Web.Interop.Metadata.ts
+  DotnetInspect.Web.Interop.Package.ts
+  DotnetInspect.Web.Interop.Source.ts
 ```
 
 What to notice: the compiler-bound context, not a directory scan or handwritten
 facade manifest, determines all seven outputs. Generation fails as one operation
 before the destination exists if any declared root cannot resolve or emit. As a
-neighboring case, `InspectWeb.Engine.Core.dll` may be present in the same search
+neighboring case, `DotnetInspect.Web.Core.dll` may be present in the same search
 directory but produces no facade because the context does not root it.
 
 ## Boundaries
@@ -160,7 +160,7 @@ directory but produces no facade because the context does not root it.
 
 - `ts-jsexport`: assembly inspection, authenticated runtime dispatch, wire
   contract projection, generated lifecycle behavior, and TypeScript emission;
-- `InspectWeb.Engine.Core`: consumer-owned acquisition, workspace lifetimes,
+- `DotnetInspect.Web.Core`: consumer-owned acquisition, workspace lifetimes,
   cancellation coordinators, and browser host policy;
 - product queries and producers: package, metadata, Analysis, source,
   call-graph, and vocabulary semantics and typed results;
@@ -210,7 +210,7 @@ or unexpected assignment.
 - `ConfigureHost`
 
 The host assembly is the only facade whose `runEntryPoint()` the application
-calls. `ConfigureHost` configures shared `InspectWeb.Engine.Core` policy before the
+calls. `ConfigureHost` configures shared `DotnetInspect.Web.Core` policy before the
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
@@ -260,7 +260,7 @@ semantics from the product query owner.
 
 This facade adapts metadata images, tables, heaps, type projections, and the
 member surface selected from graph navigation. It consumes package or platform
-coordinates through `InspectWeb.Engine.Core`; it does not acquire artifacts
+coordinates through `DotnetInspect.Web.Core`; it does not acquire artifacts
 independently.
 
 ### Analysis facade: 8 exports
@@ -323,7 +323,7 @@ it projects one API member after navigation rather than expanding topology.
 
 The catalog facade adapts product-owned static vocabulary and demo definitions
 plus product-owned workspace-share transport. `RunHomeDemo` may call shared
-package or Platform workspace services through `InspectWeb.Engine.Core`; it
+package or Platform workspace services through `DotnetInspect.Web.Core`; it
 does not call sibling facades or reuse their wire DTOs.
 
 ## Managed assembly contract
@@ -331,8 +331,8 @@ does not call sibling facades or reuse their wire DTOs.
 ### Export isolation
 
 Every `[JSExport]` method lives in exactly one export assembly.
-`InspectWeb.Engine` owns the three host exports.
-`InspectWeb.Engine.Core` contains no `[JSExport]` attribute, no generated
+`DotnetInspect.Web` owns the three host exports.
+`DotnetInspect.Web.Core` contains no `[JSExport]` attribute, no generated
 serializer context published as a facade contract, and no dependency on an
 export assembly. Capability export assemblies do not reference each other.
 These constraints keep the dependency graph acyclic and prevent one generated
@@ -350,7 +350,7 @@ Each export assembly owns:
 2. the source-generated `JsonSerializerContext` roots for those DTOs; and
 3. projection from owner-issued product results into those DTOs.
 
-An export does not serialize a DTO declared by `InspectWeb.Engine.Core` or a
+An export does not serialize a DTO declared by `DotnetInspect.Web.Core` or a
 sibling export assembly. Internal core models may be shared, but each facade
 maps them to its own transport records. This keeps every assembly's
 authenticated serializer vocabulary self-contained and avoids adding
@@ -372,7 +372,7 @@ assembly. Existing serializer-to-completion authentication in
 Shared browser state is not duplicated to match facade count. Package caches,
 package/platform workspace acquisition, host proxy configuration, operation
 coordinators, scope leases, and bounded browser policies have one
-`InspectWeb.Engine.Core` implementation in the one runtime.
+`DotnetInspect.Web.Core` implementation in the one runtime.
 
 A helper moves to core only when at least two facade assemblies consume the
 same typed browser-host operation. Product facts and classifications stay in
@@ -847,13 +847,13 @@ assembly. Consumer-owned TypeScript compilation derives one `.d.ts` and one
 browser JavaScript module from it:
 
 ```text
-InspectWeb.Engine.PackageExports.dll
+DotnetInspect.Web.Interop.Package.dll
         |
         v
-engine/facades/inspect-web-package.ts
+DotnetInspect.Web/facades/inspect-web-package.ts
         |
         +-- src/facades/inspect-web-package.d.ts
-        `-- engine/wwwroot/inspect-web-package.js
+        `-- DotnetInspect.Web/wwwroot/inspect-web-package.js
 ```
 
 The generation command executes the compiled `JsExportRoot` recipe once using
@@ -914,7 +914,7 @@ digests, published JavaScript filename/digest map, total export count, sorted
 project identities, and project-graph digest. The consumer mapping is accepted
 only when its domain equals that context-issued set. The count remains a useful
 summary but does not establish graph equality. Their lowering counts remain the
-expected all-or-nothing inverse. A receipt for only `InspectWeb.Engine.dll` is
+expected all-or-nothing inverse. A receipt for only `DotnetInspect.Web.dll` is
 incomplete after partitioning even if its local counts are correct.
 
 CoreCLR staging follows production promotion rather than every compiler-async
@@ -993,7 +993,7 @@ contracts that issue #4497 does not need.
 ## Implementation sequence
 
 The binding cutover is atomic. The current generated module acquires only
-`InspectWeb.Engine`, validates all 48 managed paths during initialization, and
+`DotnetInspect.Web`, validates all 48 managed paths during initialization, and
 supplies the application's declarations and runtime calls. Moving an export
 before replacing that module leaves a stale path; regenerating the monolith
 after the move removes the operation before its consumer has migrated.
@@ -1014,7 +1014,7 @@ One cutover PR therefore:
 
 Preparatory PRs may precede the cutover only when the current monolithic facade
 and deployment evidence remain complete. Extracting
-`InspectWeb.Engine.Core`, adding reusable generation-loop infrastructure under
+`DotnetInspect.Web.Core`, adding reusable generation-loop infrastructure under
 the current one-module configuration, or adding cutover-ready outcome tests are
 valid examples. Moving a `[JSExport]`, changing its DTO assembly, publishing a
 partial module set, or weakening a current gate is not preparation and belongs

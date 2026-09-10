@@ -136,21 +136,21 @@ import { readFileSync, writeFileSync } from "node:fs";
 const [censusPath, domainPath] = process.argv.slice(2);
 const census = JSON.parse(readFileSync(censusPath, "utf8"));
 const expected = [
-  "InspectWeb.Engine",
-  "InspectWeb.Engine.AnalysisExports",
-  "InspectWeb.Engine.CallGraphExports",
-  "InspectWeb.Engine.CatalogExports",
-  "InspectWeb.Engine.MetadataExports",
-  "InspectWeb.Engine.PackageExports",
-  "InspectWeb.Engine.SourceExports",
+  "DotnetInspect.Web",
+  "DotnetInspect.Web.Interop.Analysis",
+  "DotnetInspect.Web.Interop.CallGraph",
+  "DotnetInspect.Web.Interop.Catalog",
+  "DotnetInspect.Web.Interop.Metadata",
+  "DotnetInspect.Web.Interop.Package",
+  "DotnetInspect.Web.Interop.Source",
 ];
 assert.deepEqual(
   census.assemblies.map(assembly => assembly.name),
   expected,
   "compiled InspectWebJsExportContext does not declare the exact facade set");
 function moduleName(assembly) {
-  if (assembly === "InspectWeb.Engine") return "inspect-web-host";
-  const match = /^InspectWeb\.Engine\.([A-Z][A-Za-z0-9]*)Exports$/.exec(assembly);
+  if (assembly === "DotnetInspect.Web") return "inspect-web-host";
+  const match = /^DotnetInspect\.Web\.Interop\.([A-Z][A-Za-z0-9]*)$/.exec(assembly);
   assert.ok(match, `context assembly ${assembly} has no public module mapping`);
   return `inspect-web-${match[1]
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
@@ -179,14 +179,14 @@ TMPDIR="$repo_root/artifacts" \
   -p:VersionPrefix="$version_prefix" \
   -- \
   "$assembly" \
-  --context InspectWeb.Engine.InspectWebJsExportContext \
+  --context DotnetInspect.Web.InspectWebJsExportContext \
   --assembly-search-path "$assembly_directory" \
   --runtime-module ./runtime-loader.js \
   --output "$context_output"
 
 runtime_pack_directory=$(
   "$dotnet" msbuild \
-    "$repo_root/prototypes/inspect-web/engine/InspectWeb.Engine.csproj" \
+    "$repo_root/prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj" \
     -nologo \
     -target:ProcessFrameworkReferences \
     -getItem:RuntimePack \
@@ -210,13 +210,13 @@ fi
 
 mkdir -p "$compiled_sources/_framework"
 cp "$dotnet_dts" "$compiled_sources/_framework/dotnet.d.ts"
-cp "$repo_root/prototypes/inspect-web/engine/wwwroot/runtime-loader.js" \
+cp "$repo_root/prototypes/inspect-web/DotnetInspect.Web/wwwroot/runtime-loader.js" \
   "$compiled_sources/runtime-loader.js"
 "$node" --input-type=module - \
   "$domain" \
   "$context_output" \
   "$compiled_sources" \
-  "$repo_root/prototypes/inspect-web/engine/facades" <<'JS'
+  "$repo_root/prototypes/inspect-web/DotnetInspect.Web/facades" <<'JS'
 import assert from "node:assert/strict";
 import {
   copyFileSync,
@@ -335,7 +335,7 @@ if [[ "$lowering" == "runtime" ]]; then
   graph_properties+=("-p:Features=runtime-async=on")
 fi
 "$dotnet" msbuild \
-  "$repo_root/prototypes/inspect-web/engine/InspectWeb.Engine.csproj" \
+  "$repo_root/prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj" \
   -t:GenerateRestoreGraphFile \
   -p:RestoreGraphOutputPath="$graph" \
   -p:Configuration=Release \

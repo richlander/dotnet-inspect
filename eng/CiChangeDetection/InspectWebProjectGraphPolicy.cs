@@ -7,7 +7,7 @@ internal static class InspectWebProjectGraphPolicy
     private const string Manifest =
         "eng/inspect-web-gate-projects.txt";
     private const string BrowserEngineProject =
-        "prototypes/inspect-web/engine/InspectWeb.Engine.csproj";
+        "prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj";
     private static readonly string[] HostOnlyGeneratorProjects =
     [
         "src/ILInspector.JsExportSurface",

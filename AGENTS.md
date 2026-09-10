@@ -345,7 +345,7 @@ threshold, placement convention, and existing consumers.
 | Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
-| Research and additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
+| Additional library and host suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
 | Inspection queries | `dotnet run --project tests/DotnetInspector.Queries.Tests -c Release` |
 | Shared services | `dotnet run --project tests/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
