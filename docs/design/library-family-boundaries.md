@@ -204,11 +204,15 @@ not IL semantics:
    with type, member, and IL-offset source evidence.
 4. Target `SourceFetch` retrieves source bytes over authorized network
    transports without owning SourceLink or PDB semantics.
-5. `PdbSourceHouse` composes local, repository, and remote candidate ordering,
-   invokes the source fetcher, verifies PDB checksums, decodes source, and
-   settles visible PDB-source outcomes.
-6. `AssemblyContextSourceQuery` composes verified PDB source with the distinct
-   decompiler fallback.
+5. `PdbSourceHouse` currently composes local, repository, and remote candidate
+   ordering, invokes the source fetcher, verifies PDB checksums, decodes
+   source, and settles visible PDB-source outcomes.
+6. `AssemblyContextSourceQuery` currently composes verified PDB source with the
+   distinct decompiler fallback.
+7. The target [SourceHouse](source-house.md) transfers those product
+   composition responsibilities into one `DotnetInspector` owner that invokes
+   `SourceLinkService`, `CSharpDecompilerService`, and authorized transport
+   capabilities without moving network policy into `ILInspector.SourceLink`.
 
 `ILInspector.SourceLink` therefore remains in the IL inspection family
 because its primary contract is PDB document, type, member, and IL-offset
@@ -300,7 +304,8 @@ components move to the
 [`PlatformHouse`](platform-house-reference-processing.md) owner above the lower
 [Platform Target Currency](platform-target-currency.md), source-byte transport
 to the independent `SourceFetch` root, PDB-specific source composition to the
-`PdbSourceHouse` owner, and
+current `PdbSourceHouse` owner and then the target
+[SourceHouse](source-house.md) composition under #6512, and
 assembly-set or dependency-resolution components to their workspace or
 assembly-resolution owner. `House` remains reserved for the accepted
 clearing-house scenarios and does not become an assembly bucket.

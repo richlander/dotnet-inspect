@@ -24,25 +24,44 @@ const smokeScript = fileURLToPath(
   new URL("../scripts/verify-published-engine-facades.ts", import.meta.url),
 );
 const sourceRoot = fileURLToPath(new URL("../DotnetInspect.Web/wwwroot/", import.meta.url));
-const target = "./_framework/dotnet.fingerprint.js";
-const sdkSource = 'export const dotnet = { identity: "SDK runtime" };\n';
+const runtimeModules = [
+  {
+    specifier: "./_framework/dotnet.js",
+    target: "./_framework/dotnet.fingerprint.js",
+    source: 'export const dotnet = { identity: "SDK runtime" };\n',
+  },
+  {
+    specifier: "./_framework/dotnet.native.js",
+    target: "./_framework/dotnet.native.fingerprint.js",
+    source: "export default function createNativeRuntime() {}\n",
+  },
+  {
+    specifier: "./_framework/dotnet.runtime.js",
+    target: "./_framework/dotnet.runtime.fingerprint.js",
+    source: "export function configureRuntimeStartup() {}\n",
+  },
+] as const;
 
 function createSite(context: TestContext): string {
   const site = mkdtempSync(join(tmpdir(), "inspect-web-runtime-loader-"));
   context.after(() => rmSync(site, { recursive: true, force: true }));
   mkdirSync(join(site, "_framework"));
   writeFileSync(join(site, "package.json"), '{"type":"module"}\n');
-  writeFileSync(join(site, target), sdkSource);
+  for (const module of runtimeModules) {
+    writeFileSync(join(site, module.target), module.source);
+  }
   writeFileSync(
     join(site, "index.html"),
     `<script type="importmap">${JSON.stringify({
-      imports: { "./_framework/dotnet.js": target },
+      imports: Object.fromEntries(
+        runtimeModules.map(module => [module.specifier, module.target]),
+      ),
     }, null, 2)}</script>`,
   );
   return site;
 }
 
-test("publication emits the exact SDK runtime target without an import map", async (context) => {
+test("publication emits stable exact SDK runtime modules for a Worker", async (context) => {
   const site = createSite(context);
   const result = spawnSync(process.execPath, [publishScript, site], {
     encoding: "utf8",
@@ -50,26 +69,40 @@ test("publication emits the exact SDK runtime target without an import map", asy
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
     readFileSync(join(site, "runtime-loader.js"), "utf8"),
-    `export { dotnet } from "${target}";\n`,
+    'export { dotnet } from "./_framework/dotnet.js";\n',
   );
   const loader: unknown = await import(
     pathToFileURL(join(site, "runtime-loader.js")).href,
   );
-  const sdk: unknown = await import(pathToFileURL(join(site, target)).href);
+  const sdk: unknown = await import(
+    pathToFileURL(join(site, "_framework/dotnet.js")).href,
+  );
   assert.deepEqual(loader, sdk);
-  assert.equal(readFileSync(join(site, target), "utf8"), sdkSource);
-  assert.equal(existsSync(join(site, "_framework/dotnet.js")), false);
+  for (const module of runtimeModules) {
+    assert.deepEqual(
+      readFileSync(join(site, module.specifier)),
+      readFileSync(join(site, module.target)),
+    );
+  }
 });
 
-test("publication replaces the loader with a newly selected fingerprint", (context) => {
+test("publication refreshes aliases from newly selected fingerprints", (context) => {
   const site = createSite(context);
   publishRuntimeLoader(site);
-  const nextTarget = "./_framework/dotnet.next-fingerprint.js";
-  writeFileSync(join(site, nextTarget), sdkSource);
+  const nextModules = runtimeModules.map(module => ({
+    ...module,
+    target: module.target.replace(".fingerprint.js", ".next-fingerprint.js"),
+    source: `${module.source}// next fingerprint\n`,
+  }));
+  for (const module of nextModules) {
+    writeFileSync(join(site, module.target), module.source);
+  }
   writeFileSync(
     join(site, "index.html"),
     `<script type="importmap">${JSON.stringify({
-      imports: { "./_framework/dotnet.js": nextTarget },
+      imports: Object.fromEntries(
+        nextModules.map(module => [module.specifier, module.target]),
+      ),
     })}</script>`,
   );
 
@@ -77,21 +110,35 @@ test("publication replaces the loader with a newly selected fingerprint", (conte
 
   assert.equal(
     readFileSync(join(site, "runtime-loader.js"), "utf8"),
-    `export { dotnet } from "${nextTarget}";\n`,
+    'export { dotnet } from "./_framework/dotnet.js";\n',
   );
+  for (const module of nextModules) {
+    assert.deepEqual(
+      readFileSync(join(site, module.specifier)),
+      readFileSync(join(site, module.target)),
+    );
+  }
 });
 
-for (const [label, imports] of [
-  ["missing", {}],
-  ["non-string", { "./_framework/dotnet.js": 42 }],
-  ["unfingerprinted", { "./_framework/dotnet.js": "./_framework/dotnet.js" }],
-  ["non-JavaScript", { "./_framework/dotnet.js": "./_framework/dotnet.hash.wasm" }],
+for (const [label, target] of [
+  ["missing", undefined],
+  ["non-string", 42],
+  ["unfingerprinted", "./_framework/dotnet.js"],
+  ["non-JavaScript", "./_framework/dotnet.hash.wasm"],
 ] as const) {
   test(`publication fails visibly for a ${label} mapping`, (context) => {
     const site = createSite(context);
+    const validImports = Object.fromEntries(
+      runtimeModules.map(module => [module.specifier, module.target]),
+    );
     writeFileSync(
       join(site, "index.html"),
-      `<script type="importmap">${JSON.stringify({ imports })}</script>`,
+      `<script type="importmap">${JSON.stringify({
+        imports: {
+          ...validImports,
+          "./_framework/dotnet.js": target,
+        },
+      })}</script>`,
     );
     const result = spawnSync(process.execPath, [publishScript, site], {
       encoding: "utf8",
@@ -104,7 +151,7 @@ for (const [label, imports] of [
 
 test("publication fails visibly when the mapped runtime is missing", (context) => {
   const site = createSite(context);
-  rmSync(join(site, target));
+  rmSync(join(site, runtimeModules[1].target));
 
   const result = spawnSync(process.execPath, [publishScript, site], {
     encoding: "utf8",
@@ -118,7 +165,7 @@ test("publication fails visibly when the mapped runtime is missing", (context) =
 test("the source loader re-exports the SDK build runtime", async (context) => {
   const site = createSite(context);
   copyFileSync(join(sourceRoot, "runtime-loader.js"), join(site, "runtime-loader.js"));
-  writeFileSync(join(site, "_framework/dotnet.js"), sdkSource);
+  writeFileSync(join(site, "_framework/dotnet.js"), runtimeModules[0].source);
 
   const loader: unknown = await import(
     pathToFileURL(join(site, "runtime-loader.js")).href,
@@ -138,7 +185,7 @@ test("published facade smoke restores the exact loader after runtime failure", (
     copyFileSync(join(sourceRoot, facade), join(site, facade));
   }
   writeFileSync(
-    join(site, target),
+    join(site, runtimeModules[0].target),
     'export const dotnet = { create() { throw new Error("runtime fixture failed"); } };\n',
   );
   publishRuntimeLoader(site);
@@ -151,5 +198,8 @@ test("published facade smoke restores the exact loader after runtime failure", (
   assert.equal(result.status, 1);
   assert.match(result.stderr, /runtime fixture failed/);
   assert.deepEqual(readFileSync(join(site, "runtime-loader.js")), original);
-  assert.equal(existsSync(join(site, "_framework/dotnet.js")), false);
+  assert.deepEqual(
+    readFileSync(join(site, "_framework/dotnet.js")),
+    readFileSync(join(site, runtimeModules[0].target)),
+  );
 });

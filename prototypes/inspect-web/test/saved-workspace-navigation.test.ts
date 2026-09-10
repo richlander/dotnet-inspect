@@ -67,11 +67,45 @@ import {
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
 assert.deepEqual(app.errors, []);
+
+interface CapturedWorkspaceUrlState {
+  subject: unknown;
+  view: {
+    lens: unknown;
+    type: unknown;
+    memberAnchor: unknown;
+    memberSignature: unknown;
+    section: unknown;
+    libraries: unknown[];
+  };
+}
+
+function isCapturedWorkspaceUrlState(
+  value: unknown,
+): value is CapturedWorkspaceUrlState {
+  if (!value || typeof value !== "object"
+    || !("subject" in value)
+    || !("view" in value)
+    || !value.view
+    || typeof value.view !== "object") {
+    return false;
+  }
+  const view = value.view;
+  return "lens" in view
+    && "type" in view
+    && "memberAnchor" in view
+    && "memberSignature" in view
+    && "section" in view
+    && "libraries" in view
+    && Array.isArray(view.libraries);
+}
+
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "selectedCallGraphWorkspacePackages", "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
+  "buildShareUrl", "share",
   "openSavedWorkspace", "openSavedWorkspaceCore",
   "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
@@ -222,6 +256,13 @@ function harness() {
     workspaceDependencies: {} as Record<string, unknown>,
     workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
+    packageDependencies: null as {
+      dependencyGroups: {
+        index: number;
+        isActive: boolean;
+      }[];
+    } | null,
+    dependenciesGroupIndex: null as number | null,
     dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
@@ -298,6 +339,7 @@ function harness() {
   const invalidations: string[] = [];
   const publications: unknown[] = [];
   const toasts: string[] = [];
+  const clipboard: string[] = [];
   const picker: {
     current: {
       pickResult: (result: SpotlightPackageResult) => void;
@@ -377,6 +419,25 @@ function harness() {
       setAttribute: () => {},
       removeAttribute: () => {},
     },
+    navigator: {
+      clipboard: {
+        write: async (items: Array<{
+          content: Record<string, Promise<Blob>>;
+        }>) => {
+          const content = items[0]?.content["text/plain"];
+          assert.ok(content);
+          clipboard.push(await (await content).text());
+        },
+      },
+    },
+    Blob,
+    ClipboardItem: class {
+      content: Record<string, Promise<Blob>>;
+
+      constructor(content: Record<string, Promise<Blob>>) {
+        this.content = content;
+      }
+    },
     catalogRequests, packageComparisonTargets,
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
@@ -442,6 +503,8 @@ function harness() {
       throw error;
     },
     applicationMenuOwnsFocus: () => false,
+    captureApplicationMenuFocusOwner: () => null,
+    restoreApplicationMenuFocusIfOwned: () => {},
     showToast: (message: string) => toasts.push(message),
     spotlight: {
       openForPackageAddition: (purpose: NonNullable<typeof picker.current>) => {
@@ -584,7 +647,7 @@ function harness() {
   return {
     state, context, controls, location, history, writes, decoded, encoded,
     acquisitions, focus, effects, operations, navigationHistory, navigationSequence,
-    queries, retained, recent, invalidations, toasts, picker, previousEntries,
+    queries, retained, recent, invalidations, toasts, clipboard, picker, previousEntries,
     catalogRequests, packageComparisonTargets,
     demoResolutions, callGraphRuns, publications,
     capture: async (): Promise<string> => {
@@ -592,6 +655,18 @@ function harness() {
         await runInNewContext("captureSavedWorkspacePacket()", context);
       assert.ok(typeof result === "string");
       return result;
+    },
+    captureUrlState: (): CapturedWorkspaceUrlState => {
+      const result: unknown =
+        runInNewContext("captureWorkspaceUrlState()", context);
+      assert.ok(isCapturedWorkspaceUrlState(result));
+      return result;
+    },
+    applyView: (loc: Partial<ParsedWorkspaceLocation>): void => {
+      runInNewContext("applyLocationView(loc)", { ...context, loc });
+    },
+    share: async (): Promise<void> => {
+      await runInNewContext("share()", context);
     },
     open: (entry: SavedWorkspace = saved): void => {
       runInNewContext("openSavedWorkspace(entry)", { ...context, entry });
@@ -610,6 +685,91 @@ function harness() {
     flushFocus: () => { for (const frame of frames.splice(0)) frame(); },
   };
 }
+
+test("capture projects package Dependencies through the packet lens", () => {
+  const h = harness();
+  h.state.workspaceSubjectOpen = false;
+  h.state.atPackageRoot = true;
+  h.state.packageLens = "dependencies";
+  h.state.selectedTypeId = "stale.Type";
+  h.state.selectedMemberKey = "stale-member";
+  h.state.libraryScope = new Set(["stale-library", "another-library"]);
+
+  const captured = h.captureUrlState();
+
+  assert.equal(captured.subject, null);
+  assert.equal(captured.view.lens, "dependencies");
+  assert.equal(captured.view.type, null);
+  assert.equal(captured.view.memberAnchor, null);
+  assert.equal(captured.view.memberSignature, null);
+  assert.equal(captured.view.section, null);
+  assert.equal(captured.view.libraries.length, 0);
+});
+
+test("capture refuses a non-active package dependency group", () => {
+  const h = harness();
+  h.state.workspaceSubjectOpen = false;
+  h.state.atPackageRoot = true;
+  h.state.packageLens = "dependencies";
+  h.state.packageDependencies = {
+    dependencyGroups: [
+      { index: 0, isActive: true },
+      { index: 1, isActive: false },
+    ],
+  };
+  h.state.dependenciesGroupIndex = 1;
+
+  assert.throws(
+    () => h.captureUrlState(),
+    /selected dependency group differs from the package target framework/);
+});
+
+test("Share copies canonical package Dependencies and refuses a non-active group", async () => {
+  const h = harness();
+  h.state.workspaceSubjectOpen = false;
+  h.state.atPackageRoot = true;
+  h.state.packageLens = "dependencies";
+  h.state.packageDependencies = {
+    dependencyGroups: [
+      { index: 0, isActive: true },
+      { index: 1, isActive: false },
+    ],
+  };
+  h.state.dependenciesGroupIndex = 1;
+
+  await h.share();
+
+  assert.deepEqual(h.clipboard, []);
+  assert.deepEqual(h.toasts, []);
+  assert.match(
+    h.state.queryNotice,
+    /selected dependency group differs from the package target framework/);
+
+  h.state.dependenciesGroupIndex = 0;
+  h.state.queryNotice = "";
+  await h.share();
+
+  assert.equal(h.clipboard.length, 1);
+  const copied = new URL(h.clipboard[0]!);
+  assert.equal(copied.searchParams.get("package"), sourcePackage.id);
+  assert.equal(copied.searchParams.get("w"), packet);
+  assert.deepEqual(h.toasts, ["selection link copied"]);
+});
+
+test("canonical package Dependencies restoration clears a resident group override", () => {
+  const h = harness();
+  h.state.dependenciesGroupIndex = 1;
+
+  h.applyView({
+    hasWorkspaceState: true,
+    atPackageRoot: true,
+    packageLens: "dependencies",
+  });
+
+  assert.equal(h.state.dependenciesGroupIndex, null);
+  assert.equal(h.state.atPackageRoot, true);
+  assert.equal(h.state.packageLens, "dependencies");
+});
 
 test("canonical restoration preserves coordinator-owned comparison state identities", () => {
   const h = harness();

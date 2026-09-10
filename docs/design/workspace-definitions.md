@@ -2042,6 +2042,25 @@ Definition records and product demos (this slice):
   `MemberShare_RejectsPlatformSource`,
   `MemberShare_RejectsLocalPackage`, and
   `MemberShare_RejectsConflictingModes` gate the production boundary;
+- the package Root `dependencies` compatibility token lowers to
+  `root.package-dependencies`; the packet carries the exact package coordinate
+  and framework but no graph results, dependency-group indexes, or Browser
+  runtime state. The public CLI gesture and producer behavior are owned by
+  [CLI Workspace Sharing](cli-workspace-sharing.md). The published Browser
+  restores its package Dependencies lens and lazily computes the graph.
+  Browser capture refuses an explicitly selected dependency group that differs
+  from the active framework because format 1 cannot preserve that override,
+  and canonical Dependencies restoration clears any prior Browser-local group
+  override before rendering. The Browser Share action uses this canonical
+  capture path even though ordinary package-root address-bar state retains its
+  simpler route form. `canonical package dependency views restore the package
+  root lens`,
+  `canonical package views reject contradictory structural selection`,
+  `capture projects package Dependencies through the packet lens`,
+  `capture refuses a non-active package dependency group`, and
+  `Share copies canonical package Dependencies and refuses a non-active group`,
+  and `canonical package Dependencies restoration clears a resident group
+  override` gate the Browser adapter;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;

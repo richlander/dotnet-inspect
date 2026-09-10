@@ -2688,10 +2688,10 @@ test("shared member views use portable product identity and omit UI-local filter
     /memberAnchor = overload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
   assert.match(
     capture,
-    /const library = selectedLibraryShareKey\(\);\s*const libraries = workspaceSubjectOpen \|\| platformRoot \|\| !library \? \[\] : \[library\]/);
+    /const library = selectedLibraryShareKey\(\);\s*const libraries =\s*workspaceSubjectOpen \|\| platformRoot \|\| packageSubjectOpen \|\| !library\s*\? \[\]\s*: \[library\]/);
   assert.match(
     capture,
-    /state\.libraryScope && state\.libraryScope\.size > 1[\s\S]*Select one library/);
+    /!packageSubjectOpen\s*&& state\.libraryScope\s*&& state\.libraryScope\.size > 1[\s\S]*Select one library/);
   assert.match(
     capture,
     /overload\.bodySelectors\.length > 1[\s\S]*accessor-specific section/);
@@ -2771,7 +2771,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /canonicalTabCountPreserved[\s\S]*canonicalTabsPreserved[\s\S]*failedTabCount > 0 \|\| !canonicalTabsPreserved[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     restore,
-    /canonicalViewRestorationFailure\(targetModel, deep, loc\.lens, loc\.libraryLens\)[\s\S]*failCanonicalWorkspaceRestore/);
+    /canonicalViewRestorationFailure\(\s*targetModel,\s*deep,\s*loc\.lens,\s*loc\.libraryLens,\s*loc\.atPackageRoot && !loc\.workspaceSubjectOpen\s*\? loc\.packageLens\s*: null\)[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     restore,
     /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
@@ -3106,7 +3106,7 @@ test("home demos restore the complete parsed location", () => {
     /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
   assert.match(
     appSource,
-    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.rootKind = loc\.rootKind;\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
+    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.rootKind = loc\.rootKind;\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*if \(loc\.hasWorkspaceState\s*&& state\.atPackageRoot\s*&& loc\.packageLens === "dependencies"\) \{\s*state\.dependenciesGroupIndex = null;\s*\}\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
   const callGraphDemo =
     appSource.match(/async function runCallGraphDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";

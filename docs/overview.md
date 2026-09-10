@@ -44,6 +44,9 @@ substrates, and inspection producers that will extend that space.
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
   operation-intent lowering at the L3 boundary. Its
+  [CLI execution-bound grammar](design/cli-execution-bounds.md) separately
+  owns L3 classification, spelling, validation, and typed lowering for explicit
+  owner-dimensioned limits on upstream work. Its
   [search scope resolution](design/search-scope-resolution.md) owns default
   activation,
   explicit-source suppression, and named platform/package scope expansion. Its
@@ -194,6 +197,15 @@ substrates, and inspection producers that will extend that space.
   XML, PDB, SourceLink, and source-comment algorithms, Workspace admission,
   the assembly-reference ladder, and host presentation remain with their
   focused owners.
+- The target [SourceHouse Composition](design/source-house.md) owner defines
+  the sole host-neutral source settlement facade over one exact target and one
+  owner-issued content-backed library representation. It composes
+  `SourceLinkService` and `CSharpDecompilerService`, keeps source-result demand
+  independent from consumer-selected PDB access, prefers supplied assembly and
+  PDB content over acquisition, and preserves both producer attempts and
+  provenance. PackageHouse, PlatformHouse, and direct-library adapters produce
+  the shared representation; SourceLink, Decompiler, artifact lifetime,
+  documentation, and host presentation remain with their focused owners.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,
@@ -502,6 +514,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Item and line selection composition](design/item-and-line-limits.md):
   cross-component sequencing and typed handoffs for focused semantic
   selection, L2, source-execution, CLI, payload, and presentation designs.
+- [CLI execution bounds](design/cli-execution-bounds.md): L3 distinction
+  between semantic selection and explicit owner-dimensioned work limits,
+  including `--take` eligibility and typed lowering.
 - [Semantic row selection](design/semantic-row-selection.md): typed
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.

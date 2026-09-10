@@ -23,13 +23,15 @@ public static class DotnetToolSettingsParser
         if (File.Exists(path))
             return path;
 
-        foreach (var level1 in Directory.GetDirectories(toolsDir))
+        foreach (var level1 in Directory.GetDirectories(toolsDir)
+                     .Order(StringComparer.Ordinal))
         {
             path = Path.Combine(level1, SettingsFileName);
             if (File.Exists(path))
                 return path;
 
-            foreach (var level2 in Directory.GetDirectories(level1))
+            foreach (var level2 in Directory.GetDirectories(level1)
+                         .Order(StringComparer.Ordinal))
             {
                 path = Path.Combine(level2, SettingsFileName);
                 if (File.Exists(path))
@@ -48,6 +50,50 @@ public static class DotnetToolSettingsParser
     {
         var settingsFile = FindSettings(toolsDir);
         return settingsFile == null ? null : Parse(settingsFile);
+    }
+
+    /// <summary>
+    /// Locates and projects every candidate manifest. Returns <see langword="true"/>
+    /// for absence or one complete, agreeing projection; otherwise returns
+    /// <see langword="false"/> while preserving the first deterministic projection
+    /// in <paramref name="data"/> when one was readable.
+    /// </summary>
+    public static bool TryProject(
+        string toolsDir,
+        out DotnetToolSettingsData? data)
+    {
+        data = null;
+        try
+        {
+            string[] candidates = FindSettingsCandidates(toolsDir);
+            if (candidates.Length == 0)
+                return true;
+
+            DotnetToolSettingsData? selected = Parse(candidates[0]);
+            if (selected is null)
+                return false;
+
+            for (int i = 1; i < candidates.Length; i++)
+            {
+                DotnetToolSettingsData? candidate = Parse(candidates[i]);
+                if (!Equivalent(selected, candidate))
+                {
+                    data = selected;
+                    return false;
+                }
+            }
+
+            data = selected;
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or System.Xml.XmlException
+                or InvalidDataException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -120,6 +166,53 @@ public static class DotnetToolSettingsParser
             _ => null,
         };
     }
+
+    private static string[] FindSettingsCandidates(string toolsDir)
+    {
+        var candidates = new List<string>();
+        string root = Path.Combine(toolsDir, SettingsFileName);
+        if (File.Exists(root))
+            candidates.Add(root);
+
+        foreach (string level1 in Directory.GetDirectories(toolsDir)
+                     .Order(StringComparer.Ordinal))
+        {
+            string path = Path.Combine(level1, SettingsFileName);
+            if (File.Exists(path))
+                candidates.Add(path);
+
+            foreach (string level2 in Directory.GetDirectories(level1)
+                         .Order(StringComparer.Ordinal))
+            {
+                path = Path.Combine(level2, SettingsFileName);
+                if (File.Exists(path))
+                    candidates.Add(path);
+            }
+        }
+
+        return [.. candidates];
+    }
+
+    private static bool Equivalent(
+        DotnetToolSettingsData left,
+        DotnetToolSettingsData? right)
+        => right is not null
+            && left.Version == right.Version
+            && left.ToolFormat == right.ToolFormat
+            && left.IsRidSpecificPointerPackage
+                == right.IsRidSpecificPointerPackage
+            && SequenceEqual(left.Commands, right.Commands)
+            && SequenceEqual(
+                left.RuntimeIdentifierPackages,
+                right.RuntimeIdentifierPackages);
+
+    private static bool SequenceEqual<T>(
+        IReadOnlyList<T>? left,
+        IReadOnlyList<T>? right)
+        where T : IEquatable<T>
+        => left is null
+            ? right is null
+            : right is not null && left.SequenceEqual(right);
 
     private static List<string>? ParseCommands(XElement? root)
     {

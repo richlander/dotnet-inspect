@@ -48,7 +48,7 @@ internal static class BrowserPackageSurfaceProjection
                 new BrowserPackageSurfaceInfo(
                     coordinate.PackageId,
                     coordinate.Version,
-                    BrowserFrameworkText.Available(coordinate.Selection),
+                    BrowserFrameworkText.Available(coordinate),
                     BrowserFrameworkText.Active(coordinate),
                     coordinate.Package.Icon,
                     DefaultAssemblyId: null,
@@ -102,7 +102,7 @@ internal static class BrowserPackageSurfaceProjection
             new BrowserPackageSurfaceInfo(
                 coordinate.PackageId,
                 coordinate.Version,
-                BrowserFrameworkText.Available(coordinate.Selection),
+                BrowserFrameworkText.Available(coordinate),
                 BrowserFrameworkText.Active(coordinate),
                 coordinate.Package.Icon,
                 defaultAssemblyId,

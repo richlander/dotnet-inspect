@@ -294,7 +294,8 @@ export function createNuGetPackageModel(
   result: InspectedPackageSurface,
 ): AppPackage {
   const rootOnly = result.compileLibrary.status === "NoCompileAssets"
-    || result.compileLibrary.status === "EmptyCompileGroup";
+    || result.compileLibrary.status === "EmptyCompileGroup"
+    || result.compileLibrary.status === "NoMatchingTargetFramework";
   if (result.compileLibrary.status !== "Selected" && !rootOnly) {
     throw new Error(
       result.compileLibrary.message

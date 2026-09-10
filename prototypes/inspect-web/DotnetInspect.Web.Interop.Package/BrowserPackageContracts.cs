@@ -535,8 +535,9 @@ public sealed record BrowserPackageQueryMatchCreditResponse(
 
 /// <summary>
 /// Declared package dependency groups and one selected assembly's direct references. Dependency
-/// parsing and exact-framework selection belong to <c>PackageDependencyGroupsQuery</c>; direct
-/// references belong to <c>AssemblyContextReferencesQuery</c>.
+/// parsing and compatible target-framework selection belong to
+/// <c>PackageDependencyGroupsQuery</c>; direct references belong to
+/// <c>AssemblyContextReferencesQuery</c>.
 /// </summary>
 public sealed record BrowserPackageDependencies(
     string Package,
