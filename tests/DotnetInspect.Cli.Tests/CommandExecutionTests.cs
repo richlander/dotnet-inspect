@@ -12268,6 +12268,7 @@ public partial class CommandExecutionTests
             new[]
             {
                 "dependency-evidence",
+                "ecosystem",
                 "extensions",
                 "find",
                 "implements",
