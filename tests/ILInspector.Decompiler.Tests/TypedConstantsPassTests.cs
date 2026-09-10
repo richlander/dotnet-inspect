@@ -17,6 +17,16 @@ public class TypedConstantsPassTests
         return function!;
     }
 
+    static IrFunction Raised(string typeName, string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        function!.CheckInvariant();
+        return function!;
+    }
+
     [Fact]
     public void BoolStoredThroughByRef_RetypesConstantToBool()
     {
@@ -52,6 +62,43 @@ public class TypedConstantsPassTests
         Assert.Contains("return S_256[index] ? 1 : 0;", output);
         Assert.DoesNotContain("visited[index] = 1;", output);
         Assert.DoesNotContain("visited[index] == 0", output);
+    }
+
+    [Fact]
+    public void GenericNestedEnumCallArgument_RendersNamedMember()
+    {
+        var function = Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            nameof(CfgGenericNestedEnumSink<int>.Set));
+
+        var call = Assert.Single(function.Descendants.OfType<Call>());
+        var constant = Assert.IsType<Constant>(Assert.Single(call.Arguments.Skip(1)));
+        var parameterType = call.Callee.ParameterTypes[0];
+        Assert.Equal(TypeRefKind.GenericInstance, parameterType.Kind);
+        Assert.Equal(TypeShape.Enum, function.TypeShapes.GetValueOrDefault(parameterType.ElementType!));
+        Assert.Equal(call.Callee.ParameterTypes[0], constant.Type);
+        Assert.Contains("Complete(CompletionPart.Complete);", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void GenericNestedIntegerCallArgument_RemainsInteger()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            nameof(CfgGenericNestedEnumSink<int>.SetInteger))).Output!;
+
+        Assert.Contains("CompleteInteger(4);", output);
+    }
+
+    [Fact]
+    public void GenericNestedUnnamedEnumCallArgument_RendersCast()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            nameof(CfgGenericNestedEnumSink<int>.SetUnnamed))).Output!;
+
+        Assert.Contains("Complete((CompletionPart)3);", output);
+        Assert.DoesNotContain("Complete(3);", output);
     }
 
     // --- Slice 2 (value-typed-emission.md): Convert folding, semantic element

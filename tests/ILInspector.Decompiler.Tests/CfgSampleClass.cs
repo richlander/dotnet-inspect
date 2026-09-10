@@ -5519,6 +5519,29 @@ public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }
 public enum CfgFlags : uint { None = 0, Top = 0x80000000u }
 public enum CfgTiny : byte { A = 1, B = 2 }
 
+public sealed class CfgGenericNestedEnumSink<T>
+{
+    enum CompletionPart
+    {
+        None,
+        Complete = 4,
+    }
+
+    public void Set() => Complete(CompletionPart.Complete);
+
+    public void SetUnnamed() => Complete((CompletionPart)3);
+
+    void Complete(CompletionPart part)
+    {
+    }
+
+    public void SetInteger() => CompleteInteger(4);
+
+    void CompleteInteger(int value)
+    {
+    }
+}
+
 public sealed class CfgNullableTarget
 {
     public int Value;

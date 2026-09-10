@@ -4476,7 +4476,8 @@ public sealed partial class CSharpPrinter
         // narrow-backed enum's out-of-range/negative value in `unchecked`, e.g.
         // `unchecked((U)(-1))`); naming flag combinations is a later slice. A
         // long-backed enum keeps its `long` payload.
-        Constant { Value: int or long, Type: { } enumType } c when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
+        Constant { Value: int or long, Type: { } enumType } c
+            when CoercionRendering.IsEnum(enumType, _function.TypeShapes)
             => WithNodeKind(c, EnumConstantText(c, enumType), "ConversionExpression"),
         Constant { Value: float value } c when !float.IsFinite(value)
             => WithNodeKind(c, SingleText(value), "MemberAccessExpression"),
@@ -6941,7 +6942,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string? EnumMemberName(Constant constant)
         => constant.Value is int or long
-            && _function.EnumMembers.TryGetValue(constant.Type, out var members)
+            && _function.EnumMembers.TryGetValue(NamedDefinition(constant.Type), out var members)
             && members.TryGetValue(constant.Value is int i ? i : (long)constant.Value!, out var name)
             ? $"{TypeQualifierText(constant.Type)}.{name}"
             : null;
@@ -6965,7 +6966,7 @@ public sealed partial class CSharpPrinter
         if (_options.EnumCaseLabelOrder != EnumCaseLabelOrder.Alphabetical
             || enumType is null
             || section.Labels.Length < 2
-            || !_function.EnumMembers.TryGetValue(enumType, out var members))
+            || !_function.EnumMembers.TryGetValue(NamedDefinition(enumType), out var members))
         {
             return section.Labels;
         }
