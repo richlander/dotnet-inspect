@@ -757,6 +757,36 @@ public class PlatformHouseContractTests
                 PlatformSourceContributionCompleteness.Authoritative,
                 PlatformSourceEvidenceIdentity.Create("realized-evidence")),
             PlatformSourceSettlementDisposition.Selected);
+        var secondAbsent = new PlatformSourceSettlement(
+            new PlatformSourceContribution.Unavailable(
+                PlatformSourceFacet.Reference,
+                second,
+                aggregatingRequest.Snapshot,
+                PlatformSourceGeneration.Create("second-absent"),
+                Target(),
+                PlatformSourceUnavailabilityKind.Absent,
+                PlatformSourceEvidenceIdentity.Create("second-absent")),
+            PlatformSourceSettlementDisposition.OutcomeRelevant);
+        var mixedCompletion =
+            new PlatformHouseCompletion.AssemblyReference(
+                (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
+                    aggregatingRequest.Snapshot.Operation,
+                PlatformAssemblyReferenceCompletionKind.NoNameOwner,
+                new PlatformMetadataOutcomeEvidence<TestMetadataOutcome>(
+                    new TestMetadataOutcome(),
+                    "mixed-no-name-owner"),
+                [realized, secondAbsent]);
+        var mixedReceipt = new PlatformHouseReceipt(
+            aggregatingRequest.Snapshot,
+            new PlatformTargetSettlement.Exact(
+                (PlatformTargetDemand.Exact)
+                    aggregatingRequest.Target),
+            [realized, secondAbsent],
+            Consumed(),
+            mixedCompletion);
+
+        Assert.Same(mixedCompletion, mixedReceipt.Completion);
+
         var secondRealized = new PlatformSourceSettlement(
             new PlatformSourceContribution.Realization(
                 PlatformSourceFacet.Reference,
@@ -1288,6 +1318,62 @@ public class PlatformHouseContractTests
                 [earlierXmlFailure, laterXml],
                 Consumed(),
                 mislabeledCompletion));
+
+        var fallbackIncompleteXml = new PlatformSourceSettlement(
+            new PlatformSourceContribution.Incomplete(
+                PlatformSourceFacet.CompiledXml,
+                firstXml,
+                documentationRequest.Snapshot,
+                PlatformSourceGeneration.Create("xml-incomplete"),
+                target,
+                PlatformSourceEvidenceIdentity.Create("xml-incomplete")),
+            PlatformSourceSettlementDisposition.OutcomeRelevant);
+        var fallbackAbsentXml = new PlatformSourceSettlement(
+            new PlatformSourceContribution.Unavailable(
+                PlatformSourceFacet.CompiledXml,
+                secondXml,
+                documentationRequest.Snapshot,
+                PlatformSourceGeneration.Create("xml-absent"),
+                target,
+                PlatformSourceUnavailabilityKind.Absent,
+                PlatformSourceEvidenceIdentity.Create("xml-absent")),
+            PlatformSourceSettlementDisposition.OutcomeRelevant);
+        var incompleteAttempt = new PlatformDocumentationAttempt(
+            PlatformSourceFacet.CompiledXml,
+            PlatformDocumentationAttemptKind.Incomplete,
+            [fallbackIncompleteXml, fallbackAbsentXml],
+            PlatformSourceEvidenceIdentity.Create("incomplete-attempt"));
+        var incompleteCompletion =
+            new PlatformHouseCompletion.Documentation(
+                (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
+                    documentationRequest.Snapshot.Operation,
+                [incompleteAttempt]);
+        var incompleteReceipt = new PlatformHouseReceipt(
+            documentationRequest.Snapshot,
+            new PlatformTargetSettlement.Exact(exact),
+            [fallbackIncompleteXml, fallbackAbsentXml],
+            Consumed(),
+            incompleteCompletion);
+
+        Assert.Same(incompleteCompletion, incompleteReceipt.Completion);
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseReceipt(
+                documentationRequest.Snapshot,
+                new PlatformTargetSettlement.Exact(exact),
+                [fallbackIncompleteXml, fallbackAbsentXml],
+                Consumed(),
+                new PlatformHouseCompletion.Documentation(
+                    (PlatformHouseOperationSnapshot
+                        .ResolveDocumentationEvidence)
+                            documentationRequest.Snapshot.Operation,
+                    [
+                        new PlatformDocumentationAttempt(
+                            PlatformSourceFacet.CompiledXml,
+                            PlatformDocumentationAttemptKind.Absent,
+                            [fallbackIncompleteXml, fallbackAbsentXml],
+                            PlatformSourceEvidenceIdentity.Create(
+                                "incorrect-fallback-absence")),
+                    ])));
 
         var aggregationDocumentationRequest = new PlatformHouseRequest(
             PlatformHouseRequestIdentity.Create("aggregation-documentation"),

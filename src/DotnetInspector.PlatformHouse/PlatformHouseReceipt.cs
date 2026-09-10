@@ -1028,6 +1028,15 @@ public sealed class PlatformHouseReceipt
             if (selection is null)
                 continue;
 
+            if (selection.Mode == PlatformSourceSelectionMode.Aggregation)
+            {
+                ValidateNoNameOwnerAggregation(
+                    facet,
+                    completionSettlements,
+                    selection);
+                continue;
+            }
+
             PlatformSourceSettlement[] selected = [.. completionSettlements.Where(
                 settlement => settlement.Contribution.Facet == facet
                     && settlement.Disposition
@@ -1086,6 +1095,51 @@ public sealed class PlatformHouseReceipt
             }
         }
     }
+
+    static void ValidateNoNameOwnerAggregation(
+        PlatformSourceFacet facet,
+        IReadOnlyList<PlatformSourceSettlement> completionSettlements,
+        PlatformSourceSelection selection)
+    {
+        PlatformSourceSettlement[] facetSettlements =
+            [.. completionSettlements.Where(
+                settlement => settlement.Contribution.Facet == facet)];
+        if (facetSettlements.Length != selection.Capabilities.Count)
+        {
+            throw new ArgumentException(
+                $"A completed NoNameOwner aggregation requires one conclusive {facet} settlement from every capability.",
+                nameof(completionSettlements));
+        }
+
+        foreach (PlatformSourceCapabilityIdentity capability
+            in selection.Capabilities)
+        {
+            PlatformSourceSettlement[] matches =
+                [.. facetSettlements.Where(
+                    settlement => ReferenceEquals(
+                        settlement.Contribution.Capability,
+                        capability))];
+            if (matches.Length != 1
+                || !IsAuthoritativeRealization(matches[0])
+                    && !IsAuthoritativeAbsence(matches[0]))
+            {
+                throw new ArgumentException(
+                    $"A completed NoNameOwner aggregation requires an authoritative searched realization or absence from every {facet} capability.",
+                    nameof(completionSettlements));
+            }
+        }
+    }
+
+    static bool IsAuthoritativeRealization(
+        PlatformSourceSettlement settlement) =>
+        settlement.Disposition
+            == PlatformSourceSettlementDisposition.Selected
+        && settlement.Contribution
+            is PlatformSourceContribution.Realization
+            {
+                RealizationCompleteness:
+                    PlatformSourceContributionCompleteness.Authoritative,
+            };
 
     static bool IsAuthoritativeAbsence(
         PlatformSourceSettlement settlement) =>
@@ -1268,21 +1322,19 @@ public sealed class PlatformHouseReceipt
         PlatformSourceSettlement[] selected = [.. settlements.Where(
             settlement => settlement.Disposition
                 == PlatformSourceSettlementDisposition.Selected)];
-        PlatformSourceSettlement terminal;
-        if (selected.Length == 1)
+        if (selected.Length == 0)
         {
-            terminal = selected[0];
+            PlatformDocumentationAttemptKind aggregate =
+                AggregateAttemptKind(settlements);
+            if (attempt.Kind != aggregate)
+            {
+                throw new ArgumentException(
+                    "A terminal documentation attempt must describe the aggregate retained non-success evidence.",
+                    nameof(attempt));
+            }
+            return;
         }
-        else if (selected.Length == 0)
-        {
-            terminal = settlements
-                .OrderBy(
-                    settlement => IndexOf(
-                        selection.Capabilities,
-                        settlement.Contribution.Capability))
-                .Last();
-        }
-        else
+        if (selected.Length != 1)
         {
             throw new ArgumentException(
                 "A precedence or fallback documentation attempt may select only one contribution.",
@@ -1290,7 +1342,7 @@ public sealed class PlatformHouseReceipt
         }
 
         if (!SupportsAttemptKind(
-                terminal.Contribution,
+                selected[0].Contribution,
                 attempt.Kind))
         {
             throw new ArgumentException(
