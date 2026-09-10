@@ -19,7 +19,7 @@ libraries, local artifacts, and existing product behavior while developing.
 Use the source version primarily to test behavior from the current worktree:
 
 ```bash
-dotnet run --project src/dotnet-inspect -c Release -- <command>
+dotnet run --project src/DotnetInspect.Cli -c Release -- <command>
 ```
 
 The source command is required when the evidence depends on an unmerged change,
@@ -90,7 +90,7 @@ out-of-process apphosts are current:
 
 ```bash
 dotnet build dotnet-inspect.slnx -c Release
-dotnet run --project tests/dotnet-inspect.Tests -c Release
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
 ```
 
 This is a Microsoft Testing Platform executable. Use `--filter-class` and

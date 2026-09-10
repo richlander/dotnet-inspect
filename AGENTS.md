@@ -182,7 +182,7 @@ workflow doc, and PR template — lives in [`docs/README.md`](docs/README.md).
 | Core workspace, query, cache, or safety architecture | `docs/inspection-space.md` |
 | A change crossing subsystem ownership boundaries | `docs/overview.md` |
 | Implementation structure | the relevant section of `docs/architecture.md` |
-| Layering and consumer boundaries | `docs/design/inspection-layers.md` |
+| Layering, consumers, and project families | `docs/design/inspection-layers.md`, `docs/design/library-family-boundaries.md` |
 | Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
 | Output data shapes and style | `docs/design/output-shapes.md`, `docs/design/style-guide.md` |
 | Metadata and API inspection | `docs/design/assembly-inspection-query.md` |
@@ -205,7 +205,7 @@ for the registration mechanics.
 
 For routine development, use production dotnet-inspect
 (`dnx dotnet-inspect -y -- <command>`) — normally current and much faster to
-start than `dotnet run --project src/dotnet-inspect -c Release -- <command>`,
+start than `dotnet run --project src/DotnetInspect.Cli -c Release -- <command>`,
 which is required only when evidence depends on an unmerged change. Full
 rationale:
 [`docs/dev-environment.md`](docs/dev-environment.md#which-dotnet-inspect-to-run).
@@ -338,7 +338,7 @@ threshold, placement convention, and existing consumers.
 
 | Area | Command |
 | --- | --- |
-| CLI and product output | `dotnet run --project tests/dotnet-inspect.Tests -c Release` |
+| CLI and product output | `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release` |
 | Artifact contracts | `dotnet run --project tests/Inspector.Artifacts.Tests -c Release` |
 | Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
 | Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
