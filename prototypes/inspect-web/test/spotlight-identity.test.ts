@@ -3695,7 +3695,7 @@ test("type projection completions render only while current and preserve navigat
     ?? "";
   assert.match(
     typeSourceAuthority,
-    /case "started":[\s\S]*case "replaced":[\s\S]*context\.preservedFocus =\s*dependencies\.renderPreservingMemberFocus\(\);[\s\S]*case "terminal":[\s\S]*state\.typeSourceLoading = false;[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
+    /case "started":[\s\S]*case "replaced":[\s\S]*queueMicrotask\(\(\) => \{[\s\S]*currentTypeSourceOperationId !== event\.operation\.id[\s\S]*context\.preservedFocus =\s*dependencies\.renderPreservingMemberFocus\(\);[\s\S]*case "terminal":[\s\S]*state\.typeSourceLoading = false;[\s\S]*queueMicrotask\(\(\) => \{[\s\S]*currentTypeSourceOperationId !== event\.operationId[\s\S]*!context\.request\.isVisible\(\)[\s\S]*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
   assert.match(
     typeSource,
     /typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);
@@ -3855,7 +3855,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
   assert.match(
     typeSourceAuthority,
-    /case "terminal":[\s\S]*state\.typeSourceLoading = false;[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
+    /case "terminal":[\s\S]*state\.typeSourceLoading = false;[\s\S]*queueMicrotask\(\(\) => \{[\s\S]*currentTypeSourceOperationId !== event\.operationId[\s\S]*!context\.request\.isVisible\(\)[\s\S]*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
   assert.match(
     typeSource,
     /typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);

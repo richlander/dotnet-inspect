@@ -216,6 +216,7 @@ export function createSourceInspectionCoordinator(
 
   const typeSourceOperations =
     new Map<OperationId, TypeSourceOperationContext>();
+  let currentTypeSourceOperationId: OperationId | null = null;
   const typeSourceContext = (
     operationId: OperationId,
   ): TypeSourceOperationContext => {
@@ -229,13 +230,19 @@ export function createSourceInspectionCoordinator(
       case "started":
       case "replaced": {
         const context = typeSourceContext(event.operation.id);
+        currentTypeSourceOperationId = event.operation.id;
         beginSourceRequest();
         state.typeSourceKey = context.request.signature;
         state.typeSource = null;
         state.typeSourceError = "";
         state.typeSourceLoading = true;
-        context.preservedFocus =
-          dependencies.renderPreservingMemberFocus();
+        queueMicrotask(() => {
+          if (currentTypeSourceOperationId !== event.operation.id
+            || state.typeSourceKey !== context.request.signature
+            || !state.typeSourceLoading) return;
+          context.preservedFocus =
+            dependencies.renderPreservingMemberFocus();
+        });
         break;
       }
       case "terminal": {
@@ -246,19 +253,29 @@ export function createSourceInspectionCoordinator(
           state.typeSourceError =
             dependencies.describeError(event.outcome.error);
         state.typeSourceLoading = false;
-        if (context.request.isVisible()) {
+        queueMicrotask(() => {
+          if (currentTypeSourceOperationId !== event.operationId
+            || state.typeSourceKey !== context.request.signature
+            || state.typeSourceLoading
+            || !context.request.isVisible()) return;
           dependencies.renderPreservingMemberFocus(
             context.preservedFocus,
           );
-        }
+        });
         break;
       }
       case "canceled":
+        if (currentTypeSourceOperationId === event.operationId)
+          currentTypeSourceOperationId = null;
         state.typeSourceLoading = false;
         state.typeSourceKey = "";
         state.typeSourceError = "";
         break;
       case "disposed":
+        if (event.operationId === null
+          || currentTypeSourceOperationId === event.operationId) {
+          currentTypeSourceOperationId = null;
+        }
         state.typeSourceLoading = false;
         state.typeSourceKey = "";
         state.typeSourceError = "";

@@ -10,6 +10,7 @@ import {
   type OperationCancelReason,
   type OperationDiagnostic,
   type OperationId,
+  type OperationProducerAdapter,
 } from "../src/operation-authority.ts";
 import type { BrowserTypeSourceResult } from "../src/facades/inspect-web-source.d.ts";
 
@@ -23,7 +24,14 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function fixture() {
+function fixture(
+  operationAuthority = createOperationAuthorityPage(),
+  renderPreservingMemberFocus = () => ({
+    selector: "#type-list", dataTarget: null, selection: null,
+    navigationScope: null, navigationSelection: null, navigationScrollTop: null,
+    focusLost: false,
+  }),
+) {
   const state: SourceInspectionState = {
     settings: false, explorer: null, loading: false, error: "", home: false,
     package: {}, atPackageRoot: false, lens: "source", selectedMemberKey: "",
@@ -36,13 +44,10 @@ function fixture() {
   const queries = new Map<OperationId, ReturnType<typeof deferred<BrowserTypeSourceResult>>>();
   const cancellations: Array<readonly [OperationId, OperationCancelReason]> = [];
   const diagnostics: OperationDiagnostic[] = [];
-  let nextId = 1;
   let legacyCancellations = 0;
   const coordinator = createSourceInspectionCoordinator({
     state,
-    operationAuthority: createOperationAuthorityPage({
-      allocation: { createId: () => `managed-source-${nextId++}` },
-    }),
+    operationAuthority,
     queryTypeSource: (id, request) => {
       assert.equal(request.packageId, "Example");
       const query = deferred<BrowserTypeSourceResult>();
@@ -63,11 +68,7 @@ function fixture() {
     },
     describeError: error => error instanceof Error ? error.message : String(error),
     render: () => {},
-    renderPreservingMemberFocus: () => ({
-      selector: "#type-list", dataTarget: null, selection: null,
-      navigationScope: null, navigationSelection: null, navigationScrollTop: null,
-      focusLost: false,
-    }),
+    renderPreservingMemberFocus,
   });
   function start(signature: string) {
     const request: TypeSourceLoadRequest = {
@@ -79,6 +80,7 @@ function fixture() {
     assert.ok(entry);
     return { load, id: entry[0], query: entry[1] };
   }
+
   return { state, start, coordinator, cancellations, diagnostics,
     legacyCancellations: () => legacyCancellations };
 }
@@ -98,6 +100,55 @@ function failed(kind: "Expected" | "Unexpected"): BrowserTypeSourceResult {
     error: "source unavailable", diagnostic: "producer detail", reason: null,
   };
 }
+
+test("Type Source rendering exits shared authority before preparing share operations", async () => {
+  let nextId = 1;
+  const authority = createOperationAuthorityPage({
+    allocation: { createId: () => `shared-operation-${nextId++}` },
+  });
+  const shareSession = authority.createSession<
+    undefined, undefined, unknown, never, never
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: () => undefined },
+  });
+  const shareAdapter: OperationProducerAdapter<
+    undefined, undefined, unknown, never, never
+  > = {
+    prepare(_identity, _input, sink) {
+      return {
+        kind: "prepared",
+        binding: {
+          requestCancellation: () => undefined,
+          activate: () => {
+            sink.reportTerminal({ kind: "succeeded", value: undefined });
+            sink.reportQuiesced();
+            return undefined;
+          },
+          abandon: () => undefined,
+        },
+      };
+    },
+  };
+  const shareStarts: string[] = [];
+  const f = fixture(authority, () => {
+    shareStarts.push(shareSession.start(undefined, shareAdapter).kind);
+    return {
+      selector: "#type-list", dataTarget: null, selection: null,
+      navigationScope: null, navigationSelection: null, navigationScrollTop: null,
+      focusLost: false,
+    };
+  });
+
+  const operation = f.start("A");
+  assert.deepEqual(shareStarts, []);
+  await Promise.resolve();
+  assert.deepEqual(shareStarts, ["started"]);
+
+  operation.query.resolve(succeeded("source"));
+  await operation.load;
+  assert.deepEqual(shareStarts, ["started", "started"]);
+});
 
 test("type requests forward page identity and exact reason without legacy cancellation", async () => {
   const f = fixture();
