@@ -5,8 +5,8 @@ import {
   createSpotlight,
   nextSpotlightScope,
   nextSpotlightSelection,
-  visibleSpotlightPackageHits,
 } from "../src/spotlight.ts";
+import { visibleSpotlightPackageHits } from "../src/spotlight-package-search.ts";
 import type {
   SpotlightResult,
   SpotlightPackageResult,
@@ -540,9 +540,10 @@ test("Spotlight gives open and recent package rows separate named removal button
 test("NuGet hits are visible only for their resolved query and survive a query round trip", () => {
   const hits = [{ id: "Alpha", version: "1.0.0" }];
 
-  assert.deepEqual(visibleSpotlightPackageHits("alpha", "alpha", hits), hits);
-  assert.deepEqual(visibleSpotlightPackageHits("alphabet", "alpha", hits), []);
-  assert.deepEqual(visibleSpotlightPackageHits("alpha", "alpha", hits), hits);
+  const ready = { status: "ready" as const, query: "alpha", hits };
+  assert.deepEqual(visibleSpotlightPackageHits(ready, "alpha"), hits);
+  assert.deepEqual(visibleSpotlightPackageHits(ready, "alphabet"), []);
+  assert.deepEqual(visibleSpotlightPackageHits(ready, "alpha"), hits);
 });
 
 test("Spotlight renders the package-query action with its seeded prefix identity", () => {

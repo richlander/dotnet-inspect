@@ -15,12 +15,12 @@ under test, then identify both its apphost and version explicitly:
 set -e -o pipefail
 export DOTNET_INSPECT_WORKFLOW_BINARY=/tmp/dotnet-inspect-workflow-aot/dotnet-inspect
 export DOTNET_INSPECT_WORKFLOW_VERSION="$(
-  dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj \
+  dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj \
     -getProperty:VersionPrefix -nologo
 )+$(git rev-parse --short=7 HEAD)"
-dotnet clean src/dotnet-inspect -c Release -r <runtime-id>
+dotnet clean src/DotnetInspect.Cli -c Release -r <runtime-id>
 rm -rf /tmp/dotnet-inspect-workflow-aot
-dotnet publish src/dotnet-inspect -c Release -r <runtime-id> \
+dotnet publish src/DotnetInspect.Cli -c Release -r <runtime-id> \
   --self-contained true -o /tmp/dotnet-inspect-workflow-aot
 export PATH="$(dirname "$DOTNET_INSPECT_WORKFLOW_BINARY"):$PATH"
 ```
@@ -90,7 +90,7 @@ When a perf scenario fails, profile with `dotnet-trace` against the **Release Co
 ```bash
 set -e -o pipefail
 : "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
-dotnet build src/dotnet-inspect -c Release -t:Rebuild
+dotnet build src/DotnetInspect.Cli -c Release -t:Rebuild
 export PROFILE_INSPECT="$PWD/artifacts/bin/dotnet-inspect/release/dotnet-inspect"
 test -x "$PROFILE_INSPECT"
 test "$("$PROFILE_INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"

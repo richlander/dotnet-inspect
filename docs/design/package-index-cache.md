@@ -41,7 +41,7 @@ or rendering path. Its named consumer is the existing `PackageInspector`, and
 [#3738](https://github.com/richlander/dotnet-inspect/issues/3738) is the
 end-to-end tracker for that consumer's adoption. The browser/Wasm host does not
 participate in the changed surface: both the owner and consumer are existing
-types under `src/dotnet-inspect`, and the target changes that existing call
+types under `src/DotnetInspect.Cli`, and the target changes that existing call
 path without introducing a shared API. No browser enablement plan or
 single-host substrate exception is therefore created here. The shared
 acquisition capability proposed by #5484 has its own
@@ -72,7 +72,7 @@ without restating inherited platform or `CoreCache` properties.
 ## Owner and boundaries
 
 The owner is `PackageIndexCache`, currently in
-`src/dotnet-inspect/Inspectors/PackageIndexCache.cs`.
+`src/DotnetInspect.Cli/Inspectors/PackageIndexCache.cs`.
 
 It consumes:
 
