@@ -159,18 +159,20 @@ Hosts name themselves rather than claiming a reusable library family.
 
 | Host | Namespace boundary |
 | --- | --- |
-| `dotnet-inspect` CLI | Target `DotnetInspect.Cli` |
+| `dotnet-inspect` CLI | `DotnetInspect.Cli` |
+| `dotnet-inspect` CLI tests | `DotnetInspect.Cli.Tests` |
 | Inspect Web | Target `DotnetInspect.Web` |
+| Inspect Web tests | Target `DotnetInspect.Web.Tests` |
 | Inspect Web JavaScript export boundary | Target `DotnetInspect.Web.Interop` |
 | Focused tools and harnesses | Tool- or harness-specific root |
 
-The CLI currently uses `DotnetInspector` and nested namespaces such as
-`DotnetInspector.Commands`. That makes application-owned commands, options,
-views, and mutable compatibility models appear to be peers of reusable
-`DotnetInspector.Queries`, `DotnetInspector.Packages`, and
-`DotnetInspector.Presentation`. The CLI migration in #6315 removes that
-collision. It does not rename the executable, tool package, or reusable
-libraries.
+The CLI migration in #6315 moves the product project and its tests together
+from `DotnetInspector` and `DotnetInspector.Tests` to the paired
+`DotnetInspect.Cli` and `DotnetInspect.Cli.Tests` roots. Application-owned
+commands, options, views, and mutable compatibility models no longer appear to
+be peers of reusable `DotnetInspector.Queries`, `DotnetInspector.Packages`,
+and `DotnetInspector.Presentation`. The migration does not rename the
+executable, tool package, tool command, or reusable libraries.
 
 The web host currently uses `InspectWeb.Engine` and facet-specific
 `InspectWeb.Engine.*Facade` namespaces. `DotnetInspect.Web` names the product
@@ -183,8 +185,8 @@ becoming new architectural layers.
 The CLI's current suffixes, including Commands, Options, Output, Views,
 Sections, Inspectors, Services, and Planning, may move mechanically beneath
 `DotnetInspect.Cli`. They remain code-organization names rather than
-architecture defined by this document. The same rule applies to test
-namespaces.
+architecture defined by this document. Product-host tests mirror the product
+root beneath `.Tests`; they do not remain in a reusable library family.
 
 ## Carrier does not decide ownership
 
@@ -316,9 +318,11 @@ authorize a repository-wide rename or alter any component's runtime contract.
 The seven adoption tracks recorded by #6315 are:
 
 1. Land this naming contract.
-2. Move the CLI host to `DotnetInspect.Cli`.
-3. Move the web host to `DotnetInspect.Web`, with JavaScript export contracts,
-   wire projections, and entry points under `DotnetInspect.Web.Interop`.
+2. Move the CLI product and product tests together to `DotnetInspect.Cli` and
+   `DotnetInspect.Cli.Tests`.
+3. Move the web product and product tests together to `DotnetInspect.Web` and
+   `DotnetInspect.Web.Tests`, with JavaScript export contracts, wire
+   projections, and entry points under `DotnetInspect.Web.Interop`.
 4. Rename the C# member-slicing library under #6332.
 5. Adopt the shared `Inspector.*` family under #6333.
 6. Retire `DotnetInspector.Core` by subject under #6334.

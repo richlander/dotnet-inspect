@@ -34,7 +34,7 @@ Integrations and extension reachability retain compatible participants for
 cross-assembly composition. The components below are the current hosts, shared
 substrates, and inspection producers that will extend that space.
 
-- `src/dotnet-inspect/` contains the CLI, command routing, parsers, options,
+- `src/DotnetInspect.Cli/` contains the CLI, command routing, parsers, options,
   output views, section descriptors, and inspectors. Its
   [CLI Workspace Sharing](design/cli-workspace-sharing.md) owns the common
   `--share` gesture that projects an inspection command's effective resolved
