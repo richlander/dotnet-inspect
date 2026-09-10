@@ -1171,6 +1171,19 @@ public sealed class PlatformHouseReceipt
                     $"A successful aggregation settlement requires at least one selected {facet} contribution.",
                     parameterName);
             }
+            if (selected.Any(
+                    settlement => settlement.Contribution
+                        is PlatformSourceContribution.Realization
+                        {
+                            RealizationCompleteness:
+                                not PlatformSourceContributionCompleteness
+                                    .Authoritative,
+                        }))
+            {
+                throw new ArgumentException(
+                    $"A successful aggregation settlement requires authoritative selected {facet} realizations.",
+                    parameterName);
+            }
             foreach (PlatformSourceCapabilityIdentity capability
                 in selection.Capabilities)
             {
