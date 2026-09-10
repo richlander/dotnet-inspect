@@ -782,7 +782,7 @@ public sealed class PolicyEvaluatorTests
         Assert.NotEmpty(productProjects);
         Assert.All(
             productProjects.Where(path =>
-                Path.GetFileNameWithoutExtension(path) != "dotnet-inspect"),
+                Path.GetFileNameWithoutExtension(path) != "DotnetInspect.Cli"),
             path =>
             {
                 string name = Path.GetFileNameWithoutExtension(path);
@@ -795,8 +795,8 @@ public sealed class PolicyEvaluatorTests
         Assert.False(
             DependencyPattern.Selects(
                 rule,
-                "dotnet-inspect",
-                "src/dotnet-inspect/dotnet-inspect.csproj"));
+                "DotnetInspect.Cli",
+                "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj"));
     }
 
     private static ProjectDependencyNode Node(

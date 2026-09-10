@@ -310,8 +310,49 @@ path is still supplied to the body source.
 
 Descriptorless and standalone-member callers keep their existing path route.
 This does not select another runtime image or establish API/runtime
-correspondence. Whole-type decompilation, further acquired-PDB propagation and
-other-host adoption remain separate work; this adds no shared substrate.
+correspondence. Whole-type decompilation, remaining acquired-PDB propagation
+and other-host adoption remain separate work; this adds no shared substrate.
+
+### Type whole-type decompiler acquisition
+
+When type whole-type `Decompiled Source` receives a selected root or forwarded
+API supplier, `MemberBodyProducer` opens that descriptor rather than
+reconstructing an acquisition from its path projection. The already acquired
+external portable-PDB path is carried with the descriptor into Decompiler's
+metadata source, preserving local-name evidence. The descriptor path remains
+the dependency resolver's configuration root; it is not an alternative opener.
+
+A selected descriptor composition failure reaches the command error boundary
+rather than retrying through the readable path or becoming successful
+decompiler output. Genuine no-source results retain their existing empty
+section behavior. Descriptorless and standalone-member callers keep their
+existing path routes.
+
+`TypeWholeTypeDecompilerAcquisition_UsesSelectedSupplier`,
+`TypeWholeTypeDecompilerAcquisition_ReportsSelectedOpenFailure`,
+`TypeWholeTypeDecompilerAcquisition_CarriesExternalPdb`, and
+`TypeWholeTypeDecompilerAcquisition_SkipsOrdinaryOutput` gate this composition.
+`TypeWholeTypeDecompilerAcquisition_DiscoveryStaysLazy` gates effective
+discovery without decompiler acquisition.
+Existing whole-type decompiler and render-style cases gate source composition,
+member filtering, style and diagnostics. Effective discovery continues to
+report section applicability from the selected API model without opening the
+decompiler.
+
+This is [#6256](https://github.com/richlander/dotnet-inspect/issues/6256)'s
+three-step production adoption under #4867: TypeCommand retains the selected
+supplier; the CLI chooses Decompiler's descriptor producer route; existing
+typed output and Markout rendering, or command error reporting, publish the
+result. The producer's descriptor overload carries the optional PDB path into
+Decompiler's existing descriptor-plus-PDB metadata-source contract; it adds no
+new acquisition substrate.
+
+Decompiler continues to own type composition, metadata-source opening, symbol
+probing, raising and C# rendering. The CLI continues to own section
+authorization, supplier selection, dependency-resolver configuration and
+failure publication. This slice does not change PDB acquisition, select a
+runtime implementation, establish API/runtime correspondence, or migrate
+standalone `member`, comparison commands or Browser hosts.
 
 ## Command families
 
@@ -462,7 +503,7 @@ commands and output modes.
 ## Implementation map
 
 ```text
-src/dotnet-inspect/
+src/DotnetInspect.Cli/
 ├── CommandLine/    command definitions, option binding, and help
 ├── Commands/       command orchestration and host policy
 ├── Options/        parsed command option records

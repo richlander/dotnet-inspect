@@ -8,11 +8,11 @@ The current `pkg-index-v16` implementation supplies format fencing,
 configured-authority key routing on adopted acquisition paths, legacy producer
 separation on unbound paths, inert-description persistence, malformed-entry
 rejection, and request-time RID reverification. The extraction result now
-carries the configured authority and acquired payload, but the cache still
-lacks the retained-content subject and complete projection required here.
-[Issue #5484](https://github.com/richlander/dotnet-inspect/issues/5484) tracks
-the acquisition-owned durable content prerequisite. The complete contract is
-therefore **unverified**.
+carries the configured authority and acquired payload, and acquisition-issued
+payloads can now supply the durable retained-content digest tracked by
+[issue #5484](https://github.com/richlander/dotnet-inspect/issues/5484).
+The cache does not yet consume that subject and still lacks the complete
+projection required here. Its complete contract is therefore **unverified**.
 
 ## Decision
 
@@ -41,7 +41,7 @@ or rendering path. Its named consumer is the existing `PackageInspector`, and
 [#3738](https://github.com/richlander/dotnet-inspect/issues/3738) is the
 end-to-end tracker for that consumer's adoption. The browser/Wasm host does not
 participate in the changed surface: both the owner and consumer are existing
-types under `src/dotnet-inspect`, and the target changes that existing call
+types under `src/DotnetInspect.Cli`, and the target changes that existing call
 path without introducing a shared API. No browser enablement plan or
 single-host substrate exception is therefore created here. The shared
 acquisition capability proposed by #5484 has its own
@@ -72,7 +72,7 @@ without restating inherited platform or `CoreCache` properties.
 ## Owner and boundaries
 
 The owner is `PackageIndexCache`, currently in
-`src/dotnet-inspect/Inspectors/PackageIndexCache.cs`.
+`src/DotnetInspect.Cli/Inspectors/PackageIndexCache.cs`.
 
 It consumes:
 
@@ -419,31 +419,35 @@ keeps that broader reuse honest without turning the cache into an authority.
 ## Current implementation gap
 
 `pkg-index-v16` keys entries by a caller-supplied cache scope, lowercased package
-ID, and version. Following #5971 and #6090, configured acquisition supplies
-`PackageExtractionResult.Authority` and `AcquiredPayload`.
+ID, and version. Configured acquisition supplies
+`PackageExtractionResult.Authority` and `AcquiredPayload`; #5971 introduced
+authority/cache-scope routing and #6102 added the acquired-payload carrier.
 `PackageInspector` uses `CacheScopeKey`: the authority's persistent key when an
 authority exists, or the producer key on unbound legacy paths. An authority
 without a persistent key skips lookup and publication.
 
-The acquired payload exposes content and its process-local
-`PackageContentGenerationIdentity`, but `PackageInspector` still scans
-`ExtractPath`; lookup, cold production, and publication are not bound to the
+An eligible acquired payload can issue `PackageContentDigest`, bound to its
+process-local `PackageContentGenerationIdentity`, after product-owned
+filesystem archive/tree correspondence or over retained in-memory bytes.
+`PackageInspector` does not request that digest and still scans `ExtractPath`;
+lookup, cold production, and publication are therefore not bound to the
 durable retained-content subject required above. The cache has no
 content-origin eligibility check for the inspected tree. It persists `Snupkg`,
-`Msdl`, and `Other` PDB observations plus aggregates that can include them, omits
-`RuntimeDependencies` entirely, persists the process-time-zone interpretation
-of `BuiltDate`, and has neither an explicit complete-entry record nor a
-production-success receipt. A per-DLL binary scan failure can therefore publish
-partial counters, while a warm hit can silently lose the complete Runtime
-Dependencies section. The current namespace cannot satisfy the target subject
-or projection and must be fenced rather than relabeled when adoption lands.
+`Msdl`, and `Other` PDB observations plus aggregates that can include them,
+omits `RuntimeDependencies` entirely, persists the process-time-zone
+interpretation of `BuiltDate`, and has neither an explicit complete-entry
+record nor a production-success receipt. A per-DLL binary scan failure can
+therefore publish partial counters, while a warm hit can silently lose the
+complete Runtime Dependencies section. The current namespace cannot satisfy
+the target subject or projection and must be fenced rather than relabeled when
+adoption lands.
 
-The configured-authority and acquired-payload bridge is therefore existing
-mechanism to reuse, not a missing wrapper to recreate. Remaining adoption
-depends on #5484 issuing exact durable package-content identity and #3738's
-package-index workstream binding the CLI producer and successor cache to the
-complete subject. Until all required inputs exist, the correct successor
-behavior is cold-path-only rather than fallback to `pkg-index-v16`.
+The configured-authority, acquired-payload, generation, and durable-digest
+mechanisms now exist for the successor to reuse. Remaining adoption is
+the package-index workstream of #3738 binding the CLI producer and successor
+cache to the complete subject. Until that coherent consumer slice lands, the
+correct successor behavior is cold-path-only rather than fallback to
+`pkg-index-v16`.
 
 The existing `pkg-index-v16` behavior ships unchanged until that implementation
 slice. Authority-key routing does not certify its content identity or
@@ -491,11 +495,12 @@ The target remains unverified until Release tests establish:
 The existing inert-description and producer-separation tests remain evidence
 for their narrower current properties. They do not count as the target gates
 under different names. Acquisition's
-`PackageRootGenerationIdentity_ReplacementChangesIdentity` remains evidence for
-its process-local generation owner; #5484 owns the durable identity and
-W-to-S-to-W retained-content evidence. End-to-end `PackageInspector` adoption
-and current-fact recomposition remain integration work under #3738 rather than
-gates assigned to this cache owner. The outcome-level
+`PackageRootGenerationIdentity_ReplacementChangesIdentity` remains evidence
+for its process-local generation owner;
+`PackageContentDigest_ReplacementChangesGenerationAndDigestSubject` owns the
+durable W-to-S-to-W retained-content evidence. End-to-end `PackageInspector`
+adoption and current-fact recomposition remain integration work under #3738
+rather than gates assigned to this cache owner. The outcome-level
 `PackageInspector_ColdAndWarmCacheableProjectionAgree` gate covers partial
 production refusal, warm `BuiltDate` recomputation, and cold/warm
 `RuntimeDependencies` agreement.

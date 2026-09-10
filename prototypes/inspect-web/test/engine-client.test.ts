@@ -44,6 +44,7 @@ function fixture(options: {
     package: {
       ...lifecycle,
       activateWorkspacePackageOccurrence: unused, cancelPackageQuery: unused,
+      getPlatformCatalog: unused,
       getPackageDocument: unused, listGalleryDiscoveryCatalog: unused,
       listPackageAssemblyQueryPatterns: unused, listPackageQueryFacets: unused,
       loadRuntimePack: unused, loadRuntimePackAssembly: unused,
@@ -51,6 +52,8 @@ function fixture(options: {
       queryPackage: unused, queryPackageDependencies: unused, queryPackageVersions: unused,
       queryWorkspacePackageOccurrences: unused, requestPackageQueryMatches: unused,
       resolvePackageDependencyVersion: unused, runPackageAssemblyQuery: unused, runPackageQuery: unused,
+      async getPlatformVersions() { calls.push("platform-versions"); return ["11.0.0"]; },
+      async prefetchPlatformPacks() { calls.push("prefetch-platform"); },
       clearWorkspacePackageOccurrences() { calls.push("clear"); count = 0; },
       packageCacheStats() { return { packages: count, resident: 0, workspaces: 0, residentBytes: 0 }; },
       matchPackageDependencyCoordinate(...args: Parameters<EngineFacades["package"]["matchPackageDependencyCoordinate"]>) {
@@ -150,9 +153,20 @@ test("production composition shares readiness and exposes seven owning facade gr
   assert.equal(typeof state.client.source.memberSourceComparisonAdapter.prepare, "function");
   assert.equal(typeof state.client.package.queryAdapter.requestControl, "function");
   assert.deepEqual(state.calls, ['["P",null,"[]"]', "demo"]);
+  assert.deepEqual(await state.client.package.getPlatformVersions("net11.0"), ["11.0.0"]);
+  assert.equal(
+    await state.client.package.prefetchPlatformPacks("net11.0", "11.0.0"),
+    undefined);
   assert.equal((await state.client.package.packageCacheStats()).packages, 1);
   assert.equal(await state.client.package.clearWorkspacePackageOccurrences(), undefined);
   assert.equal((await state.client.package.packageCacheStats()).packages, 0);
+  assert.deepEqual(state.calls, [
+    '["P",null,"[]"]',
+    "demo",
+    "platform-versions",
+    "prefetch-platform",
+    "clear",
+  ]);
   state.host.dispose();
 });
 

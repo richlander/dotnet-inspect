@@ -56,6 +56,7 @@ public static class AnnotatedSourceNodeKinds
             "ConditionalAccessExpression",
             "ConditionalExpression",
             "UnaryExpression",
+            "UnsafeExpression",
             "AwaitExpression",
             "IncrementOrDecrementExpression",
             "CheckedStatement",

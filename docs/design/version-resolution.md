@@ -30,12 +30,13 @@ implementation-ready syntax.
 
 ### Pinned (`Name@version`)
 
-Online single-package caller-pinned CLI extraction follows the
+Online single-package and API caller-pinned CLI extraction follows the
 [configured-authority acquisition contract](package-source-model.md#caller-pinned-payload-acquisition):
 local authority caches may answer immediately, while HTTP payloads currently
 use temporary authority-scoped materialization rather than persistent
 producer-keyed caches. The following producer-cache description applies to
-offline and other unmigrated consumers.
+offline and other unmigrated consumers. API pins use the same authority-scoped
+path so an exact replay can reopen a package selected from a folder-feed range.
 
 The version is treated as immutable and the caller supplies the candidate. If
 the package is already in a payload cache under an eligible producer, it is
@@ -138,6 +139,43 @@ This describes the current gate. The target
 narrows it further when package source mapping is enabled: NuGet.org must be
 eligible for the package id, not merely active somewhere in configuration.
 
+### Browser platform catalog targets
+
+Issue #6013's Platform subject defaults to the .NET 11 release line, including
+preview and release-candidate versions. Browser discovery orders NuGet versions
+semantically and selects from the common versions of the reference and
+representative `linux-x64` runtime packs required by the target. The catalog
+includes the .NET and ASP.NET Core families, so both families' reference and
+runtime packages must publish the selected version. A missing common version
+or discovery failure remains visible rather than selecting an older major.
+
+A catalog identifies its exact TFM and pack version. Each library retains its
+supplying family, assembly/file identity, reference-pack membership, runtime
+availability, and metadata-derived facade role. Reference membership and
+facade classification are independent, not assembly-name heuristics or a
+classification of contained Types' accessibility. The reference pack supplies
+the logical API inventory; runtime bytes supply implementation inspection.
+
+The shipped catalog is an exact-version fast-start snapshot, not a claim that
+its version is forever latest. Lightweight discovery may reveal newer
+versions; it does not replace an open coordinate. Selecting another version
+requires its matching catalog before committing the target. Old inventory
+must never be relabeled with a newly discovered version.
+
+The browser uses the existing Gallery source, package acquisition, deadlines,
+single-flight, and retained-archive capacity policy. A Platform-open gesture
+may prefetch exact runtime archives without projecting every assembly's API.
+Later Library demand reuses acquisition and existing platform realization.
+Search alone does not authorize runtime-pack acquisition. None of these
+operations registers a Workspace traversal scope.
+
+Platform-pack selection preserves ordinary framework-qualified `lib`
+selection and satellite exclusion, while admitting additional DLL candidates
+outside `lib` under the exact selected RID. Product metadata admission
+distinguishes managed libraries from native images; malformed or unsupported
+metadata remains a failure. Catalog generation and runtime realization consume
+the same platform selector. Ordinary NuGet package asset selection is unchanged.
+
 ### Always check (`Name@latest`)
 
 Forces a full network refresh. Bypasses the disk scan, version cache, and
@@ -168,10 +206,21 @@ Resolving the vector reads version metadata only. The command downloads or
 opens a package only after the caller selects an address, so an agent can probe
 previous, midpoint, or adjacent versions without triggering an unbounded scan.
 
-The configured-authority range-acquisition seam is available in the package
-layer. API and timeline adoption, including their payload replay paths, remains
-step 6 of the [source adoption plan](package-source-model.md#implementation-boundary).
+Online API and timeline commands use complete, fresh configured-authority
+discovery and retain its reporting authorities through selected payload
+acquisition. Each timeline invocation keeps one vector for all its selected
+cells. An unreadable eligible source fails discovery before any payload
+acquisition, rather than silently shortening the vector. Local payload caches
+are authority-scoped; HTTP payloads are temporary and downloaded again in a
+later invocation. Remaining consumer migration stays in step 6 of the
+[source adoption plan](package-source-model.md#implementation-boundary).
 Ordinary `package` payload inspection does not accept a range or `--at`.
+
+API and timeline vectors remain listed-only. Unlisted endpoints cannot be
+selected unless another authority independently reports that coordinate as
+listed; use an exact caller pin to inspect an unlisted package. Metadata-only
+`package --versions --include-unlisted` can enumerate those rows, but their
+ordinals are not addresses in the listed-only API/timeline vector.
 
 `timeline` uses the same vector without changing that authorization rule. With
 no `--at`, it renders every address as `Unevaluated` and recommends a probe
@@ -184,6 +233,13 @@ one exact member identity track. The same member focus composes with
 selected method body is decoded at each evaluated address. Sparse transitions
 spanning unevaluated cells are labeled as gaps and do not claim the exact
 version of a change.
+
+Online timeline recommendations retain source and configuration arguments,
+including an absolute `--nugetconfig-directory` for ambient configuration.
+They also retain TFM, prerelease, and visibility choices. Exact `match --similar`
+replay retains the reporting configured sources for the selected coordinate,
+not a transient extraction path. Credential-sensitive sources must be selected
+through configuration when their URLs cannot be safely disclosed.
 
 ```bash
 dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \

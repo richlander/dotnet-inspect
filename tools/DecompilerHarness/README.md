@@ -200,7 +200,7 @@ managed product assemblies, so rare annotated nodes are more likely to be
 exercised over real IR while the input set stays reproducible:
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-assertion-corpus.sh /tmp/assertion-corpus.txt
 mapfile -t assemblies < /tmp/assertion-corpus.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
@@ -1016,7 +1016,7 @@ example headings say whether they show every row or only the first N of the
 bucket.
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
@@ -1306,7 +1306,11 @@ oracle for raise and printer changes. The first run writes a versioned,
 method-keyed JSON baseline containing each rendered body and its typed async,
 unsafe, and await-syntax declaration context; the second run compares the
 current render against that baseline and reports changed, added, and removed
-methods. Body-only baselines predate the semantic-context contract and are
+methods. Raised renders carry the same sibling-body import and metadata
+type-disjointness capabilities as product rendering;
+`RenderAbMatchesMetadataBackedProductProjection` gates both the
+disjointness-proving and non-proving compiler fixtures. Body-only baselines
+predate the semantic-context contract and are
 rejected with a regeneration instruction rather than measured with current-head
 facts. Changed methods are classified on two axes:
 
@@ -1428,7 +1432,7 @@ When a card shows capped changed rows, use
 to select the matching PR commit and regenerate the full local delta.
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-pr-corpus.sh /tmp/pr-corpus-assemblies.txt
 mapfile -t assemblies < /tmp/pr-corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \

@@ -26,7 +26,7 @@ declare -a local_assemblies=(
 for assembly in "${local_assemblies[@]}"; do
   if [ ! -f "$assembly" ]; then
     echo "Missing local product assembly: $assembly" >&2
-    echo "Build first: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false" >&2
+    echo "Build first: dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false" >&2
     exit 1
   fi
 done

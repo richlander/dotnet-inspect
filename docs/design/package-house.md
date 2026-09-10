@@ -53,7 +53,7 @@ The owner defines:
 - composition of owner-issued package source, version, pruning, payload,
   asset-selection, and dependency capabilities;
 - the House result envelope and terminal outcome;
-- the package decision and realization receipts;
+- the package decision, acquisition, and realization receipts;
 - typed package-to-platform delegation;
 - package-to-library unwrapping with retained provenance;
 - target-aware dependency-edge realization handoff;
@@ -129,12 +129,52 @@ PackageHouse is above these roles by composition, not by ownership transfer.
 | Version policy | Exact, latest, wildcard, range, listing, and prerelease decisions from [Version Resolution](version-resolution.md) |
 | Pruning | Exact target-bound package supply decisions from [Platform Package Supply Policy](platform-package-supply-policy.md) |
 | Dependency expansion | Exact candidate and immutable graph evidence from [Package Dependency Traversal](package-dependency-traversal.md) |
-| Asset selection | Package content and typed selected asset outcomes from `PackageAssetSelector` and `PackageCompileAssetSelector` |
+| Asset selection | Generation- and request-bound outcomes from [Package Asset-selection Correspondence](package-asset-selection-correspondence.md) |
 | Artifact lifetime | Generation-scoped content, contributions, and sessions from [Artifact Acquisition and Workspaces](artifact-acquisition-and-workspaces.md) |
 
 PackageHouse does not accept transport URLs, rendered dependency rows, asset
 paths, assembly names, or package labels as substitutes for those typed
 inputs.
+
+## Source-settlement lease
+
+PackageHouse is the clearing house where source leases are issued and
+source-owner receipts are settled. For the first operational slice in
+[#6477](https://github.com/richlander/dotnet-inspect/issues/6477), the House
+issues one `PackageHouseSourceLease` over an injected
+configured-authority-to-`IPackageSourceClient` capability and a lower-owner
+operation-context factory.
+
+The lease owns one package acquisition candidate-issuer identity. It settles:
+
+- caller-pinned exact candidate authorization;
+- complete dependency-version discovery across one explicit
+  `PackageSourceAuthorization`; and
+- exact manifest acquisition through a candidate issued by that lease.
+
+The authorization value remains package-source-owner evidence. The source
+client remains a caller-owned capability whose result identity must match both
+the exact configured-authority association and the exact client that performed
+the operation. PackageHouse neither discovers a broader authority set nor
+reconstructs source identity from endpoints.
+
+When a caller omits `NuGetOperationContext`, the lease uses that injected
+factory and disposes the created context after the settlement. A
+caller-supplied context remains caller-owned.
+
+Retiring the lease rejects new settlement and candidate use. Completed
+candidate, discovery, manifest, failure, and timeout evidence remains valid as
+data after retirement. Retirement does not dispose source clients,
+authentication contexts, transports, caller-supplied `NuGetOperationContext`
+instances, payload streams, package stores, artifact content, or Workspace
+participants.
+
+`DesktopPackageSourceComposition` owns its desktop capabilities and borrows
+them into one House source lease for its lifetime. Browser/Wasm and query
+adapters borrow their host-created clients into the same lease contract.
+Step 4 routes complete PackageHouse request/result operations through this
+substrate; this slice does not make a candidate or manifest result a complete
+House terminal result.
 
 ## Package demand
 
@@ -152,6 +192,13 @@ prefix or search row is not itself a House package identity.
 An unresolved version demand retains its original constraint beside every
 selection observation. Resolution issues one exact coordinate or a typed
 non-success; it does not replace the request with a display version.
+
+The initial resource-free contract floor in #6433 deliberately exposes only
+the exact-coordinate demand. The selecting and resolved-edge arms remain
+architectural requirements, but they do not enter the public contract until
+their owners issue a version-selection request and resolution receipt, or an
+edge correspondence, that PackageHouse can consume without interpreting
+selector text.
 
 ## Package target context
 
@@ -274,12 +321,27 @@ Every terminal House result retains:
 - completion and every typed failure; and
 - one owner-issued settlement identity that consumers retain opaquely.
 
-The result contains two separable receipts when the corresponding work ran:
+The result contains three separable receipts when the corresponding work ran:
 
 - a **package decision receipt** records coordinate settlement, authority,
   pruning, and the decision to acquire, delegate, or stop; and
-- a **package realization receipt** records the acquired generation, requested
-  target context, selected asset universe, and library-focused handoff.
+- a **package acquisition receipt** binds the retained decision and candidate
+  to the selected configured authority, source result and producer, payload
+  origin, and package-content generation; and
+- a **package realization receipt** binds that acquisition to an
+  asset-selection-owner receipt and any library-focused handoffs.
+
+Every terminal arm retains one common immutable evidence envelope containing
+the settlement identity, every completed receipt, and every typed failure.
+A later no-match, rejection, incompleteness, or failure does not rewrite or
+discard an earlier package-retention decision or successful acquisition.
+Recovered request-scoped failures may accompany `Settled`; operation timeout
+is terminal and cannot. House failure adaptation retains an owner-issued
+authority failure and associates it with the House operation; an owner
+`PackageSourceTimeoutKind.Operation` remains terminal through that adaptation.
+Operation timeout takes precedence over an otherwise successful selection:
+`Failed` retains the completed acquisition and realization receipts, including
+selected assets or an explicit empty compile group.
 
 Consumers may retain the decision without retaining payload bytes. A disposed
 payload or expired artifact session does not erase the historical decision
@@ -316,6 +378,20 @@ deadline identity.
 A `Settled` package may contain zero, one, or many selected libraries.
 Package-shaped inspection remains available when its acquired content and
 lifetime remain available.
+
+For a completed realization, the asset-selection owner outcome determines the
+House terminal family:
+
+- selected runtime or compile assets produce `Settled`;
+- an explicit empty compile group produces `Settled` with zero library
+  handoffs;
+- no assets or no matching target produce `NoMatch`;
+- runtime ambiguity produces `Ambiguous`; and
+- invalid runtime or implementation-asset evidence produces `Rejected`.
+
+Every non-success mapping retains the completed acquisition and realization
+receipts. Constructing a realization receipt is evidence that selection ran;
+it does not by itself make the operation successful.
 
 ## Target-aware dependency-edge realization
 
@@ -361,6 +437,12 @@ selected identity remains distinct from the `net10.0` request.
 The package owner invokes the focused platform package supply policy before
 payload acquisition when the request has complete comparable target and
 package version evidence.
+
+PackageHouse consumes the policy-issued `PlatformSupplyReceipt`; it does not
+attach an independently supplied `PlatformSupply` to package and target
+labels. Delegation additionally requires the actual supplying shared-framework
+family and exact inventory family version to match the retained
+`PlatformFamilyTarget`.
 
 Only `Subsumed` authorizes delegation. The package decision receipt retains:
 
@@ -492,8 +574,10 @@ The first implementation may keep host-neutral PackageHouse source settlement
 inside `DotnetInspector.Packages`, replacing the
 `DesktopPackageSourceComposition` identity. Query adapters that require both
 `DotnetInspector.Packages` and `DotnetInspector.Queries` belong in
-`DotnetInspector.PackageQueries` or another separately justified package
-composition project.
+`DotnetInspector.PackageQueries` only when the boundary investigation in
+[#6432](https://github.com/richlander/dotnet-inspect/issues/6432) confirms that
+ownership; this design does not pre-decide whether that project remains,
+merges, or decomposes.
 
 `DotnetInspector.Queries` does not depend on a higher project merely to keep
 its evidence and traversal algorithms usable. PackageHouse does not introduce
@@ -586,6 +670,14 @@ authority-bearing package evidence under their owner contracts. PackageHouse
 applies the same candidate, version, pruning, and realization semantics while
 retaining their distinct producer and transport provenance.
 
+### Retired source lease retains evidence, not authority
+
+A source lease issues an exact candidate and settles a manifest failure. The
+host retires the lease. The candidate and failure remain inspectable evidence,
+but another candidate resolution or manifest operation through that lease is
+rejected. The source client remains alive because its host, not PackageHouse,
+owns it.
+
 ### Direct library bypasses PackageHouse
 
 A user supplies one DLL path. It enters shared Library inspection with direct
@@ -629,8 +721,9 @@ counted production-adoption steps:
    plan.
 2. Define the resource-free request, operation, result, receipt, and
    package-to-library/platform handoff contracts.
-3. Generalize `DesktopPackageSourceComposition` to host-neutral House source
-   settlement over injected source capabilities.
+3. Generalize `DesktopPackageSourceComposition` to the House-issued,
+   host-neutral source-settlement lease over injected source capabilities
+   tracked by #6477.
 4. Route version settlement, candidate authorization, manifest acquisition,
    and payload acquisition through the House.
 5. Adopt normalized package input and processing evidence from #6266.
@@ -654,10 +747,18 @@ every supported host that uses it.
 
 | Claim | Required Release evidence |
 | --- | --- |
+| Exact implementation floor | The public demand family exposes only the exact-coordinate arm until a version-owner request and resolution receipt exist. |
 | Request association | A result retains the exact demand, operation, target context, and owner-issued settlement identity without reconstructing them from display values. |
+| Terminal evidence | Every terminal arm retains the same immutable evidence envelope, completed receipts, and typed failures; direct and owner-adapted operation timeouts cannot produce success. |
+| Source lease authority | One lease owns one candidate issuer; candidates from another lease and clients or results from another configured-authority association are rejected. |
+| Source lease retirement | Retirement rejects new source settlement while completed source evidence remains readable. |
+| Source capability ownership | Retiring a House source lease does not dispose caller-owned clients or caller-supplied operation contexts. |
 | Source completeness | Partial authority evidence cannot settle latest, wildcard, range, or authoritative absence. |
 | Pruning order | `Subsumed` skips payload acquisition and every other pruning state cannot issue platform delegation. |
+| Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule. |
+| Selection correspondence | Realization consumes a selector-issued generation/request/outcome receipt matching the exact acquisition and target context. |
+| Selection completion | Selected assets and explicit empty compile groups settle; no-match, ambiguity, and invalid outcomes map to their corresponding terminal arms without losing receipts. |
 | Target-aware realization | A `net10.0` dependency with `net10.0` and `net11.0` folders selects `net10.0` and retains requested-versus-selected evidence. |
 | Context separation | The same coordinate realized under two target contexts retains two realization receipts and cannot share one selected asset universe. |
 | Package shape | Zero, one, and many selected library outcomes preserve package-shaped inspection and typed asset status. |

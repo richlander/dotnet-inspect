@@ -595,7 +595,9 @@ properties rather than duplicating every generated DTO grammar. Its ceiling
 is 67,108,864 UTF-16 code units, 1,048,576 structural nodes, and 64 nesting
 levels; accessors, sparse arrays, nonfinite numbers, and non-JSON values fail
 visibly. Results must also match the generated object, array, string, or void
-family. Startup, Type Source, and Package Query retain their existing,
+family. Platform version discovery, catalog acquisition, and pack prefetch
+use that same closed Package facade inventory. Startup, Type Source, and
+Package Query retain their existing,
 feature-specific codecs and limits. The three authority-governed comparisons
 use `engine-worker-comparison.ts`, not the ordinary Promise inventory. They
 reuse the bounded JSON transport above and the feature-owned comparison

@@ -9,4 +9,9 @@
     <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../../../../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../../../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+  </ItemGroup>
+
 </Project>
