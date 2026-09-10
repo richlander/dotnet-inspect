@@ -22,12 +22,12 @@ contracts.
 The end-to-end tracker has four steps:
 
 1. lock this L3 grammar and composition boundary;
-2. reconcile Package Query's current semantic `--matches` option with the
-   universal row-selection grammar;
-3. adopt the result command-wide for `find`, with `--take` bounding the
-   patternless package-profile candidate dimension while `-n` selects final
-   semantic rows; and
-4. correct `package search` so `--take` and `-n` remain separate intents.
+2. reconcile Package Query's current `--candidates` and `--matches` options
+   with `--take` and the universal row-selection grammar;
+3. adopt the result command-wide for `find`, with selective Package Query and
+   package profiling exposing both `--take` and `-n`; and
+4. retire plain `package search --take`, using semantic `-n` plus proven source
+   delegation only where the full multi-source result remains equivalent.
 
 Other command-owned bounds are evidence for the family, not implicit
 participants in that adoption path.
@@ -63,6 +63,10 @@ bound with its owner-issued dimension identity and requested maximum. The
 adopting operation returns its own bound and completion evidence. L3 preserves
 and discloses that evidence; it never turns "the bound was reached" into "the
 source was exhausted."
+
+A command exposes both intentions only when varying them independently serves
+a named scenario. Merely passing a different integer to an upstream API does
+not establish a second user concept.
 
 ## Authority and scope
 
@@ -110,6 +114,12 @@ final rows survive?" It does not authorize fewer sources, candidates, pages,
 methods, or graph hops unless an adopting source separately proves an exact
 semantics-preserving delegation under the source-delegation contract.
 
+That proven early execution is still semantic selection. The source may stop
+after N rows only when its result exactly substitutes for the complete
+reference computation. The user receives the same answer and no
+execution-bound incompleteness merely because the implementation performed
+less work.
+
 ### Execution bound
 
 An execution bound is an explicit maximum over one owner-defined work
@@ -132,13 +142,13 @@ ExecutionBoundIntent(Dimension, RequestedMaximum)
 ```
 
 `Dimension` is not an option string. It is the adopting owner's typed identity.
-Downstream code does not recover meaning from `--take`, `--candidates`, or
-other raw CLI text.
+Downstream code does not recover meaning from `--take`, `--depth`, or other raw
+CLI text.
 
 This design does not require one universal .NET type. The first adoption may
 reuse an owner-issued request type when that type preserves the identity and
 maximum without string recovery. Shared implementation is justified only when
-the two named CLI consumers would otherwise duplicate the same lowering,
+multiple adopted commands would otherwise duplicate the same lowering,
 validation, or result-preservation logic.
 
 ### Operational ceiling
@@ -158,6 +168,57 @@ L3 must not silently clamp an explicit value to a known smaller supported
 maximum. A statically known maximum is a validation boundary. A limit learned
 only during execution remains owner-issued outcome evidence.
 
+### Why `-n` is not an execution bound
+
+`-n` can reduce physical work through
+[source delegation](source-delegation.md), but that optimization preserves the
+semantic answer. If a user requests the first 20 ordered matches, a source may
+stop after proving those 20 matches only when the delegated result is exact.
+When matches are rare, that proof may require inspecting the full candidate
+population.
+
+An execution bound answers the different question: how much work may be
+attempted before the user accepts an explicitly incomplete answer? For
+example:
+
+```console
+dotnet-inspect find --package-prefix dotnet-inspect \
+  --where "facet=package.query.dotnet-tool" --take 500 -n 20
+```
+
+`-n 20` requests up to 20 final matched-package rows. Source delegation may
+stop after finding 20 ordered matches only when it can also prove equivalence
+for every owner-observable failure and completion fact.
+`--take 500` independently says not to inspect more than 500 package
+candidates when matches are sparse. If only seven matches are found before the
+candidate bound is reached, the command returns those seven with visible
+incompleteness rather than scanning indefinitely or claiming exhaustion.
+
+The patternless package-profile mode supplies a second real shape:
+
+```console
+dotnet-inspect find --package-prefix Microsoft. --take 500 -n 20
+```
+
+The operation may attempt up to 500 exact-manifest enrichments while selecting
+20 successfully profiled package rows. Candidate failures remain diagnostic
+context rather than package rows. `-n 20` cannot by itself authorize skipping a
+failure that would occur after the twentieth successful row; source delegation
+may stop there only if its equivalence proof covers that owner-observable
+failure behavior. `--take 500` instead permits an explicitly incomplete stop
+at the candidate boundary.
+
+Aggregation supplies the same distinction in a stronger shape: an operation
+might inspect at most 500 packages or methods, aggregate evidence by dependency
+or API characteristic, order the aggregate rows, and select 20. Those are the
+20 selected rows from the bounded population, not necessarily the global 20.
+No current command adoption is justified solely by that hypothetical shape;
+it is a boundary example for evaluating future consumers.
+
+A direct ordered source-row-to-final-row path normally needs only `-n`.
+Forwarding that count to a provider is source delegation, not a reason to add
+`--take`.
+
 ## Option family
 
 ### `--take`
@@ -169,6 +230,10 @@ only during execution remains owner-issued outcome evidence.
 - "take N" naturally means at most N items from that dimension;
 - the bound is not defined as semantic selection over the command's declared
   final row set; and
+- selective filtering, fan-out, enrichment, aggregation, or another
+  owner-defined stage can require materially more work items than final rows;
+- independently varying the work maximum and final row selection serves a
+  named user scenario; and
 - no second plausible work dimension makes the bare noun ambiguous.
 
 The dimension identity distinguishes scope such as per source from aggregate
@@ -185,7 +250,8 @@ hide whether the option controls source work or final rows.
 
 `--take` is not a universal alias for every integer maximum. A command does not
 gain it merely because its implementation calls LINQ `Take`, accepts a
-provider `take` parameter, or stops a loop after N iterations.
+provider `take` parameter, stops a loop after N iterations, or could perform
+semantic selection early through source delegation.
 
 ### Dimension-specific names
 
@@ -193,12 +259,12 @@ Use a dimension-specific option when the unit or role carries information the
 user needs to reason about cost or completeness. Existing shapes include:
 
 - a structural unit such as `--depth`;
-- a role noun such as `--candidates`; and
 - an explicit scan ceiling such as `--max-methods` or `--max-packages`.
 
 These spellings are not interchangeable style variants. They preserve
-different dimensions. A command with candidate and match budgets may expose
-both; collapsing them into one `--take` would discard which stage may stop.
+different dimensions. A command with multiple genuine work dimensions may
+expose multiple specific names; collapsing them into one `--take` would discard
+which stage may stop.
 
 An existing option is not automatically classified as an execution bound by
 appearing in this list. Its owning design must show that it constrains upstream
@@ -208,6 +274,12 @@ work rather than selects final semantic rows.
 The current Package Query owner defines it as semantic selection over ordered
 matched-package rows. It therefore belongs to row-selection reconciliation,
 not this execution-bound family.
+
+`--candidates` and `--take` name the same concept for Package Query: the one
+ordered package-candidate dimension admitted before semantic matching. Once
+`--matches` becomes `-n`, the mode has no second work dimension requiring the
+role noun. The low-compatibility migration therefore retires `--candidates`
+in favor of `--take`.
 
 ### Selection spelling
 
@@ -332,17 +404,21 @@ L3 must preserve all explicitly authored intents. It must not:
 The following request is valid:
 
 ```console
-dotnet-inspect package search json --take 100 -n 10
+dotnet-inspect find --package-prefix dotnet-inspect \
+  --where "facet=package.query.dotnet-tool" --take 500 -n 20
 ```
 
-It authorizes at most 100 items in the package-search work dimension, then
-selects 10 final semantic rows. If the operation reaches 100 without exhaustion
-evidence, the ten displayed rows remain part of an incomplete search outcome.
+It authorizes inspection of at most 500 package candidates, then selects up to
+20 final matched-package rows. If the operation reaches 500 with only seven
+matches, the seven displayed rows remain part of an incomplete query outcome.
+Finding 20 matches earlier permits source delegation only when stopping also
+preserves the Package Query owner's failure and completion observations.
 
 The inverse numeric relationship is also valid:
 
 ```console
-dotnet-inspect package search json --take 10 -n 20
+dotnet-inspect find --package-prefix dotnet-inspect \
+  --where "facet=package.query.dotnet-tool" --take 10 -n 20
 ```
 
 The operation may produce fewer than 20 final rows. L3 does not reject the
@@ -360,6 +436,12 @@ Count-sufficient.
 In particular, reaching `--take 10` does not make `10` an exact corpus count.
 If the owner cannot produce the exact Count contract, it preserves the bounded
 or unavailable outcome instead of publishing the ceiling as a total.
+
+After semantic Head, Count may still be exact for that selected result. A
+requirement witness for 20 ordered matches makes
+`--take 500 -n 20 --count` equal to 20 while the result separately discloses
+that the underlying population was bounded. If the candidate bound is reached
+after only seven matches, exhaustion is absent and exact Count 7 is forbidden.
 
 ### Failures and diagnostics
 
@@ -414,15 +496,20 @@ role to its richer semantic row grammar, principally `-n` and `--rows`.
 Duplicating that meaning in `--take` would recreate the overlapping vocabulary
 this design is meant to remove.
 
-The NuGet API demonstrates the narrower operational use: a request may return
+The NuGet API demonstrates an upstream request mechanism: a request may return
 up to `take` items while corpus size and provider ceilings remain separate
-facts. `dotnet-inspect package search --take` may preserve that familiar
-upstream-item meaning, but the provider convention does not prove source
-exhaustion or define final row selection.
+facts. Plain `package search` additionally performs source mapping,
+deduplication, multi-source merge, and final limiting. Passing semantic `-n` to
+provider requests is therefore a source-delegation candidate only when the
+complete effective result and owner-observable failures remain equivalent. The
+provider parameter by itself proves neither equivalence, source exhaustion, nor
+a need for user-facing `--take`.
 
 The deliberate divergence is therefore bounded and visible: `--take` is an
 execution-bound spelling only on commands with one unambiguous ordered
-upstream item dimension. Everywhere else, the CLI names the dimension.
+upstream item dimension and an independently useful work-versus-result
+scenario. Everywhere else, the CLI uses semantic selection or names the
+distinct work dimension.
 
 ## Adoption
 
@@ -438,16 +525,20 @@ The [Package Query CLI](package-query-cli.md) owner currently defines
 execution-bound owner cannot reclassify that option merely because the
 implementation uses a `MaximumMatches` budget and may stop enrichment early.
 
-The focused Package Query reconciliation retires `--matches` in favor of
-semantic `-n`. An alternative may survive only if that owner defines a
-different upstream work dimension that is not selection over matched-package
-rows, gives it a correspondingly accurate name, and separately preserves
-semantic `-n`. The low-compatibility default is retirement, not an alias.
+The focused Package Query reconciliation:
 
-`--candidates` remains eligible for evaluation as an execution bound because
-the Package Query owner defines it over candidates admitted before semantic
-matching. That owner still must declare its unit, stage, scope, stopping
-behavior, and completion evidence during adoption.
+- retires `--matches` in favor of semantic `-n`; and
+- retires `--candidates` in favor of `--take`.
+
+An alternative match option may survive only if that owner defines a different
+upstream work dimension that is not selection over matched-package rows, gives
+it a correspondingly accurate name, and separately preserves semantic `-n`.
+The low-compatibility default is retirement, not an alias.
+
+Package Query is a compelling `--take` consumer because its selective facets
+break the one-to-one relationship between inspected candidates and final rows.
+The owner still declares the candidate unit, stage, scope, stopping behavior,
+and completion evidence during adoption.
 
 ### Step 3: adopt `find`
 
@@ -456,49 +547,51 @@ Command-wide row-selection adoption then:
 
 - retires numeric and short-form `-t`;
 - retains long-form `--type` only where it is a genuine type filter;
-- exposes `--take` only for the patternless package-prefix profile mode's one
-  package-candidate dimension;
-- rejects `--take` in semantic Package Query mode, which retains its
-  independently owned `--candidates` dimension and uses `-n` for final matched
-  packages;
+- exposes `--take` in semantic Package Query mode for package candidates and
+  uses `-n` for final matched packages;
+- exposes `--take` in the patternless package-prefix profile mode for attempted
+  package-manifest enrichments and uses `-n` for successfully profiled package
+  rows, preserving failures as diagnostic context;
 - rejects `--take`, `--candidates`, and `--matches` in literal Package Query
   mode, which retains its owner-defined explicit package-list bound; and
 - keeps `-n` after owner-defined result construction.
+
+The profile owner retains its measured default of 500 attempted packages and
+explicit maximum of 1,000 until that owner changes them with new evidence.
+`-n 1000` does not raise the 500 default: it requests up to 1,000 final rows
+from an operation still bounded to 500 attempted candidates. The user raises
+the work authorization separately with `--take 1000`.
 
 That focused adoption decides whether ordinary type/member early exit can be
 proven equivalent through source delegation or must be removed. This design
 does not decide it.
 
-### Step 4: correct `package search`
+### Step 4: retire plain `package search --take`
 
-The package-search owner separates:
+Plain package search has no named selective, enrichment, fan-out, or
+aggregation scenario that makes a user-authored work count independently
+useful from the final row count. Its multi-source implementation still maps,
+deduplicates, merges, and limits provider rows, so its adoption:
 
-- `--take`, which bounds the owner-defined package-search candidate dimension;
-  and
-- `-n`, which selects final package rows.
+- retires the CLI `--take` option;
+- uses `-n` to select final package rows;
+- may lower `-n` to provider request counts only through source delegation
+  that proves the complete effective cross-source order, source mapping,
+  deduplication, failure, and completion behavior; and
+- preserves provider caps, source failures, and incomplete merged-search
+  evidence rather than treating the delegated count as exhaustion.
 
-Before exposing the corrected `--take`, that owner selects and documents one
-dimension scope:
-
-- **per source**, in which case help and disclosure say so and N selected
-  sources may admit up to N times the requested maximum before merge; or
-- **aggregate across selected sources**, in which case the owner defines
-  cross-source order, stopping, which sources remain unvisited, and how that
-  absence limits completion claims.
-
-The current hybrid of sending the same `take` to each source and independently
-clamping the merged result is not one coherent bound identity. The adoption
-must either replace it or expose the distinct constraints separately.
-
-The adoption preserves source failures and truncation evidence, updates help
-and shipped skills, and replaces tests that treat the two values as one limit.
+If package search later adds selective enrichment, fan-out, or aggregation
+that makes an independent work maximum useful, that owner may propose a new
+execution-bound adoption from the user scenario rather than from the NuGet
+parameter name.
 
 ### Later evaluations
 
-Owners of `--depth`, `--candidates`, `--max-methods`, `--max-results`, or
-`--max-packages` may evaluate this pattern when their own design changes. This
-issue neither renames those options nor declares that their current
-implementations satisfy the contract.
+Owners of `--depth`, `--max-methods`, `--max-results`, or `--max-packages` may
+evaluate this pattern when their own design changes. This issue neither renames
+those options nor declares that their current implementations satisfy the
+contract.
 
 ## Required evidence
 
@@ -508,6 +601,8 @@ Release gates for its observable contract.
 
 Every adopting command must gate at least:
 
+- a named scenario in which independently varying the work bound and semantic
+  selection changes useful behavior;
 - invalid, missing, repeated, and unsupported bound rejection before owner
   effects;
 - deterministic cross-family failure selection for invalid bound and
@@ -518,6 +613,8 @@ Every adopting command must gate at least:
 - visible owner-issued incompleteness when the bound constrains execution;
 - refusal to publish the bound as an exact Count without completion evidence;
 - preservation of failures observed before the bound stops work;
+- for a source-delegated `-n`, preservation of a failure occurring after the
+  Nth semantic row but before the explicit execution bound or exhaustion;
 - parity across every supported output format; and
 - help, shipped skill, completion, and neighboring no-bound behavior.
 
@@ -531,7 +628,11 @@ equivalence gates. Bound tests do not substitute for those proofs.
 | `--take 10 --count` reaches ten without exhaustion evidence | Do not publish ten as an exact corpus total. |
 | `--take 10 -n 20` | Valid independent intents; return at most the available final rows and preserve incompleteness. |
 | `--take 100 -n 10` reaches the work bound | Select ten final rows while retaining the owner-issued bounded outcome. |
-| Candidate and match budgets both exist | Keep both dimension identities; do not collapse them into one bare integer. |
+| Selective query finds 7 matches after inspecting 500 candidates | Return seven semantic rows and disclose that the candidate bound prevented exhaustion. |
+| The Nth match precedes a later failing candidate within `--take K` | Source-delegated `-n` preserves the reference failure and exit status or continues execution; it does not stop merely because N rows exist. |
+| Direct ordered provider rows correspond to final rows | Use semantic `-n` and proven source delegation; do not expose `--take` solely for the provider parameter. |
+| `--take 500 -n 20 --count` witnesses 20 ordered matches | Count may be exactly 20 after semantic Head while bounded-population disclosure remains visible. |
+| `--take 500 -n 20 --count` reaches the candidate bound with 7 matches | Do not publish exact Count 7 without exhaustion evidence. |
 | Provider hard ceiling is lower than the explicit request | Reject when statically known; otherwise report the actual provider constraint without rewriting the user's request. |
 | Failure occurs before the bound is reached | Preserve the failure; the bound is not a success fallback. |
 | Source returns exactly N rows for `--take N` | Row count alone proves neither that the user bound constrained execution nor that the source is exhausted. |
