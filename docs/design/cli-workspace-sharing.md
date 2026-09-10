@@ -39,6 +39,9 @@ validity, capacity, and restoration. Each inspection command remains the owner
 of its source, focus, selector, query, traversal, and execution semantics.
 Inspect Web remains the owner of URL activation and presentation. This design
 composes those owner-issued contracts without redefining them.
+[Inspection Plan Projections](inspection-plan-projections.md) owns the shared
+resolved basis and the typed split between section execution,
+effective-section discovery, and portable sharing.
 
 The repository convention is that a caller selects source, focus, operation,
 and lens on the command that performs the inspection, then chooses output
@@ -260,10 +263,12 @@ available.
 
 ## Adoption
 
-Adoption is command-by-command because each command owner must issue the typed
-state that sharing consumes, and Inspect Web must restore the corresponding
-facet or query. The common gesture and output contract do not permit one
-command adapter to infer another command's semantics.
+Projection eligibility and Inspect Web restoration remain command-by-command
+because each command owner must issue the typed source, target, facet, and
+query state that sharing consumes. Commands do not independently reconstruct
+the common target and selection plan:
+[Inspection Plan Projections](inspection-plan-projections.md) supplies that
+shared structural basis and purpose-specific lowering.
 
 For each adopting command, #6150's path has three observable steps:
 
@@ -318,16 +323,19 @@ escaped or direct writing, and list-separator state. That bounded graph
 demonstrates why preserving Call Graph selection matters; a link that silently
 opens member Overview loses the inspection the agent was discussing.
 
-The adoption has two planned steps:
+The adoption has three planned steps:
 
 1. This design records the real asset, observed graph, exact invocation,
    compatibility mapping, boundaries, and required gates.
-2. One production-adoption PR implements CLI projection and Inspect Web
-   restoration together and gates the published Browser against the unchanged
-   committed package archive.
+2. [#6555](https://github.com/richlander/dotnet-inspect/issues/6555) implements
+   the shared typed plan-purpose model and adopts it in the exact-member CLI
+   path for execution, effective discovery, and existing Overview sharing.
+3. The final production-adoption PR projects Call Graph through that share
+   plan and restores it in Inspect Web, gated against the unchanged committed
+   package archive.
 
-Step 2 is the production-consumer adoption slice for both hosts. The feature is
-not complete with only a packet writer, decoder test, or host-neutral
+Step 2 is direct CLI adoption and step 3 is Browser/Wasm adoption. The feature
+is not complete with only a packet writer, decoder test, or host-neutral
 projection. Release and deployment follow the existing separately authorized
 flow rather than becoming another feature slice.
 
