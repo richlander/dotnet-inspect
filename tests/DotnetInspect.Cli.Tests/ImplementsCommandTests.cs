@@ -19,7 +19,9 @@ public sealed class ImplementsCommandTests
 
         var (exitCode, output, error) =
             await ConsoleCapture.RunAsync(
-                () => ImplementsCommand.ExecuteAsync(options));
+                () => ImplementsCommand.ExecuteAsync(
+                    options,
+                    TestContext.Current.CancellationToken));
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -50,7 +52,9 @@ public sealed class ImplementsCommandTests
 
             var (exitCode, output, error) =
                 await ConsoleCapture.RunAsync(
-                    () => ImplementsCommand.ExecuteAsync(options));
+                    () => ImplementsCommand.ExecuteAsync(
+                        options,
+                        TestContext.Current.CancellationToken));
 
             Assert.Equal(0, exitCode);
             Assert.Equal("[]", output.Trim());

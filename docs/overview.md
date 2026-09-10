@@ -308,6 +308,11 @@ substrates, and inspection producers that will extend that space.
   shared [Structural Clone Search Scope](design/structural-clone-search-scope.md)
   owner. The Browser owner does not own acquisition authority, comparison
   execution, or portable Workspace fields.
+- [Inspect Web Compare Experience](design/inspect-web-compare-experience.md)
+  owns the Browser-specific Diff/Clone mode, Library-to-Type and Type-to-Member
+  drill-down projection, Member detail boundary, and Explore return state. It
+  consumes owner-issued comparison, clone, target, identity, and navigation
+  contracts without redefining them.
 - [Library API diff presentation](design/library-api-diff-presentation.md)
   owns the portable Library-root and changed-Type projection of one complete
   selected-library API comparison. It preserves Metadata identity,

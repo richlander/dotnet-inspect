@@ -18,7 +18,9 @@ namespace DotnetInspect.Cli.Commands;
 /// </summary>
 public class ImplementsCommand
 {
-    public static async Task<int> ExecuteAsync(ImplementsOptions options)
+    public static async Task<int> ExecuteAsync(
+        ImplementsOptions options,
+        CancellationToken cancellationToken = default)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -46,27 +48,81 @@ public class ImplementsCommand
                 };
             }
 
-            using var assemblySet = await AssemblySetResolver.CollectAsync(
-                context.HttpClient,
-                options.ToAssemblySetRequest("inspect-impl"),
-                logger.Log);
-            AssemblySetDiagnosticWriter.Write(assemblySet);
-            logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for types implementing {targetType}");
-
             var results = new List<ImplementerResult>();
-            using var workspace = new AssemblySetInspectionWorkspace();
-            workspace.RunPerAssembly(
-                assemblySet,
-                AssemblyContextImplementersQuery.Definition,
-                group => AssemblyContextImplementersQuery.Execute(
-                    group,
-                    targetType,
-                    options.IncludeAll),
-                (assembly, entry) =>
-                    AddImplementers(results, assembly, entry),
-                (assembly, failure) =>
-                    CommandError.WriteWarning(
-                        $"Error scanning {assembly.Path}: {failure}"));
+            AssemblySetRequest request =
+                options.ToAssemblySetRequest("inspect-impl");
+            if (ConfiguredPackageSearchWorkspace.IsEligible(
+                    options.SourceSelection,
+                    request,
+                    options.Tfm))
+            {
+                await using ConfiguredPackageSearchWorkspace? configured =
+                    await ConfiguredPackageSearchWorkspace.OpenAsync(
+                        context.HttpClient,
+                        request,
+                        options.Tfm!,
+                        logger.Log,
+                        cancellationToken);
+                if (configured is not null)
+                {
+                    ConfiguredPackageSearchQueryResult<
+                        AssemblyContextResult<
+                            ImmutableArray<TypeRelationship>>>? execution =
+                            await configured.QuerySurfaceAsync(
+                                queryContext =>
+                                    AssemblyContextImplementersQuery.Execute(
+                                        queryContext.Group,
+                                        targetType,
+                                        options.IncludeAll),
+                                cancellationToken);
+                    if (execution?.Sources is { } sources
+                        && execution.Result is { } queryResult)
+                    {
+                        logger.Log(
+                            $"Scanning {sources.AssemblyCount} "
+                            + $"libraries for types implementing {targetType}");
+                        foreach (AssemblyContextEntry<
+                            ImmutableArray<TypeRelationship>> entry
+                            in queryResult.Assemblies)
+                        {
+                            AddImplementers(
+                                results,
+                                sources.SourceFor(entry.Subject),
+                                entry);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                using var assemblySet =
+                    await AssemblySetResolver.CollectAsync(
+                        context.HttpClient,
+                        request,
+                        logger.Log);
+                AssemblySetDiagnosticWriter.Write(assemblySet);
+                logger.Log(
+                    $"Scanning {assemblySet.Assemblies.Count} libraries "
+                    + $"for types implementing {targetType}");
+
+                using var workspace =
+                    new AssemblySetInspectionWorkspace();
+                workspace.RunPerAssembly(
+                    assemblySet,
+                    AssemblyContextImplementersQuery.Definition,
+                    group => AssemblyContextImplementersQuery.Execute(
+                        group,
+                        targetType,
+                        options.IncludeAll),
+                    (assembly, entry) =>
+                        AddImplementers(
+                            results,
+                            SearchAssemblySource.FromAssemblySet(assembly),
+                            entry),
+                    (assembly, failure) =>
+                        CommandError.WriteWarning(
+                            $"Error scanning {assembly.Path}: {failure}"));
+            }
 
             // Deduplicate by type name + source (same type from multiple TFM folders)
             results = results
@@ -115,15 +171,13 @@ public class ImplementsCommand
 
     private static void AddImplementers(
         List<ImplementerResult> results,
-        AssemblySetEntry assembly,
+        SearchAssemblySource assembly,
         AssemblyContextEntry<ImmutableArray<TypeRelationship>> entry)
     {
         switch (entry)
         {
             case AssemblyContextEntry<
                 ImmutableArray<TypeRelationship>>.Available available:
-                string assemblyName =
-                    Path.GetFileNameWithoutExtension(assembly.Path);
                 foreach (TypeRelationship relationship
                     in available.Value)
                 {
@@ -135,21 +189,23 @@ public class ImplementsCommand
                         Relationship = relationship.RelationshipKind
                             .ToString()
                             .ToLowerInvariant(),
-                        Assembly = assemblyName,
+                        Assembly = assembly.Library,
                         Source = assembly.Source,
-                        SourceVersion = assembly.Version,
+                        SourceVersion = assembly.SourceVersion,
                     });
                 }
                 break;
             case AssemblyContextEntry<
                 ImmutableArray<TypeRelationship>>.Rejected rejected:
                 CommandError.WriteWarning(
-                    $"Error scanning {assembly.Path}: {rejected.Failure.Detail}");
+                    $"Error scanning {assembly.DiagnosticSubject}: "
+                    + rejected.Failure.Detail);
                 break;
             case AssemblyContextEntry<
                 ImmutableArray<TypeRelationship>>.Failed failed:
                 CommandError.WriteWarning(
-                    $"Error scanning {assembly.Path}: {failed.Error.Message}");
+                    $"Error scanning {assembly.DiagnosticSubject}: "
+                    + failed.Error.Message);
                 break;
         }
     }

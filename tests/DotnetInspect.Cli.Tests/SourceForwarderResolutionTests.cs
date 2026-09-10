@@ -2061,6 +2061,391 @@ public class SourceForwarderResolutionTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberCodeAcquisition_UsesSelectedSupplier(
+        bool isForwarded)
+    {
+        int opens = 0;
+        byte[] image =
+            File.ReadAllBytes(typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("member-code"),
+            isForwarded,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            typeof(BodyShapeFixture),
+            includePdb: true);
+        try
+        {
+            var source =
+                CreateApiSource(fixture.AssemblyPath, SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteResolvedAsync(
+                    new MemberOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter =
+                            [nameof(BodyShapeFixture.ReadableLocal)],
+                        OverloadIndex = 1,
+                        Select = [SectionNames.DecompiledSource],
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Contains("StringBuilder builder =", output);
+            Assert.Equal(
+                3,
+                opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberCodeAcquisition_ReportsSelectedMetadataOpenFailure(
+        bool invalidImage)
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("failed-member-metadata"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                return invalidImage
+                    ? new MemoryStream([1, 2, 3], writable: false)
+                    : throw new IOException(
+                        "Selected member metadata could not be opened.");
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source =
+                CreateApiSource(fixture.AssemblyPath, SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteResolvedAsync(
+                    new MemberOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter =
+                            [nameof(BodyShapeFixture.ReadableLocal)],
+                        OverloadIndex = 1,
+                        Select = [SectionNames.DecompiledSource],
+                        PdbPath = Path.ChangeExtension(
+                            typeof(BodyShapeFixture).Assembly.Location,
+                            ".pdb"),
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Error:", error);
+            Assert.Contains(
+                invalidImage
+                    ? "metadata root"
+                    : "Selected member metadata could not be opened.",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberCodeAcquisition_ReportsSelectedDecompilerOpenFailure(
+        bool invalidImage)
+    {
+        int opens = 0;
+        byte[] image =
+            File.ReadAllBytes(typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("failed-member-decompiler"),
+            isForwarded: true,
+            () =>
+            {
+                if (++opens == 1)
+                    return new MemoryStream(image, writable: false);
+                return invalidImage
+                    ? new MemoryStream([1, 2, 3], writable: false)
+                    : throw new IOException(
+                        "Selected member decompiler image could not be opened.");
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source =
+                CreateApiSource(fixture.AssemblyPath, SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteResolvedAsync(
+                    new MemberOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter =
+                            [nameof(BodyShapeFixture.ReadableLocal)],
+                        OverloadIndex = 1,
+                        Select = [SectionNames.DecompiledSource],
+                        PdbPath = Path.ChangeExtension(
+                            typeof(BodyShapeFixture).Assembly.Location,
+                            ".pdb"),
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Error:", error);
+            Assert.Contains(
+                invalidImage
+                    ? "Image is too small."
+                    : "Selected member decompiler image could not be opened.",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(2, opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MemberCodeAcquisition_CarriesExternalPdb()
+    {
+        int opens = 0;
+        byte[] image =
+            File.ReadAllBytes(typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("member-external-pdb"),
+            isForwarded: false,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source =
+                CreateApiSource(fixture.AssemblyPath, SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteResolvedAsync(
+                    new MemberOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter =
+                            [nameof(BodyShapeFixture.ReadableLocal)],
+                        OverloadIndex = 1,
+                        Select = [SectionNames.DecompiledSource],
+                        PdbPath = Path.ChangeExtension(
+                            typeof(BodyShapeFixture).Assembly.Location,
+                            ".pdb"),
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Contains("StringBuilder builder =", output);
+            Assert.Equal(3, opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MemberCodeAcquisition_SkipsOrdinaryOutput()
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("member-code-ordinary"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                throw new IOException(
+                    "Ordinary output must not open member code.");
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source =
+                CreateApiSource(fixture.AssemblyPath, SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteResolvedAsync(
+                    new MemberOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter =
+                            [nameof(BodyShapeFixture.ReadableLocal)],
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.Contains(nameof(BodyShapeFixture.ReadableLocal), output);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Equal(0, opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MemberCodeAcquisition_LeavesAnalysisRoutePathBased()
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("member-analysis"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                throw new IOException(
+                    "Analysis must retain its existing path route.");
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source =
+                CreateApiSource(fixture.AssemblyPath, SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteResolvedAsync(
+                    new MemberOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter =
+                            [nameof(BodyShapeFixture.ReadableLocal)],
+                        OverloadIndex = 1,
+                        Select = [SectionNames.Calls],
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.Contains($"## {SectionNames.Calls}", output);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Equal(0, opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MemberCodeAcquisition_LeavesExceptionRegionsRoutePathBased()
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("member-exception-regions"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                throw new IOException(
+                    "Exception Regions must retain its existing path route.");
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source =
+                CreateApiSource(fixture.AssemblyPath, SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteResolvedAsync(
+                    new MemberOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter =
+                            [nameof(BodyShapeFixture.ReadableLocal)],
+                        OverloadIndex = 1,
+                        Select = [SectionNames.ExceptionRegions],
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                $"## {SectionNames.ExceptionRegions}",
+                output);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Equal(0, opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData(false, false, false)]
     [InlineData(true, false, false)]
     [InlineData(true, true, false)]

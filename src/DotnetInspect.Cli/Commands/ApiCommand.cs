@@ -2454,7 +2454,17 @@ public class ApiCommand
         return 1;
     }
 
-    internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null, ResolvedAssemblyReference? sourceAssembly = null)
+    internal static async Task<int> WriteTypeOutputAsync(
+        ApiType type,
+        string? foundIn,
+        string? packageName,
+        string? packageVersion,
+        string? apiSource,
+        string? selectedTfm,
+        ApiOptions options,
+        TextWriter? output = null,
+        ResolvedAssemblyReference? sourceAssembly = null,
+        ResolvedAssemblyReference? memberCodeSourceAssembly = null)
     {
         var sink = output ?? Console.Out;
 
@@ -2709,7 +2719,9 @@ public class ApiCommand
                         mo4.DllPath!, methods, requestedSections, mo4.CallerScopeAssemblies, mo4);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
-                        requestedSections, analysisInspection, mo4.PdbPath, mo4.IncludeSections, mo4);
+                        requestedSections, analysisInspection, mo4.PdbPath,
+                        mo4.IncludeSections, mo4,
+                        memberCodeSourceAssembly);
                 }
             }
 
@@ -3431,7 +3443,8 @@ public class ApiCommand
         string? PackageVersion,
         string? ApiSource,
         string? SelectedTfm,
-        ResolvedAssemblyReference? SourceAssembly = null);
+        ResolvedAssemblyReference? SourceAssembly = null,
+        ResolvedAssemblyReference? MemberCodeSourceAssembly = null);
 
     internal static int ExecuteEffectiveDiscovery(
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
@@ -3686,7 +3699,8 @@ public class ApiCommand
                         memberOptions.DllPath!,
                         memberOptions.OverloadIndex.HasValue ? memberOptions.OverloadIndex.Value - 1 : null,
                         requestedSections, analysisInspection, memberOptions.PdbPath,
-                        memberOptions.IncludeSections, memberOptions);
+                        memberOptions.IncludeSections, memberOptions,
+                        acquisition?.MemberCodeSourceAssembly);
                 }
 
                 if (requestedSections.Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
