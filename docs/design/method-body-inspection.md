@@ -607,7 +607,7 @@ shared services layer used by package/source/TFM infrastructure. Putting
 Research or Decompiler orchestration there would invert the dependency graph and
 pull R2 concerns into lower-layer consumers.
 
-Initial implementations may live in `src/dotnet-inspect/Inspectors/` while the
+Initial implementations may live in `src/DotnetInspect.Cli/Inspectors/` while the
 service shape proves out. If this grows beyond CLI-local orchestration, prefer a
 new high-level inspection/composition project over expanding
 `DotnetInspector.Services`.

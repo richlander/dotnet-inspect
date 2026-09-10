@@ -1,0 +1,449 @@
+using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
+using ILInspector.Decompiler.Pipeline;
+using Markout;
+using Markout.Formatting;
+
+namespace DotnetInspect.Cli.Options;
+
+/// <summary>
+/// Base options shared by type and member commands.
+/// </summary>
+public partial record ApiOptions : IProjectionOptions
+{
+    /// <summary>
+    /// Type name to inspect (positional argument). Null for full API listing.
+    /// </summary>
+    public string? TypeName { get; init; }
+
+    // Source resolution
+    public string? PackagePath { get; init; }
+    /// <summary>Explicit address within a package version range: version, #N, first, or last.</summary>
+    public string? PackageRangeAddress { get; init; }
+    public string? AssemblyPath { get; init; }
+    public string? PlatformAssembly { get; init; }
+    public string? ProjectPath { get; init; }
+    public string? ProjectAssetsPath { get; init; }
+
+    /// <summary>
+    /// Local git clone(s) to read PDB-mapped source from (keyed on the SourceLink commit and
+    /// authenticated by the portable-PDB checksum) before falling back to the remote SourceLink
+    /// URL. Empty = network only. Set via <c>--repo</c>; can repeat.
+    /// </summary>
+    public string[] SourceRepositories { get; init; } = [];
+    public string? PlatformFramework { get; init; }
+    public string? Tfm { get; init; }
+    public bool IncludeAll { get; init; }
+    public NuGetSourceOptions? SourceOptions { get; init; }
+    public bool Verbose { get; init; }
+
+    /// <summary>
+    /// Decompiler spelling options resolved from the tool-owned
+    /// <c>.dotnet-inspectconfig</c> at the CLI edge (see
+    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). The CLI edge
+    /// supplies registry-derived product defaults even when no config file is
+    /// present. Null is reserved for low-level callers and selects the stable
+    /// <see cref="PrinterOptions.Default"/> rendering.
+    /// </summary>
+    public PrinterOptions? RenderOptions { get; init; }
+
+    /// <summary>
+    /// The <c>--focus</c> gesture: promote a fact family from the default side
+    /// comment to the caret gesture, so the facts worth acting on are underlined
+    /// beneath the statement instead of trailing it. Accepts a category
+    /// (<c>allocation</c>), a descriptor id (<c>alloc.box</c>), or a dotted id
+    /// prefix (<c>alloc</c>). Null leaves every fact on the side gesture, which is
+    /// byte-for-byte the historical render. This is a reporting choice only: the
+    /// facts collected are identical either way, because annotations describe and
+    /// never grade.
+    /// </summary>
+    /// <remarks>
+    /// Member-scoped only. The caret gesture renders into an annotated source
+    /// view, and the only sections that carry one — Annotated Source, Cost
+    /// Overlay, Semantics Overlay — are member sections. Registering the option
+    /// on <c>type</c> would offer a switch that cannot change any output there.
+    /// </remarks>
+    public string? Focus { get; init; }
+
+    /// <summary>
+    /// The <c>--taste</c> gesture: request the whole oracle-endorsed style set for
+    /// this run, equivalent to <c>dotnet_inspect_style_full_taste = true</c> in
+    /// <c>.dotnet-inspectconfig</c> but scoped to one invocation. Applied after the
+    /// config resolves and wins for the knobs the aggregate covers, so an explicit
+    /// gesture is not silently narrowed by a checked-in config; knobs outside the
+    /// oracle-endorsed set keep whatever the file selected. Includes byte-divergent
+    /// lenses, so the Annotated view drops its interleaved IL for any member a lens
+    /// actually rewrites.
+    /// </summary>
+    public bool RequestAllTaste { get; init; }
+
+    /// <summary>
+    /// The <c>--readable-names</c> gesture: for this run, retain the CLI's default
+    /// readable local-name synthesis even when configuration disables it. A
+    /// readable identifier is derived from a local's type and role when no usable
+    /// PDB source name exists, instead of the <c>V_index</c> fallback (see
+    /// <see cref="ILInspector.Decompiler.Pipeline.LocalNameSynthesizer"/> and
+    /// <c>docs/design/readable-local-names.md</c>). Byte-preserving — local names
+    /// do not affect IL, so it is not a byte-divergent lens and leaves the
+    /// Annotated view's interleaved IL intact. Applied on top of the resolved
+    /// <c>.dotnet-inspectconfig</c>/<c>--taste</c> options, since it is orthogonal
+    /// to the style axes those cover.
+    /// </summary>
+    public bool RequestReadableLocalNames { get; init; }
+
+    /// <summary>
+    /// Pending <c>.dotnet-inspectconfig</c> parse/read warnings, emitted to stderr
+    /// exactly once at the point a decompiled-source render consumes
+    /// <see cref="RenderOptions"/> (see
+    /// <see cref="DotnetInspect.Cli.Services.RenderConfigWarningSink"/>). A
+    /// reference-typed latch so the single emission survives the record <c>with</c>
+    /// copies that flow the options. Null when the resolved config raised no
+    /// warnings.
+    /// </summary>
+    internal DotnetInspect.Cli.Services.RenderConfigWarningSink? RenderConfigWarnings { get; init; }
+
+    // Enrichment
+    public bool ShowDocs { get; init; }
+
+    /// <summary>
+    /// Whether the user explicitly set --docs (true or false).
+    /// When false, the command decides the default based on context.
+    /// </summary>
+    public bool DocsExplicitlySet { get; init; }
+    public bool UseLocalDocs { get; init; }
+    public bool ShowSamples { get; init; }
+    public bool BrowsableUrls { get; init; }
+
+    // Shared output
+    public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
+
+    /// <summary>
+    /// The user's requested verbosity before internal section-selection promotion.
+    /// Defaults to <see cref="Verbosity"/> for callers that bypass command setup.
+    /// </summary>
+    public Verbosity? UserVerbosityOverride { get; init; }
+
+    /// <summary>Effective user verbosity before internal promotion.</summary>
+    public Verbosity UserVerbosity => UserVerbosityOverride ?? Verbosity;
+
+    public bool JsonOutput { get; init; }
+    public bool CompactJson { get; init; }
+    public bool Tabular { get; init; }
+    public bool Tsv { get; init; }
+    public bool Jsonl { get; init; }
+    public bool TabularExplicitlySet { get; init; }
+    public bool PlainText { get; init; }
+    public bool MarkdownExplicitlySet { get; init; }
+
+    /// <summary>
+    /// Render the selected graph as standalone Mermaid.
+    /// </summary>
+    public bool MermaidOutput { get; init; }
+
+    /// <summary>
+    /// Render graph sections as fenced Mermaid within the Markdown document.
+    /// </summary>
+    public bool EmbeddedMermaid { get; init; }
+
+    /// <summary>Print only the selected payload with no heading,
+    /// fence, separator, or tips.</summary>
+    public bool Bare { get; init; }
+
+    public bool Print { get; init; }
+
+    public RowSelector? PrintRow { get; init; }
+
+    public bool Value { get; init; }
+
+    public bool Urls { get; init; }
+
+    public bool Paths { get; init; }
+
+    public bool JsonArray { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via CLI flags or an environment default.
+    /// When false, commands are free to apply their own default format (e.g., shape/tree).
+    /// </summary>
+    public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via a CLI flag.
+    /// Unlike <see cref="FormatExplicitlySet"/>, environment defaults are excluded.
+    /// </summary>
+    public bool FormatFlagExplicitlySet { get; init; }
+
+    /// <summary>
+    /// Resolved output format, including environment overrides.
+    /// </summary>
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+
+    public bool NoHeader { get; init; }
+    public int? Limit { get; init; }
+    public HashSet<string> MemberFilter { get; init; } = [];
+    public HashSet<string> KindFilter { get; init; } = [];
+    public bool UnsafeOnly { get; init; }
+    public HashSet<string>? IncludeSections { get; init; }
+
+    /// <summary>
+    /// Canonical sections reached through an exact selector or compatible legacy alias. An empty
+    /// set records that selection came only through categories, globs, or a preset. Null preserves
+    /// exact-selection behavior for typed callers that supply <see cref="IncludeSections"/> directly.
+    /// </summary>
+    public HashSet<string>? ExactIncludeSectionsOverride { get; init; }
+
+    /// <summary>The selected sections that retain exact-selector provenance.</summary>
+    public HashSet<string>? ExactIncludeSections
+        => ExactIncludeSectionsOverride ?? IncludeSections;
+
+    public string[]? Discover { get; init; }
+    public bool Tree { get; init; }
+
+    /// <summary>
+    /// Whether type-shape output was requested and whether that request was
+    /// explicit. Shared so the router can preserve the option until metadata
+    /// establishes whether an explicit-source target is a type or member.
+    /// </summary>
+    public bool ShapeOutput { get; init; }
+    public bool ShapeExplicitlySet { get; init; }
+    public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Bare <c>-S</c>: a request for this command's default preset rather than for any named
+    /// section or category. Tracked separately from <see cref="Select"/> so the marker is never
+    /// spellable as a selector value. See #3547.
+    /// </summary>
+    public bool SelectDefault { get; init; }
+
+    /// <summary>
+    /// Set when the preamble rejected <see cref="Select"/> against the single-type pipeline but the
+    /// same values resolve against the type listing, so the decision has to wait until the command
+    /// knows which of the two it renders.
+    /// </summary>
+    /// <remarks>
+    /// A dotted name that does not resolve to a type renders a listing, and the preamble cannot
+    /// know that: it picks its pipeline from the argument shape, long before the assembly is read.
+    /// Carrying the deferral means <see cref="IncludeSections"/> stays unset and
+    /// <see cref="Select"/> stays raw, so each render path resolves it against the pipeline that
+    /// will actually render it. Every site that can receive a deferred select either re-resolves
+    /// (the listing fallbacks) or rejects it (the single-type view); leaving it unhandled would
+    /// silently ignore the selector. See #3547.
+    /// </remarks>
+    public bool SelectDeferredToListing { get; init; }
+
+    /// <summary>
+    /// Set when effective discovery names resolve only on the Type-listing
+    /// catalog and final target lookup must choose between that catalog and the
+    /// provisional single-Type catalog.
+    /// </summary>
+    public bool DiscoverDeferredToListing { get; init; }
+    public string[]? Columns { get; init; }
+    public string[]? Fields { get; init; }
+    public bool Schema { get; init; }
+    public bool Count { get; init; }
+    public RowWindow? Rows { get; init; }
+    public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
+    public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
+    public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
+        CloneCandidateQueryOptions.Default;
+    public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
+
+    /// <summary>
+    /// True when discovery (-D) should resolve and load the source to report only the
+    /// sections/columns that actually have data (effective discovery). For type/member
+    /// queries this is the default; <c>--schema</c> opts out to the cheap, offline static
+    /// schema listing.
+    /// </summary>
+    public bool EffectiveDiscovery => Discover != null && !Schema;
+
+    /// <summary>
+    /// True when the user has opted into rich markdown output (via --markdown or -v:*).
+    /// </summary>
+    public bool VerbosityEnabled => !Tabular && !JsonOutput;
+
+    /// <summary>
+    /// True when the user is performing a section/projection query
+    /// (-S/--columns/--fields or --where Kind=...).
+    /// Such queries produce a focused section view, not the default tree shape.
+    /// </summary>
+    public bool HasSectionQuery =>
+        Select is { Length: > 0 }
+        || SelectDefault
+        || Columns is { Length: > 0 }
+        || Fields is { Length: > 0 }
+        || BodyKindQuery.HasFilter
+        || CloneCandidateQuery.HasPredicates;
+
+    /// <summary>
+    /// Returns the appropriate Markout formatter for the current output format.
+    /// </summary>
+    public IMarkoutFormatter CreateFormatter() =>
+        PlainText
+            ? new PlainTextFormatter()
+            : new MarkdownFormatter(
+                EmbeddedMermaid ? MarkdownGraphMode.Mermaid : MarkdownGraphMode.EdgeTable);
+
+    /// <summary>
+    /// True when output is raw text (not rendered markdown).
+    /// </summary>
+    public virtual bool IsRawOutput => Bare || Print || Value || Urls || Paths || JsonOutput || Tabular || Jsonl || NoHeader || Count;
+}
+
+/// <summary>
+/// Options specific to the type command.
+/// </summary>
+public partial record ApiOptions
+{
+    /// <summary>On-disk path of the resolved assembly, when a command has one
+    /// in hand — enables decompiler-backed sections (member code sections,
+    /// whole-type Decompiled Source).</summary>
+    public string? DllPath { get; init; }
+
+    /// <summary>On-disk path to an acquired portable PDB, used by the decompiler
+    /// to resolve real local-variable names instead of synthesized <c>V_n</c> slots.</summary>
+    public string? PdbPath { get; init; }
+}
+
+public record TypeOptions : ApiOptions
+{
+    public string? TypeFilter { get; init; }
+    internal int? MemberLimit { get; init; }
+    public string? OriginalTypeQuery { get; init; }
+    public string? PlatformPrefixQuery { get; init; }
+    public bool AllowPlatformPrefixFallback { get; init; }
+
+    /// <summary>
+    /// True when no explicit output format was selected (default invocation).
+    /// </summary>
+    public bool IsDefaultInvocation => !FormatExplicitlySet && !ShapeExplicitlySet;
+
+    /// <summary>
+    /// True when output is raw text (not rendered markdown).
+    /// </summary>
+    public override bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || NoHeader || ShapeOutput || Count;
+}
+
+public enum MemberShareFormat
+{
+    Packet,
+    Url,
+}
+
+/// <summary>
+/// Options specific to the member command.
+/// </summary>
+public record MemberOptions : ApiOptions
+{
+    internal bool RouterDeferredTypeOrMember { get; init; }
+    internal string[] RouterDeferredTypeMemberValues { get; init; } = [];
+    internal bool OverloadIndexExplicitlySet { get; init; }
+    internal bool LegacyUrlModeExplicitlySet { get; init; }
+    public MemberShareFormat? ShareFormat { get; init; }
+
+    /// <summary>
+    /// True when <see cref="ApiOptions.IncludeSections"/> was supplied before the command
+    /// preamble. Retained raw selectors are provenance only and must not override that set or
+    /// control later member-pipeline transitions.
+    /// </summary>
+    internal bool MemberSectionsPreResolved { get; init; }
+
+    public bool CtorOnly { get; init; }
+    public int? OverloadIndex { get; init; }
+    public string? MemberDigest { get; init; }
+    public int? MemberGenericArity { get; init; }
+    public MethodSourceContext? MethodSource { get; init; }
+    public AssemblyMemberSourceComparisonEntry? MemberSourceComparison { get; init; }
+    public MemberSourceDiffPresentationResult? MemberSourceDiffPresentation
+    {
+        get;
+        init;
+    }
+
+    /// <summary>
+    /// True when the selected member carries no IL body — an abstract, interface, extern, or
+    /// runtime-implemented member — so <see cref="MethodSource"/> is absent because there is
+    /// nothing to show, not because resolution failed. Lets the source sections say so instead
+    /// of rendering success-shaped empty output (issue #3299).
+    /// </summary>
+    public bool MemberHasNoBody { get; init; }
+
+    /// <summary>
+    /// True when the selected member has an IL body but its source range does not identify one
+    /// declaration to isolate from the PDB source range. <see cref="MethodSource"/> is absent because a
+    /// type header, initializer, ambiguous range, or structurally unknown span is not a valid
+    /// substitute, not because source acquisition failed.
+    /// </summary>
+    public bool MemberHasNoPdbDeclaration { get; init; }
+
+    /// <summary>
+    /// True when PDB source was verified but exceeded the bounded lexical-complexity limit.
+    /// </summary>
+    public bool MemberSourceTooComplex { get; init; }
+
+    /// <summary>
+    /// True when portable-PDB sequence-point coordinates cannot address the verified source.
+    /// </summary>
+    public bool MemberSourceCoordinatesInvalid { get; init; }
+
+    /// <summary>
+    /// Explains why PDB source acquisition failed when no more specific source state applies.
+    /// </summary>
+    public string? PdbSourceUnavailableReason { get; init; }
+
+    /// <summary>
+    /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for cross-assembly callers
+    /// and bidirectional Call Graph traversal, in addition to the member's own assembly.
+    /// Empty = own assembly only.
+    /// </summary>
+    public string[] CallerScopeDirectories { get; init; } = [];
+
+    /// <summary>
+    /// Projects (<c>--project</c>) whose restored dependency assemblies are scanned for callers
+    /// and bidirectional Call Graph traversal, resolved via <c>project.assets.json</c>.
+    /// </summary>
+    public string[] CallerScopeProjects { get; init; } = [];
+
+    /// <summary>
+    /// Packages (<c>--caller-package</c>) to download and scan for cross-assembly callers and
+    /// bidirectional Call Graph traversal.
+    /// </summary>
+    public string[] CallerScopePackages { get; init; } = [];
+
+    /// <summary>
+    /// Resolved on-disk assembly paths that make up the caller scope (from
+    /// <see cref="CallerScopeDirectories"/>, <see cref="CallerScopeProjects"/>, and
+    /// <see cref="CallerScopePackages"/>), deduped and excluding the member's own assembly.
+    /// Populated by the command layer before rendering.
+    /// </summary>
+    public IReadOnlyList<string> CallerScopeAssemblies { get; init; } = [];
+
+    /// <summary>True when the user supplied any caller-scope flag.</summary>
+    public bool HasCallerScope => CallerScopeDirectories.Length > 0 
+        || CallerScopeProjects.Length > 0 
+        || CallerScopePackages.Length > 0;
+
+    /// <inheritdoc/>
+    public override bool IsRawOutput =>
+        base.IsRawOutput || Tree || MermaidOutput || ShareFormat is not null;
+}
+
+/// <summary>
+/// Resolved source context for a single method, ready for rendering.
+/// </summary>
+public record MethodSourceContext(
+    string SourceCode,
+    string? SourceUrl,
+    string? ChecksumAlgorithm = null,
+    string? Checksum = null,
+    DotnetInspector.Services.SourceChecksumVerification ChecksumVerification =
+        DotnetInspector.Services.SourceChecksumVerification.Unavailable)
+{
+    public bool HasChecksumEvidence =>
+        !string.IsNullOrWhiteSpace(ChecksumAlgorithm)
+        && !string.IsNullOrWhiteSpace(Checksum)
+        && ChecksumVerification is
+            DotnetInspector.Services.SourceChecksumVerification.Exact
+            or DotnetInspector.Services.SourceChecksumVerification.LineEndingNormalized;
+}
