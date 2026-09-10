@@ -6547,8 +6547,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     // open-package workspace. Keep its scope label distinct while preserving callers returned
     // from every platform assembly loaded into that binding-consistent group.
     const platformView = drilled || Boolean(state.package?.isRuntimePack);
-    const callers = active?.callers?.children ?? [];
-    const callees = active?.callees?.children ?? [];
     const graphScope = active?.scope;
     const otherWorkspaceLibraries = Math.max(
       0,
