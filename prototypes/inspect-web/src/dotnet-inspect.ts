@@ -29,6 +29,7 @@ import {
   libraryLenses,
   memberSectionDefinitions,
   memberSectionIdsFor,
+  packageCoordinateLabel,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
@@ -61,10 +62,7 @@ import {
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.ts";
-import {
-  createMainThreadEngineClient,
-  type EngineClient,
-} from "./engine-client.ts";
+import type { EngineClient } from "./engine-client.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -95,10 +93,10 @@ import {
   browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
   callGraphCaptureTopology,
+  createAsyncWorkspaceLocationPersistence,
   createNavigationHistory,
   createNavigationSequence,
-  createWorkspaceLocationPersistence,
-  parseWorkspaceLocation,
+  parseWorkspaceLocationAsync,
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   resolvedPlatformTargetVersion,
@@ -381,6 +379,7 @@ import {
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
+  TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
   type MemberNavEntry,
   typeMetadataSignature,
   typeSourceSignature,
@@ -531,176 +530,206 @@ import type {
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
 
-// Each generated module publishes its own operations and its own wire declarations, so the
-// application binds every operation through the module that owns it. There is no aggregate
-// facade: a binding below names the facade it came from.
-type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
-type MetadataFacade = typeof import("./facades/inspect-web-metadata.d.ts");
-type AnalysisFacade = typeof import("./facades/inspect-web-analysis.d.ts");
-type SourceFacade = typeof import("./facades/inspect-web-source.d.ts");
-type CallGraphFacade = typeof import("./facades/inspect-web-call-graph.d.ts");
-type CatalogFacade = typeof import("./facades/inspect-web-catalog.d.ts");
-type EngineCoordinator = typeof import("./engine-facades.ts");
+type ProductionEngineWorkerModule =
+  typeof import("./engine-worker-client.ts");
 
-let startEngine: EngineCoordinator["startEngine"];
+let startEngine: (origin: string) => Promise<void>;
 let engineClient: EngineClient;
-let cancelPackageQuery: PackageFacade["cancelPackageQuery"];
-let inspectPackageDocument: PackageFacade["getPackageDocument"];
-let inspectLoadRuntimePack: PackageFacade["loadRuntimePack"];
-let inspectLoadRuntimePackAssembly: PackageFacade["loadRuntimePackAssembly"];
-let inspectPlatformVersions: PackageFacade["getPlatformVersions"];
-let inspectPlatformCatalog: PackageFacade["getPlatformCatalog"];
-let inspectPrefetchPlatformPacks: PackageFacade["prefetchPlatformPacks"];
-let inspectPackageCacheStats: PackageFacade["packageCacheStats"];
-let inspectMemberDocumentation: PackageFacade["queryMemberDocumentation"];
-let inspectPackage: PackageFacade["queryPackage"];
-let inspectPackageDependencies: PackageFacade["queryPackageDependencies"];
-let inspectPackageVersions: PackageFacade["queryPackageVersions"];
-let resolveDependencyVersion: PackageFacade["resolvePackageDependencyVersion"];
+let cancelPackageQuery: EngineClient["package"]["cancelPackageQuery"];
+let inspectPackageDocument: EngineClient["package"]["getPackageDocument"];
+let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
+let inspectLoadRuntimePackAssembly:
+  EngineClient["package"]["loadRuntimePackAssembly"];
+let inspectPlatformVersions: EngineClient["package"]["getPlatformVersions"];
+let inspectPlatformCatalog: EngineClient["package"]["getPlatformCatalog"];
+let inspectPrefetchPlatformPacks:
+  EngineClient["package"]["prefetchPlatformPacks"];
+let inspectPackageCacheStats: EngineClient["package"]["packageCacheStats"];
+let inspectMemberDocumentation:
+  EngineClient["package"]["queryMemberDocumentation"];
+let inspectPackage: EngineClient["package"]["queryPackage"];
+let inspectPackageDependencies:
+  EngineClient["package"]["queryPackageDependencies"];
+let inspectPackageVersions: EngineClient["package"]["queryPackageVersions"];
+let resolveDependencyVersion:
+  EngineClient["package"]["resolvePackageDependencyVersion"];
 let inspectRequestPackageQueryMatches:
-  PackageFacade["requestPackageQueryMatches"];
-let inspectRunPackageQuery: PackageFacade["runPackageQuery"];
-let inspectRunPackageAssemblyQuery: PackageFacade["runPackageAssemblyQuery"];
+  EngineClient["package"]["requestPackageQueryMatches"];
+let inspectRunPackageQuery: EngineClient["package"]["runPackageQuery"];
+let inspectRunPackageAssemblyQuery:
+  EngineClient["package"]["runPackageAssemblyQuery"];
 let inspectOpenPackageAssemblyQueryResult:
-  PackageFacade["openPackageAssemblyQueryResult"];
-let inspectSearchTypes: PackageFacade["searchTypes"];
+  EngineClient["package"]["openPackageAssemblyQueryResult"];
+let inspectSearchTypes: EngineClient["package"]["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
-  PackageFacade["queryWorkspacePackageOccurrences"];
+  EngineClient["package"]["queryWorkspacePackageOccurrences"];
 let inspectActivateWorkspacePackageOccurrence:
-  PackageFacade["activateWorkspacePackageOccurrence"];
+  EngineClient["package"]["activateWorkspacePackageOccurrence"];
 let inspectClearWorkspacePackageOccurrences:
-  PackageFacade["clearWorkspacePackageOccurrences"];
-let inspectGraphMemberSurface: MetadataFacade["queryGraphMemberSurface"];
-let inspectPackageHeapEntries: MetadataFacade["queryPackageHeapEntries"];
-let inspectPackageMetadata: MetadataFacade["queryPackageMetadata"];
-let inspectPackageMetadataTable: MetadataFacade["queryPackageMetadataTable"];
-let inspectPlatformHeapEntries: MetadataFacade["queryPlatformHeapEntries"];
-let inspectPlatformMetadata: MetadataFacade["queryPlatformMetadata"];
-let inspectPlatformMetadataTable: MetadataFacade["queryPlatformMetadataTable"];
-let inspectTypeProjection: MetadataFacade["queryTypeProjection"];
-let inspectMemberFacts: AnalysisFacade["queryMemberFacts"];
-let inspectPackageIntegrations: AnalysisFacade["queryPackageIntegrations"];
-let inspectPackageOpportunities: AnalysisFacade["queryPackageOpportunities"];
-let inspectPackagePerformance: AnalysisFacade["queryPackagePerformance"];
-let inspectPlatformIntegrations: AnalysisFacade["queryPlatformIntegrations"];
-let inspectPlatformOpportunities: AnalysisFacade["queryPlatformOpportunities"];
-let inspectPlatformPerformance: AnalysisFacade["queryPlatformPerformance"];
-let cancelSourceInspection: SourceFacade["cancelSourceQuery"];
-let cancelTypeSourceInspection: SourceFacade["cancelTypeSourceQuery"];
+  EngineClient["package"]["clearWorkspacePackageOccurrences"];
+let inspectGraphMemberSurface:
+  EngineClient["metadata"]["queryGraphMemberSurface"];
+let inspectPackageHeapEntries:
+  EngineClient["metadata"]["queryPackageHeapEntries"];
+let inspectPackageMetadata:
+  EngineClient["metadata"]["queryPackageMetadata"];
+let inspectPackageMetadataTable:
+  EngineClient["metadata"]["queryPackageMetadataTable"];
+let inspectPlatformHeapEntries:
+  EngineClient["metadata"]["queryPlatformHeapEntries"];
+let inspectPlatformMetadata:
+  EngineClient["metadata"]["queryPlatformMetadata"];
+let inspectPlatformMetadataTable:
+  EngineClient["metadata"]["queryPlatformMetadataTable"];
+let inspectTypeProjection: EngineClient["metadata"]["queryTypeProjection"];
+let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
+let inspectPackageIntegrations:
+  EngineClient["analysis"]["queryPackageIntegrations"];
+let inspectPackageOpportunities:
+  EngineClient["analysis"]["queryPackageOpportunities"];
+let inspectPackagePerformance:
+  EngineClient["analysis"]["queryPackagePerformance"];
+let inspectPlatformIntegrations:
+  EngineClient["analysis"]["queryPlatformIntegrations"];
+let inspectPlatformOpportunities:
+  EngineClient["analysis"]["queryPlatformOpportunities"];
+let inspectPlatformPerformance:
+  EngineClient["analysis"]["queryPlatformPerformance"];
+let cancelSourceInspection: EngineClient["source"]["cancelSourceQuery"];
+let cancelTypeSourceInspection:
+  EngineClient["source"]["cancelTypeSourceQuery"];
 let cancelMethodBodyComparisonQuery:
-  SourceFacade["cancelMethodBodyComparison"];
-let inspectMethodBodyComparison: SourceFacade["queryMethodBodyComparison"];
+  EngineClient["source"]["cancelMethodBodyComparison"];
+let inspectMethodBodyComparison:
+  EngineClient["source"]["queryMethodBodyComparison"];
 let inspectMethodBodyComparisonTargets:
-  SourceFacade["queryMethodBodyComparisonTargets"];
-let inspectMemberFindingCensus: SourceFacade["queryMemberFindingCensus"];
-let inspectMemberSourceComparison: SourceFacade["queryMemberSourceComparison"];
-let cancelMemberSourceComparisonQuery: SourceFacade["cancelMemberSourceComparison"];
-let inspectMemberSource: SourceFacade["queryMemberSource"];
-let inspectTypeMemberSource: SourceFacade["queryTypeMemberSource"];
-let inspectTypeSource: SourceFacade["queryTypeSource"];
-let inspectExpandPlatformCallGraph: CallGraphFacade["expandPlatformCallGraph"];
-let inspectMemberCallGraph: CallGraphFacade["queryMemberCallGraph"];
-let inspectDecodeWorkspaceShareState: CatalogFacade["decodeWorkspaceShareState"];
-let inspectEncodeWorkspaceShareState: CatalogFacade["encodeWorkspaceShareState"];
-let inspectRunHomeDemo: CatalogFacade["runHomeDemo"];
+  EngineClient["source"]["queryMethodBodyComparisonTargets"];
+let inspectMemberFindingCensus:
+  EngineClient["source"]["queryMemberFindingCensus"];
+let inspectMemberSourceComparison:
+  EngineClient["source"]["queryMemberSourceComparison"];
+let cancelMemberSourceComparisonQuery:
+  EngineClient["source"]["cancelMemberSourceComparison"];
+let inspectMemberSource: EngineClient["source"]["queryMemberSource"];
+let inspectTypeMemberSource:
+  EngineClient["source"]["queryTypeMemberSource"];
+let inspectTypeSource: EngineClient["source"]["queryTypeSource"];
+let inspectExpandPlatformCallGraph:
+  EngineClient["callGraph"]["expandPlatformCallGraph"];
+let inspectMemberCallGraph:
+  EngineClient["callGraph"]["queryMemberCallGraph"];
+let inspectDecodeWorkspaceShareState:
+  EngineClient["catalog"]["decodeWorkspaceShareState"];
+let inspectEncodeWorkspaceShareState:
+  EngineClient["catalog"]["encodeWorkspaceShareState"];
+let inspectRunHomeDemo: EngineClient["catalog"]["runHomeDemo"];
 let productHomeDemoCatalogError = "";
 
-// The generated modules stay off the first-paint path, so they are imported once the home
-// view has painted. `engine-facades.ts` owns composition of the whole set; this function
-// owns nothing but binding, and each operation is bound from the module that publishes it.
+// The Worker client stays off the first-paint path. It is imported after the
+// home view paints, then starts exactly one epoch when bootstrap supplies the
+// host origin.
 async function loadEngineModule() {
-  const [
-    hostFacade,
-    packageFacade,
-    metadataFacade,
-    analysisFacade,
-    sourceFacade,
-    callGraphFacade,
-    catalogFacade,
-    coordinator,
-  ] = await Promise.all([
-    import("/inspect-web-host.js"),
-    import("/inspect-web-package.js"),
-    import("/inspect-web-metadata.js"),
-    import("/inspect-web-analysis.js"),
-    import("/inspect-web-source.js"),
-    import("/inspect-web-call-graph.js"),
-    import("/inspect-web-catalog.js"),
-    import("./engine-facades.ts"),
-  ]);
-  ({ startEngine } = coordinator);
-  inspectPlatformVersions = packageFacade.getPlatformVersions;
-  inspectPlatformCatalog = packageFacade.getPlatformCatalog;
-  inspectPrefetchPlatformPacks = packageFacade.prefetchPlatformPacks;
-  engineClient = createMainThreadEngineClient({
-    host: hostFacade,
-    package: packageFacade,
-    catalog: catalogFacade,
-  });
-  ({
-    cancelPackageQuery,
-    getPackageDocument: inspectPackageDocument,
-    loadRuntimePack: inspectLoadRuntimePack,
-    loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
-    packageCacheStats: inspectPackageCacheStats,
-    queryMemberDocumentation: inspectMemberDocumentation,
-    queryPackage: inspectPackage,
-    queryPackageDependencies: inspectPackageDependencies,
-    queryPackageVersions: inspectPackageVersions,
-    requestPackageQueryMatches: inspectRequestPackageQueryMatches,
-    resolvePackageDependencyVersion: resolveDependencyVersion,
-    runPackageQuery: inspectRunPackageQuery,
-    runPackageAssemblyQuery: inspectRunPackageAssemblyQuery,
-    openPackageAssemblyQueryResult: inspectOpenPackageAssemblyQueryResult,
-    searchTypes: inspectSearchTypes,
-    queryWorkspacePackageOccurrences:
-      inspectQueryWorkspacePackageOccurrences,
-    activateWorkspacePackageOccurrence:
-      inspectActivateWorkspacePackageOccurrence,
-    clearWorkspacePackageOccurrences:
-      inspectClearWorkspacePackageOccurrences,
-  } = packageFacade);
-  ({
-    queryGraphMemberSurface: inspectGraphMemberSurface,
-    queryPackageHeapEntries: inspectPackageHeapEntries,
-    queryPackageMetadata: inspectPackageMetadata,
-    queryPackageMetadataTable: inspectPackageMetadataTable,
-    queryPlatformHeapEntries: inspectPlatformHeapEntries,
-    queryPlatformMetadata: inspectPlatformMetadata,
-    queryPlatformMetadataTable: inspectPlatformMetadataTable,
-    queryTypeProjection: inspectTypeProjection,
-  } = metadataFacade);
-  ({
-    queryMemberFacts: inspectMemberFacts,
-    queryPackageIntegrations: inspectPackageIntegrations,
-    queryPackageOpportunities: inspectPackageOpportunities,
-    queryPackagePerformance: inspectPackagePerformance,
-    queryPlatformIntegrations: inspectPlatformIntegrations,
-    queryPlatformOpportunities: inspectPlatformOpportunities,
-    queryPlatformPerformance: inspectPlatformPerformance,
-  } = analysisFacade);
-  ({
-    cancelSourceQuery: cancelSourceInspection,
-    cancelTypeSourceQuery: cancelTypeSourceInspection,
-    cancelMethodBodyComparison: cancelMethodBodyComparisonQuery,
-    queryMethodBodyComparison: inspectMethodBodyComparison,
-    queryMethodBodyComparisonTargets: inspectMethodBodyComparisonTargets,
-    queryMemberFindingCensus: inspectMemberFindingCensus,
-    queryMemberSourceComparison: inspectMemberSourceComparison,
-    cancelMemberSourceComparison: cancelMemberSourceComparisonQuery,
-    queryMemberSource: inspectMemberSource,
-    queryTypeMemberSource: inspectTypeMemberSource,
-    queryTypeSource: inspectTypeSource,
-  } = sourceFacade);
-  ({
-    expandPlatformCallGraph: inspectExpandPlatformCallGraph,
-    queryMemberCallGraph: inspectMemberCallGraph,
-  } = callGraphFacade);
-  ({
-    decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
-    encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
-    runHomeDemo: inspectRunHomeDemo,
-  } = catalogFacade);
+  const workerModule: ProductionEngineWorkerModule =
+    await import("./engine-worker-client.ts");
+  let worker:
+    ReturnType<ProductionEngineWorkerModule["createProductionEngineWorkerClient"]>
+    | undefined;
+  startEngine = async origin => {
+    if (worker !== undefined) {
+      await worker.ready;
+      return;
+    }
+    worker = workerModule.createProductionEngineWorkerClient(origin, {
+      callbacks: {
+        failure: failure => {
+          showEngineFailure(new Error(
+            `Engine Worker failed (${failure.kind}): ${failure.diagnostic}`));
+          return undefined;
+        },
+        diagnostic: diagnostic => {
+          console.error("Engine Worker diagnostic.", diagnostic);
+          return undefined;
+        },
+        realmReleased: () => undefined,
+      },
+      operationDiagnostic: diagnostic => {
+        console.error("Engine operation failed.", diagnostic);
+        return undefined;
+      },
+    });
+    engineClient = worker.client;
+    cancelPackageQuery = (...args) =>
+      engineClient.package.cancelPackageQuery(...args);
+    inspectRequestPackageQueryMatches = (...args) =>
+      engineClient.package.requestPackageQueryMatches(...args);
+    cancelTypeSourceInspection = (...args) =>
+      engineClient.source.cancelTypeSourceQuery(...args);
+    ({
+      getPackageDocument: inspectPackageDocument,
+      loadRuntimePack: inspectLoadRuntimePack,
+      loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
+      getPlatformVersions: inspectPlatformVersions,
+      getPlatformCatalog: inspectPlatformCatalog,
+      prefetchPlatformPacks: inspectPrefetchPlatformPacks,
+      packageCacheStats: inspectPackageCacheStats,
+      queryMemberDocumentation: inspectMemberDocumentation,
+      queryPackage: inspectPackage,
+      queryPackageDependencies: inspectPackageDependencies,
+      queryPackageVersions: inspectPackageVersions,
+      resolvePackageDependencyVersion: resolveDependencyVersion,
+      runPackageQuery: inspectRunPackageQuery,
+      runPackageAssemblyQuery: inspectRunPackageAssemblyQuery,
+      openPackageAssemblyQueryResult: inspectOpenPackageAssemblyQueryResult,
+      searchTypes: inspectSearchTypes,
+      queryWorkspacePackageOccurrences:
+        inspectQueryWorkspacePackageOccurrences,
+      activateWorkspacePackageOccurrence:
+        inspectActivateWorkspacePackageOccurrence,
+      clearWorkspacePackageOccurrences:
+        inspectClearWorkspacePackageOccurrences,
+    } = engineClient.package);
+    ({
+      queryGraphMemberSurface: inspectGraphMemberSurface,
+      queryPackageHeapEntries: inspectPackageHeapEntries,
+      queryPackageMetadata: inspectPackageMetadata,
+      queryPackageMetadataTable: inspectPackageMetadataTable,
+      queryPlatformHeapEntries: inspectPlatformHeapEntries,
+      queryPlatformMetadata: inspectPlatformMetadata,
+      queryPlatformMetadataTable: inspectPlatformMetadataTable,
+      queryTypeProjection: inspectTypeProjection,
+    } = engineClient.metadata);
+    ({
+      queryMemberFacts: inspectMemberFacts,
+      queryPackageIntegrations: inspectPackageIntegrations,
+      queryPackageOpportunities: inspectPackageOpportunities,
+      queryPackagePerformance: inspectPackagePerformance,
+      queryPlatformIntegrations: inspectPlatformIntegrations,
+      queryPlatformOpportunities: inspectPlatformOpportunities,
+      queryPlatformPerformance: inspectPlatformPerformance,
+    } = engineClient.analysis);
+    ({
+      cancelSourceQuery: cancelSourceInspection,
+      cancelMethodBodyComparison: cancelMethodBodyComparisonQuery,
+      queryMethodBodyComparison: inspectMethodBodyComparison,
+      queryMethodBodyComparisonTargets: inspectMethodBodyComparisonTargets,
+      queryMemberFindingCensus: inspectMemberFindingCensus,
+      queryMemberSourceComparison: inspectMemberSourceComparison,
+      cancelMemberSourceComparison: cancelMemberSourceComparisonQuery,
+      queryMemberSource: inspectMemberSource,
+      queryTypeMemberSource: inspectTypeMemberSource,
+      queryTypeSource: inspectTypeSource,
+    } = engineClient.source);
+    ({
+      expandPlatformCallGraph: inspectExpandPlatformCallGraph,
+      queryMemberCallGraph: inspectMemberCallGraph,
+    } = engineClient.callGraph);
+    ({
+      decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
+      encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
+      runHomeDemo: inspectRunHomeDemo,
+    } = engineClient.catalog);
+    await worker.ready;
+  };
 }
 
 declare global {
@@ -1137,9 +1166,11 @@ function captureCanonicalWorkspaceUrl(): string {
   return state.package || state.platformSelection ? location.href : "/demos";
 }
 
-function projectCurrentWorkspaceUrl(): string {
+async function projectCurrentWorkspaceUrl(): Promise<string> {
   try {
-    return state.package || state.platformSelection ? buildStateUrl().toString() : "/demos";
+    return state.package || state.platformSelection
+      ? (await buildStateUrl()).toString()
+      : "/demos";
   } catch {
     return location.href;
   }
@@ -1548,27 +1579,39 @@ function ensureCurrentWorkspacePublished(): void {
   if (retainedWorkspaces.activeWorkspaceId !== null
     || (!state.package && !state.platformSelection)) return;
   retainedWorkspaces = publishRetainedWorkspace(retainedWorkspaces, null);
-  activeWorkspaceUrl = projectCurrentWorkspaceUrl();
+  const workspaceId = retainedWorkspaces.activeWorkspaceId;
+  void projectCurrentWorkspaceUrl().then(url => {
+    if (retainedWorkspaces.activeWorkspaceId === workspaceId)
+      activeWorkspaceUrl = url;
+    return undefined;
+  });
 }
 
 function publishInitialLoadedWorkspace(
   rollbackSnapshot: CanonicalWorkspaceRestoreSnapshot,
 ): boolean {
   if (retainedWorkspaces.activeWorkspaceId !== null) return true;
-  try {
-    const destination = buildStateUrl().toString();
-    publishCurrentWorkspace(null);
-    workspaceLocation.push(destination);
-    return true;
-  } catch (error) {
-    failWorkspaceCatalogAction(
-      `Couldn’t open Workspace: ${errorMessage(error)}`,
-      rollbackSnapshot,
-      null,
-      focusWorkbenchSearchOrHeading,
-    );
-    return false;
-  }
+  const navigationSeq = navigationSequence.current();
+  void buildStateUrl().then(
+    destination => {
+      if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
+      publishCurrentWorkspace(null);
+      workspaceLocation.push(destination.toString());
+      render({ synchronizeUrl: false });
+      return undefined;
+    },
+    (error: unknown) => {
+      if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
+      failWorkspaceCatalogAction(
+        `Couldn’t open Workspace: ${errorMessage(error)}`,
+        rollbackSnapshot,
+        null,
+        focusWorkbenchSearchOrHeading,
+      );
+      return undefined;
+    },
+  );
+  return true;
 }
 
 function publishCurrentWorkspace(
@@ -1577,7 +1620,12 @@ function publishCurrentWorkspace(
   retainedWorkspaces = publishRetainedWorkspace(
     retainedWorkspaces,
     previousSnapshot);
-  activeWorkspaceUrl = projectCurrentWorkspaceUrl();
+  const workspaceId = retainedWorkspaces.activeWorkspaceId;
+  void projectCurrentWorkspaceUrl().then(url => {
+    if (retainedWorkspaces.activeWorkspaceId === workspaceId)
+      activeWorkspaceUrl = url;
+    return undefined;
+  });
   pendingWorkspaceConstruction = null;
   setWorkspaceConstructionPending(false);
 }
@@ -1766,7 +1814,13 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.metadataToken,
     taste),
   memberSourceHasConcreteOverload,
-  cancelEngineSourceRequest: () => cancelSourceInspection?.(),
+  cancelEngineSourceRequest: () => {
+    if (cancelSourceInspection) {
+      observeAsync(
+        cancelSourceInspection(),
+        "Cancelling the Source request");
+    }
+  },
   cancelTypeSourceRequest: (operationId, reason) => {
     cancelTypeSourceInspection(operationId, reason);
   },
@@ -1794,7 +1848,9 @@ const methodBodyComparison = createMethodBodyComparisonCoordinator({
   queryComparison: (operationId, requestJson) =>
     inspectMethodBodyComparison(operationId, requestJson),
   cancelMethodBodyComparison: (operationId, reason) => {
-    cancelMethodBodyComparisonQuery(operationId, reason);
+    observeAsync(
+      cancelMethodBodyComparisonQuery(operationId, reason),
+      "Cancelling the Method Body comparison");
   },
   reportOperationDiagnostic: diagnostic => {
     console.error("Method Body Diff operation authority failure.", diagnostic);
@@ -1809,7 +1865,9 @@ const sourceComparison = createSourceComparisonCoordinator({
   queryComparison: (operationId, requestJson) =>
     inspectMemberSourceComparison(operationId, requestJson),
   cancelComparison: (operationId, reason) => {
-    cancelMemberSourceComparisonQuery(operationId, reason);
+    observeAsync(
+      cancelMemberSourceComparisonQuery(operationId, reason),
+      "Cancelling the Source comparison");
   },
   reportOperationDiagnostic: diagnostic => {
     console.error("Source Diff operation authority failure.", diagnostic);
@@ -2408,7 +2466,7 @@ function memberHasSelectedBody(member: AppMemberGroup) {
       || selection.overloadIndex === state.selectedOverloadIndex);
 }
 
-const workspaceLocation = createWorkspaceLocationPersistence({
+const workspaceLocation = createAsyncWorkspaceLocationPersistence({
   current: () => ({
     href: location.href,
     pathname: location.pathname,
@@ -2437,9 +2495,9 @@ function parseLocation() {
   return workspaceLocation.parseCurrent();
 }
 
-function parseWorkspaceHref(href: string): ParsedLocation {
+async function parseWorkspaceHref(href: string): Promise<ParsedLocation> {
   const url = new URL(href, location.href);
-  return parseWorkspaceLocation({
+  return await parseWorkspaceLocationAsync({
     href: url.href,
     pathname: url.pathname,
     search: url.search,
@@ -3406,6 +3464,18 @@ function ensureWorkspaceOccurrenceView() {
 }
 
 let workspaceOccurrenceRevision = 0;
+let workspaceOccurrenceClearBarrier: Promise<void> = Promise.resolve();
+let workspaceOccurrenceClearFailure: unknown = null;
+
+async function awaitWorkspaceOccurrenceClear(): Promise<void> {
+  await workspaceOccurrenceClearBarrier;
+  if (workspaceOccurrenceClearFailure !== null) {
+    const failure = workspaceOccurrenceClearFailure;
+    throw failure instanceof Error
+      ? failure
+      : new Error(errorMessage(failure), { cause: failure });
+  }
+}
 
 async function queryWorkspaceOccurrenceView() {
   const signature = state.workspaceOccurrenceSignature;
@@ -3414,6 +3484,7 @@ async function queryWorkspaceOccurrenceView() {
   state.workspaceOccurrenceLoading = true;
   state.workspaceOccurrenceError = "";
   try {
+    await awaitWorkspaceOccurrenceClear();
     const view = await inspectQueryWorkspacePackageOccurrences(signature);
     superseded = view.superseded;
     if (!superseded
@@ -3454,7 +3525,22 @@ function retryWorkspaceOccurrenceView() {
 }
 
 function clearWorkspaceOccurrenceView() {
-  inspectClearWorkspacePackageOccurrences();
+  const revision = workspaceOccurrenceRevision + 1;
+  workspaceOccurrenceClearBarrier =
+    workspaceOccurrenceClearBarrier.then(async () => {
+      try {
+        await inspectClearWorkspacePackageOccurrences();
+        if (revision === workspaceOccurrenceRevision)
+          workspaceOccurrenceClearFailure = null;
+      } catch (error) {
+        if (revision === workspaceOccurrenceRevision)
+          workspaceOccurrenceClearFailure = error;
+        reportAsyncFailure(
+          "Clearing Workspace package occurrences",
+          error);
+      }
+      return undefined;
+    });
   workspaceOccurrenceRevision++;
   state.workspaceOccurrenceSignature = "";
   state.workspaceOccurrenceLoading = false;
@@ -3477,6 +3563,7 @@ function workspaceOccurrenceViewIsVisible() {
 }
 
 async function activateWorkspacePackageOccurrence(action: string) {
+  await awaitWorkspaceOccurrenceClear();
   const result: BrowserWorkspacePackageOccurrenceActivation =
     await inspectActivateWorkspacePackageOccurrence(action);
   if (!result.activated || !result.package) {
@@ -5283,6 +5370,9 @@ function packageDependenciesStatus(
   return `${dependencyCount} package${dependencyCount === 1 ? "" : "s"}`;
 }
 
+const DEPENDENCY_GRAPH_SUMMARY =
+  "callers above · dependencies below · click a package to open";
+
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
   const fresh = state.packageDependenciesKey === current;
@@ -5329,7 +5419,7 @@ function renderPackageDependencies() {
 
   const graphSection = `
     <section class="document-section dependency-graph-section">
-      <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
+      <div class="section-title"><h2>Dependency graph</h2><span>${DEPENDENCY_GRAPH_SUMMARY}</span></div>
       ${workspaceDependencyErrorHtml()}
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
@@ -6550,8 +6640,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     // open-package workspace. Keep its scope label distinct while preserving callers returned
     // from every platform assembly loaded into that binding-consistent group.
     const platformView = drilled || Boolean(state.package?.isRuntimePack);
-    const callers = active?.callers?.children ?? [];
-    const callees = active?.callees?.children ?? [];
     const graphScope = active?.scope;
     const otherWorkspaceLibraries = Math.max(
       0,
@@ -6578,7 +6666,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         ? `<section class="document-section empty-member-section"><h2>No call graph</h2><p>${escapeHtml(active.callees?.memberName || "This member")} is an abstract or interface method — it declares no IL body, so it has no in-assembly callers or callees to graph.</p></section>`
         : active
         ? `<section class="document-section call-graph-section">
-            <div class="section-title"><h2>Call graph</h2><span>${callers.length} caller${callers.length === 1 ? "" : "s"} · ${callees.length} callee${callees.length === 1 ? "" : "s"}</span></div>
+            <div class="section-title"><h2>Call graph</h2><span>${callGraphSummary(active)}</span></div>
             ${breadcrumb}
             ${state.platformDrillLoading
               ? `<div class="graph-expanding"><span class="loader"></span> Range-fetching the implementation assembly from the runtime pack…</div>`
@@ -7207,7 +7295,9 @@ function bindScopeBarEvents() {
           returnFocus: "application-query",
         });
       } else if (scope() !== "workspace") {
-        selectWorkspaceApplicationScope();
+        observeAsync(
+          selectWorkspaceApplicationScope(),
+          "Opening the Workspace scope");
       }
     },
     onMemberSectionSelect: section => {
@@ -8157,6 +8247,16 @@ function spotlightFallbackMatches(
 
 // Ranked type matches across all loaded packages (engine-owned SearchTypes, with a
 // client-side fallback). This is one target among several the scoped Spotlight blends.
+let spotlightTypeRanking:
+  | {
+      readonly key: string;
+      readonly matches: Array<SpotlightCache["pool"][number] & {
+        ranges: HighlightRange[];
+      }>;
+    }
+  | null = null;
+let pendingSpotlightTypeRankingKey = "";
+
 function spotlightTypeMatches(query: string) {
   const cache = spotlightCandidates();
   if (!query) {
@@ -8166,18 +8266,44 @@ function spotlightTypeMatches(query: string) {
       .map(item => ({ ...item, ranges: [] }));
   }
   if (!state.engineReady) return spotlightFallbackMatches(query, cache.pool);
-  const hits = inspectSearchTypes(query, cache.candidatesJson);
-  if (!hits) return spotlightFallbackMatches(query, cache.pool);
-  const lowerQuery = query.toLowerCase();
-  const matches: Array<SpotlightCache["pool"][number] & {
-    ranges: HighlightRange[];
-  }> = [];
-  for (const hit of hits) {
-    const item = cache.keyMap.get(hit.key);
-    if (!item) continue;
-    matches.push({ ...item, ranges: computeHighlightRanges(item.type.name, lowerQuery) });
+  const key = `${cache.signature}\n${query}`;
+  if (spotlightTypeRanking?.key === key)
+    return spotlightTypeRanking.matches;
+  if (pendingSpotlightTypeRankingKey !== key) {
+    pendingSpotlightTypeRankingKey = key;
+    void inspectSearchTypes(query, cache.candidatesJson).then(
+      hits => {
+        if (pendingSpotlightTypeRankingKey !== key) return undefined;
+        const lowerQuery = query.toLowerCase();
+        const matches: Array<SpotlightCache["pool"][number] & {
+          ranges: HighlightRange[];
+        }> = [];
+        for (const hit of hits) {
+          const item = cache.keyMap.get(hit.key);
+          if (!item) continue;
+          matches.push({
+            ...item,
+            ranges: computeHighlightRanges(item.type.name, lowerQuery),
+          });
+        }
+        spotlightTypeRanking = { key, matches };
+        pendingSpotlightTypeRankingKey = "";
+        spotlight.updateResults();
+        return undefined;
+      },
+      () => {
+        if (pendingSpotlightTypeRankingKey !== key) return undefined;
+        spotlightTypeRanking = {
+          key,
+          matches: spotlightFallbackMatches(query, cache.pool),
+        };
+        pendingSpotlightTypeRankingKey = "";
+        spotlight.updateResults();
+        return undefined;
+      },
+    );
   }
-  return matches;
+  return spotlightFallbackMatches(query, cache.pool);
 }
 
 // Flat member index across every loaded type, deduped by (package, type, member group).
@@ -9092,11 +9218,13 @@ async function loadPackageFromSpotlight(
     );
     return;
   }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loaded) {
     let destination: string;
     try {
-      destination = buildStateUrl().toString();
+      destination = (await buildStateUrl()).toString();
     } catch (error) {
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       failWorkspaceCatalogAction(
         `Couldn’t open ${id}@${version}: ${errorMessage(error)}`,
         rollbackSnapshot,
@@ -9105,6 +9233,7 @@ async function loadPackageFromSpotlight(
       );
       return;
     }
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     publishCurrentWorkspace(retainedSnapshot);
     workspaceLocation.push(destination);
     render({ synchronizeUrl: false });
@@ -9211,7 +9340,8 @@ async function openPlatformLibrary(
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     if (construction) {
-      const destination = buildStateUrl().toString();
+      const destination = (await buildStateUrl()).toString();
+      if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.push(destination);
       render({ synchronizeUrl: false });
@@ -9748,7 +9878,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   };
 }
 
-function captureSavedWorkspacePacket(): string {
+async function captureSavedWorkspacePacket(): Promise<string> {
   if (state.home || state.credits || state.packageQueryOpen
     || scope() !== "workspace") {
     throw new Error("Save is only available on the Workspace page.");
@@ -9786,18 +9916,19 @@ function captureSavedWorkspacePacket(): string {
     }
     return { ...tab, version: pkg.version, framework: pkg.activeFramework };
   });
-  const packet = workspaceLocation.build({ ...snapshot, tabs }).searchParams.get("w");
+  const packet =
+    (await workspaceLocation.build({ ...snapshot, tabs })).searchParams.get("w");
   if (!packet) {
     throw new Error("The Workspace could not be captured as a canonical share packet.");
   }
   return packet;
 }
 
-function buildStateUrl(base = location.href) {
+async function buildStateUrl(base = location.href): Promise<URL> {
   if (scope() === "workspace") {
     const snapshot = captureWorkspaceUrlState();
     return snapshot
-      ? workspaceLocation.build(snapshot, base)
+      ? await workspaceLocation.build(snapshot, base)
       : new URL(base);
   }
   if (state.atPackageRoot && state.rootKind === "package" && state.package) {
@@ -9810,7 +9941,7 @@ function buildStateUrl(base = location.href) {
   }
   const snapshot = captureWorkspaceUrlState();
   return snapshot
-    ? workspaceLocation.build(snapshot, base)
+    ? await workspaceLocation.build(snapshot, base)
     : new URL(base);
 }
 
@@ -9825,6 +9956,8 @@ function workspaceUrlProjection() {
   });
 }
 
+let syncUrlRevision = 0;
+
 function syncUrl() {
   if (currentPackageQueryHandoff()) return;
   if (pendingDemoNavigation
@@ -9833,37 +9966,70 @@ function syncUrl() {
     && navigationSequence.isCurrent(
       pendingWorkspaceConstruction.navigationSeq)) return;
   if (retainFailedWorkspaceUrl()) return;
-  try {
-    const pushFromProductDemos =
-      isProductHomeDemosPath(location.pathname);
-    if (state.atPackageRoot && state.package && !state.loading) {
-      document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-      const destination = buildStateUrl().toString();
-      if (pushFromProductDemos) {
-        workspaceLocation.push(destination);
-      } else {
-        workspaceLocation.replace(destination, history.state);
-      }
-      if (retainedWorkspaces.activeWorkspaceId !== null) {
-        activeWorkspaceUrl = destination;
-      }
-      return;
-    }
-    const snapshot = captureWorkspaceUrlState();
-    if (!snapshot || state.loading) return;
-    document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-    if (pushFromProductDemos) {
-      workspaceLocation.push(
-        workspaceLocation.build(snapshot).toString());
-    } else {
-      workspaceLocation.sync(snapshot, history.state);
-    }
-    if (retainedWorkspaces.activeWorkspaceId !== null) {
-      activeWorkspaceUrl = location.href;
-    }
-  } catch {
-    // Keep the current URL while the active Browser state is not projectable.
+  const pushFromProductDemos =
+    isProductHomeDemosPath(location.pathname);
+  if (state.loading) return;
+  document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
+  const navigationSeq = navigationSequence.current();
+  if (state.atPackageRoot && state.package) {
+    const revision = ++syncUrlRevision;
+    void buildStateUrl().then(
+      url => {
+        if (revision !== syncUrlRevision
+          || !navigationSequence.isCurrent(navigationSeq)) return undefined;
+        const destination = url.toString();
+        if (pushFromProductDemos) {
+          workspaceLocation.push(destination);
+        } else {
+          workspaceLocation.replace(destination, history.state);
+        }
+        if (retainedWorkspaces.activeWorkspaceId !== null)
+          activeWorkspaceUrl = destination;
+        return undefined;
+      },
+      () => {
+        // Keep the current URL while the package view is not projectable.
+        return undefined;
+      },
+    );
+    return;
   }
+  let snapshot: WorkspaceUrlState | null;
+  try {
+    snapshot = captureWorkspaceUrlState();
+  } catch {
+    return;
+  }
+  if (!snapshot) return;
+  const revision = ++syncUrlRevision;
+  const publish = (url: URL) => {
+    if (revision !== syncUrlRevision
+      || !navigationSequence.isCurrent(navigationSeq)) return;
+    const destination = url.toString();
+    if (pushFromProductDemos) {
+      workspaceLocation.push(destination);
+    } else {
+      workspaceLocation.replace(destination, history.state);
+    }
+    if (retainedWorkspaces.activeWorkspaceId !== null)
+      activeWorkspaceUrl = destination;
+  };
+  if (!pushFromProductDemos) {
+    void workspaceLocation.build(snapshot).then(
+      publish,
+      () => {
+        // Keep the current URL while the active Browser state is not projectable.
+      },
+    );
+    return;
+  }
+  void workspaceLocation.build(snapshot).then(
+    publish,
+    () => {
+      // Keep the current URL while the active Browser state is not projectable.
+      return undefined;
+    },
+  );
 }
 
 // Apply a parsed URL selection onto the currently loaded package, validating that the
@@ -10224,7 +10390,17 @@ function loadSelectionData() {
 async function share() {
   const focusOwner = captureApplicationMenuFocusOwner(document);
   try {
-    await navigator.clipboard?.writeText(buildStateUrl().toString());
+    if (!navigator.clipboard
+      || typeof navigator.clipboard.write !== "function"
+      || typeof ClipboardItem !== "function") {
+      throw new Error(
+        "This browser cannot copy an asynchronously generated Workspace link.");
+    }
+    const content = buildStateUrl().then(url =>
+      new Blob([url.toString()], { type: "text/plain" }));
+    await navigator.clipboard.write([
+      new ClipboardItem({ "text/plain": content }),
+    ]);
     showToast("selection link copied");
   } catch (error) {
     state.queryNotice = errorMessage(error);
@@ -10557,10 +10733,11 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
     }
     let link: string | null;
     try {
-      link = productHomeDemoLocationHref(
+      link = await productHomeDemoLocationHref(
         resolved,
         inspectEncodeWorkspaceShareState);
     } catch (error) {
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       failDemoWorkspaceOpen(
         kind,
         errorMessage(error),
@@ -10568,6 +10745,7 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
         false);
       return;
     }
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (!link) {
       const construction =
         captureWorkspaceConstructionSnapshots(navigationSeq);
@@ -10584,8 +10762,9 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
     let loc: ParsedLocation;
     try {
       destination = new URL(link, location.href).toString();
-      loc = parseWorkspaceHref(destination);
+      loc = await parseWorkspaceHref(destination);
     } catch (error) {
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       failDemoWorkspaceOpen(
         kind,
         errorMessage(error),
@@ -10593,6 +10772,7 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
         false);
       return;
     }
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     stageDemoNavigation(navigationSeq, destination);
     const construction =
       captureWorkspaceConstructionSnapshots(navigationSeq);
@@ -10693,7 +10873,8 @@ async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void
     state.workspaceSubjectOpen = true;
     state.atPackageRoot = true;
     state.loading = false;
-    const destination = buildStateUrl().toString();
+    const destination = (await buildStateUrl()).toString();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     ensureCurrentWorkspacePublished();
     stageDemoNavigation(navigationSeq, destination);
     if (!commitDemoNavigation(navigationSeq)) return;
@@ -10713,6 +10894,10 @@ async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void
 }
 
 function openSavedWorkspace(entry: SavedWorkspace): void {
+  observeAsync(openSavedWorkspaceCore(entry), "Opening saved Workspace");
+}
+
+async function openSavedWorkspaceCore(entry: SavedWorkspace): Promise<void> {
   if (!canPublishRetainedWorkspace()) {
     appendQueryNotice(retainedWorkspaceCapacityMessage(), null);
     render({ synchronizeUrl: false });
@@ -10733,13 +10918,21 @@ function openSavedWorkspace(entry: SavedWorkspace): void {
   const navigationSeq = beginDemoNavigation(destination);
   let loc: ParsedLocation;
   try {
-    loc = parseWorkspaceHref(destination);
+    loc = await parseWorkspaceHref(destination);
   } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) {
+      cancelDemoNavigation(navigationSeq);
+      return;
+    }
     try {
       fail(errorMessage(error), false);
     } finally {
       cancelDemoNavigation(navigationSeq);
     }
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) {
+    cancelDemoNavigation(navigationSeq);
     return;
   }
   const construction =
@@ -10748,14 +10941,12 @@ function openSavedWorkspace(entry: SavedWorkspace): void {
   rollbackSnapshot =
     construction.rollbackSnapshot
     ?? construction.supersessionSnapshot;
-  observeAsync(
-    restoreWorkspaceCatalogEntry(
-      loc,
-      navigationSeq,
-      rollbackSnapshot,
-      construction.retainedSnapshot,
-      message => fail(message, true)),
-    "Loading the saved workspace");
+  await restoreWorkspaceCatalogEntry(
+    loc,
+    navigationSeq,
+    rollbackSnapshot,
+    construction.retainedSnapshot,
+    message => fail(message, true));
 }
 
 async function restoreWorkspaceCatalogEntry(
@@ -10782,7 +10973,8 @@ async function restoreWorkspaceCatalogEntry(
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
-      void buildStateUrl().toString();
+      await buildStateUrl();
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       publishCurrentWorkspace(previousSnapshot);
       if (!commitDemoNavigation(navigationSeq)) return;
       syncUrl();
@@ -10848,7 +11040,8 @@ async function restoreFreshWorkspaceFromHistory(
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
-      const destination = buildStateUrl().toString();
+      const destination = (await buildStateUrl()).toString();
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.replace(destination, history.state);
       render({ synchronizeUrl: false });
@@ -10891,7 +11084,8 @@ async function restoreRetainedWorkspaceFromHistory(
       fail,
       false);
     if (!failed && navigationSequence.isCurrent(navigationSeq)) {
-      const destination = buildStateUrl().toString();
+      const destination = (await buildStateUrl()).toString();
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       discardPendingWorkspaceConstruction();
       activeWorkspaceUrl = destination;
       workspaceLocation.replace(destination, history.state);
@@ -11152,7 +11346,7 @@ function openPackageQueryRoute(
   focusPackageQueryInput();
 }
 
-function selectWorkspaceApplicationScope() {
+async function selectWorkspaceApplicationScope() {
   const pkg = state.package;
   if (!pkg) {
     if (state.platformSelection) {
@@ -11161,15 +11355,17 @@ function selectWorkspaceApplicationScope() {
     }
     return;
   }
-  navigationSequence.begin();
+  const navigationSeq = navigationSequence.begin();
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
+  const projected = await buildStateUrl();
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   const successor = resolvePackageQueryWorkspaceSuccessor(
-    () => buildStateUrl(),
+    () => projected,
     () => {
       const fallback = buildPackageRootStateUrl(location.href, {
         package: pkg.id,
@@ -11333,8 +11529,9 @@ async function openPackageQueryRow(
   packageQueryHandoffNavigationSeq = null;
   let destination: string;
   try {
-    destination = buildStateUrl().toString();
+    destination = (await buildStateUrl()).toString();
   } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     discardPendingWorkspaceConstruction();
     if (rollbackSnapshot) {
       restoreCanonicalWorkspaceRestoreSnapshot(rollbackSnapshot);
@@ -11356,6 +11553,7 @@ async function openPackageQueryRow(
         ?.focus());
     return;
   }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   publishCurrentWorkspace(retainedSnapshot);
   workspaceLocation.push(destination);
   render();
@@ -12565,6 +12763,12 @@ function currentCallGraph() {
   return top ? top.graph : state.memberCallGraph;
 }
 
+function callGraphSummary(graph: ReturnType<typeof currentCallGraph>) {
+  const callerCount = graph?.callers.children.length ?? 0;
+  const calleeCount = graph?.callees.children.length ?? 0;
+  return `${callerCount} caller${callerCount === 1 ? "" : "s"} · ${calleeCount} callee${calleeCount === 1 ? "" : "s"}`;
+}
+
 function dependencyGraphAvailable() {
   return state.packageDependenciesKey === packageDependenciesSignature()
     && !state.packageDependenciesLoading
@@ -12620,22 +12824,61 @@ function graphExplorerKey(): string | null {
 function graphExplorerTarget() {
   const key = graphExplorerKey();
   const dependencies = scope() === "package";
-  const type = scope() === "type";
+  const typeRelationships = scope() === "type";
   const content = document.querySelector<HTMLElement>(
     dependencies ? "[data-dependency-graph-surface]"
-      : type ? "[data-type-graph-surface]" : "[data-call-graph-surface]");
+      : typeRelationships ? "[data-type-graph-surface]" : "[data-call-graph-surface]");
   const invoker = document.querySelector<HTMLElement>("[data-graph-explore]");
-  return key && content && invoker
-    ? {
-        key,
-        title: dependencies ? "Dependency graph" : type ? "Type relationships" : "Call graph",
-        context: dependencies
-          ? `${currentPackage().id}@${currentPackage().version} · ${currentPackage().activeFramework}`
-          : currentInspectedSubjectPath().map(segment => segment.label).join(" > "),
-        content,
-        invoker,
-      }
+  if (!key || !content || !invoker) return null;
+
+  const pkg = currentPackage();
+  if (dependencies) {
+    return {
+      key,
+      kind: "Dependency graph",
+      subject: packageCoordinateLabel(pkg),
+      context: `Target framework ${pkg.activeFramework}`,
+      summary: DEPENDENCY_GRAPH_SUMMARY,
+      content,
+      invoker,
+    };
+  }
+
+  const path = currentInspectedSubjectPath();
+  if (typeRelationships) {
+    return {
+      key,
+      kind: "Type relationships",
+      subject: path.at(-1)?.label ?? "Selected type",
+      context: packageCoordinateLabel(pkg),
+      summary: TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
+      content,
+      invoker,
+    };
+  }
+
+  const selected = selectedType();
+  const member = selectedMember(selected);
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
     : null;
+  const parent = selected
+    ? (selected.namespace
+      ? `${selected.namespace}.${typeDisplayName(selected)}`
+      : typeDisplayName(selected))
+    : "Selected type";
+  const packageContext = pkg.isRuntimePack
+    ? platformTargetLabel()
+    : packageCoordinateLabel(pkg);
+  return {
+    key,
+    kind: "Call graph",
+    subject: overload?.signature ?? path.at(-1)?.label ?? "Selected member",
+    context: `${packageContext} · ${parent}`,
+    summary: callGraphSummary(currentCallGraph()),
+    content,
+    invoker,
+  };
 }
 
 function openGraphExplorer() {
@@ -13956,7 +14199,9 @@ async function loadPackage(
         : friendly.message;
       state.errorTitle = friendly.title;
       state.errorDetail = error instanceof Error
-        ? error.stack || error.message
+        ? error.stack?.includes(error.message)
+          ? error.stack
+          : `${error.message}\n${error.stack ?? ""}`.trim()
         : String(error);
       state.retryAction = () => loadPackage(
         packageId,
@@ -14311,7 +14556,9 @@ async function runCallGraphDemo(
       overload,
       true);
     state.loading = false;
-    stageDemoNavigation(navigationSeq, buildStateUrl().toString());
+    const destination = (await buildStateUrl()).toString();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    stageDemoNavigation(navigationSeq, destination);
     render();
     let renderResult = await renderMermaidCallGraph();
     while (renderResult.status === "superseded"
@@ -14789,7 +15036,8 @@ function applyLocationView(loc: ParsedLocation) {
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
   const navigationSeq = navigationSequence.current();
-  const loc = workspaceLocation.preflightCurrent().resolve();
+  const loc = await workspaceLocation.preflightCurrent().resolve();
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
     await restoreWorkspaceFromLocation(
       loc,
@@ -14840,6 +15088,21 @@ function isStyleOption(value: unknown): value is StyleOption {
     && typeof value.tier === "string"
     && typeof value.title === "string"
     && typeof value.summary === "string";
+}
+
+function showEngineFailure(error: unknown) {
+  state.loading = false;
+  state.engineReady = false;
+  state.engineStartupFailed = true;
+  state.engineStatus = "";
+  state.error =
+    "Couldn’t start the inspection engine. Retry, or open a different package.";
+  state.errorTitle = "Startup failed";
+  state.errorDetail = error instanceof Error
+    ? error.stack || error.message
+    : String(error);
+  state.retryAction = () => window.location.reload();
+  if (!state.credits) render();
 }
 
 async function bootstrap() {
@@ -14943,17 +15206,8 @@ async function bootstrap() {
     state.diag = computeDiagnostics(tStart, tEngine, tReady);
     render();
   } catch (error) {
-    state.loading = false;
-    state.engineReady = false;
-    state.engineStartupFailed = true;
-    state.engineStatus = "";
-    state.error = "Couldn’t start the inspection engine. Retry, or open a different package.";
-    state.errorTitle = "Startup failed";
-    state.errorDetail = error instanceof Error
-      ? error.stack || error.message
-      : String(error);
-    state.retryAction = () => window.location.reload();
-    if (!state.credits) render();
+    console.error("Inspection engine startup failed.", error);
+    showEngineFailure(error);
   }
 }
 
@@ -14989,12 +15243,16 @@ function computeDiagnostics(
 }
 
 function refreshPackageStats() {
-  try {
-    const stats = inspectPackageCacheStats();
-    if (stats) state.packageCacheStats = stats;
-  } catch {
-    // Keep the last known counts; a stats read failure must not disrupt inspection.
-  }
+  void inspectPackageCacheStats().then(
+    stats => {
+      state.packageCacheStats = stats;
+      return undefined;
+    },
+    () => {
+      // Keep the last known counts; a stats read failure must not disrupt inspection.
+      return undefined;
+    },
+  );
 }
 
 
@@ -15100,7 +15358,8 @@ async function openFreshWorkspaceLink(
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
-      const destination = buildStateUrl().toString();
+      const destination = (await buildStateUrl()).toString();
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.push(destination);
       render({ synchronizeUrl: false });
@@ -15112,7 +15371,7 @@ async function openFreshWorkspaceLink(
   }
 }
 
-function navigateInAppUrl(url: URL) {
+async function navigateInAppUrl(url: URL) {
   if (isCreditsPath(url.pathname)) {
     openCredits();
     return;
@@ -15139,7 +15398,14 @@ function navigateInAppUrl(url: URL) {
   if (focusWorkspaceAfterQuery) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
-  const loc = parseWorkspaceHref(url.toString());
+  let loc: ParsedLocation;
+  try {
+    loc = await parseWorkspaceHref(url.toString());
+  } catch (error) {
+    if (navigationSequence.isCurrent(navigationSeq)) throw error;
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.hasWorkspaceState && !loc.shareState) {
     appendQueryNotice(
       `Workspace restore failed: ${loc.workspaceNotice
@@ -15170,7 +15436,9 @@ function navigateInAppUrl(url: URL) {
 bindWorkspaceLinkNavigation(document, {
   currentOrigin: () => location.origin,
   resolve: href => new URL(href, location.href),
-  navigate: navigateInAppUrl,
+  navigate: url => observeAsync(
+    navigateInAppUrl(url),
+    "Opening the selected link"),
 });
 
 const containedShortcutKeys = ["f", "k", "p"] as const;
@@ -15682,6 +15950,7 @@ function dismissModalsForRoutedNavigation() {
 }
 
 window.addEventListener("popstate", () => {
+  void (async () => {
   const leftPackageQueryHandoff = currentPackageQueryHandoff();
   const navigationSeq = navigationSequence.begin();
   let leftPackageQueryForWorkspaceSuccessor = false;
@@ -15800,7 +16069,8 @@ window.addEventListener("popstate", () => {
     render();
     return;
   }
-  const loc = parseLocation();
+  const loc = await parseLocation();
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
     failWorkspaceRoute(loc.routeFailure.message);
     return;
@@ -15929,6 +16199,9 @@ window.addEventListener("popstate", () => {
       restoreHistoryWorkspace(),
       "Restoring package history");
   }
+  })().catch((error: unknown) => {
+    reportAsyncFailure("Navigating browser history", error);
+  });
 });
 
 // Re-scope the active runtime pack to the platform library named in a share/history packet

@@ -2,6 +2,7 @@ import type { EngineClient } from "./engine-client.ts";
 import {
   createOperationAuthorityPage,
   type OperationDiagnostic,
+  type OperationAuthorityPage,
 } from "./operation-authority.ts";
 import {
   engineWorkerBoundaryErrors,
@@ -66,10 +67,10 @@ export function registerEngineWorkerStartupOperations(
 export function bindEngineWorkerStartupClient(
   host: WorkerRuntimeHost<string, string>,
   reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
+  page: OperationAuthorityPage = createOperationAuthorityPage(),
 ): EngineStartupClient {
   const epoch = host.snapshot().epochToken;
   if (epoch === null) throw new Error("Start a Worker epoch before binding startup reads.");
-  const page = createOperationAuthorityPage();
 
   function bind<TValue>(operation: StartupOperation<TValue>): () => Promise<TValue> {
     const adapter = host.registerOperation({

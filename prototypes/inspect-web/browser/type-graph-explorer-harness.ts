@@ -1,9 +1,11 @@
 import mermaid from "mermaid";
+import { packageCoordinateLabel } from "../src/data.ts";
 import { bindGraphExplore, createGraphExplorer } from "../src/graph-explorer.ts";
 import { bindGraphPanZoom } from "../src/graph-interactions.ts";
 import { buildTypeGraphMermaid, resolveMermaidCssVariables } from "../src/graph-mermaid.ts";
 import {
-  renderTypeMetadata, typeMetadataSignature, type TypeSummary,
+  renderTypeMetadata, TYPE_RELATIONSHIPS_GRAPH_SUMMARY, typeMetadataSignature,
+  type TypeSummary,
 } from "../src/type-panel.ts";
 import { createWorkbenchKeybindings } from "../src/workbench-keybindings.ts";
 
@@ -67,7 +69,15 @@ function target() {
   const content = document.querySelector<HTMLElement>("[data-type-graph-surface]");
   const invoker = document.querySelector<HTMLElement>("#explore");
   return owner && content && invoker
-    ? { key: owner, title: "Type relationships", context: `${pkg.id} > ${item.id}`, content, invoker }
+    ? {
+        key: owner,
+        kind: "Type relationships",
+        subject: item.id,
+        context: packageCoordinateLabel(pkg),
+        summary: TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
+        content,
+        invoker,
+      }
     : null;
 }
 
