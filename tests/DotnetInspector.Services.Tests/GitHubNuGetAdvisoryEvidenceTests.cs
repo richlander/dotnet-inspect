@@ -398,6 +398,40 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
             result.Failures);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("; title=\"Next page\"")]
+    public async Task LinkWithoutRelationCannotEstablishCompletion(
+        string parameters)
+    {
+        using var handler = new RoutingHandler((_, _) =>
+        {
+            HttpResponseMessage response = Json("[]");
+            response.Headers.TryAddWithoutValidation(
+                "Link",
+                "<https://api.github.com/advisories"
+                + "?ecosystem=nuget&type=reviewed&is_withdrawn=false"
+                + "&per_page=100&affects=Example.Client&after=cursor>"
+                + parameters);
+            return response;
+        });
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "1.0.0")),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.Complete);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Partial,
+            Assert.Single(result.Packages).CurrentContextAvailability);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.InvalidContinuation,
+            result.Failures);
+    }
+
     [Fact]
     public async Task RejectsContinuationThatChangesAdvisoryScope()
     {
@@ -838,6 +872,35 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
                 Request(At("Example.Client", "1.0.0")),
                 TestContext.Current.CancellationToken);
 
+        Assert.Empty(Assert.Single(result.Packages).CurrentAdvisories);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.InvalidData,
+            result.Failures);
+    }
+
+    [Theory]
+    [InlineData("16:04:11Z")]
+    [InlineData("2026-09-09Z")]
+    public async Task IncompleteAdvisoryTimestampIsInvalid(string timestamp)
+    {
+        string page = AdvisoryPage(
+            packageId: "Example.Client",
+            range: "< 2.0.0",
+            fixedVersion: "2.0.0")
+            .Replace(
+                "2026-09-09T16:04:11Z",
+                timestamp,
+                StringComparison.Ordinal);
+        using var handler = new RoutingHandler((_, _) => Json(page));
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "1.0.0")),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.Complete);
         Assert.Empty(Assert.Single(result.Packages).CurrentAdvisories);
         Assert.Contains(
             GitHubNuGetAdvisoryFailureKind.InvalidData,

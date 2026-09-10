@@ -313,6 +313,9 @@ public sealed class GitHubNuGetAdvisoryAcquisition
 /// </summary>
 public sealed class GitHubNuGetAdvisoryService
 {
+    private const string UtcTimestampFormat =
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'";
+
     private const string ApiRoot = "https://api.github.com/advisories";
     private const string QueryPrefix =
         ApiRoot
@@ -655,12 +658,12 @@ public sealed class GitHubNuGetAdvisoryService
         {
             SkipOptionalWhitespace(value, ref position);
             if (position == value.Length)
-                return true;
+                return foundRelation;
             if (value[position] == ',')
             {
                 position++;
                 SkipOptionalWhitespace(value, ref position);
-                return position < value.Length;
+                return foundRelation && position < value.Length;
             }
             if (value[position++] != ';')
                 return false;
@@ -1301,9 +1304,9 @@ public sealed class GitHubNuGetAdvisoryService
     {
         value = default;
         return TryRequiredString(element, propertyName, out string? text)
-            && text!.EndsWith('Z')
-            && DateTimeOffset.TryParse(
+            && DateTimeOffset.TryParseExact(
                 text,
+                UtcTimestampFormat,
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal
                     | DateTimeStyles.AdjustToUniversal,

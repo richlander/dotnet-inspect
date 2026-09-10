@@ -77,8 +77,9 @@ HTTPS GitHub advisory-list URL, is admitted unchanged by the raw path/query
 request constructor, preserves every original query parameter, and adds only
 the forward paging cursor. Recognition of a `next` Link relation permits
 optional whitespace around `=` and whitespace-separated quoted relation types.
-Malformed or ambiguous Link metadata cannot establish complete traversal. The
-request and response bounds apply across initial and continuation documents.
+Every Link value must declare a nonempty relation parameter. Malformed or
+ambiguous Link metadata cannot establish complete traversal. The request and
+response bounds apply across initial and continuation documents.
 
 ## Evidence categories
 
@@ -90,8 +91,9 @@ One acquired advisory document may contribute independently to two categories:
 | Explicit fixed-version evidence | The returned NuGet package entry names the requested package and `first_patched_version` exactly equals the normalized version | The advisory explicitly identifies the coordinate as its first patched version. This is fix association, not a package release date or a complete security-release claim. |
 
 An advisory reference carries its validated GHSA identity, optional validated
-CVE identity, severity, advisory URL, and advisory publication/update times.
-Display prose and advisory descriptions are not part of this handoff.
+CVE identity, severity, advisory URL, and complete UTC advisory
+publication/update timestamps. Display prose and advisory descriptions are not
+part of this handoff.
 
 Affected-range evaluation accepts the comparison expressions GitHub emits for
 NuGet advisories and ordinary NuGet interval notation. Comparison conjunctions
