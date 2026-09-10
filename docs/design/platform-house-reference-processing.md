@@ -17,8 +17,8 @@ The design depends on:
 - [Platform Library Population Declaration](platform-library-population-declaration.md)
   for target-independent Workspace relevance;
 - [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
-  for the product-default ecosystem projections and their lower population
-  declarations;
+  for curated-Workspace construction, ecosystem projections, and their lower
+  population declarations;
 - [Workspace registration and call-graph focal length](workspace-registration-and-call-graph-scope.md)
   for selection of registered ecosystem populations by one bounded operation;
 - [Package dependency evidence](package-dependency-evidence.md) for typed
@@ -130,7 +130,7 @@ It does not own:
 
 - platform family, target-framework, or version identity;
 - target-independent ecosystem registration;
-- Workspace registration defaults, revisions, focal-length selection,
+- Workspace construction policy, registration revisions, focal-length selection,
   population planning, or cross-population result composition;
 - package identity, package source authority, package dependency evidence,
   package candidate selection, package version resolution, package payload
@@ -436,9 +436,10 @@ does not select a platform target, authorize a source, acquire a library, or
 invoke `PlatformHouse`. Runtime work begins only when a bounded operation
 selects one registered population from one exact Workspace revision.
 
-The application-owned default manifest projects these lower contributions:
+The Ecosystems-owned curated Workspace manifest projects these lower
+contributions:
 
-| Fresh-Workspace ecosystem | Platform contribution | Package-prefix contribution |
+| Curated ecosystem | Platform contribution | Package-prefix contribution |
 | --- | --- | --- |
 | Platform | `Platform(DotNetRuntime)` | None |
 | ASP.NET Core | `Platform(AspNetCore)` | `Microsoft.AspNetCore.` |
@@ -446,7 +447,8 @@ The application-owned default manifest projects these lower contributions:
 
 The
 [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
-owns this manifest and each application-to-lower-declaration correspondence.
+owns this manifest, complete curated construction, and each
+application-to-lower-declaration correspondence.
 `PlatformHouse` does not recognize the display labels `Platform`,
 `ASP.NET Core`, or `Microsoft.Extensions`, and it does not reconstruct a
 platform family from a package prefix.
@@ -535,13 +537,13 @@ operation may provide an already-settled target context or an explicit
 selection policy. Equal TFM or version text across `DotNetRuntime` and
 `AspNetCore` never merges their family identities.
 
-The default Platform and ASP.NET Core registrations therefore produce
+The curated Platform and ASP.NET Core registrations therefore produce
 independent House requests when both populations are selected. An ASP.NET Core
 source may additionally return an explicit .NET runtime support closure. That
 closure does not replace the selected `DotNetRuntime` contribution or collapse
 the two exact family targets. The population-composition and Workspace
-admission owners may coalesce only owner-issued exact artifact
-correspondence, while retaining both registration and family-target paths.
+admission owners may coalesce only owner-issued exact artifact correspondence,
+while retaining both registration and family-target paths.
 
 Call-graph focal length determines whether these registrations are selected:
 
@@ -551,12 +553,13 @@ Call-graph focal length determines whether these registrations are selected:
 - `Everything` additionally admits every other Workspace population and
   already-admitted participant available under the operation.
 
-The three fresh defaults participate in the latter two modes unless the user
-removed them. Selection still grants no source authority: each platform and
-package contribution uses its own explicit source policy and bounds. A missing,
-unauthorized, ambiguous, failed, or incomplete contribution remains visible;
-the planner cannot silently omit it and claim a complete ecosystem or graph
-population.
+The current three curated registrations participate in the latter two modes
+when the caller chose curated construction and unless the user removed them. A
+raw Workspace contributes none until explicitly registered. Selection still
+grants no source authority: each platform and package contribution uses its
+own explicit source policy and bounds. A missing, unauthorized, ambiguous,
+failed, or incomplete contribution remains visible; the planner cannot
+silently omit it and claim a complete ecosystem or graph population.
 
 ## Typed ingress and bare-library convergence
 
@@ -1394,10 +1397,11 @@ legacy combinations fail visibly under the adopting command owner.
 
 ## Demo
 
-### Fresh Workspace realizes registered ecosystems
+### Curated Workspace realizes registered ecosystems
 
 ```text
-fresh Workspace registrations
+Ecosystems.CreateCuratedWorkspace()
+  registrations
   Platform
     -> PlatformLibraryPopulationDeclaration(DotNetRuntime)
   ASP.NET Core
@@ -1582,7 +1586,7 @@ The implementation and adoption slices own these Release gates:
 | Target settlement | An exact demand is retained unchanged; a selecting demand freezes one owner-issued exact `PlatformFamilyTarget` before acquisition, and every outcome retains the demand and selection evidence. |
 | Workspace population correspondence | The operation association retains the owner-issued Workspace revision identity and ecosystem registration; the House request and receipt retain that identity, `PlatformLibraryPopulationDeclaration`, family-preserving target demand, and settled target. |
 | Workspace family mismatch | An `AspNetCore` population declaration paired with a `DotNetRuntime` target demand rejects before target or source work, remains associated with the selected registration, triggers no retry or relabeling, and prevents complete population coverage. |
-| Fresh-default realization | Selecting the three fresh ecosystem defaults issues independent `DotNetRuntime` and `AspNetCore` House requests plus the two authored package-prefix paths; registration alone performs no source work. |
+| Curated realization | Selecting the current three curated ecosystem registrations issues independent `DotNetRuntime` and `AspNetCore` House requests plus the two authored package-prefix paths; registration alone performs no source work. |
 | Family separation | Equal TFM or version text and an ASP.NET Core runtime support closure cannot merge the runtime and ASP.NET Core registrations or their exact family targets. |
 | Focal-length integration | `Self`, `SelfAndRegisteredEcosystems`, and `Everything` select the documented population sets without granting source authority or silently omitting a failed selected contribution. |
 | Explicit source authorization | No source capability, cache, installed root, or network route is used unless present in the captured source plan. |
@@ -1638,7 +1642,7 @@ This design does not:
 - claim that SourceLink provenance proves the physical syntax tree that
   produced a metadata definition;
 - define Workspace admission, replacement, or lease lifetime;
-- define Workspace ecosystem defaults, registration editing, call-graph focal
+- define Workspace curation, registration editing, call-graph focal
   length, or cross-population composition;
 - require network access or desktop filesystem capabilities;
 - permit inspected-assembly loading or Roslyn;

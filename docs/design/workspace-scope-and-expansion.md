@@ -185,9 +185,10 @@ unimplemented expansion-permission target in this document. The implemented
 Package membership and mutation contract above remains current. A
 focused Workspace Scope revision must replace proposed `ExpansionScopes`,
 closed/selectively-open permission semantics, and Browser-only defaults with
-inert exact-library/prefix/ecosystem registration and the shared
-fresh-Workspace defaults. Until that revision lands, those later expansion
-sections are historical design context, not an implementation claim.
+inert exact-library/prefix/ecosystem registration and empty-only Workspace API
+construction. Ecosystems separately owns the one curated Workspace
+composition. Until that revision lands, those later expansion sections are
+historical design context, not an implementation claim.
 
 ## Authority and exact claim
 
