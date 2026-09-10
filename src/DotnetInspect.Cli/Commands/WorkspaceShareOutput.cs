@@ -1,7 +1,7 @@
-using DotnetInspector.Options;
+using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries.Definitions;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspect.Cli.Commands;
 
 internal static class WorkspaceShareOutput
 {

@@ -1,12 +1,12 @@
 using System.Net;
 
-using DotnetInspector.Commands;
-using DotnetInspector.Options;
-using DotnetInspector.Output;
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 
-namespace DotnetInspector.Tests;
+namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
