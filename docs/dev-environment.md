@@ -118,6 +118,18 @@ The managed suite is an xUnit in-process executable. It covers the
 generated public facade contracts and browser application without renaming the
 published `inspect-web-*` modules.
 
+### Network-destination admission tests
+
+Run the owner suite from the repository root:
+
+```bash
+dotnet run --project tests/NetworkAccess.Tests -c Release
+```
+
+The suite pins the shared IPv4 and IPv6 destination classification used by
+desktop HTTP transports. Core and NuGetFetch retain their transport-specific
+wiring tests.
+
 ### Text-library tests
 
 Run the complete text-library suites from the repository root:

@@ -69,7 +69,7 @@ internal static class ChangePlanTestSuite
     {
         (string Path, string Selected)[] canaries =
         [
-            ("src/NetworkDestinationPolicy.cs",
+            ("src/NetworkAccess/NetworkDestinationPolicy.cs",
                 "code,decompiler,shipped,web"),
             ("src/UnionPolyfill.cs",
                 "code,decompiler,shipped,web"),

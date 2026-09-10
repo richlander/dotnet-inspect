@@ -142,7 +142,7 @@ both inspection families and the shorter name is established by the subject:
   transport outcomes.
 - `CSharpText` owns model-free C# and XML-documentation text grammars.
 - `InertText` owns construction-time containment of untrusted text.
-- Target `NetworkAccess` owns network-destination admission shared by
+- `NetworkAccess` owns network-destination admission shared by
   otherwise independent transport owners.
 - Target `UntrustedDocuments` owns hardened JSON and XML parsing entry points.
 
@@ -275,7 +275,7 @@ implementation belongs to separately tracked owner-scoped work.
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
 | Subject-neutral inspection substrate | `Inspector.Artifacts`, `Inspector.Artifacts.Local`, `Inspector.Artifacts.Workspaces`, `Inspector.Findings`, `Inspector.Text` |
-| Independent domain roots | `NuGetFetch`, `CSharpText`, `InertText`; target `SourceFetch`, `NetworkAccess`, and `UntrustedDocuments` |
+| Independent domain roots | `NuGetFetch`, `NetworkAccess`, `CSharpText`, `InertText`; target `SourceFetch` and `UntrustedDocuments` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
 The following dispositions close the existing ambiguous names:
@@ -293,8 +293,8 @@ The following dispositions close the existing ambiguous names:
 `DotnetInspector.Core` decomposes by subject: shared cache behavior targets
 `DotnetInspector.Cache`; HTTP composition and product network telemetry target
 `DotnetInspector.Networking`; the destination-admission primitive shared with
-`NuGetFetch` targets the independent `NetworkAccess` root; hardened JSON and
-XML entry points target the independent `UntrustedDocuments` root; CLI
+`NuGetFetch` now lives in the independent `NetworkAccess` root; hardened JSON
+and XML entry points target the independent `UntrustedDocuments` root; CLI
 measurement moves to `DotnetInspect.Cli`; and single-consumer helpers move
 beside their consumers.
 
