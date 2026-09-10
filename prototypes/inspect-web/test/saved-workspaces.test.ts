@@ -7,6 +7,16 @@ import {
 } from "../src/saved-workspaces.ts";
 import { renderSavedWorkspaces, renderWorkspaceSaveButton } from "../src/saved-workspaces-view.ts";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((accept, deny) => {
+    resolve = accept;
+    reject = deny;
+  });
+  return { promise, resolve, reject };
+}
+
 function harness(initial: string | null = null) {
   let stored = initial;
   let failRead = false;
@@ -25,7 +35,7 @@ function harness(initial: string | null = null) {
       if (failWrite) throw new Error("Quota exceeded");
       stored = value;
     },
-    capture: () => {
+    capture: async () => {
       captures++;
       if (failCapture) throw new Error("Workspace is not projectable");
       return "owner-issued-packet";
@@ -46,19 +56,19 @@ function harness(initial: string | null = null) {
     failWrite: (value = true) => { failWrite = value; },
     failCapture: () => { failCapture = true; },
     failOpen: () => { failOpen = true; },
-    save(name: string) {
+    async save(name: string) {
       saves.beginSave();
       saves.setName(name);
-      saves.save();
+      await saves.save();
     },
   };
 }
 
-test("named saves retain the exact opaque packet and reopen across reload without recapture", () => {
+test("named saves retain the exact opaque packet and reopen across reload without recapture", async () => {
   const h = harness();
   assert.equal(h.saves.state.available, true);
   assert.equal(h.captures(), 0);
-  h.save("  Json study  ");
+  await h.save("  Json study  ");
   assert.deepEqual(h.saves.state.entries, [{ name: "Json study", packet: "owner-issued-packet" }]);
   assert.equal(h.saves.state.formOpen, false);
   assert.deepEqual(h.focused.at(-1), { kind: "saved-open", name: "Json study", index: 0 });
@@ -69,12 +79,12 @@ test("named saves retain the exact opaque packet and reopen across reload withou
   assert.equal(h.captures(), 1);
 });
 
-test("duplicate names and invalid names do not replace or capture another save", () => {
+test("duplicate names and invalid names do not replace or capture another save", async () => {
   const h = harness();
-  h.save("Study");
+  await h.save("Study");
   const before = h.stored();
   for (const name of ["STUDY", " study ", "   ", "x".repeat(121)]) {
-    h.save(name);
+    await h.save(name);
     assert.equal(h.stored(), before);
     assert.equal(h.saves.state.entries.length, 1);
     assert.ok(h.saves.state.error);
@@ -83,10 +93,10 @@ test("duplicate names and invalid names do not replace or capture another save",
   assert.equal(h.captures(), 1);
 });
 
-test("forget removes only its saved identity and never opens or recaptures a Workspace", () => {
+test("forget removes only its saved identity and never opens or recaptures a Workspace", async () => {
   const h = harness();
-  h.save("First");
-  h.save("Second");
+  await h.save("First");
+  await h.save("Second");
   h.saves.forget("First");
   assert.deepEqual(h.saves.state.entries, [{ name: "Second", packet: "owner-issued-packet" }]);
   assert.deepEqual(h.reload().state.entries, h.saves.state.entries);
@@ -95,12 +105,12 @@ test("forget removes only its saved identity and never opens or recaptures a Wor
   assert.deepEqual(h.focused.at(-1), { kind: "saved-remove", name: "First", index: 0 });
 });
 
-test("write failure preserves saved entries and draft text on save and forget", () => {
+test("write failure preserves saved entries and draft text on save and forget", async () => {
   const h = harness();
-  h.save("First");
+  await h.save("First");
   const before = h.stored();
   h.failWrite();
-  h.save("Second");
+  await h.save("Second");
   assert.equal(h.stored(), before);
   assert.deepEqual(h.saves.state.entries, [{ name: "First", packet: "owner-issued-packet" }]);
   assert.equal(h.saves.state.name, "Second");
@@ -111,10 +121,10 @@ test("write failure preserves saved entries and draft text on save and forget", 
   assert.match(h.saves.state.error, /Could not forget/);
 });
 
-test("failed projection cannot persist a partial or empty save", () => {
+test("failed projection cannot persist a partial or empty save", async () => {
   const h = harness();
   h.failCapture();
-  h.save("Study");
+  await h.save("Study");
   assert.equal(h.stored(), null);
   assert.deepEqual(h.saves.state.entries, []);
   assert.equal(h.saves.state.name, "Study");
@@ -127,11 +137,11 @@ for (const raw of [
   '{"version":1,"entries":[{"name":"A","packet":"p"},{"name":"a","packet":"q"}]}',
   '{"version":1,"entries":[{"name":"A","packet":null}]}',
 ]) {
-  test(`unreadable saved data is reported and not overwritten: ${raw}`, () => {
+  test(`unreadable saved data is reported and not overwritten: ${raw}`, async () => {
     const h = harness(raw);
     assert.equal(h.saves.state.available, false);
     assert.match(h.saves.state.error, /Could not read/);
-    h.save("New");
+    await h.save("New");
     assert.equal(h.stored(), raw);
     h.storage(null);
     h.saves.retry();
@@ -179,9 +189,9 @@ const escapeHtml = (value: unknown) => String(value)
   .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
   .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 
-test("saved entry rendering keeps names escaped and Open separate from Forget", () => {
+test("saved entry rendering keeps names escaped and Open separate from Forget", async () => {
   const h = harness();
-  h.save('Study <"A">');
+  await h.save('Study <"A">');
   const view = { state: h.saves.state, canSave: false, canOpen: true };
   assert.match(renderWorkspaceSaveButton(view), / disabled/);
   const html = renderSavedWorkspaces(view, escapeHtml);
@@ -189,6 +199,109 @@ test("saved entry rendering keeps names escaped and Open separate from Forget", 
   assert.match(html, /aria-label="Forget saved Workspace Study &lt;&quot;A&quot;&gt;"/);
   assert.equal((html.match(/<button\b/g) ?? []).length, 2);
   assert.doesNotMatch(html, /owner-issued-packet/);
+});
+
+test("an in-flight capture permits cancel but not duplicate or stale publication", async () => {
+  let resolveCapture!: (packet: string) => void;
+  const capture = new Promise<string>(resolve => { resolveCapture = resolve; });
+  let captures = 0;
+  let stored: string | null = null;
+  const saves = createSavedWorkspaces({
+    read: () => stored,
+    write: value => { stored = value; },
+    capture: () => {
+      captures++;
+      return capture;
+    },
+    open: () => {},
+    render: () => {},
+  });
+  saves.beginSave();
+  saves.setName("Deferred");
+  const pending = saves.save();
+  assert.equal(saves.state.saving, true);
+  assert.equal(captures, 1);
+  await saves.save();
+  assert.equal(captures, 1);
+  saves.cancelSave();
+  resolveCapture("stale-packet");
+  await pending;
+  assert.equal(stored, null);
+  assert.deepEqual(saves.state.entries, []);
+  assert.equal(saves.state.formOpen, false);
+  assert.equal(saves.state.saving, false);
+});
+
+test("navigation supersedes both successful and rejected capture completion", async () => {
+  for (const reject of [false, true]) {
+    const capture = deferred<string>();
+    let generation = 1;
+    let stored: string | null = null;
+    let renders = 0;
+    const saves = createSavedWorkspaces({
+      read: () => stored,
+      write: value => { stored = value; },
+      capture: () => capture.promise,
+      captureGeneration: () => generation,
+      open: () => {},
+      render: () => { renders++; },
+    });
+    saves.beginSave();
+    saves.setName("Superseded");
+    const pending = saves.save();
+    const rendersBeforeNavigation = renders;
+    generation++;
+    if (reject) capture.reject(new Error("stale capture"));
+    else capture.resolve("stale-packet");
+    await pending;
+    assert.equal(stored, null);
+    assert.deepEqual(saves.state.entries, []);
+    assert.equal(saves.state.formOpen, false);
+    assert.equal(saves.state.saving, false);
+    assert.equal(saves.state.error, "");
+    assert.equal(renders, rendersBeforeNavigation);
+  }
+});
+
+test("a replacement save is the only capture allowed to publish", async () => {
+  const first = deferred<string>();
+  const second = deferred<string>();
+  let captures = 0;
+  let stored: string | null = null;
+  const saves = createSavedWorkspaces({
+    read: () => stored,
+    write: value => { stored = value; },
+    capture: () => ++captures === 1 ? first.promise : second.promise,
+    open: () => {},
+    render: () => {},
+  });
+  saves.beginSave();
+  saves.setName("First");
+  const stale = saves.save();
+  saves.beginSave();
+  saves.setName("Second");
+  const current = saves.save();
+  second.resolve("second-packet");
+  await current;
+  first.resolve("first-packet");
+  await stale;
+  assert.deepEqual(saves.state.entries, [
+    { name: "Second", packet: "second-packet" },
+  ]);
+  assert.match(stored ?? "", /second-packet/);
+  assert.doesNotMatch(stored ?? "", /first-packet/);
+});
+
+test("the save form disables capture inputs while preserving Cancel", () => {
+  const h = harness();
+  h.saves.beginSave();
+  h.saves.state.saving = true;
+  const html = renderSavedWorkspaces(
+    { state: h.saves.state, canSave: true, canOpen: true },
+    escapeHtml);
+  assert.match(html, /id="workspace-save-name"[^>]* disabled/);
+  assert.match(html, /data-workspace-save-submit disabled/);
+  assert.match(html, /data-workspace-save-cancel>Cancel/);
 });
 
 test("an empty saved shelf adds no persistent section and read failure offers Retry", () => {

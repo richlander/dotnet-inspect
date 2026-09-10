@@ -17,6 +17,7 @@ export interface SavedWorkspacesState {
   entries: readonly SavedWorkspace[];
   available: boolean;
   formOpen: boolean;
+  saving: boolean;
   name: string;
   error: string;
 }
@@ -57,13 +58,16 @@ function readEntries(raw: string | null): SavedWorkspace[] {
 export function createSavedWorkspaces(options: {
   read: () => string | null;
   write: (value: string) => void;
-  capture: () => string;
+  capture: () => Promise<string>;
+  captureGeneration?: () => number;
   open: (entry: SavedWorkspace) => void;
   render: (focus?: SavedWorkspaceFocus) => void;
 }) {
   const state: SavedWorkspacesState = {
-    entries: [], available: false, formOpen: false, name: "", error: "",
+    entries: [], available: false, formOpen: false, saving: false,
+    name: "", error: "",
   };
+  let saveSequence = 0;
 
   function load(): void {
     try {
@@ -94,39 +98,69 @@ export function createSavedWorkspaces(options: {
   return {
     state,
     beginSave() {
+      saveSequence++;
       state.formOpen = true;
+      state.saving = false;
       state.name = "";
       state.error = "";
       options.render({ kind: "save-name" });
     },
     setName(name: string) {
+      if (state.saving) return;
       state.name = name;
     },
     cancelSave() {
+      saveSequence++;
       state.formOpen = false;
+      state.saving = false;
       state.name = "";
       state.error = "";
       options.render({ kind: "save" });
     },
-    save() {
+    async save() {
+      if (state.saving) return;
       let focus: SavedWorkspaceFocus = { kind: "save-name" };
+      const sequence = ++saveSequence;
+      const captureGeneration = options.captureGeneration?.();
+      const captureIsCurrent = () =>
+        !options.captureGeneration
+        || options.captureGeneration() === captureGeneration;
       try {
         const name = validateName(state.name);
         if (state.entries.some(entry => entry.name.toLowerCase() === name.toLowerCase())) {
           throw new Error(`A saved Workspace named "${name}" already exists. Choose another name.`);
         }
-        const entry = { name, packet: options.capture() };
+        state.saving = true;
+        state.error = "";
+        options.render({ kind: "save-submit" });
+        const entry = { name, packet: await options.capture() };
+        if (sequence !== saveSequence
+          || !state.formOpen
+          || !captureIsCurrent()) return;
         persist([...state.entries, entry]);
         state.formOpen = false;
         state.name = "";
         state.error = "";
         focus = { kind: "saved-open", name, index: state.entries.length - 1 };
       } catch (error) {
+        if (sequence !== saveSequence || !captureIsCurrent()) return;
         state.error = `Could not save Workspace: ${String(error)}`;
+      } finally {
+        if (sequence === saveSequence) {
+          state.saving = false;
+          if (captureIsCurrent()) {
+            options.render(focus);
+          } else {
+            state.formOpen = false;
+            state.name = "";
+            state.error = "";
+          }
+        }
       }
-      options.render(focus);
     },
     open(name: string) {
+      saveSequence++;
+      state.saving = false;
       try {
         const entry = find(name);
         state.formOpen = false;
@@ -138,6 +172,8 @@ export function createSavedWorkspaces(options: {
       }
     },
     forget(name: string) {
+      saveSequence++;
+      state.saving = false;
       let focus: SavedWorkspaceFocus | undefined;
       try {
         const entry = find(name);
@@ -151,6 +187,8 @@ export function createSavedWorkspaces(options: {
       options.render(focus);
     },
     retry() {
+      saveSequence++;
+      state.saving = false;
       load();
       options.render({ kind: "saved-retry" });
     },
