@@ -387,10 +387,13 @@ All generated facades use the exact same runtime module specifier:
 ./runtime-loader.js
 ```
 
-The published loader resolves the SDK's fingerprinted runtime module without
-requiring a document import map. The coordinator is shared by the implemented
-page host and the separate Worker diagnostic host; sharing its source does not
-share a runtime between realms.
+Publication materializes stable `dotnet.js`, `dotnet.native.js`, and
+`dotnet.runtime.js` modules as exact copies of the SDK's import-map-selected
+fingerprinted modules. The loader imports the stable `dotnet.js`, so the
+Worker and the SDK's internal dynamic imports use one module identity without
+depending on the document import map. The coordinator is shared by the
+implemented page host and the separate Worker diagnostic host; sharing its
+source does not share a runtime between realms.
 
 The consumer owns one coordinator:
 
