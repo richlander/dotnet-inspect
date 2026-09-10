@@ -407,6 +407,139 @@ public abstract class PackageVersionResolutionReceipt
     }
 }
 
+/// <summary>
+/// Resolves one typed package version-selection request from retained
+/// configured-authority discovery evidence.
+/// </summary>
+public static class PackageVersionSelectionResolver
+{
+    /// <summary>
+    /// Resolves one request from the supplied discovery evidence without
+    /// performing source I/O.
+    /// </summary>
+    public static PackageVersionResolutionReceipt Resolve(
+        PackageVersionSelectionRequest request,
+        PackageVersionDiscoveryResult discovery,
+        PackageVersionDiscoveryFreshness freshness)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(discovery);
+        if (!Enum.IsDefined(freshness))
+            throw new ArgumentOutOfRangeException(nameof(freshness));
+
+        if (PackageVersionSelectionContract
+                .GetPackageIdentityIncompatibility(
+                    request,
+                    discovery) is { } identityIncompatibility)
+        {
+            return new PackageVersionResolutionReceipt.Rejected(
+                request,
+                discovery,
+                freshness,
+                identityIncompatibility);
+        }
+
+        if (discovery.State
+            == PackageVersionDiscoveryState.Authoritative)
+        {
+            if (PackageVersionSelectionContract
+                    .GetDiscoveryIncompatibility(
+                        request,
+                        discovery,
+                        freshness) is { } incompatibility)
+            {
+                return new PackageVersionResolutionReceipt.Rejected(
+                    request,
+                    discovery,
+                    freshness,
+                    incompatibility);
+            }
+
+            if (!discovery.HasAnyCandidate)
+            {
+                return new PackageVersionResolutionReceipt.NotFound(
+                    request,
+                    discovery,
+                    freshness,
+                    Reason(
+                        "No configured authority reported the package."));
+            }
+
+            return PackageVersionSelectionContract.SelectVersion(
+                    request,
+                    discovery) is null
+                ? new PackageVersionResolutionReceipt.NoMatch(
+                    request,
+                    discovery,
+                    freshness,
+                    Reason(
+                        "No listed version satisfies the version-selection request."))
+                : new PackageVersionResolutionReceipt.Resolved(
+                    request,
+                    discovery,
+                    freshness);
+        }
+
+        if (discovery.State == PackageVersionDiscoveryState.Partial)
+        {
+            return new PackageVersionResolutionReceipt.Incomplete(
+                request,
+                discovery,
+                freshness,
+                Reason(
+                    "Required configured-authority discovery is incomplete."));
+        }
+
+        if (discovery.Failures.Any(failure =>
+                failure.Kind is PackageAuthorityFailureKind.Timeout
+                    or PackageAuthorityFailureKind.Transport))
+        {
+            return new PackageVersionResolutionReceipt.Failed(
+                request,
+                discovery,
+                freshness,
+                Reason(
+                    "Version discovery failed before the request could be resolved."));
+        }
+
+        if (discovery.Failures.Any(failure =>
+                failure.Kind
+                    == PackageAuthorityFailureKind.IncompleteMetadata))
+        {
+            return new PackageVersionResolutionReceipt.Incomplete(
+                request,
+                discovery,
+                freshness,
+                Reason(
+                    "Required configured-authority discovery is incomplete."));
+        }
+
+        if (discovery.Failures.Count == 0
+            || discovery.Failures.Any(failure =>
+                failure.Kind is PackageAuthorityFailureKind.Input
+                    or PackageAuthorityFailureKind.InvalidResponse
+                    or PackageAuthorityFailureKind.ResponseRejected))
+        {
+            return new PackageVersionResolutionReceipt.Rejected(
+                request,
+                discovery,
+                freshness,
+                Reason(
+                    "Configured-authority evidence is unusable for version selection."));
+        }
+
+        return new PackageVersionResolutionReceipt.Unavailable(
+            request,
+            discovery,
+            freshness,
+            Reason(
+                "Required version-selection source capability is unavailable."));
+    }
+
+    private static InertString Reason(string text) =>
+        new(TextPolicy.Field, text);
+}
+
 internal static class PackageVersionSelectionContract
 {
     private static readonly IVersionComparer VersionComparer =
@@ -455,35 +588,89 @@ internal static class PackageVersionSelectionContract
         PackageVersionDiscoveryResult discovery,
         PackageVersionDiscoveryFreshness freshness)
     {
+        if (GetDiscoveryIncompatibility(
+                request,
+                discovery,
+                freshness) is { } incompatibility)
+            throw new ArgumentException(
+                incompatibility.ToString(),
+                nameof(discovery));
+    }
+
+    internal static InertString? GetDiscoveryIncompatibility(
+        PackageVersionSelectionRequest request,
+        PackageVersionDiscoveryResult discovery,
+        PackageVersionDiscoveryFreshness freshness)
+    {
+        if (GetPackageIdentityIncompatibility(
+                request,
+                discovery) is { } identityIncompatibility)
+        {
+            return identityIncompatibility;
+        }
         if (discovery.State
             != PackageVersionDiscoveryState.Authoritative)
         {
-            throw new ArgumentException(
-                "Version selection requires authoritative discovery from every configured authority.",
-                nameof(discovery));
+            return new(
+                TextPolicy.Field,
+                "Version selection requires authoritative discovery from every configured authority.");
         }
         if (freshness
-                == PackageVersionDiscoveryFreshness.NotEstablished
-            || request.Discovery.Freshness
-                == PackageVersionDiscoveryFreshness.RefreshedForRequest
-                && freshness
-                    != PackageVersionDiscoveryFreshness.RefreshedForRequest)
+            == PackageVersionDiscoveryFreshness.NotEstablished)
         {
-            throw new ArgumentException(
-                "The discovery freshness does not satisfy the version-selection request.",
-                nameof(freshness));
+            return new(
+                TextPolicy.Field,
+                "Version-selection discovery freshness was not established.");
+        }
+        if (request.Discovery.Freshness
+                == PackageVersionDiscoveryFreshness.RefreshedForRequest
+            && freshness
+                != PackageVersionDiscoveryFreshness.RefreshedForRequest)
+        {
+            return new(
+                TextPolicy.Field,
+                "The request requires discovery refreshed for this exact version selection.");
         }
 
         PackageVersionDiscoveryContract contract = discovery.Contract;
-        if (contract.IncludeUnlisted
-            || contract.Limit is not null
-            || request.Discovery.IncludePrerelease
-                && !contract.IncludePrerelease)
+        if (contract.IncludeUnlisted)
         {
-            throw new ArgumentException(
-                "The discovery contract does not satisfy the version-selection request.",
-                nameof(discovery));
+            return new(
+                TextPolicy.Field,
+                "Automatic version selection requires listed-only discovery.");
         }
+        if (contract.Limit is not null)
+        {
+            return new(
+                TextPolicy.Field,
+                "Automatic version selection requires the complete candidate set.");
+        }
+        if (request.Discovery.IncludePrerelease
+            && !contract.IncludePrerelease)
+        {
+            return new(
+                TextPolicy.Field,
+                "The discovery evidence omitted prerelease candidates required by the request.");
+        }
+
+        return null;
+    }
+
+    internal static InertString? GetPackageIdentityIncompatibility(
+        PackageVersionSelectionRequest request,
+        PackageVersionDiscoveryResult discovery)
+    {
+        if (discovery.PackageId is null
+            || !discovery.PackageId.Equals(
+                request.PackageId,
+                StringComparison.Ordinal))
+        {
+            return new(
+                TextPolicy.Field,
+                "Version-discovery evidence does not identify the requested package.");
+        }
+
+        return null;
     }
 
     internal static void RequireFailedDiscovery(

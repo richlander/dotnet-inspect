@@ -80,7 +80,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Install browser Wasm workload
         shell: bash
@@ -127,7 +127,7 @@ jobs:
           test -f "$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$DOTNET_RUNTIME_VERSION.nupkg"
 
           target_framework=$(dotnet msbuild \
-            prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -getProperty:TargetFramework \
             -nologo)
           test "$target_framework" = "net11.0"
@@ -184,7 +184,7 @@ jobs:
             ' "$manifest" > "$cohort_dir/runtime-cohort.json"
 
       - name: Build browser frontend
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: |
           npm ci
           npm run build
@@ -225,7 +225,7 @@ jobs:
           version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
-            prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output artifacts/inspect-web-coreclr-publish \
             --configfile "$nuget_config" \
@@ -253,7 +253,7 @@ jobs:
           RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
             eng/verify-inspect-web-async-deployment.sh \
               runtime \
-              prototypes/inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+              inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
               artifacts/inspect-web-coreclr-publish/wwwroot \
               artifacts/inspect-web-coreclr-publish/async-lowering.json \
               artifacts/inspect-web-runtime-async-receipts
@@ -261,7 +261,7 @@ jobs:
       - name: Publish MSDL managed API
         run: >
           dotnet publish
-          prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj
+          inspect-web/msdl-proxy/MsdlProxy.csproj
           -c Release
           --output artifacts/inspect-web-coreclr-publish/api
 

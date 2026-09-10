@@ -174,8 +174,8 @@ internal static class ChangePlanTestSuite
             ("eng/decompiler-gate-known-red.txt", "decompiler,docs"),
             ("eng/decompiler-gate-skip-projects.txt", "decompiler,docs"),
             ("eng/restore-ilassembler.sh", "code,ilroundtrip"),
-            ("prototypes/inspect-web/README.md", "docs"),
-            ("prototypes/inspect-web/index.html", "web"),
+            ("inspect-web/README.md", "docs"),
+            ("inspect-web/index.html", "web"),
             ("prototypes/annotated-source-viewer/app.js",
                 "web"),
             ("Directory.Build.props",
@@ -240,15 +240,15 @@ internal static class ChangePlanTestSuite
             "src/ts-jsexport/Program.cs",
             "src/ILInspector.JsExportSurface/JsExportSurface.cs",
             "src/ILInspector.TypeScriptGeneration/TypeScriptGeneration.cs",
-            "prototypes/inspect-web/multi-facade-canary/Alpha/Exports.cs",
-            "prototypes/inspect-web/managed-operation-bridge-canary/Bridge/Exports.cs",
-            "prototypes/inspect-web/scripts/verify-multi-facade-canary.ts",
-            "prototypes/inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
-            "prototypes/inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
-            "prototypes/inspect-web/DotnetInspect.Web.Core/BrowserManagedOperationBridge.cs",
-            "prototypes/inspect-web/DotnetInspect.Web.Core/BrowserManagedSharedProducer.cs",
-            "prototypes/inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkReporter.cs",
-            "prototypes/inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkRegistration.cs",
+            "inspect-web/multi-facade-canary/Alpha/Exports.cs",
+            "inspect-web/managed-operation-bridge-canary/Bridge/Exports.cs",
+            "inspect-web/scripts/verify-multi-facade-canary.ts",
+            "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
+            "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedOperationBridge.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedSharedProducer.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkReporter.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkRegistration.cs",
         })
         {
             RoutingSelections actual = policy.Route(Evidence(path));
@@ -420,7 +420,7 @@ internal static class ChangePlanTestSuite
         }
 
         RoutingSelections directOwner = policy.Route(Evidence(
-            "prototypes/inspect-web/scripts/verify-managed-operation-bridge-canary.ts"));
+            "inspect-web/scripts/verify-managed-operation-bridge-canary.ts"));
         foreach (PlanEventKind kind in new[]
         {
             PlanEventKind.PullRequestSyntheticCandidate,

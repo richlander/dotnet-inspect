@@ -186,7 +186,7 @@ rewrites; the harness consumes them through stage dumps.
 | `DotnetInspector.Queries` | Source queries compose acquired source and decompiled fallback; `BodyShapesQuery` delegates exact syntax-kind searches to `BodyShapeSearch`. |
 | `ILInspector.Research` | `ResearchViews` joins producer-owned facts with printed C#/IL provenance and constructs annotated-source output. Decompiler owns the portable document types, not the complete cross-domain operation. |
 | CLI | `MemberCodeProvider`, queries, and section/output adapters expose source, IL, annotated views, and comparisons. Some direct import/printer composition remains in the host. |
-| Browser | `prototypes/inspect-web/DotnetInspect.Web.Interop.Source` consumes Queries/Research and exports portable source documents rather than mutable IR. |
+| Browser | `inspect-web/DotnetInspect.Web.Interop.Source` consumes Queries/Research and exports portable source documents rather than mutable IR. |
 | Tests and harnesses | Exercise product import, passes, printing, body production, and comparison; add independent compiler/oracle observations. |
 
 C# and annotated-source text are language artifacts with exact coordinates, so
