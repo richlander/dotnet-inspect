@@ -1165,22 +1165,39 @@ public sealed class PlatformHouseReceipt
                 parameterName);
         if (selection.Mode == PlatformSourceSelectionMode.Aggregation)
         {
-            if (selected.Count != selection.Capabilities.Count)
+            if (selected.Count == 0)
             {
                 throw new ArgumentException(
-                    $"Aggregation settlement requires exactly one selected contribution from every {facet} capability.",
+                    $"A successful aggregation settlement requires at least one selected {facet} contribution.",
                     parameterName);
             }
             foreach (PlatformSourceCapabilityIdentity capability
                 in selection.Capabilities)
             {
-                if (selected.Count(
-                        settlement => ReferenceEquals(
-                            settlement.Contribution.Capability,
-                            capability)) != 1)
+                int selectedCount = selected.Count(
+                    settlement => ReferenceEquals(
+                        settlement.Contribution.Capability,
+                        capability));
+                if (selectedCount == 1)
+                    continue;
+                if (selectedCount != 0)
                 {
                     throw new ArgumentException(
-                        $"Aggregation settlement requires a selected contribution from every {facet} capability.",
+                        $"Aggregation settlement permits at most one selected contribution from each {facet} capability.",
+                        parameterName);
+                }
+
+                PlatformSourceSettlement[] retained =
+                    [.. sourceSettlements.Where(
+                        settlement => settlement.Contribution.Facet == facet
+                        && ReferenceEquals(
+                            settlement.Contribution.Capability,
+                            capability))];
+                if (retained.Length != 1
+                    || !IsAuthoritativeAbsence(retained[0]))
+                {
+                    throw new ArgumentException(
+                        $"Aggregation settlement requires a selected contribution or authoritative absence from every {facet} capability.",
                         parameterName);
                 }
             }
