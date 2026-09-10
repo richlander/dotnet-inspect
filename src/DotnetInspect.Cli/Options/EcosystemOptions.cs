@@ -1,6 +1,6 @@
-using DotnetInspector.Output;
+using DotnetInspect.Cli.Output;
 
-namespace DotnetInspector.Options;
+namespace DotnetInspect.Cli.Options;
 
 /// <summary>Configuration for product ecosystem-pack catalog inspection.</summary>
 public sealed record EcosystemOptions : IProjectionOptions

@@ -1,10 +1,10 @@
 using System.CommandLine;
 
-using DotnetInspector.Commands;
-using DotnetInspector.Options;
-using DotnetInspector.Services;
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Services;
 
-namespace DotnetInspector.CommandLine;
+namespace DotnetInspect.Cli.CommandLine;
 
 public static class EcosystemCommandDefinitions
 {

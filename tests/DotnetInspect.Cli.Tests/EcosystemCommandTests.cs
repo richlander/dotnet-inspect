@@ -1,10 +1,10 @@
 using System.Text.Json;
 
-using DotnetInspector.Commands;
-using DotnetInspector.Options;
-using DotnetInspector.Output;
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 
-namespace DotnetInspector.Tests;
+namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
 public sealed class EcosystemCommandTests

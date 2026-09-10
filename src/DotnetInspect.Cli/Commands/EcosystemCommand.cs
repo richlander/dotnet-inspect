@@ -1,13 +1,13 @@
 using System.Collections.Immutable;
 
+using DotnetInspect.Cli.Models;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
-using DotnetInspector.Models;
-using DotnetInspector.Options;
-using DotnetInspector.Output;
 using ILInspector.Metadata;
 using Markout;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspect.Cli.Commands;
 
 /// <summary>Inspects the inert ecosystem-pack catalog configured into this build.</summary>
 public static class EcosystemCommand
