@@ -113,7 +113,7 @@ declarations="$scratch/declarations"
 compiled_sources="$scratch/compiled-sources"
 version_prefix=$(
   "$dotnet" msbuild \
-    "$repo_root/src/dotnet-inspect/dotnet-inspect.csproj" \
+    "$repo_root/src/DotnetInspect.Cli/DotnetInspect.Cli.csproj" \
     -getProperty:VersionPrefix \
     -nologo
 )

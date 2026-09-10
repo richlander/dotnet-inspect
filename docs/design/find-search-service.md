@@ -166,7 +166,7 @@ The original classification refactor is complete: `FindCommand` calls
 rendering after receiving `TypeFindResult` rows.
 
 The Release tests in
-`tests/dotnet-inspect.Tests/TypeSearchServiceTests.cs` currently verify candidate
+`tests/DotnetInspect.Cli.Tests/TypeSearchServiceTests.cs` currently verify candidate
 collection and source behavior:
 
 - directory source provenance for a separator-free path;
