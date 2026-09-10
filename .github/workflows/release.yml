@@ -85,7 +85,7 @@ jobs:
           dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Pack RID-specific package
-        run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
+        run: dotnet pack src/DotnetInspect.Cli -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
 
       - name: Upload RID package
         uses: actions/upload-artifact@v7
@@ -116,7 +116,7 @@ jobs:
         # carries no implementation, so SelfContained pulls in no runtime.
         # RID-specific packages are built by build-native; disabling inner RID
         # packs keeps this portable job pointer-only on .NET 11 Preview 7+.
-        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
+        run: dotnet pack src/DotnetInspect.Cli -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7
@@ -128,7 +128,7 @@ jobs:
       - name: Pack any (non-AOT) package
         # TFM is pinned to net10.0 structurally via Directory.Build.props so this
         # fallback stays installable on the LTS runtime. See issue #240.
-        run: dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
+        run: dotnet pack src/DotnetInspect.Cli -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
 
       - name: Upload any package
         uses: actions/upload-artifact@v7
@@ -247,7 +247,7 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(grep -oP '(?<=<VersionPrefix>)[^<]+' src/dotnet-inspect/dotnet-inspect.csproj)
+          VERSION=$(grep -oP '(?<=<VersionPrefix>)[^<]+' src/DotnetInspect.Cli/DotnetInspect.Cli.csproj)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
       
       - name: Create GitHub Release

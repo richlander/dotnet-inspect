@@ -310,7 +310,7 @@ elif [[ "$mode" == check || "$mode" == fast-check ]]; then
   if [[ "$mode" == check ]]; then
     version_prefix=$(
       "$dotnet" msbuild \
-        "$repo_root/src/dotnet-inspect/dotnet-inspect.csproj" \
+        "$repo_root/src/DotnetInspect.Cli/DotnetInspect.Cli.csproj" \
         -getProperty:VersionPrefix \
         -nologo
     )
