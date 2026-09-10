@@ -508,6 +508,10 @@ export function createPackageQueryController(
           && state.outcome.completion.kind === "streaming") {
           grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
         }
+      } catch (error) {
+        if (generation !== requestGeneration
+          || state.outcome.completion.kind !== "streaming") return;
+        throw error;
       } finally {
         if (creditRequestGeneration === requestGeneration) {
           creditRequestGeneration = null;
