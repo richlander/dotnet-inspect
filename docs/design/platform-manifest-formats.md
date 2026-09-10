@@ -46,6 +46,34 @@ It does not own:
 - PlatformHouse settlement; or
 - Workspace admission or presentation.
 
+## Real-asset basis
+
+The behavior is grounded in the .NET runtime repository at commit
+[`aa036afce592ad80e938a35bd376222fb232cba9`](https://github.com/dotnet/runtime/tree/aa036afce592ad80e938a35bd376222fb232cba9):
+
+- [`runtime_config.cpp`](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/native/corehost/hostfxr/runtime_config.cpp)
+  establishes the `runtimeOptions`, `framework`, `frameworks`, and compatibility
+  setting shapes;
+- [`fx_reference.cpp`](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/native/corehost/hostfxr/fx_reference.cpp)
+  and
+  [`fx_resolver.cpp`](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/native/corehost/hostfxr/fx_resolver.cpp)
+  establish the framework-reference and roll-forward behavior consumed by the
+  installed composition owner; and
+- [`deps_format.cpp`](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/native/corehost/hostpolicy/deps_format.cpp)
+  establishes target-specific dependency-manifest asset interpretation.
+
+The exact product claim is narrower than host activation: these readers recover
+shared-framework references and managed target membership without performing
+launch-time probing or loading inspected code.
+
+The executable tests preserve minimized JSON manifestations of those real
+shapes. They do not copy an installed shared-framework payload because its
+version, RID, and location vary across CI hosts and the assemblies would
+duplicate a large external distribution. The pinned runtime sources remain the
+reproducible oracle; an installed layout can be observed with
+`dotnet --list-runtimes` followed by inspection of the selected framework's
+same-named `runtimeconfig.json` and `deps.json`.
+
 ## Boundary and dependency direction
 
 The implementation lives in `DotnetInspector.Platforms.Formats`.
