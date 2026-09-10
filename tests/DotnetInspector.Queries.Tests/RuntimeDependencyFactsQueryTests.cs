@@ -433,6 +433,38 @@ public class RuntimeDependencyFactsQueryTests
     }
 
     [Fact]
+    public void Execute_InvalidPackageDependencyNameCannotResolveAfterCaseFolding()
+    {
+        RuntimeDependencyFacts facts = Available(
+            """
+            {
+              "runtimeTarget": { "name": "net8.0" },
+              "targets": {
+                "net8.0": {
+                  "Example.App/1.0.0": {
+                    "dependencies": {
+                      "\u212A": "1.0.0"
+                    }
+                  },
+                  "K/1.0.0": {}
+                }
+              },
+              "libraries": {
+                "Example.App/1.0.0": { "type": "project" },
+                "K/1.0.0": { "type": "package" }
+              }
+            }
+            """);
+
+        Assert.Single(facts.Graph.Packages);
+        Assert.Empty(facts.Graph.Edges);
+        Assert.False(facts.Graph.IsComplete);
+        Assert.Equal(
+            RuntimeDependencyGraphFailureReason.InvalidDependencyCoordinate,
+            Assert.Single(facts.Graph.Failures).Reason);
+    }
+
+    [Fact]
     public void Execute_CoalescedEdgeRetainsOneActualSourceOccurrence()
     {
         RuntimeDependencyFacts facts = Available(

@@ -681,6 +681,17 @@ public static class RuntimeDependencyFactsQuery
                     continue;
                 }
 
+                if (!PackageCoordinateResolver.IsCanonicalPackageId(
+                        dependencyName))
+                {
+                    failures.Add(
+                        RuntimeDependencyGraphFailureReason
+                            .InvalidDependencyCoordinate);
+                    if (failures.Total > MaxFailureOccurrences)
+                        return ProjectionResult.Exceeded(failures);
+                    continue;
+                }
+
                 if (dependencyEntry.Classification
                         != LibraryClassification.Package
                     || dependencyEntry.PackageCoordinate is not { } coordinate
