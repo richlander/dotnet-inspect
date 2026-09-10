@@ -369,6 +369,43 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
     }
 
     [Fact]
+    public async Task RejectsMalformedContinuationBeforeRequestConstruction()
+    {
+        using var handler = new RoutingHandler((_, _) =>
+        {
+            HttpResponseMessage response = Json(AdvisoryPage(
+                packageId: "Example.Client",
+                range: "< 2.1.1",
+                fixedVersion: "2.1.1"));
+            response.Headers.TryAddWithoutValidation(
+                "Link",
+                "<https://api.github.com/advisories"
+                + "?ecosystem=nuget&type=reviewed&is_withdrawn=false"
+                + "&per_page=100&affects=Example.Client&after=%ZZ>"
+                + "; rel=\"next\"");
+            return response;
+        });
+        using var client = new HttpClient(handler);
+        var service = new GitHubNuGetAdvisoryService(client);
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "2.1.0")),
+                TestContext.Current.CancellationToken);
+
+        GitHubNuGetAdvisoryPackageEvidence package =
+            Assert.Single(result.Packages);
+        Assert.Equal(1, handler.Calls);
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Partial,
+            package.CurrentContextAvailability);
+        Assert.Single(package.CurrentAdvisories);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.InvalidContinuation,
+            result.Failures);
+    }
+
+    [Fact]
     public async Task RequestLimitLeavesLaterBatchUnavailable()
     {
         using var handler = new RoutingHandler((_, _) => Json(AdvisoryPage(

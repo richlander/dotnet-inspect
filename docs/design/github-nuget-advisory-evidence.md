@@ -73,9 +73,10 @@ Package names are encoded as `affects` values and split by both count and URL
 length. Every package ID must fit a singleton request, and all singleton sizes
 are validated before acquisition starts so request order cannot bypass the URI
 bound. A source-issued continuation may be followed only when it remains an
-HTTPS GitHub advisory-list URL, preserves every original query parameter, and
-adds only the forward paging cursor. The request and response bounds apply
-across initial and continuation documents.
+HTTPS GitHub advisory-list URL, is admitted unchanged by the raw path/query
+request constructor, preserves every original query parameter, and adds only
+the forward paging cursor. The request and response bounds apply across initial
+and continuation documents.
 
 ## Evidence categories
 

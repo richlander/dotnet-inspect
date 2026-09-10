@@ -653,7 +653,10 @@ public sealed class GitHubNuGetAdvisoryService
     {
         continuation = null;
         if (Encoding.UTF8.GetByteCount(value) > _options.MaxRequestUriBytes
-            || !Uri.TryCreate(value, UriKind.Absolute, out Uri? parsed)
+            || !NuGetHttpRequest.TryCreatePreservingPathAndQuery(
+                value,
+                out Uri? parsed)
+            || parsed is null
             || parsed.Scheme != Uri.UriSchemeHttps
             || !parsed.Host.Equals(
                 "api.github.com",
