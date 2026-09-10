@@ -561,7 +561,7 @@ Run the sensor with the same command documented in the harness README. The
 `--quality-diff-card` flag is what emits the PR-ready Markdown block:
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \

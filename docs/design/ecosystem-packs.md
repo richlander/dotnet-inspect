@@ -376,7 +376,8 @@ by its engine rules from taking a dependency on
 The implementation adds one focused project-and-assembly rule,
 `ecosystem-catalog-stays-in-approved-hosts`. Within
 `dotnet-inspect.slnx`, it denies `DotnetInspector.Ecosystems` from every
-production target except `dotnet-inspect`.
+production target except the `DotnetInspect.Cli` project and its
+`dotnet-inspect` assembly.
 
 The dependency-policy solution does not include inspect-web, so it does not
 claim to prove that boundary. The browser owner separately gates
@@ -1226,7 +1227,7 @@ ordinary non-friend consumer.
 | `PackageSetRegistryConsumerTests.PublicSurfaceSupportsEcosystemDiscoveryAndDemoSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, demo factories, scanner implementation, CLI types, package clients, or workspaces. |
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
-| `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
+| `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by the `DotnetInspect.Cli` project and its `dotnet-inspect` assembly; existing IL rules independently reject the reusable IL-library edges they select. |
 | `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Public product-demo identities contain no literal fields that source access could inline without an assembly reference. Evaluated direct `ProjectReference` items reject catalog edges from every inspect-web production project except `InspectWeb.Engine.CatalogExports`. For each project whose declared graph can reach that facade, Release-built metadata `AssemblyRef` rows reject compiled catalog consumption through transitive availability. |
 
 Application adoption adds
