@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace DotnetInspector.Networking;
+namespace NetworkAccess;
 
 internal static class NetworkDestinationPolicy
 {
@@ -93,7 +93,7 @@ internal static class NetworkDestinationPolicy
     /// addresses.
     /// </summary>
     /// <remarks>
-    /// <c>HttpClientFactoryTests.UntrustedFetchAddressClassification_MatchesNonPublicContract</c>
+    /// <c>NetworkDestinationPolicyTests.AddressClassification_MatchesNonPublicContract</c>
     /// gates the shared classification, while
     /// <c>PackageSourceClientTests.DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint</c>
     /// gates the NuGetFetch transport wiring.
