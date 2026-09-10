@@ -163,6 +163,49 @@ public sealed class AssemblyContextParticipantTests
         Assert.Same(dependency, continued.Assembly);
     }
 
+    [Fact]
+    public void OccurrenceRootedParticipant_PreservesGlobalCompositionContinuation()
+    {
+        ResolvedAssemblyReference owner = Descriptor("Owner");
+        ResolvedAssemblyReference selected = Descriptor(
+            "Selected",
+            AssemblyResolutionProvenance.Designated("selected overlay"));
+        ResolvedAssemblyReference dependency = Descriptor("Dependency");
+        var selecting = new SelectingPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Selected" }
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create([selected]))
+                : AssemblyBindingSelection.Found(dependency));
+        IAssemblyBindingPolicy routing =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [(owner, (IAssemblyBindingPolicy)selecting)]);
+        IAssemblyBindingPolicy participant =
+            new AssemblyContextParticipant(
+                AssemblyBindingOccurrence.Seed(owner),
+                routing)
+                .BindingPolicy;
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, participant)]);
+
+        var first = Assert.IsType<AssemblyBindingSelection.Selected>(
+            outer.Select(
+                    Request(
+                        selected,
+                        AssemblyBindingOrigin.Global()))
+                .Selection);
+        var continued = Assert.IsType<AssemblyBindingSelection.Selected>(
+            outer.Select(
+                    Request(
+                        dependency,
+                        AssemblyBindingOrigin.FromOccurrence(
+                            first.Occurrence)))
+                .Selection);
+
+        Assert.Same(selected, first.Assembly);
+        Assert.Same(dependency, continued.Assembly);
+    }
+
     static AssemblyBindingRequest Request(
         AssemblyBindingOrigin origin) =>
         new(

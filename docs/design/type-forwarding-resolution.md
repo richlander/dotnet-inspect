@@ -1874,7 +1874,10 @@ handoff itself even when none of its members was an initial group root; root
 membership cannot substitute for, or be required in addition to, the identity
 owner's completeness statement. Selecting-route preservation depends on the
 configured route relationship, not the immediate delegate's concrete type, so
-a transparent policy facade cannot erase the handoff continuation.
+a transparent policy facade cannot erase the handoff continuation. Global
+routing is one explicit continuation origin, not absence of a continuation
+override; finalization preserves that global origin instead of substituting a
+selected descriptor's seed occurrence.
 
 A source-relative group's local name-owner mismatch rule applies after
 `NoNameOwner`, when no candidate evidence exists. It cannot replace a terminal
@@ -1936,6 +1939,9 @@ handoff forwarded by a routing-only composite.
 `AssemblyContextParticipantTests.OccurrenceRootedParticipant_PreservesRoutingCompositionContinuation`
 gate the same selecting-route continuation through transparent and
 occurrence-rooted policy facades.
+`OccurrenceRootedParticipant_PreservesGlobalCompositionContinuation` gates the
+global-origin arm through handoff finalization and occurrence-rooted
+continuation.
 `MemberCallGraphSessionTests.CrossLibrary_ResolvedVersionSkewIsNotIncomplete`
 and `CrossLibraryCalleeNeighborhood_ResolvedVersionSkewStaysExternal` gate the
 observable query consequence: an exact terminal selection outside the group is

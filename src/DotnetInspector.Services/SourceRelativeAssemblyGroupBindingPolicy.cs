@@ -289,7 +289,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
 
         AssemblyBindingSelection selection =
             SelectDelegate(state, route, request);
-        AssemblyBindingOccurrence? compositionOrigin = null;
+        ContinuationOrigin? compositionOrigin = null;
         if (reference is not null
             && (pendingDesignated is not null
                 || selection
@@ -312,7 +312,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                         canonicalRoute.Policy,
                         route.Delegate.Policy)))
             {
-                compositionOrigin = route.RequestingOccurrence;
+                compositionOrigin = route.ContinuationOrigin;
             }
         }
         if (reference is not null
@@ -492,18 +492,17 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 origin,
                 scope),
             selection);
-        AssemblyBindingOccurrence? requestingOccurrence =
-            route.RequestingOccurrence;
         if (selection
                 is AssemblyBindingSelection.Selected selected
             && selected.Occurrence.Lineage
                 == AssemblyBindingLineage.Seed
-            && requestingOccurrence is not null
             && ReferenceEquals(
                 selected.Assembly.Registration,
                 requesting.Assembly.Registration))
         {
-            if (ReferenceEquals(
+            if (route.ContinuationOrigin.Occurrence
+                    is { } requestingOccurrence
+                && ReferenceEquals(
                     requestingOccurrence.Assembly.Registration,
                     selected.Assembly.Registration))
             {
@@ -520,7 +519,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 state,
                 route,
                 selection,
-                requestingOccurrence);
+                route.ContinuationOrigin);
         }
 
         return IssueSelection(state, route, selection);
@@ -536,7 +535,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             return new RoutedRequest(
                 state.DelegateFor(DefaultRoute.Policy),
                 request,
-                null);
+                ContinuationOrigin.Global);
         }
 
         if (_restrictToParticipants
@@ -566,7 +565,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             return new RoutedRequest(
                 state.DelegateFor(route.Policy),
                 request,
-                occurrence);
+                ContinuationOrigin.FromOccurrence(occurrence));
         }
 
         if (requesting.Lineage
@@ -581,17 +580,16 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             lineage.Delegate,
             new AssemblyBindingRequest(
                 request.Target,
-                AssemblyBindingOrigin.FromOccurrence(
-                    lineage.DelegatedOccurrence),
+                lineage.DelegatedOrigin.ToBindingOrigin(),
                 request.Scope),
-            lineage.DelegatedOccurrence);
+            lineage.DelegatedOrigin);
     }
 
     AssemblyBindingSelection IssueSelection(
         BindingPolicyState state,
         RoutedRequest route,
         AssemblyBindingSelection selection,
-        AssemblyBindingOccurrence? delegatedOccurrenceOverride = null)
+        ContinuationOrigin? delegatedOriginOverride = null)
     {
         if (selection
             is not AssemblyBindingSelection.Selected selected)
@@ -609,19 +607,21 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
 
         DelegateCapture bindingDelegate = route.Delegate;
         ResolvedAssemblyReference assembly = selected.Assembly;
-        AssemblyBindingOccurrence delegatedOccurrence =
-            delegatedOccurrenceOverride
-            ?? selected.Occurrence;
+        ContinuationOrigin delegatedOrigin =
+            delegatedOriginOverride
+            ?? ContinuationOrigin.FromOccurrence(
+                selected.Occurrence);
         if (_routes.TryGetValue(
                 selected.Assembly.Registration,
                 out AssemblyRoute? canonicalRoute))
         {
-            if (delegatedOccurrenceOverride is null)
+            if (delegatedOriginOverride is null)
             {
                 bindingDelegate = state.DelegateFor(
                     canonicalRoute.Policy);
-                delegatedOccurrence = AssemblyBindingOccurrence.Seed(
-                    canonicalRoute.Assembly);
+                delegatedOrigin = ContinuationOrigin.FromOccurrence(
+                    AssemblyBindingOccurrence.Seed(
+                        canonicalRoute.Assembly));
             }
             if (_restrictToParticipants)
                 assembly = canonicalRoute.Assembly;
@@ -631,7 +631,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             this,
             state,
             bindingDelegate,
-            delegatedOccurrence);
+            delegatedOrigin);
         return AssemblyBindingCandidateDomain.Create(
             [assembly, .. selected.ShadowedAssemblies])
             .Finalize(lineage.Issue(assembly));
@@ -735,6 +735,32 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             version;
     }
 
+    abstract record ContinuationOrigin
+    {
+        internal static ContinuationOrigin Global { get; } =
+            new GlobalOrigin();
+
+        internal AssemblyBindingOccurrence? Occurrence =>
+            this is OccurrenceOrigin occurrence
+                ? occurrence.Value
+                : null;
+
+        internal static ContinuationOrigin FromOccurrence(
+            AssemblyBindingOccurrence occurrence) =>
+            new OccurrenceOrigin(occurrence);
+
+        internal AssemblyBindingOrigin ToBindingOrigin() =>
+            this is OccurrenceOrigin occurrence
+                ? AssemblyBindingOrigin.FromOccurrence(
+                    occurrence.Value)
+                : AssemblyBindingOrigin.Global();
+
+        sealed record GlobalOrigin : ContinuationOrigin;
+
+        sealed record OccurrenceOrigin(
+            AssemblyBindingOccurrence Value) : ContinuationOrigin;
+    }
+
     sealed record SourceRelativeBindingLineage :
         AssemblyBindingLineage
     {
@@ -742,13 +768,13 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             SourceRelativeAssemblyGroupBindingPolicy issuer,
             BindingPolicyState state,
             DelegateCapture bindingDelegate,
-            AssemblyBindingOccurrence delegatedOccurrence)
+            ContinuationOrigin delegatedOrigin)
             : base(state.Version)
         {
             Issuer = issuer;
             State = state;
             Delegate = bindingDelegate;
-            DelegatedOccurrence = delegatedOccurrence;
+            DelegatedOrigin = delegatedOrigin;
         }
 
         internal SourceRelativeAssemblyGroupBindingPolicy Issuer
@@ -757,10 +783,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         }
         internal BindingPolicyState State { get; }
         internal DelegateCapture Delegate { get; }
-        internal AssemblyBindingOccurrence DelegatedOccurrence
-        {
-            get;
-        }
+        internal ContinuationOrigin DelegatedOrigin { get; }
 
         internal AssemblyBindingOccurrence Issue(
             ResolvedAssemblyReference assembly) =>
@@ -777,7 +800,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
     readonly record struct RoutedRequest(
         DelegateCapture Delegate,
         AssemblyBindingRequest DelegatedRequest,
-        AssemblyBindingOccurrence? RequestingOccurrence);
+        ContinuationOrigin ContinuationOrigin);
 
     readonly record struct IntrinsicSelectionKey(
         ResolvedAssemblyReference RequestingAssembly,
