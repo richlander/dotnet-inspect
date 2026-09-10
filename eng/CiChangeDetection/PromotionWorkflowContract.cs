@@ -920,7 +920,7 @@ internal static class PromotionWorkflowContract
         const string ExpectedPublish =
             """
             rm -rf artifacts/inspect-web-compiler-async-receipts
-            version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
+            version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
               prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
@@ -1490,7 +1490,7 @@ internal static class PromotionWorkflowContract
               </packageSourceMapping>
             </configuration>
             EOF
-            version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
+            version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
               prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
