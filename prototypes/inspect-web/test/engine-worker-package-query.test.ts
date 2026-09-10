@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  bindPackageQueryFacade,
+  createSharedEngineOperationAuthority,
   registerEngineWorkerPackageQueryAdapter,
   type EngineWorkerPackageQueryAdapter,
 } from "../src/engine-worker-client.ts";
@@ -22,6 +24,7 @@ import {
   type EngineWorkerPackageQueryCompletionEvent,
   type EngineWorkerPackageQueryDurableEvent,
   type EngineWorkerPackageQueryFacade,
+  type EngineWorkerPackageQueryTerminalFailure,
 } from "../src/engine-worker-package-query.ts";
 import type {
   BrowserPackageQueryResult,
@@ -187,6 +190,22 @@ function canceled(reason: string): BrowserPackageQueryResult {
   };
 }
 
+function failed(
+  failureKind: "Expected" | "Unexpected",
+  error: string,
+  diagnostic: string,
+): BrowserPackageQueryResult {
+  return {
+    version: 1,
+    kind: "Failed",
+    value: null,
+    failureKind,
+    error,
+    diagnostic,
+    reason: null,
+  };
+}
+
 function emit(
   eventSink: unknown,
   event:
@@ -336,7 +355,7 @@ async function startReady(harness: Harness): Promise<void> {
 
 type PackageQueryFeatureEvent = OperationFeatureEvent<
   EngineWorkerPackageQueryCompletionEvent,
-  string,
+  EngineWorkerPackageQueryTerminalFailure,
   never,
   EngineWorkerPackageQueryDurableEvent
 >;
@@ -344,7 +363,7 @@ type PackageQueryFeatureEvent = OperationFeatureEvent<
 type PackageQuerySession = OperationSession<
   QueryRequest,
   EngineWorkerPackageQueryCompletionEvent,
-  string,
+  EngineWorkerPackageQueryTerminalFailure,
   never,
   WorkerRuntimePreparationError,
   EngineWorkerPackageQueryDurableEvent
@@ -372,7 +391,7 @@ function createQuerySession(
     }).createSession<
       QueryRequest,
       EngineWorkerPackageQueryCompletionEvent,
-      string,
+      EngineWorkerPackageQueryTerminalFailure,
       never,
       WorkerRuntimePreparationError,
       EngineWorkerPackageQueryDurableEvent
@@ -396,7 +415,7 @@ function startQuery(
 ): {
   readonly handle: OperationHandle<
     EngineWorkerPackageQueryCompletionEvent,
-    string
+    EngineWorkerPackageQueryTerminalFailure
   >;
   readonly events: PackageQueryFeatureEvent[];
 } {
@@ -516,6 +535,55 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
     discovery: true,
   });
   assert.doesNotThrow(() => structuredClone(payload));
+  harness.host.dispose();
+});
+
+test("Package Query binding preserves caller identity and expected diagnostics", async () => {
+  const runs: unknown[][] = [];
+  const facade: EngineWorkerPackageQueryFacade = {
+    cancelPackageQuery: () => ({ kind: "NotActive", reason: null }),
+    requestPackageQueryMatches: () => ({
+      kind: "NotActive",
+      additionalMatchCredit: null,
+    }),
+    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
+    runPackageQuery: (...args) => {
+      runs.push(args);
+      return Promise.resolve(failed(
+        "Expected",
+        "query unavailable",
+        "package discovery is unavailable",
+      ));
+    },
+  };
+  const harness = createHarness(facade);
+  await startReady(harness);
+  const binding = bindPackageQueryFacade(
+    harness.adapter,
+    () => undefined,
+    createSharedEngineOperationAuthority(),
+  );
+
+  assert.deepEqual(await binding.runPackageQuery(
+    "caller-package-query",
+    "Contoso.",
+    "[]",
+    20,
+    10,
+    false,
+    20,
+    {},
+    null,
+    null,
+    false,
+  ), failed(
+    "Expected",
+    "query unavailable",
+    "package discovery is unavailable",
+  ));
+  assert.equal(runs[0]?.[0], "caller-package-query");
+
+  binding.dispose();
   harness.host.dispose();
 });
 
@@ -680,7 +748,11 @@ test("Package Query generated terminal validation contains malformed results to 
 
   assert.deepEqual(await handle.outcome, {
     kind: "failed",
-    error: "Package Query returned invalid Worker boundary data.",
+    error: {
+      failureKind: "Unexpected",
+      error: "Package Query returned invalid Worker boundary data.",
+      diagnostic: "Package Query settlement did not contain completion.",
+    },
   });
   await handle.quiesced;
   await harness.environment.flushAsync();
@@ -699,7 +771,11 @@ test("Package Query generated terminal validation contains malformed results to 
   await harness.environment.flushAsync();
   assert.deepEqual(await assembly.handle.outcome, {
     kind: "failed",
-    error: "Package Query returned invalid Worker boundary data.",
+    error: {
+      failureKind: "Unexpected",
+      error: "Package Query returned invalid Worker boundary data.",
+      diagnostic: "Expected a version 1 Package Query result.",
+    },
   });
   await assembly.handle.quiesced;
   assert.equal(harness.host.snapshot().phase, "ready");
@@ -726,7 +802,11 @@ test("Package Query terminal callback rejection fails the Worker epoch", async (
 
   assert.deepEqual(await handle.outcome, {
     kind: "failed",
-    error: "Worker reported a runtime failure.",
+    error: {
+      failureKind: "Unexpected",
+      error: "Worker reported a runtime failure.",
+      diagnostic: "Worker reported a runtime failure.",
+    },
   });
   assert.equal(harness.host.snapshot().phase, "draining");
   harness.host.dispose();
@@ -812,7 +892,11 @@ test("Package Query cancellation, credit, and terminal mappers enforce exact res
   }), {
     kind: "failed",
     failureKind: "expected",
-    error: "query unavailable",
+    error: {
+      failureKind: "Expected",
+      error: "query unavailable",
+      diagnostic: "expected detail",
+    },
     diagnostic: "expected detail",
   });
   assert.deepEqual(mapEngineWorkerPackageQueryResult(canceled("timeout")), {
@@ -830,7 +914,11 @@ test("Package Query cancellation, credit, and terminal mappers enforce exact res
   }), {
     kind: "failed",
     failureKind: "unexpected",
-    error: "Package Query exceeded Worker transport limits.",
+    error: {
+      failureKind: "Unexpected",
+      error: "Package Query exceeded Worker transport limits.",
+      diagnostic: "Package Query diagnostic exceeds 65536 characters.",
+    },
     diagnostic: "Package Query diagnostic exceeds 65536 characters.",
   });
 });

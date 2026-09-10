@@ -629,21 +629,27 @@ export type WorkspaceShareDecoder =
   (value: string) => BrowserWorkspaceShareDecodeResult;
 export type WorkspaceShareEncoder =
   (stateJson: string) => BrowserWorkspaceShareEncodeResult;
+export type AsyncWorkspaceShareDecoder =
+  (value: string) => Promise<BrowserWorkspaceShareDecodeResult>;
+export type AsyncWorkspaceShareEncoder =
+  (stateJson: string) => Promise<BrowserWorkspaceShareEncodeResult>;
 
 const invalidShareState =
   "The shared workspace state is invalid and was ignored.";
 
-export function encodeWorkspaceShareState(
-  state: WorkspaceUrlState,
-  encode: WorkspaceShareEncoder,
-): string {
-  const result = encode(JSON.stringify({
+function workspaceShareStateJson(state: WorkspaceUrlState): string {
+  return JSON.stringify({
     tabs: state.tabs,
     contexts: state.contexts,
     activeTabId: state.activeTabId,
     selectedContextId: state.selectedContextId,
     view: state.view,
-  } satisfies BrowserWorkspaceShareState));
+  } satisfies BrowserWorkspaceShareState);
+}
+
+function encodedWorkspaceSharePacket(
+  result: BrowserWorkspaceShareEncodeResult,
+): string {
   if (!result.succeeded || !result.packet) {
     throw new Error(result.failure?.message
       ?? "The workspace cannot be represented as canonical share state.");
@@ -651,12 +657,41 @@ export function encodeWorkspaceShareState(
   return result.packet;
 }
 
+export function encodeWorkspaceShareState(
+  state: WorkspaceUrlState,
+  encode: WorkspaceShareEncoder,
+): string {
+  return encodedWorkspaceSharePacket(
+    encode(workspaceShareStateJson(state)));
+}
+
+export async function encodeWorkspaceShareStateAsync(
+  state: WorkspaceUrlState,
+  encode: AsyncWorkspaceShareEncoder,
+): Promise<string> {
+  return encodedWorkspaceSharePacket(
+    await encode(workspaceShareStateJson(state)));
+}
+
 function decodeWorkspaceShareState(
   value: string | null,
   decode: WorkspaceShareDecoder,
 ): ShareStateResult {
   if (!value) return null;
-  const result = decode(value);
+  return decodeWorkspaceShareResult(decode(value));
+}
+
+async function decodeWorkspaceShareStateAsync(
+  value: string | null,
+  decode: AsyncWorkspaceShareDecoder,
+): Promise<ShareStateResult> {
+  if (!value) return null;
+  return decodeWorkspaceShareResult(await decode(value));
+}
+
+function decodeWorkspaceShareResult(
+  result: BrowserWorkspaceShareDecodeResult,
+): ShareStateResult {
   if (!result.succeeded || !result.state) {
     const failure = result.failure;
     return {
@@ -995,11 +1030,33 @@ export function resolveWorkspaceRoute(
     route.courtesyPackageRoute);
 }
 
+export async function resolveWorkspaceRouteAsync(
+  route: WorkspaceLocationRoute,
+  decode: AsyncWorkspaceShareDecoder,
+): Promise<ParsedWorkspaceLocation> {
+  const encodedWorkspaceState = route.encodedWorkspaceState;
+  return resolveWorkspaceLocation(
+    route.location,
+    encodedWorkspaceState
+      ? await decodeWorkspaceShareStateAsync(
+          encodedWorkspaceState,
+          decode)
+      : null,
+    route.courtesyPackageRoute);
+}
+
 export function parseWorkspaceLocation(
   location: WorkspaceLocationSnapshot,
   decode: WorkspaceShareDecoder,
 ): ParsedWorkspaceLocation {
   return resolveWorkspaceRoute(parseWorkspaceRoute(location), decode);
+}
+
+export function parseWorkspaceLocationAsync(
+  location: WorkspaceLocationSnapshot,
+  decode: AsyncWorkspaceShareDecoder,
+): Promise<ParsedWorkspaceLocation> {
+  return resolveWorkspaceRouteAsync(parseWorkspaceRoute(location), decode);
 }
 
 export function buildWorkspaceStateUrl(
@@ -1013,6 +1070,21 @@ export function buildWorkspaceStateUrl(
   if (state.package) params.set("package", state.package);
   const shareState = encodeWorkspaceShareState(state, encode);
   params.set("w", shareState);
+  url.search = params.toString();
+  url.hash = state.subject === "workspace" ? "workspace" : "";
+  return url;
+}
+
+export async function buildWorkspaceStateUrlAsync(
+  base: string,
+  state: WorkspaceUrlState,
+  encode: AsyncWorkspaceShareEncoder,
+): Promise<URL> {
+  const url = new URL(base);
+  url.pathname = "/";
+  const params = new URLSearchParams();
+  params.set("package", state.package);
+  params.set("w", await encodeWorkspaceShareStateAsync(state, encode));
   url.search = params.toString();
   url.hash = state.subject === "workspace" ? "workspace" : "";
   return url;
@@ -1055,6 +1127,100 @@ export interface WorkspaceLocationDependencies {
   push(url: string, historyState: unknown): void;
   decode(value: string): BrowserWorkspaceShareDecodeResult;
   encode(stateJson: string): BrowserWorkspaceShareEncodeResult;
+}
+
+export interface AsyncWorkspaceLocationPersistence {
+  parseCurrent(): Promise<ParsedWorkspaceLocation>;
+  preflightCurrent(): AsyncWorkspaceLocationPreflight;
+  build(state: WorkspaceUrlState, base?: string): Promise<URL>;
+  sync(state: WorkspaceUrlState, historyState?: unknown): void;
+  replace(url: string, historyState?: unknown): boolean;
+  push(url: string, historyState?: unknown): void;
+}
+
+export interface AsyncWorkspaceLocationPreflight {
+  visible: ParsedWorkspaceLocation;
+  hasWorkspaceState: boolean;
+  resolve(
+    decode?: AsyncWorkspaceShareDecoder,
+  ): Promise<ParsedWorkspaceLocation>;
+}
+
+export interface AsyncWorkspaceLocationDependencies {
+  current(): WorkspaceLocationSnapshot;
+  replace(url: string, historyState: unknown): void;
+  push(url: string, historyState: unknown): void;
+  decode(value: string): Promise<BrowserWorkspaceShareDecodeResult>;
+  encode(stateJson: string): Promise<BrowserWorkspaceShareEncodeResult>;
+}
+
+export function createAsyncWorkspaceLocationPersistence(
+  dependencies: AsyncWorkspaceLocationDependencies,
+): AsyncWorkspaceLocationPersistence {
+  const decode = (value: string) => dependencies.decode(value);
+  const encode = (stateJson: string) => dependencies.encode(stateJson);
+  const build = (state: WorkspaceUrlState, base?: string) =>
+    buildWorkspaceStateUrlAsync(
+      base ?? dependencies.current().href,
+      state,
+      encode);
+  let syncRevision = 0;
+  return {
+    parseCurrent() {
+      return parseWorkspaceLocationAsync(
+        dependencies.current(),
+        decode);
+    },
+    preflightCurrent,
+    build,
+    sync(state, historyState = null) {
+      const revision = ++syncRevision;
+      void build(state).then(
+        url => {
+          if (revision !== syncRevision) return undefined;
+          try {
+            dependencies.replace(url.toString(), historyState);
+          } catch {
+            // Sandboxed frames may reject browser-history changes.
+          }
+          return undefined;
+        },
+        () => {
+          // Invalid or overlong state remains visible in the current address.
+          return undefined;
+        },
+      );
+    },
+    replace(url, historyState = null) {
+      syncRevision++;
+      try {
+        dependencies.replace(url, historyState);
+        return true;
+      } catch {
+        // Sandboxed frames may reject browser-history changes.
+        return false;
+      }
+    },
+    push(url, historyState = null) {
+      syncRevision++;
+      try {
+        dependencies.push(url, historyState);
+      } catch {
+        // Sandboxed frames may reject browser-history changes.
+      }
+    },
+  };
+
+  function preflightCurrent(): AsyncWorkspaceLocationPreflight {
+    const route = parseWorkspaceRoute(dependencies.current());
+    return {
+      visible: route.visible,
+      hasWorkspaceState: route.hasWorkspaceState,
+      resolve(routeDecoder = decode) {
+        return resolveWorkspaceRouteAsync(route, routeDecoder);
+      },
+    };
+  }
 }
 
 export function createWorkspaceLocationPersistence(

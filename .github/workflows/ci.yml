@@ -992,6 +992,9 @@ jobs:
       - name: Run platform target currency tests
         run: dotnet run --project tests/DotnetInspector.Platforms.Tests -c Release
 
+      - name: Run PlatformHouse contract tests
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Tests -c Release
+
       - name: Run row-selection tests
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
 
