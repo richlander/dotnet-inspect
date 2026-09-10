@@ -71,7 +71,7 @@ export function bindSavedWorkspaces(
   input?.addEventListener("input", () => actions.setName(input.value));
   root.querySelector("[data-workspace-save-form]")?.addEventListener("submit", event => {
     event.preventDefault();
-    actions.save();
+    void actions.save();
   });
   root.querySelectorAll<HTMLElement>("[data-saved-workspace-open]").forEach(button =>
     button.addEventListener("click", () => {

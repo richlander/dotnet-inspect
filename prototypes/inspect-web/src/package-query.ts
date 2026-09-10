@@ -349,7 +349,9 @@ export interface PackageQueryDataSource {
   initialMatchCredit?: number;
   /** Adds durable-match credit to the active request. Returns false when no
    * request can accept the credit. */
-  requestMore?(additionalMatchCredit: number): boolean;
+  requestMore?(
+    additionalMatchCredit: number,
+  ): boolean | Promise<boolean>;
   run(
     request: QueryRequest,
     onPage: (rows: readonly QueryResultRow[]) => void,
@@ -392,6 +394,7 @@ export function createPackageQueryController(
   let generation = 0;
   let abortController = new AbortController();
   let grantedMatchCredit = Number.POSITIVE_INFINITY;
+  let matchCreditRequestPending = false;
 
   return {
     configure(request: QueryRequest) {
@@ -401,6 +404,7 @@ export function createPackageQueryController(
       state.request = request;
       state.outcome = idleOutcome();
       grantedMatchCredit = Number.POSITIVE_INFINITY;
+      matchCreditRequestPending = false;
       onUpdate("reset");
     },
 
@@ -413,6 +417,7 @@ export function createPackageQueryController(
       state.outcome = emptyOutcome();
       grantedMatchCredit =
         source.initialMatchCredit ?? Number.POSITIVE_INFINITY;
+      matchCreditRequestPending = false;
       // Capture this run's own signal before onUpdate() runs: onUpdate() is
       // caller-supplied and may reentrantly call run() again synchronously
       // (e.g. a state-change handler that immediately kicks off a new
@@ -487,14 +492,52 @@ export function createPackageQueryController(
     requestMore() {
       if (state.outcome.completion.kind !== "streaming"
         || !source.requestMore
+        || matchCreditRequestPending
         || !Number.isFinite(grantedMatchCredit)
         || state.outcome.rows.length
           < grantedMatchCredit - PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD) {
         return;
       }
-      if (source.requestMore(PACKAGE_QUERY_MATCH_CREDIT_BATCH)) {
-        grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
+      const requestGeneration = generation;
+      let result: boolean | Promise<boolean>;
+      try {
+        result = source.requestMore(PACKAGE_QUERY_MATCH_CREDIT_BATCH);
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : String(error);
+        state.outcome = withCompletion(state.outcome, {
+          kind: "failed",
+          reason,
+        });
+        onUpdate("stream");
+        return;
       }
+      if (typeof result === "boolean") {
+        if (result)
+          grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
+        return;
+      }
+      matchCreditRequestPending = true;
+      void result.then(
+        granted => {
+          if (requestGeneration !== generation) return undefined;
+          matchCreditRequestPending = false;
+          if (granted)
+            grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
+          return undefined;
+        },
+        (error: unknown) => {
+          if (requestGeneration !== generation) return undefined;
+          matchCreditRequestPending = false;
+          const reason =
+            error instanceof Error ? error.message : String(error);
+          state.outcome = withCompletion(state.outcome, {
+            kind: "failed",
+            reason,
+          });
+          onUpdate("stream");
+          return undefined;
+        },
+      );
     },
   };
 }
