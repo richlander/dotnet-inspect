@@ -1,0 +1,78 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>DotnetInspect.Web</AssemblyName>
+    <RootNamespace>DotnetInspect.Web</RootNamespace>
+    <IsPublishable>true</IsPublishable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <WasmEnableExceptionHandling>false</WasmEnableExceptionHandling>
+    <RepositoryUrl>https://github.com/richlander/dotnet-inspect</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="RepositoryCommit" Value="$(SourceRevisionId)" Condition="'$(SourceRevisionId)' != ''" />
+    <AssemblyMetadata Include="RepositoryUrl" Value="$(RepositoryUrl)" />
+    <AssemblyMetadata Include="BuildTimestampUtc" Value="$(BuildTimestampUtc)" Condition="'$(BuildTimestampUtc)' != ''" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
+    <!--
+      Every browser interaction that inspects an assembly runs inside a workspace, through a public
+      product query that owns the session. BannedSymbols.txt makes the compiler enforce that;
+      Directory.Build.targets already escalates RS0030 to an error for every .csproj.
+      BrowserEngineLayeringTests pins this wiring.
+    -->
+    <AdditionalFiles Include="BannedSymbols.txt" />
+    <ProjectReference Include="..\..\src\TsJsExport.Contracts\TsJsExport.Contracts.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
+    <!--
+      The host references every capability export assembly. That is what lets the compiled
+      InspectWebJsExportContext name all seven roots without any reverse or sibling dependency,
+      and what puts every facade's WebCIL assembly in the published browser app.
+    -->
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Package\DotnetInspect.Web.Interop.Package.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Metadata\DotnetInspect.Web.Interop.Metadata.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Analysis\DotnetInspect.Web.Interop.Analysis.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Source\DotnetInspect.Web.Interop.Source.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.CallGraph\DotnetInspect.Web.Interop.CallGraph.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Catalog\DotnetInspect.Web.Interop.Catalog.csproj" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Package" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Metadata" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Analysis" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Source" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.CallGraph" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Catalog" />
+    <Content Include="..\dist\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+    <Content Include="..\dist\manifest.json" Link="wwwroot\manifest.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\dist\assets\**\*" Link="wwwroot\assets\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\staticwebapp.config.json" Link="wwwroot\staticwebapp.config.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\assets\dotnet-inspect-bot.png" Link="wwwroot\assets\dotnet-inspect-bot.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\assets\bots\*.png" Link="wwwroot\assets\bots\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\assets\platform-index.json" Link="wwwroot\assets\platform-index.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="ValidateInspectWebFrontendBundle" BeforeTargets="ResolveProjectStaticWebAssets;PrepareForPublish">
+    <Error Condition="!Exists('..\dist\index.html') Or !Exists('..\dist\manifest.json')" Text="The inspect-web frontend bundle is missing. Run 'npm ci' and 'npm run build' in inspect-web before building or publishing." />
+    <Exec Command="node &quot;../scripts/verify-site-artifact.ts&quot; &quot;../dist&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <Target Name="PublishInspectWebFrontendIndex" AfterTargets="ComputeAndCopyFilesToPublishDirectory">
+    <Error Condition="'@(_HtmlPublishCandidates)' == ''" Text="The .NET SDK did not produce the inspect-web HTML placeholder artifact." />
+    <Copy SourceFiles="@(_HtmlPublishCandidates)" DestinationFiles="@(_HtmlPublishCandidates->'$(PublishDir)wwwroot/index.html')" />
+  </Target>
+
+  <Target Name="PublishInspectWebRuntimeLoader" AfterTargets="PublishInspectWebFrontendIndex">
+    <Exec Command="node &quot;../scripts/publish-runtime-loader.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <Target Name="PublishInspectWebContentSecurityPolicy" AfterTargets="PublishInspectWebRuntimeLoader">
+    <Exec Command="node &quot;../scripts/publish-content-security-policy.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <Target Name="VerifyPublishedInspectWebSite" AfterTargets="PublishInspectWebContentSecurityPolicy">
+    <Exec Command="node &quot;../scripts/verify-site-artifact.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+</Project>

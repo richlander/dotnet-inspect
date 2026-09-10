@@ -1183,7 +1183,7 @@ a workspace-local admission hit reachable. Implementing this contract before a
 retained multi-call product workspace adopts it would add unreachable
 infrastructure rather than product value. The workspace owner records the
 [retained-caller decision](../inspection-space.md#retained-package-realization-caller):
-the current prototype registry answers repeated exact requests before its
+the current Inspect Web registry answers repeated exact requests before its
 workspace sees them, while replacing that registry with a session-wide
 projection-backed workspace would be a separately approved product-topology
 migration rather than a narrow admission caller.

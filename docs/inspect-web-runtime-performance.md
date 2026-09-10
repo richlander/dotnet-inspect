@@ -106,7 +106,7 @@ as the site does.
 Install the existing Inspect Web toolchain, including Firefox:
 
 ```bash
-cd prototypes/inspect-web
+cd inspect-web
 npm ci
 npx playwright install firefox
 ```

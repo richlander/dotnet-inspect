@@ -225,7 +225,7 @@ referencing the CLI assembly.
 | ---- | ------------- | ---- | ------------- |
 | `src/DotnetInspector.Ecosystems` | Application catalog | Static package-set identity and membership, ecosystem-pack metadata, and lazy product-demo sources shared by the product front ends without entering reusable infrastructure. | [Package Set Registry](design/package-set-registry.md), [Static Ecosystem Packs](design/ecosystem-packs.md), [Workspace Definitions](design/workspace-definitions.md#product-demos-are-closed-section-presets) |
 | `src/DotnetInspect.Cli` | Product host | Complete command-line host, including source resolution, command orchestration, section selection, output models, and rendering. | [CLI host architecture](cli-architecture.md) |
-| `prototypes/inspect-web` | Product host | Browser/Wasm host and product UI over reusable engine and focused UI-control contracts. | [Inspect Web UI](design/inspect-web-ui.md) composition map, [SlideStrip](design/inspect-web-slide-strip.md) reusable control, [operation authority](design/inspect-web-operation-authority.md) |
+| `inspect-web/` | Product host | Top-level Browser/Wasm product workspace containing the host, UI, focused managed facades, tests, canaries, and deployment tooling. | [Inspect Web UI](design/inspect-web-ui.md) composition map, [SlideStrip](design/inspect-web-slide-strip.md) reusable control, [operation authority](design/inspect-web-operation-authority.md) |
 | `tools/DecompilerHarness` | Correctness harness | Decompiler correctness, compile-back, corpus, and independent-oracle orchestration. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
 | Focused apps and fixtures | Boundary canary | Narrow executable consumers that prove a reusable boundary without becoming product owners. | Their local README or owning design |
 
@@ -356,7 +356,7 @@ faithfulness claims. This map does not duplicate those evolving gate lists.
 | IL analysis, graphs, or Findings | [Finding adoption](design/finding-adoption.md), relevant focused Analysis or graph design | `ILInspector.Instructions`, `ILInspector.ControlFlow`, `ILInspector.Analysis`, `ILInspector.CallGraph`, `Inspector.Findings` |
 | Decompilation or implementation comparison | [Decompiler architecture](decompiler-architecture.md), [decompiler correctness](decompiler-correctness-pipeline.md), [implementation diff](design/implementation-diff.md) | `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | CLI command or output behavior | [CLI host architecture](cli-architecture.md), [progressive disclosure](design/progressive-disclosure.md), [output shapes](design/output-shapes.md) | `src/DotnetInspect.Cli` |
-| Browser interaction | [Inspect Web UI](design/inspect-web-ui.md) composition map; see [navigation presentation](design/inspect-web-navigation-presentation.md), [navigation consumer](design/inspect-web-navigation-consumer.md), [shell interaction](design/inspect-web-shell-interaction.md), and [surface composition](design/inspect-web-surface-composition.md) | `prototypes/inspect-web` |
+| Browser interaction | [Inspect Web UI](design/inspect-web-ui.md) composition map; see [navigation presentation](design/inspect-web-navigation-presentation.md), [navigation consumer](design/inspect-web-navigation-consumer.md), [shell interaction](design/inspect-web-shell-interaction.md), and [surface composition](design/inspect-web-surface-composition.md) | `inspect-web/` |
 
 Use [the documentation index](README.md) when the focused owner is not obvious.
 

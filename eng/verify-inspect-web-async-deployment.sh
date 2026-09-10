@@ -123,7 +123,7 @@ if [[ -z "$version_prefix" ]]; then
 fi
 
 "$dotnet" run \
-  "$repo_root/prototypes/inspect-web/scripts/verify-async-lowering.cs" \
+  "$repo_root/inspect-web/scripts/verify-async-lowering.cs" \
   -- \
   "$assembly" \
   "$lowering" \
@@ -186,7 +186,7 @@ TMPDIR="$repo_root/artifacts" \
 
 runtime_pack_directory=$(
   "$dotnet" msbuild \
-    "$repo_root/prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj" \
+    "$repo_root/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj" \
     -nologo \
     -target:ProcessFrameworkReferences \
     -getItem:RuntimePack \
@@ -210,13 +210,13 @@ fi
 
 mkdir -p "$compiled_sources/_framework"
 cp "$dotnet_dts" "$compiled_sources/_framework/dotnet.d.ts"
-cp "$repo_root/prototypes/inspect-web/DotnetInspect.Web/wwwroot/runtime-loader.js" \
+cp "$repo_root/inspect-web/DotnetInspect.Web/wwwroot/runtime-loader.js" \
   "$compiled_sources/runtime-loader.js"
 "$node" --input-type=module - \
   "$domain" \
   "$context_output" \
   "$compiled_sources" \
-  "$repo_root/prototypes/inspect-web/DotnetInspect.Web/facades" <<'JS'
+  "$repo_root/inspect-web/DotnetInspect.Web/facades" <<'JS'
 import assert from "node:assert/strict";
 import {
   copyFileSync,
@@ -271,7 +271,7 @@ writeFileSync(configPath, `${JSON.stringify({
 }, null, 2)}\n`);
 JS
 
-tsc="$repo_root/prototypes/inspect-web/node_modules/.bin/tsc"
+tsc="$repo_root/inspect-web/node_modules/.bin/tsc"
 if [[ ! -x "$tsc" ]]; then
   echo "TypeScript compiler not found at $tsc." >&2
   exit 1
@@ -283,7 +283,7 @@ fi
   "$compiled_sources/out" \
   "$declarations" \
   "$site" \
-  "$repo_root/prototypes/inspect-web/src/facades" <<'JS'
+  "$repo_root/inspect-web/src/facades" <<'JS'
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -324,7 +324,7 @@ for (const entry of domain) {
 JS
 
 "$node" \
-  "$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facades.ts" \
+  "$repo_root/inspect-web/scripts/verify-published-engine-facades.ts" \
   "$site" \
   deployment \
   "$domain" \
@@ -335,7 +335,7 @@ if [[ "$lowering" == "runtime" ]]; then
   graph_properties+=("-p:Features=runtime-async=on")
 fi
 "$dotnet" msbuild \
-  "$repo_root/prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj" \
+  "$repo_root/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj" \
   -t:GenerateRestoreGraphFile \
   -p:RestoreGraphOutputPath="$graph" \
   -p:Configuration=Release \
@@ -344,7 +344,7 @@ fi
   -nologo \
   -v:q
 "$node" \
-  "$repo_root/prototypes/inspect-web/scripts/verify-async-project-graph.ts" \
+  "$repo_root/inspect-web/scripts/verify-async-project-graph.ts" \
   "$lowering" \
   "$repo_root" \
   "$graph" \

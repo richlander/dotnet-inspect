@@ -198,12 +198,12 @@ internal sealed class ChangeRoutingPolicy
             "src/ILInspector.JsExportSurface/*",
             "src/ILInspector.TypeScriptGeneration/*",
             "src/ts-jsexport/*",
-            "prototypes/inspect-web/multi-facade-canary/*",
-            "prototypes/inspect-web/managed-operation-bridge-canary/*",
-            "prototypes/inspect-web/scripts/verify-multi-facade-canary.ts",
-            "prototypes/inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
-            "prototypes/inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
-            "prototypes/inspect-web/DotnetInspect.Web.Core/BrowserManaged*");
+            "inspect-web/multi-facade-canary/*",
+            "inspect-web/managed-operation-bridge-canary/*",
+            "inspect-web/scripts/verify-multi-facade-canary.ts",
+            "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
+            "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManaged*");
 
     private static void RouteLanes(
         ReadOnlySpan<byte> path,
@@ -335,14 +335,14 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Code = true;
         }
-        else if (BytePattern.Matches(path, "prototypes/inspect-web/*.md"))
+        else if (BytePattern.Matches(path, "inspect-web/*.md"))
         {
-            // Markdown under the browser prototype is documentation, not a
+            // Markdown under the Inspect Web workspace is documentation, not a
             // browser build input.
         }
         else if (BytePattern.MatchesAny(
             path,
-            "prototypes/inspect-web/*",
+            "inspect-web/*",
             "prototypes/annotated-source-viewer/*"))
         {
             state.Web = true;

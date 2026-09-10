@@ -4,7 +4,7 @@ Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
 The [page-facing engine client](#page-facing-engine-client) is **implemented**
 through the single-runtime production cutover:
-[`engine-worker-client.ts`](../../prototypes/inspect-web/src/engine-worker-client.ts)
+[`engine-worker-client.ts`](../../inspect-web/src/engine-worker-client.ts)
 binds every production managed call to one Worker epoch, and the page runtime
 has no generated-facade import or managed-runtime fallback. The remaining
 cross-runtime Source lifecycle work tracked by
@@ -22,7 +22,7 @@ generated TypeScript source module and of compiler-declared context
 orchestration across those independent modules. The
 [inspection layers](inspection-layers.md) and their focused product documents
 remain the owners of the typed operations and results that inspect-web adapts.
-The [inspect-web README](../../prototypes/inspect-web/README.md) owns the
+The [inspect-web README](../../inspect-web/README.md) owns the
 implemented browser build and deployment procedure.
 
 ## Decision
@@ -545,7 +545,7 @@ domain.
 ### Implemented production composition
 
 The production composition root imports only
-[`engine-worker-client.ts`](../../prototypes/inspect-web/src/engine-worker-client.ts).
+[`engine-worker-client.ts`](../../inspect-web/src/engine-worker-client.ts).
 `createProductionEngineWorkerClient` creates one Worker host and binds startup,
 ordinary, Type Source, and Package Query surfaces to its initial epoch. The
 retained `buildIdentity` request is the complete page readiness barrier and is
@@ -563,7 +563,7 @@ return through its generated event sink, and match credit counts only after the
 exact asynchronous Worker and managed acknowledgment.
 
 All other managed calls use the closed ordinary-operation catalog in
-[`engine-worker-ordinary.ts`](../../prototypes/inspect-web/src/engine-worker-ordinary.ts).
+[`engine-worker-ordinary.ts`](../../inspect-web/src/engine-worker-ordinary.ts).
 Its 49 entries are named at build time across Package (19), Metadata (8),
 Analysis (7), Source (9), Call Graph (2), and Catalog (4). Callers cannot send a
 module, facade, or member name. Arguments and results cross as inert JSON trees
@@ -607,7 +607,7 @@ This is migration evidence at `48d5436a2`, not a second export specification.
 The [production inventory](#production-surface-inventory) and generated
 declarations remain authoritative. Of its 50 managed exports, 48 are bound by
 `loadEngineModule` in
-[`dotnet-inspect.ts`](../../prototypes/inspect-web/src/dotnet-inspect.ts).
+[`dotnet-inspect.ts`](../../inspect-web/src/dotnet-inspect.ts).
 Generated lifecycle functions are not included in these counts.
 
 Website Gallery adoption (#6019) subsequently adds the synchronous startup
@@ -627,11 +627,11 @@ catalog handoff; the historical counts in this migration snapshot exclude it.
 
 The nonterminal, control, and query paths are one migration obligation, not
 optional methods to omit from an initial client. In particular,
-[`package-query-source.ts`](../../prototypes/inspect-web/src/package-query-source.ts)
+[`package-query-source.ts`](../../inspect-web/src/package-query-source.ts)
 constructs a property-setter callback, and
-[`package-query.ts`](../../prototypes/inspect-web/src/package-query.ts) currently
+[`package-query.ts`](../../inspect-web/src/package-query.ts) currently
 updates credit only after a synchronous successful grant.
-[`workspace-navigation.ts`](../../prototypes/inspect-web/src/workspace-navigation.ts)
+[`workspace-navigation.ts`](../../inspect-web/src/workspace-navigation.ts)
 requires synchronous share encode/decode today. These consumers need focused
 adoption before the production switch, not type assertions that pretend their
 existing synchronous contracts already support a Worker.
@@ -642,7 +642,7 @@ constraint.
 ### Adoption and evidence
 
 The first caller-adoption slice uses
-[`engine-client.ts`](../../prototypes/inspect-web/src/engine-client.ts) for
+[`engine-client.ts`](../../inspect-web/src/engine-client.ts) for
 Promise-valued build identity, vocabulary, home demo, Package Query facet, and
 Gallery discovery reads. Its three facade groups retain generated types;
 `engine-facades.ts` still owns the existing single page runtime and readiness.
