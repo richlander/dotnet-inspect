@@ -156,6 +156,15 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }
 
+    /// <summary>
+    /// Portable Workspace share output for package dependency mode.
+    /// </summary>
+    public WorkspaceShareFormat? ShareFormat { get; init; }
+
+    internal bool LineWindowExplicitlySet { get; init; }
+
+    internal bool OutputFormatExplicitlySet { get; init; }
+
     internal SearchSourceSelection? SourceSelection { get; init; }
 
     /// <summary>
@@ -177,6 +186,7 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public bool IsRawOutput =>
         JsonOutput
+        || ShareFormat is not null
         || Tree
         || Format is OutputFormat.PlainText
             or OutputFormat.Mermaid

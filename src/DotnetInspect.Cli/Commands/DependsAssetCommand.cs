@@ -29,6 +29,21 @@ public partial class DependsCommand
     {
         ArgumentNullException.ThrowIfNull(options);
 
+        if (DependsShareProjection.ValidateOptions(options) is { } shareError)
+        {
+            CommandError.Write(shareError);
+            return 1;
+        }
+        if (options.ShareFormat is not null)
+        {
+            var shareContext = new CommandContext(options.Verbose);
+            return await DependsShareProjection.WriteAsync(
+                options,
+                shareContext.HttpClient,
+                shareContext.Logger,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         SectionCatalog<DependsAssetProjection> catalog =
             DependsAssetSections.Catalog;
         SelectResult selection = SelectResolver.ResolveSelectAsSections(

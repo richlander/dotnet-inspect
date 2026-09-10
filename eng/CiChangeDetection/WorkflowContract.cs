@@ -185,7 +185,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             buildSteps[0],
             "working-directory",
-            "prototypes/inspect-web",
+            "inspect-web",
             "jobs.inspect-web-browser build step");
         RequireScalarValue(
             buildSteps[0],
@@ -201,7 +201,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             testSteps[0],
             "working-directory",
-            "prototypes/inspect-web",
+            "inspect-web",
             "jobs.inspect-web-browser test step");
         RequireScalarValue(
             testSteps[0],

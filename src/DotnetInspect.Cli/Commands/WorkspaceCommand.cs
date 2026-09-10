@@ -267,7 +267,8 @@ public static class WorkspaceCommand
         loadOptions.Log?.Invoke(
             $"Reopened {binding.Coordinate.PackageId}@{binding.Coordinate.Version} "
             + $"from producer '{binding.Root.ProducerKey}' ({origin}); "
-            + $"selection {request.SelectionTargetFramework ?? "(none)"} "
+            + $"compile {request.CompileTargetFramework ?? "(none)"}, "
+            + $"implementation {request.SelectionTargetFramework ?? "(none)"} "
             + $"resolved {binding.Root.AssetSelection.Status}.");
 
         // The acquired binding is committed as-is, so the reported Root is the

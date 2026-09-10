@@ -555,6 +555,8 @@ public static class SearchCommandDefinitions
                 "Maximum dependency depth; 1 includes direct relationships only"
         };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var shareOption = WorkspaceShareOption.Create(
+            "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
 
         depthOption.Validators.Add(result =>
         {
@@ -578,6 +580,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(previewOption);
         dependsCommand.Options.Add(maxPackagesOption);
         dependsCommand.Options.Add(depthOption);
+        dependsCommand.Options.Add(shareOption);
         dependsCommand.Options.Add(opts.Json);
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
@@ -683,6 +686,26 @@ public static class SearchCommandDefinitions
             var projects = parseResult.GetValue(projectOption) ?? [];
             OutputFormat outputFormat = opts.ResolveFormat(parseResult);
             RowWindow? rows = ParseDependsRows(parseResult, opts);
+            WorkspaceShareFormat? shareFormat =
+                WorkspaceShareOption.Parse(parseResult, shareOption);
+            bool hasNonPackageShareInput =
+                !string.IsNullOrEmpty(targetType)
+                || packages.Length != 1
+                || (parseResult.GetValue(nuspecOption)?.Length ?? 0) > 0
+                || assemblies.Length > 0
+                || projects.Length > 0
+                || parseResult.GetValue(packagePrefixOption) is not null
+                || parseResult.GetValue(platformOption)
+                || (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) > 0
+                || parseResult.GetValue(extensionsOption)
+                || parseResult.GetValue(aspnetcoreOption);
+            if (shareFormat is not null && hasNonPackageShareInput)
+            {
+                CommandError.Write(
+                    "--share requires exactly one --package input and "
+                    + "cannot be used with type, library, project, or platform dependency modes.");
+                return 1;
+            }
 
             // Mode detection: no type arg → library or package dependency mode
             if (string.IsNullOrEmpty(targetType))
@@ -720,6 +743,10 @@ public static class SearchCommandDefinitions
                     Depth = parseResult.GetValue(depthOption),
                     Tfm = parseResult.GetValue(tfmOption),
                     Verbosity = opts.ParseVerbosity(parseResult),
+                    ShareFormat = shareFormat,
+                    PackageName = shareFormat is not null
+                        ? packages[0]
+                        : null,
                     Format = outputFormat,
                     JsonOutput = outputFormat == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
@@ -740,7 +767,13 @@ public static class SearchCommandDefinitions
                     Columns = opts.ParseColumns(parseResult),
                     Fields = opts.ParseFields(parseResult),
                     Verbose = parseResult.GetValue(opts.Verbose),
-                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+                    LineWindowExplicitlySet =
+                        parseResult.GetResult(opts.Limit) is { Implicit: false }
+                        || parseResult.GetResult(opts.Head) is { Implicit: false }
+                        || parseResult.GetResult(opts.Tail) is { Implicit: false },
+                    OutputFormatExplicitlySet =
+                        opts.IsFormatFlagExplicitlySet(parseResult),
                 };
 
                 return await DependsCommand.ExecuteAssetDependsAsync(
