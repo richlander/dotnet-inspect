@@ -291,6 +291,7 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.Equal("net8.0", reacquisition.CompileTargetFramework);
         Assert.Equal("net6.0", reacquisition.SelectionTargetFramework);
         Assert.True(reacquisition.UsesCompatibleImplementationSelection);
+        Assert.True(reacquisition.HasFrozenImplementationSelection);
     }
 
     [Fact]
@@ -329,6 +330,7 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.Equal("net9.0", reacquisition.CompileTargetFramework);
         Assert.Equal("net6.0", reacquisition.SelectionTargetFramework);
         Assert.True(reacquisition.UsesCompatibleImplementationSelection);
+        Assert.True(reacquisition.HasFrozenImplementationSelection);
     }
 
     [Fact]
@@ -520,6 +522,102 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void CompatibleFrameworkAlias_EqualCanonicalTargetRejectsReplacement()
+    {
+        const string packageId = "compatible.alias.equal";
+        var initialPayload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(("lib/netcoreapp5.0/Alias.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding initial =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                initialPayload,
+                "net5.0");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                initial.CreateReacquisitionRequest().Encode(),
+                out PackageRootReacquisitionRequest? request));
+        Assert.Equal("net5.0", request.CompileTargetFramework);
+        Assert.Equal("net5.0", request.SelectionTargetFramework);
+        Assert.True(request.UsesCompatibleImplementationSelection);
+        Assert.True(request.HasFrozenImplementationSelection);
+        var replacementPayload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(("lib/netcoreapp3.1/Other.dll", [0x02])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding reopened =
+            Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                PackageRootAcquisition.BindReacquired(
+                    request,
+                    replacementPayload)).Binding;
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            reopened.Root.AssetSelection.Status);
+        Assert.Empty(reopened.Root.AssetSelection.Assets);
+        Assert.Empty(reopened.Root.AssetSelection.ImplementationAssets);
+        Assert.Equal(request, reopened.CreateReacquisitionRequest());
+    }
+
+    [Fact]
+    public void CompatibleUnresolvedSelection_ReacquisitionCanSelectReplacementUniverse()
+    {
+        const string packageId = "compatible.unresolved.replacement";
+        var initialPayload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(("lib/net6.0/TooNew.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding initial =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                initialPayload,
+                "net5.0");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                initial.CreateReacquisitionRequest().Encode(),
+                out PackageRootReacquisitionRequest? request));
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            initial.Root.AssetSelection.Status);
+        Assert.True(request.UsesCompatibleImplementationSelection);
+        Assert.False(request.HasFrozenImplementationSelection);
+        var replacementPayload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(("lib/netcoreapp3.1/Compatible.dll", [0x02])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding reopened =
+            Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                PackageRootAcquisition.BindReacquired(
+                    request,
+                    replacementPayload)).Binding;
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.Selected,
+            reopened.Root.AssetSelection.Status);
+        Assert.Equal(
+            ["lib/netcoreapp3.1/Compatible.dll"],
+            reopened.Root.AssetSelection.Assets.Select(asset => asset.Path));
+        Assert.Equal(request, reopened.CreateReacquisitionRequest());
+    }
+
+    [Fact]
     public void CompatibleFrameworkAliases_ReacquisitionRemainsInvalid()
     {
         const string packageId = "compatible.alias.ambiguous";
@@ -685,6 +783,7 @@ public sealed class PackageAssemblyContextRealizationTests
                 PackageRootAcquisition.BindReacquired(request, payload)).Binding;
 
         Assert.True(request.UsesCompatibleImplementationSelection);
+        Assert.False(request.HasFrozenImplementationSelection);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
             reopened.Root.AssetSelection.Status);

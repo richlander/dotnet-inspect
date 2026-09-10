@@ -47,7 +47,8 @@ internal readonly record struct PackageArtifactRootRequest(
     string? CompileTargetFramework,
     string? SelectionTargetFramework,
     string? SelectionRuntimeIdentifier,
-    bool UsesCompatibleImplementationSelection)
+    bool UsesCompatibleImplementationSelection,
+    bool HasFrozenImplementationSelection)
 {
     internal static PackageArtifactRootRequest From(
         PackageRootBinding binding)
@@ -58,7 +59,8 @@ internal readonly record struct PackageArtifactRootRequest(
             binding.CompileTargetFramework,
             binding.Root.RequestedTargetFramework,
             binding.Root.RequestedRuntimeIdentifier,
-            binding.UsesCompatibleImplementationSelection);
+            binding.UsesCompatibleImplementationSelection,
+            binding.HasFrozenImplementationSelection);
     }
 
     internal static PackageArtifactRootRequest Create(
@@ -66,7 +68,8 @@ internal readonly record struct PackageArtifactRootRequest(
         string? compileTargetFramework,
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
-        bool usesCompatibleImplementationSelection = false)
+        bool usesCompatibleImplementationSelection = false,
+        bool hasFrozenImplementationSelection = false)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         string? normalizedCompileTarget =
@@ -88,16 +91,32 @@ internal readonly record struct PackageArtifactRootRequest(
                 nameof(usesCompatibleImplementationSelection));
         }
 
+        bool effectiveCompatibleSelection =
+            usesCompatibleImplementationSelection
+            || !string.Equals(
+                normalizedCompileTarget,
+                normalizedSelectionTarget,
+                StringComparison.Ordinal);
+        bool effectiveFrozenSelection =
+            hasFrozenImplementationSelection
+            || !string.Equals(
+                normalizedCompileTarget,
+                normalizedSelectionTarget,
+                StringComparison.Ordinal);
+        if (effectiveFrozenSelection && !effectiveCompatibleSelection)
+        {
+            throw new ArgumentException(
+                "A frozen implementation selection requires compatible implementation selection.",
+                nameof(hasFrozenImplementationSelection));
+        }
+
         return new(
             coordinate,
             normalizedCompileTarget,
             normalizedSelectionTarget,
             NormalizeRuntime(selectionRuntimeIdentifier),
-            usesCompatibleImplementationSelection
-                || !string.Equals(
-                    normalizedCompileTarget,
-                    normalizedSelectionTarget,
-                    StringComparison.Ordinal));
+            effectiveCompatibleSelection,
+            effectiveFrozenSelection);
     }
 
     internal static string? NormalizeFramework(string? framework)

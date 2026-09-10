@@ -324,6 +324,13 @@ public sealed class PackageRootAcquisitionTests
                     Framework,
                     null,
                     usesCompatibleImplementationSelection: true),
+                Request(
+                    Framework,
+                    null,
+                    Framework,
+                    null,
+                    usesCompatibleImplementationSelection: true,
+                    hasFrozenImplementationSelection: true),
                 Request(null, null, "netstandard2.0", null),
                 Request(null, null, null, null),
             })
@@ -367,7 +374,7 @@ public sealed class PackageRootAcquisitionTests
             legacy.Encode(),
             StringComparison.Ordinal);
 
-        string previousToken = VersionedToken(
+        string earlierToken = VersionedToken(
             "pkgroot2",
             PackageId,
             Version,
@@ -379,9 +386,32 @@ public sealed class PackageRootAcquisitionTests
             null);
         Assert.True(
             PackageRootReacquisitionRequest.TryDecode(
+                earlierToken,
+                out PackageRootReacquisitionRequest? earlier));
+        Assert.True(earlier.UsesCompatibleImplementationSelection);
+        Assert.True(earlier.HasFrozenImplementationSelection);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            earlier.Encode(),
+            StringComparison.Ordinal);
+
+        string previousToken = VersionedToken(
+            "pkgroot3",
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            Framework,
+            Framework,
+            null,
+            "compatible");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
                 previousToken,
                 out PackageRootReacquisitionRequest? previous));
         Assert.True(previous.UsesCompatibleImplementationSelection);
+        Assert.True(previous.HasFrozenImplementationSelection);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
             previous.Encode(),
@@ -391,6 +421,20 @@ public sealed class PackageRootAcquisitionTests
         Assert.NotEqual(
             Request(Framework, null, Framework, null).Encode(),
             Request(Framework, "win-x64", Framework, "win-x64").Encode());
+        Assert.NotEqual(
+            Request(
+                Framework,
+                null,
+                Framework,
+                null,
+                usesCompatibleImplementationSelection: true).Encode(),
+            Request(
+                Framework,
+                null,
+                Framework,
+                null,
+                usesCompatibleImplementationSelection: true,
+                hasFrozenImplementationSelection: true).Encode());
     }
 
     [Fact]
@@ -500,12 +544,42 @@ public sealed class PackageRootAcquisitionTests
                     PackageId,
                     Version,
                     "nuget.org",
+                    Framework,
                     null,
-                    null,
-                    null,
-                    null,
+                    Framework,
+                    Framework,
                     null,
                     "compatible"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    "net6.0",
+                    null,
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    "net6.0",
+                    null,
+                    "compatible-unresolved"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "compatible-unresolved"),
                 Token(
                     PackageId,
                     Version,
@@ -535,7 +609,7 @@ public sealed class PackageRootAcquisitionTests
                     " ",
                     " ",
                     null,
-                    "compatible"),
+                    "compatible-unresolved"),
                 Token(
                     PackageId,
                     Version,
@@ -658,7 +732,8 @@ public sealed class PackageRootAcquisitionTests
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
         string? compileTargetFramework = null,
-        bool usesCompatibleImplementationSelection = false)
+        bool usesCompatibleImplementationSelection = false,
+        bool hasFrozenImplementationSelection = false)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
@@ -676,7 +751,8 @@ public sealed class PackageRootAcquisitionTests
                 compileTargetFramework ?? selectionTargetFramework,
                 selectionTargetFramework,
                 selectionRuntimeIdentifier,
-                usesCompatibleImplementationSelection));
+                usesCompatibleImplementationSelection,
+                hasFrozenImplementationSelection));
     }
 
     static string Token(params string?[] fields)

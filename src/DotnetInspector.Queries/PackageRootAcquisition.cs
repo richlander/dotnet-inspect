@@ -152,9 +152,9 @@ public sealed class PackageRootAcquisitionRequest
 /// producer-pinned acquisition coordinate, whose
 /// <see cref="RealizedMemberCoordinate.Package.Framework"/> may be absent for
 /// framework-neutral source acquisition, plus the normalized compile target,
-/// implementation selection target, and runtime identifier that produced the
-/// binding's frozen asset selection. It is therefore usable where the realized
-/// coordinate alone would fail with
+/// implementation selection target, runtime identifier, compatible-selection
+/// intent, and whether that selection froze a unique implementation universe.
+/// It is therefore usable where the realized coordinate alone would fail with
 /// <see cref="WorkspaceContextLoadFailureKind.MissingAcquisitionTarget"/> or
 /// select a different asset universe.
 /// </para>
@@ -177,16 +177,18 @@ public sealed class PackageRootReacquisitionRequest :
     IEquatable<PackageRootReacquisitionRequest>
 {
     /// <summary>The current opaque token format tag.</summary>
-    public const string TokenPrefix = "pkgroot3";
+    public const string TokenPrefix = "pkgroot4";
 
-    const string PreviousTokenPrefix = "pkgroot2";
+    const string PreviousTokenPrefix = "pkgroot3";
+    const string EarlierTokenPrefix = "pkgroot2";
     const string LegacyTokenPrefix = "pkgroot1";
 
     /// <summary>The largest token this owner encodes or decodes.</summary>
     public const int MaxEncodedLength = 1024;
 
     const int FieldCount = 9;
-    const int PreviousFieldCount = 8;
+    const int PreviousFieldCount = 9;
+    const int EarlierFieldCount = 8;
     const int LegacyFieldCount = 7;
 
     static readonly UTF8Encoding StrictUtf8 = new(
@@ -229,6 +231,12 @@ public sealed class PackageRootReacquisitionRequest :
         _request.UsesCompatibleImplementationSelection;
 
     /// <summary>
+    /// Whether compatible selection froze one unique implementation universe.
+    /// </summary>
+    public bool HasFrozenImplementationSelection =>
+        _request.HasFrozenImplementationSelection;
+
+    /// <summary>
     /// Encodes this request as one owner-authored, credential-free token a
     /// host may hand across a transport boundary and back.
     /// </summary>
@@ -252,7 +260,11 @@ public sealed class PackageRootReacquisitionRequest :
         AppendField(builder, SelectionRuntimeIdentifier);
         AppendField(
             builder,
-            UsesCompatibleImplementationSelection ? "compatible" : "exact");
+            UsesCompatibleImplementationSelection
+                ? HasFrozenImplementationSelection
+                    ? "compatible-frozen"
+                    : "compatible-unresolved"
+                : "exact");
         if (builder.Length > MaxEncodedLength)
         {
             throw new InvalidOperationException(
@@ -305,21 +317,27 @@ public sealed class PackageRootReacquisitionRequest :
                 parts[0],
                 PreviousTokenPrefix,
                 StringComparison.Ordinal);
+        bool earlier =
+            parts.Length == EarlierFieldCount + 1
+            && string.Equals(
+                parts[0],
+                EarlierTokenPrefix,
+                StringComparison.Ordinal);
         bool current =
             parts.Length == FieldCount + 1
             && string.Equals(
                 parts[0],
                 TokenPrefix,
                 StringComparison.Ordinal);
-        if (!legacy && !previous && !current)
+        if (!legacy && !earlier && !previous && !current)
         {
             return false;
         }
 
         int fieldCount = legacy
             ? LegacyFieldCount
-            : previous
-                ? PreviousFieldCount
+            : earlier
+                ? EarlierFieldCount
                 : FieldCount;
         var fields = new string?[fieldCount];
         for (int index = 0; index < fieldCount; index++)
@@ -366,7 +384,24 @@ public sealed class PackageRootReacquisitionRequest :
             return false;
         }
         bool usesCompatibleImplementationSelection;
+        bool hasFrozenImplementationSelection;
         if (current)
+        {
+            (usesCompatibleImplementationSelection,
+                hasFrozenImplementationSelection) = fields[8] switch
+            {
+                "compatible-frozen" => (true, true),
+                "compatible-unresolved" => (true, false),
+                "exact" => (false, false),
+                _ => (false, false),
+            };
+            if (fields[8] is not (
+                    "compatible-frozen"
+                    or "compatible-unresolved"
+                    or "exact"))
+                return false;
+        }
+        else if (previous)
         {
             usesCompatibleImplementationSelection = fields[8] switch
             {
@@ -376,6 +411,13 @@ public sealed class PackageRootReacquisitionRequest :
             };
             if (fields[8] is not ("compatible" or "exact"))
                 return false;
+
+            // pkgroot3 cannot distinguish a successful equal-canonical alias
+            // selection from compatible intent that found no unique universe.
+            // Preserve successful selections rather than silently substituting
+            // replacement bytes; unresolved old requests may visibly no-match.
+            hasFrozenImplementationSelection =
+                usesCompatibleImplementationSelection;
         }
         else
         {
@@ -384,6 +426,8 @@ public sealed class PackageRootReacquisitionRequest :
                     compileTargetFramework,
                     selectionTargetFramework,
                     StringComparison.Ordinal);
+            hasFrozenImplementationSelection =
+                usesCompatibleImplementationSelection;
         }
         if (usesCompatibleImplementationSelection
             && compileTargetFramework is null)
@@ -396,7 +440,8 @@ public sealed class PackageRootReacquisitionRequest :
             compileTargetFramework,
             selectionTargetFramework,
             fields[selectionRuntimeIndex],
-            usesCompatibleImplementationSelection);
+            usesCompatibleImplementationSelection,
+            hasFrozenImplementationSelection);
 
         // A token that is not already canonical is refused rather than
         // silently normalized, so one request has exactly one token.
@@ -413,7 +458,9 @@ public sealed class PackageRootReacquisitionRequest :
                 fields[selectionRuntimeIndex],
                 StringComparison.Ordinal)
             || decoded.UsesCompatibleImplementationSelection
-                != usesCompatibleImplementationSelection)
+                != usesCompatibleImplementationSelection
+            || decoded.HasFrozenImplementationSelection
+                != hasFrozenImplementationSelection)
         {
             return false;
         }

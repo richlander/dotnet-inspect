@@ -63,7 +63,8 @@ public sealed class PackageRootBinding
         PackageContentGenerationIdentity contentGenerationIdentity,
         PackageRootSelectionIdentity selectionIdentity,
         string? compileTargetFramework,
-        bool usesCompatibleImplementationSelection)
+        bool usesCompatibleImplementationSelection,
+        bool hasFrozenImplementationSelection)
     {
         Root = root;
         Coordinate = coordinate;
@@ -72,6 +73,8 @@ public sealed class PackageRootBinding
         CompileTargetFramework = compileTargetFramework;
         UsesCompatibleImplementationSelection =
             usesCompatibleImplementationSelection;
+        HasFrozenImplementationSelection =
+            hasFrozenImplementationSelection;
     }
 
     public PackageRootRealization Root { get; }
@@ -86,6 +89,8 @@ public sealed class PackageRootBinding
 
     internal bool UsesCompatibleImplementationSelection { get; }
 
+    internal bool HasFrozenImplementationSelection { get; }
+
     /// <summary>
     /// Issues the exact, resource-free request that repeats this logical Root
     /// under another host's acquisition capabilities.
@@ -93,8 +98,9 @@ public sealed class PackageRootBinding
     /// <remarks>
     /// The issued value preserves the realized producer-pinned coordinate and
     /// the normalized compile and implementation selection targets separately,
-    /// and carries no content, generation identity, selection identity,
-    /// workspace identity, lease, opener, or path authority. Gated by
+    /// including whether compatible selection froze one unique implementation
+    /// universe, and carries no content, generation identity, selection
+    /// identity, workspace identity, lease, opener, or path authority. Gated by
     /// <c>SparsePackageAssemblyProjectionTests.ReacquisitionRequest_IsExactResourceFreeAndSeparatesTargets</c>.
     /// </remarks>
     public PackageRootReacquisitionRequest CreateReacquisitionRequest() =>
@@ -211,7 +217,8 @@ public sealed class PackageRootBinding
             coordinate.RuntimeIdentifier,
             selection,
             request.CompileTargetFramework,
-            request.UsesCompatibleImplementationSelection);
+            request.UsesCompatibleImplementationSelection,
+            request.HasFrozenImplementationSelection);
     }
 
     internal static PackageRootBinding CreateFromReacquiredResolved(
@@ -233,7 +240,8 @@ public sealed class PackageRootBinding
             coordinate.RuntimeIdentifier,
             selection,
             request.CompileTargetFramework,
-            request.UsesCompatibleImplementationSelection);
+            request.UsesCompatibleImplementationSelection,
+            request.HasFrozenImplementationSelection);
     }
 
     /// <summary>
@@ -317,10 +325,7 @@ public sealed class PackageRootBinding
             return null;
         }
 
-        if (string.Equals(
-                compileTargetFramework,
-                selectionTargetFramework,
-                StringComparison.Ordinal))
+        if (!request.HasFrozenImplementationSelection)
         {
             PackageCompileAssetSelection exactSelection =
                 PackageCompileAssetSelector.Select(
@@ -463,7 +468,8 @@ public sealed class PackageRootBinding
         string? runtimeIdentifier,
         PackageCompileAssetSelection? assetSelection = null,
         string? compileTargetFramework = null,
-        bool usesCompatibleImplementationSelection = false)
+        bool usesCompatibleImplementationSelection = false,
+        bool? hasFrozenImplementationSelection = null)
     {
         if (!displayPackageId.Equals(
                 coordinatePackageId,
@@ -514,7 +520,12 @@ public sealed class PackageRootBinding
             content.GenerationIdentity,
             new PackageRootSelectionIdentity(),
             compileTargetFramework ?? targetFramework,
-            usesCompatibleImplementationSelection);
+            usesCompatibleImplementationSelection,
+            hasFrozenImplementationSelection
+                ?? (usesCompatibleImplementationSelection
+                    && root.AssetSelection.Status
+                        is PackageCompileAssetSelectionStatus.Selected
+                            or PackageCompileAssetSelectionStatus.EmptyCompileGroup));
     }
 
     internal static string? SourceAcquisitionFramework(string? targetFramework) =>

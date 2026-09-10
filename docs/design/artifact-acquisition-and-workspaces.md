@@ -3075,7 +3075,7 @@ requests are equal exactly when this owner classifies them as the same logical
 Root. It is not `PackageArtifactRootCorrespondence` and carries no Workspace
 identity.
 
-The request preserves four facts separately:
+The request preserves five facts separately:
 
 - the realized producer-pinned acquisition coordinate, whose acquisition
   framework may be absent for framework-neutral source acquisition; and
@@ -3084,14 +3084,19 @@ The request preserves four facts separately:
 - the normalized implementation-selection target and runtime identifier that
   froze the binding's implementation universe; and
 - whether an exact compile-target miss invokes compatible implementation
-  selection, including when that selection produces no unique universe.
+  selection; and
+- whether that compatible selection froze one unique implementation universe
+  or remained unresolved.
 
 Keeping them separate is load-bearing. Framework-neutral acquisition may pair
 with a real compile target. Compatible implementation selection may instead
-pair a requested compile target with an older implementation target. Collapsing
-either pair, or omitting compatible-selection intent when no unique universe
-exists, would fail with `MissingAcquisitionTarget` or silently select a
-different compile or implementation outcome.
+pair a requested compile target with an older implementation target. A raw
+framework alias may also normalize the compile and implementation targets to
+the same text even though compatible selection froze a distinct package
+folder. Collapsing either pair, inferring frozen state from target equality, or
+omitting compatible-selection intent when no unique universe exists would fail
+with `MissingAcquisitionTarget` or silently select a different compile or
+implementation outcome.
 
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
@@ -3194,10 +3199,15 @@ single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
 encoding are owner-owned, and only the owner's decode reads it. Current
-`pkgroot3` tokens carry the separate compile and implementation targets plus
-compatible-selection intent. Previous `pkgroot2` tokens infer that intent when
-their two targets differ. Legacy `pkgroot1` tokens decode only with their one
-target applied to both roles. Older tokens re-encode in the current format.
+`pkgroot4` tokens carry the separate compile and implementation targets,
+compatible-selection intent, and whether that selection froze a unique
+universe or remained unresolved. Previous `pkgroot3` tokens carry only
+compatible-selection intent; because equal targets cannot distinguish a
+successful canonical alias from an unresolved selection, their compatible
+form decodes conservatively as frozen rather than risk substituting replacement
+bytes. Earlier `pkgroot2` tokens infer compatible frozen selection when their
+two targets differ. Legacy `pkgroot1` tokens decode only with their one target
+applied to both roles. Older tokens re-encode in the current format.
 No form carries content,
 generation, Workspace identity, session, lease, path, source URL, or
 credential.
@@ -3257,6 +3267,12 @@ target, preserving the frozen target as a visible no-match.
 `CompatibleFrameworkAlias_ReacquisitionKeepsRetainedFrozenTarget` gates
 replacement content that retains the frozen alias while adding a newer
 compatible target.
+`CompatibleFrameworkAlias_EqualCanonicalTargetRejectsReplacement` gates a raw
+alias whose canonical identity equals the compile target, proving target
+equality cannot erase frozen-selection state.
+`CompatibleUnresolvedSelection_ReacquisitionCanSelectReplacementUniverse`
+gates the neighboring unresolved-compatible mode that may still reduce a
+replacement generation.
 `CompatibleFrameworkAliases_ReacquisitionRemainsInvalid` gates multiple raw
 implementation folders for one frozen canonical identity.
 `CompatibleAmbiguousImplementationLayout_ReacquisitionRemainsInvalid` gates
