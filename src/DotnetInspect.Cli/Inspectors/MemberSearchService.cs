@@ -27,8 +27,34 @@ internal static class MemberSearchService
         FindOptions options,
         IReadOnlyList<string> patterns,
         VerboseLogger logger,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        CancellationToken cancellationToken = default)
     {
+        AssemblySetRequest request =
+            FindSourceCollector.BuildFindRequest(options);
+        if (ConfiguredPackageSearchWorkspace.IsEligible(
+                options.SourceSelection,
+                request,
+                options.Tfm,
+                options.Limit))
+        {
+            await using ConfiguredPackageSearchWorkspace? configured =
+                await ConfiguredPackageSearchWorkspace.OpenAsync(
+                    httpClient,
+                    request,
+                    options.Tfm!,
+                    logger.Log,
+                    cancellationToken);
+            return configured is null
+                ? []
+                : await CollectMembersAsync(
+                    options,
+                    patterns,
+                    logger,
+                    configured,
+                    cancellationToken);
+        }
+
         using var workspace = new AssemblySetInspectionWorkspace();
         return await CollectMembersAsync(
             options,
@@ -69,52 +95,11 @@ internal static class MemberSearchService
                     options.Limit.HasValue
                         ? options.Limit.Value - results.Count
                         : null),
-                (assembly, entry) =>
-                {
-                    switch (entry)
-                    {
-                        case AssemblyContextEntry<
-                            AssemblyMemberMatches>.Available available:
-                            foreach (MemberSearchResult member
-                                in available.Value.Members)
-                            {
-                                results.Add(new MemberFindResult
-                                {
-                                    Pattern = member.Pattern,
-                                    Match = member.IsGlob
-                                        ? MatchKind.Glob
-                                        : MatchKind.Exact,
-                                    Member = member.MemberName,
-                                    Kind = member.Kind,
-                                    DeclaringType = member.DeclaringType,
-                                    Namespace =
-                                        member.DeclaringNamespace ?? "",
-                                    Signature = member.Signature,
-                                    ReturnType = member.ReturnType,
-                                    Library =
-                                        Path.GetFileNameWithoutExtension(
-                                            assembly.Path),
-                                    Source = assembly.Source,
-                                    SourceVersion = assembly.Version,
-                                });
-                            }
-                            WriteInspectionFailures(
-                                assembly,
-                                available.Value.InspectionFailures,
-                                logger);
-                            break;
-                        case AssemblyContextEntry<
-                            AssemblyMemberMatches>.Rejected rejected:
-                            CommandError.WriteWarning(
-                                $"Could not read {assembly.Path}: {rejected.Failure.Detail}");
-                            break;
-                        case AssemblyContextEntry<
-                            AssemblyMemberMatches>.Failed failed:
-                            CommandError.WriteWarning(
-                                $"Could not read {assembly.Path}: {failed.Error.Message}");
-                            break;
-                    }
-                },
+                (assembly, entry) => AddMembers(
+                    results,
+                    SearchAssemblySource.FromAssemblySet(assembly),
+                    entry,
+                    logger),
                 (assembly, failure) =>
                     CommandError.WriteWarning(
                         $"Could not read {assembly.Path}: {failure}"),
@@ -131,8 +116,94 @@ internal static class MemberSearchService
         return results;
     }
 
+    private static async Task<List<MemberFindResult>> CollectMembersAsync(
+        FindOptions options,
+        IReadOnlyList<string> patterns,
+        VerboseLogger logger,
+        ConfiguredPackageSearchWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        List<MemberFindResult> results = [];
+        ConfiguredPackageSearchQueryResult<
+            AssemblyContextResult<AssemblyMemberMatches>>? execution =
+                await workspace.QuerySurfaceAsync(
+                    context =>
+                        AssemblyContextMemberMatchesQuery.Execute(
+                            context.Group,
+                            patterns,
+                            options.IncludeAll),
+                    cancellationToken);
+        if (execution?.Sources is not { } sources
+            || execution.Result is not { } queryResult)
+        {
+            return results;
+        }
+
+        foreach (AssemblyContextEntry<AssemblyMemberMatches> entry
+            in queryResult.Assemblies)
+        {
+            AddMembers(
+                results,
+                sources.SourceFor(entry.Subject),
+                entry,
+                logger);
+        }
+        return results;
+    }
+
+    private static void AddMembers(
+        List<MemberFindResult> results,
+        SearchAssemblySource assembly,
+        AssemblyContextEntry<AssemblyMemberMatches> entry,
+        VerboseLogger logger)
+    {
+        switch (entry)
+        {
+            case AssemblyContextEntry<
+                AssemblyMemberMatches>.Available available:
+                foreach (MemberSearchResult member
+                    in available.Value.Members)
+                {
+                    results.Add(new MemberFindResult
+                    {
+                        Pattern = member.Pattern,
+                        Match = member.IsGlob
+                            ? MatchKind.Glob
+                            : MatchKind.Exact,
+                        Member = member.MemberName,
+                        Kind = member.Kind,
+                        DeclaringType = member.DeclaringType,
+                        Namespace =
+                            member.DeclaringNamespace ?? "",
+                        Signature = member.Signature,
+                        ReturnType = member.ReturnType,
+                        Library = assembly.Library,
+                        Source = assembly.Source,
+                        SourceVersion = assembly.SourceVersion,
+                    });
+                }
+                WriteInspectionFailures(
+                    assembly,
+                    available.Value.InspectionFailures,
+                    logger);
+                break;
+            case AssemblyContextEntry<
+                AssemblyMemberMatches>.Rejected rejected:
+                CommandError.WriteWarning(
+                    $"Could not read {assembly.DiagnosticSubject}: "
+                    + rejected.Failure.Detail);
+                break;
+            case AssemblyContextEntry<
+                AssemblyMemberMatches>.Failed failed:
+                CommandError.WriteWarning(
+                    $"Could not read {assembly.DiagnosticSubject}: "
+                    + failed.Error.Message);
+                break;
+        }
+    }
+
     private static void WriteInspectionFailures(
-        AssemblySetEntry assembly,
+        SearchAssemblySource assembly,
         ImmutableArray<ApiSurfaceInspectionFailure> failures,
         VerboseLogger logger)
     {
@@ -140,7 +211,8 @@ internal static class MemberSearchService
             return;
 
         CommandError.WriteWarning(
-            $"Member search in {assembly.Path} skipped {failures.Length} metadata row(s).");
+            $"Member search in {assembly.DiagnosticSubject} skipped "
+            + $"{failures.Length} metadata row(s).");
         foreach (ApiSurfaceInspectionFailure failure in failures)
         {
             logger.LogWarning(

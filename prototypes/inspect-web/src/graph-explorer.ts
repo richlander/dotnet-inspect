@@ -2,8 +2,10 @@ import { trapModalTab } from "./shell-controls.ts";
 
 export interface GraphExplorerTarget {
   key: string;
-  title: string;
+  kind: string;
+  subject: string;
   context: string;
+  summary: string;
   content: HTMLElement;
   invoker: HTMLElement;
 }
@@ -18,8 +20,10 @@ export function createGraphExplorer(document: Document) {
   let placeholder: Comment | null = null;
   let dialog: HTMLDialogElement | null = null;
   let contentHost: HTMLElement | null = null;
+  let kind: HTMLElement | null = null;
   let heading: HTMLElement | null = null;
   let context: HTMLElement | null = null;
+  let summary: HTMLElement | null = null;
   let focusId = "";
 
   function releaseContent() {
@@ -34,9 +38,12 @@ export function createGraphExplorer(document: Document) {
     placeholder = document.createComment("inline graph");
     next.content.before(placeholder);
     contentHost!.replaceChildren(next.content);
-    heading!.textContent = next.title;
+    dialog!.setAttribute("aria-label", next.kind);
+    kind!.textContent = next.kind;
+    heading!.textContent = next.subject;
     context!.textContent = next.context;
     context!.title = next.context;
+    summary!.textContent = next.summary;
   }
 
   function close(restoreFocus = true): boolean {
@@ -49,8 +56,10 @@ export function createGraphExplorer(document: Document) {
     dialog = null;
     target = null;
     contentHost = null;
+    kind = null;
     heading = null;
     context = null;
+    summary = null;
     focusId = "";
     if (restoreFocus && invoker.isConnected) {
       if (!invoker.matches(":disabled")) {
@@ -72,16 +81,23 @@ export function createGraphExplorer(document: Document) {
       close(false);
       dialog = document.createElement("dialog");
       dialog.className = "graph-explorer";
-      dialog.setAttribute("aria-labelledby", "graph-explorer-title");
       dialog.innerHTML = `
         <header class="graph-explorer-head">
-          <h2 id="graph-explorer-title" tabindex="-1"></h2>
-          <span class="graph-explorer-context"></span>
+          <div class="graph-explorer-heading">
+            <div class="graph-explorer-meta">
+              <span class="graph-explorer-kind"></span>
+              <span class="graph-explorer-summary"></span>
+            </div>
+            <h2 id="graph-explorer-title" tabindex="-1"></h2>
+            <span class="graph-explorer-context"></span>
+          </div>
           <button type="button" id="graph-explorer-close">Close</button>
         </header>
         <div class="graph-explorer-content"></div>`;
+      kind = dialog.querySelector<HTMLElement>(".graph-explorer-kind")!;
       heading = dialog.querySelector<HTMLElement>("h2")!;
       context = dialog.querySelector<HTMLElement>(".graph-explorer-context")!;
+      summary = dialog.querySelector<HTMLElement>(".graph-explorer-summary")!;
       contentHost = dialog.querySelector<HTMLElement>(".graph-explorer-content")!;
       dialog.querySelector("button")!.addEventListener("click", () => close());
       dialog.addEventListener("cancel", event => {

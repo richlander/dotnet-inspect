@@ -100,6 +100,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Comparison Document](design/comparison-document.md) | Portable root and subject composition for shared CLI/browser diffs and clone payloads, including referenced rename/move descriptions. |
 | [Clone Candidates Presentation](design/clone-candidate-presentation.md) | Portable globally ranked Workspace clone-search candidates, exact endpoint addresses, coverage, failures, suppression, and receipts. |
 | [Library API Diff Presentation](design/library-api-diff-presentation.md) | Portable Library-root changed-Type composition with complete compatibility changes and distinct changed-member summaries. |
+| [Inspect Web Compare Experience](design/inspect-web-compare-experience.md) | Browser Diff/Clone mode and exact Library-to-Type-to-Member drill-down, with whole-Type Diff and Member detail/Explore boundaries. |
 | [Performance Analysis Baselines](analysis-baselines.md) | Internal baselines of what each analysis type finds over a fixed corpus, with effectiveness ratings for the one-stop-shop Performance Analysis view. |
 | [Dynamic Leak-Watch](design/dynamic-leak-watch.md) | The retention axis: how `runfaster leak-watch` separates a managed leak from a churn storm from native/committed growth, and why static triage and the allocation-tick join cannot. |
 | [Rendering Model](design/rendering-model.md) | Historical/current rendering model notes; prefer [Progressive Disclosure](design/progressive-disclosure.md) for current agent-facing behavior. |
@@ -133,7 +134,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Local Folder Package Source](design/local-folder-package-source.md) | General V2/V3 folder-feed recognition, independent capabilities, bounded filesystem and archive observation, typed failures, and payload lifetime. |
 | [Package Source Model](design/package-source-model.md) | Configured package authority, mapping, source-result adoption, aggregation, selection, and cache authorization. |
 | [Package Payload Capacity](design/package-payload-capacity.md) | Awaited host-capacity reservation before response materialization, cancellation, and publication handoff. |
-| [Version Resolution](design/version-resolution.md) | Package/platform version and cache behavior. |
+| [Version Resolution](design/version-resolution.md) | Resource-free package version-selection requests and receipts plus current package/platform version and cache behavior. |
 | [Cache concurrency and publication](design/cache-concurrency.md) | Process-local single-flight, cross-process atomic publication, dependency overlap, and filesystem guarantees. |
 | [Package Index Cache](design/package-index-cache.md) | Persistent filesystem-derived package inspection identity, completeness, freshness, validation, and reuse. |
 | [Package Metadata Persistence](design/package-metadata-persistence.md) | Authority-scoped, time-bounded present and absent metadata observations, production completion, field-state preservation, and reuse. |

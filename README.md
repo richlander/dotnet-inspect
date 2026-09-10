@@ -147,6 +147,7 @@ stderr rather than mixed into structured output.
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, vulnerability data, custom feeds, and NuGet config support. |
 | Project package skills and docs | `project` | Direct dependency `Skills` rows from valid package `skills/**/SKILL.md` files plus version-resolved package docs in a restored project context. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
+| Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL and selected-member authored-source evidence. |
@@ -184,6 +185,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
+| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
 | `workspace` | Render the committed ordered package Roots of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact package Root a `find --literal` result names. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
@@ -199,6 +201,17 @@ you need them.
 Integration support is exposed through `@Integrations` or focused
 `Integration: ...` sections such as `Integration: Logging` or
 `Integration: OpenTelemetry`.
+
+Use `ecosystem` to inspect which ecosystem packs and Integration bindings are
+configured into this build. This is catalog knowledge, not evidence from an
+acquired library:
+
+```bash
+dotnet-inspect ecosystem
+dotnet-inspect ecosystem aspire
+dotnet-inspect ecosystem aspire -S Integrations
+dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
+```
 
 All integrations are enabled by default. Discover the supported ecosystem
 predicate with `library -Q Integrations`, then narrow the ordinary result:

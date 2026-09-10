@@ -19,7 +19,9 @@ namespace DotnetInspect.Cli.Commands;
 /// </summary>
 public class ExtensionsCommand
 {
-    public static async Task<int> ExecuteAsync(ExtensionsOptions options)
+    public static async Task<int> ExecuteAsync(
+        ExtensionsOptions options,
+        CancellationToken cancellationToken = default)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -37,7 +39,12 @@ public class ExtensionsCommand
                 };
             }
 
-            var results = await ScanExtensionsAsync(options, context, logger, targetType);
+            var results = await ScanExtensionsAsync(
+                options,
+                context,
+                logger,
+                targetType,
+                cancellationToken);
 
             // Apply limit
             if (options.Limit.HasValue && results.Count > options.Limit.Value)
@@ -89,87 +96,126 @@ public class ExtensionsCommand
         ExtensionsOptions options,
         CommandContext context,
         VerboseLogger logger,
-        string targetType)
+        string targetType,
+        CancellationToken cancellationToken)
     {
-        using var assemblySet = await AssemblySetResolver.CollectAsync(
-            context.HttpClient,
-            options.ToAssemblySetRequest("inspect-ext"),
-            logger.Log);
-        AssemblySetDiagnosticWriter.Write(assemblySet);
-
         List<ExtensionMethodResult> results = [];
-        var censuses = new List<ExtensionAssemblyCensus>(
-            assemblySet.Assemblies.Count);
+        var censuses = new List<ExtensionAssemblyCensus>();
         ImmutableArray<ExtensionReachableTypePath> reachableTypes = [];
-        using var workspace = new AssemblySetInspectionWorkspace();
-        if (options.Reachable)
+        AssemblySetRequest request =
+            options.ToAssemblySetRequest("inspect-ext");
+        if (ConfiguredPackageSearchWorkspace.IsEligible(
+                options.SourceSelection,
+                request,
+                options.Tfm))
         {
-            workspace.RunGroup(
-                assemblySet,
-                (group, entries) =>
+            await using ConfiguredPackageSearchWorkspace? configured =
+                await ConfiguredPackageSearchWorkspace.OpenAsync(
+                    context.HttpClient,
+                    request,
+                    options.Tfm!,
+                    logger.Log,
+                    cancellationToken);
+            if (configured is not null)
+            {
+                ConfiguredPackageSearchQueryResult<
+                    ExtensionSearchQueryResult>? execution =
+                        await configured.QuerySurfaceAsync(
+                            queryContext =>
+                                ExecuteQueries(
+                                    queryContext.Group,
+                                    options,
+                                    targetType),
+                            cancellationToken);
+                if (execution?.Sources is { } sources
+                    && execution.Result is { } queryResult)
                 {
-                    var registry =
-                        new InspectionQueryRegistry<AssemblyContextGroup>()
-                            .Add(
-                                AssemblyContextExtensionMethodsQuery.Definition,
-                                contextGroup =>
-                                    AssemblyContextExtensionMethodsQuery.Execute(
-                                        contextGroup,
-                                        options.IncludeAll))
-                            .Add(
-                                AssemblyContextExtensionReachabilityQuery.Definition,
-                                contextGroup =>
-                                    AssemblyContextExtensionReachabilityQuery.Execute(
-                                        contextGroup,
-                                        targetType,
-                                        options.Depth));
-                    InspectionQueryResults queryResults = registry.Run(
-                        [
-                            AssemblyContextExtensionMethodsQuery.Definition,
-                            AssemblyContextExtensionReachabilityQuery.Definition,
-                        ],
-                        group);
-                    AssemblyContextResult<
-                        ImmutableArray<ExtensionMethodInfo>> extensionMethods =
-                        queryResults.Get(
-                            AssemblyContextExtensionMethodsQuery.Definition);
                     foreach (AssemblyContextEntry<
-                        ImmutableArray<ExtensionMethodInfo>> entry
-                        in extensionMethods.Assemblies)
+                        ImmutableArray<ExtensionMethodInfo>> extensionMethods
+                        in queryResult.ExtensionMethods.Assemblies)
                     {
                         censuses.Add(
                             CreateExtensionCensus(
-                                entries.EntryFor(entry.Subject),
-                                entry));
+                                sources.SourceFor(
+                                    extensionMethods.Subject),
+                                extensionMethods));
                     }
-
-                    AssemblyContextExtensionReachabilityResult reachability =
-                        queryResults.Get(
-                            AssemblyContextExtensionReachabilityQuery.Definition);
-                    WriteReachabilityFailures(reachability, entries);
-                    reachableTypes = reachability.ReachableTypes;
-                },
-                (assembly, failure) =>
-                    censuses.Add(
-                        FailedExtensionCensus(
-                            assembly,
-                            failure)));
+                    if (queryResult.Reachability is { } reachability)
+                    {
+                        WriteReachabilityFailures(
+                            reachability,
+                            sources.SourceFor);
+                        reachableTypes = reachability.ReachableTypes;
+                    }
+                }
+            }
         }
         else
         {
-            workspace.RunPerAssembly(
-                assemblySet,
-                AssemblyContextExtensionMethodsQuery.Definition,
-                group => AssemblyContextExtensionMethodsQuery.Execute(
-                    group,
-                    options.IncludeAll),
-                (assembly, entry) =>
-                    censuses.Add(CreateExtensionCensus(assembly, entry)),
-                (assembly, failure) =>
-                    censuses.Add(
-                        FailedExtensionCensus(
-                            assembly,
-                            failure)));
+            using var assemblySet =
+                await AssemblySetResolver.CollectAsync(
+                    context.HttpClient,
+                    request,
+                    logger.Log);
+            AssemblySetDiagnosticWriter.Write(assemblySet);
+
+            using var workspace =
+                new AssemblySetInspectionWorkspace();
+            if (options.Reachable)
+            {
+                workspace.RunGroup(
+                    assemblySet,
+                    (group, entries) =>
+                    {
+                        ExtensionSearchQueryResult queryResult =
+                            ExecuteQueries(group, options, targetType);
+                        foreach (AssemblyContextEntry<
+                            ImmutableArray<ExtensionMethodInfo>> entry
+                            in queryResult.ExtensionMethods.Assemblies)
+                        {
+                            censuses.Add(
+                                CreateExtensionCensus(
+                                    SearchAssemblySource.FromAssemblySet(
+                                        entries.EntryFor(entry.Subject)),
+                                    entry));
+                        }
+
+                        WriteReachabilityFailures(
+                            queryResult.Reachability!,
+                            subject =>
+                                SearchAssemblySource.FromAssemblySet(
+                                    entries.EntryFor(subject)));
+                        reachableTypes =
+                            queryResult.Reachability!.ReachableTypes;
+                    },
+                    (assembly, failure) =>
+                        censuses.Add(
+                            FailedExtensionCensus(
+                                SearchAssemblySource.FromAssemblySet(
+                                    assembly),
+                                failure)));
+            }
+            else
+            {
+                workspace.RunPerAssembly(
+                    assemblySet,
+                    AssemblyContextExtensionMethodsQuery.Definition,
+                    group => AssemblyContextExtensionMethodsQuery.Execute(
+                        group,
+                        options.IncludeAll),
+                    (assembly, entry) =>
+                        censuses.Add(
+                            CreateExtensionCensus(
+                                SearchAssemblySource.FromAssemblySet(
+                                    assembly),
+                                entry)),
+                    (assembly, failure) =>
+                        censuses.Add(
+                            FailedExtensionCensus(
+                                SearchAssemblySource.FromAssemblySet(
+                                    assembly),
+                                failure)));
+            }
         }
 
         var availableCensuses = new List<ExtensionAssemblyCensus>(censuses.Count);
@@ -203,9 +249,51 @@ public class ExtensionsCommand
         return results;
     }
 
+    private static ExtensionSearchQueryResult ExecuteQueries(
+        AssemblyContextGroup group,
+        ExtensionsOptions options,
+        string targetType)
+    {
+        if (!options.Reachable)
+        {
+            return new(
+                AssemblyContextExtensionMethodsQuery.Execute(
+                    group,
+                    options.IncludeAll),
+                Reachability: null);
+        }
+
+        var registry =
+            new InspectionQueryRegistry<AssemblyContextGroup>()
+                .Add(
+                    AssemblyContextExtensionMethodsQuery.Definition,
+                    contextGroup =>
+                        AssemblyContextExtensionMethodsQuery.Execute(
+                            contextGroup,
+                            options.IncludeAll))
+                .Add(
+                    AssemblyContextExtensionReachabilityQuery.Definition,
+                    contextGroup =>
+                        AssemblyContextExtensionReachabilityQuery.Execute(
+                            contextGroup,
+                            targetType,
+                            options.Depth));
+        InspectionQueryResults queryResults = registry.Run(
+            [
+                AssemblyContextExtensionMethodsQuery.Definition,
+                AssemblyContextExtensionReachabilityQuery.Definition,
+            ],
+            group);
+        return new(
+            queryResults.Get(
+                AssemblyContextExtensionMethodsQuery.Definition),
+            queryResults.Get(
+                AssemblyContextExtensionReachabilityQuery.Definition));
+    }
+
     internal static void WriteReachabilityFailures(
         AssemblyContextExtensionReachabilityResult reachability,
-        AssemblyContextEntryMap entries)
+        Func<AssemblyContextSubject, SearchAssemblySource> sourceFor)
     {
         foreach (AssemblyContextEntry<
             ImmutableArray<ExtensionReachabilityType>> entry
@@ -218,7 +306,7 @@ public class ExtensionsCommand
                         ExtensionReachabilityType>>.Rejected rejected:
                     CommandError.WriteWarning(
                         $"Extension reachability inspection failed for "
-                        + $"{entries.EntryFor(entry.Subject).Path}: "
+                        + $"{sourceFor(entry.Subject).DiagnosticSubject}: "
                         + rejected.Failure.Detail);
                     break;
                 case AssemblyContextEntry<
@@ -226,15 +314,24 @@ public class ExtensionsCommand
                         ExtensionReachabilityType>>.Failed failed:
                     CommandError.WriteWarning(
                         $"Extension reachability inspection failed for "
-                        + $"{entries.EntryFor(entry.Subject).Path}: "
+                        + $"{sourceFor(entry.Subject).DiagnosticSubject}: "
                         + failed.Error.Message);
                     break;
             }
         }
     }
 
+    internal static void WriteReachabilityFailures(
+        AssemblyContextExtensionReachabilityResult reachability,
+        AssemblyContextEntryMap entries) =>
+        WriteReachabilityFailures(
+            reachability,
+            subject =>
+                SearchAssemblySource.FromAssemblySet(
+                    entries.EntryFor(subject)));
+
     private static ExtensionAssemblyCensus CreateExtensionCensus(
-        AssemblySetEntry assembly,
+        SearchAssemblySource assembly,
         AssemblyContextEntry<ImmutableArray<ExtensionMethodInfo>> entry)
         => entry switch
         {
@@ -256,36 +353,43 @@ public class ExtensionsCommand
         };
 
     private static ExtensionAssemblyCensus AvailableExtensionCensus(
-        AssemblySetEntry assembly,
+        SearchAssemblySource assembly,
         IReadOnlyList<ExtensionMethodInfo> members)
         => new(
             assembly,
             members,
             MetadataFindings.InspectExtensionMembers(
                 members,
-                ExtensionSubject(assembly.Path)));
+                assembly.FindingSubject));
 
     private static ExtensionAssemblyCensus FailedExtensionCensus(
-        AssemblySetEntry assembly,
+        SearchAssemblySource assembly,
         string reason)
         => new(
             assembly,
             [],
             new FindingInspection<ExtensionMemberObservation>.Failed(
                 new InspectionError(
-                    ExtensionSubject(assembly.Path),
+                    assembly.FindingSubject,
                     MetadataFindings.ExtensionMemberDescriptor,
                     reason)));
 
-    private static FindingSubject ExtensionSubject(string path)
-        => new(
-            Path.GetFullPath(path),
-            Path.GetFileName(path));
-
     internal sealed record ExtensionAssemblyCensus(
-        AssemblySetEntry Assembly,
+        SearchAssemblySource Assembly,
         IReadOnlyList<ExtensionMethodInfo> Members,
-        FindingInspection<ExtensionMemberObservation> Inspection);
+        FindingInspection<ExtensionMemberObservation> Inspection)
+    {
+        internal ExtensionAssemblyCensus(
+            AssemblySetEntry assembly,
+            IReadOnlyList<ExtensionMethodInfo> members,
+            FindingInspection<ExtensionMemberObservation> inspection)
+            : this(
+                SearchAssemblySource.FromAssemblySet(assembly),
+                members,
+                inspection)
+        {
+        }
+    }
 
     internal static ExtensionAssemblyCensus InspectExtensionAssembly(
         AssemblySetEntry assembly,
@@ -295,11 +399,15 @@ public class ExtensionsCommand
         {
             using var session = AssemblyInspectionSession.Open(assembly.Path);
             var members = session.ExtensionMethods(includeAll).ToList();
-            return AvailableExtensionCensus(assembly, members);
+            return AvailableExtensionCensus(
+                SearchAssemblySource.FromAssemblySet(assembly),
+                members);
         }
         catch (Exception ex)
         {
-            return FailedExtensionCensus(assembly, ex.Message);
+            return FailedExtensionCensus(
+                SearchAssemblySource.FromAssemblySet(assembly),
+                ex.Message);
         }
     }
 
@@ -340,7 +448,9 @@ public class ExtensionsCommand
             if (observation is null)
             {
                 throw new InvalidOperationException(
-                    $"Extension member census for {census.Assembly.Path} does not correspond to its scanner inventory.");
+                    $"Extension member census for "
+                    + $"{census.Assembly.DiagnosticSubject} does not "
+                    + "correspond to its scanner inventory.");
             }
 
             if (!TypeMatcher.Matches(
@@ -355,11 +465,11 @@ public class ExtensionsCommand
                 MethodName = member.MethodName,
                 ExtensionClass = member.ExtensionClass,
                 ExtendedType = member.ExtendedType,
-                Assembly = Path.GetFileNameWithoutExtension(census.Assembly.Path),
+                Assembly = census.Assembly.Library,
                 Signature = member.Signature,
                 Kind = observation.Kind == ExtensionMemberKind.Method ? "method" : "property",
                 Source = census.Assembly.Source,
-                SourceVersion = census.Assembly.Version,
+                SourceVersion = census.Assembly.SourceVersion,
                 ReachablePath = reachablePath,
                 ReachableFromType = reachableFromType,
             });
@@ -430,4 +540,9 @@ public class ExtensionsCommand
             })
             .ToList();
     }
+
+    private sealed record ExtensionSearchQueryResult(
+        AssemblyContextResult<ImmutableArray<ExtensionMethodInfo>>
+            ExtensionMethods,
+        AssemblyContextExtensionReachabilityResult? Reachability);
 }
