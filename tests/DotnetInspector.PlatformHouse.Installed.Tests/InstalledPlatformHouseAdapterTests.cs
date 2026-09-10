@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Installed;
 
@@ -10,9 +11,7 @@ public sealed class InstalledPlatformHouseAdapterTests
     {
         using var hive = new TestHive();
         hive.CreateReferencePack();
-        var adapter = new InstalledPlatformHouseAdapter(
-            hive.CreateSource(),
-            "installed");
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
         PlatformHouseRequest request = SelectingRequest(
             adapter,
             cancellationToken: TestContext.Current.CancellationToken);
@@ -41,9 +40,7 @@ public sealed class InstalledPlatformHouseAdapterTests
     public void DiscoverTargets_RejectsUnauthorizedCapabilityBeforeSourceWork()
     {
         using var hive = new TestHive();
-        var adapter = new InstalledPlatformHouseAdapter(
-            hive.CreateSource(),
-            "installed");
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
         PlatformHouseRequest request = SelectingRequest(
             adapter,
             authorizeCapability: false,
@@ -71,9 +68,7 @@ public sealed class InstalledPlatformHouseAdapterTests
         hive.CopyAssembly(
             directory,
             typeof(InstalledPlatformHouseAdapterTests).Assembly.Location);
-        var adapter = new InstalledPlatformHouseAdapter(
-            hive.CreateSource(),
-            "installed");
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
         PlatformFamilyTarget target = Target();
         PlatformHouseRequest request = ExactRequest(
             adapter,
@@ -103,9 +98,7 @@ public sealed class InstalledPlatformHouseAdapterTests
     {
         using var hive = new TestHive();
         hive.CreateReferencePack();
-        var adapter = new InstalledPlatformHouseAdapter(
-            hive.CreateSource(),
-            "installed");
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
         PlatformLibraryIdentity identity =
             PlatformLibraryIdentityAuthority.Create("test").Issue("library");
         PlatformHouseRequest request = ExactRequest(
@@ -131,9 +124,7 @@ public sealed class InstalledPlatformHouseAdapterTests
     {
         using var hive = new TestHive();
         hive.CreateReferencePack();
-        var adapter = new InstalledPlatformHouseAdapter(
-            hive.CreateSource(),
-            "installed");
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         PlatformHouseWorkBudget noWork = Work(
@@ -155,6 +146,42 @@ public sealed class InstalledPlatformHouseAdapterTests
             cancellationToken: cancellation.Token);
         await Assert.ThrowsAsync<OperationCanceledException>(
             async () => await adapter.RealizeReferenceAsync(realization));
+    }
+
+    [Fact]
+    public async Task RealizeImplementation_ProducesAuthoritativeExactTargetContribution()
+    {
+        using var hive = new TestHive();
+        string directory = hive.CreateImplementationFramework();
+        hive.CopyAssembly(
+            directory,
+            typeof(InstalledPlatformHouseAdapterTests).Assembly.Location);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformFamilyTarget target = Target();
+        PlatformHouseRequest request = ImplementationRequest(
+            adapter,
+            target,
+            new PlatformPopulationDemand.CompletePopulation(),
+            TestContext.Current.CancellationToken);
+
+        InstalledPlatformHouseResult<InstalledImplementationRealization>
+            result = await adapter.RealizeImplementationAsync(request);
+
+        var succeeded = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded>(result);
+        var contribution =
+            Assert.IsType<PlatformSourceContribution.Realization>(
+                succeeded.Contribution);
+        Assert.Equal(
+            PlatformSourceFacet.Implementation,
+            contribution.Facet);
+        Assert.Equal(
+            PlatformSourceContributionCompleteness.Authoritative,
+            contribution.RealizationCompleteness);
+        Assert.Same(target, contribution.Target);
+        Assert.Single(succeeded.Value.Frameworks);
+        Assert.Single(succeeded.Value.Libraries);
     }
 
     static PlatformHouseRequest SelectingRequest(
@@ -202,6 +229,24 @@ public sealed class InstalledPlatformHouseAdapterTests
                 PlatformSourceFacet.Reference,
                 adapter.Capabilities.ReferenceRealization),
             work ?? Work(),
+            cancellationToken);
+
+    static PlatformHouseRequest ImplementationRequest(
+        InstalledPlatformHouseAdapter adapter,
+        PlatformFamilyTarget target,
+        PlatformPopulationDemand population,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create("implementation"),
+            new PlatformTargetDemand.Exact(target),
+            Origin(),
+            new PlatformHouseOperation.Realize(
+                population,
+                PlatformViewDemand.Implementation),
+            Plan(
+                PlatformSourceFacet.Implementation,
+                adapter.Capabilities.ImplementationRealization),
+            Work(),
             cancellationToken);
 
     static PlatformSourcePlan Plan(
@@ -257,8 +302,11 @@ public sealed class InstalledPlatformHouseAdapterTests
         internal string Root { get; }
         internal InstalledDotnetHiveIdentity Identity { get; }
 
-        internal InstalledReferencePackSource CreateSource() =>
-            new(Identity, Root);
+        internal InstalledPlatformHouseAdapter CreateAdapter() =>
+            new(
+                new InstalledReferencePackSource(Identity, Root),
+                new InstalledImplementationPlatformSource(Identity, Root),
+                "installed");
 
         internal string CreateReferencePack()
         {
@@ -270,6 +318,43 @@ public sealed class InstalledPlatformHouseAdapterTests
                 "ref",
                 "net11.0");
             Directory.CreateDirectory(directory);
+            return directory;
+        }
+
+        internal string CreateImplementationFramework()
+        {
+            const string family = "Microsoft.NETCore.App";
+            const string version = "11.0.0";
+            string directory = Path.Combine(
+                Root,
+                "shared",
+                family,
+                version);
+            Directory.CreateDirectory(directory);
+            string assemblyName = Path.GetFileName(
+                typeof(InstalledPlatformHouseAdapterTests)
+                    .Assembly.Location);
+            File.WriteAllText(
+                Path.Combine(directory, family + ".deps.json"),
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        runtimeTarget = new { name = "target" },
+                        targets = new Dictionary<string, object>
+                        {
+                            ["target"] = new Dictionary<string, object>
+                            {
+                                [family + ".Runtime/" + version] = new
+                                {
+                                    runtime =
+                                        new Dictionary<string, object>
+                                        {
+                                            [assemblyName] = new { },
+                                        },
+                                },
+                            },
+                        },
+                    }));
             return directory;
         }
 
