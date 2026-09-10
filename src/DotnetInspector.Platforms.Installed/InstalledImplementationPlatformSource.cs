@@ -349,7 +349,11 @@ public sealed class InstalledImplementationPlatformSource
                         proposed[name].RollToHighestVersion;
                     provisionalFailures.Remove(name);
                     foreach (PlatformFrameworkReference parsed
-                        in snapshot.RuntimeConfiguration.Frameworks)
+                        in snapshot.RuntimeConfiguration.Frameworks
+                            .OrderBy(
+                                static reference =>
+                                    reference.Name.Value,
+                                StringComparer.Ordinal))
                     {
                         _cancellationToken.ThrowIfCancellationRequested();
                         try
@@ -391,15 +395,6 @@ public sealed class InstalledImplementationPlatformSource
                     effective = proposed;
                     continue;
                 }
-                if (provisionalFailures.Count > 0)
-                {
-                    throw provisionalFailures
-                        .OrderBy(
-                            static pair => pair.Key.Value,
-                            StringComparer.Ordinal)
-                        .First()
-                        .Value;
-                }
                 if (graphFailures.Count > 0)
                 {
                     throw graphFailures
@@ -408,6 +403,15 @@ public sealed class InstalledImplementationPlatformSource
                             StringComparer.Ordinal)
                         .First()
                         .Error;
+                }
+                if (provisionalFailures.Count > 0)
+                {
+                    throw provisionalFailures
+                        .OrderBy(
+                            static pair => pair.Key.Value,
+                            StringComparer.Ordinal)
+                        .First()
+                        .Value;
                 }
 
                 IReadOnlyList<PlatformFrameworkName> order =

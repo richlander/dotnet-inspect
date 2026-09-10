@@ -393,6 +393,51 @@ public sealed class InstalledImplementationPlatformSourceTests
                 && framework.Version.Value == "1.0.0");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Realize_FrameworkBudgetPrecedesMissingDependencyRegardlessOfOrder(
+        bool missingFirst)
+    {
+        using var hive = new TestHive();
+        hive.CreateFramework(
+            "Framework.Good",
+            "1.0.0",
+            runtimeConfiguration: null,
+            []);
+        hive.CreateFramework(
+            "Microsoft.AspNetCore.App",
+            "1.0.0",
+            missingFirst
+                ? RuntimeConfiguration(
+                    ("Framework.Missing", "1.0.0", "Minor"),
+                    ("Framework.Good", "1.0.0", "Minor"))
+                : RuntimeConfiguration(
+                    ("Framework.Good", "1.0.0", "Minor"),
+                    ("Framework.Missing", "1.0.0", "Minor")),
+            []);
+        var work = new InstalledImplementationWorkBudget(
+            maxFrameworks: 2,
+            maxResolutionSteps: 128,
+            maxManifestLibraries: 128,
+            maxManifestAssets: 512,
+            maxAssemblies: 64,
+            maxBytes: 64 * 1024 * 1024);
+
+        InstalledPlatformSourceOutcome<InstalledImplementationRealization>
+            outcome = await hive.CreateSource().RealizeAsync(
+                new InstalledImplementationRealizationRequest(
+                    hive.Coordinate(
+                        InstalledPlatformFamily.AspNetCore,
+                        "1.0.0"),
+                    work),
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<
+            InstalledPlatformSourceOutcome<
+                InstalledImplementationRealization>.Incomplete>(outcome);
+    }
+
     [Fact]
     public async Task Realize_RejectsFrameworkCycle()
     {
