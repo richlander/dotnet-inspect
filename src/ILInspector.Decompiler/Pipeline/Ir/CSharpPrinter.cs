@@ -6373,7 +6373,8 @@ public sealed partial class CSharpPrinter
     bool IsValueTypeTarget(TypeRef type)
         => TypeFamilies.IsNumericPrimitive(type)
             || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
-            || _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) is TypeShape.ValueType or TypeShape.Enum;
+            || !TypeFamilies.IsNullableType(type)
+                && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) is TypeShape.ValueType or TypeShape.Enum;
 
     /// <summary>The operator form of an op_* call, or null when the name has no spelling (op_True/op_False and friends stay as calls).</summary>
     string? OperatorSpelling(Call call)
