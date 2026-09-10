@@ -31,7 +31,7 @@ internal static class PromotionWorkflowContract
         """
         eng/verify-inspect-web-async-deployment.sh \
           compiler \
-          prototypes/inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+          inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
           artifacts/inspect-web-publish/wwwroot \
           artifacts/inspect-web-publish/async-lowering.json \
           artifacts/inspect-web-compiler-async-receipts
@@ -41,7 +41,7 @@ internal static class PromotionWorkflowContract
         RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
           eng/verify-inspect-web-async-deployment.sh \
             runtime \
-            prototypes/inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+            inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
             artifacts/inspect-web-coreclr-publish/wwwroot \
             artifacts/inspect-web-coreclr-publish/async-lowering.json \
             artifacts/inspect-web-runtime-async-receipts
@@ -220,19 +220,19 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging contract accepted classic async lowering.");
         AssertMutationRejected(
             stagingWorkflow,
-            "prototypes/inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll",
-            "prototypes/inspect-web/DotnetInspect.Web/obj/Release/net11.0/linked/DotnetInspect.Web.dll",
+            "inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll",
+            "inspect-web/DotnetInspect.Web/obj/Release/net11.0/linked/DotnetInspect.Web.dll",
             ValidateStaging,
             "Staging contract accepted async evidence from the wrong assembly.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
-            "prototypes/inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll",
-            "prototypes/inspect-web/DotnetInspect.Web/obj/Release/net11.0/linked/DotnetInspect.Web.dll",
+            "inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll",
+            "inspect-web/DotnetInspect.Web/obj/Release/net11.0/linked/DotnetInspect.Web.dll",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted async evidence from the wrong assembly.");
         AssertMutationRejected(
             asyncVerifier,
-            "  \"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facades.ts\" \\\n  \"$site\" \\\n  deployment \\\n  \"$domain\" \\\n  \"$smoke_result\"\n",
+            "  \"$repo_root/inspect-web/scripts/verify-published-engine-facades.ts\" \\\n  \"$site\" \\\n  deployment \\\n  \"$domain\" \\\n  \"$smoke_result\"\n",
             "",
             ValidateAsyncDeploymentVerifier,
             "Async deployment verifier accepted a skipped browser invocation.");
@@ -882,7 +882,7 @@ internal static class PromotionWorkflowContract
             {
                 ["node-version"] = "24",
                 ["cache"] = "npm",
-                ["cache-dependency-path"] = "prototypes/inspect-web/package-lock.json",
+                ["cache-dependency-path"] = "inspect-web/package-lock.json",
             },
             "staging Node setup step.with");
 
@@ -904,7 +904,7 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["name"] = "Build browser frontend",
-                ["working-directory"] = "prototypes/inspect-web",
+                ["working-directory"] = "inspect-web",
                 ["run"] =
                     "npm ci\n" +
                     "npm run build\n" +
@@ -923,7 +923,7 @@ internal static class PromotionWorkflowContract
             version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
-              prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+              inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
               -c Release \
               --output artifacts/inspect-web-publish \
               -p:VersionPrefix="$version" \
@@ -1297,7 +1297,7 @@ internal static class PromotionWorkflowContract
             {
                 ["node-version"] = "24",
                 ["cache"] = "npm",
-                ["cache-dependency-path"] = "prototypes/inspect-web/package-lock.json",
+                ["cache-dependency-path"] = "inspect-web/package-lock.json",
             },
             "CoreCLR staging Node setup step.with");
 
@@ -1360,7 +1360,7 @@ internal static class PromotionWorkflowContract
             test -f "$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$DOTNET_RUNTIME_VERSION.nupkg"
 
             target_framework=$(dotnet msbuild \
-              prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+              inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
               -getProperty:TargetFramework \
               -nologo)
             test "$target_framework" = "net11.0"
@@ -1436,7 +1436,7 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["name"] = "Build browser frontend",
-                ["working-directory"] = "prototypes/inspect-web",
+                ["working-directory"] = "inspect-web",
                 ["run"] =
                     "npm ci\n" +
                     "npm run build\n" +
@@ -1493,7 +1493,7 @@ internal static class PromotionWorkflowContract
             version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
-              prototypes/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+              inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
               -c Release \
               --output artifacts/inspect-web-coreclr-publish \
               --configfile "$nuget_config" \
@@ -1641,7 +1641,7 @@ internal static class PromotionWorkflowContract
         string command =
             GetRequiredScalar(step, "run", context).Trim();
         string expected =
-            "dotnet publish prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj "
+            "dotnet publish inspect-web/msdl-proxy/MsdlProxy.csproj "
             + $"-c Release --output {output}";
         if (command != expected)
         {
@@ -1684,7 +1684,7 @@ internal static class PromotionWorkflowContract
             "if [[ \"${1:-}\" == \"--compare\" ]]",
             "commonTopLevel(compiler)",
             "compiler.assemblies.map(commonAssembly)",
-            "\"$repo_root/prototypes/inspect-web/scripts/verify-async-lowering.cs\"",
+            "\"$repo_root/inspect-web/scripts/verify-async-lowering.cs\"",
             "-getProperty:VersionPrefix",
             "\"$repo_root/eng/generate-inspect-web-engine-facade.sh\" \\\n  --contract",
             "\"$declarations\" \\\n  \"$version_prefix\"",
@@ -1693,9 +1693,9 @@ internal static class PromotionWorkflowContract
             "compiled InspectWebJsExportContext does not declare the exact facade set",
             "\"$tsc\" -p \"$compiled_sources/tsconfig.json\"",
             "differs from the freshly compiled context source",
-            "\"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facades.ts\"",
+            "\"$repo_root/inspect-web/scripts/verify-published-engine-facades.ts\"",
             "\"$site\" \\\n  deployment \\\n  \"$domain\"",
-            "\"$repo_root/prototypes/inspect-web/scripts/verify-async-project-graph.ts\"",
+            "\"$repo_root/inspect-web/scripts/verify-async-project-graph.ts\"",
             "async_method_count: census.async_method_count",
             "assembly_count: assemblies.length",
             "js_export_method_count: census.js_export_method_count",

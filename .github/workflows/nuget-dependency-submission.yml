@@ -29,7 +29,7 @@ jobs:
           dotnet --version
           dotnet restore dotnet-inspect.slnx -p:Configuration=Release
           dotnet restore eng/CiChangeDetection/CiChangeDetection.csproj -p:Configuration=Release
-          dotnet restore prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj -p:Configuration=Release
+          dotnet restore inspect-web/msdl-proxy/MsdlProxy.csproj -p:Configuration=Release
 
       - name: Submit the resolved NuGet graph
         uses: advanced-security/component-detection-dependency-submission-action@b282c67b1008fde9b60da4bdfcd8849613e293b2 # v0.1.6
