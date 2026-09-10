@@ -304,12 +304,13 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 selection);
             if (compositionRequired
                 && selection
-                    is AssemblyBindingSelection.Selected
-                && route.Delegate.Policy
-                    is SourceRelativeAssemblyGroupBindingPolicy
-                    {
-                        _composeParticipantSelections: false,
-                    })
+                    is AssemblyBindingSelection.Selected selected
+                && (!_routes.TryGetValue(
+                        selected.Assembly.Registration,
+                        out AssemblyRoute? canonicalRoute)
+                    || ReferenceEquals(
+                        canonicalRoute.Policy,
+                        route.Delegate.Policy)))
             {
                 compositionOrigin = route.RequestingOccurrence;
             }

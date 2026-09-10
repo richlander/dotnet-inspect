@@ -340,6 +340,45 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
     }
 
     [Fact]
+    public void Select_TransparentRoutingWrapperPreservesSelectingRoute()
+    {
+        var fallback = NamedDescriptor("Fallback");
+        var owner = NamedDescriptor("Owner");
+        var selected = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("selected overlay"));
+        var dependency = NamedDescriptor("Dependency");
+        var missing = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.NameNotOwned());
+        var selecting = new SelectionPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Platform.Library" }
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create([selected]))
+                : AssemblyBindingSelection.Found(dependency));
+        IAssemblyBindingPolicy inner =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [
+                    (fallback, (IAssemblyBindingPolicy)missing),
+                    (owner, (IAssemblyBindingPolicy)selecting),
+                ]);
+        var wrapped = new TransparentBindingPolicy(inner);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (fallback, (IAssemblyBindingPolicy)wrapped),
+                (owner, (IAssemblyBindingPolicy)wrapped),
+            ]);
+
+        var first = Selected(outer, Request(selected, owner));
+        var continued = Selected(
+            outer,
+            Request(dependency, first.Occurrence));
+
+        Assert.Same(selected, first.Assembly);
+        Assert.Same(dependency, continued.Assembly);
+    }
+
+    [Fact]
     public void Select_NestedTerminalAmbiguityPreservesInactiveOrder()
     {
         var owner = NamedDescriptor("Owner");
@@ -752,6 +791,16 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
             _select = replacement;
             Version = new();
         }
+    }
+
+    sealed class TransparentBindingPolicy(
+        IAssemblyBindingPolicy inner) : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version => inner.Version;
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) =>
+            inner.Select(request);
     }
 
     sealed class ForeignSnapshotPolicy(

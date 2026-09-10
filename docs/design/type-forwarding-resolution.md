@@ -1871,7 +1871,9 @@ instead continues through that participant's configured policy. The adjacent
 source-relative arbitration owner consumes a compatible domain from the
 handoff itself even when none of its members was an initial group root; root
 membership cannot substitute for, or be required in addition to, the identity
-owner's completeness statement.
+owner's completeness statement. Selecting-route preservation depends on the
+configured route relationship, not the immediate delegate's concrete type, so
+a transparent policy facade cannot erase the handoff continuation.
 
 A source-relative group's local name-owner mismatch rule applies after
 `NoNameOwner`, when no candidate evidence exists. It cannot replace a terminal
@@ -1929,6 +1931,10 @@ consumption when no handoff member is an initial group root.
 `Select_RoutingOnlyCompositionPreservesSelectingRoute` jointly gate the
 continuation distinction between a direct canonical-participant handoff and a
 handoff forwarded by a routing-only composite.
+`Select_TransparentRoutingWrapperPreservesSelectingRoute` and
+`AssemblyContextParticipantTests.OccurrenceRootedParticipant_PreservesRoutingCompositionContinuation`
+gate the same selecting-route continuation through transparent and
+occurrence-rooted policy facades.
 `MemberCallGraphSessionTests.CrossLibrary_ResolvedVersionSkewIsNotIncomplete`
 and `CrossLibraryCalleeNeighborhood_ResolvedVersionSkewStaysExternal` gate the
 observable query consequence: an exact terminal selection outside the group is

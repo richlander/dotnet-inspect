@@ -111,6 +111,58 @@ public sealed class AssemblyContextParticipantTests
             dependencyParticipant.BindingPolicy.Version);
     }
 
+    [Fact]
+    public void OccurrenceRootedParticipant_PreservesRoutingCompositionContinuation()
+    {
+        ResolvedAssemblyReference fallback = Descriptor("Fallback");
+        ResolvedAssemblyReference owner = Descriptor("Owner");
+        ResolvedAssemblyReference selected = Descriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("selected overlay"));
+        ResolvedAssemblyReference dependency = Descriptor("Dependency");
+        var missing = new SelectingPolicy(_ =>
+            AssemblyBindingSelection.NameNotOwned());
+        var selecting = new SelectingPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Platform.Library" }
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create([selected]))
+                : AssemblyBindingSelection.Found(dependency));
+        IAssemblyBindingPolicy routing =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [
+                    (fallback, (IAssemblyBindingPolicy)missing),
+                    (owner, (IAssemblyBindingPolicy)selecting),
+                ]);
+        IAssemblyBindingPolicy participant =
+            new AssemblyContextParticipant(
+                AssemblyBindingOccurrence.Seed(owner),
+                routing)
+                .BindingPolicy;
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (fallback, participant),
+                (owner, participant),
+            ]);
+
+        var first = Assert.IsType<AssemblyBindingSelection.Selected>(
+            outer.Select(
+                    Request(
+                        selected,
+                        AssemblyBindingOrigin.FromAssembly(owner)))
+                .Selection);
+        var continued = Assert.IsType<AssemblyBindingSelection.Selected>(
+            outer.Select(
+                    Request(
+                        dependency,
+                        AssemblyBindingOrigin.FromOccurrence(
+                            first.Occurrence)))
+                .Selection);
+
+        Assert.Same(selected, first.Assembly);
+        Assert.Same(dependency, continued.Assembly);
+    }
+
     static AssemblyBindingRequest Request(
         AssemblyBindingOrigin origin) =>
         new(
@@ -123,7 +175,17 @@ public sealed class AssemblyContextParticipantTests
             origin,
             AssemblyResolutionScope.Any);
 
-    static ResolvedAssemblyReference Descriptor(string name) =>
+    static AssemblyBindingRequest Request(
+        ResolvedAssemblyReference target,
+        AssemblyBindingOrigin origin) =>
+        new(
+            AssemblyBindingTarget.Reference(target.Identity),
+            origin,
+            AssemblyResolutionScope.Any);
+
+    static ResolvedAssemblyReference Descriptor(
+        string name,
+        AssemblyResolutionProvenance? provenance = null) =>
         ResolvedAssemblyReference.Create(
             new AssemblyReferenceIdentity(
                 name,
@@ -132,7 +194,7 @@ public sealed class AssemblyContextParticipantTests
                 null),
             path: null,
             static () => new MemoryStream(),
-            AssemblyResolutionProvenance.Local("test"));
+            provenance ?? AssemblyResolutionProvenance.Local("test"));
 
     sealed class RecordingPolicy : IAssemblyBindingPolicy
     {
@@ -150,6 +212,17 @@ public sealed class AssemblyContextParticipantTests
             SelectionCount++;
             return new(Version, Selection);
         }
+    }
+
+    sealed class SelectingPolicy(
+        Func<AssemblyBindingRequest, AssemblyBindingSelection> select)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) =>
+            new(Version, select(request));
     }
 
     sealed record TestLineage(
