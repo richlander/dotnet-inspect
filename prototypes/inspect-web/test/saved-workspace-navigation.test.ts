@@ -4,7 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
-import { createCatalogRequests, type DotnetRelease } from "../src/catalog-requests.ts";
+import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
   type ComparisonPackage,
@@ -222,7 +222,6 @@ function harness() {
     workspaceDependencies: {} as Record<string, unknown>,
     workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
-    dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
     methodBodyDiff: createMethodBodyDiffState(),
@@ -246,14 +245,12 @@ function harness() {
   };
   const catalogRequests = createCatalogRequests({
     state,
-    queryDotnetReleases: async () => [],
     queryPackageVersions: async pkg => ({
       versions: [pkg.version],
       currentVersionInsertionIndex: 0,
       previousVersion: null,
       previousVersionUnavailableReason: null,
     }),
-    updatePlatformVersionSelect: () => {},
     updatePackageVersionSelect: () => {},
   });
   const packageComparisonTargets = createPackageComparisonTargets(() => state.packages);
