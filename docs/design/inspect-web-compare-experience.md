@@ -270,9 +270,18 @@ Overview or API lens, and the Browser does not issue a second compensating lens
 activation.
 
 Diff or Clone mode is installed with the destination Compare renderer only
-after the navigation result's effect authority is current. A stale,
-superseded, rejected, unavailable, or failed transition cannot change mode,
-rows, focus, history, or the active surface.
+after Navigation Consumer accepts a current-authority applied result. Stale or
+superseded work cannot change mode, rows, focus, history, or the active
+surface.
+
+A current-authority unavailable, rejected, failed, or aborted result is not
+treated as successful drill-down. Compare defers its presentation and any
+required complete-snapshot installation, canonical-history alignment,
+renderer replacement, focus settlement, and announcement to Navigation
+Consumer's typed synchronization disposition. Those synchronization effects
+may replace the visible surface, rows, or history with product state committed
+by an earlier result; they do not install the non-applied request's descendant
+or mode.
 
 Back and Forward restore the canonical subject and Compare lens through
 Navigation. Compare then presents the retained Package model's current mode;
@@ -405,3 +414,8 @@ advertise an action backed by a placeholder or success-shaped fallback.
 10. Supply a removed Member in Type Diff. Confirm that its Before-side evidence
     remains visible, the row has no descendant activation, and no current
     Member identity is inferred.
+11. Return a current-authority non-applied drill-down result with
+    `Synchronization required`. Confirm that Navigation Consumer installs the
+    complete returned snapshot and aligns history before presenting the
+    semantic outcome, without installing the rejected descendant or treating
+    the drill-down as applied.
