@@ -31,7 +31,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
 | [Library Family Boundaries](design/library-family-boundaries.md) | Meaning of the `Inspector`, `ILInspector`, `DotnetInspector`, independent-domain, and host namespace families, independent of dependency altitude and component role. |
-| [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md) | Service-issued resource leases, explicit transfer, scoped borrowing, resource-free references and receipts, current-C# lowering, and analyzable lifetime declarations. |
+| [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md) | Service-issued leases, current and future enforcement, explicit transfer, scoped borrowing, resource-free references and receipts, and analyzable lifetime declarations. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [CLI Workspace Sharing](design/cli-workspace-sharing.md) | Common `--share` projection of an inspection command's effective resolved state to a canonical Workspace packet or Inspect Web URL, without a second Workspace-construction grammar. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |

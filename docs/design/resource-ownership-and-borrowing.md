@@ -51,9 +51,14 @@ The owner defines:
   focused resource issuer,
   never by a House or consumer;
 - the requirement that references and receipts contain no hidden live lease;
+- the aggregate adoption, transfer, and release protocol;
 - synchronous read-only and mutable borrowing through lifetime-bounded views;
+- mutable-borrowed, read-only-borrowed, and consuming receiver effects;
 - the current C# lowering to `IDisposable`, `IAsyncDisposable`, `ref struct`,
   `scoped`, `ReadOnlySpan<T>`, and `Span<T>`;
+- the enforcement ladder from current compiler prevention through runtime
+  rejection, Analysis detection, and future compiler ownership;
+- the explicit residual risk when current C# cannot prevent a violation;
 - the boundary between synchronous release and required asynchronous
   settlement;
 - the owner-neutral declaration sources normalized for Analysis;
@@ -145,6 +150,46 @@ Analysis already demonstrates the detector path:
 These are evidence that the pattern can lower to current C# and to a useful
 product analysis. They are not declarations that the existing repository
 already conforms to the target contract.
+
+## Current repository lifetime model
+
+The repository does not currently have one ownership model. It has several
+useful mechanisms with different meanings and enforcement. Representative
+shapes are:
+
+| Current shape | Current strength | Current overhang |
+| --- | --- | --- |
+| `ArtifactAdmissionLease` and `ArtifactQueryLease` | The issuer validates generation, authorization, revocation, and disposal on every access. | A normal class reference can still be copied, transferred without invalidating the source variable, or disposed through more than one alias. |
+| `ArtifactAdmissionContentView` and `ArtifactQueryContentView` | `readonly ref struct`, `scoped`, and `ReadOnlySpan<byte>` prevent supported synchronous borrow escape. | The shape does not cover heap-escapable class borrows or work that crosses `await`. |
+| `IArtifactAcquisitionLease` and artifact-session disposal | `IAsyncDisposable` exposes required asynchronous cleanup and quiescence. | Current C# does not prevent dropping the returned awaitable or treating retirement as completed settlement. |
+| `AssemblyContextGroup` owned-resource registration | One aggregate tracks child `IDisposable` values, releases them before snapshots, and preserves cleanup failures. | Registration, transfer, release ordering, and transitive child cleanup are manually maintained. `IDisposable` supplies no ownership metadata. |
+| `ArtifactContentReference` and assembly openers | Identity, registration, provenance, and usable retained content remain associated. | Some heap-escapable references and delegates close over live access authority, so identity and ownership are not consistently separate. |
+| `PackageHouseSourceLease` | Disposal visibly retires future package settlement. | The House issues a hybrid capability named for its consumer scenario rather than a focused resource, and disposal does not represent ownership of the underlying source clients. |
+| `ArrayPoolOwnershipFlow` and Resource Triage | Analysis already follows return, storage, caller transfer, forwarding, and exception-path leakage with explicit incompleteness. | The model is API-specific and cannot yet consume repository resource declarations. |
+
+The target does not merely rename these values. It simplifies their shared
+accounting:
+
+- one lease denotes one explicit release or settlement obligation;
+- one current owner holds that obligation until transfer or release;
+- resource issuers validate leases, while Houses only hold, borrow, transfer,
+  or release them;
+- references and receipts contain identity and evidence, never hidden
+  ownership;
+- owned child readers and streams declare their parent-retention obligation;
+- aggregate owners expose one declared child-adoption and ownership-transfer
+  boundary even when current fields, collections, and cleanup loops remain;
+- operation leases carry authority across asynchronous work, while scoped
+  views provide synchronous byte access; and
+- one normalized Analysis contract replaces API-specific inference for
+  adopted resources.
+
+This simplification is primarily semantic and source-level. Current C# may
+still lower several owning scopes to several exception-handling regions, and
+resource-specific owners retain their quiescence and cleanup algorithms. The
+pattern removes ambiguous responsibility and makes supported bookkeeping
+analyzable; future compiler ownership can later remove more of the remaining
+manual mechanics.
 
 ## Vocabulary
 
@@ -337,6 +382,73 @@ A current-C# owned value:
 local. Explicit transfer methods are required when ownership moves into a
 longer-lived aggregate.
 
+### Aggregate ownership
+
+Current C# aggregate ownership uses an explicit protocol:
+
+1. A successful `Adopt`-equivalent operation consumes one child obligation and
+   records it in the aggregate.
+2. A failed adoption leaves ownership with the caller.
+3. A successful detach or transfer operation removes the child from the
+   aggregate and returns ownership to the recipient.
+4. Aggregate release synchronously or asynchronously settles every child still
+   owned by the aggregate.
+5. The resource issuer declares any correctness-sensitive child release order.
+   In the absence of such a declaration, collection order is not semantic
+   evidence.
+6. Duplicate adoption, release after transfer, and unowned removal are
+   lifecycle violations even when current runtime cleanup is idempotent.
+
+The current implementation may use fields, lists, sets, registration methods,
+and explicit disposal loops. The simplification is one declared ownership
+protocol across those forms, not a requirement to replace all dynamic
+collections with one helper. Analysis returns incomplete when it cannot model a
+dynamic adoption, transfer, iteration, or release path.
+
+Future transitive `Drop` can remove manual cleanup for compiler-supported owned
+fields. It does not automatically solve dynamically registered child
+resources; those remain an explicit aggregate resource unless a future
+resource-aware collection supplies the same contract.
+
+### Receiver and parameter effects
+
+Ownership behavior belongs to the receiver or parameter, not to whether the
+method uses instance or static syntax.
+
+For an adopted resource:
+
+- an ordinary instance receiver is a mutable borrow;
+- a recognized read-only receiver is a read-only borrow;
+- an explicitly consuming receiver transfers ownership into the method;
+- an ordinary resource-valued parameter consumes ownership; and
+- a static or extension helper that must not consume uses an explicitly
+  declared borrow or a scoped view such as `ReadOnlySpan<T>`.
+
+This permits ordinary `.Count`, `.Contains(...)`, and mutation operations to
+borrow while a destructive conversion such as `MoveToImmutable()` may consume
+the receiver and invalidate the caller's ownership.
+
+The pinned C# proposal does not currently define a consuming instance
+receiver. It makes every resource instance receiver a borrow and expresses a
+consuming conversion as a static method with an ordinary resource parameter.
+An extension method with `this R` has the same static consuming-parameter
+semantics while retaining dot-call syntax.
+
+The consuming-receiver effect is a deliberate dotnet-inspect extension,
+informed by follow-up ownership-design discussion about inverting
+`BorrowedReceiver` for resource types. Its proposal-compatible lowering is a
+static or extension method with an ordinary resource parameter. In current C#,
+that consumption is still Analysis-declared rather than compiler-enforced. A
+configured method attribute may describe the intended instance spelling to
+Analysis, but it cannot prevent the source program from using the moved value.
+If a future C# design adds compiler-enforced consuming receivers, its metadata
+lowers to the same normalized effect; this specification does not assume that
+outcome.
+
+Current C# likewise has no compiler-enforced heap-class `Borrow<T>`.
+Analysis-recognized declarations can detect supported violations but do not
+provide source-language prevention.
+
 ### Synchronous borrows
 
 Owner-retained bytes and similar data use the existing artifact pattern:
@@ -373,6 +485,60 @@ acquire operation lease
 The operation lease remains explicit so cancellation, quiescence, and cleanup
 failures cannot disappear behind a captured reference.
 
+## Enforcement ladder and current overhang
+
+The pattern separates **prevention**, **runtime rejection**, **detection**, and
+**evidence**. An attribute is a declaration for Analysis; it is not compiler
+enforcement and does not make the annotated code safe by itself.
+
+| Contract property | Available now | Planned before compiler ownership | Future compiler role | Current overhang |
+| --- | --- | --- | --- | --- |
+| A scoped span or ref-struct borrow does not escape | C# ref-safety, `scoped`, and the type system | Preserve these shapes as complete borrow evidence. | Generalize owner-derived lifetimes to `Borrow<T>` and `ReadOnlyBorrow<T>`. | Heap-class borrows and async-spanning use need another shape. |
+| A lexical owner releases on normal and exceptional exits | `using` or `await using` lowering when the author uses it | Generalized Analysis detects supported missing terminal release. | Invoke `Drop` automatically for synchronous resources. | Current C# does not require an owning value to use either construct. |
+| An issuer rejects access after disposal, revocation, or generation change | Resource-specific runtime validation | Analysis associates supported invalid use with the declared lifecycle. | Preserve owner validation; compiler ownership addresses earlier misuse. | Runtime rejection occurs after an invalid operation was attempted and does not prove unique ownership. |
+| Ownership moves rather than copies | API-specific ArrayPool transfer evidence only | Generalized Analysis detects declared use after transfer and unsupported aliases remain incomplete. | Make resource values move-only and invalidate the prior owner. | Current class references can be freely aliased. |
+| A borrowed or consuming receiver has the declared effect | Scoped-view types; no general receiver analysis | Normalize configured and external receiver effects and detect supported misuse. | Enforce borrow effects if adopted by the language; consuming receivers remain a proposed extension. | An attribute or manifest cannot invalidate the source variable. |
+| Aggregate cleanup is transitive | Manual child retention and release | Declare adoption, transfer, release, and correctness-sensitive order; analyze the supported aggregate flow. | Invoke transitive `Drop` for compiler-supported owned fields. | Dynamic collections and unsupported cleanup loops remain manual and incomplete. |
+| Asynchronous settlement is observed | `await using` when used correctly | Detect supported unobserved or incorrectly substituted settlement. | No correspondence is claimed until the language defines asynchronous ownership. | `DisposeAsync()` can otherwise be called and its awaitable dropped, copied, or forwarded beyond supported analysis. |
+| Every supported exceptional exit transfers or releases ownership | Explicit `using`/`finally` lowering; ArrayPool-specific Resource Triage | Generalized Analysis evaluates declared resources over supported control flow. | Automatic `Drop` covers synchronous owning scopes. | Unsupported alias, dispatch, state-machine, unsafe, or interop flow remains incomplete. |
+
+At the current repository head, only compiler ref safety, explicit
+`using`/`await using`, resource-specific runtime checks, and API-specific
+Resource Triage are implemented. The generalized declaration-driven Analysis
+column is the planned result of tracker steps 2 through 5, not a current
+guarantee.
+
+The current enforcement plan is therefore layered:
+
+1. use current compiler-enforced ref safety for synchronous borrows;
+2. use explicit `IDisposable` or `IAsyncDisposable` ownership and
+   resource-specific runtime validation;
+3. declare ownership effects in metadata or external models;
+4. generalize Resource Lifecycle Analysis to detect supported leaks, invalid
+   transfers, borrow violations, and unobserved settlement;
+5. preserve incomplete analysis instead of issuing false confidence; and
+6. adopt future compiler ownership metadata as another declaration source,
+   replacing current conventions where it provides stronger prevention.
+
+Every method that borrows a resource does **not** need cleanup machinery. An
+owning scope that spans potentially throwing work must transfer or release its
+obligation on every exit. `using` and future compiler `Drop` can express that
+without handwritten `try` statements, although their IL lowering may contain
+one or more exception-handling regions. Existing ArrayPool Resource Triage and
+the planned generalized Analysis reason over lowered control flow; neither
+searches for source-level `try` syntax.
+
+The residual risk is explicit:
+
+- after generalized declaration-driven Analysis lands, a complete result means
+  the declared lifecycle was satisfied within that analyzer's supported flow
+  set;
+- an incomplete result means the analyzer could not establish the lifecycle;
+- no attribute, passing test, or idempotent `Dispose` upgrades unsupported
+  flow into compiler-enforced ownership; and
+- only future language support can prevent every otherwise legal source-level
+  copy, use after transfer, or receiver escape covered by that language model.
+
 ## Synchronous release and asynchronous settlement
 
 The proposed C# `Drop` is synchronous, compiler-invoked, and expected not to
@@ -408,10 +574,12 @@ contract was declared.
 
 ### Declaration sources
 
-The initial architecture supports four sources:
+The initial architecture supports four source families:
 
-1. one or more configured fully qualified resource-marker attribute names;
-2. a future canonical compiler/runtime resource interface;
+1. configured fully qualified ownership attribute names, initially including
+   a resource-type marker and a consuming-receiver method marker;
+2. future canonical compiler/runtime ownership metadata, including resource
+   interfaces and receiver effects;
 3. built-in models for framework APIs such as `ArrayPool<T>`; and
 4. external contract manifests for APIs that cannot carry an attribute or
    need effects beyond the marker defaults.
@@ -419,14 +587,24 @@ The initial architecture supports four sources:
 All four lower to the same semantic model before ownership-flow analysis.
 Analysis never branches its lifecycle rules by declaration source.
 
-The configured attribute mechanism matches metadata names. It does not require
-the inspected assembly to reference a dotnet-inspect contracts assembly and it
-does not require dotnet-inspect to load inspected code.
+The configured attribute mechanism matches metadata names and assigns each
+name one declared role. It does not require the inspected assembly to reference
+a dotnet-inspect contracts assembly and it does not require dotnet-inspect to
+load inspected code.
 
-The initial marker is deliberately a resource-type declaration, not a family
-of repository-specific ownership syntax. APIs that need non-default parameter,
-factory, release, or wrapper effects use a built-in model or external manifest
-until a separately justified metadata contract exists.
+The initial attribute vocabulary is deliberately small:
+
+- a resource marker opts a type into the proposal-compatible defaults; and
+- a consuming-receiver marker changes one instance receiver from its default
+  borrow into ownership transfer.
+
+The consuming-receiver marker is Analysis metadata for a deliberate extension,
+not a claim that the pinned C# proposal or current compiler recognizes that
+receiver effect.
+
+APIs that need other non-default parameter, factory, release, wrapper, or
+borrow effects use a built-in model or external manifest until another
+metadata role is separately justified.
 
 ### Marker defaults
 
@@ -439,6 +617,8 @@ defaults:
 - an ordinary instance receiver is a mutable borrow;
 - a receiver carrying recognized compiler or explicit-model read-only-borrow
   metadata is a read-only borrow;
+- a receiver carrying the configured consuming-receiver marker consumes
+  ownership;
 - current CLR `in`, `ref`, `out`, `ref` return, and `ref readonly` return shapes
   require an explicit built-in, manifest, or future compiler model because the
   ref kind alone does not establish class-target mutability, ownership
@@ -467,11 +647,14 @@ The declaration layer supplies Analysis with:
 - exact resource type identity;
 - acquisition operations;
 - ownership-bearing return and field shapes;
+- mutable-borrowed, read-only-borrowed, and consuming receivers;
 - consuming parameters and transfer operations;
-- borrowed receivers and parameters;
+- borrowed parameters;
 - borrowed or owner-derived returns;
 - synchronous and asynchronous release operations;
-- wrapper and aggregate ownership propagation; and
+- wrapper ownership propagation;
+- aggregate adoption, detachment, transfer, release, and
+  correctness-sensitive order; and
 - declaration failures or unsupported effects.
 
 Analysis owns how those effects are represented internally and how far it can
@@ -492,9 +675,11 @@ in metadata and IL. The first Analysis adoption must be able to classify:
 - use, borrow, release, or transfer after release;
 - use, borrow, release, or transfer after ownership moved;
 - an owning copy or alias where the declaration requires uniqueness;
+- a child obligation lost, duplicated, or released incorrectly during
+  aggregate adoption or transfer;
 - a borrow escaping its owner-supported lifetime;
 - owner transfer or release while a borrow remains live;
-- synchronous release substituted for required asynchronous settlement; and
+- synchronous release substituted for required asynchronous settlement;
 - asynchronous settlement invoked but not successfully observed;
 - malformed, contradictory, unresolved, or unsupported ownership evidence.
 
@@ -515,7 +700,10 @@ without changing the underlying occurrence.
 A service returns a lease, then a later operation throws before the House
 transfers the lease into its selected result. The House must release the lease
 on that path. Analysis reports the supported missing release; it does not
-accept a successful-path `Dispose` as proof for the exception path.
+accept a successful-path `Dispose` as proof for the exception path. Source may
+express the lifetime through `using`, `await using`, or explicit `finally`;
+Analysis reasons over the lowered control flow rather than requiring
+handwritten `try` syntax.
 
 ### A reference captures a caller-owned lease
 
@@ -558,8 +746,12 @@ This pattern does not claim:
 - that one Library lease shape is already selected;
 - that all borrowing can be represented by spans;
 - that `Memory<T>` proves owner retention;
+- that current-C# adoption eliminates every `using`, registration collection,
+  disposal loop, or exception-handling region;
 - that current C# prevents copies, use after transfer, or double release;
 - that a marker attribute proves its own correctness;
+- that an Analysis result proves behavior outside its declared supported flow
+  set;
 - that synchronous `Drop` can replace awaited cleanup; or
 - that generalized ownership analysis is already implemented.
 
@@ -573,7 +765,8 @@ owner-adoption steps.
 end-to-end tracker. Its current total is 16 steps:
 
 1. lock this focused ownership, borrowing, and declaration pattern;
-2. define the machine-readable declaration and external contract model;
+2. define the machine-readable resource, consuming-receiver, and external
+   contract model;
 3. normalize ArrayPool, declared-resource, and future compiler-issued
    ownership metadata into one Analysis input contract;
 4. generalize Resource Lifecycle Analysis while preserving explicit
@@ -625,11 +818,14 @@ This specification is design-only. Its behavioral properties remain
 
 The declaration and Analysis steps must gate:
 
-- exact configured metadata-name matching without inspected-assembly loading;
+- exact configured resource and consuming-receiver metadata-name matching
+  without inspected-assembly loading;
 - equivalent normalization from attributes, built-in models, external
   manifests, and future compiler metadata;
 - every supported acquisition, transfer, mutable and read-only borrow, child
-  resource, release, and asynchronous settlement effect;
+  resource, consuming receiver, release, and asynchronous settlement effect;
+- aggregate adoption failure retaining caller ownership, successful adoption
+  consuming it, transfer removing it, and declared release ordering;
 - leak, double-release, use-after-release, use-after-transfer, and borrow
   lifetime fixtures;
 - required async settlement not being accepted as synchronous release;
@@ -637,7 +833,9 @@ The declaration and Analysis steps must gate:
 - malformed and contradictory declarations;
 - incomplete decode, resolution, dispatch, alias, body, and control-flow
   evidence remaining visible;
-- compatibility with the existing ArrayPool corpus and Finding identities; and
+- compatibility with the existing ArrayPool corpus and Finding identities;
+- repository dogfood that distinguishes complete violations, complete clean
+  lifecycles, and unsupported or incomplete ownership flow; and
 - equivalent typed outcomes in CLI and Browser/Wasm consumers.
 
 Each resource-issuer adoption must gate:

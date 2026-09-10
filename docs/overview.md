@@ -152,11 +152,11 @@ substrates, and inspection producers that will extend that space.
   [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md)
   owner defines leases issued by focused resource services, explicit transfer,
   scoped borrowing, resource-free references and receipts, current-C#
-  lowering, and the declaration boundary consumed by Analysis. Resource
-  issuers retain their acquisition and cleanup semantics; Analysis retains IL
-  interpretation and Finding semantics; Houses compose and settle scenarios
-  without issuing adjacent-owner leases. Adoption and retirement are tracked
-  by #6544.
+  lowering, the residual enforcement overhang before compiler ownership, and
+  the declaration boundary consumed by Analysis. Resource issuers retain their
+  acquisition and cleanup semantics; Analysis retains IL interpretation and
+  Finding semantics; Houses compose and settle scenarios without issuing
+  adjacent-owner leases. Adoption and retirement are tracked by #6544.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its
