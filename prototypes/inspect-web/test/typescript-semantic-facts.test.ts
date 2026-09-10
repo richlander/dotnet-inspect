@@ -455,7 +455,9 @@ test("batched semantic queries safely cover every real project-root node", () =>
       const rootNodes = nodesFor(session, root);
       const handles = rootNodes.map(node => node.handle);
       const symbols = expectResolved(session.getSymbolsAtNodes(handles));
-      const types = expectResolved(session.getTypesAtNodes(handles));
+      const queriedTypes = session.getTypesAtNodes(handles);
+      assert.notEqual(queriedTypes.kind, "SessionFailure", `Type query failed for ${root.path.path}`);
+      const types = expectResolved(queriedTypes);
       assert.equal(symbols.length, handles.length);
       assert.equal(types.length, handles.length);
       assert.ok(symbols.every(result => result.kind !== "SessionFailure"));

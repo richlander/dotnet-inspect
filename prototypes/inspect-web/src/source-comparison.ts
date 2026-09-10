@@ -49,25 +49,35 @@ export function isExactSourceComparisonVersion(value: string): boolean {
   return /^\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(value.trim());
 }
 
-export interface SourceComparisonDependencies {
+export type SourceComparisonAdapter = OperationProducerAdapter<
+  BrowserSourceComparisonRequest, BrowserSourceComparison, unknown, never, unknown
+>;
+
+interface SourceComparisonViewDependencies {
   state: SourceDiffState;
   operationAuthority: OperationAuthorityPage;
+  reportOperationDiagnostic(diagnostic: OperationDiagnostic): undefined;
+  describeError(error: unknown): string;
+  render(): void;
+}
+
+export type SourceComparisonDependencies = SourceComparisonViewDependencies & ({
+  readonly comparisonAdapter: SourceComparisonAdapter;
+} | {
+  readonly comparisonAdapter?: never;
   queryComparison(
     operationId: OperationId,
     requestJson: string,
   ): Promise<BrowserSourceComparisonResult>;
   cancelComparison(operationId: OperationId, reason: OperationCancelReason): void;
-  reportOperationDiagnostic(diagnostic: OperationDiagnostic): undefined;
-  describeError(error: unknown): string;
-  render(): void;
-}
+});
 
 export function createSourceComparisonCoordinator(
   dependencies: SourceComparisonDependencies,
 ) {
   const { state } = dependencies;
   type Session = OperationSession<
-    BrowserSourceComparisonRequest, BrowserSourceComparison, unknown, never, never
+    BrowserSourceComparisonRequest, BrowserSourceComparison, unknown, never, unknown
   >;
   let session: Session | null = null;
   const scheduleRender = (): void => {
@@ -78,10 +88,10 @@ export function createSourceComparisonCoordinator(
       kind: "producer-contract", operationId: null, error: new Error(message),
     });
   };
-  const adapter: OperationProducerAdapter<
-    BrowserSourceComparisonRequest, BrowserSourceComparison, unknown, never, never
-  > = {
-    prepare(identity, request, sink) {
+  const adapter: SourceComparisonAdapter = {
+    prepare(identity, request, sink, cancellation) {
+      if (dependencies.comparisonAdapter)
+        return dependencies.comparisonAdapter.prepare(identity, request, sink, cancellation);
       let cancellationRequested = false;
       const quiesce = (): undefined => {
         sink.reportQuiesced();

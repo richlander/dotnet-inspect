@@ -1,58 +1,15 @@
-type HostFacade = typeof import("./facades/inspect-web-host.d.ts");
-type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
-type CatalogFacade = typeof import("./facades/inspect-web-catalog.d.ts");
+import type {
+  EngineWorkerPackageQueryAdapter,
+  EngineWorkerTypeSourceAdapter,
+} from "./engine-worker-client.ts";
+import type { bindEngineWorkerOperations } from "./engine-worker-operations.ts";
+import type { EngineStartupClient } from "./engine-worker-startup.ts";
+import type { registerEngineWorkerComparisonAdapters } from "./engine-worker-comparison.ts";
 
-interface ClientFacades {
-  readonly host: Pick<HostFacade, "buildIdentity">;
-  readonly package: Pick<
-    PackageFacade,
-    "listPackageQueryFacets" | "listGalleryDiscoveryCatalog"
-    | "matchPackageDependencyCoordinate"
-    | "listPackageAssemblyQueryPatterns"
-  >;
-  readonly catalog: Pick<
-    CatalogFacade,
-    "listVocabulary" | "listHomeDemos" | "resolveHomeDemo"
-  >;
-}
-
-// These Promise-valued bindings still dispatch on the current thread.
-// Runtime readiness and each read's error policy stay with the caller.
-export function createMainThreadEngineClient(facades: ClientFacades) {
-  return {
-    host: {
-      async buildIdentity() {
-        return facades.host.buildIdentity();
-      },
-    },
-    package: {
-      async listPackageQueryFacets() {
-        return facades.package.listPackageQueryFacets();
-      },
-      async listGalleryDiscoveryCatalog() {
-        return facades.package.listGalleryDiscoveryCatalog();
-      },
-      async matchPackageDependencyCoordinate(
-        ...args: Parameters<PackageFacade["matchPackageDependencyCoordinate"]>
-      ) {
-        return facades.package.matchPackageDependencyCoordinate(...args);
-      },
-      async listPackageAssemblyQueryPatterns() {
-        return facades.package.listPackageAssemblyQueryPatterns();
-      },
-    },
-    catalog: {
-      async listVocabulary() {
-        return facades.catalog.listVocabulary();
-      },
-      async listHomeDemos() {
-        return facades.catalog.listHomeDemos();
-      },
-      async resolveHomeDemo(...args: Parameters<CatalogFacade["resolveHomeDemo"]>) {
-        return facades.catalog.resolveHomeDemo(...args);
-      },
-    },
+export type EngineClient = ReturnType<typeof bindEngineWorkerOperations>
+  & EngineStartupClient & {
+    readonly ready: Promise<void>;
+    readonly source: { readonly typeSourceAdapter: EngineWorkerTypeSourceAdapter }
+      & ReturnType<typeof registerEngineWorkerComparisonAdapters>;
+    readonly package: { readonly queryAdapter: EngineWorkerPackageQueryAdapter };
   };
-}
-
-export type EngineClient = ReturnType<typeof createMainThreadEngineClient>;

@@ -40,7 +40,7 @@ createServer((request, response) => {
     response.end("Worker bootstrap rejection fixture.");
     return;
   }
-  const file = resolve(site, `.${pathname}`);
+  const file = resolve(site, pathname === "/" || pathname === "/query" ? "index.html" : `.${pathname}`);
   if (!file.startsWith(`${site}${sep}`)) {
     response.writeHead(404);
     response.end();

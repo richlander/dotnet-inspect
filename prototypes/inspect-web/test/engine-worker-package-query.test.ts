@@ -35,8 +35,11 @@ import {
 import {
   createAssemblyQueryRequest,
   createQueryRequest,
+  createPackageQueryController,
+  initialQueryState,
   type QueryRequest,
 } from "../src/package-query.ts";
+import { createWorkerPackageQueryDataSource } from "../src/package-query-source.ts";
 import {
   FakeWorkerOperationCatalog,
   FakeWorkerRuntime,
@@ -333,6 +336,91 @@ async function startReady(harness: Harness): Promise<void> {
   await harness.environment.flushAsync();
   assert.equal(harness.host.snapshot().phase, "ready");
 }
+
+test("production data source batches durable events and waits for exact credit acknowledgment", async () => {
+  const terminal = deferred<BrowserPackageQueryResult>();
+  const calls: string[] = [];
+  const facade: EngineWorkerPackageQueryFacade = {
+    runPackageQuery(id, _text, _facets, _candidates, _matches, _prerelease, credit, sink) {
+      calls.push(`${id}:initial:${credit}`);
+      for (let index = 0; index < 20; index++) {
+        emit(sink, { ...matchEvent, row: { ...matchEvent.row, packageId: `Package${index}` } });
+      }
+      emit(sink, failureEvent);
+      emit(sink, progressEvent);
+      return terminal.promise;
+    },
+    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
+    cancelPackageQuery: (_id, reason) => ({ kind: "Requested", reason }),
+    requestPackageQueryMatches(id, credit) {
+      calls.push(`${id}:credit:${credit}`);
+      return { kind: "Granted", additionalMatchCredit: credit };
+    },
+  };
+  const harness = createHarness(facade, { delayControlAcknowledgments: true });
+  await startReady(harness);
+  const source = createWorkerPackageQueryDataSource(harness.adapter, createOperationAuthorityPage({
+    allocation: { createId: () => "consumer-query" },
+  }), () => undefined);
+  const state = initialQueryState();
+  const controller = createPackageQueryController(state, source, () => undefined);
+  const run = controller.run(createQueryRequest("Package*"));
+  await harness.environment.flushAsync();
+  assert.equal(state.outcome.rows.length, 20);
+  assert.equal(state.outcome.failures.length, 1);
+  controller.requestMore();
+  controller.requestMore();
+  await harness.environment.flushAsync();
+  assert.equal(harness.delayedControlAcknowledgmentCount(), 1);
+  assert.deepEqual(calls, ["consumer-query:initial:20", "consumer-query:credit:10"]);
+  harness.releaseControlAcknowledgments();
+  await harness.environment.flushAsync();
+  controller.requestMore();
+  assert.equal(calls.length, 2);
+  terminal.resolve(succeeded());
+  await harness.environment.flushAsync();
+  await run;
+  assert.equal(state.outcome.rows.length, 20);
+  assert.equal(state.outcome.completion.kind, "exhausted");
+  harness.host.dispose();
+});
+
+test("production Package Query cancellation is keyed and late events cannot publish", async () => {
+  const pending = deferred<BrowserPackageQueryResult>();
+  const cancellations: string[] = [];
+  let callback: unknown;
+  const facade: EngineWorkerPackageQueryFacade = {
+    runPackageQuery(_id, _text, _facets, _candidates, _matches, _pre, _credit, sink) {
+      callback = sink;
+      return pending.promise;
+    },
+    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
+    cancelPackageQuery(id, reason) {
+      cancellations.push(`${id}:${reason}`);
+      return { kind: "Requested", reason };
+    },
+    requestPackageQueryMatches: () => ({ kind: "NotActive", additionalMatchCredit: 0 }),
+  };
+  const harness = createHarness(facade);
+  await startReady(harness);
+  const source = createWorkerPackageQueryDataSource(harness.adapter, createOperationAuthorityPage({
+    allocation: { createId: () => "cancel-consumer" },
+  }), () => undefined);
+  const state = initialQueryState();
+  const controller = createPackageQueryController(state, source, () => undefined);
+  const run = controller.run(createQueryRequest("Package*"));
+  await harness.environment.flushAsync();
+  controller.cancel();
+  await harness.environment.flushAsync();
+  emit(callback, matchEvent);
+  pending.resolve(succeeded());
+  await harness.environment.flushAsync();
+  await run;
+  assert.deepEqual(cancellations, ["cancel-consumer:user"]);
+  assert.equal(state.outcome.rows.length, 0);
+  assert.equal(state.outcome.completion.kind, "cancelled");
+  harness.host.dispose();
+});
 
 type PackageQueryFeatureEvent = OperationFeatureEvent<
   EngineWorkerPackageQueryCompletionEvent,

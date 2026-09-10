@@ -349,7 +349,7 @@ export interface PackageQueryDataSource {
   initialMatchCredit?: number;
   /** Adds durable-match credit to the active request. Returns false when no
    * request can accept the credit. */
-  requestMore?(additionalMatchCredit: number): boolean;
+  requestMore?(additionalMatchCredit: number): boolean | Promise<boolean>;
   run(
     request: QueryRequest,
     onPage: (rows: readonly QueryResultRow[]) => void,
@@ -392,12 +392,14 @@ export function createPackageQueryController(
   let generation = 0;
   let abortController = new AbortController();
   let grantedMatchCredit = Number.POSITIVE_INFINITY;
+  let creditRequest: object | null = null;
 
   return {
     configure(request: QueryRequest) {
       abortController.abort("superseded");
       abortController = new AbortController();
       generation++;
+      creditRequest = null;
       state.request = request;
       state.outcome = idleOutcome();
       grantedMatchCredit = Number.POSITIVE_INFINITY;
@@ -409,6 +411,7 @@ export function createPackageQueryController(
       const runController = new AbortController();
       abortController = runController;
       const requestGeneration = ++generation;
+      creditRequest = null;
       state.request = request;
       state.outcome = emptyOutcome();
       grantedMatchCredit =
@@ -479,6 +482,7 @@ export function createPackageQueryController(
       // completion label; cancelling after the fact must not overwrite it.
       if (state.outcome.completion.kind !== "streaming") return;
       generation++;
+      creditRequest = null;
       abortController.abort("user");
       state.outcome = withCompletion(state.outcome, { kind: "cancelled" });
       onUpdate("stream");
@@ -487,13 +491,42 @@ export function createPackageQueryController(
     requestMore() {
       if (state.outcome.completion.kind !== "streaming"
         || !source.requestMore
+        || creditRequest !== null
         || !Number.isFinite(grantedMatchCredit)
         || state.outcome.rows.length
           < grantedMatchCredit - PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD) {
         return;
       }
-      if (source.requestMore(PACKAGE_QUERY_MATCH_CREDIT_BATCH)) {
-        grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
+      const requestGeneration = generation;
+      const pending = {};
+      creditRequest = pending;
+      const acknowledge = (granted: boolean) => {
+        if (creditRequest !== pending || requestGeneration !== generation) return;
+        creditRequest = null;
+        if (state.outcome.completion.kind !== "streaming") return;
+        if (granted) {
+          grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
+          onUpdate("stream");
+        }
+      };
+      const fail = (error: unknown) => {
+        if (creditRequest !== pending || requestGeneration !== generation) return;
+        creditRequest = null;
+        if (state.outcome.completion.kind !== "streaming") return;
+        generation++;
+        abortController.abort("feature-observer-failed");
+        state.outcome = withCompletion(state.outcome, {
+          kind: "failed",
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        onUpdate("stream");
+      };
+      try {
+        const result = source.requestMore(PACKAGE_QUERY_MATCH_CREDIT_BATCH);
+        if (typeof result === "boolean") acknowledge(result);
+        else void result.then(acknowledge, fail);
+      } catch (error: unknown) {
+        fail(error);
       }
     },
   };

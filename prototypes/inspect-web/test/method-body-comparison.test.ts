@@ -398,7 +398,7 @@ test("routed history to demos closes the dialog and rejects late inventory", asy
   const dismissal = appSource.match(
     /function dismissModalsForRoutedNavigation\(\) \{[\s\S]*?\n\}/)?.[0];
   const popstate = appSource.match(
-    /window\.addEventListener\("popstate",[\s\S]*?\n\}\);/)?.[0];
+    /async function restorePopState\(\)[\s\S]*?\n\}/)?.[0];
   assert.ok(dismissal);
   assert.ok(popstate);
   const callbacks: { popstate?: () => void } = {};
@@ -411,7 +411,7 @@ test("routed history to demos closes the dialog and rejects late inventory", asy
     workspaceSubjectOpen: false,
     atPackageRoot: false,
   };
-  runInNewContext(stripTypeScriptTypes(`${dismissal}\n${popstate}`), {
+  runInNewContext(stripTypeScriptTypes(`${dismissal}\n${popstate}\nwindow.addEventListener("popstate", restorePopState);`), {
     state,
     methodBodyComparison: coordinator,
     sourceComparison: { dispose: () => false },

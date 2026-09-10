@@ -20,9 +20,123 @@ import type {
   QueryFacetTerm,
   QueryProgress,
   QueryResultRow,
+  QueryRequest,
   TerminalQueryCompletion,
 } from "./package-query.ts";
 import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
+import type { EngineWorkerPackageQueryAdapter } from "./engine-worker-client.ts";
+import type {
+  OperationAuthorityPage,
+  OperationCancelReason,
+  OperationDiagnostic,
+  OperationHandle,
+} from "./operation-authority.ts";
+import type {
+  EngineWorkerPackageQueryCompletionEvent,
+  EngineWorkerPackageQueryDurableEvent,
+} from "./engine-worker-package-query.ts";
+import type { WorkerRuntimePreparationError } from "./worker-runtime-core.ts";
+
+export function createWorkerPackageQueryDataSource(
+  adapter: EngineWorkerPackageQueryAdapter,
+  authority: OperationAuthorityPage,
+  reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
+): PackageQueryDataSource {
+  let active: OperationHandle<EngineWorkerPackageQueryCompletionEvent, string> | null = null;
+  return {
+    initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+    async requestMore(credit) {
+      const operation = active;
+      if (!operation) return false;
+      const result = await adapter.requestControl(operation.id, credit);
+      if (result.kind === "failed") throw new Error(result.error);
+      if (result.kind === "not-active" || active !== operation) return false;
+      if (result.value !== credit)
+        throw new Error("Package Query acknowledged a different match credit.");
+      return true;
+    },
+    async run(request, onPage, onFailure, onProgress, signal, onAssessment) {
+      if (signal.aborted) return { kind: "cancelled" };
+      const pending: EngineWorkerPackageQueryDurableEvent[] = [];
+      let scheduled = false;
+      let observerFailure: { error: unknown } | undefined;
+      let handle: OperationHandle<EngineWorkerPackageQueryCompletionEvent, string> | undefined;
+      const flush = () => {
+        scheduled = false;
+        const batch = pending.splice(0);
+        if (signal.aborted || observerFailure) return;
+        try {
+          let rows: QueryResultRow[] = [];
+          const flushRows = () => {
+            if (rows.length && !signal.aborted) onPage(rows);
+            rows = [];
+          };
+          for (const event of batch) {
+            if (signal.aborted) break;
+            if (event.kind === "Match") rows.push(toQueryRow(event.row));
+            else {
+              flushRows();
+              if (signal.aborted) break;
+              dispatchEvent(event, onPage, onFailure, onProgress, onAssessment, () => undefined);
+            }
+          }
+          flushRows();
+        } catch (error: unknown) {
+          observerFailure = { error };
+          handle?.cancel("feature-observer-failed");
+        }
+      };
+      const session = authority.createSession<
+        QueryRequest, EngineWorkerPackageQueryCompletionEvent, string, never,
+        WorkerRuntimePreparationError, EngineWorkerPackageQueryDurableEvent
+      >({
+        feature: {
+          publish: event => {
+            if (event.kind === "durable" && !signal.aborted && !observerFailure) {
+              pending.push(event.durable.value);
+              if (!scheduled) {
+                scheduled = true;
+                queueMicrotask(flush);
+              }
+            }
+          },
+        },
+        diagnostic: { report: reportDiagnostic },
+      });
+      // Infer the session from the adapter rather than allocating a second
+      // operation around a Promise-returning facade.
+      const started = session.start(request, adapter);
+      if (started.kind === "rejected") {
+        session.dispose();
+        const reason = started.reason.kind === "producer-rejected"
+          ? started.reason.error.kind : started.reason.kind;
+        throw new Error(`Package Query could not start: ${reason}.`);
+      }
+      handle = started.handle;
+      active = handle;
+      const cancel = () => handle?.cancel(cancellationReason(signal.reason));
+      signal.addEventListener("abort", cancel, { once: true });
+      if (signal.aborted) cancel();
+      try {
+        const outcome = await handle.outcome;
+        flush();
+        if (observerFailure) throw observerFailure.error;
+        if (signal.aborted || outcome.kind === "canceled") return { kind: "cancelled" };
+        if (outcome.kind === "failed") throw new Error(outcome.error);
+        let completion: TerminalQueryCompletion | undefined;
+        dispatchEvent(outcome.value, onPage, onFailure, onProgress, onAssessment,
+          terminal => { completion = terminal; });
+        if (!completion) throw new Error("Package Query returned no completion.");
+        return completion;
+      } finally {
+        pending.length = 0;
+        signal.removeEventListener("abort", cancel);
+        if (active === handle) active = null;
+        session.dispose();
+      }
+    },
+  };
+}
 
 export type { BrowserPackageAssemblyQueryPattern } from "./facades/inspect-web-package.d.ts";
 
@@ -319,7 +433,7 @@ async function runAssemblyQuery(
     eventSink);
 }
 
-function cancellationReason(reason: unknown): string {
+function cancellationReason(reason: unknown): OperationCancelReason {
   switch (reason) {
     case "user":
     case "superseded":

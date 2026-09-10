@@ -971,6 +971,80 @@ export function buildWorkspaceStateUrl(
   return url;
 }
 
+export async function buildWorkspaceStateUrlAsync(
+  base: string,
+  state: WorkspaceUrlState,
+  encode: (json: string) => Promise<BrowserWorkspaceShareEncodeResult>,
+): Promise<URL> {
+  const snapshot = { ...state };
+  const result = await encode(JSON.stringify({
+    tabs: snapshot.tabs, contexts: snapshot.contexts,
+    activeTabId: snapshot.activeTabId, selectedContextId: snapshot.selectedContextId,
+    view: snapshot.view,
+  } satisfies BrowserWorkspaceShareState));
+  return buildWorkspaceStateUrl(base, snapshot, () => result);
+}
+
+export async function resolveWorkspaceRouteAsync(
+  route: WorkspaceLocationRoute,
+  decode: (value: string) => Promise<BrowserWorkspaceShareDecodeResult>,
+): Promise<ParsedWorkspaceLocation> {
+  if (!route.encodedWorkspaceState) return route.visible;
+  const result = await decode(route.encodedWorkspaceState);
+  return resolveWorkspaceRoute(route, () => result);
+}
+
+export async function parseWorkspaceLocationAsync(
+  location: WorkspaceLocationSnapshot,
+  decode: (value: string) => Promise<BrowserWorkspaceShareDecodeResult>,
+): Promise<ParsedWorkspaceLocation> {
+  return resolveWorkspaceRouteAsync(parseWorkspaceRoute({ ...location }), decode);
+}
+
+export function createAsyncWorkspaceLocationPersistence(
+  dependencies: Omit<WorkspaceLocationDependencies, "decode" | "encode"> & {
+    decode(value: string): Promise<BrowserWorkspaceShareDecodeResult>;
+    encode(json: string): Promise<BrowserWorkspaceShareEncodeResult>;
+  },
+) {
+  let revision = 0;
+  const build = (state: WorkspaceUrlState, base = dependencies.current().href) =>
+    buildWorkspaceStateUrlAsync(base, state, json => dependencies.encode(json));
+  const replace = (url: string, historyState: unknown = null) => {
+    revision++;
+    try {
+      dependencies.replace(url, historyState);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return {
+    build,
+    replace,
+    push(url: string, historyState: unknown = null) {
+      revision++;
+      try { dependencies.push(url, historyState); } catch { /* Browser history can be unavailable. */ }
+    },
+    parseCurrent: () => parseWorkspaceLocationAsync(dependencies.current(), value => dependencies.decode(value)),
+    preflightCurrent() {
+      const route = parseWorkspaceRoute(dependencies.current());
+      return {
+        visible: route.visible,
+        hasWorkspaceState: route.hasWorkspaceState,
+        resolve: () => resolveWorkspaceRouteAsync(route, value => dependencies.decode(value)),
+      };
+    },
+    async sync(state: WorkspaceUrlState, historyState: unknown = null) {
+      const current = ++revision;
+      const href = dependencies.current().href;
+      const url = await build(state, href);
+      if (revision === current && dependencies.current().href === href)
+        replace(url.toString(), historyState);
+    },
+  };
+}
+
 export function buildPackageRootStateUrl(
   base: string,
   state: PackageRootUrlState,

@@ -1,6 +1,7 @@
 import {
   createOperationAuthorityPage,
   type OperationDiagnostic,
+  type OperationAuthorityPage,
   type OperationProducerAdapter,
 } from "./operation-authority.ts";
 import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
@@ -33,6 +34,9 @@ import type {
 } from "./worker-runtime-core.ts";
 import { bindEngineWorkerStartupClient } from "./engine-worker-startup.ts";
 import type { QueryRequest } from "./package-query.ts";
+import type { EngineClient } from "./engine-client.ts";
+import { bindEngineWorkerOperations } from "./engine-worker-operations.ts";
+import { registerEngineWorkerComparisonAdapters } from "./engine-worker-comparison.ts";
 
 function createEngineWorker(): Worker {
   return new Worker(new URL("./engine-worker-entry.ts", import.meta.url), {
@@ -157,6 +161,50 @@ export function createEngineWorkerStartupClient(origin: string, options: EngineW
   }
   return {
     client: bindEngineWorkerStartupClient(host, options.operationDiagnostic),
+    dispose: () => host.dispose(),
+  };
+}
+
+export function bindProductionEngineClient(
+  host: EngineWorkerHost,
+  reportDiagnostic: EngineWorkerProbeOptions["operationDiagnostic"],
+  authority: OperationAuthorityPage = createOperationAuthorityPage(),
+): EngineClient {
+  const startup = bindEngineWorkerStartupClient(host, reportDiagnostic, authority);
+  const ordinary = bindEngineWorkerOperations(host, reportDiagnostic, authority);
+  // A real startup read is admitted only after the Worker's complete bootstrap.
+  // Retain its failure; no second epoch or page-runtime recovery is exposed.
+  const ready = startup.host.buildIdentity().then(() => undefined);
+  void ready.catch(() => undefined);
+  return {
+    ...ordinary,
+    host: startup.host,
+    catalog: { ...ordinary.catalog, ...startup.catalog },
+    package: {
+      ...ordinary.package, ...startup.package,
+      queryAdapter: registerEngineWorkerPackageQueryAdapter(host),
+    },
+    source: {
+      ...ordinary.source,
+      typeSourceAdapter: registerEngineWorkerTypeSourceAdapter(host),
+      ...registerEngineWorkerComparisonAdapters(host),
+    },
+    ready,
+  };
+}
+
+export function createProductionEngineClient(
+  origin: string,
+  options: EngineWorkerProbeOptions & { readonly operationAuthority: OperationAuthorityPage },
+): { readonly client: EngineClient; readonly dispose: () => void } {
+  const host = createHost(options);
+  const started = host.start(origin);
+  if (started.kind === "rejected") {
+    host.dispose();
+    throw new Error(`Worker could not start: ${started.reason}. Reload the page.`, { cause: started.detail });
+  }
+  return {
+    client: bindProductionEngineClient(host, options.operationDiagnostic, options.operationAuthority),
     dispose: () => host.dispose(),
   };
 }

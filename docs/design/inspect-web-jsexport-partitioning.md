@@ -387,9 +387,9 @@ All generated facades use the exact same runtime module specifier:
 ```
 
 The published loader resolves the SDK's fingerprinted runtime module without
-requiring a document import map. The coordinator is shared by the implemented
-page host and the separate Worker diagnostic host; sharing its source does not
-share a runtime between realms.
+requiring a document import map. Production runs the coordinator in its Worker.
+Isolated diagnostic hosts also exercise the coordinator; sharing its source
+does not share a runtime between realms.
 
 The consumer owns one coordinator:
 
@@ -431,7 +431,7 @@ Startup remains eager and ordered:
 
 ```ts
 await initializeFacades();
-host.configureHost(window.location.origin);
+host.configureHost(origin);
 await host.runEntryPoint();
 
 const packageSurface = await packageApi.queryPackage(
@@ -446,7 +446,8 @@ const metadataImage = await metadata.queryPackageMetadata(
 );
 ```
 
-The second call demonstrates a neighboring module over the same package
+The page supplies `origin` in the Worker bootstrap input. The second call
+demonstrates a neighboring module over the same package
 coordinate. It does not create another runtime, rerun the entry point, or route
 metadata through the package facade.
 
@@ -471,7 +472,7 @@ stronger close negative than the production names.
 
 ## Page-facing engine client
 
-This proposed extension owns **consumer binding to the generated facade set
+This extension owns **consumer binding to the generated facade set
 through one asynchronous client**. The production consumer is Inspect Web,
 with Type Source as the first fully composed Worker feature in
 [#5420](https://github.com/richlander/dotnet-inspect/issues/5420). It retains the
@@ -576,9 +577,141 @@ In particular, share/copy must not assume that transient user activation
 survives an awaited engine call; its navigation owner retains that interaction
 constraint.
 
-### Adoption and evidence
+### Production activation and evidence
 
-The first caller-adoption slice uses
+Issue [#6435](https://github.com/richlander/dotnet-inspect/issues/6435)
+implements milestone 5: the production page starts one Worker client, awaits
+its complete readiness barrier, and binds all seven owning facade groups.
+`engine-client.ts` now contains only the client type. The temporary
+`createMainThreadEngineClient` and direct generated page imports are retired.
+The production client exposes no epoch restart; failure remains visible with
+page-reload recovery.
+
+The closed ordinary-operation inventory in `engine-worker-operations.ts`
+selects each generated function explicitly. Generated parameter tuples and
+result types remain authoritative. Ordinary transport validates primitive
+argument tuples and bounded plain JSON data, preserving additional DTO
+properties rather than duplicating every generated DTO grammar. Its ceiling
+is 67,108,864 UTF-16 code units, 1,048,576 structural nodes, and 64 nesting
+levels; accessors, sparse arrays, nonfinite numbers, and non-JSON values fail
+visibly. Results must also match the generated object, array, string, or void
+family. Startup, Type Source, and Package Query retain their existing,
+feature-specific codecs and limits. The three authority-governed comparisons
+use `engine-worker-comparison.ts`, not the ordinary Promise inventory. They
+reuse the bounded JSON transport above and the feature-owned comparison
+envelope mapping; generated request/result DTOs remain their data authority.
+
+Startup, ordinary calls, and authority-governed consumers share the page's
+operation allocator. Independent ordinary calls have independent sessions;
+there is no global completion queue that would block controls behind a query.
+Type Source and both comparison coordinators inject Worker producers into
+their existing sessions without allocating another logical operation. Target
+inventory, Method Body Diff, and authored Source Diff keep the page-issued ID
+through Worker correlation and generated admission. Their exact cancellation
+uses the generated keyed comparison controls, and only Worker physical
+settlement or realm release reports quiescence, including after epoch failure.
+Package Query consumes
+the landed controlled adapter through `createWorkerPackageQueryDataSource`.
+The controller allows one outstanding credit request, updates credit only
+after acknowledgment, and re-evaluates result pressure after that acknowledgment.
+Feature-owned batching, current publication, request policy, and windowing
+remain in their existing owners.
+
+The enforcing gates are:
+
+- `test/engine-client.test.ts`: closed inventory, generated-shaped ordinary
+  results, complete readiness, shared state, independent controls, bounded
+  transport, visible failures, and retirement of direct production imports.
+- `test/engine-worker-source.test.ts` and
+  `test/engine-worker-package-query.test.ts`: production consumer composition,
+  authority identity, stale suppression, quiescence, ordered events, keyed
+  cancellation, and delayed exact-credit acknowledgment.
+- `test/engine-worker-comparison.test.ts`: all three comparison identities,
+  generated arguments, keyed cancellation, terminal mapping, bounded malformed
+  data rejection, injected coordinator publication, and logical failure before
+  physical draining or hard release.
+- `test/worker-consumer-boundaries.test.ts`,
+  `test/saved-workspace-navigation.test.ts`, and the existing feature tests:
+  awaited navigation, captured share coordinates, and clipboard permission
+  requested during user activation through a Promise-valued `ClipboardItem`.
+- `browser/production-worker.spec.ts`, included in
+  `inspect-web-worker-browser-binding`: the Release-published production page,
+  one Worker and no observed page Wasm instantiation, first useful Package
+  Query rows, keyboard input and two animation frames between acknowledged
+  demand-driven continuations before completion,
+  assembly-query input/frame overlap with Worker event-loop non-dispatch,
+  bounded demand through 100 matches, exact credit responses, supersession,
+  cancellation, shared package-cache state, production Type Source rendering,
+  and visible Worker loss over an open Metadata Explorer without a page-runtime
+  fallback. Permanent epoch failure takes precedence over full-screen overlays;
+  ordinary overlay behavior is unchanged.
+
+The prefix-query gate's first 20 matches exhaust initial credit. That interval
+is demand-paused, not actively runnable managed work. Its input/two-frame
+observation between acknowledged continuations (30 and 40 matches) proves
+composition only; neither an outstanding operation nor later matches proves
+active processing at input/frame time.
+
+**The separate production assembly-query gate establishes the active-work
+temporal association for #5816/#6435.** It submits the real `/query` assembly
+form with five distinct exact package coordinates, `net11.0`, and an absent
+literal operand. The deterministic `healthyNupkg` fixture packages the existing
+Release `ILInspector.Decompiler.dll` (approximately 3 MB), not generated query
+output. `eng/test-inspect-web-published-application.sh` supplies its path as
+`INSPECT_WEB_WORKER_QUERY_DLL` and fails visibly if it is missing. Product-owned
+selection and IL evaluation must emit Assembly progress 0 through 5, five
+`NoMatch` assessments for the selected implementation DLL, and successful
+completion with five semantic misses, zero matches/failures/non-applicable
+selections. The operation receives no match-credit control messages.
+
+Playwright's `Worker.evaluate` installs only test instrumentation: a 4 ms
+interval sampler and an observer forwarding unchanged Worker messages. It
+records Worker-side progress, assessment, and settlement send times rather than
+delayed page receipt times. Page and Worker observations use
+`performance.timeOrigin + performance.now()`; sequential page/Worker/page
+samples before and after the query bound their clock offset. The gate applies
+the complete offset uncertainty inward when testing containment, not a
+round-trip midpoint. No product timing hook or additional managed operation
+is introduced.
+
+The enforcing predicate requires consecutive Worker ticks entirely between
+the first Assembly progress and settlement, with a real `NoMatch` assessment
+emitted inside that gap. After excluding one ordinary sampler period from the
+gap's start and before that assessment, a trusted keyboard-produced page
+`input` event and at least two subsequent rAF callbacks must be strictly
+contained, including clock uncertainty. Both frames must observe that input's
+updated value. Input edits the explicitly submitted assembly operand, not the
+live prefix field that would supersede the query. The evidence attachment
+records clocks, ticks, progress, outcomes, and contained input/frame times;
+cleanup stops both recorders and restores Worker message dispatch.
+
+This measures event-loop non-dispatch during real managed Package Query work:
+ordinary network awaits and exhausted match credit do not block the Worker
+timer. The assessment-bearing gap connects the observation to actual assembly
+evaluation rather than merely a pending operation. It does not identify exact
+managed entry/exit instants, attribute every elapsed millisecond to managed
+instructions rather than runtime/GC/browser scheduling, prove pixel
+presentation from rAF callbacks, or impose a latency/throughput guarantee.
+Containment, not a hardcoded workload duration, is the gate. The independent
+`worker-cpu-isolation.spec.ts` timestamped managed canary remains unchanged.
+
+The separately enabled `System.*` timing probe uses the same published page
+and real NuGet search, without fixture routing. Run it with
+`INSPECT_WEB_QUERY_BENCHMARK=1` and Playwright's
+`--config playwright.worker.config.ts --grep 'System prefix timing'`.
+It records first row, first window, completion, render count, and longest
+main-thread timer delay as an attachment, not a deterministic timing assertion.
+The local RC1 Release/Firefox run recorded 1,168 ms, 1,206 ms, 2,642 ms,
+146 frames, and 55 ms respectively. These are environmental observations,
+not latency guarantees. The existing published facade, Worker CPU-isolation,
+package-adoption, and authored Source-comparison gates also pass.
+
+### Preparation evidence
+
+The following records the preparation slices before production activation;
+their former page-runtime composition is superseded by #6435.
+
+The first caller-adoption slice used
 [`engine-client.ts`](../../prototypes/inspect-web/src/engine-client.ts) for
 Promise-valued build identity, vocabulary, home demo, Package Query facet, and
 Gallery discovery reads. Its three facade groups retain generated types;
@@ -661,7 +794,8 @@ is the production-host adoption and retirement path under #5418 and #5420:
    Worker-only host, without activating them alongside the production runtime
    (**implemented**).
 5. Switch production bootstrap and all required bindings together, retire the
-   temporary page client/direct managed calls, and complete the Source demo.
+   temporary page client/direct managed calls, and complete the Source demo
+   (**implemented**, #6435).
 
 Steps 2 and 3 may proceed independently under their owners. Step 5 waits for
 all required paths; it includes the production demonstration rather than
@@ -680,8 +814,9 @@ progress, and declares unbounded liveness.
 `inspect-web-worker-protocol`, exercises the real host, realm, catalog, and
 operation-authority path plus malformed boundary data. The published Firefox
 Worker gate additionally returns decompiled Source from a deterministic local
-package through the generated facade. The production `source-inspection.ts`
-adapter and `dotnet-inspect.ts` dependencies remain unchanged.
+package through the generated facade. That preparation slice left production
+`source-inspection.ts` and `dotnet-inspect.ts` dependencies unchanged; #6435
+now composes them into the Worker path.
 
 The Package Query portion of milestone 4 composes the already landed durable
 event, acknowledged control, and operation-keyed managed boundaries in a
@@ -722,39 +857,36 @@ credit acknowledgment across settlement, terminal-callback rejection entering
 Worker draining, malformed fulfilled results, payload bounds, and continued
 realm health after an operation-local result failure.
 
-This is preparation, not production activation. The production
+That slice was preparation, not production activation. The production
 `PackageQueryDataSource`, `dotnet-inspect.ts` Package facade binding, UI
 generation policy, credit thresholds, batching, rendering, Worker protocol,
-managed bridge, and TLA+ models remain unchanged. Package Query's remaining
-production path has four total steps:
+managed bridge, and TLA+ models remained unchanged in that slice. Package
+Query's production path has four total steps:
 
 1. Worker operation-addressed controls, completed through #6376 and #6385.
 2. Operation-keyed managed controls, completed through #6390 and #6393.
 3. The typed Worker adapter with durable events and acknowledged credit,
    implemented here.
 4. Atomic activation of the single Worker runtime, retirement of direct page
-   managed dispatch, and the #5816 responsiveness evidence.
+   managed dispatch, and the #5816 responsiveness evidence, implemented by #6435.
 
-Milestone 5 still owns lifecycle composition, production bootstrap, all
+Milestone 5 completes lifecycle composition, production bootstrap, all
 required neighboring bindings, direct page-runtime retirement, and the
-real-browser Source and Package Query responsiveness demonstrations.
-
-Outstanding production-runtime and responsiveness claims remain **unverified**
-until milestone 5. Extend the existing published facade-composition gate to
-exercise the actual client bootstrap, one SDK creation across the page/Worker
-composition, all required bindings, and visible startup failure. Its
-neighboring case uses package and metadata through the same runtime. This is
-behavioral evidence for that consumer path, not a repository-wide source
-absence audit.
+real-browser Source UI and Package Query responsiveness demonstrations
+described above. The published facade-composition smoke retains its
+package/metadata neighboring case. This is behavioral evidence for the
+consumer path, not a repository-wide source absence audit.
 
 Worker protocol/lifecycle and durable ordering remain covered by their owner's
-gates; managed lifetime remains covered by #5419. Consumer adoption gates must
-exercise pending-query controls and preserve existing feature outcomes across
-the new asynchronous boundary. The #5420 browser scenario must show paint/input
-during representative managed Source work and distinguish logical cancellation
-from physical release, with a browser-native neighboring producer. Existing
-models remain evidence for their owned components, not proof of these new
-consumer bindings.
+gates; managed lifetime remains covered by #5419. The consumer adoption gates
+exercise pending-query controls and preserve feature outcomes across the new
+asynchronous boundary. Type Source's logical cancellation and physical release
+are checked separately in its consumer-composition tests. The broader #5420
+Source-work stress scenario with a browser-native neighboring producer remains
+**unverified** by this slice; the actual Source UI gate and the separate managed
+CPU isolation gate must not be described as that stress measurement. Existing
+models remain evidence for their owned components, not proofs of the consumer
+bindings.
 
 ### Comparative basis and mock demo
 

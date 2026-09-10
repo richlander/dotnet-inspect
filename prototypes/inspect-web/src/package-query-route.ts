@@ -109,3 +109,14 @@ export function resolvePackageQueryWorkspaceSuccessor(
 export function validPackageQuerySearchText(value: string): string {
   return value.trim().length === 0 ? "" : value;
 }
+
+export async function resolvePackageQueryWorkspaceSuccessorAsync(
+  buildRetainedWorkspaceUrl: () => Promise<URL>,
+  buildFallbackWorkspaceUrl: () => URL,
+): Promise<PackageQueryWorkspaceSuccessor> {
+  try {
+    return { url: await buildRetainedWorkspaceUrl(), projected: true, projectionError: null };
+  } catch (projectionError) {
+    return { url: buildFallbackWorkspaceUrl(), projected: false, projectionError };
+  }
+}

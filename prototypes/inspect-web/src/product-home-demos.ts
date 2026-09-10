@@ -3,8 +3,10 @@ import type {
   BrowserHomeDemoMember,
   BrowserHomeDemoResolved,
   BrowserWorkspaceShareTab,
+  BrowserWorkspaceShareEncodeResult,
 } from "./facades/inspect-web-catalog.d.ts";
 import {
+  buildWorkspaceStateUrlAsync,
   encodeWorkspaceShareState,
   type WorkspaceShareEncoder,
   type WorkspaceUrlState,
@@ -126,10 +128,9 @@ function packageTab(
  * Returns null when the demo runs through an engine operation instead
  * (member-bound Call Graph today).
  */
-export function productHomeDemoLocationHref(
+function productHomeDemoWorkspaceState(
   demo: ProductHomeDemoResolved,
-  encode: WorkspaceShareEncoder,
-): string | null {
+): WorkspaceUrlState | null {
   const section = demo.view.section;
   if (section === "Call Graph" && demo.view.memberAnchor) {
     return null;
@@ -156,7 +157,7 @@ export function productHomeDemoLocationHref(
     ...groupTabs.map(tab => tab.id),
     ...tabs.filter(tab => tab.kind === "package").map(tab => tab.id),
   ];
-  return locationHref({
+  return {
     package: focusTab.kind === "group"
       ? BROWSER_RUNTIME_PACKAGE
       : focusTab.source,
@@ -176,7 +177,25 @@ export function productHomeDemoLocationHref(
       section: null,
       libraries: demo.view.library ? [demo.view.library] : [],
     },
-  }, encode);
+  };
+}
+
+export function productHomeDemoLocationHref(
+  demo: ProductHomeDemoResolved,
+  encode: WorkspaceShareEncoder,
+): string | null {
+  const state = productHomeDemoWorkspaceState(demo);
+  return state ? locationHref(state, encode) : null;
+}
+
+export async function productHomeDemoLocationHrefAsync(
+  demo: ProductHomeDemoResolved,
+  encode: (json: string) => Promise<BrowserWorkspaceShareEncodeResult>,
+): Promise<string | null> {
+  const state = productHomeDemoWorkspaceState(demo);
+  if (!state) return null;
+  const url = await buildWorkspaceStateUrlAsync("https://inspect.invalid/", state, encode);
+  return `${url.pathname}${url.search}`;
 }
 
 export function homeDemosEntryHtml(

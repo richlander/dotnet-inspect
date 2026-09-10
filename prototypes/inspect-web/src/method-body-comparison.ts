@@ -130,9 +130,29 @@ export function methodBodyChoiceForKey(
     choice => methodBodySelectionKey(choice) === key) ?? null;
 }
 
-export interface MethodBodyComparisonDependencies {
+export type MethodBodyTargetsAdapter = OperationProducerAdapter<
+  MethodBodyComparisonContext, BrowserMethodBodyTargets, unknown, never, unknown
+>;
+export type MethodBodyComparisonAdapter = OperationProducerAdapter<
+  BrowserMethodBodyComparisonRequest, BrowserMethodBodyComparison, unknown, never, unknown
+>;
+
+interface MethodBodyComparisonViewDependencies {
   state: MethodBodyDiffState;
   operationAuthority: OperationAuthorityPage;
+  readonly reportOperationDiagnostic: (
+    diagnostic: OperationDiagnostic,
+  ) => undefined;
+  describeError(error: unknown): string;
+  render(): void;
+}
+
+export type MethodBodyComparisonDependencies = MethodBodyComparisonViewDependencies & ({
+  readonly targetsAdapter: MethodBodyTargetsAdapter;
+  readonly comparisonAdapter: MethodBodyComparisonAdapter;
+} | {
+  readonly targetsAdapter?: never;
+  readonly comparisonAdapter?: never;
   queryTargets(
     operationId: OperationId,
     context: MethodBodyComparisonContext,
@@ -145,12 +165,7 @@ export interface MethodBodyComparisonDependencies {
     operationId: OperationId,
     reason: OperationCancelReason,
   ): void;
-  readonly reportOperationDiagnostic: (
-    diagnostic: OperationDiagnostic,
-  ) => undefined;
-  describeError(error: unknown): string;
-  render(): void;
-}
+});
 
 interface MethodBodyDiffDismissal {
   handled: boolean;
@@ -180,14 +195,14 @@ export function createMethodBodyComparisonCoordinator(
     BrowserMethodBodyTargets,
     unknown,
     never,
-    never
+    unknown
   >;
   type ComparisonSession = OperationSession<
     BrowserMethodBodyComparisonRequest,
     BrowserMethodBodyComparison,
     unknown,
     never,
-    never
+    unknown
   >;
   interface DialogSessions {
     readonly targets: TargetsSession;
@@ -284,14 +299,10 @@ export function createMethodBodyComparisonCoordinator(
     return undefined;
   };
 
-  const targetsAdapter: OperationProducerAdapter<
-    MethodBodyComparisonContext,
-    BrowserMethodBodyTargets,
-    unknown,
-    never,
-    never
-  > = {
-    prepare: (identity, context, sink) => {
+  const targetsAdapter: MethodBodyTargetsAdapter = {
+    prepare: (identity, context, sink, cancellation) => {
+      if (dependencies.targetsAdapter)
+        return dependencies.targetsAdapter.prepare(identity, context, sink, cancellation);
       let cancellationRequested = false;
       const quiesce = (): undefined => {
         sink.reportQuiesced();
@@ -338,15 +349,37 @@ export function createMethodBodyComparisonCoordinator(
     },
   };
 
-  const comparisonAdapter: OperationProducerAdapter<
-    BrowserMethodBodyComparisonRequest,
-    BrowserMethodBodyComparison,
-    unknown,
-    never,
-    never
-  > = {
-    prepare: (identity, request, sink) => {
+  const comparisonAdapter: MethodBodyComparisonAdapter = {
+    prepare: (identity, request, sink, cancellation) => {
       comparisonRequests.set(identity.id, request);
+      if (dependencies.comparisonAdapter) {
+        try {
+          const prepared = dependencies.comparisonAdapter.prepare(identity, request, {
+            ...sink,
+            reportQuiesced: () => {
+              comparisonRequests.delete(identity.id);
+              return sink.reportQuiesced();
+            },
+          }, cancellation);
+          if (prepared.kind === "rejected") {
+            comparisonRequests.delete(identity.id);
+            return prepared;
+          }
+          return {
+            kind: "prepared",
+            binding: {
+              ...prepared.binding,
+              abandon: () => {
+                comparisonRequests.delete(identity.id);
+                return prepared.binding.abandon();
+              },
+            },
+          };
+        } catch (error: unknown) {
+          comparisonRequests.delete(identity.id);
+          throw error;
+        }
+      }
       let cancellationRequested = false;
       const quiesce = (): undefined => {
         comparisonRequests.delete(identity.id);

@@ -30,7 +30,11 @@ import {
   registerEngineWorkerTypeSourceOperation,
   type EngineWorkerTypeSourceFacade,
 } from "../src/engine-worker-source.ts";
-import type { TypeSourceLoadRequest } from "../src/source-inspection.ts";
+import {
+  createSourceInspectionCoordinator,
+  type SourceInspectionState,
+  type TypeSourceLoadRequest,
+} from "../src/source-inspection.ts";
 import {
   FakeWorkerOperationCatalog,
   FakeWorkerRuntime,
@@ -209,6 +213,90 @@ function startSource(
     throw new Error("Expected Type Source to start.");
   return { handle: started.handle, events };
 }
+
+test("production Type Source consumer keeps the authority identity, stale suppression and quiescence", async () => {
+  const first = deferred<BrowserTypeSourceResult>();
+  const second = deferred<BrowserTypeSourceResult>();
+  const third = deferred<BrowserTypeSourceResult>();
+  const calls: string[] = [];
+  const cancellations: string[] = [];
+  const facade: EngineWorkerTypeSourceFacade = {
+    queryTypeSource(id) {
+      calls.push(id);
+      return calls.length === 1 ? first.promise : calls.length === 2 ? second.promise : third.promise;
+    },
+    cancelTypeSourceQuery(id, reason) {
+      cancellations.push(`${id}:${reason}`);
+      return { kind: "Requested", reason };
+    },
+  };
+  const harness = createHarness(operations =>
+    registerEngineWorkerTypeSourceOperation(operations, () => facade));
+  await startReady(harness);
+  let sequence = 0;
+  const state: SourceInspectionState = {
+    settings: false, explorer: null, loading: false, error: "", home: false,
+    package: {}, atPackageRoot: false, lens: "source", selectedMemberKey: "",
+    memberSection: "source", sourceRequestGeneration: 0,
+    memberSource: null, memberSourceLoading: false, memberSourceError: "", memberSourceKey: "",
+    typeSource: null, typeSourceLoading: false, typeSourceError: "", typeSourceKey: "",
+    graphSource: { status: "closed" }, taste: [],
+  };
+  const coordinator = createSourceInspectionCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage({
+      allocation: { createId: () => `source-owner-${++sequence}` },
+    }),
+    typeSourceAdapter: harness.adapter,
+    queryMemberSource: async () => source,
+    queryGraphSource: async () => source,
+    cancelEngineSourceRequest: () => assert.fail("Direct cancellation must not run."),
+    memberSourceHasConcreteOverload: () => false,
+    reportOperationDiagnostic: () => undefined,
+    describeError: String, render: () => undefined,
+    renderPreservingMemberFocus: () => ({
+      selector: "", dataTarget: null, selection: null, navigationScope: null,
+      navigationSelection: null, navigationScrollTop: null, focusLost: false,
+    }),
+  });
+  let firstQuiesced = false;
+  const old = coordinator.loadTypeSource(request).then(() => { firstQuiesced = true; return undefined; });
+  await harness.environment.flushAsync();
+  const current = coordinator.loadTypeSource({ ...request, signature: "replacement" });
+  await harness.environment.flushAsync();
+  assert.deepEqual(calls, ["source-owner-1", "source-owner-2"]);
+  assert.deepEqual(cancellations, ["source-owner-1:superseded"]);
+  assert.equal(firstQuiesced, false);
+  second.resolve(succeeded({ ...source, text: "new source" }));
+  await harness.environment.flushAsync();
+  await current;
+  assert.equal(state.typeSource?.text, "new source");
+  first.resolve(succeeded({ ...source, text: "stale source" }));
+  await harness.environment.flushAsync();
+  await old;
+  assert.equal(state.typeSource?.text, "new source");
+  assert.equal(firstQuiesced, true);
+  assert.equal(harness.host.snapshot().activeOperations, 0);
+  const replaced = coordinator.loadTypeSource({ ...request, signature: "third" });
+  await harness.environment.flushAsync();
+  const oversized = { ...request, signature: "oversized", type: "T".repeat(65_537) };
+  await coordinator.loadTypeSource(oversized);
+  await harness.environment.flushAsync();
+  assert.equal(state.typeSourceKey, "oversized");
+  assert.equal(state.typeSource, null);
+  assert.match(state.typeSourceError, /producer-rejected/);
+  assert.equal(calls.length, 3);
+  assert.equal(cancellations.at(-1), "source-owner-3:superseded");
+  third.resolve(succeeded({ ...source, text: "stale third" }));
+  await harness.environment.flushAsync();
+  await replaced;
+  await coordinator.loadTypeSource(oversized);
+  assert.equal(state.typeSourceKey, "oversized");
+  assert.equal(state.typeSource, null);
+  assert.match(state.typeSourceError, /producer-rejected/);
+  assert.equal(calls.length, 3);
+  harness.host.dispose();
+});
 
 test("Type Source Worker adapter projects clone-safe input and returns source", async () => {
   const calls: unknown[][] = [];

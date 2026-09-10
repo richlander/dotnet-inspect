@@ -34,7 +34,7 @@ interface HarnessOptions {
   focusAfterDismiss?: () => void;
   captureFocusAfterDismiss?: () => () => void;
   executeCommand?: () => Promise<unknown> | undefined;
-  searchResults?: () => SpotlightResult[];
+  searchResults?: () => SpotlightResult[] | Promise<SpotlightResult[]>;
   lenses?: () => readonly (readonly [string, string])[];
   removeResult?: (result: RemovableSpotlightResult) => boolean;
   pickResult?: (result: SpotlightResult) => void;
@@ -265,6 +265,22 @@ const packageRows: SpotlightPackageResult[] = [
   { kind: "pkg-recent", entry: { id: "Gamma", version: "3.0.0" }, ranges: [] },
 ];
 
+test("Enter remains inert while Worker search is pending and stale completion stays suppressed", async () => {
+  let resolve!: (rows: SpotlightResult[]) => void;
+  const pending = new Promise<SpotlightResult[]>(accept => { resolve = accept; });
+  const harness = createHarness({ searchResults: () => pending });
+  withStubbedFocusTarget(() => harness.spotlight.open("Example", "types"));
+  withBoundSpotlight(harness, dom => {
+    assert.match(harness.spotlight.modalHtml(), /Searching…/);
+    assert.equal(dom.press("Enter"), true);
+    assert.equal(harness.state.spotlightOpen, true);
+    harness.spotlight.reset();
+  });
+  resolve(packageRows);
+  await pending;
+  assert.equal(harness.state.spotlightOpen, false);
+});
+
 test("Add package is a named package-only picker without commands or removal", () => {
   const pkg = { id: "Platform", version: "10.0.0", isRuntimePack: true };
   const type = { id: "System.Object", name: "Object", kind: "class" };
@@ -475,7 +491,9 @@ test("ordinary command open ends Add package purpose", () => {
   });
   assert.equal(harness.state.spotlightScope, "commands");
   assert.match(harness.spotlight.modalHtml(), /aria-label="Run a command"/);
-  assert.ok(harness.spotlight.results().every(result => result.kind === "command"));
+  const results = harness.spotlight.results();
+  assert.ok(Array.isArray(results));
+  assert.ok(results.every(result => result.kind === "command"));
   harness.spotlight.close();
 });
 
@@ -737,6 +755,7 @@ test("newer document focus blocks delayed command focus restoration", async () =
   });
   state.spotlightOpen = true;
   const results = spotlight.results();
+  assert.ok(Array.isArray(results));
   const commandIndex = results.findIndex(result =>
     result.kind === "command" && result.action === "execute");
   assert.notEqual(commandIndex, -1);

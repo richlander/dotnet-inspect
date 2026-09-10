@@ -1,7 +1,7 @@
-import type { EngineClient } from "./engine-client.ts";
 import {
   createOperationAuthorityPage,
   type OperationDiagnostic,
+  type OperationAuthorityPage,
 } from "./operation-authority.ts";
 import {
   engineWorkerBoundaryErrors,
@@ -18,9 +18,17 @@ import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
 import type { WorkerOperationCatalog } from "./worker-runtime-realm.ts";
 
 export interface EngineStartupClient {
-  readonly host: Pick<EngineClient["host"], "buildIdentity">;
-  readonly catalog: Pick<EngineClient["catalog"], "listVocabulary" | "listHomeDemos">;
-  readonly package: Pick<EngineClient["package"], "listPackageQueryFacets" | "listGalleryDiscoveryCatalog">;
+  readonly host: {
+    buildIdentity(): Promise<ReturnType<typeof import("./facades/inspect-web-host.d.ts").buildIdentity>>;
+  };
+  readonly catalog: {
+    listVocabulary(): Promise<ReturnType<typeof import("./facades/inspect-web-catalog.d.ts").listVocabulary>>;
+    listHomeDemos(): Promise<ReturnType<typeof import("./facades/inspect-web-catalog.d.ts").listHomeDemos>>;
+  };
+  readonly package: {
+    listPackageQueryFacets(): Promise<ReturnType<typeof import("./facades/inspect-web-package.d.ts").listPackageQueryFacets>>;
+    listGalleryDiscoveryCatalog(): Promise<ReturnType<typeof import("./facades/inspect-web-package.d.ts").listGalleryDiscoveryCatalog>>;
+  };
 }
 
 interface StartupReads {
@@ -66,10 +74,10 @@ export function registerEngineWorkerStartupOperations(
 export function bindEngineWorkerStartupClient(
   host: WorkerRuntimeHost<string, string>,
   reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
+  page: OperationAuthorityPage = createOperationAuthorityPage(),
 ): EngineStartupClient {
   const epoch = host.snapshot().epochToken;
   if (epoch === null) throw new Error("Start a Worker epoch before binding startup reads.");
-  const page = createOperationAuthorityPage();
 
   function bind<TValue>(operation: StartupOperation<TValue>): () => Promise<TValue> {
     const adapter = host.registerOperation({

@@ -84,7 +84,7 @@ function inspectionState(
 
 function inspectionDependencies(
   state: SourceInspectionState,
-  overrides: Partial<Omit<SourceInspectionDependencies, "state">> = {},
+  overrides: Partial<Omit<Extract<SourceInspectionDependencies, { queryTypeSource: unknown }>, "state">> = {},
 ): SourceInspectionDependencies {
   let nextOperationId = 1;
   return {

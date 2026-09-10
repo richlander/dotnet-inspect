@@ -55,6 +55,7 @@ import {
   normalizeDocumentViewerSnapshot,
   type DocumentViewerState,
 } from "../src/document-inspection.ts";
+import { captureLibraryScope } from "../src/member-filtering.ts";
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
@@ -62,6 +63,8 @@ assert.deepEqual(app.errors, []);
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "scope", "syncUrl", "buildStateUrl",
+  "workspaceUrlProjection",
+  "captureView",
   "openSavedWorkspace", "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
   "commitDemoNavigation", "cancelDemoNavigation",
@@ -388,7 +391,7 @@ function harness() {
     selectedMember: () => null,
     recordRecentPackage: (...coordinate: string[]) => recent.push(coordinate),
     packageInspection: { invalidatePackageResults: () => invalidations.push("package-results") },
-    inspectClearWorkspacePackageOccurrences: () => invalidations.push("occurrences"),
+    inspectClearWorkspacePackageOccurrences: async () => { invalidations.push("occurrences"); },
     applicationMenuOwnsFocus: () => false,
     showToast: (message: string) => toasts.push(message),
     spotlight: {
@@ -403,7 +406,7 @@ function harness() {
         state.spotlightOpen = false;
       },
     },
-    typeLensesFor, workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
+    typeLensesFor, workspaceShareCaptureTopology, workspaceShareTabsMatchResolved, captureLibraryScope,
     parseWorkspaceLocation, isProductHomeDemosPath,
     inspectDecodeWorkspaceShareState: decode,
     requestAnimationFrame: (action: () => void) => frames.push(action),
@@ -470,7 +473,9 @@ function harness() {
     render: (options: { synchronizeUrl?: boolean } = {}) => {
       effects.push("render");
       if (!state.loading && state.package && !state.home && !state.error) {
-        if (options.synchronizeUrl !== false) runInNewContext("syncUrl()", context);
+        if (options.synchronizeUrl !== false) {
+          operations.push(Promise.resolve(runInNewContext("syncUrl()", context)));
+        }
         navigationHistory.record();
       }
     },
@@ -505,13 +510,16 @@ function harness() {
     queries, retained, recent, invalidations, toasts, picker, previousEntries,
     catalogRequests, packageComparisonTargets,
     demoResolutions, callGraphRuns, publications,
-    capture: (): string => {
-      const result: unknown = runInNewContext("captureSavedWorkspacePacket()", context);
+    capture: async (): Promise<string> => {
+      const result: unknown = await runInNewContext("captureSavedWorkspacePacket()", context);
       assert.ok(typeof result === "string");
       return result;
     },
-    open: (entry: SavedWorkspace = saved): void => {
-      runInNewContext("openSavedWorkspace(entry)", { ...context, entry });
+    open: (entry: SavedWorkspace = saved): Promise<unknown> => {
+      const operation = Promise.resolve<unknown>(
+        runInNewContext("openSavedWorkspace(entry)", { ...context, entry }));
+      operations.push(operation);
+      return operation;
     },
     demo: (): void => { runInNewContext('runHomeDemo("demo")', context); },
     add: (result: SpotlightPackageResult = {
@@ -523,7 +531,13 @@ function harness() {
       return operation;
     },
     openPicker: (): void => { runInNewContext("openWorkspacePackagePicker()", context); },
-    settle: async () => { await Promise.all(operations); },
+    settle: async () => {
+      let count = 0;
+      do {
+        count = operations.length;
+        await Promise.all(operations);
+      } while (count !== operations.length);
+    },
     flushFocus: () => { for (const frame of frames.splice(0)) frame(); },
   };
 }
@@ -588,7 +602,7 @@ test("capture settles a loading document viewer without claiming ready content",
   assert.equal(h.state.docViewer.status, "loading");
 });
 
-test("capture uses the original share projection and retains Workspace presentation without effects", () => {
+test("capture uses the original share projection and retains Workspace presentation without effects", async () => {
   const h = harness();
   const basis = sharedState();
   h.state.packages = basis.tabs.map(tab => ({
@@ -604,7 +618,7 @@ test("capture uses the original share projection and retains Workspace presentat
   const href = h.location.href;
   const history = h.history.state;
 
-  assert.equal(h.capture(), packet);
+  assert.equal(await h.capture(), packet);
   assert.deepEqual(h.encoded, [basis]);
   assert.deepEqual(h.state, before);
   assert.equal(h.location.href, href);
@@ -615,7 +629,7 @@ test("capture uses the original share projection and retains Workspace presentat
   assert.deepEqual(h.focus, []);
 });
 
-test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete projection", () => {
+test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete projection", async () => {
   for (const mutate of [
     (h: ReturnType<typeof harness>) => { h.state.home = true; },
     (h: ReturnType<typeof harness>) => { h.state.credits = true; },
@@ -630,7 +644,7 @@ test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete 
   ]) {
     const h = harness();
     mutate(h);
-    assert.throws(h.capture, /Workspace|workspace|library/);
+    await assert.rejects(h.capture, /Workspace|workspace|library/);
     assert.equal(h.writes.length, 0);
     assert.deepEqual(h.encoded, []);
   }
@@ -641,13 +655,13 @@ test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete 
   ] satisfies BrowserWorkspaceShareEncodeResult[]) {
     const h = harness();
     h.controls.encodeResult = result;
-    assert.throws(h.capture, /Projection unavailable|canonical share/);
+    await assert.rejects(h.capture, /Projection unavailable|canonical share/);
     assert.equal(h.writes.length, 0);
   }
 });
 
 for (const platform of [false, true]) {
-  test(`saving pins resolved ${platform ? "Platform" : "package"} coordinates without replacing packet-local identities or live share intent`, () => {
+  test(`saving pins resolved ${platform ? "Platform" : "package"} coordinates without replacing packet-local identities or live share intent`, async () => {
     const h = harness();
     const original = sharedState();
     const basis: BrowserWorkspaceShareState = {
@@ -669,7 +683,7 @@ for (const platform of [false, true]) {
     h.state.package = h.state.packages[1]!;
     h.state.workspaceShareBasis = basis;
     const before = structuredClone(h.state);
-    h.capture();
+    await h.capture();
     const expected = {
       ...basis,
       tabs: basis.tabs.map((tab, index) => index === 0
@@ -689,7 +703,7 @@ test("saved Open uses only the opaque packet at the current origin and commits a
   const href = h.location.href;
   const entryState = h.history.state;
   const entry = { ...saved, href: "https://elsewhere.invalid/?w=other" };
-  h.open(entry);
+  await h.open(entry);
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(h.decoded, [packet]);
   assert.deepEqual(h.acquisitions, ["Alpha@2.3.4/net10.0", "Beta@5.6.7/net9.0"]);
@@ -722,7 +736,7 @@ test("saved Open restores into an empty Workspace without a separate loader", as
   const h = harness();
   Object.assign(h.state, { packages: [], package: null });
   h.location.href = "https://inspect.test/demos";
-  h.open();
+  await h.open();
   await h.settle();
   assert.equal(h.state.package?.id, "Beta");
   assert.equal(h.state.packages.length, 2);
@@ -778,7 +792,7 @@ for (const failure of [
     const href = h.location.href;
     const entryState = h.history.state;
     const navigation = h.navigationHistory.snapshot();
-    h.open(failure === "empty" ? { ...saved, packet: "" } : saved);
+    await h.open(failure === "empty" ? { ...saved, packet: "" } : saved);
     await h.settle();
     assertRetained(h, href, entryState);
     assert.deepEqual(h.navigationHistory.snapshot(), navigation);
@@ -806,7 +820,7 @@ for (const failure of ["acquisition", "selection"] as const) {
     else
       h.controls.selection = async () => { throw new Error("View unavailable"); };
 
-    h.open();
+    await h.open();
     await h.settle();
 
     const restored = h.state.packages.find(pkg => pkg.id === sourcePackage.id);
@@ -833,7 +847,7 @@ test("successful saved Open retires comparison settings with the discarded Packa
   h.packageComparisonTargets.selectDiff(sourcePackage, {
     kind: "exact", version: sourcePackage.version,
   }, h.catalogRequests.packageVersions(sourcePackage));
-  h.open();
+  await h.open();
   await h.settle();
 
   assert.ok(h.state.package);
@@ -847,7 +861,7 @@ test("successful saved Open retires comparison settings with the discarded Packa
 test("acquisition retry reopens the retained saved packet through a new transaction", async () => {
   const h = harness();
   h.controls.acquisition = async () => false;
-  h.open();
+  await h.open();
   await h.settle();
   assert.ok(h.state.queryNoticeRetryAction);
   assert.equal(h.writes.length, 0);
@@ -869,7 +883,7 @@ for (const rejected of [false, true]) {
     const first = deferred<void>();
     const second = deferred<void>();
     h.controls.selection = () => first.promise;
-    h.open();
+    await h.open();
     await new Promise(resolve => setImmediate(resolve));
     h.controls.selection = () => second.promise;
     h.controls.share = {
@@ -880,7 +894,7 @@ for (const rejected of [false, true]) {
     h.controls.encodeResult = {
       succeeded: true, packet: "successor-packet", failure: null,
     };
-    h.open({ name: "Successor", packet: "successor-packet" });
+    await h.open({ name: "Successor", packet: "successor-packet" });
     await new Promise(resolve => setImmediate(resolve));
     const pending = h.context.pendingDemoNavigation;
     if (rejected) first.reject(new Error("Stale failure"));
@@ -905,7 +919,7 @@ for (const rejected of [false, true]) {
 test("deferred failure focus does not steal focus after navigation changes", async () => {
   const h = harness();
   h.controls.decodeFailure = "Invalid saved packet";
-  h.open();
+  await h.open();
   await h.settle();
   h.navigationSequence.begin();
   h.flushFocus();
@@ -916,7 +930,7 @@ test("failed Open uses Workspace fallback only when the saved action is no longe
   const h = harness();
   h.controls.decodeFailure = "Invalid saved packet";
   h.controls.savedFocusAvailable = false;
-  h.open();
+  await h.open();
   await h.settle();
   h.flushFocus();
   assert.deepEqual(h.focus, [
@@ -1025,7 +1039,7 @@ for (const outcome of ["success", "unknown", "failure"] as const) {
     h.controls.resolveHomeDemo = () => resolution.promise;
     h.demo();
     h.controls.selection = () => selection.promise;
-    h.open();
+    await h.open();
     await new Promise(resolve => setImmediate(resolve));
     const pending = h.context.pendingDemoNavigation;
     const snapshot = structuredClone(h.state);
@@ -1065,7 +1079,7 @@ test("call-graph demo execution receives the resolution navigation sequence and 
   assert.deepEqual(h.callGraphRuns, [{ id: "demo", navigationSeq: sequence }]);
   assert.equal(h.navigationSequence.current(), sequence);
   assert.equal(h.context.pendingDemoNavigation?.navigationSeq, sequence);
-  assert.equal(h.operations.length, 1);
+  assert.ok(h.operations.length >= 1);
   assert.equal(h.writes.length, 0);
   execution.resolve();
   await h.settle();
@@ -1184,7 +1198,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   assert.deepEqual(Array.from(h.state.platformStack), []);
   assert.deepEqual(h.invalidations, ["occurrences", "package-results"]);
   assert.equal(h.context.workspaceOccurrenceRevision, 1);
-  assert.equal(h.capture(), packet);
+  assert.equal(await h.capture(), packet);
   assert.ok(h.encoded.length >= 2);
   for (const projection of h.encoded) assert.deepEqual(projection, {
     tabs: [
@@ -1233,7 +1247,7 @@ test("Add to an empty Workspace activates its first resolved coordinate and stay
   assert.deepEqual(h.publications, [null]);
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");
-  assert.equal(h.location.searchParams.get("w"), h.capture());
+  assert.equal(h.location.searchParams.get("w"), await h.capture());
   h.flushFocus();
   assert.deepEqual(h.focus, ["heading"]);
 });
@@ -1424,8 +1438,12 @@ for (const rejected of [false, true]) {
     const query = deferred<BrowserPackageSurface>();
     h.controls.queryPackage = () => query.promise;
     const stale = h.add();
-    h.open();
-    await h.operations[1];
+    await h.open();
+    let observed = 0;
+    do {
+      observed = h.operations.length;
+      await Promise.all(h.operations.filter(operation => operation !== stale));
+    } while (observed !== h.operations.length);
     h.flushFocus();
     const successorState = structuredClone(h.state);
     const writes = structuredClone(h.writes);

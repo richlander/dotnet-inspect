@@ -132,24 +132,20 @@ export interface SourceInspectionState
   taste: string[];
 }
 
-export interface SourceInspectionDependencies {
+type TypeSourceAdapter = OperationProducerAdapter<
+  TypeSourceLoadRequest, BrowserSource, unknown, never, unknown
+>;
+
+export type SourceInspectionDependencies = {
   state: SourceInspectionState;
   operationAuthority: OperationAuthorityPage;
   queryMemberSource(request: MemberSourceQuery): Promise<BrowserSource>;
-  queryTypeSource(
-    operationId: OperationId,
-    request: TypeSourceQuery,
-  ): Promise<BrowserTypeSourceResult>;
   queryGraphSource(
     request: GraphSourceRequest,
     taste: string,
   ): Promise<BrowserSource | null>;
   memberSourceHasConcreteOverload(): boolean;
   cancelEngineSourceRequest(): void;
-  cancelTypeSourceRequest(
-    operationId: OperationId,
-    reason: OperationCancelReason,
-  ): void;
   readonly reportOperationDiagnostic: (
     diagnostic: OperationDiagnostic,
   ) => undefined;
@@ -158,7 +154,21 @@ export interface SourceInspectionDependencies {
   renderPreservingMemberFocus(
     fallback?: MemberFocusSnapshot | null,
   ): MemberFocusSnapshot;
-}
+} & ({
+  typeSourceAdapter: TypeSourceAdapter;
+  queryTypeSource?: never;
+  cancelTypeSourceRequest?: never;
+} | {
+  typeSourceAdapter?: never;
+  queryTypeSource(
+    operationId: OperationId,
+    request: TypeSourceQuery,
+  ): Promise<BrowserTypeSourceResult>;
+  cancelTypeSourceRequest(
+    operationId: OperationId,
+    reason: OperationCancelReason,
+  ): void;
+});
 
 export interface SourceInspectionCoordinator {
   cancelCurrentRequest(): boolean;
@@ -188,7 +198,7 @@ export function createSourceInspectionCoordinator(
     BrowserSource,
     unknown,
     never,
-    never
+    unknown
   >;
 
   const cancelGraphSourceRequest = (): boolean => {
@@ -274,13 +284,36 @@ export function createSourceInspectionCoordinator(
     BrowserSource,
     unknown,
     never,
-    never
+    unknown
   > = {
-    prepare: (identity, request, sink) => {
+    prepare: (identity, request, sink, cancellation) => {
       typeSourceOperations.set(identity.id, {
         request,
         preservedFocus: null,
       });
+      if (dependencies.typeSourceAdapter) {
+        const prepared = dependencies.typeSourceAdapter.prepare(identity, request, {
+          ...sink,
+          reportQuiesced: () => {
+            typeSourceOperations.delete(identity.id);
+            return sink.reportQuiesced();
+          },
+        }, cancellation);
+        if (prepared.kind === "rejected") {
+          typeSourceOperations.delete(identity.id);
+          return prepared;
+        }
+        return {
+          kind: "prepared",
+          binding: {
+            ...prepared.binding,
+            abandon: () => {
+              typeSourceOperations.delete(identity.id);
+              return prepared.binding.abandon();
+            },
+          },
+        };
+      }
       let engineCancellationRequested = false;
       const cancelEngine = (reason: OperationCancelReason): undefined => {
         if (engineCancellationRequested) {
@@ -482,6 +515,14 @@ export function createSourceInspectionCoordinator(
             `Type source operation start was rejected: ${reason}.`,
           ),
         });
+        if (reason !== "producer-rejected" && reason !== "identity-exhausted") return;
+        if (typeSourceSession.cancelCurrent("superseded").kind === "rejected") return;
+        beginSourceRequest();
+        state.typeSourceKey = request.signature;
+        state.typeSource = null;
+        state.typeSourceLoading = false;
+        state.typeSourceError = `Type source operation could not start: ${reason}.`;
+        if (request.isVisible()) dependencies.renderPreservingMemberFocus();
         return;
       }
       await result.handle.quiesced;

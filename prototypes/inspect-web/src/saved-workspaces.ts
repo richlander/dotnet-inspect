@@ -57,13 +57,14 @@ function readEntries(raw: string | null): SavedWorkspace[] {
 export function createSavedWorkspaces(options: {
   read: () => string | null;
   write: (value: string) => void;
-  capture: () => string;
+  capture: () => string | Promise<string>;
   open: (entry: SavedWorkspace) => void;
   render: (focus?: SavedWorkspaceFocus) => void;
 }) {
   const state: SavedWorkspacesState = {
     entries: [], available: false, formOpen: false, name: "", error: "",
   };
+  let saveGeneration = 0;
 
   function load(): void {
     try {
@@ -94,6 +95,7 @@ export function createSavedWorkspaces(options: {
   return {
     state,
     beginSave() {
+      saveGeneration++;
       state.formOpen = true;
       state.name = "";
       state.error = "";
@@ -103,30 +105,37 @@ export function createSavedWorkspaces(options: {
       state.name = name;
     },
     cancelSave() {
+      saveGeneration++;
       state.formOpen = false;
       state.name = "";
       state.error = "";
       options.render({ kind: "save" });
     },
-    save() {
+    async save() {
+      const generation = ++saveGeneration;
       let focus: SavedWorkspaceFocus = { kind: "save-name" };
       try {
         const name = validateName(state.name);
         if (state.entries.some(entry => entry.name.toLowerCase() === name.toLowerCase())) {
           throw new Error(`A saved Workspace named "${name}" already exists. Choose another name.`);
         }
-        const entry = { name, packet: options.capture() };
+        const captured = options.capture();
+        const packet = typeof captured === "string" ? captured : await captured;
+        if (generation !== saveGeneration) return;
+        const entry = { name, packet };
         persist([...state.entries, entry]);
         state.formOpen = false;
         state.name = "";
         state.error = "";
         focus = { kind: "saved-open", name, index: state.entries.length - 1 };
       } catch (error) {
+        if (generation !== saveGeneration) return;
         state.error = `Could not save Workspace: ${String(error)}`;
       }
       options.render(focus);
     },
     open(name: string) {
+      saveGeneration++;
       try {
         const entry = find(name);
         state.formOpen = false;

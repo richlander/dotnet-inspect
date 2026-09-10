@@ -14,6 +14,11 @@ fi
 
 export INSPECT_WEB_WORKER_SITE="$site"
 export INSPECT_WEB_WORKER_SOURCE_DLL="$repo_root/artifacts/bin/TsJsExport.Contracts/release/TsJsExport.Contracts.dll"
+export INSPECT_WEB_WORKER_QUERY_DLL="$repo_root/artifacts/bin/ILInspector.Decompiler/release/ILInspector.Decompiler.dll"
+if [[ ! -f "$INSPECT_WEB_WORKER_QUERY_DLL" ]]; then
+  echo "Worker Package Query fixture assembly is missing: $INSPECT_WEB_WORKER_QUERY_DLL" >&2
+  exit 1
+fi
 export INSPECT_WEB_PACKAGE_ADOPTION_SITE="$site"
 export INSPECT_WEB_SOURCE_DIFF_SITE="$site"
 export INSPECT_WEB_FIXTURE_RESOLVER_NO_BUILD=1

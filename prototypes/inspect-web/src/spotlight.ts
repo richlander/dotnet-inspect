@@ -126,7 +126,7 @@ interface SpotlightOptions {
     ranges: readonly HighlightRange[],
   ) => string;
   kindIcon: (kind: string) => string;
-  searchResults: () => SpotlightResult[];
+  searchResults: () => SpotlightResult[] | Promise<SpotlightResult[]>;
   pickResult: (result: SpotlightResult) => void;
   removeResult?: (result: RemovableSpotlightResult) => boolean;
   executeCommand: (
@@ -287,6 +287,8 @@ export function createSpotlight(options: SpotlightOptions) {
   const dismissedPackageIds = new Set<string>();
   let dismissalQuery = state.spotlightQuery;
   let packageAddition: PackageAdditionOptions | null = null;
+  let searchGeneration = 0;
+  let searchPending = false;
 
   function scopes() {
     if (packageAddition) return BASE_SCOPES.filter(scope => scope.id === "packages");
@@ -295,8 +297,7 @@ export function createSpotlight(options: SpotlightOptions) {
       : [...BASE_SCOPES];
   }
 
-  function results(): SpotlightResult[] {
-    if (packageAddition) return options.searchResults().filter(isPackageAdditionResult);
+  function results(): SpotlightResult[] | Promise<SpotlightResult[]> {
     if (state.spotlightScope === "commands") {
       const context = options.commandContext();
       return context
@@ -307,9 +308,13 @@ export function createSpotlight(options: SpotlightOptions) {
       dismissedPackageIds.clear();
       dismissalQuery = state.spotlightQuery;
     }
-    return options.searchResults().filter(result =>
-      result.kind !== "pkg-nuget"
-      || !dismissedPackageIds.has(result.hit.id.toLowerCase()));
+    const addition = packageAddition;
+    const filter = (items: SpotlightResult[]) => items.filter(result =>
+      addition ? isPackageAdditionResult(result)
+        : result.kind !== "pkg-nuget"
+          || !dismissedPackageIds.has(result.hit.id.toLowerCase()));
+    const found = options.searchResults();
+    return Array.isArray(found) ? filter(found) : found.then(filter);
   }
 
   function removable(result: SpotlightResult): result is RemovableSpotlightResult {
@@ -429,6 +434,7 @@ export function createSpotlight(options: SpotlightOptions) {
       : "";
     if (!items.length) {
       if (errorHtml) return errorHtml;
+      if (searchPending) return '<div class="spotlight-empty">Searching…</div>';
       const query = state.spotlightQuery.trim();
       if (state.spotlightScope === "commands") {
         return `<div class="spotlight-empty">${query
@@ -506,7 +512,37 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function resultsForRender(): readonly SpotlightResult[] {
+    const generation = ++searchGeneration;
+    const interaction = interactionGeneration;
+    const query = state.spotlightQuery;
+    const scope = state.spotlightScope;
     const items = results();
+    if (!Array.isArray(items)) {
+      searchPending = true;
+      const current = () => generation === searchGeneration
+        && interaction === interactionGeneration
+        && query === state.spotlightQuery && scope === state.spotlightScope;
+      void items.then(found => {
+        if (!current()) return undefined;
+        searchPending = false;
+        restoreSelection(found);
+        renderedResults = found;
+        paintResults(found);
+        return undefined;
+      }, (error: unknown) => {
+        if (!current()) return;
+        searchPending = false;
+        renderedResults = [];
+        const container = document.querySelector<HTMLElement>("#spotlight-results");
+        if (container) {
+          container.textContent = `Search failed: ${error instanceof Error ? error.message : String(error)}`;
+          syncActiveDescendant(0);
+        }
+      });
+      renderedResults = [];
+      return renderedResults;
+    }
+    searchPending = false;
     restoreSelection(items);
     renderedResults = items;
     return items;
@@ -635,9 +671,12 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function updateResults(): void {
+    paintResults(resultsForRender());
+  }
+
+  function paintResults(items: readonly SpotlightResult[]): void {
     const container = document.querySelector<HTMLElement>("#spotlight-results");
     if (!container) return;
-    const items = resultsForRender();
     container.innerHTML = resultsHtml(items);
     bindResultClicks(container);
     syncActiveDescendant(items.length);
@@ -666,6 +705,8 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function reset(): void {
+    searchGeneration++;
+    searchPending = false;
     packageAddition = null;
     boundInput = null;
     dismissedPackageIds.clear();
@@ -724,6 +765,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return;
     }
     if (!result) {
+      if (searchPending) return;
       close();
       return;
     }
