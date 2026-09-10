@@ -298,6 +298,7 @@ public sealed class PackageAssemblyContextRealizationTests
             PackageSourceCoordinate.Create("compatible.empty", "1.0.0"),
             new InMemoryPackageContent(
                 Archive(
+                    ("ref/net6.0/Compatible.Empty.dll", [0x01]),
                     ("ref/net8.0/_._", []),
                     ("lib/net6.0/Compatible.Empty.dll", [0x01])),
                 fromCache: false,
@@ -339,6 +340,7 @@ public sealed class PackageAssemblyContextRealizationTests
                 wasFloating: false),
             new InMemoryPackageContent(
                 Archive(
+                    ("ref/net6.0/Compatible.Empty.dll", [0x01]),
                     ("ref/net8.0/_._", []),
                     ("lib/net6.0/Compatible.Empty.dll", [0x01])),
                 fromCache: false,

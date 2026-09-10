@@ -319,6 +319,16 @@ public static class PackageCompileAssetSelector
                     selectedFramework,
                     StringComparison.OrdinalIgnoreCase)),
         ];
+        string compileTargetFramework =
+            emptyGroupTargetFramework ?? selectedFramework;
+        PackageCompileAsset[] referenceAssets =
+        [
+            .. discovered.Where(
+                asset => asset.Kind == PackageCompileAssetKind.Reference
+                    && asset.TargetFramework.Equals(
+                        compileTargetFramework,
+                        StringComparison.OrdinalIgnoreCase)),
+        ];
         PackageAssetSelection implementationSelection =
             PackageAssetSelector.Select(
                 content,
@@ -369,10 +379,10 @@ public static class PackageCompileAssetSelector
         // contributes no compile-time assembly for the request. Falling back to lib/ there would
         // compile against assets the package deliberately withheld. Compatible implementation
         // selection still reduces empty groups against the original requested framework.
-        if (!frameworkAssets.Any(asset => asset.Kind == PackageCompileAssetKind.Reference)
+        if (referenceAssets.Length == 0
             && NearestCompatibleEmptyGroup(
                 emptyReferenceGroups,
-                emptyGroupTargetFramework ?? selectedFramework) is not null)
+                compileTargetFramework) is not null)
         {
             return new PackageCompileAssetSelection(
                 PackageCompileAssetSelectionStatus.EmptyCompileGroup,
@@ -384,8 +394,6 @@ public static class PackageCompileAssetSelector
                 implementationAssets);
         }
 
-        bool hasReferenceAssets = frameworkAssets.Any(
-            asset => asset.Kind == PackageCompileAssetKind.Reference);
         PackageCompileAsset[] libraryFallback =
         [
             .. frameworkAssets
@@ -397,9 +405,8 @@ public static class PackageCompileAssetSelector
         ];
         PackageCompileAsset[] selected =
         [
-            .. (hasReferenceAssets
-                    ? frameworkAssets.Where(
-                        asset => asset.Kind == PackageCompileAssetKind.Reference)
+            .. (referenceAssets.Length > 0
+                    ? referenceAssets
                     : libraryFallback)
                 .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(asset => asset.Path, StringComparer.Ordinal),

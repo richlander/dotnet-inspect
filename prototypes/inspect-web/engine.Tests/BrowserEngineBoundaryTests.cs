@@ -3764,6 +3764,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 packageId,
                 "1.0.0",
                 PackageEntries(
+                    ($"ref/net6.0/{packageId}.dll",
+                        File.ReadAllBytes(
+                            typeof(BrowserEngineBoundaryTests).Assembly.Location)),
                     ("ref/net8.0/_._", []),
                     ($"lib/net6.0/{packageId}.dll",
                         File.ReadAllBytes(
