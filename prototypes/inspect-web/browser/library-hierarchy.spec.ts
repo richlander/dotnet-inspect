@@ -134,8 +134,8 @@ interface PlatformFixture {
   mismatchedFile?: boolean;
 }
 
-// Exercise the production composition root and bindings with deterministic facade
-// responses. Codec and participant-query behavior have separate engine outcome gates.
+// Exercise the production composition root with deterministic facade responses.
+// Worker transport and specialized-operation behavior have separate boundary gates.
 async function installFacades(
   page: Page,
   model = surface,
@@ -577,11 +577,53 @@ async function installFacades(
       body: `${common}\n${body}`,
     });
   });
-  await page.route(/\/assets\/[^/]+\.(?:js|css|woff2?|ttf)$/, route => route.fulfill({
-    path: fileURLToPath(new URL(
-      `../dist/assets/${basename(new URL(route.request().url()).pathname)}`,
-      import.meta.url)),
-  }));
+  await page.route(/\/assets\/[^/]+\.(?:js|css|woff2?|ttf)$/, route => {
+    const asset = basename(new URL(route.request().url()).pathname);
+    if (asset.startsWith("engine-worker-client-")) {
+      return route.fulfill({
+        contentType: "text/javascript",
+        body: `
+          import * as host from "/inspect-web-host.js";
+          import * as packageFacade from "/inspect-web-package.js";
+          import * as metadata from "/inspect-web-metadata.js";
+          import * as analysis from "/inspect-web-analysis.js";
+          import * as source from "/inspect-web-source.js";
+          import * as callGraph from "/inspect-web-call-graph.js";
+          import * as catalog from "/inspect-web-catalog.js";
+
+          const unsupportedAdapter = {
+            prepare() {
+              throw new Error("This browser fixture does not exercise specialized Worker operations.");
+            },
+            requestControl() {
+              throw new Error("This browser fixture does not exercise specialized Worker controls.");
+            },
+          };
+
+          export function createEngineWorkerClient() {
+            return {
+              runtimeHost: {},
+              host,
+              package: packageFacade,
+              metadata,
+              analysis,
+              source,
+              callGraph,
+              catalog,
+              packageQueryAdapter: unsupportedAdapter,
+              typeSourceAdapter: unsupportedAdapter,
+              methodBodyTargetsAdapter: unsupportedAdapter,
+              methodBodyComparisonAdapter: unsupportedAdapter,
+              memberSourceComparisonAdapter: unsupportedAdapter,
+              dispose() {},
+            };
+          }`,
+      });
+    }
+    return route.fulfill({
+      path: fileURLToPath(new URL(`../dist/assets/${asset}`, import.meta.url)),
+    });
+  });
   await page.route("**/assets/platform-index.json", route =>
     route.fulfill(platform ? {
       contentType: "application/json",
