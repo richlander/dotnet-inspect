@@ -138,12 +138,14 @@ inputs.
 
 ## Source-settlement lease
 
-PackageHouse is the clearing house where source leases are issued and
-source-owner receipts are settled. For the first operational slice in
-[#6477](https://github.com/richlander/dotnet-inspect/issues/6477), the House
-issues one `PackageHouseSourceLease` over an injected
+PackageHouse is the clearing house where source-owner-issued leases are
+acquired or borrowed and source-owner receipts are settled. For the first
+operational slice in
+[#6477](https://github.com/richlander/dotnet-inspect/issues/6477), the Package
+Source Model issues one `PackageSourceSettlementLease` over an injected
 configured-authority-to-`IPackageSourceClient` capability and a lower-owner
-operation-context factory.
+operation-context factory. PackageHouse consumes that lease; it does not mint,
+rename, or reinterpret it.
 
 The lease owns one package acquisition candidate-issuer identity. It settles:
 
@@ -169,12 +171,15 @@ authentication contexts, transports, caller-supplied `NuGetOperationContext`
 instances, payload streams, package stores, artifact content, or Workspace
 participants.
 
-`DesktopPackageSourceComposition` owns its desktop capabilities and borrows
-them into one House source lease for its lifetime. Browser/Wasm and query
-adapters borrow their host-created clients into the same lease contract.
+`DesktopPackageSourceComposition` owns its desktop capabilities and supplies
+them to one Package Source Model-issued settlement lease for its lifetime.
+Browser/Wasm and query adapters supply their host-created clients through the
+same lease contract.
+
 Step 4 routes complete PackageHouse request/result operations through this
 substrate; this slice does not make a candidate or manifest result a complete
-House terminal result.
+House terminal result. Borrowing or transfer across an `await` boundary remains
+owned by [#6544](https://github.com/richlander/dotnet-inspect/issues/6544).
 
 ## Package demand
 
@@ -681,13 +686,13 @@ authority-bearing package evidence under their owner contracts. PackageHouse
 applies the same candidate, version, pruning, and realization semantics while
 retaining their distinct producer and transport provenance.
 
-### Retired source lease retains evidence, not authority
+### Retired source-settlement lease retains evidence
 
-A source lease issues an exact candidate and settles a manifest failure. The
-host retires the lease. The candidate and failure remain inspectable evidence,
-but another candidate resolution or manifest operation through that lease is
-rejected. The source client remains alive because its host, not PackageHouse,
-owns it.
+A Package Source Model-issued lease issues an exact candidate and settles a
+manifest failure. The host retires the lease. The candidate and failure retain
+their existing evidence semantics, but another candidate resolution or
+manifest operation through that lease is rejected. The source client remains
+alive because its host, not PackageHouse, owns it.
 
 ### Direct library bypasses PackageHouse
 
@@ -732,9 +737,9 @@ counted production-adoption steps:
    plan.
 2. Define the resource-free request, operation, result, receipt, and
    package-to-library/platform handoff contracts.
-3. Generalize `DesktopPackageSourceComposition` to the House-issued,
-   host-neutral source-settlement lease over injected source capabilities
-   tracked by #6477.
+3. Generalize `DesktopPackageSourceComposition` to the Package Source
+   Model-issued, host-neutral source-settlement lease over injected source
+   capabilities tracked by #6477 and #6545.
 4. Route version settlement, candidate authorization, manifest acquisition,
    and payload acquisition through the House.
 5. Adopt normalized package input and processing evidence from #6266.
@@ -763,7 +768,7 @@ every supported host that uses it.
 | Terminal evidence | Every terminal arm retains the same immutable evidence envelope, completed receipts, and typed failures; direct and owner-adapted operation timeouts cannot produce success. |
 | Source lease authority | One lease owns one candidate issuer; candidates from another lease and clients or results from another configured-authority association are rejected. |
 | Source lease retirement | Retirement rejects new source settlement while completed source evidence remains readable. |
-| Source capability ownership | Retiring a House source lease does not dispose caller-owned clients or caller-supplied operation contexts. |
+| Source capability ownership | Retiring a package-source settlement lease does not dispose caller-owned clients or caller-supplied operation contexts. |
 | Source completeness | Partial authority evidence cannot settle latest, wildcard, range, or authoritative absence. |
 | Pruning order | `Subsumed` skips payload acquisition and every other pruning state cannot issue platform delegation. |
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
