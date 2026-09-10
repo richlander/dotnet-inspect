@@ -795,7 +795,7 @@ test.describe("Assembly Package Query website over real Wasm", () => {
     const match = literalFixtures[0]!;
     for (const fixture of literalFixtures) expect(registry.downloadCount(fixture)).toBe(1);
     const open = page.locator("[data-query-root-request]");
-    await expect(open).toHaveAttribute("data-query-root-request", /^pkgroot3\./);
+    await expect(open).toHaveAttribute("data-query-root-request", /^pkgroot4\./);
     await open.click();
 
     await expect(page).not.toHaveURL(
