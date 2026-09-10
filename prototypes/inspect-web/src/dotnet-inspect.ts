@@ -29,6 +29,7 @@ import {
   libraryLenses,
   memberSectionDefinitions,
   memberSectionIdsFor,
+  packageCoordinateLabel,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
@@ -378,6 +379,7 @@ import {
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
+  TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
   type MemberNavEntry,
   typeMetadataSignature,
   typeSourceSignature,
@@ -5368,6 +5370,9 @@ function packageDependenciesStatus(
   return `${dependencyCount} package${dependencyCount === 1 ? "" : "s"}`;
 }
 
+const DEPENDENCY_GRAPH_SUMMARY =
+  "callers above · dependencies below · click a package to open";
+
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
   const fresh = state.packageDependenciesKey === current;
@@ -5414,7 +5419,7 @@ function renderPackageDependencies() {
 
   const graphSection = `
     <section class="document-section dependency-graph-section">
-      <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
+      <div class="section-title"><h2>Dependency graph</h2><span>${DEPENDENCY_GRAPH_SUMMARY}</span></div>
       ${workspaceDependencyErrorHtml()}
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
@@ -6635,8 +6640,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     // open-package workspace. Keep its scope label distinct while preserving callers returned
     // from every platform assembly loaded into that binding-consistent group.
     const platformView = drilled || Boolean(state.package?.isRuntimePack);
-    const callers = active?.callers?.children ?? [];
-    const callees = active?.callees?.children ?? [];
     const graphScope = active?.scope;
     const otherWorkspaceLibraries = Math.max(
       0,
@@ -6663,7 +6666,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         ? `<section class="document-section empty-member-section"><h2>No call graph</h2><p>${escapeHtml(active.callees?.memberName || "This member")} is an abstract or interface method — it declares no IL body, so it has no in-assembly callers or callees to graph.</p></section>`
         : active
         ? `<section class="document-section call-graph-section">
-            <div class="section-title"><h2>Call graph</h2><span>${callers.length} caller${callers.length === 1 ? "" : "s"} · ${callees.length} callee${callees.length === 1 ? "" : "s"}</span></div>
+            <div class="section-title"><h2>Call graph</h2><span>${callGraphSummary(active)}</span></div>
             ${breadcrumb}
             ${state.platformDrillLoading
               ? `<div class="graph-expanding"><span class="loader"></span> Range-fetching the implementation assembly from the runtime pack…</div>`
@@ -9780,12 +9783,13 @@ function activeShareTabIndex(
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (!state.package && !state.platformSelection) return null;
-  const workspaceSubjectOpen = scope() === "workspace";
-  const platformRoot = scope() === "platform";
-  if (state.atPackageRoot && !workspaceSubjectOpen && !platformRoot) {
-    throw new Error(
-      "Package views do not yet have product-owned share facet identities.");
-  }
+  const currentScope = scope();
+  const workspaceSubjectOpen = currentScope === "workspace";
+  const platformRoot = currentScope === "platform";
+  const packageSubjectOpen = currentScope === "package";
+  const librarySubjectOpen = currentScope === "library";
+  const structuralRootOpen =
+    workspaceSubjectOpen || platformRoot || packageSubjectOpen || librarySubjectOpen;
   if (!workspaceSubjectOpen && state.pendingGraphMemberDeepLink) {
     throw new Error(
       "The pending graph member must resolve before this workspace can be shared.");
@@ -9803,13 +9807,23 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     activeIndex,
     basis,
     captured.preservesBasis,
-    !workspaceSubjectOpen && !platformRoot && state.memberSection === "call-graph");
+    !structuralRootOpen && state.memberSection === "call-graph");
 
-  const librarySubjectOpen = state.atLibraryRoot;
-  const type = workspaceSubjectOpen || platformRoot || librarySubjectOpen
+  if (packageSubjectOpen
+    && state.packageLens === "dependencies"
+    && state.dependenciesGroupIndex !== null) {
+    const selectedDependencyGroup =
+      state.packageDependencies?.dependencyGroups.find(
+        group => group.index === state.dependenciesGroupIndex);
+    if (selectedDependencyGroup && !selectedDependencyGroup.isActive) {
+      throw new Error(
+        "The selected dependency group differs from the package target framework and cannot be shared.");
+    }
+  }
+  const type = structuralRootOpen
     ? null
     : selectedType();
-  const member = workspaceSubjectOpen || platformRoot || librarySubjectOpen
+  const member = structuralRootOpen
     ? null
     : selectedMember(type);
   let memberAnchor: string | null = null;
@@ -9843,12 +9857,17 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     }
   }
 
-  if (state.libraryScope && state.libraryScope.size > 1) {
+  if (!packageSubjectOpen
+    && state.libraryScope
+    && state.libraryScope.size > 1) {
     throw new Error(
       "Select one library before sharing this Browser workspace.");
   }
   const library = selectedLibraryShareKey();
-  const libraries = workspaceSubjectOpen || platformRoot || !library ? [] : [library];
+  const libraries =
+    workspaceSubjectOpen || platformRoot || packageSubjectOpen || !library
+      ? []
+      : [library];
   return {
     package: state.rootKind === "platform" ? "" : state.package?.id ?? "",
     subject: workspaceSubjectOpen ? "workspace" : null,
@@ -9859,10 +9878,12 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     view: {
       lens: workspaceSubjectOpen || platformRoot
         ? null
-        : librarySubjectOpen
-          ? `library:${state.libraryLens}`
-          : state.lens,
-      type: workspaceSubjectOpen || platformRoot || librarySubjectOpen
+        : packageSubjectOpen
+          ? state.packageLens
+          : librarySubjectOpen
+            ? `library:${state.libraryLens}`
+            : state.lens,
+      type: structuralRootOpen
         ? null
         : state.selectedTypeId || null,
       memberAnchor,
@@ -9936,6 +9957,13 @@ async function buildStateUrl(base = location.href): Promise<URL> {
       lens: state.packageLens,
     });
   }
+  const snapshot = captureWorkspaceUrlState();
+  return snapshot
+    ? await workspaceLocation.build(snapshot, base)
+    : new URL(base);
+}
+
+async function buildShareUrl(base = location.href): Promise<URL> {
   const snapshot = captureWorkspaceUrlState();
   return snapshot
     ? await workspaceLocation.build(snapshot, base)
@@ -10053,7 +10081,9 @@ function canonicalViewRestorationFailure(
   deep: DeepLink,
   requestedLens: TypeLens | null,
   requestedLibraryLens: LibraryLens | null = null,
+  requestedPackageLens: PackageLens | null = null,
 ): string | null {
+  if (requestedPackageLens) return null;
   if (requestedLibraryLens) {
     if (!libraryLensesFor(pkg).some(([id]) => id === requestedLibraryLens)) {
       return `The shared Library '${requestedLibraryLens}' inspector is not available for ${pkg.id}.`;
@@ -10393,7 +10423,7 @@ async function share() {
       throw new Error(
         "This browser cannot copy an asynchronously generated Workspace link.");
     }
-    const content = buildStateUrl().then(url =>
+    const content = buildShareUrl().then(url =>
       new Blob([url.toString()], { type: "text/plain" }));
     await navigator.clipboard.write([
       new ClipboardItem({ "text/plain": content }),
@@ -12760,6 +12790,12 @@ function currentCallGraph() {
   return top ? top.graph : state.memberCallGraph;
 }
 
+function callGraphSummary(graph: ReturnType<typeof currentCallGraph>) {
+  const callerCount = graph?.callers.children.length ?? 0;
+  const calleeCount = graph?.callees.children.length ?? 0;
+  return `${callerCount} caller${callerCount === 1 ? "" : "s"} · ${calleeCount} callee${calleeCount === 1 ? "" : "s"}`;
+}
+
 function dependencyGraphAvailable() {
   return state.packageDependenciesKey === packageDependenciesSignature()
     && !state.packageDependenciesLoading
@@ -12815,22 +12851,61 @@ function graphExplorerKey(): string | null {
 function graphExplorerTarget() {
   const key = graphExplorerKey();
   const dependencies = scope() === "package";
-  const type = scope() === "type";
+  const typeRelationships = scope() === "type";
   const content = document.querySelector<HTMLElement>(
     dependencies ? "[data-dependency-graph-surface]"
-      : type ? "[data-type-graph-surface]" : "[data-call-graph-surface]");
+      : typeRelationships ? "[data-type-graph-surface]" : "[data-call-graph-surface]");
   const invoker = document.querySelector<HTMLElement>("[data-graph-explore]");
-  return key && content && invoker
-    ? {
-        key,
-        title: dependencies ? "Dependency graph" : type ? "Type relationships" : "Call graph",
-        context: dependencies
-          ? `${currentPackage().id}@${currentPackage().version} · ${currentPackage().activeFramework}`
-          : currentInspectedSubjectPath().map(segment => segment.label).join(" > "),
-        content,
-        invoker,
-      }
+  if (!key || !content || !invoker) return null;
+
+  const pkg = currentPackage();
+  if (dependencies) {
+    return {
+      key,
+      kind: "Dependency graph",
+      subject: packageCoordinateLabel(pkg),
+      context: `Target framework ${pkg.activeFramework}`,
+      summary: DEPENDENCY_GRAPH_SUMMARY,
+      content,
+      invoker,
+    };
+  }
+
+  const path = currentInspectedSubjectPath();
+  if (typeRelationships) {
+    return {
+      key,
+      kind: "Type relationships",
+      subject: path.at(-1)?.label ?? "Selected type",
+      context: packageCoordinateLabel(pkg),
+      summary: TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
+      content,
+      invoker,
+    };
+  }
+
+  const selected = selectedType();
+  const member = selectedMember(selected);
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
     : null;
+  const parent = selected
+    ? (selected.namespace
+      ? `${selected.namespace}.${typeDisplayName(selected)}`
+      : typeDisplayName(selected))
+    : "Selected type";
+  const packageContext = pkg.isRuntimePack
+    ? platformTargetLabel()
+    : packageCoordinateLabel(pkg);
+  return {
+    key,
+    kind: "Call graph",
+    subject: overload?.signature ?? path.at(-1)?.label ?? "Selected member",
+    context: `${packageContext} · ${parent}`,
+    summary: callGraphSummary(currentCallGraph()),
+    content,
+    invoker,
+  };
 }
 
 function openGraphExplorer() {
@@ -14810,7 +14885,14 @@ async function restoreWorkspaceFromLocation(
     }
     applyLocationView(loc);
     const viewFailure = loc.shareState
-      ? canonicalViewRestorationFailure(targetModel, deep, loc.lens, loc.libraryLens)
+      ? canonicalViewRestorationFailure(
+          targetModel,
+          deep,
+          loc.lens,
+          loc.libraryLens,
+          loc.atPackageRoot && !loc.workspaceSubjectOpen
+            ? loc.packageLens
+            : null)
       : null;
     if (loc.shareState && viewFailure) {
       failRestore(viewFailure);
@@ -14966,6 +15048,11 @@ function applyLocationView(loc: ParsedLocation) {
   state.rootKind = loc.rootKind;
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
+  if (loc.hasWorkspaceState
+    && state.atPackageRoot
+    && loc.packageLens === "dependencies") {
+    state.dependenciesGroupIndex = null;
+  }
   state.atLibraryRoot = !state.atPackageRoot
     && (loc.atLibraryRoot || false);
   state.workspaceSubjectOpen =
@@ -15254,7 +15341,14 @@ async function navigateWithinCurrentWorkspace(
   const libraryFailure = applyLoadedPackageLibraryScope(pkg, loc.library);
   applyLocationView(loc);
   const viewFailure = loc.shareState
-    ? canonicalViewRestorationFailure(pkg, loc, loc.lens, loc.libraryLens)
+    ? canonicalViewRestorationFailure(
+        pkg,
+        loc,
+        loc.lens,
+        loc.libraryLens,
+        loc.atPackageRoot && !loc.workspaceSubjectOpen
+          ? loc.packageLens
+          : null)
     : null;
   const restorationFailure = libraryFailure ?? viewFailure;
   if (loc.shareState && restorationFailure) {
@@ -16126,7 +16220,14 @@ window.addEventListener("popstate", () => {
         loc.library);
       applyLocationView(loc);
       const viewFailure = loc.shareState
-        ? canonicalViewRestorationFailure(state.package, loc, loc.lens, loc.libraryLens)
+        ? canonicalViewRestorationFailure(
+            state.package,
+            loc,
+            loc.lens,
+            loc.libraryLens,
+            loc.atPackageRoot && !loc.workspaceSubjectOpen
+              ? loc.packageLens
+              : null)
         : null;
       const restorationFailure = libraryFailure ?? viewFailure;
       if (loc.shareState && restorationFailure) {
@@ -16185,7 +16286,14 @@ async function restorePlatformScopeThenDeepLink(
   }
   const pkg = state.package;
   const viewFailure = pkg && loc.shareState
-    ? canonicalViewRestorationFailure(pkg, loc, loc.lens, loc.libraryLens)
+    ? canonicalViewRestorationFailure(
+        pkg,
+        loc,
+        loc.lens,
+        loc.libraryLens,
+        loc.atPackageRoot && !loc.workspaceSubjectOpen
+          ? loc.packageLens
+          : null)
     : null;
   if (loc.shareState && viewFailure) {
     failCanonicalWorkspaceRestore(

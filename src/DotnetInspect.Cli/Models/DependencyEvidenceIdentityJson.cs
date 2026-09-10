@@ -12,6 +12,7 @@ public enum DependencyEvidenceIdentityOwner
 {
     Package,
     RestoredProject,
+    AuthoredProject,
 }
 
 /// <summary>One package root's owner-issued coordinate.</summary>
@@ -46,6 +47,19 @@ public sealed record DependencyEvidenceRestoredSelectionIdentityJson
         };
 }
 
+/// <summary>One authored-project semantic identity.</summary>
+public sealed record DependencyEvidenceAuthoredProjectIdentityJson
+{
+    public required string FactsDigest { get; init; }
+
+    internal static DependencyEvidenceAuthoredProjectIdentityJson Create(
+        AuthoredProjectIdentity identity) =>
+        new()
+        {
+            FactsDigest = identity.FactsDigest,
+        };
+}
+
 /// <summary>
 /// One admitted root's owner-issued identity.
 /// </summary>
@@ -61,6 +75,9 @@ public sealed record DependencyEvidenceRootIdentityJson
     public DependencyEvidencePackageCoordinateJson? Package { get; init; }
 
     public DependencyEvidenceRestoredSelectionIdentityJson? RestoredProject
+        { get; init; }
+
+    public DependencyEvidenceAuthoredProjectIdentityJson? AuthoredProject
         { get; init; }
 
     internal static DependencyEvidenceRootIdentityJson Create(
@@ -79,6 +96,13 @@ public sealed record DependencyEvidenceRootIdentityJson
                 RestoredProject =
                     DependencyEvidenceRestoredSelectionIdentityJson.Create(
                         restored.Identity.Selection),
+            },
+            PackageDependencyEvidenceRootIdentity.AuthoredProject authored => new()
+            {
+                Owner = DependencyEvidenceIdentityOwner.AuthoredProject,
+                AuthoredProject =
+                    DependencyEvidenceAuthoredProjectIdentityJson.Create(
+                        authored.Identity),
             },
             _ => throw new InvalidOperationException(
                 "Unknown package dependency evidence root identity."),
@@ -108,6 +132,16 @@ public sealed record DependencyEvidenceRestoredGroupIdentityJson
     public required string PivotIdentity { get; init; }
 }
 
+/// <summary>One authored-project declaration group's normalized identity.</summary>
+public sealed record DependencyEvidenceAuthoredGroupIdentityJson
+{
+    public required DependencyEvidenceAuthoredProjectIdentityJson Root { get; init; }
+
+    public required PackageDependencyFrameworkScopeKind ScopeKind { get; init; }
+
+    public string? ScopeIdentity { get; init; }
+}
+
 /// <summary>One normalized logical group's owner-issued identity.</summary>
 public sealed record DependencyEvidenceGroupIdentityJson
 {
@@ -116,6 +150,8 @@ public sealed record DependencyEvidenceGroupIdentityJson
     public DependencyEvidencePackageGroupIdentityJson? Package { get; init; }
 
     public DependencyEvidenceRestoredGroupIdentityJson? RestoredProject { get; init; }
+
+    public DependencyEvidenceAuthoredGroupIdentityJson? AuthoredProject { get; init; }
 
     internal static DependencyEvidenceGroupIdentityJson Create(
         PackageDependencyEvidenceGroupIdentity identity) =>
@@ -143,6 +179,23 @@ public sealed record DependencyEvidenceGroupIdentityJson
                     PivotIdentity = restored.Identity.PivotIdentity,
                 },
             },
+            PackageDependencyEvidenceGroupIdentity.AuthoredProject authored => new()
+            {
+                Owner = DependencyEvidenceIdentityOwner.AuthoredProject,
+                AuthoredProject =
+                    new DependencyEvidenceAuthoredGroupIdentityJson
+                    {
+                        Root =
+                            DependencyEvidenceAuthoredProjectIdentityJson.Create(
+                                authored.Root),
+                        ScopeKind = authored.ScopeKind,
+                        ScopeIdentity = authored.ScopeKind is
+                            PackageDependencyFrameworkScopeKind.AnyFramework
+                            or PackageDependencyFrameworkScopeKind.ExactFramework
+                                ? authored.ScopeIdentity
+                                : null,
+                    },
+            },
             _ => throw new InvalidOperationException(
                 "Unknown package dependency evidence group identity."),
         };
@@ -161,6 +214,12 @@ public sealed record DependencyEvidenceGroupOccurrenceJson
     public int? SourceIndex { get; init; }
 
     public DependencyEvidenceRestoredGroupIdentityJson? RestoredProject { get; init; }
+
+    public DependencyEvidenceAuthoredTargetOccurrenceJson? AuthoredTarget { get; init; }
+
+    public string? AuthoredDeclarationFactsDigest { get; init; }
+
+    public int? AuthoredDeclarationSourceOccurrenceCount { get; init; }
 
     internal static DependencyEvidenceGroupOccurrenceJson Create(
         PackageDependencyEvidenceGroupOccurrence occurrence) =>
@@ -184,6 +243,31 @@ public sealed record DependencyEvidenceGroupOccurrenceJson
                             PivotIdentity = restored.Identity.PivotIdentity,
                         },
                 },
+            PackageDependencyEvidenceGroupOccurrence.AuthoredProjectTarget target =>
+                new()
+                {
+                    Owner = DependencyEvidenceIdentityOwner.AuthoredProject,
+                    AuthoredTarget =
+                        new DependencyEvidenceAuthoredTargetOccurrenceJson
+                        {
+                            Kind = target.Identity.Kind,
+                            CanonicalFramework =
+                                target.Identity.CanonicalFramework,
+                            SourceSpelling = target.SourceSpelling,
+                            SyntaxContextIdentity =
+                                target.SyntaxContextIdentity,
+                        },
+                },
+            PackageDependencyEvidenceGroupOccurrence
+                .AuthoredProjectDeclaration declaration =>
+                new()
+                {
+                    Owner = DependencyEvidenceIdentityOwner.AuthoredProject,
+                    AuthoredDeclarationFactsDigest =
+                        declaration.Identity.FactsDigest,
+                    AuthoredDeclarationSourceOccurrenceCount =
+                        declaration.SourceOccurrenceCount,
+                },
             _ => throw new InvalidOperationException(
                 "Unknown package dependency evidence group occurrence."),
         };
@@ -191,6 +275,19 @@ public sealed record DependencyEvidenceGroupOccurrenceJson
     internal static DependencyEvidenceGroupOccurrenceJson? CreateOptional(
         PackageDependencyEvidenceGroupOccurrence? occurrence) =>
         occurrence is null ? null : Create(occurrence);
+}
+
+/// <summary>One authored target occurrence retained by a logical group.</summary>
+public sealed record DependencyEvidenceAuthoredTargetOccurrenceJson
+{
+    public required AuthoredProjectTargetFrameworkKind Kind { get; init; }
+
+    public string? CanonicalFramework { get; init; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public required InertString? SourceSpelling { get; init; }
+
+    public required string SyntaxContextIdentity { get; init; }
 }
 
 /// <summary>One successful declaration's owner-issued identity.</summary>

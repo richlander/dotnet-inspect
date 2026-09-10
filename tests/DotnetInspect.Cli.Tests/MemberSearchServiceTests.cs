@@ -33,7 +33,8 @@ public class MemberSearchServiceTests
                 },
                 [SearchTargetMemberName],
                 new VerboseLogger(enabled: false),
-                httpClient);
+                httpClient,
+                TestContext.Current.CancellationToken);
 
             var result = Assert.Single(results, r => r.Member == SearchTargetMemberName && r.Library == "CopiedMemberAssembly");
             Assert.Equal("method", result.Kind);
@@ -68,7 +69,8 @@ public class MemberSearchServiceTests
                 },
                 ["FindMembersAsync_*"],
                 new VerboseLogger(enabled: false),
-                httpClient);
+                httpClient,
+                TestContext.Current.CancellationToken);
 
             Assert.NotEmpty(results);
             Assert.All(results, r => Assert.Equal(MatchKind.Glob, r.Match));
@@ -103,7 +105,8 @@ public class MemberSearchServiceTests
                         },
                         ["NoSuchMember"],
                         new VerboseLogger(enabled: false),
-                        httpClient);
+                        httpClient,
+                        TestContext.Current.CancellationToken);
                 Assert.Empty(results);
                 return 0;
             });
@@ -137,7 +140,8 @@ public class MemberSearchServiceTests
                 },
                 [SearchTargetMemberName],
                 new VerboseLogger(enabled: false),
-                httpClient);
+                httpClient,
+                TestContext.Current.CancellationToken);
             return 0;
         });
 

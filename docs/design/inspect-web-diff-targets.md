@@ -97,13 +97,13 @@ rather than becoming general section prose.
 
 The initial target-settings slice does not advertise working result inspectors.
 Its Package controls identify that limitation. The immediate successor adds
-the shared presentation adapter, then the feature facade and Library API Diff
-inventory/details. That Browser consumer retires #6076's **Compare authored
-source** action and Source Diff modal under a zero-compatibility plan rather
-than adding a second Diff experience. Its paired Source evidence may feed the
-new on-demand annotated comparison, but the manual version field and old result
-view do not remain. Type/Member narrowing and Clone execution remain follow-on
-work in #5083.
+the shared presentation adapter, then the feature facade and
+[Compare](inspect-web-compare-experience.md) Library Diff drill-down. That
+Browser consumer retires #6076's **Compare authored source** action and Source
+Diff modal under a zero-compatibility plan rather than adding a second Diff
+experience. Its paired Source evidence may feed the new on-demand annotated
+comparison, but the manual version field and old result view do not remain.
+Type/Member narrowing and Clone execution remain follow-on work in #5083.
 
 The Library API Diff delivery path is the selected-library query (#6128),
 these Package settings, the shared

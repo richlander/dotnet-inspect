@@ -10,19 +10,23 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 public static class ToolsAnalyzer
 {
-    public static void AnalyzeToolsDirectory(string toolsDir, InspectionResult result)
+    public static bool AnalyzeToolsDirectory(string toolsDir, InspectionResult result)
     {
         // Check for DotnetToolSettings.xml: root, one level deep, or two levels deep
         // Standard locations: tools/, tools/{tfm}/, or tools/{tfm}/{rid}/
-        var settings = DotnetToolSettingsParser.FindAndParse(toolsDir);
-        if (settings != null)
+        bool settingsComplete =
+            DotnetToolSettingsParser.TryProject(
+                toolsDir,
+                out DotnetToolSettingsData? settings);
+        if (settings is not null)
         {
             ApplyToolSettings(settings, result);
         }
 
         // Tools directory structure: tools/{tfm}/{rid}/ or tools/{tfm}/any/
         // RID-specific binary packages use tools/any/{rid}/ where "any" means any framework
-        foreach (string tfmDir in Directory.GetDirectories(toolsDir))
+        foreach (string tfmDir in Directory.GetDirectories(toolsDir)
+                     .Order(StringComparer.Ordinal))
         {
             string tfm = Path.GetFileName(tfmDir);
             if (!tfm.Equals("any", StringComparison.OrdinalIgnoreCase))
@@ -34,7 +38,8 @@ public static class ToolsAnalyzer
                 }
             }
 
-            foreach (string ridDir in Directory.GetDirectories(tfmDir))
+            foreach (string ridDir in Directory.GetDirectories(tfmDir)
+                         .Order(StringComparer.Ordinal))
             {
                 string rid = Path.GetFileName(ridDir);
                 result.SupportedRids ??= [];
@@ -61,11 +66,14 @@ public static class ToolsAnalyzer
                 AnalyzeDirectoryContents(ridDir, result, rid);
             }
         }
+
+        return settingsComplete;
     }
 
     public static void AnalyzeLibDirectory(string libDir, InspectionResult result)
     {
-        foreach (string tfmDir in Directory.GetDirectories(libDir))
+        foreach (string tfmDir in Directory.GetDirectories(libDir)
+                     .Order(StringComparer.Ordinal))
         {
             string tfm = Path.GetFileName(tfmDir);
             result.TargetFrameworks ??= [];
@@ -117,7 +125,8 @@ public static class ToolsAnalyzer
     public static void AnalyzeRuntimesDirectory(string runtimesDir, InspectionResult result)
     {
         // runtimes/{rid}/native/ or runtimes/{rid}/lib/{tfm}/
-        foreach (string ridDir in Directory.GetDirectories(runtimesDir))
+        foreach (string ridDir in Directory.GetDirectories(runtimesDir)
+                     .Order(StringComparer.Ordinal))
         {
             string rid = Path.GetFileName(ridDir);
             result.SupportedRids ??= [];
@@ -132,7 +141,8 @@ public static class ToolsAnalyzer
             if (Directory.Exists(nativeDir))
             {
                 result.HasNativeDependencies = true;
-                var nativeFiles = Directory.GetFiles(nativeDir);
+                var nativeFiles = Directory.GetFiles(nativeDir)
+                    .Order(StringComparer.Ordinal);
                 foreach (var file in nativeFiles)
                 {
                     result.NativeFiles ??= [];
@@ -171,7 +181,12 @@ public static class ToolsAnalyzer
 
     private static void AnalyzeDirectoryContents(string dir, InspectionResult result, string rid)
     {
-        string[] files = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly);
+        string[] files = Directory.GetFiles(
+                dir,
+                "*",
+                SearchOption.TopDirectoryOnly)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
 
         foreach (string file in files)
         {

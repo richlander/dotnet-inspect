@@ -171,6 +171,8 @@
              Link="IdempotenceSensor.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\RenderAbSensor.cs"
              Link="RenderAbSensor.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\StructuralReview.cs"
+             Link="StructuralReview.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\SlotResidualCensus.cs"
              Link="SlotResidualCensus.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\SlotUnifierCensus.cs"
