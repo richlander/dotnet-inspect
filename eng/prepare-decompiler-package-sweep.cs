@@ -444,7 +444,7 @@ bool InvalidateManifest()
     }
 }
 
-// The same isolation knobs the CLI already reads (src/dotnet-inspect/Program.cs),
+// The same isolation knobs the CLI already reads (src/DotnetInspect.Cli/Program.cs),
 // honored here so a caller can point this sweep at a cache of its own. Without them the
 // sweep reaches the developer's shared caches and the network unconditionally, which is
 // why its two central properties -- that the pin binds, and that the copies land where

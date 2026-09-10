@@ -38,7 +38,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Used in:
-- src/dotnet-inspect/Inspectors/HttpRetryHelper.cs
+- src/DotnetInspect.Cli/Inspectors/HttpRetryHelper.cs
   Adapted retry logic with exponential backoff from HttpSymbolStore.cs
 
 License notice for ILSpy
