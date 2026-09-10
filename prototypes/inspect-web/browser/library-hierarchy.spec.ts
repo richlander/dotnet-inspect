@@ -534,6 +534,7 @@ async function installFacades(
         if (scenario === "deferred") {
           await new Promise(resolve => document.addEventListener(
             "fixture-analysis-ready:" + requestKey, resolve, { once: true }));
+          document.documentElement.dataset.analysisComplete = requestKey;
         }
         if (scenario === "query-error") throw new Error("Analysis query unavailable.");
         const member = (memberName, opportunityCount, inLoopCount, shapes, confidence) => ({
@@ -1945,10 +1946,22 @@ test("production Integrations keeps deferred Library results out of the incoming
 for (const width of [1440, 390]) {
   test(`Library Diff preserves its full-area position across background completion at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await installFacades(page, surface, [], "ready", "deferred");
+    await installFacades(
+      page,
+      surface,
+      [],
+      "ready",
+      "deferred",
+      undefined,
+      "ready",
+      "deferred");
     await openIntegrations(page);
     await expect(page.locator(".library-integrations-surface"))
       .toContainText("Scanning integrations");
+    await page.locator('[data-library-lens="analysis"]')
+      .evaluate((element: HTMLElement) => element.click());
+    await expect(page.locator(".library-analysis-surface"))
+      .toContainText("Analyzing allocations");
     await page.locator('[data-library-lens="diff"]')
       .evaluate((element: HTMLElement) => element.click());
 
@@ -1977,12 +1990,16 @@ for (const width of [1440, 390]) {
     const renderedSurface = await diffSurface.elementHandle();
     if (!renderedSurface) throw new Error("Expected the rendered Diff surface.");
 
-    await page.evaluate(() =>
-      document.dispatchEvent(new Event("fixture-integrations-ready:asset:core")));
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event("fixture-integrations-ready:asset:core"));
+      document.dispatchEvent(new Event("fixture-analysis-ready:asset:core"));
+    });
     await expect.poll(() =>
       renderedSurface.evaluate(element => element.isConnected)).toBe(false);
     await expect(page.locator("html"))
       .toHaveAttribute("data-integration-complete", "asset:core");
+    await expect(page.locator("html"))
+      .toHaveAttribute("data-analysis-complete", "asset:core");
     await expect(lastType).toBeFocused();
     expect(await typeList.evaluate(element => element.scrollTop))
       .toBe(listScrollTop);

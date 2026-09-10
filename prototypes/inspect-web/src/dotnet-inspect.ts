@@ -4692,7 +4692,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && currentCallGraph()?.mermaid) {
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
   }
-  scheduleLibraryApiDiffRenderContinuity(libraryApiDiffContinuity);
+  restoreLibraryApiDiffRenderContinuity(libraryApiDiffContinuity);
 }
 
 function renderWorkspaceCatalogView() {
@@ -9552,10 +9552,18 @@ LibraryApiDiffRenderContinuity | null {
   };
 }
 
-function scheduleLibraryApiDiffRenderContinuity(
+function restoreLibraryApiDiffRenderContinuity(
   continuity: LibraryApiDiffRenderContinuity | null,
 ) {
   if (!continuity) return;
+  if (!libraryApiDiffActiveView()
+    || state.libraryApiDiff.signature !== continuity.signature
+    || state.libraryApiDiff.result !== continuity.result) {
+    return;
+  }
+  restoreLibraryApiDiffSelection(document, continuity.selection, {
+    restoreFocus: false,
+  });
   requestAnimationFrame(() => {
     if (!libraryApiDiffActiveView()
       || state.libraryApiDiff.signature !== continuity.signature
@@ -9563,6 +9571,7 @@ function scheduleLibraryApiDiffRenderContinuity(
       return;
     }
     restoreLibraryApiDiffSelection(document, continuity.selection, {
+      restoreScroll: false,
       restoreFocus: continuity.focusGeneration === documentFocusGeneration,
     });
   });
