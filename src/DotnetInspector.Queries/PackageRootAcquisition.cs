@@ -358,7 +358,9 @@ public sealed class PackageRootReacquisitionRequest :
         string? compileTargetFramework = fields[5];
         string? selectionTargetFramework =
             legacy ? fields[5] : fields[6];
-        if ((compileTargetFramework is null)
+        if (!IsCanonicalFrameworkField(compileTargetFramework)
+            || !IsCanonicalFrameworkField(selectionTargetFramework)
+            || (compileTargetFramework is null)
             != (selectionTargetFramework is null))
         {
             return false;
@@ -418,6 +420,14 @@ public sealed class PackageRootReacquisitionRequest :
 
         request = new PackageRootReacquisitionRequest(decoded);
         return true;
+
+        static bool IsCanonicalFrameworkField(string? framework) =>
+            framework is null
+            || (PackageCoordinateResolver.IsAcquisitionTargetText(framework)
+                && string.Equals(
+                    PackageArtifactRootRequest.NormalizeFramework(framework),
+                    framework,
+                    StringComparison.Ordinal));
     }
 
     public bool Equals(PackageRootReacquisitionRequest? other) =>

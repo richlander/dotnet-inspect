@@ -3197,8 +3197,9 @@ is bounded in length before parsing, requires the exact field count for its
 version, and revalidates every field through the owner's own canonical
 coordinate and request construction, so a malformed, over-long, or forged
 token is a `false` return rather than an exception or a value this owner would
-not have issued. This includes refusing compatible-selection mode when no
-framework targets are present before invoking request construction. A current
+not have issued. Before invoking request construction, decoding requires every
+non-null framework field to be canonical acquisition-target text and refuses
+compatible-selection mode when no framework targets are present. A current
 token that is not already canonical is refused rather than silently normalized,
 so one current request has exactly one token.
 A decoded request is a request, **not** an authorization: acquiring the Root it
