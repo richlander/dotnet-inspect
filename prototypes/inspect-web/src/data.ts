@@ -84,6 +84,7 @@ export function isMemberSection(
 const workspaceScopes = [
   "workspace",
   "package",
+  "platform",
   "library",
   "type",
   "member",
@@ -452,6 +453,7 @@ export function retainWorkspacePackage<T extends PackageIdentity>(
   activePackage: T | null | undefined,
   packageModel: T,
   replacedPackage: T | null = null,
+  capacity = MAX_WORKSPACE_PACKAGES,
 ): RetainWorkspacePackageResult<T> {
   const evicted: T[] = [];
   const next = packages.filter(item => {
@@ -466,7 +468,7 @@ export function retainWorkspacePackage<T extends PackageIdentity>(
   else
     next.push(packageModel);
 
-  while (next.length > MAX_WORKSPACE_PACKAGES) {
+  while (next.length > capacity) {
     const eviction = next.findIndex(item =>
       packageIdentityKey(item) !== packageIdentityKey(activePackage)
       && packageIdentityKey(item) !== packageIdentityKey(packageModel));
@@ -553,6 +555,7 @@ export function spotlightCandidateKey(pkg: PackageIdentity, typeId: string): str
 
 export interface SpotlightSignaturePackage extends PackageIdentity {
   types?: readonly unknown[];
+  surfaceRevision?: number;
 }
 
 export function spotlightCandidateSignature(
@@ -560,7 +563,7 @@ export function spotlightCandidateSignature(
   packages: readonly SpotlightSignaturePackage[],
 ): string {
   return `${packageIdentityKey(activePackage)}#${packages
-    .map(pkg => `${packageIdentityKey(pkg)}:${pkg.types?.length ?? 0}`)
+    .map(pkg => `${packageIdentityKey(pkg)}:${pkg.types?.length ?? 0}:${pkg.surfaceRevision ?? 0}`)
     .join("|")}`;
 }
 

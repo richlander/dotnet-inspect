@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import { parseSync, visitorKeys } from "oxc-parser";
 import type {
@@ -111,6 +113,11 @@ import {
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
 } from "../src/graph-mermaid.ts";
+import { platformCatalogFramework } from "../src/platform-index.ts";
+import {
+  platformAssemblyRequest,
+  platformGraphLibraryForTarget,
+} from "../src/platform-subject.ts";
 
 const packageAt = (version: string, framework: string, types = 1) => ({
   id: "Example.Package",
@@ -700,7 +707,7 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /retainedPlatformTargetVersion\(\s*captured\.preservesBasis && runtimeIndex >= 0[\s\S]*callGraphInspection\.drill\(\{[\s\S]*platformVersion,/);
+    /resolvedPlatformTargetVersion\(\s*captured\.resolvedTabs,\s*runtimePack,\s*framework\)[\s\S]*callGraphInspection\.drill\(\{[\s\S]*platformVersion,/);
   assert.doesNotMatch(
     appSource,
     /platformVersion:\s*currentPackage\(\)\.version/);
@@ -753,7 +760,7 @@ test("platform pack inference rejects cross-family ambiguity", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /const resident = runtimeAssemblyIsResident\(\s*runtimePackPackage\(\),\s*key,\s*pack \?\? ""\)/);
+    /const resident = runtimeAssemblyIsResident\(\s*originPackage,\s*row\.assembly,\s*row\.pack\)/);
 });
 
 test("runtime graph acquisition ignores a resident pack from another TFM", () => {
@@ -804,7 +811,7 @@ test("runtime graph acquisition ignores a resident pack from another TFM", () =>
     "unique");
   assert.equal(
     appSource.match(
-      /const pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*state\.package\?\.activeFramework \|\| ""\)/g)?.length,
+      /const pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/g)?.length,
     2);
   assert.match(
     appSource,
@@ -823,7 +830,7 @@ test("platform library selection remains distinct from canonical Platform identi
     /id: "Microsoft\.NETCore\.App"/);
   assert.match(
     appSource,
-    /platformPackForAssembly\(key,\s*libraryPack\)/);
+    /platformLibraryKey\(row\) === assembly[\s\S]*target\.tfm, platformAssemblyRequest\(row\), row\.pack/);
 });
 
 test("platform inspection notices survive cumulative surface loads", () => {
@@ -925,7 +932,7 @@ test("typed status bar owns its rendered toggle binding", () => {
     /function bindHomeEvents\(\) \{\s*bindStatusBarEvents\(\);/);
   assert.equal(
     appSource.match(/\bbindStatusBarEvents\(\)/g)?.length,
-    4);
+    5);
 });
 
 test("typed package controls own framework and version selection bindings", () => {
@@ -1308,7 +1315,7 @@ test("keyboard help projects available global and current graph bindings", () =>
     2);
   assert.match(
     renderWorkspaceFocus,
-    /const workspaceFocus = captureWorkspaceFocus\(focusedElement\);[\s\S]*renderWorkspaceCatalogView\(\);[\s\S]*else if \(workspaceFocus\) \{\s*if \(!restoreWorkspaceFocus\(document, workspaceFocus\)\) \{\s*focusLevelOneHeading\(\);[\s\S]*recordNav\(\);\s*return;/);
+    /const workspaceFocus = captureWorkspaceFocus\(focusedElement\);[\s\S]*renderWorkspaceCatalogView\(\);[\s\S]*else if \(workspaceFocus\) \{\s*if \(!restoreWorkspaceFocus\(document, workspaceFocus\)\) \{\s*focusLevelOneHeading\(\);[\s\S]*recordNav\(\);[\s\S]*return;/);
   const catalogRenderer =
     appSource.match(/function renderWorkspaceCatalogView\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
@@ -1382,7 +1389,7 @@ test("the shell separates typed target and Subject navigation rows", () => {
     /<section class="detail-pane">\s*<header class="detail-head">/);
   assert.match(
     subjectPath,
-    /kind: "package"[\s\S]*label: packageDisplayName\(pkg\)[\s\S]*kind: "type"[\s\S]*current\.namespace[\s\S]*kind: "member"[\s\S]*label: member\.name/);
+    /kind: state\.rootKind[\s\S]*label: state\.rootKind === "platform" \? platformTargetLabel\(\) : packageDisplayName\(pkg\)[\s\S]*kind: "type"[\s\S]*current\.namespace[\s\S]*kind: "member"[\s\S]*label: member\.name/);
   assert.match(
     renderer,
     /segment\.label[\s\S]*segment\.copyable[\s\S]*data-subject-copy="\$\{index\}"[\s\S]*segment\.kind/);
@@ -1458,7 +1465,12 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
   assert.match(
     callGraphBinding,
-    /if \(disposition === "member" && pack && resident\) \{[\s\S]*navigateToRuntimeMember\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
+    /if \(disposition === "member" && pack && resident\) \{[\s\S]*openRuntimeMemberFromGraph\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
+  assert.equal(
+    [...callGraphBinding.matchAll(
+      /let owner = captureViewOperation\(state\.memberCallGraphSeq\);[\s\S]{0,500}?\(\) => ownsViewOperation\(owner, state\.memberCallGraphSeq\)[\s\S]{0,200}?owner = captureViewOperation\(state\.memberCallGraphSeq\)/g)]
+      .length,
+    2);
   assert.match(
     callGraphBinding,
     /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
@@ -1518,7 +1530,7 @@ test("typed document inspection owns package document request coordination", () 
 
 test("typed catalog requests own release and package-version coordination", () => {
   const releaseLoader =
-    appSource.match(/function ensureDotnetReleases\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(/async function discoverPlatformVersions\([\s\S]*?\n}/)?.[0]
     ?? "";
   const versionLoader =
     appSource.match(/function ensurePackageVersions\(pkg: AppPackage \| null\)[\s\S]*?\n}/)?.[0]
@@ -1529,7 +1541,7 @@ test("typed catalog requests own release and package-version coordination", () =
   assert.match(
     appSource,
     /raw\.githubusercontent\.com\/dotnet\/core\/refs\/heads\/main\/release-notes\/releases-index\.json/);
-  assert.match(releaseLoader, /return catalogRequests\.ensureDotnetReleases\(\)/);
+  assert.match(releaseLoader, /parsePlatformVersions[\s\S]*inspectPlatformVersions\(tfm\)/);
   assert.match(versionLoader, /return catalogRequests\.ensurePackageVersions\(pkg\)/);
   assert.doesNotMatch(
     `${releaseLoader}\n${versionLoader}`,
@@ -1686,7 +1698,7 @@ test("typed scope bar owns its rendered control bindings", () => {
   const rootEventBinder = functionDeclaration("bindEvents");
   const scopeEventBinder = functionDeclaration("bindScopeBarEvents");
   const rootScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBarEvents");
-  assert.equal(rootScopeCalls.length, 2);
+  assert.equal(rootScopeCalls.length, 3);
   for (const rootScopeCall of rootScopeCalls)
     assert.equal(rootScopeCall.arguments.length, 0);
   const innerScopeCall = onlyCallExpressionNamed(appSyntax, "bindScopeBar");
@@ -1738,8 +1750,9 @@ test("typed scope bar owns its rendered control bindings", () => {
     ]);
 
   const scope = callbackProperty(actions, "onScopeSelect");
+  assert.match(appSource.slice(scope.start, scope.end), /target === "platform"[\s\S]*showPlatformRoot\(\)/);
   assert.deepEqual(
-    statementSignatures(scope.body.body),
+    statementSignatures(scope.body.body.slice(1)),
     [
       'assign:contentFramePane = "detail"',
       {
@@ -1859,13 +1872,13 @@ test("typed settings panel owns its rendered control bindings", () => {
         && node.name === "bindSettingsPanel").length,
     3);
   const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
-  assert.equal(eventBinderCalls.length, 3);
+  assert.equal(eventBinderCalls.length, 4);
   assert.equal(
     syntaxNodes(
       appSyntax,
       node => node.type === "Identifier"
         && node.name === "bindSettingsPanelEvents").length,
-    4);
+    5);
   const settingsBinders: readonly (readonly [
     DeclaredFunction,
     string,
@@ -2294,7 +2307,11 @@ test("Spotlight async work is generation-gated and refreshes either mounted surf
   assert.doesNotMatch(appSource, /spotlightPkgGeneration|spotlightPkgTimer/);
   assert.match(
     appSource,
-    /case "rtpack-suggest":[\s\S]*observeAsync\(activateRuntimePack\(\), "Loading the runtime pack"\)/);
+    /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen\) spotlight\.refresh\(\)/);
+  assert.match(
+    appSource,
+    /case "rtpack-suggest":\s*observeAsync\(openPlatformSubject\(\), "Opening Platform"\)/);
+  assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
 });
 
 test("global workbench shortcuts respect the topmost modal", () => {
@@ -2386,13 +2403,22 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function loadPackageFromSpotlight[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadPackage\([\s\S]*if \(loaded\) \{[\s\S]*destination = buildStateUrl\(\)\.toString\(\);[\s\S]*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\);\s*render\(\{ synchronizeUrl: false \}\);\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
-    /async function openPlatformLibrary[\s\S]*const navigationGeneration = scopeOnly \? null : beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*spotlight\.reset\(\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
+    /async function openPlatformLibrary[\s\S]*const navigationGeneration = scopeOnly \? null : beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*spotlight\.reset\(\)[\s\S]*await loadSelectionData\(\);[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
     /async function pickSpotlightMember[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadSelectedMemberDocumentation\(\);[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
     /async function pickSpotlight\([\s\S]*packageResult:[\s\S]*typeId: string,[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
+  assert.match(
+    appSource,
+    /function selectWorkspacePackage\([\s\S]*if \(!packageModel\) return;\s*if \(navigationSeq === undefined\) navigationSequence\.begin\(\);\s*else if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;/);
+  assert.match(
+    appSource,
+    /async function pickSpotlightMember\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
+  assert.match(
+    appSource,
+    /async function pickSpotlight\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
     /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\([\s\S]*focusGeneration = documentFocusGeneration,[\s\S]*canRestoreWorkbenchFocus\(generation, focusGeneration\)/);
@@ -2613,7 +2639,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     ?? "";
   assert.match(
     platformNavigation,
-    /const owner = captureViewOperation\(seq\);[\s\S]*ownsViewOperation\(owner, state\.memberCallGraphSeq\)[\s\S]*const discardIfStale = \([\s\S]*loadRuntimePackAssembly\([\s\S]*navigationIsCurrent[\s\S]*runtimeResult\.failureMessage[\s\S]*state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+    /let owner = captureViewOperation\(seq\);[\s\S]*ownsViewOperation\(owner, state\.memberCallGraphSeq\)[\s\S]*const discardIfStale = \([\s\S]*loadRuntimeGraphAssembly\([\s\S]*navigationIsCurrent[\s\S]*runtimeResult\.failureMessage[\s\S]*state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     appSource,
     /function applyMemberSection\(id: MemberSection\) \{[\s\S]*state\.memberSection === "call-graph" && id !== "call-graph"[\s\S]*invalidateMemberCallGraphWork\(state\)/);
@@ -2657,7 +2683,7 @@ test("shared member views use portable product identity and omit UI-local filter
     /memberAnchor = overload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
   assert.match(
     capture,
-    /const library = selectedLibraryRequest\(\);\s*const libraries = workspaceSubjectOpen \|\| !library \? \[\] : \[library\]/);
+    /const library = selectedLibraryShareKey\(\);\s*const libraries = workspaceSubjectOpen \|\| platformRoot \|\| !library \? \[\] : \[library\]/);
   assert.match(
     capture,
     /state\.libraryScope && state\.libraryScope\.size > 1[\s\S]*Select one library/);
@@ -2667,7 +2693,7 @@ test("shared member views use portable product identity and omit UI-local filter
   assert.match(
     capture,
     /overload\.graphOnly[\s\S]*Graph-discovered members cannot be shared/);
-  assert.match(capture, /package: state\.package\.id/);
+  assert.match(capture, /package: state\.rootKind === "platform" \? "" : state\.package\?\.id/);
   assert.doesNotMatch(capture, /memberTextFilter:/);
   assert.doesNotMatch(capture, /memberKindFilter:/);
   assert.doesNotMatch(capture, /memberAccessibilityFilter:/);
@@ -2800,7 +2826,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /invalidateMemberDestinationWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(
     appSource,
-    /const \{ tabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
+    /const \{ tabs, resolvedTabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*activeShareTabIndex\(tabs, resolvedTabs\)[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
   assert.match(
     appSource,
     /captured\.preservesBasis,[\s\S]*state\.memberSection === "call-graph"/);
@@ -2816,10 +2842,10 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /const productDemosRouteVisible =\s*scope\(\) === "workspace"\s*&& isProductHomeDemosPath\(location\.pathname\);[\s\S]*document\.title = "Demos — dotnet-inspect";[\s\S]*else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\)/);
   assert.match(
     stateUrl,
-    /state\.atPackageRoot && state\.package[\s\S]*buildPackageRootStateUrl/);
+    /state\.atPackageRoot && state\.rootKind === "package" && state\.package[\s\S]*buildPackageRootStateUrl/);
   assert.match(
     scopePlatform,
-    /resolvePackageLibrary\(pkg\.assemblies, key\)[\s\S]*scopeOnly\) return hasLib \? pkg : undefined/);
+    /platformLibraryMatchesDescriptor\(row, item\)[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\)[\s\S]*if \(scopeOnly\) return pkg/);
   assert.match(
     validateView,
     /typeLensesFor\(pkg\)[\s\S]*deep\.section && !hasPortableMember/);
@@ -2902,7 +2928,7 @@ test("malformed package routes use the contained restore failure path", () => {
     1);
   assert.equal(
     appSource.match(/\${renderQueryNotice\(\)}/g)?.length,
-    2);
+    3);
   assert.match(
     appSource,
     /state\.queryNotice && state\.queryNoticeRetryAction\s*\? '<button id="retry-notice"/);
@@ -3042,7 +3068,7 @@ test("loaded Platform selections publish the first retained Workspace", () => {
 
 test("foreground package reload resets filters before selecting its first type", () => {
   const loadPackage =
-    appSource.match(/async function loadPackage\([\s\S]*?\n}\n\nfunction runtimePackLoaded/)?.[0]
+    appSource.match(/async function loadPackage\([\s\S]*?\n}\n\nfunction platformSurfaceLoaded/)?.[0]
     ?? "";
   assert.match(
     loadPackage,
@@ -3072,7 +3098,7 @@ test("home demos restore the complete parsed location", () => {
     /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
   assert.match(
     appSource,
-    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
+    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.rootKind = loc\.rootKind;\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
   const callGraphDemo =
     appSource.match(/async function runCallGraphDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
@@ -3095,10 +3121,16 @@ test("home demos restore the complete parsed location", () => {
     /state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);\s*state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.atLibraryRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
   assert.match(
     restoreWorkspace,
-    /await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(failureHandler && commitHistory\) \{\s*if \(!commitDemoNavigation\(navigationSeq\)\) return;\s*syncUrl\(\);\s*\}\s*if \(focusResult\) \{\s*focusInspectionResult\(navigationSeq\);/);
+    /await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler, commitHistory\)\) return;\s*if \(focusResult\) \{\s*focusInspectionResult\(navigationSeq\);/);
   assert.match(
     restoreWorkspace,
-    /commitWorkspaceShareBasis\(loc\.shareState\);\s*if \(!failureHandler\) \{\s*ensureCurrentWorkspacePublished\(\);[\s\S]*state\.loading = false;\s*render\(\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(failureHandler && commitHistory\) \{\s*if \(!commitDemoNavigation\(navigationSeq\)\) return;\s*syncUrl\(\);/);
+    /if \(loadedPlatformTarget\)[\s\S]*commitWorkspaceShareBasis\(loc\.shareState\);\s*if \(!failureHandler\) \{\s*ensureCurrentWorkspacePublished\(\);\s*\}\s*state\.loading = false;\s*render\(\);\s*startPlatformTargetWork\(loadedPlatformTarget\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler, commitHistory\)\) return;/);
+  assert.match(
+    restoreWorkspace,
+    /commitWorkspaceShareBasis\(loc\.shareState\);\s*if \(!failureHandler\) \{\s*ensureCurrentWorkspacePublished\(\);[\s\S]*state\.loading = false;\s*render\(\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler, commitHistory\)\) return;[\s\S]*if \(!failureHandler\) \{\s*workspaceLocation\.replace\(location\.href, history\.state\);/);
+  assert.match(
+    appSource,
+    /function commitRestoredWorkspaceNavigation\([\s\S]*if \(!failureHandler \|\| !commitHistory\) return true;\s*if \(!commitDemoNavigation\(navigationSeq\)\) return false;\s*syncUrl\(\);/);
   assert.match(
     restoreWorkspace,
     /if \(!clearWorkspaceRouteFailure\(\)\) \{\s*if \(failureHandler\) \{\s*failureHandler\("The existing package route could not be cleared\."\);[\s\S]*if \(!loc\.package\) \{\s*failureHandler\?\.\(\s*"The resolved product demo did not identify a package\."\)/);
@@ -3156,7 +3188,7 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
 
   assert.match(
     appSource,
-    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{\s*cancelPendingWorkspaceConstruction\(\);\s*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*cancelPendingWorkspaceConstruction\(\);/);
+    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);\s*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);/);
   assert.match(
     appSource,
     /function cancelPendingWorkspaceConstruction\(\): void \{[\s\S]*pendingWorkspaceConstruction = null;\s*memberDetailInspection\.invalidate\(\);[\s\S]*releaseRetainedWorkspaceSnapshot\(pending\.retainedSnapshot\);[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(pending\.supersessionSnapshot\);/);
@@ -3165,7 +3197,7 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
     /function discardPendingWorkspaceConstruction\(\): void \{[\s\S]*pendingWorkspaceConstruction = null;\s*if \(pending\) memberDetailInspection\.invalidate\(\);/);
 
   const loadPackage =
-    appSource.match(/async function loadPackage\([\s\S]*?\n}\n\nfunction runtimePackLoaded/)?.[0]
+    appSource.match(/async function loadPackage\([\s\S]*?\n}\n\nfunction platformSurfaceLoaded/)?.[0]
     ?? "";
   assert.match(
     loadPackage,
@@ -3176,13 +3208,19 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
     ?? "";
   assert.match(
     platformLibraryLoad,
-    /const createsWorkspace = !scopeOnly && options\.inPlace !== true;\s*if \(createsWorkspace && !canPublishRetainedWorkspace\(\)\)[\s\S]*const construction = createsWorkspace\s*\? captureWorkspaceConstructionSnapshots\(navigationSeq\)\s*: null;\s*if \(construction\) prepareUnpublishedWorkspace\(\);/);
+    /ensurePlatformCatalog\(tfm, version\)[\s\S]*installPlatformTarget\(target\)[\s\S]*state\.platformOpeningStatus = \{ loading: true/);
   assert.match(
     platformLibraryLoad,
-    /if \(!loaded\) \{[\s\S]*const message = failureMessage[\s\S]*if \(construction\) \{\s*failWorkspaceCatalogAction\(\s*message,\s*construction\.rollbackSnapshot,\s*\(\) => openPlatformLibrary\(assembly, pack\),\s*focusWorkbenchSearchOrHeading,\s*\);[\s\S]*return undefined;[\s\S]*\}\s*state\.error = message;/);
+    /if \(!pkg\) throw new Error\(runtimeResult\.failureMessage[\s\S]*state\.platformOpeningStatus = \{ loading: false, error: `Could not open Platform Library:[\s\S]*platformLibraryRetry = options\.retryAction/);
   assert.match(
     platformLibraryLoad,
-    /if \(construction\) \{[\s\S]*destination = buildStateUrl\(\)\.toString\(\);[\s\S]*failWorkspaceCatalogAction\([\s\S]*construction\.rollbackSnapshot,[\s\S]*return undefined;[\s\S]*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
+    /const createsWorkspace = !scopeOnly && options\.inPlace !== true;[\s\S]*if \(createsWorkspace && !canPublishRetainedWorkspace\(\)\)[\s\S]*const construction = createsWorkspace\s*\? captureWorkspaceConstructionSnapshots\(navigationSeq\)\s*: null;\s*if \(construction\) prepareUnpublishedWorkspace\(\);/);
+  assert.match(
+    platformLibraryLoad,
+    /catch \(error\) \{[\s\S]*if \(construction\) \{\s*failWorkspaceCatalogAction\([\s\S]*construction\.rollbackSnapshot,\s*\(\) => openPlatformLibrary\(assembly, pack, \{ \.\.\.options, tfm, version \}\),\s*focusWorkbenchSearchOrHeading\);[\s\S]*return undefined;/);
+  assert.match(
+    platformLibraryLoad,
+    /if \(construction\) \{\s*const destination = buildStateUrl\(\)\.toString\(\);\s*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
   assert.match(
     appSource,
     /function focusWorkbenchSearchOrHeading\(\): boolean \{\s*return focusWorkbenchSearch\(document\) \|\| focusLevelOneHeading\(\);\s*}/);
@@ -3195,6 +3233,21 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
   assert.match(
     restoreSnapshot,
     /clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);[\s\S]*state\.workspaceOccurrenceSignature = "";[\s\S]*state\.workspaceOccurrenceLoading = false;[\s\S]*state\.workspaceOccurrences = null;[\s\S]*state\.workspaceOccurrenceError = "";/);
+  assert.match(
+    appSource,
+    /platformLibraryRetry,\s*platformCatalogRetry,[\s\S]*platformLibraryRetry = snapshot\.platformLibraryRetry;\s*platformCatalogRetry = snapshot\.platformCatalogRetry;/);
+  assert.match(
+    appSource,
+    /platformLibraryRetry: snapshot\.platformLibraryRetry,\s*platformCatalogRetry: snapshot\.platformCatalogRetry,/);
+  assert.match(
+    appSource,
+    /function settleInterruptedPlatformStatus\(targetState: AppState\)[\s\S]*if \(targetState\.platformCatalogStatus\.loading\)[\s\S]*error: "Platform catalog loading was interrupted\."[\s\S]*if \(targetState\.platformOpeningStatus\.loading\)[\s\S]*error: "Platform Library opening was interrupted\."/);
+  assert.match(
+    appSource,
+    /const navigationSequence = \{[\s\S]*begin\(\): number \{[\s\S]*settleInterruptedPlatformStatus\(state\);[\s\S]*invalidate\(\): void \{[\s\S]*settleInterruptedPlatformStatus\(state\);/);
+  assert.match(
+    appSource,
+    /retryAction: \(\) =>\s*restorePlatformHistoryView\(view, row, navigationSequence\.current\(\)\)/);
 
   const ensureOccurrence =
     appSource.match(/function ensureWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
@@ -3245,7 +3298,10 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\),[\s\S]*originPackage\.version\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
+    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*state\.platformIndex\?\.target\(\s*originPackage\.activeFramework,\s*originPackage\.version\)[\s\S]*row\.hasImplementation[\s\S]*row\.pack === pack[\s\S]*row\.assembly\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*runtimeAssemblyIsResident\(\s*originPackage,\s*row\.assembly,\s*row\.pack\)[\s\S]*const runtimeResult = await loadRuntimePackAssembly\(\s*originPackage\.activeFramework,\s*platformAssemblyRequest\(row\),\s*row\.pack,\s*isCurrent,\s*originPackage\.version,\s*row\.file\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
+  assert.doesNotMatch(
+    picker,
+    /\(\) => state\.packages\.includes\(originPackage\)/);
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
@@ -3275,18 +3331,15 @@ test("Platform Spotlight distinguishes resident content from core readiness", ()
     /if \(platformSurfaceLoaded\(\)\) \{[\s\S]*spotlightTypeMatches\(query\)/);
   assert.match(
     results,
-    /if \(!roster\.length && !runtimePackLoaded\(\)\)/);
+    /const target = selectedPlatformTarget\(\);[\s\S]*kind: "platform", tfm: target\.tfm, version: target\.version/);
 });
 
-test("Platform Spotlight keeps loaded navigation in place and publishes warm-up separately", () => {
+test("Platform Spotlight keeps loaded navigation in place and opens the catalog-first root", () => {
   const roster =
     appSource.match(/function platformLibraryRoster\(query: string\) \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
   const picker =
     appSource.match(/function pickSpotlightResult\(result: SpotlightResult\) \{[\s\S]*?\n}\n/)?.[0]
-    ?? "";
-  const warmup =
-    appSource.match(/async function activateRuntimePack\(\) \{[\s\S]*?\n}\n\n\/\/ Drill into one platform library/)?.[0]
     ?? "";
   const openLibrary =
     appSource.match(/async function openPlatformLibrary\([\s\S]*?\n}\n\nfunction pickSpotlightLoadedPackage/)?.[0]
@@ -3300,13 +3353,14 @@ test("Platform Spotlight keeps loaded navigation in place and publishes warm-up 
 
   assert.match(
     roster,
-    /loaded: runtimeAssemblyIsResident\(rt, row\.assembly, pack\)/);
+    /loaded: runtimeAssemblyIsResident\(rt, row\.assembly, row\.pack\)/);
   assert.match(
     picker,
-    /openPlatformLibrary\(\s*result\.assembly,\s*result\.pack,\s*\{ inPlace: result\.loaded === true \}\)/);
+    /openPlatformLibrary\(\s*result\.assembly,\s*result\.pack,\s*\{ inPlace: result\.loaded === true, tfm: result\.tfm, version: result\.version \}\)/);
   assert.match(
-    warmup,
-    /if \(!canPublishRetainedWorkspace\(\)\)[\s\S]*spotlight\.reset\(\);\s*const construction =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);\s*prepareUnpublishedWorkspace\(\);[\s\S]*await loadRuntimePack\([\s\S]*selectWorkspacePackage\(result\.packageModel\);[\s\S]*destination = buildStateUrl\(\)\.toString\(\);[\s\S]*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\);\s*spotlight\.open\(query, spotlightScope\)/);
+    picker,
+    /case "rtpack-suggest":\s*observeAsync\(openPlatformSubject\(\), "Opening Platform"\)/);
+  assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
   assert.match(
     openLibrary,
     /if \(createsWorkspace\) spotlight\.reset\(\);\s*const construction = createsWorkspace\s*\? captureWorkspaceConstructionSnapshots\(navigationSeq\)\s*: null/);
@@ -3484,7 +3538,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /openPackageQueryRoute\("", \{\s*preserveState: true,\s*returnFocus: "application-query"/);
   assert.match(
     appSource,
-    /function selectWorkspaceApplicationScope\(\) \{\s*const pkg = state\.package;\s*if \(!pkg\) return;\s*navigationSequence\.begin\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => buildStateUrl\(\),[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
+    /function selectWorkspaceApplicationScope\(\) \{\s*const pkg = state\.package;\s*if \(!pkg\) \{[\s\S]*state\.platformSelection[\s\S]*openDefaultWorkspace\(\);[\s\S]*navigationSequence\.begin\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => buildStateUrl\(\),[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
   assert.match(
     appSource,
     /onApplicationScopeSelect: applicationScope => \{[\s\S]*applicationScope === "query"[\s\S]*else if \(scope\(\) !== "workspace"\) \{\s*selectWorkspaceApplicationScope\(\)/);
@@ -3533,7 +3587,7 @@ test("browser history reuses available identities and publishes only unavailable
     /captureWorkspaceMutationSnapshot\(navigationSeq\)[\s\S]*discardPendingWorkspaceConstruction\(\);\s*failCanonicalWorkspaceRestore\([\s\S]*rollbackSnapshot,[\s\S]*restoreWorkspaceFromLocation\([\s\S]*false,\s*fail,\s*false\)[\s\S]*const destination = buildStateUrl\(\)\.toString\(\);\s*discardPendingWorkspaceConstruction\(\);\s*activeWorkspaceUrl = destination;\s*workspaceLocation\.replace\(destination, history\.state\)/);
   assert.match(
     appSource,
-    /hasWorkspace:\s*state\.package !== null\s*\|\| retainedWorkspaces\.activeWorkspaceId !== null/);
+    /hasWorkspace:\s*state\.package !== null\s*\|\| state\.platformSelection !== null\s*\|\| retainedWorkspaces\.activeWorkspaceId !== null/);
   assert.match(
     appSource,
     /const retainedState: AppState = \{\s*\.\.\.cloned,\s*platformIndex,\s*retryAction: null,\s*queryNoticeRetryAction: null,\s*\}/);
@@ -3542,13 +3596,13 @@ test("browser history reuses available identities and publishes only unavailable
     /retainedWorkspaceHistorySessionId = crypto\.randomUUID\(\)[\s\S]*historyState\[retainedWorkspaceHistorySessionKey\]\s*!== retainedWorkspaceHistorySessionId\) return null;[\s\S]*function historyReferencesRetainedWorkspace\(historyState: unknown\): boolean \{\s*return retainedWorkspaceIdFromHistory\(historyState\) !== null;/);
   assert.match(
     appSource,
-    /function rebindActiveWorkspaceHistory\(\): void \{\s*workspaceLocation\.replace\(\s*activeWorkspaceUrl \?\? \(state\.package \? location\.href : "\/demos"\),\s*history\.state\)/);
+    /function rebindActiveWorkspaceHistory\(\): void \{\s*workspaceLocation\.replace\(\s*activeWorkspaceUrl \?\? \(state\.package \|\| state\.platformSelection \? location\.href : "\/demos"\),\s*history\.state\)/);
   assert.match(
     appSource,
-    /function finishPackageRemoval\([\s\S]*if \(!state\.package\) \{\s*activeWorkspaceUrl = "\/demos";\s*if \(!state\.home\) \{\s*state\.workspaceSubjectOpen = true;\s*workspaceLocation\.replace\("\/demos", history\.state\)/);
+    /function finishPackageRemoval\([\s\S]*if \(!state\.package && !state\.platformSelection\) \{\s*activeWorkspaceUrl = "\/demos";\s*if \(!state\.home\) \{\s*state\.workspaceSubjectOpen = true;\s*workspaceLocation\.replace\("\/demos", history\.state\)/);
   assert.match(
     appSource,
-    /if \(snapshot\.state\.packages\.length === 0\) \{\s*snapshot\.state\.workspaceSubjectOpen = true;\s*snapshot\.state\.atPackageRoot = true;\s*snapshot\.state\.atLibraryRoot = false;/);
+    /if \(snapshot\.state\.packages\.length === 0 && !snapshot\.state\.platformSelection\) \{\s*snapshot\.state\.workspaceSubjectOpen = true;\s*snapshot\.state\.atPackageRoot = true;\s*snapshot\.state\.atLibraryRoot = false;/);
   assert.match(
     appSource,
     /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const methodBodyDiff = state\.methodBodyDiff;\s*const libraryApiDiffState = state\.libraryApiDiff;[\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);\s*Object\.assign\(methodBodyDiff, snapshot\.state\.methodBodyDiff\);\s*Object\.assign\(libraryApiDiffState, snapshot\.state\.libraryApiDiff\);\s*state\.methodBodyDiff = methodBodyDiff;\s*state\.libraryApiDiff = libraryApiDiffState;[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);
@@ -3557,7 +3611,7 @@ test("browser history reuses available identities and publishes only unavailable
     /function cloneCanonicalWorkspaceSnapshotForRetention\([\s\S]*const platformIndex = snapshot\.state\.platformIndex;\s*const cloned = structuredClone\(\{\s*\.\.\.snapshot\.state,\s*platformIndex: null,[\s\S]*const retainedState: AppState = \{\s*\.\.\.cloned,\s*platformIndex,/);
   assert.match(
     appSource,
-    /function retainedWorkspaceItems\(\) \{\s*const publishedActiveSnapshot = pendingWorkspaceConstruction\s*\? pendingWorkspaceConstruction\.retainedSnapshot\s*\?\? pendingWorkspaceConstruction\.supersessionSnapshot[\s\S]*packageCount: workspace\.id === retainedWorkspaces\.activeWorkspaceId\s*\? publishedActiveSnapshot\?\.state\.packages\.length \?\? state\.packages\.length/);
+    /function retainedWorkspaceItems\(\) \{\s*const publishedActiveSnapshot = pendingWorkspaceConstruction\s*\? pendingWorkspaceConstruction\.retainedSnapshot\s*\?\? pendingWorkspaceConstruction\.supersessionSnapshot[\s\S]*const workspaceState = workspace\.id === retainedWorkspaces\.activeWorkspaceId\s*\? publishedActiveSnapshot\?\.state \?\? state\s*: workspace\.snapshot\?\.state;[\s\S]*packageCount: workspaceState[\s\S]*workspaceState\.packages\.filter\(pkg => pkg\.source\.kind !== "platform"\)\.length\s*\+ \(workspaceState\.platformSelection \? 1 : 0\)/);
   assert.match(
     appSource,
     /function workspaceKeyboardContextIsActive\(\): boolean \{\s*return pendingWorkspaceConstruction === null/);
@@ -3617,7 +3671,7 @@ test("authoritative location restore clears filters and applies aggregate Platfo
   assert.match(workspaceRestore, /resetLocationFilters\(\);\s*clearWorkspacePackages\(\)/);
   assert.match(
     workspaceRestore,
-    /if \(isRuntimePackId\(targetModel\.id\)\) \{\s*const scoped = await applyPlatformLibraryScope\(\s*loc\.library/);
+    /if \(targetModel\.source\.kind === "platform"\) \{\s*const scoped = await applyPlatformLibraryScope\(\s*loc\.library/);
   const popstate =
     appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
     ?? "";
@@ -3649,7 +3703,7 @@ test("type projection completions render only while current and preserve navigat
     ?? "";
   assert.match(
     typeMetadata,
-    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*typeMetadataSignature\(currentType, pkg\) === signature/);
+    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*selectedTypeMetadataLibraryIdentity\(\)\) === signature/);
   assert.doesNotMatch(typeMetadata, /typeMetadataGeneration|inspectTypeProjection/);
   const typeMetadataCoordinator =
     metadataInspectionSource.match(/async loadTypeMetadata\(request\)[\s\S]*?\n    },/)?.[0]
@@ -3738,6 +3792,12 @@ test("history validates saved type and member identity before restoring Member s
   assert.match(applyView, /const type = pkg\.types\.find\(item => item\.id === view\.selectedTypeId\)/);
   assert.match(
     applyView,
+    /const capacityError = view\.platform\s*\? platformCoordinateCapacityError\(\)\s*:\s*"";\s*if \(capacityError\) \{\s*showToast\(capacityError\);\s*return false/);
+  assert.match(
+    applyView,
+    /if \(view\.rootKind !== "platform" && view\.platform\) \{[\s\S]*state\.platformIndex\?\.target\([\s\S]*if \(!target\) return false;\s*retainPlatformPackageForTarget\(target\);/);
+  assert.match(
+    applyView,
     /const memberHistory = restoreMemberHistoryState\(\s*view,\s*type,\s*member/);
   assert.match(
     applyView,
@@ -3768,7 +3828,7 @@ test("Platform scope restoration defers selection, rendering, and data loading",
     ?? "";
   assert.match(
     openPlatformLibrary,
-    /const scopeOnly = options\.scopeOnly === true;[\s\S]*resolvePackageLibrary\(pkg\.assemblies, key\)[\s\S]*state\.libraryScope = library \? new Set\(\[library\.id\]\) : null;[\s\S]*if \(scopeOnly\) return hasLib \? pkg : undefined;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*render\(\);/);
+    /const scopeOnly = options\.scopeOnly === true;[\s\S]*platformLibraryMatchesDescriptor\(row, item\)[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*if \(scopeOnly\) return pkg;[\s\S]*render\(\);[\s\S]*await loadSelectionData\(\)/);
   const applyScope =
     appSource.match(/async function applyPlatformLibraryScope\([\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";
@@ -3988,6 +4048,163 @@ test("spotlight cache signature changes when a coordinate is replaced", () => {
   assert.notEqual(
     oldSignature,
     spotlightCandidateSignature(newFramework, [newFramework]));
+});
+
+test("spotlight cache signature changes when an equal-count surface is replaced", () => {
+  const packageModel = {
+    ...packageAt("1.0.0", "net8.0", 1),
+    surfaceRevision: 0,
+  };
+  const original = spotlightCandidateSignature(packageModel, [packageModel]);
+  packageModel.surfaceRevision++;
+
+  assert.notEqual(
+    original,
+    spotlightCandidateSignature(packageModel, [packageModel]));
+});
+
+test("cached Platform roots re-enter Workspace membership before activation", () => {
+  const retainTarget =
+    appSource.match(/function retainPlatformPackageForTarget[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const installTarget =
+    appSource.match(/function installPlatformTarget[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const applyViewNode = parsedAppSource.program.body.find(node =>
+    node.type === "FunctionDeclaration" && node.id?.name === "applyView");
+  assert.ok(applyViewNode);
+  const applyView = appSource.slice(applyViewNode.start, applyViewNode.end);
+  const cached = {
+    ...packageAt("11.0.0", "net11.0"),
+    source: { kind: "platform" },
+  };
+  const state = {
+    packages: [] as typeof cached[],
+    package: null as typeof cached | null,
+    platformSelection: null,
+    workspaceShareBasis: null as { tabs: unknown[] } | null,
+    platformIndex: {
+      target: () => ({ tfm: "net11.0", version: "11.0.0" }),
+    },
+  };
+  const retained: typeof cached[] = [];
+  const released: typeof cached[] = [];
+  let invalidations = 0;
+  let resolvedTabs: unknown[] = [];
+  let cachedTarget: typeof cached | null = cached;
+  const context = {
+    state,
+    cached,
+    target: { tfm: "net11.0", version: "11.0.0" },
+    runtimePackageForTarget: () => cachedTarget,
+    retainPackageModel: (packageModel: typeof cached) => {
+      retained.push(packageModel);
+      state.packages = [packageModel];
+    },
+    releasePackageModelCaches: (packageModel: typeof cached) => {
+      released.push(packageModel);
+    },
+    invalidateWorkspaceMembershipViews: () => {
+      invalidations++;
+      state.workspaceShareBasis = null;
+    },
+    platformCoordinateCapacityError: () => "",
+    resolvedWorkspaceShareTabs: () => resolvedTabs,
+    workspaceShareTabsMatchResolved: (
+      requested: unknown[],
+      resolved: unknown[],
+    ) => requested === resolved,
+    resetMemberSectionState: () => {},
+    invalidateMemberDestinationWork: () => {},
+    navigationHistory: { normalizeCurrent: () => {} },
+    render: () => {},
+    showToast: () => {},
+  };
+
+  runInNewContext(
+    stripTypeScriptTypes(`${retainTarget}\n${installTarget}\ninstallPlatformTarget(target);`),
+    context);
+  assert.equal(state.package, cached);
+  assert.deepEqual(retained, [cached]);
+  assert.equal(invalidations, 1);
+
+  resolvedTabs = [{ source: ":Platform" }];
+  const preservedBasis = { tabs: resolvedTabs };
+  state.packages = [];
+  state.workspaceShareBasis = preservedBasis;
+  runInNewContext(
+    stripTypeScriptTypes(`${retainTarget}\nretainPlatformPackageForTarget(target);`),
+    context);
+  assert.equal(state.workspaceShareBasis, preservedBasis);
+
+  state.packages = [];
+  state.workspaceShareBasis = preservedBasis;
+  runInNewContext(
+    stripTypeScriptTypes(`${retainTarget}\n${installTarget}\ninstallPlatformTarget(target);`),
+    context);
+  assert.equal(state.workspaceShareBasis, preservedBasis);
+
+  state.packages = [];
+  state.package = null;
+  state.platformSelection = null;
+  state.workspaceShareBasis = null;
+  retained.length = 0;
+  assert.equal(
+    runInNewContext(
+      stripTypeScriptTypes(`${retainTarget}\n${applyView}\napplyView({
+        rootKind: "platform",
+        platform: {
+          tfm: "net11.0",
+          version: "11.0.0",
+          includeAllLibraries: false,
+          filter: "",
+        },
+        atPackageRoot: true,
+        workspaceSubjectOpen: false,
+      });`),
+      context),
+    true);
+  assert.equal(state.package, cached);
+  assert.deepEqual(retained, [cached]);
+
+  const previous = cached;
+  cachedTarget = null;
+  state.packages = [previous];
+  state.package = previous;
+  state.workspaceShareBasis = preservedBasis;
+  resolvedTabs = [];
+  retained.length = 0;
+  invalidations = 0;
+  runInNewContext(
+    stripTypeScriptTypes(`${retainTarget}\n${installTarget}\ninstallPlatformTarget({
+      tfm: "net12.0",
+      version: "12.0.0",
+    });`),
+    context);
+  assert.equal(state.package, null);
+  assert.equal(state.workspaceShareBasis, null);
+  assert.deepEqual(state.packages, []);
+  assert.deepEqual(released, [previous]);
+  assert.equal(invalidations, 1);
+});
+
+test("Platform Library entry from demos publishes only after selection and restores failure", () => {
+  const openLibrary =
+    appSource.match(/async function openPlatformLibrary[\s\S]*?(?=\nfunction pickSpotlightLoadedPackage)/)?.[0]
+    ?? "";
+  assert.match(
+    openLibrary,
+    /const createsWorkspace = !scopeOnly && options\.inPlace !== true;[\s\S]*const construction = createsWorkspace\s*\? captureWorkspaceConstructionSnapshots\(navigationSeq\)\s*: null/);
+  assert.match(
+    openLibrary,
+    /const navigationSeq = options\.navigationSeq \?\? navigationSequence\.begin\(\);/);
+  assert.match(
+    openLibrary,
+    /render\(\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return undefined;\s*if \(construction\) \{\s*const destination = buildStateUrl\(\)\.toString\(\);\s*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\);/);
+  assert.match(
+    openLibrary,
+    /if \(construction\) \{\s*failWorkspaceCatalogAction\([\s\S]*construction\.rollbackSnapshot,[\s\S]*focusWorkbenchSearchOrHeading\);\s*return undefined;/);
+  assert.doesNotMatch(openLibrary, /beginDemoNavigation|cancelDemoNavigation/);
 });
 
 test("member cache signatures use the same complete coordinates", () => {
@@ -5113,8 +5330,11 @@ test("platform graph borders reflect actual resident lookup", () => {
 
   assert.match(binding, /resolveRuntimeGraphTargetCandidate\(pack, target\)/);
   assert.match(binding, /platform: disposition === "lookup"/);
-  assert.match(binding, /if \(disposition === "member" && pack && resident\) \{\s*navigateToRuntimeMember\(/);
+  assert.match(binding, /if \(disposition === "member" && pack && resident\) \{[\s\S]*openRuntimeMemberFromGraph\(/);
   assert.match(binding, /else \{[\s\S]*startPlatformDrill\(target\)/);
+  assert.match(
+    packageBinding,
+    /runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/);
   assert.match(
     packageBinding,
     /const runtimeCandidate = \(candidate\.status === "missing"[\s\S]*?\|\| candidate\.status === "skew"\) && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
@@ -5123,7 +5343,7 @@ test("platform graph borders reflect actual resident lookup", () => {
     /const disposition = combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident\);[\s\S]*?if \(disposition === "blocked"/);
   assert.match(
     packageBinding,
-    /else if \(disposition === "resident"\) \{\s*if \(pack && resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{[\s\S]*?startPlatformDrill\(target\)/);
+    /else if \(disposition === "resident"\) \{\s*if \(pack && resident\) \{[\s\S]*?openRuntimeMemberFromGraph\([\s\S]*?\} else \{[\s\S]*?startPlatformDrill\(target\)/);
   assert.match(
     appSource,
     /if \(candidate\.status === "resident"\s*\|\| \(candidate\.status === "missing"\s*&& assemblyResident\)\) \{[\s\S]*?await drillPlatformNode\(/);
@@ -5240,6 +5460,7 @@ test("runtime graph identities restore through exact resident candidates", () =>
     pkg: pack,
     type
   });
+
   assert.equal(runtimeGraphTargetAssemblyIsResident(pack, target), true);
   assert.equal(
     runtimeGraphTargetAssemblyIsResident({ ...pack, types: [] }, target),
@@ -5258,6 +5479,77 @@ test("runtime graph identities restore through exact resident candidates", () =>
   assert.match(
     appSource,
     /resolveRuntimeGraphTargetCandidate\(\s*pkg,\s*deep\.graphTarget\)/);
+});
+
+test("runtime graph member activation requires the matching exact catalog", async () => {
+  const navigation =
+    appSource.match(/async function openRuntimeMemberFromGraph[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const catalog =
+    appSource.match(/async function exactPlatformCatalogForType[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  assert.match(
+    navigation,
+    /await exactPlatformCatalogForType\(pack, type\)/);
+  assert.match(
+    catalog,
+    /await ensurePlatformCatalog\(\s*pack\.activeFramework,\s*pack\.version\)/);
+  assert.match(
+    catalog,
+    /target\.rows\.some\(row =>\s*row\.hasImplementation\s*&& platformLibraryMatchesDescriptor\(row, library\)\)/);
+  assert.match(
+    navigation,
+    /retainPlatformPackageForTarget\(target\) !== pack[\s\S]*matching Platform runtime model is unavailable/);
+  assert.match(
+    navigation,
+    /const alreadyRetained = state\.packages\.includes\(pack\);[\s\S]*if \(!alreadyRetained\) renewNavigationOwnership\(\);[\s\S]*if \(!navigationIsCurrent\(\)\) return;[\s\S]*navigateToRuntimeMember\(/);
+  assert.match(
+    navigation,
+    /catch \(error\) \{[\s\S]*showPlatformTargetError\([\s\S]*exact Platform target is unavailable[\s\S]*return;[\s\S]*navigateToRuntimeMember\(/);
+  assert.match(
+    navigation,
+    /if \(pack\.source\.kind === "platform" && state\.packages\.includes\(pack\)\) \{\s*state\.packages = state\.packages\.filter\(candidate => candidate !== pack\);\s*invalidateWorkspaceMembershipViews\(\);/);
+  assert.match(
+    appSource,
+    /async function spotlightPlatformTypeIsAvailable[\s\S]*exactPlatformCatalogForType\(pkg, type\)[\s\S]*showToast\([\s\S]*exact Platform target is unavailable/);
+  assert.match(
+    appSource,
+    /async function pickSpotlightMember[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*activatePackage\(pkg\)/);
+  assert.match(
+    appSource,
+    /async function pickSpotlight\([\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*activatePackage\(pkg\)/);
+
+  const pack = { source: { kind: "platform" } };
+  const target = {};
+  const events: string[] = [];
+  let current = true;
+  const context = {
+    exactPlatformCatalogForType: async () => target,
+    navigationIsCurrent: () => current,
+    renewNavigationOwnership: () => {
+      current = true;
+      events.push("renew");
+    },
+    retainPlatformPackageForTarget: () => {
+      current = false;
+      events.push("retain");
+      return pack;
+    },
+    state: { packages: [] as (typeof pack)[] },
+    navigateToRuntimeMember: () => events.push("navigate"),
+    showPlatformTargetError: async () => {},
+    errorMessage: (error: unknown) => String(error),
+    pack,
+  };
+  await runInNewContext(
+    stripTypeScriptTypes(`(async () => {
+      ${navigation}
+      await openRuntimeMemberFromGraph(
+        pack, {}, {}, 0, {}, "overview",
+        navigationIsCurrent, renewNavigationOwnership, "call-graph");
+    })()`),
+    context);
+  assert.deepEqual(events, ["retain", "renew", "navigate"]);
 });
 
 test("home navigation invalidates pending graph work", () => {
@@ -5354,7 +5646,7 @@ test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
     /assemblyResident = runtimeGraphTargetAssemblyIsResident\(pack, node\)[\s\S]*?candidate\.status === "missing" && assemblyResident[\s\S]*?drillPlatformNode\(node, navigationIsCurrent\)/);
   assert.match(
     navigation,
-    /const owner = captureViewOperation\(seq\);\s*const navigationIsCurrent = \(\) =>\s*ownsViewOperation\(owner, state\.memberCallGraphSeq\)/);
+    /let owner = captureViewOperation\(seq\);\s*const navigationIsCurrent = \(\) =>\s*ownsViewOperation\(owner, state\.memberCallGraphSeq\)/);
   assert.match(
     navigation,
     /const discardIfStale = \(\s*preservedFocus: MemberFocusSnapshot \| null = null,\s*\) => \{[\s\S]*?seq === state\.memberCallGraphSeq[\s\S]*?state\.platformDrillLoading = false;[\s\S]*?if \(preservedFocus\) renderPreservingMemberFocus\(preservedFocus\);\s*else render\(\)/);
@@ -5866,7 +6158,7 @@ test("async graph work uses one source-view ownership contract", () => {
     /owner\.sequence === currentSequence[\s\S]*?owner\.navigationSequence === navigationSequence\.current\(\)[\s\S]*?owner\.sourceView === viewSignature\(\)/);
   assert.equal(
     appSource.match(/captureViewOperation\(/g)?.length,
-    5);
+    10);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {
@@ -6478,6 +6770,92 @@ test("opportunity navigation uses exact source assembly and definition identity"
     /opportunity\.sourceIdentity === "legacy"[\s\S]*?openSpotlight\(shortTypeName\(opportunity\.typeId\)\)[\s\S]*?opportunity\.sourceIdentity !== "exact"[\s\S]*?!opportunity\.sourceDefinitionId[\s\S]*?exact identity is unavailable[\s\S]*?if \(candidate\.status !== "unique"\) \{[\s\S]*?appendQueryNotice\(\s*`The opportunity source could not be opened: \$\{reason\}\.`\);[\s\S]*?navigateToType\(candidate\.type\)/);
 });
 
+test("graph-first platform acquisition preserves catalog family and physical filename", async () => {
+  const row = {
+    tfm: "net11.0",
+    pack: "netcore.app" as const,
+    assembly: "Mixed",
+    file: "PhysicalName.dll",
+    kind: "impl" as const,
+    forwardsTo: null,
+    version: "11.0.0.0",
+    publicTypes: 1,
+    inReferencePack: true,
+    hasImplementation: true,
+    packVersion: "11.0.0",
+  };
+  const target = {
+    tfm: "net11.0",
+    version: "11.0.0",
+    rows: [row],
+  };
+  assert.equal(
+    platformGraphLibraryForTarget(target, "Mixed.dll", "netcore.app"),
+    row);
+
+  const loader =
+    appSource.match(/async function loadRuntimeGraphAssembly[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const navigation =
+    appSource.match(/async function navigateOrDrillPlatform[\s\S]*?(?=\n\})/)?.[0]
+    ?? "";
+  const drill =
+    appSource.match(/async function drillPlatformNode[\s\S]*?(?=\n\})/)?.[0]
+    ?? "";
+  const requests: unknown[][] = [];
+  const catalogRequests: unknown[][] = [];
+  await runInNewContext(
+    stripTypeScriptTypes(`(async () => {
+      ${loader}
+      await loadRuntimeGraphAssembly(
+        "net11.0-windows10.0.19041.0",
+        "11.0.0", "Mixed", "netcore.app", () => true);
+    })()`),
+    {
+      ensurePlatformCatalog: async (...args: unknown[]) => {
+        catalogRequests.push(args);
+        return target;
+      },
+      platformCatalogFramework,
+      platformGraphLibraryForTarget,
+      platformAssemblyRequest,
+      loadRuntimePackAssembly: async (...args: unknown[]) => {
+        requests.push(args);
+        return { packageModel: {}, failureMessage: "" };
+      },
+      errorMessage: (error: unknown) => String(error),
+    });
+  assert.deepEqual(catalogRequests, [["net11.0", "11.0.0"]]);
+  assert.equal(requests.length, 1);
+  const request = requests[0]!;
+  assert.deepEqual(
+    [request[0], request[1], request[2], request[4], request[5]],
+    [
+      "net11.0",
+      "Mixed.dll",
+      "netcore.app",
+      "11.0.0",
+      "PhysicalName.dll",
+    ]);
+  assert.equal(typeof request[3], "function");
+  assert.equal(
+    navigation.match(/loadRuntimeGraphAssembly\(/g)?.length,
+    2);
+  assert.match(
+    navigation,
+    /const framework = platformCatalogFramework\(\s*state\.package\?\.activeFramework \|\| ""\)/);
+  assert.match(
+    drill,
+    /const framework = platformCatalogFramework\(currentPackage\(\)\.activeFramework\)[\s\S]*resolvedPlatformTargetVersion\([\s\S]*framework\)[\s\S]*platformPackForGraphAssembly\([\s\S]*framework\) \?\? ""/);
+  assert.match(
+    navigation,
+    /loadRuntimeGraphAssembly\(\s*framework,\s*retainedPlatform\?\.version \?\? "",\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
+  assert.match(
+    navigation,
+    /loadRuntimeGraphAssembly\(\s*framework,\s*pack\.version,\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
+  assert.doesNotMatch(navigation, /\bloadRuntimePackAssembly\(/);
+});
+
 test("cold platform graph navigation acquires the exact assembly before any default runtime", () => {
   const navigation =
     appSource.match(/async function navigateOrDrillPlatform[\s\S]*?(?=\n\})/)?.[0]
@@ -6488,7 +6866,7 @@ test("cold platform graph navigation acquires the exact assembly before any defa
 
   assert.match(
     coldLoad,
-    /platformPackForGraphAssembly\(\s*node\.assembly,\s*node\.platformPack,\s*runtimePackPackage\(\),\s*framework\)[\s\S]*?loadRuntimePackAssembly\([\s\S]*?targetPack \?\? ""/);
+    /platformPackForGraphAssembly\(\s*node\.assembly,\s*node\.platformPack,\s*runtimePackPackage\(\),\s*framework\)[\s\S]*?loadRuntimeGraphAssembly\([\s\S]*?targetPack/);
   assert.doesNotMatch(coldLoad, /\bloadRuntimePack\(/);
 });
 
@@ -6674,7 +7052,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.match(
     appSource,
-    /state\.retryAction = options\.retryAction/);
+    /platformLibraryRetry = options\.retryAction/);
   assert.match(
     appSource,
     /state\.retryAction = retry/);

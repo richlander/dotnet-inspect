@@ -7,6 +7,7 @@ import type {
   BrowserPackageSurface,
   BrowserTypeSurface,
 } from "../src/facades/inspect-web-package.d.ts";
+import type { PlatformAssemblyRow, PlatformCatalogTarget } from "../src/platform-index.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
 
@@ -94,6 +95,45 @@ const surface: BrowserPackageSurface = {
   inspectionError: null,
 };
 
+const platformVersion = "11.0.0-preview.7.26381.103";
+const alternatePlatformVersion = "11.0.0-preview.8.26401.1";
+function platformRow(assembly: string, kind: PlatformAssemblyRow["kind"], inReferencePack = true, hasImplementation = true): PlatformAssemblyRow {
+  return {
+    tfm: "net11.0", pack: "netcore.app", assembly, file: `${assembly}.dll`,
+    kind, inReferencePack, hasImplementation, forwardsTo: kind === "facade" ? "System.Text.Json" : null,
+    version: "11.0.0.0", packVersion: platformVersion, publicTypes: assembly === "System.Text.Json" ? 1 : 0,
+  };
+}
+const platformTarget: PlatformCatalogTarget = {
+  tfm: "net11.0", version: platformVersion,
+  rows: [
+    platformRow("System.Text.Json", "impl"),
+    platformRow("System.Facade", "facade"),
+    platformRow("System.Private.Empty", "impl", false),
+    platformRow("System.ReferenceOnly", "ref", true, false),
+  ],
+};
+const historicalPlatformTarget: PlatformCatalogTarget = {
+  tfm: "netstandard2.1", version: "2.1.0",
+  rows: [{
+    ...platformRow("netstandard", "ref", true, false),
+    tfm: "netstandard2.1", pack: "netstandard", packVersion: "2.1.0", version: "2.1.0.0",
+  }],
+};
+interface PlatformFixture {
+  warmup?: "pending" | "fail-once";
+  discoveryFailure?: boolean;
+  catalogFailure?: boolean;
+  catalogPending?: boolean;
+  wrongCatalog?: boolean;
+  libraryFailure?: boolean;
+  libraryPending?: boolean;
+  libraryPendingPack?: PlatformAssemblyRow["pack"];
+  duplicateLibrary?: boolean;
+  nativeCoreLib?: boolean;
+  mismatchedFile?: boolean;
+}
+
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
 async function installFacades(
@@ -102,9 +142,19 @@ async function installFacades(
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
   references: "ready" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
+  platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
 ) {
+  const catalogTarget: PlatformCatalogTarget = {
+    ...platformTarget,
+    rows: [
+      ...platformTarget.rows.map(row => platform?.mismatchedFile && row.assembly === "System.Text.Json"
+        ? { ...row, file: "PhysicalPayload.dll" } : row),
+      ...(platform?.duplicateLibrary ? [{ ...platformTarget.rows[0]!, pack: "aspnetcore.app" as const }] : []),
+      ...(platform?.nativeCoreLib ? [{ ...platformRow("System.Private.CoreLib", "impl", false), publicTypes: 1 }] : []),
+    ],
+  };
   const common = "export async function initializeRuntime() {}";
   const surfaceLookup = `
     const surfaces = ${JSON.stringify([model, ...additionalSurfaces])};
@@ -121,6 +171,71 @@ async function installFacades(
       }`,
     package: `
       ${surfaceLookup}
+      const platformTarget = ${JSON.stringify(catalogTarget)};
+      const platformOptions = ${JSON.stringify(platform ?? {})};
+      let warmupAttempts = 0;
+      export async function getPlatformVersions(tfm) {
+        document.documentElement.dataset.platformVersionsRequest = tfm;
+        if (platformOptions.discoveryFailure) throw new Error("Version discovery offline");
+        return ["${alternatePlatformVersion}", "${platformVersion}"];
+      }
+      export async function getPlatformCatalog(tfm, version) {
+        document.documentElement.dataset.platformCatalogRequest = JSON.stringify([tfm, version]);
+        if (platformOptions.catalogPending) await new Promise(resolve => document.addEventListener("finish-platform-catalog", resolve, { once: true }));
+        if (platformOptions.catalogFailure) throw new Error("Catalog offline");
+        const actualVersion = platformOptions.wrongCatalog ? platformTarget.version : version;
+        return {
+          tfm, version: actualVersion,
+          rows: platformTarget.rows.map(row => ({
+            ...row, tfm, packVersion: actualVersion,
+            assembly: row.assembly === "System.Facade" ? "System.NewFacade" : row.assembly,
+            file: row.assembly === "System.Facade" ? "System.NewFacade.dll" : row.file,
+          }))
+        };
+      }
+      export async function prefetchPlatformPacks(tfm, version) {
+        document.documentElement.dataset.platformWarmup = JSON.stringify([tfm, version]);
+        document.documentElement.dataset.platformWarmupAttempts = String(++warmupAttempts);
+        if (platformOptions.warmup === "pending") await new Promise(resolve => document.addEventListener("finish-platform-warmup", resolve, { once: true }));
+        if (platformOptions.warmup === "fail-once" && warmupAttempts === 1) throw new Error("Archive offline");
+      }
+      export async function loadRuntimePackAssembly(tfm, version, file, pack, assetFileName = file) {
+        if (pack === undefined) {
+          const surface = surfaceFor("Microsoft.NETCore.App");
+          const selected = surface.assemblies.find(item => item.name + ".dll" === file);
+          if (!selected) throw new Error("Unknown platform library: " + file);
+          return JSON.stringify({
+            ...surface,
+            defaultAssemblyId: selected.id,
+            activeFramework: tfm,
+            version: version || surface.version,
+          });
+        }
+        document.documentElement.dataset.platformLibraryRequest = JSON.stringify([tfm, version, file, pack, assetFileName]);
+        if (platformOptions.libraryPending
+          && (!platformOptions.libraryPendingPack || platformOptions.libraryPendingPack === pack)) {
+          await new Promise(resolve => document.addEventListener("finish-platform-library", resolve, { once: true }));
+        }
+        if (platformOptions.libraryFailure) throw new Error("Library offline");
+        const row = platformTarget.rows.find(row => row.assembly + ".dll" === file && row.pack === pack)
+          ?? { assembly: file.replace(/\\.dll$/, ""), file, publicTypes: 0 };
+        const assembly = {
+          id: row.assembly, name: row.assembly, version: "11.0.0.0",
+          culture: null, publicKeyToken: null,
+          asset: file === "System.Private.CoreLib.dll" ? "runtimes/linux-x64/native/" + assetFileName : assetFileName,
+          publicTypes: row.publicTypes,
+          publicMembers: row.publicTypes, platformPack: pack,
+        };
+        const types = row.publicTypes ? [{
+          ...surfaces[0].types[0], id: assembly.id + ":Example.Widget",
+          assembly: file, assemblyName: assembly.name, assemblyId: assembly.id, platformPack: pack,
+        }] : [];
+        return JSON.stringify({
+          ...surfaces[0], package: "Microsoft.NETCore.App", version, frameworks: [tfm], activeFramework: tfm,
+          defaultAssemblyId: assembly.id, assemblies: [assembly], types,
+          totalMembers: row.publicTypes,
+        });
+      }
       export async function queryPackage(id, version, framework) {
         const surface = surfaceFor(id);
         return {
@@ -134,16 +249,28 @@ async function installFacades(
         return { versions: ["1.0.0", "0.9.0"], currentVersionInsertionIndex: 0, previousVersion: "0.9.0", previousVersionUnavailableReason: null };
       }
       export async function loadRuntimePack(framework, version) {
+        document.documentElement.dataset.runtimePackRequest = JSON.stringify([framework, version]);
         const surface = surfaceFor("Microsoft.NETCore.App");
         return JSON.stringify({ ...surface, activeFramework: framework, version: version || surface.version });
       }
-      export async function loadRuntimePackAssembly(framework, version, file) {
-        const surface = surfaceFor("Microsoft.NETCore.App");
-        const selected = surface.assemblies.find(item => item.name + ".dll" === file);
-        if (!selected) throw new Error("Unknown platform library: " + file);
-        return JSON.stringify({ ...surface, defaultAssemblyId: selected.id, activeFramework: framework, version: version || surface.version });
+      export function searchTypes(query, candidatesJson) {
+        const normalized = query.toLowerCase();
+        return JSON.parse(candidatesJson)
+          .filter(candidate => candidate.name.toLowerCase().includes(normalized)
+            || candidate.full.toLowerCase().includes(normalized))
+          .map(candidate => ({ key: candidate.key, kind: "substring" }));
       }
       export function clearWorkspacePackageOccurrences() {}
+      export async function queryWorkspacePackageOccurrences(json) {
+        return { superseded: false, occurrences: JSON.parse(json).map(coordinate => ({
+          ...coordinate, action: JSON.stringify(coordinate),
+        })) };
+      }
+      export async function activateWorkspacePackageOccurrence(action) {
+        const coordinate = JSON.parse(action);
+        return { activated: true, superseded: false,
+          package: await queryPackage(coordinate.package, coordinate.version, coordinate.framework) };
+      }
       export function packageCacheStats() {
         return { packages: 1, resident: 1, workspaces: 1, residentBytes: 0 };
       }
@@ -178,6 +305,26 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      export async function queryPlatformMetadata(tfm, version, file, pack) {
+        document.documentElement.dataset.platformMetadataRequest = JSON.stringify([tfm, version, file, pack]);
+        return {
+          assemblies: [{
+            assembly: file,
+            metadataRoots: [{
+              requestedRoot: "Cli", canonicalRoot: "Cli",
+              rootRelativeVirtualAddress: 256, rootSize: 512, aliasesCliMetadata: false,
+              metadataVersion: "v4.0.30319", metadataVersionTruncated: false,
+              kind: "Ecma335", isAssembly: true, metadataSize: 512,
+              projectedTableTotal: 1, heaps: [],
+              tables: [{ index: 0, name: "Module", rowCount: 1, isProjected: true }],
+              headers: {}
+            }],
+            cliMetadataError: null, manifestMetadataError: null,
+            readyToRun: null, readyToRunError: null
+          }],
+          inspectionError: null, compileLibrary: null,
+        };
+      }
       export async function queryPackageMetadata(id, version, framework, asset) {
         document.documentElement.dataset.metadataRequest = asset;
         const surface = surfaceFor(id);
@@ -263,6 +410,9 @@ async function installFacades(
         const surface = surfaceFor(id);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
+        return integrationsFor(surface, selected, version, framework, asset);
+      }
+      async function integrationsFor(surface, selected, version, framework, asset) {
         const scenario = ${JSON.stringify(integrations)};
         if (scenario === "deferred") {
           await new Promise(resolve => document.addEventListener(
@@ -289,7 +439,7 @@ async function installFacades(
         }
         const partial = scenario.startsWith("partial");
         return {
-          package: id, version, framework, categories,
+          package: surface.package, version, framework, categories,
           totalSignals: categories.reduce((total, category) => total + category.signals.length, 0),
           isComplete: !partial, inspectionError: partial ? "A library participant could not be inspected." : null,
           compileLibrary: surface.compileLibrary
@@ -297,16 +447,17 @@ async function installFacades(
       }
       export async function queryPlatformIntegrations(framework, version, file, pack) {
         document.documentElement.dataset.platformIntegrationRequest = file + ":" + pack;
-        const surface = surfaceFor("Microsoft.NETCore.App");
-        const selected = surface.assemblies.find(item => item.name + ".dll" === file);
-        if (!selected) throw new Error("Unknown platform library: " + file);
-        return queryPackageIntegrations(surface.package, version, framework, selected.id);
+        const row = ${JSON.stringify(catalogTarget.rows)}.find(item => item.assembly + ".dll" === file && item.pack === pack);
+        if (!row) throw new Error("Unknown platform library: " + file);
+        const surface = {
+          ...surfaces[0],
+          package: "Microsoft.NETCore.App",
+          compileLibrary: row.file
+        };
+        const selected = { id: "platform:" + pack + ":" + file, name: row.assembly, asset: row.file };
+        return integrationsFor(surface, selected, version, framework, selected.id);
       }
-      export async function queryPackageOpportunities(id, version, framework, asset) {
-        document.documentElement.dataset.opportunityRequest = asset;
-        const surface = surfaceFor(id);
-        const selected = surface.assemblies.find(item => item.id === asset);
-        if (!selected) throw new Error("Unknown library: " + asset);
+      async function opportunitiesFor(id, surface, selected, version, framework, asset) {
         const scenario = ${JSON.stringify(opportunities)};
         if (scenario === "deferred") {
           await new Promise(resolve => document.addEventListener(
@@ -349,24 +500,40 @@ async function installFacades(
           compileLibrary: surface.compileLibrary
         };
       }
-      export async function queryPlatformOpportunities(framework, version, file, pack) {
-        document.documentElement.dataset.platformOpportunityRequest = file + ":" + pack;
-        const surface = surfaceFor("Microsoft.NETCore.App");
-        const selected = surface.assemblies.find(item => item.name + ".dll" === file);
-        if (!selected) throw new Error("Unknown platform library: " + file);
-        return queryPackageOpportunities(surface.package, version, framework, selected.id);
-      }
-      export async function queryPackagePerformance(id, version, framework, asset) {
-        document.documentElement.dataset.analysisRequest = asset;
+      export async function queryPackageOpportunities(id, version, framework, asset) {
+        document.documentElement.dataset.opportunityRequest = asset;
         const surface = surfaceFor(id);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
+        return opportunitiesFor(id, surface, selected, version, framework, asset);
+      }
+      export async function queryPlatformOpportunities(framework, version, file, pack) {
+        document.documentElement.dataset.platformOpportunityRequest = file + ":" + pack;
+        const row = ${JSON.stringify(catalogTarget.rows)}.find(item => item.assembly + ".dll" === file && item.pack === pack);
+        if (!row) throw new Error("Unknown platform library: " + file);
+        const surface = {
+          ...surfaces[0],
+          package: "Microsoft.NETCore.App",
+          compileLibrary: row.file
+        };
+        const selected = {
+          id: "platform:" + pack + ":" + file,
+          name: row.assembly,
+          asset: row.file,
+          version: row.version,
+          culture: null,
+          publicKeyToken: null
+        };
+        return opportunitiesFor(
+          surface.package, surface, selected, version, framework, selected.id);
+      }
+      async function performanceFor(surface, selected, version, framework, requestKey) {
         const selectedType = surface.types.find(item => item.assemblyId === selected.id);
-        if (!selectedType) throw new Error("Library has no projected type: " + asset);
+        if (!selectedType) throw new Error("Library has no projected type: " + selected.asset);
         const scenario = ${JSON.stringify(analysis)};
         if (scenario === "deferred") {
           await new Promise(resolve => document.addEventListener(
-            "fixture-analysis-ready:" + asset, resolve, { once: true }));
+            "fixture-analysis-ready:" + requestKey, resolve, { once: true }));
         }
         if (scenario === "query-error") throw new Error("Analysis query unavailable.");
         const member = (memberName, opportunityCount, inLoopCount, shapes, confidence) => ({
@@ -402,13 +569,41 @@ async function installFacades(
           compileLibrary: surface.compileLibrary
         };
       }
+      export async function queryPackagePerformance(id, version, framework, asset) {
+        document.documentElement.dataset.analysisRequest = asset;
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return performanceFor(surface, selected, version, framework, asset);
+      }
       export async function queryPlatformPerformance(framework, version, file, pack) {
         document.documentElement.dataset.platformAnalysisRequest = file + ":" + pack;
-        const surface = surfaceFor("Microsoft.NETCore.App");
-        const selected = surface.assemblies.find(item => item.name + ".dll" === file);
-        if (!selected) throw new Error("Unknown platform library: " + file);
-        return JSON.stringify(
-          await queryPackagePerformance(surface.package, version, framework, selected.id));
+        const row = ${JSON.stringify(catalogTarget.rows)}.find(item => item.assembly + ".dll" === file && item.pack === pack);
+        if (!row) throw new Error("Unknown platform library: " + file);
+        const selected = {
+          ...surfaces[0].assemblies[0],
+          id: "platform:" + pack + ":" + file,
+          name: row.assembly,
+          asset: row.file,
+          platformPack: pack
+        };
+        const selectedType = {
+          ...surfaces[0].types[0],
+          id: selected.id + ":Example.Widget",
+          assembly: file,
+          assemblyName: row.assembly,
+          assemblyId: selected.id,
+          platformPack: pack
+        };
+        const surface = {
+          ...surfaces[0],
+          package: "Microsoft.NETCore.App",
+          compileLibrary: row.file,
+          assemblies: [selected],
+          types: [selectedType]
+        };
+        return JSON.stringify(await performanceFor(
+          surface, selected, version, framework, selected.id));
       }`,
     source: "",
     "call-graph": "",
@@ -438,16 +633,10 @@ async function installFacades(
       `../dist/assets/${basename(new URL(route.request().url()).pathname)}`,
       import.meta.url)),
   }));
-  await page.route("**/assets/platform-index.tsv", route =>
-    route.fulfill(model.package === "Microsoft.NETCore.App" ? {
-      contentType: "text/tab-separated-values",
-      body: [
-        "tfm\tpack\tassembly\tfile\tkind\tforwardsTo\tversion\tpublicTypes",
-        ...model.assemblies.map(item => [
-          model.activeFramework, item.platformPack ?? "netcore.app",
-          item.name, `${item.name}.dll`, "impl", "", item.version, item.publicTypes,
-        ].join("\t")),
-      ].join("\n"),
+  await page.route("**/assets/platform-index.json", route =>
+    route.fulfill(platform ? {
+      contentType: "application/json",
+      body: JSON.stringify({ schemaVersion: 1, defaultFramework: "net11.0", targets: [catalogTarget, historicalPlatformTarget] }),
     } : { status: 404, body: "Platform catalog is not part of this fixture." }));
   await page.route("**/*", route =>
     route.request().resourceType() === "document"
@@ -459,6 +648,569 @@ async function installFacades(
 }
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
+
+async function openPlatform(page: Page, options: PlatformFixture = {}) {
+  await installFacades(page, surface, [], "ready", "ready", options);
+  await page.goto("/");
+  await page.locator("[data-sl-load-runtime]").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+}
+
+test("Platform opens its catalog before warm-up, with reference membership and role labels", async ({ page }) => {
+  await openPlatform(page, { warmup: "pending" });
+  await expect(page.locator(".platform-library-row")).toHaveCount(3);
+  await expect(page.locator("#platform-framework option")).toHaveText(["net11.0"]);
+  await expect(page.locator("#inspector-panel")).toContainText("Downloading runtime packs");
+  await expect(page.locator("[data-platform-role=facade]")).toContainText("Facade");
+  await expect(page.locator("[data-platform-role=facade] .platform-role-icon")).toHaveCSS("border-top-style", "dashed");
+  await expect(page.locator("[data-platform-role=implementation] .platform-role-icon")).toHaveCSS("border-top-style", "solid");
+  await expect(page.locator("[data-platform-role=reference]")).toContainText("Unsupported: no runtime implementation");
+  await expect(page.locator("[data-platform-role=reference] button")).toHaveCount(0);
+  await expect(page.locator("[data-scope=package], [data-package-lens], #package-version, #framework")).toHaveCount(0);
+  await page.getByLabel("Include all libraries").check();
+  const privateRow = page.locator("[data-platform-role=private] button");
+  await expect(privateRow).toBeEnabled();
+  await expect(privateRow).toContainText("Private implementation");
+  await expect(privateRow.locator(".platform-role-icon")).toHaveText("P");
+  await expect(privateRow.locator(".platform-role-icon")).toHaveCSS("border-top-style", "double");
+  await privateRow.click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Private.Empty");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+  await expect(page.locator('[data-library-lens="diff"]')).toHaveCount(0);
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Private.Empty.dll", "netcore.app", "System.Private.Empty.dll"]));
+});
+
+test("Platform catalog occupies the full workspace at every responsive breakpoint", async ({ page }) => {
+  await openPlatform(page);
+  const workspace = page.locator(".platform-workspace");
+
+  for (const width of [1440, 900, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const layout = await workspace.evaluate(element => {
+      const detail = element.querySelector<HTMLElement>(":scope > .detail-pane");
+      if (!detail) throw new Error("Platform detail pane is missing.");
+      return {
+        columns: getComputedStyle(element).gridTemplateColumns.trim().split(/\s+/),
+        detailWidth: detail.getBoundingClientRect().width,
+        workspaceWidth: element.getBoundingClientRect().width,
+      };
+    });
+
+    expect(layout.columns).toHaveLength(1);
+    expect(Math.abs(layout.workspaceWidth - layout.detailWidth)).toBeLessThan(1);
+  }
+});
+
+test("Platform warm-up failure preserves inventory and has an independent retry", async ({ page }) => {
+  await openPlatform(page, { warmup: "fail-once", discoveryFailure: true });
+  await expect(page.locator("#inspector-panel")).toContainText("Archive offline");
+  await expect(page.locator("#inspector-panel")).toContainText("Version discovery offline");
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+  await expect(page.locator(".platform-library-row")).toHaveCount(3);
+  await page.locator('[data-platform-retry="warmup"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-warmup-attempts", "2");
+  await expect(page.locator('[data-platform-retry="warmup"]')).toHaveCount(0);
+  await expect(page.locator(".platform-library-row")).toHaveCount(3);
+});
+
+test("Platform exact version switch installs its matching catalog and pins Library inspection", async ({ page }) => {
+  await openPlatform(page);
+  await expect(page.locator("#platform-version option")).toHaveCount(2);
+  await page.getByLabel("Platform version", { exact: true }).selectOption(alternatePlatformVersion);
+  await expect(page.locator("#platform-version")).toHaveValue(alternatePlatformVersion);
+  await expect(page.locator(".platform-library-list")).toContainText("System.NewFacade");
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
+    JSON.stringify(["net11.0", alternatePlatformVersion, "System.Text.Json.dll", "netcore.app", "System.Text.Json.dll"]));
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await page.locator('[data-library-lens="metadata"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
+    JSON.stringify(["net11.0", alternatePlatformVersion, "System.Text.Json.dll", "netcore.app"]));
+  await expect(page.locator("#inspector-panel")).toContainText("Module");
+  await expect(page.locator("#package-version, #framework, [data-platform-metadata-library]")).toHaveCount(0);
+});
+
+test("Platform mismatched catalog does not relabel the installed inventory", async ({ page }) => {
+  await openPlatform(page, { wrongCatalog: true });
+  await expect(page.locator("#platform-version option")).toHaveCount(2);
+  await page.getByLabel("Platform version", { exact: true }).selectOption(alternatePlatformVersion);
+  await expect(page.locator("#inspector-panel")).toContainText("does not match");
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+  await expect(page.locator(".platform-library-list")).toContainText("System.Facade");
+  await expect(page.locator(".platform-library-list")).not.toContainText("System.NewFacade");
+});
+
+test("Spotlight offers separate NuGet and Platform System.Text.Json destinations without warming packs", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await page.route("https://azuresearch-usnc.nuget.org/query?**", route => route.fulfill({
+    contentType: "application/json", body: JSON.stringify({ data: [{ id: "System.Text.Json", version: "11.0.0-preview.7" }] }),
+  }));
+  await page.goto("/");
+  await expect(page.getByRole("contentinfo")).toContainText("browser wasm ready");
+  await page.getByRole("combobox").fill("System.Text.Json");
+  await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toBeVisible();
+  await expect(page.locator('[data-sl-platform-lib="System.Text.Json"]')).toContainText("Platform");
+  await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");
+  await page.locator('[data-sl-platform-lib="System.Text.Json"]').click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "false");
+});
+
+test("Platform Library parent, history and refresh retain the exact target without choosing a Type", async ({ page }) => {
+  await openPlatform(page);
+  const platformLocation = page.url();
+  await page.getByRole("button", { name: /System.Facade Facade/ }).click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  const libraryLocation = page.url();
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Facade.dll", "netcore.app", "System.Facade.dll"]));
+  await page.locator(".type-browser .nav-back-row").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".platform-library-list")).toBeFocused();
+  await expect(page).toHaveURL(platformLocation);
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page).toHaveURL(libraryLocation);
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+  await expect(page).toHaveURL(platformLocation);
+  await page.reload();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+  await expect(page.locator("html")).not.toHaveAttribute("data-platform-library-request");
+});
+
+test("history-restored cached Platform Libraries remain usable through Spotlight", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  const libraryLocation = page.url();
+  await page.locator(".type-browser .nav-back-row").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByLabel("Platform version", { exact: true }).selectOption(alternatePlatformVersion);
+  await expect(page.locator("#platform-version")).toHaveValue(alternatePlatformVersion);
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page.locator("#platform-version")).toHaveValue(alternatePlatformVersion);
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page).toHaveURL(libraryLocation);
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("Widget");
+  await page.locator('[data-sl-type*="Example.Widget"]:not([data-sl-member])').first().click();
+  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
+});
+
+test("Platform Library acquisition failure keeps its catalog usable", async ({ page }) => {
+  await openPlatform(page, { libraryFailure: true });
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator("#inspector-panel")).toContainText("Library offline");
+  await expect(page.locator(".platform-library-row")).toHaveCount(3);
+  await expect(page.locator('[data-platform-retry="library"]')).toBeEnabled();
+});
+
+test("Catalog-only Platform is a Workspace coordinate and pending Library work cannot steal it", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page, { libraryPending: true, warmup: "pending" });
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(page.locator("#inspector-panel")).toContainText(platformVersion);
+  await page.evaluate(() => document.dispatchEvent(new Event("finish-platform-library")));
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await page.locator("[data-workspace-platform]").click();
+  await expect(page.locator(".platform-library-row")).toHaveCount(3);
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+});
+
+test("pending Platform catalog cannot overwrite a loaded Package selected through Spotlight", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", { catalogPending: true });
+  await page.goto(root);
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("[data-sl-load-runtime]").click();
+  await expect(page.locator('[data-scope="platform"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#platform-version option")).toHaveCount(2);
+  await page.getByLabel("Platform version", { exact: true })
+    .selectOption(alternatePlatformVersion);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-catalog-request",
+    JSON.stringify(["net11.0", alternatePlatformVersion]),
+  );
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("Example.Package");
+  await page.locator('[data-sl-pkg-open="Example.Package"]').click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-scope="package"]').click();
+  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+
+  await page.evaluate(() => document.dispatchEvent(new Event("finish-platform-catalog")));
+  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Package");
+});
+
+test("pending Platform catalog cannot overwrite a loaded Type selected through Commands", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", { catalogPending: true });
+  await page.goto(root);
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("[data-sl-load-runtime]").click();
+  await expect(page.locator('[data-scope="platform"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await page.locator(".type-browser .nav-back-row").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByLabel("Platform version", { exact: true })
+    .selectOption(alternatePlatformVersion);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-catalog-request",
+    JSON.stringify(["net11.0", alternatePlatformVersion]),
+  );
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator('[data-sl-scope="commands"]').click();
+  await page.locator("#spotlight-input").fill("type Widget");
+  await expect(page.locator("#spotlight-results")).toContainText("type Widget");
+  await page.keyboard.press("Enter");
+  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
+
+  await page.evaluate(() => document.dispatchEvent(new Event("finish-platform-catalog")));
+  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
+});
+
+for (const destination of ["Type", "Member"] as const) {
+  test(`pending Platform Library cannot overwrite a loaded ${destination} selected through Spotlight`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installFacades(page, surface, [], "ready", "ready", { libraryPending: true });
+    await page.goto(root);
+    await page.getByRole(
+      "button",
+      { name: "Search types, members, packages", exact: true },
+    ).click();
+    await page.locator("[data-sl-load-runtime]").click();
+    await expect(page.locator('[data-scope="platform"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
+
+    await page.getByRole(
+      "button",
+      { name: "Search types, members, packages", exact: true },
+    ).click();
+    await page.locator("#spotlight-input").fill(
+      destination === "Type" ? "Widget" : "Run");
+    if (destination === "Type") {
+      await page.locator('[data-sl-type*="Example.Widget"]').click();
+      await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+      await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
+    } else {
+      await page.locator('[data-sl-member][data-sl-type*="Example.Widget"]').click();
+      await expect(page.locator('[data-scope="member"]')).toHaveAttribute("aria-selected", "true");
+      await expect(page.locator("#inspector-panel h1")).toContainText("Run");
+    }
+
+    await page.evaluate(() => document.dispatchEvent(new Event("finish-platform-library")));
+    await expect(page.locator(
+      destination === "Type" ? '[data-scope="type"]' : '[data-scope="member"]',
+    )).toHaveAttribute("aria-selected", "true");
+  });
+}
+
+test("Platform version history restores the prior exact catalog on a narrow viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPlatform(page);
+  const originalLocation = page.url();
+  await expect(page.locator("#platform-version option")).toHaveCount(2);
+  await page.getByLabel("Platform version", { exact: true }).selectOption(alternatePlatformVersion);
+  await expect(page.locator("#platform-version")).toHaveValue(alternatePlatformVersion);
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page).toHaveURL(originalLocation);
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+  await expect(page.locator(".platform-library-list")).toContainText("System.Facade");
+  await expect(page.locator(".platform-library-list")).not.toContainText("System.NewFacade");
+});
+
+test("A failed dynamic Platform catalog leaves the installed target and inventory available", async ({ page }) => {
+  await openPlatform(page, { catalogFailure: true });
+  await expect(page.locator("#platform-version option")).toHaveCount(2);
+  await page.getByLabel("Platform version", { exact: true }).selectOption(alternatePlatformVersion);
+  await expect(page.locator("#inspector-panel")).toContainText("Catalog offline");
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+  await expect(page.locator(".platform-library-row")).toHaveCount(3);
+  await expect(page.locator('[data-platform-retry="catalog"]')).toBeEnabled();
+});
+
+test("Sequential same-named Platform Libraries replace the prior family and retain the selected pack", async ({ page }) => {
+  await openPlatform(page, { duplicateLibrary: true });
+  await page.getByRole("button", { name: /System.Text.Json Implementation netcore.app/ }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app", "System.Text.Json.dll"]));
+  const netCoreLibraryLocation = page.url();
+  await page.locator(".type-browser .nav-back-row").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  const platformLocation = page.url();
+  await page.getByRole("button", { name: /System.Text.Json Implementation aspnetcore.app/ }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "aspnetcore.app", "System.Text.Json.dll"]));
+  const aspNetLibraryLocation = page.url();
+  await page.locator('[data-library-lens="metadata"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "aspnetcore.app"]));
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page).toHaveURL(aspNetLibraryLocation);
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page).toHaveURL(platformLocation);
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page).toHaveURL(netCoreLibraryLocation);
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app", "System.Text.Json.dll"]));
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await page.locator('[data-library-lens="metadata"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app"]));
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app"]));
+});
+
+test("Runtime-only CoreLib in the native asset directory uses the same exact Library inspector", async ({ page }) => {
+  await openPlatform(page, { nativeCoreLib: true });
+  await expect(page.getByRole("button", { name: /System.Private.CoreLib/ })).toHaveCount(0);
+  await page.getByLabel("Include all libraries").check();
+  await page.getByRole("button", { name: /System.Private.CoreLib Private implementation/ }).click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Private.CoreLib");
+  await page.locator('[data-library-lens="metadata"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Private.CoreLib.dll", "netcore.app"]));
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Private.CoreLib.dll", "netcore.app"]));
+});
+
+test("Platform requests metadata identity while sharing the exact physical Library filename", async ({ page }) => {
+  await openPlatform(page, { mismatchedFile: true });
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app", "PhysicalPayload.dll"]));
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await page.locator('[data-library-lens="metadata"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app"]));
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app"]));
+});
+
+test("Package and catalog-only Platform remain distinct coordinates in the same shared Workspace", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await page.goto(root);
+  await page.getByRole("button", { name: "Search types, members, packages", exact: true }).click();
+  await page.locator("[data-sl-load-runtime]").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await page.reload();
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+  await expect(page.locator("html")).not.toHaveAttribute("data-platform-library-request");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("#inspector-panel")).toContainText("2 loaded coordinates");
+  await expect(page.locator("#inspector-panel")).toContainText("Example.Package");
+  await expect(page.locator("[data-workspace-platform]")).toContainText(platformVersion);
+  await page.locator("[data-workspace-activate]").click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.locator("[data-workspace-platform]").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+});
+
+test("catalog-only Platform retains its Workspace identity and canonical URL across another Workspace", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await openPlatform(page);
+  const platformLocation = page.url();
+  const platformWorkspace = await currentWorkspaceHistoryState(page);
+  expect(platformWorkspace.id).not.toBeNull();
+
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  expect((await currentWorkspaceHistoryState(page)).id).not.toBe(platformWorkspace.id);
+
+  await page.goBack();
+  await expect(page).toHaveURL(platformLocation);
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  expect(await currentWorkspaceHistoryState(page)).toEqual(platformWorkspace);
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+  await expect(page.locator("html")).not.toHaveAttribute("data-platform-library-request");
+
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("[data-workspace-select]")).toContainText("1 loaded coordinate");
+  await expect(page.locator("[data-workspace-switch]")).toHaveCount(1);
+  await page.locator("[data-workspace-platform]").click();
+  await expect(page).toHaveURL(platformLocation);
+});
+
+test("missing shipped catalog opens a visible Platform failure without runtime acquisition", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Package");
+  const originalWorkspace = await currentWorkspaceHistoryState(page);
+  await page.keyboard.press("Control+p");
+  await page.locator("[data-sl-load-runtime]").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel")).toContainText("The Platform catalog could not be loaded.");
+  await expect(page.locator('[data-platform-retry="catalog"]')).toBeEnabled();
+  await expect(page.locator(".platform-library-row")).toHaveCount(0);
+  await expect(page.locator("html")).not.toHaveAttribute("data-runtime-pack-request");
+  expect(await currentWorkspaceHistoryState(page)).toEqual(originalWorkspace);
+});
+
+test("restored Platform failure retries its own Library request", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await openPlatform(page, { libraryFailure: true });
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Could not open Platform Library: Library offline",
+  );
+  const firstWorkspace = await currentWorkspaceHistoryState(page);
+
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await page.keyboard.press("Control+p");
+  await page.locator("[data-sl-load-runtime]").click();
+  await page.getByRole("button", { name: /System.Facade Facade/ }).click();
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Could not open Platform Library: Library offline",
+  );
+
+  await page.goBack();
+  await expect.poll(() => currentWorkspaceHistoryState(page)).toEqual(firstWorkspace);
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Could not open Platform Library: Library offline",
+  );
+  await page.locator('[data-platform-retry="library"]').click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-library-request",
+    JSON.stringify([
+      "net11.0",
+      platformVersion,
+      "System.Text.Json.dll",
+      "netcore.app",
+      "System.Text.Json.dll",
+    ]),
+  );
+});
+
+for (const pendingRequest of ["Library", "catalog"] as const) {
+  test(`restored Platform ${pendingRequest} cancellation becomes retryable`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem(
+      "inspect-recent-packages",
+      JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+    ));
+    await openPlatform(page, pendingRequest === "Library"
+      ? { libraryPending: true, libraryFailure: true }
+      : { catalogPending: true, catalogFailure: true });
+    const platformWorkspace = await currentWorkspaceHistoryState(page);
+
+    if (pendingRequest === "Library") {
+      await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+      await expect(page.locator("#inspector-panel")).toContainText(
+        "Opening the selected Library...",
+      );
+    } else {
+      await page.getByLabel("Platform version", { exact: true })
+        .selectOption(alternatePlatformVersion);
+      await expect(page.locator("#inspector-panel")).toContainText(
+        "Loading Platform catalog...",
+      );
+    }
+
+    await page.keyboard.press("Control+p");
+    await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+    await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+    await page.evaluate(request => document.dispatchEvent(new Event(
+      request === "Library" ? "finish-platform-library" : "finish-platform-catalog",
+    )), pendingRequest);
+
+    await page.goBack();
+    await expect.poll(() => currentWorkspaceHistoryState(page)).toEqual(platformWorkspace);
+    await expect(page.locator("#inspector-panel")).toContainText(
+      pendingRequest === "Library"
+        ? "Platform Library opening was interrupted."
+        : "Platform catalog loading was interrupted.",
+    );
+    await expect(page.locator(
+      `[data-platform-retry="${pendingRequest === "Library" ? "library" : "catalog"}"]`,
+    )).toBeEnabled();
+  });
+}
+
+test("same-Workspace navigation retires superseded Platform catalog progress", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page, { catalogPending: true });
+  await page.getByLabel("Platform version", { exact: true })
+    .selectOption(alternatePlatformVersion);
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Loading Platform catalog...",
+  );
+
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("finish-platform-catalog")));
+  await page.locator('[data-scope="platform"]').click();
+
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Platform catalog loading was interrupted.",
+  );
+  await expect(page.locator('[data-platform-retry="catalog"]')).toBeEnabled();
+  await expect(page.locator("#inspector-panel")).not.toContainText(
+    "Loading Platform catalog...",
+  );
+});
 
 async function currentWorkspaceHistoryState(page: Page): Promise<{
   id: string | null;
@@ -760,7 +1512,7 @@ for (const width of [1440, 390]) {
     const longCore = library(core.id, "Example." + "LongLibraryName".repeat(25), 1);
     await installFacades(page, {
       ...surface, assemblies: [longCore], types: [type("Example.Widget", longCore)], totalMembers: 1,
-    }, [], "ready", "ready", "ready", "long");
+    }, [], "ready", "ready", undefined, "ready", "long");
     await openAnalysis(page);
     const frame = page.locator(".library-analysis-surface");
     await expect(frame.locator(".perf-row")).toHaveCount(80);
@@ -791,6 +1543,7 @@ for (const width of [1440, 390]) {
         [],
         "ready",
         "ready",
+        undefined,
         "ready",
         scenario);
       await openAnalysis(page);
@@ -812,23 +1565,19 @@ for (const width of [1440, 390]) {
     });
   }
 
-  test(`production Analysis keeps platform Library selection outside the scroller at ${width}px`, async ({ page }) => {
+  test(`production Analysis keeps Platform Library selection outside the scroller at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    const platform = {
-      ...surface, package: "Microsoft.NETCore.App",
-      assemblies: surface.assemblies.map(item => ({ ...item, platformPack: "netcore.app" })),
-    };
-    await installFacades(page, platform);
-    await openAnalysis(page, root.replace("Example.Package", platform.package));
+    await openPlatform(page, { mismatchedFile: true });
+    await page.getByTitle("Inspect System.Text.Json", { exact: true }).click();
+    await page.locator('[data-library-lens="analysis"]').click();
     const frame = page.locator(".library-analysis-surface");
     await expect(frame.locator(".perf-row")).toHaveCount(2);
     const picker = frame.locator(".library-analysis-controls select");
     await expect(picker).toBeVisible();
-    await expect(picker).toHaveValue(core.name);
-    await picker.selectOption(other.name);
-    await expect(frame.locator("footer")).toContainText(other.asset);
+    await expect(picker).toHaveValue("System.Text.Json");
+    await expect(frame.locator("footer")).toContainText("PhysicalPayload.dll");
     await expect(page.locator("html"))
-      .toHaveAttribute("data-platform-analysis-request", "Example.Other.dll:netcore.app");
+      .toHaveAttribute("data-platform-analysis-request", "System.Text.Json.dll:netcore.app");
     const controls = await frame.locator(".library-analysis-controls").boundingBox();
     const content = await frame.locator(".library-analysis-scroll").boundingBox();
     expect(controls!.y + controls!.height).toBeLessThanOrEqual(content!.y + 1);
@@ -851,6 +1600,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
     [],
     "ready",
     "ready",
+    undefined,
     "ready",
     "deferred");
   await openAnalysis(page);
@@ -909,7 +1659,7 @@ for (const width of [1440, 390]) {
     const longCore = library(core.id, "Example." + "LongLibraryName".repeat(25), 1);
     await installFacades(page, {
       ...surface, assemblies: [longCore], types: [type("Example.Widget", longCore)], totalMembers: 1,
-    }, [], "ready", "ready", "long");
+    }, [], "ready", "ready", undefined, "long");
     await openOpportunities(page);
     const frame = page.locator(".library-opportunities-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(81);
@@ -934,7 +1684,7 @@ for (const width of [1440, 390]) {
   for (const scenario of ["empty", "partial", "partial-empty", "query-error"] as const) {
     test(`production Opportunities retains its ${scenario} state at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      await installFacades(page, surface, [], "ready", "ready", scenario);
+      await installFacades(page, surface, [], "ready", "ready", undefined, scenario);
       await openOpportunities(page);
       const frame = page.locator(".library-opportunities-surface");
       if (scenario === "partial") {
@@ -954,31 +1704,104 @@ for (const width of [1440, 390]) {
     });
   }
 
-  test(`production Opportunities keeps platform Library selection outside the scroller at ${width}px`, async ({ page }) => {
+  test(`production Opportunities keeps Platform Library selection outside the scroller at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    const platform = {
-      ...surface, package: "Microsoft.NETCore.App",
-      assemblies: surface.assemblies.map(item => ({ ...item, platformPack: "netcore.app" })),
-    };
-    await installFacades(page, platform);
-    await openOpportunities(page, root.replace("Example.Package", platform.package));
+    await openPlatform(page, { mismatchedFile: true });
+    await page.getByTitle("Inspect System.Facade", { exact: true }).click();
+    await page.locator('[data-library-lens="opportunities"]').click();
     const frame = page.locator(".library-opportunities-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
     const picker = frame.locator(".library-opportunities-controls select");
     await expect(picker).toBeVisible();
-    await expect(picker).toHaveValue(core.name);
-    await picker.selectOption(other.name);
-    await expect(frame.locator("footer")).toContainText(other.asset);
+    await expect(picker).toHaveValue("System.Facade");
+    await picker.selectOption("System.Text.Json");
+    await expect(frame.locator(".opp-type-ns").nth(1)).toContainText("System.Text.Json");
+    await expect(frame.locator("footer")).toContainText("PhysicalPayload.dll");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-platform-library-request",
+      JSON.stringify([
+        "net11.0",
+        platformVersion,
+        "System.Text.Json.dll",
+        "netcore.app",
+        "PhysicalPayload.dll",
+      ]),
+    );
     await expect(page.locator("html"))
-      .toHaveAttribute("data-platform-opportunity-request", "Example.Other.dll:netcore.app");
-    const controls = await frame.locator(".library-opportunities-controls").boundingBox();
+      .toHaveAttribute("data-platform-opportunity-request", "System.Text.Json.dll:netcore.app");
+    const header = await frame.locator("header").boundingBox();
     const content = await frame.locator(".library-opportunities-scroll").boundingBox();
-    expect(controls!.y + controls!.height).toBeLessThanOrEqual(content!.y + 1);
+    expect(header!.y + header!.height).toBeLessThanOrEqual(content!.y + 1);
   });
 }
 
+test("stale Platform Opportunities acquisition cannot replace a newer family selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page, {
+    duplicateLibrary: true,
+    libraryPending: true,
+    libraryPendingPack: "aspnetcore.app",
+  });
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation netcore.app/ },
+  ).click();
+  await page.locator('[data-library-lens="opportunities"]').click();
+  const picker = page.locator(
+    ".library-opportunities-controls .platform-library-select",
+  );
+  await picker
+    .locator('option[data-pack="aspnetcore.app"]')
+    .first()
+    .evaluate(option => {
+      if (!(option instanceof HTMLOptionElement))
+        throw new Error("Expected a Platform Library option.");
+      const select = option.closest("select");
+      if (!(select instanceof HTMLSelectElement))
+        throw new Error("Expected a Platform Library picker.");
+      for (const candidate of select.options) candidate.selected = false;
+      option.selected = true;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-library-request",
+    JSON.stringify([
+      "net11.0",
+      platformVersion,
+      "System.Text.Json.dll",
+      "aspnetcore.app",
+      "System.Text.Json.dll",
+    ]),
+  );
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("Widget");
+  await page.locator('[data-sl-type*="Example.Widget"]:not([data-sl-member])').first().click();
+  await expect(page.locator('[data-scope="type"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("finish-platform-library")));
+  await page.locator('[data-scope="library"]').click();
+  await page.locator('[data-library-lens="metadata"]').click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-metadata-request",
+    JSON.stringify([
+      "net11.0",
+      platformVersion,
+      "System.Text.Json.dll",
+      "netcore.app",
+    ]),
+  );
+});
+
 test("production Opportunities keeps deferred Library results out of the incoming scan", async ({ page }) => {
-  await installFacades(page, surface, [], "ready", "ready", "deferred");
+  await installFacades(page, surface, [], "ready", "ready", undefined, "deferred");
   await openOpportunities(page);
   await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");
   await expect(page.locator(".library-opportunities-surface footer")).toContainText(core.asset);
@@ -1080,26 +1903,23 @@ for (const width of [1440, 390]) {
     });
   }
 
-  test(`production Integrations keeps platform Library selection outside the scroller at ${width}px`, async ({ page }) => {
+  test(`production Integrations uses Platform navigation without a second library picker at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    const platform = {
-      ...surface, package: "Microsoft.NETCore.App",
-      assemblies: surface.assemblies.map(item => ({ ...item, platformPack: "netcore.app" })),
-    };
-    await installFacades(page, platform);
-    await openIntegrations(page, root.replace("Example.Package", platform.package));
+    await openPlatform(page);
+    await page.getByTitle("Inspect System.Text.Json", { exact: true }).click();
+    await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+    await page.keyboard.press("Enter");
     const frame = page.locator(".library-integrations-surface");
     await expect(frame.locator(".signal-row")).toHaveCount(3);
-    const picker = frame.locator(".library-integrations-controls select");
-    await expect(picker).toBeVisible();
-    await expect(picker).toHaveValue(core.name);
-    await picker.selectOption(other.name);
-    await expect(frame.locator(".signal-ns").first()).toContainText(other.name);
-    await expect(frame.locator("footer")).toContainText(other.asset);
-    await expect(page.locator("html")).toHaveAttribute("data-platform-integration-request", "Example.Other.dll:netcore.app");
-    const controls = await frame.locator(".library-integrations-controls").boundingBox();
-    const content = await frame.locator(".library-integrations-scroll").boundingBox();
-    expect(controls!.y + controls!.height).toBeLessThanOrEqual(content!.y + 1);
+    await expect(frame.locator(".library-integrations-controls")).toHaveCount(0);
+    await expect(frame.locator(".signal-ns").first()).toContainText("System.Text.Json");
+    await page.locator('[data-scope="library"]').press("Home");
+    await page.getByTitle("Inspect System.Facade", { exact: true }).click();
+    await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await expect(frame.locator(".signal-ns").first()).toContainText("System.Facade");
+    await expect(frame.locator("footer")).toContainText("System.Facade.dll");
+    await expect(page.locator("html")).toHaveAttribute("data-platform-integration-request", "System.Facade.dll:netcore.app");
   });
 }
 

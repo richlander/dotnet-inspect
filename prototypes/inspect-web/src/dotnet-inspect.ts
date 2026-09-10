@@ -101,7 +101,7 @@ import {
   parseWorkspaceLocation,
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
-  retainedPlatformTargetVersion,
+  resolvedPlatformTargetVersion,
   selectedBrowserCallGraphPackageTabIds,
   retainWorkspaceUrlPreservation,
   workspaceShareTabsMatchResolved,
@@ -127,7 +127,6 @@ import {
   retainGraphOnlyImplementationBody,
   resolvePackageLibrary,
   runtimeAssemblyIsResident,
-  runtimePackIsResident,
   type AppMemberSurface,
   type AppPackage,
   type AppTypeSurface,
@@ -418,7 +417,19 @@ import {
   type StyleTier,
 } from "./settings-panel.ts";
 import { renderBrand } from "./brand.ts";
-import { loadPlatformIndex, type PlatformIndex } from "./platform-index.ts";
+import {
+  DEFAULT_PLATFORM_FRAMEWORK, loadPlatformIndex, parsePlatformCatalogTarget,
+  platformCatalogFramework,
+  type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
+} from "./platform-index.ts";
+import {
+  bindPlatformSubject, renderPlatformSubject, platformInventory, platformLibraryKey,
+  platformLibraryRole, platformTargetKey, parsePlatformVersions, requireMatchingPlatformTarget,
+  platformSupportsRuntimeAcquisition,
+  platformAssemblyRequest, platformGraphLibraryForTarget,
+  platformLibraryMatchesDescriptor,
+  type PlatformNavigationState, type PlatformSubjectStatus,
+} from "./platform-subject.ts";
 import {
   createSpotlight,
   type RemovableSpotlightResult,
@@ -533,6 +544,9 @@ let cancelPackageQuery: PackageFacade["cancelPackageQuery"];
 let inspectPackageDocument: PackageFacade["getPackageDocument"];
 let inspectLoadRuntimePack: PackageFacade["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: PackageFacade["loadRuntimePackAssembly"];
+let inspectPlatformVersions: PackageFacade["getPlatformVersions"];
+let inspectPlatformCatalog: PackageFacade["getPlatformCatalog"];
+let inspectPrefetchPlatformPacks: PackageFacade["prefetchPlatformPacks"];
 let inspectPackageCacheStats: PackageFacade["packageCacheStats"];
 let inspectMemberDocumentation: PackageFacade["queryMemberDocumentation"];
 let inspectPackage: PackageFacade["queryPackage"];
@@ -611,6 +625,9 @@ async function loadEngineModule() {
     import("./engine-facades.ts"),
   ]);
   ({ startEngine } = coordinator);
+  inspectPlatformVersions = packageFacade.getPlatformVersions;
+  inspectPlatformCatalog = packageFacade.getPlatformCatalog;
+  inspectPrefetchPlatformPacks = packageFacade.prefetchPlatformPacks;
   engineClient = createMainThreadEngineClient({
     host: hostFacade,
     package: packageFacade,
@@ -863,6 +880,11 @@ const initialState = {
   packageQueryFacets: [],
   packageQueryAssemblyPatterns: [],
   platformIndex: null,
+  rootKind: "package" as "package" | "platform",
+  platformSelection: null,
+  platformSlot: -1,
+  platformCatalogStatus: { loading: false, error: "" },
+  platformOpeningStatus: { loading: false, error: "" },
   queryNotice: "",
   queryNoticeRetryAction: null,
   requestedPackage: "System.Text.Json",
@@ -1013,6 +1035,7 @@ interface StateOverrides {
   workspaceOccurrences: BrowserWorkspacePackageOccurrenceView | null;
   workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
+  platformSelection: PlatformNavigationState | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
   memberSource: BrowserSource | null;
@@ -1086,6 +1109,8 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 let packageQueryHandoffNavigationSeq: number | null = null;
+let platformLibraryRetry: RetryAction = null;
+let platformCatalogRetry: RetryAction = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -1093,6 +1118,8 @@ interface CanonicalWorkspaceRestoreSnapshot {
   url: string;
   navigation: NavigationHistorySnapshot<WorkspaceView>;
   failedWorkspaceUrlState: FailedWorkspaceUrlState | null;
+  platformLibraryRetry: RetryAction;
+  platformCatalogRetry: RetryAction;
 }
 
 let retainedWorkspaces =
@@ -1106,12 +1133,12 @@ let pendingWorkspaceConstruction: {
 
 function captureCanonicalWorkspaceUrl(): string {
   if (activeWorkspaceUrl !== null) return activeWorkspaceUrl;
-  return state.package ? location.href : "/demos";
+  return state.package || state.platformSelection ? location.href : "/demos";
 }
 
 function projectCurrentWorkspaceUrl(): string {
   try {
-    return state.package ? buildStateUrl().toString() : "/demos";
+    return state.package || state.platformSelection ? buildStateUrl().toString() : "/demos";
   } catch {
     return location.href;
   }
@@ -1138,6 +1165,9 @@ CanonicalWorkspaceRestoreSnapshot {
   const snapshot = {
     state: {
       ...state,
+      platformSelection: state.platformSelection ? { ...state.platformSelection } : null,
+      platformCatalogStatus: { ...state.platformCatalogStatus },
+      platformOpeningStatus: { ...state.platformOpeningStatus },
       packages,
       package: activeKey
         ? packages.find(pkg => packageIdentityKey(pkg) === activeKey) ?? null
@@ -1164,14 +1194,17 @@ CanonicalWorkspaceRestoreSnapshot {
     },
     hasWorkspace:
       state.package !== null
+      || state.platformSelection !== null
       || retainedWorkspaces.activeWorkspaceId !== null,
     url: captureCanonicalWorkspaceUrl(),
     navigation: navigationHistory.snapshot(),
     failedWorkspaceUrlState: failedWorkspaceUrlState
       ? structuredClone(failedWorkspaceUrlState)
       : null,
+    platformLibraryRetry,
+    platformCatalogRetry,
   };
-  if (snapshot.state.packages.length === 0) {
+  if (snapshot.state.packages.length === 0 && !snapshot.state.platformSelection) {
     snapshot.state.workspaceSubjectOpen = true;
     snapshot.state.atPackageRoot = true;
     snapshot.state.atLibraryRoot = false;
@@ -1213,6 +1246,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
   snapshotState.runtimePackLoading = false;
+  settleInterruptedPlatformStatus(snapshotState);
   if (snapshotState.graphSource.status === "loading") {
     snapshotState.graphSource = {
       status: "cancelled",
@@ -1243,6 +1277,21 @@ function normalizeWorkspaceAsyncSnapshotState(
   }
   if (memberFactsLoading) snapshotState.memberFactsKey = "";
   if (memberDocumentationLoading) snapshotState.memberDocumentationKey = "";
+}
+
+function settleInterruptedPlatformStatus(targetState: AppState): void {
+  if (targetState.platformCatalogStatus.loading) {
+    targetState.platformCatalogStatus = {
+      loading: false,
+      error: "Platform catalog loading was interrupted.",
+    };
+  }
+  if (targetState.platformOpeningStatus.loading) {
+    targetState.platformOpeningStatus = {
+      loading: false,
+      error: "Platform Library opening was interrupted.",
+    };
+  }
 }
 
 function restoreCanonicalWorkspaceRestoreSnapshot(
@@ -1279,6 +1328,8 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   failedWorkspaceUrlState = snapshot.failedWorkspaceUrlState
     ? structuredClone(snapshot.failedWorkspaceUrlState)
     : null;
+  platformLibraryRetry = snapshot.platformLibraryRetry;
+  platformCatalogRetry = snapshot.platformCatalogRetry;
   spotlightCache = null;
   spotlightMemberCache = null;
   persistRecentPackages();
@@ -1319,6 +1370,8 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     failedWorkspaceUrlState: snapshot.failedWorkspaceUrlState
       ? structuredClone(snapshot.failedWorkspaceUrlState)
       : null,
+    platformLibraryRetry: snapshot.platformLibraryRetry,
+    platformCatalogRetry: snapshot.platformCatalogRetry,
   };
 }
 
@@ -1472,18 +1525,25 @@ function retainedWorkspaceItems() {
     ? pendingWorkspaceConstruction.retainedSnapshot
       ?? pendingWorkspaceConstruction.supersessionSnapshot
     : null;
-  return retainedWorkspaces.workspaces.map(workspace => ({
-    id: workspace.id,
-    label: workspace.label,
-    packageCount: workspace.id === retainedWorkspaces.activeWorkspaceId
-      ? publishedActiveSnapshot?.state.packages.length ?? state.packages.length
-      : workspace.snapshot?.state.packages.length ?? 0,
-    active: workspace.id === retainedWorkspaces.activeWorkspaceId,
-  }));
+  return retainedWorkspaces.workspaces.map(workspace => {
+    const workspaceState = workspace.id === retainedWorkspaces.activeWorkspaceId
+      ? publishedActiveSnapshot?.state ?? state
+      : workspace.snapshot?.state;
+    return {
+      id: workspace.id,
+      label: workspace.label,
+      packageCount: workspaceState
+        ? workspaceState.packages.filter(pkg => pkg.source.kind !== "platform").length
+          + (workspaceState.platformSelection ? 1 : 0)
+        : 0,
+      active: workspace.id === retainedWorkspaces.activeWorkspaceId,
+    };
+  });
 }
 
 function ensureCurrentWorkspacePublished(): void {
-  if (retainedWorkspaces.activeWorkspaceId !== null || !state.package) return;
+  if (retainedWorkspaces.activeWorkspaceId !== null
+    || (!state.package && !state.platformSelection)) return;
   retainedWorkspaces = publishRetainedWorkspace(retainedWorkspaces, null);
   activeWorkspaceUrl = projectCurrentWorkspaceUrl();
 }
@@ -1587,7 +1647,7 @@ function activateRetainedWorkspaceProjection(
 
 function rebindActiveWorkspaceHistory(): void {
   workspaceLocation.replace(
-    activeWorkspaceUrl ?? (state.package ? location.href : "/demos"),
+    activeWorkspaceUrl ?? (state.package || state.platformSelection ? location.href : "/demos"),
     history.state);
 }
 
@@ -1970,9 +2030,11 @@ const documentInspection = createDocumentInspectionCoordinator({
 });
 
 function captureView(): WorkspaceView | null {
-  if (!state.package) return null;
+  if (!state.package && !state.platformSelection) return null;
   return {
-    package: state.package.id,
+    rootKind: state.rootKind,
+    platform: state.platformSelection ? { ...state.platformSelection } : null,
+    package: state.package?.id ?? "",
     packageKey: packageIdentityKey(state.package),
     workspaceSubjectOpen: state.workspaceSubjectOpen,
     lens: state.lens,
@@ -1991,6 +2053,9 @@ function captureView(): WorkspaceView | null {
     packageLens: state.packageLens,
     libraryLens: state.libraryLens,
     libraryScope: captureLibraryScope(state.libraryScope),
+    platformLibrary: state.rootKind === "platform" && !state.atPackageRoot
+      ? selectedLibraryShareKey() || null
+      : null,
   };
 }
 
@@ -2031,10 +2096,68 @@ function normalizeCurrentNavEntry() {
 }
 
 function applyView(view: WorkspaceView) {
-  const pkg = packageForView(state.packages, view);
+  const capacityError = view.platform
+    ? platformCoordinateCapacityError()
+    : "";
+  if (capacityError) {
+    showToast(capacityError);
+    return false;
+  }
+  if (view.rootKind !== "platform" && view.platform) {
+    const target = state.platformIndex?.target(
+      view.platform.tfm,
+      view.platform.version);
+    if (!target) return false;
+    retainPlatformPackageForTarget(target);
+  }
+  if (view.rootKind === "platform" && view.platform && view.atPackageRoot) {
+    const target = state.platformIndex?.target(view.platform.tfm, view.platform.version);
+    if (!target) return false;
+    invalidateMemberDestinationWork(state);
+    state.rootKind = "platform";
+    state.platformSelection = { ...view.platform };
+    state.package = retainPlatformPackageForTarget(target);
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    state.workspaceSubjectOpen = view.workspaceSubjectOpen;
+    state.selectedTypeId = "";
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    state.libraryScope = null;
+    state.loading = false;
+    state.error = "";
+    state.platformCatalogStatus = { loading: false, error: "" };
+    state.platformOpeningStatus = { loading: false, error: "" };
+    navigationHistory.normalizeCurrent();
+    render();
+    return true;
+  }
+  if (view.rootKind === "platform" && view.platform && view.platformLibrary) {
+    const target = state.platformIndex?.target(
+      view.platform.tfm,
+      view.platform.version);
+    const row = target?.rows.find(candidate =>
+      platformLibraryKey(candidate) === view.platformLibrary);
+    if (!target || !row) return false;
+    const resident = runtimePackageForTarget(target);
+    if (!resident?.assemblies.some(descriptor =>
+      platformLibraryMatchesDescriptor(row, descriptor))) {
+      const navigationSeq = navigationSequence.current();
+      observeAsync(
+        restorePlatformHistoryView(view, row, navigationSeq),
+        "Restoring a Platform Library from navigation history");
+      return true;
+    }
+  }
+  const pkg = packageForView(state.packages, view)
+    ?? (view.rootKind === "platform" && view.platform ? runtimePackageForTarget(view.platform) : null);
   if (!pkg) return false;
+  if (view.rootKind === "platform" && !state.packages.includes(pkg))
+    retainPackageModel(pkg);
   invalidateMemberDestinationWork(state);
   activatePackage(pkg);
+  state.rootKind = view.rootKind ?? (pkg.source.kind === "platform" ? "platform" : "package");
+  if (view.platform) state.platformSelection = { ...view.platform };
   state.libraryScope = restoreLibraryScope(
     view.libraryScope,
     pkg.assemblies.map(assembly => assembly.id));
@@ -2156,6 +2279,30 @@ function applyView(view: WorkspaceView) {
   return true;
 }
 
+async function restorePlatformHistoryView(
+  view: WorkspaceView,
+  row: PlatformAssemblyRow,
+  navigationSeq: number,
+) {
+  const opened = await openPlatformLibrary(
+    platformLibraryKey(row),
+    row.pack,
+    {
+      scopeOnly: true,
+      navigationSeq,
+      tfm: view.platform?.tfm,
+      version: view.platform?.version,
+      retryAction: () =>
+        restorePlatformHistoryView(view, row, navigationSequence.current()),
+    });
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!opened) {
+    render();
+    return;
+  }
+  applyView(view);
+}
+
 const navigationHistory = createNavigationHistory({
   capture: captureView,
   signature: workspaceViewSignature,
@@ -2166,10 +2313,12 @@ const innerNavigationSequence = createNavigationSequence();
 const navigationSequence = {
   begin(): number {
     cancelPendingWorkspaceConstruction();
+    settleInterruptedPlatformStatus(state);
     return innerNavigationSequence.begin();
   },
   invalidate(): void {
     cancelPendingWorkspaceConstruction();
+    settleInterruptedPlatformStatus(state);
     innerNavigationSequence.invalidate();
   },
   current: () => innerNavigationSequence.current(),
@@ -2187,12 +2336,14 @@ function recordNav() {
 }
 
 function navBack() {
+  navigationSequence.begin();
   closeGraphExplorerForNavigation();
   dismissAnnotatedSourceModal(false);
   navigationHistory.back();
 }
 
 function navForward() {
+  navigationSequence.begin();
   closeGraphExplorerForNavigation();
   dismissAnnotatedSourceModal(false);
   navigationHistory.forward();
@@ -2319,6 +2470,17 @@ function cancelDemoNavigation(navigationSeq?: number): void {
     || pendingDemoNavigation?.navigationSeq === navigationSeq) {
     pendingDemoNavigation = null;
   }
+}
+
+function commitRestoredWorkspaceNavigation(
+  navigationSeq: number,
+  failureHandler: ((message: string) => void) | null = null,
+  commitHistory = failureHandler !== null,
+) {
+  if (!failureHandler || !commitHistory) return true;
+  if (!commitDemoNavigation(navigationSeq)) return false;
+  syncUrl();
+  return true;
 }
 
 type ParsedLocation = ParsedWorkspaceLocation;
@@ -2890,8 +3052,29 @@ function selectedLibrary() {
 }
 
 function selectedLibraryRequest() {
+  return selectedLibrary()?.id ?? "";
+}
+
+function platformLibraryForRequest(pkg: AppPackage, key: string) {
+  const descriptor = resolvePackageLibrary(pkg.assemblies, key);
+  const row = state.platformIndex?.target(pkg.activeFramework, pkg.version)?.rows.find(candidate =>
+    descriptor && platformLibraryMatchesDescriptor(candidate, descriptor));
+  if (!row?.hasImplementation) throw new Error("The selected Library has no exact Platform catalog implementation.");
+  return row;
+}
+
+function selectedLibraryShareKey() {
+  if (state.atPackageRoot) return "";
   const library = selectedLibrary();
-  return state.package?.isRuntimePack ? library?.name ?? "" : library?.id ?? "";
+  if (state.rootKind !== "platform") return library?.id ?? "";
+  if (!library) return "";
+  return platformLibraryKey(platformLibraryForRequest(currentPackage(), library.id));
+}
+
+function selectedTypeMetadataLibraryIdentity() {
+  return state.rootKind === "platform"
+    ? selectedLibraryShareKey()
+    : "";
 }
 
 function selectDefaultPackageSubject(pkg: AppPackage) {
@@ -3004,12 +3187,33 @@ function retainPackageModel(
   packageModel: AppPackage,
   replacedPackage: AppPackage | null = null,
 ) {
+  if (packageModel.source.kind === "platform") {
+    platformPackages.set(platformTargetKey({
+      tfm: packageModel.activeFramework, version: packageModel.version,
+    }), packageModel);
+    replacedPackage = state.packages.find(pkg => pkg.source.kind === "platform") ?? replacedPackage;
+  }
   const activeWasReplaced = packageIdentityEquals(state.package, packageModel);
-  const retained = retainWorkspacePackage(
+  let retained = retainWorkspacePackage(
     state.packages,
     state.package,
     packageModel,
-    replacedPackage);
+    replacedPackage,
+    MAX_WORKSPACE_PACKAGES);
+  if (packageModel.source.kind !== "platform"
+    && state.platformSelection
+    && !retained.packages.some(pkg => pkg.source.kind === "platform")) {
+    const platformAdjusted = retainWorkspacePackage(
+      retained.packages,
+      state.package,
+      packageModel,
+      null,
+      MAX_WORKSPACE_PACKAGES - 1);
+    retained = {
+      packages: platformAdjusted.packages,
+      evicted: [...retained.evicted, ...platformAdjusted.evicted],
+    };
+  }
   state.packages = retained.packages;
   if (activeWasReplaced)
     state.package = packageModel;
@@ -3029,10 +3233,16 @@ function releasePackageModelCaches(packageModel: AppPackage) {
 }
 
 function activateAfterPackageRemoval(next: AppPackage | null): void {
-  if (next) activatePackage(next, { resetAccessibility: true });
-  else state.package = null;
+  if (next) {
+    activatePackage(next, { resetAccessibility: true });
+    state.rootKind = next.source.kind === "platform" ? "platform" : "package";
+  } else {
+    state.package = null;
+    state.rootKind = state.platformSelection ? "platform" : "package";
+  }
   state.dependenciesGroupIndex = null;
   state.atPackageRoot = true;
+  state.atLibraryRoot = false;
   state.selectedTypeId = "";
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
@@ -3060,7 +3270,7 @@ function finishPackageRemoval(removed: AppPackage): void {
   navigationSequence.begin();
   invalidateWorkspaceMembershipViews();
   releasePackageModelCaches(removed);
-  if (!state.package) {
+  if (!state.package && !state.platformSelection) {
     activeWorkspaceUrl = "/demos";
     if (!state.home) {
       state.workspaceSubjectOpen = true;
@@ -3103,6 +3313,9 @@ function clearWorkspacePackages() {
   state.packages = [];
   state.package = null;
   state.workspaceShareBasis = null;
+  state.platformSelection = null;
+  state.platformSlot = -1;
+  state.rootKind = "package";
   for (const packageModel of discarded)
     releasePackageModelCaches(packageModel);
 }
@@ -3121,15 +3334,19 @@ function selectWorkspacePackage(
   {
     stayInWorkspace = false,
     publishInitial = false,
+    navigationSeq,
   }: {
     stayInWorkspace?: boolean;
     publishInitial?: boolean;
+    navigationSeq?: number;
   } = {},
 ) {
   const packageModel = pkg
     ? state.packages.find(item => packageIdentityKey(item) === packageIdentityKey(pkg))
     : null;
   if (!packageModel) return;
+  if (navigationSeq === undefined) navigationSequence.begin();
+  else if (!navigationSequence.isCurrent(navigationSeq)) return;
   const rollbackSnapshot = publishInitial
     && retainedWorkspaces.activeWorkspaceId === null
     ? captureCanonicalWorkspaceRestoreSnapshot()
@@ -3250,7 +3467,7 @@ function workspaceOccurrenceViewIsVisible() {
     loading: state.loading,
     error: state.error,
     home: state.home,
-    hasPackage: state.package !== null,
+    hasPackage: state.packages.some(item => !item.isRuntimePack),
   });
 }
 
@@ -3282,6 +3499,15 @@ function activatePackage(
   state.package = pkg;
   if (changed)
     state.dependenciesGroupIndex = null;
+  state.rootKind = pkg.source.kind === "platform" ? "platform" : "package";
+  if (state.rootKind === "platform"
+    && (state.platformSelection?.tfm !== pkg.activeFramework
+      || state.platformSelection?.version !== pkg.version)) {
+    state.platformSelection = {
+      tfm: pkg.activeFramework, version: pkg.version,
+      includeAllLibraries: false, filter: "",
+    };
+  }
   if (changed) {
     state.memberBrowseTypeId = "";
     resetMemberFilters();
@@ -3575,13 +3801,13 @@ function selectedMember(type: AppTypeSurface | null | undefined) {
 // the exact Library ancestor through libraryScope.
 function scope(): WorkspaceScope {
   if (state.workspaceSubjectOpen && state.atPackageRoot) return "workspace";
-  if (state.atPackageRoot) return "package";
+  if (state.atPackageRoot) return state.rootKind;
   if (state.atLibraryRoot) return "library";
   return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
 function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): void {
-  if (workspaceScope === "workspace") {
+  if (workspaceScope === "workspace" || workspaceScope === "platform") {
     return;
   } else if (workspaceScope === "package") {
     const selected = packageLensesFor(state.package)[index];
@@ -3617,8 +3843,9 @@ function packageLensesFor(pkg: AppPackage | null) {
 }
 
 function libraryLensesFor(pkg: AppPackage | null) {
-  if (!pkg?.isRuntimePack) return libraryLenses;
-  return libraryLenses.filter(([id]) => id !== "references");
+  return libraryLenses.filter(([id]) =>
+    (!pkg?.isRuntimePack || id !== "references")
+    && (pkg?.source.kind === "nuget.org" || id !== "diff"));
 }
 
 function scopedPlatformLibrary() {
@@ -3885,7 +4112,7 @@ function stepNav(delta: number) {
 // ←/→ act on the horizontal tab strip at your depth: sections when a concrete
 // overload is open, otherwise the lens strip.
 function stepHorizontal(delta: number) {
-  if (scope() === "workspace") return;
+  if (scope() === "workspace" || scope() === "platform") return;
   if (state.atPackageRoot) {
     const strip = packageLensesFor(state.package);
     const index = strip.findIndex(([id]) => id === state.packageLens);
@@ -4089,7 +4316,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
   const workspaceCatalogVisible =
     state.workspaceSubjectOpen
-    && isProductHomeDemosPath(location.pathname)
+    && (isProductHomeDemosPath(location.pathname) || state.platformSelection !== null)
     && state.engineReady;
   const showingInterstitial =
     state.loading
@@ -4103,6 +4330,16 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   retainFailedWorkspaceUrl();
   if (state.home) {
     renderHomeView();
+    return;
+  }
+  if (scope() === "platform") {
+    renderPlatformView();
+    if (scopeBarFocus) restoreScopeBarFocus(document, scopeBarFocus);
+    else if (applicationMenuHadFocus) focusApplicationMenuButton(document);
+    else if (workbenchSearchHadFocus) focusWorkbenchSearch(document);
+    else if (levelOneHeadingHadFocus) focusLevelOneHeading();
+    recordNav();
+    if (options.synchronizeUrl !== false) syncUrl();
     return;
   }
   if (!state.package) {
@@ -4140,6 +4377,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       restorePackageQueryReturnFocus();
       restorePackageQueryWorkspaceFocus();
       recordNav();
+      if (!isProductHomeDemosPath(location.pathname) && options.synchronizeUrl !== false) syncUrl();
       return;
     }
     renderLoading();
@@ -4289,7 +4527,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           activeScope === "workspace" ? "workspace" : null,
           true,
           escapeHtml),
-        expandedInspectorInventory: state.atLibraryRoot,
+        expandedInspectorInventory: state.atLibraryRoot
+          && libraryLensesFor(pkg).some(([id]) => id === "diff"),
         contextualActionsHtml: methodBodyPageContext || annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface
           ? `<div class="working-surface-actions" role="group" aria-label="${metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${metadataWorkingSurface
@@ -4457,7 +4696,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 }
 
 function renderWorkspaceCatalogView() {
-  document.title = "Demos — dotnet-inspect";
+  document.title = `${isProductHomeDemosPath(location.pathname) ? "Demos" : "Workspace"} — dotnet-inspect`;
   const subjectPath: readonly SubjectPathSegment[] = [{
     kind: "workspace",
     label: "Workspace",
@@ -4563,7 +4802,10 @@ function maybeAutoLoadTypeMetadata() {
   if (state.lens !== "metadata") return;
   const type = selectedType();
   if (!type) return;
-  const signature = typeMetadataSignature(type, currentPackage());
+  const signature = typeMetadataSignature(
+    type,
+    currentPackage(),
+    selectedTypeMetadataLibraryIdentity());
   if (state.typeMetadataKey === signature) {
     if (state.typeMetadata && state.typeMetadata.graphNodes.length > 1)
       observeAsync(renderTypeGraph(), "Rendering the type graph");
@@ -4592,6 +4834,7 @@ function renderNavPane(
 type SubjectPathKind =
   | "workspace"
   | "package"
+  | "platform"
   | "library"
   | "type"
   | "member";
@@ -4614,8 +4857,8 @@ function inspectedSubjectPath(
     }];
   }
   const path: SubjectPathSegment[] = [{
-    kind: "package",
-    label: packageDisplayName(pkg),
+    kind: state.rootKind,
+    label: state.rootKind === "platform" ? platformTargetLabel() : packageDisplayName(pkg),
     copyable: true,
   }];
   if (state.atPackageRoot) return path;
@@ -4654,6 +4897,7 @@ function currentInspectedSubjectPath(): readonly SubjectPathSegment[] {
       copyable: false,
     }];
   }
+  if (scope() === "platform") return [{ kind: "platform", label: platformTargetLabel(), copyable: true }];
   return state.package
     ? inspectedSubjectPath(state.package, selectedType())
     : [];
@@ -4699,7 +4943,7 @@ function renderTypeNavPane(
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
     library: selectedLibraryName(),
-    parentSubject: state.atLibraryRoot ? "package" : "library",
+    parentSubject: state.atLibraryRoot ? state.rootKind : "library",
     filtersExpanded: state.typeFiltersExpanded,
     filterSummary: typeFilterSummary(),
     escapeHtml,
@@ -4734,7 +4978,7 @@ function renderMemberNavPane(type: AppTypeSurface) {
 // Call graph, …) live here too instead of inside the detail pane.
 function hasEffectiveInspector(): boolean {
   const sc = scope();
-  if (sc === "workspace") return false;
+  if (sc === "workspace" || sc === "platform") return false;
   if (sc === "package") {
     return packageLensesFor(state.package)
       .some(([id]) => id === state.packageLens);
@@ -4816,7 +5060,7 @@ function renderScopeBar(
   const sc = scope();
   const selected = selectedType();
   availableScopes ??= [
-    "package",
+    state.rootKind,
     ...(selectedLibrary() ? ["library" as const] : []),
     ...(selected ? ["type" as const] : []),
     ...(selected && memberGroups(selected).length ? ["member" as const] : []),
@@ -4825,7 +5069,7 @@ function renderScopeBar(
     !state.atPackageRoot
     && !state.atLibraryRoot
     && Boolean(selected && memberGroups(selected).length);
-  if (sc === "workspace") {
+  if (sc === "workspace" || sc === "platform") {
     return renderScopeBarPure({
       scope: sc,
       strip: [],
@@ -4902,6 +5146,7 @@ function renderScopeBar(
 }
 
 function packageCoordinateFields() {
+  if (state.rootKind === "platform") return "";
   const pkg = currentPackage();
   return `<label class="version-select">
     <span>Version</span>
@@ -4952,16 +5197,17 @@ function renderLibraryView() {
 }
 
 function renderWorkspaceView() {
-  if (state.packages.length > 0) ensureWorkspaceOccurrenceView();
+  if (state.packages.some(item => !item.isRuntimePack)) ensureWorkspaceOccurrenceView();
   return renderWorkspaceViewPure({
     canAddPackage: state.engineReady && !state.loading && !state.error,
     savedWorkspaces: {
       state: savedWorkspaces.state,
-      canSave: state.engineReady && !state.loading && !state.error && state.packages.length > 0,
+      canSave: state.engineReady && !state.loading && !state.error && (state.packages.length > 0 || state.platformSelection !== null),
       canOpen: state.engineReady && !state.loading && !state.error,
     },
     occurrences: state.workspaceOccurrences?.occurrences ?? [],
     packages: state.packages,
+    platform: state.platformSelection,
     demos: productHomeDemoCatalog(),
     demoError: productHomeDemoCatalogError,
     loading: state.workspaceOccurrenceLoading,
@@ -4996,8 +5242,8 @@ function libraryLensBody() {
 
 function packageDependenciesSignature() {
   const pkg = currentPackage();
-  const library = selectedLibrary();
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${library?.id ?? pkg.assemblyId}`;
+  const library = selectedLibraryShareKey();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${library || pkg.assemblyId}`;
 }
 
 function renderPackageDependenciesSurface(content: string, status: string) {
@@ -5283,8 +5529,10 @@ const packageInspection = createPackageInspectionCoordinator({
       platformVersion,
       assemblyFileName,
       pack),
-  platformPackForAssembly: assemblyName =>
-    platformPackForAssembly(assemblyName) ?? "",
+  platformLibraryCoordinates: (pkg, key) => {
+    const row = platformLibraryForRequest(pkg, key);
+    return { assemblyFileName: platformAssemblyRequest(row), pack: row.pack };
+  },
   describeError: errorMessage,
   refreshPackageStats,
   render: renderPreservingMemberFocus,
@@ -5342,7 +5590,7 @@ function workspaceDependencyErrorHtml() {
 
 function packageIntegrationsSignature() {
   const pkg = currentPackage();
-  const lib = selectedLibraryRequest();
+  const lib = selectedLibraryShareKey();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
@@ -5358,7 +5606,7 @@ function renderPackageIntegrations() {
     assetPath: library?.asset ?? "",
     coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
     requireLibrary: pkg.isRuntimePack && !scopedLib,
-    pickerHtml: pkg.isRuntimePack
+    pickerHtml: pkg.isRuntimePack && state.rootKind !== "platform"
       ? platformLibrarySelectHtml({ dataAttr: "data-platform-integrations-library", selected: scopedLib || "" })
       : "",
     loading: state.packageIntegrationsLoading && fresh,
@@ -5385,7 +5633,7 @@ function maybeAutoLoadPackageIntegrations() {
 
 function packageScopeSignature() {
   const pkg = currentPackage();
-  const lib = selectedLibraryRequest();
+  const lib = selectedLibraryShareKey();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
@@ -5476,7 +5724,7 @@ function renderPackageMetadata() {
   const isPlatform = pkg.isRuntimePack;
   const fresh = state.packageMetadataKey === packageScopeSignature();
   const scopedLibrary = selectedLibraryName();
-  const platformMetadataSelect = isPlatform
+  const platformMetadataSelect = isPlatform && state.rootKind !== "platform"
     ? platformLibrarySelectHtml({
         dataAttr: "data-platform-metadata-library",
         selected: scopedLibrary,
@@ -5553,7 +5801,7 @@ function libraryApiDiffActiveView() {
     credits: state.credits,
     packageQueryOpen: state.packageQueryOpen,
     explorerOpen: Boolean(state.explorer?.open),
-    hasPackage: Boolean(state.package),
+    hasPackage: state.package?.source.kind === "nuget.org",
     scope: scope(),
     libraryLens: state.libraryLens,
   });
@@ -5684,7 +5932,7 @@ function buildBaseExplorer(
     metadataRoot: effectiveRoot,
     canonicalRoot: metadata.canonicalRoot ?? null,
     aliasesCliMetadata: metadata.aliasesCliMetadata,
-    pack: isPlatform ? platformPackForAssembly(asm.assembly.replace(/\.dll$/i, "")) : null,
+    pack: isPlatform ? library.platformPack ?? null : null,
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
@@ -6129,6 +6377,7 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
   return renderTypeMetadata({
     item,
     packageContext: currentPackage(),
+    libraryIdentity: selectedTypeMetadataLibraryIdentity(),
     metadataState: state,
     memberCompositionHtml: renderMemberComposition(item),
     escapeHtml,
@@ -6691,17 +6940,32 @@ async function openPlatformLensLibrary(
     && packageIdentityEquals(state.package, originPackage);
   const key = name.replace(/\.dll$/i, "");
   const pack = selectedPack || platformPackForAssembly(key);
+  const target = state.platformIndex?.target(
+    originPackage.activeFramework,
+    originPackage.version);
+  const matches = target?.rows.filter(row =>
+    row.hasImplementation
+    && (!pack || row.pack === pack)
+    && row.assembly.toLowerCase() === key.toLowerCase()) ?? [];
+  if (matches.length !== 1) {
+    appendQueryNotice(
+      `The platform library '${key}' is not uniquely available in the exact catalog.`);
+    render();
+    return;
+  }
+  const row = matches[0]!;
   const resident = runtimeAssemblyIsResident(
-    runtimePackPackage(),
-    key,
-    pack ?? "");
+    originPackage,
+    row.assembly,
+    row.pack);
   if (!resident) {
     const runtimeResult = await loadRuntimePackAssembly(
-      platformScopeTfm(),
-      `${key}.dll`,
-      pack ?? "",
-      () => state.packages.includes(originPackage),
-      originPackage.version);
+      originPackage.activeFramework,
+      platformAssemblyRequest(row),
+      row.pack,
+      isCurrent,
+      originPackage.version,
+      row.file);
     const loaded = runtimeResult.packageModel;
     if (!loaded) {
       if (isCurrent()) {
@@ -6833,6 +7097,10 @@ function bindTypePanelEvents() {
       renderPreservingMemberFocus();
     },
     onTypeNavBack: () => {
+      if (state.atLibraryRoot && state.rootKind === "platform") {
+        showPlatformRoot();
+        return;
+      }
       const focusGeneration = beginSpotlightNavigation();
       state.workspaceSubjectOpen = false;
       state.atPackageRoot = state.atLibraryRoot;
@@ -7016,6 +7284,10 @@ function bindScopeBarEvents() {
       render();
     },
     onScopeSelect: target => {
+      if (target === "platform") {
+        showPlatformRoot();
+        return;
+      }
       contentFramePane = "detail";
       if (target === "workspace") {
         navigationSequence.begin();
@@ -7644,6 +7916,7 @@ function bindWorkspaceSubjectEvents() {
     onRetry: retryWorkspaceOccurrenceView,
     onRemove: removeWorkspacePackageRow,
     onAddPackage: openWorkspacePackagePicker,
+    onPlatform: showPlatformRoot,
   });
 }
 
@@ -7671,8 +7944,6 @@ function bindEvents() {
   bindGraphExplore(document, openGraphExplorer);
   bindContentFrameEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
-  if (state.package?.isRuntimePack)
-    observeAsync(ensureDotnetReleases(), "Loading .NET release information");
   if (state.spotlightOpen) spotlight.bind(document, "modal");
 }
 
@@ -7966,61 +8237,310 @@ function spotlightMemberMatches(query: string) {
 function spotlightLoadedPackageMatches(query: string) {
   const lowerQuery = query.toLowerCase();
   return state.packages
-    .filter(pkg => !lowerQuery || pkg.id.toLowerCase().includes(lowerQuery))
+    .filter(pkg => pkg.source.kind !== "platform"
+      && (!lowerQuery || pkg.id.toLowerCase().includes(lowerQuery)))
     .map(pkg => ({ pkg, ranges: computeHighlightRanges(pkg.id, lowerQuery) }));
 }
 
-// The target framework the Platform scope resolves libraries against. A resident Platform
-// pack's own framework is authoritative — even a preview TFM (e.g. net11.0) the static index
-// does not carry yet, whose roster is then honestly empty rather than silently another
-// major's libraries. With no resident pack (home Platform scope), prefer the focused
-// package's framework, then net10.0 — always clamped to a TFM the static index carries.
+// Platform selection is independent of the focused NuGet package.
 function platformScopeTfm(): string {
-  const idx = state.platformIndex;
-  const known = idx ? idx.tfms() : [];
-  const resident = runtimePackPackage()?.activeFramework;
-  if (resident) return resident;
-  const inIndex = (tfm: string | undefined) =>
-    Boolean(tfm && (!idx || known.includes(tfm)));
-  for (const candidate of [state.package?.activeFramework, "net10.0"]) {
-    if (candidate && inIndex(candidate)) return candidate;
-  }
-  return known.includes("net10.0") ? "net10.0" : (known[known.length - 1] || "net10.0");
+  return state.platformSelection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK;
 }
 
-// Index-first library roster for the Platform scope: every implementation
-// assembly the static platform index knows for the active TFM, across the
-// CoreCLR (netcore.app) and ASP.NET Core (aspnetcore.app) shared frameworks —
-// with NO pack download. Each library drills in by fetching just that one
-// assembly from its shared-framework pack. Matched on assembly name; sorted
-// CoreCLR first, then by public-type count so the biggest libraries surface
-// first.
+const platformVersions = new Map<string, { values: string[] } & PlatformSubjectStatus>();
+const platformWarmups = new Map<string, PlatformSubjectStatus>();
+const platformPackages = new Map<string, AppPackage>();
+let platformCatalogSequence = 0;
+
+function selectedPlatformTarget(): PlatformCatalogTarget | null {
+  const selection = state.platformSelection;
+  return state.platformIndex?.target(
+    selection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK,
+    selection?.version) ?? null;
+}
+
+function platformTargetLabel() {
+  const target = state.platformSelection;
+  return target ? `.NET Platform ${target.tfm} · ${target.version}` : ".NET Platform";
+}
+
+function runtimePackageForTarget(target: { tfm: string; version: string }): AppPackage | null {
+  return state.packages.find(pkg => pkg.source.kind === "platform"
+    && pkg.activeFramework === target.tfm && pkg.version === target.version)
+    ?? platformPackages.get(platformTargetKey(target)) ?? null;
+}
+
+function retainPlatformPackageForTarget(
+  target: { tfm: string; version: string },
+): AppPackage | null {
+  const basis = state.workspaceShareBasis;
+  const packageModel = runtimePackageForTarget(target);
+  const previousPackages = state.packages;
+  if (packageModel) {
+    if (!state.packages.includes(packageModel))
+      retainPackageModel(packageModel);
+  } else {
+    const discarded = state.packages.filter(pkg => pkg.source.kind === "platform");
+    if (discarded.length > 0) {
+      state.packages = state.packages.filter(pkg => pkg.source.kind !== "platform");
+      for (const previous of discarded)
+        releasePackageModelCaches(previous);
+    }
+  }
+  if (state.packages !== previousPackages) {
+    invalidateWorkspaceMembershipViews();
+    if (basis
+      && workspaceShareTabsMatchResolved(
+        basis.tabs,
+        resolvedWorkspaceShareTabs())) {
+      state.workspaceShareBasis = basis;
+    }
+  }
+  return packageModel;
+}
+
+async function ensurePlatformCatalog(tfm: string, version?: string): Promise<PlatformCatalogTarget> {
+  const catalogTfm = platformCatalogFramework(tfm);
+  state.platformIndex ??= await loadPlatformIndex();
+  if (!state.platformIndex) throw new Error("The Platform catalog could not be loaded.");
+  const bundled = state.platformIndex.target(catalogTfm, version);
+  if (bundled) return bundled;
+  if (!version) throw new Error(`The Platform catalog has no target for ${catalogTfm}.`);
+  const target = requireMatchingPlatformTarget(
+    parsePlatformCatalogTarget(await inspectPlatformCatalog(catalogTfm, version)),
+    catalogTfm, version);
+  state.platformIndex.addTarget(target);
+  return target;
+}
+
+function installPlatformTarget(target: PlatformCatalogTarget) {
+  const capacityError = platformCoordinateCapacityError();
+  if (capacityError) throw new Error(capacityError);
+  const basis = state.workspaceShareBasis;
+  const packageModel = retainPlatformPackageForTarget(target);
+  const previous = state.platformSelection;
+  state.rootKind = "platform";
+  state.platformSelection = {
+    tfm: target.tfm, version: target.version,
+    includeAllLibraries: previous?.includeAllLibraries ?? false,
+    filter: previous?.filter ?? "",
+  };
+  state.package = packageModel;
+  state.workspaceShareBasis = basis
+    && workspaceShareTabsMatchResolved(
+      basis.tabs,
+      resolvedWorkspaceShareTabs())
+      ? basis
+      : null;
+  state.workspaceSubjectOpen = false;
+  state.atPackageRoot = true;
+  state.atLibraryRoot = false;
+  state.home = false;
+  state.credits = false;
+  state.loading = false;
+  state.error = "";
+  state.libraryScope = null;
+  state.selectedTypeId = "";
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  resetMemberSectionState();
+}
+
+function platformCoordinateCapacityError() {
+  return !state.platformSelection
+    && workspaceCoordinateCount() >= MAX_WORKSPACE_PACKAGES
+      ? `Workspace holds at most ${MAX_WORKSPACE_PACKAGES} coordinates. `
+        + "Remove a package before opening Platform."
+      : "";
+}
+
+function refreshPlatformStatus() {
+  if (state.rootKind === "platform" && !state.home && scope() === "platform") {
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement.id : "";
+    render();
+    if (focused) document.getElementById(focused)?.focus({ preventScroll: true });
+  }
+}
+
+async function discoverPlatformVersions(tfm: string, retry = false) {
+  const existing = platformVersions.get(tfm);
+  if (existing && (!retry || existing.loading)) return;
+  const request = { values: existing?.values ?? [], loading: true, error: "" };
+  platformVersions.set(tfm, request);
+  refreshPlatformStatus();
+  try {
+    request.values = parsePlatformVersions(await inspectPlatformVersions(tfm));
+  } catch (error) {
+    request.error = `Could not discover Platform versions: ${errorMessage(error)}`;
+  } finally {
+    request.loading = false;
+    refreshPlatformStatus();
+  }
+}
+
+async function warmPlatformTarget(target: PlatformCatalogTarget, retry = false) {
+  const key = platformTargetKey(target);
+  const existing = platformWarmups.get(key);
+  if (existing && (!retry || existing.loading)) return;
+  const request = { loading: true, error: "" };
+  platformWarmups.set(key, request);
+  refreshPlatformStatus();
+  try {
+    await inspectPrefetchPlatformPacks(target.tfm, target.version);
+  } catch (error) {
+    request.error = `Runtime pack download failed: ${errorMessage(error)}`;
+  } finally {
+    request.loading = false;
+    refreshPlatformStatus();
+  }
+}
+
+function startPlatformTargetWork(target: PlatformCatalogTarget) {
+  if (!platformSupportsRuntimeAcquisition(target)) return;
+  observeAsync(discoverPlatformVersions(target.tfm), "Discovering Platform versions");
+  observeAsync(warmPlatformTarget(target), "Warming Platform runtime packs");
+}
+
+async function openPlatformSubject(
+  tfm = state.platformSelection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK,
+  version = state.platformSelection?.version,
+) {
+  const capacityError = platformCoordinateCapacityError();
+  if (capacityError) {
+    showToast(capacityError);
+    return;
+  }
+  if (retainedWorkspaces.activeWorkspaceId === null && !canPublishRetainedWorkspace()) {
+    appendQueryNotice(retainedWorkspaceCapacityMessage(), null);
+    render({ synchronizeUrl: false });
+    return;
+  }
+  const sequence = navigationSequence.begin();
+  const request = ++platformCatalogSequence;
+  spotlight.reset();
+  state.home = false;
+  state.loading = false;
+  state.error = "";
+  // A cold root has no acquisition surface; catalog failure still belongs to Platform.
+  if (!state.platformSelection) {
+    state.rootKind = "platform";
+    state.package = null;
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    state.workspaceSubjectOpen = false;
+  }
+  state.platformCatalogStatus = { loading: true, error: "" };
+  platformCatalogRetry = () => openPlatformSubject(tfm, version);
+  render();
+  try {
+    const target = await ensurePlatformCatalog(tfm, version);
+    if (!navigationSequence.isCurrent(sequence) || request !== platformCatalogSequence) return;
+    installPlatformTarget(target);
+    state.platformOpeningStatus = { loading: false, error: "" };
+    state.platformCatalogStatus = { loading: false, error: "" };
+    ensureCurrentWorkspacePublished();
+    render();
+    startPlatformTargetWork(target);
+    focusLevelOneHeading();
+  } catch (error) {
+    if (!navigationSequence.isCurrent(sequence) || request !== platformCatalogSequence) return;
+    state.platformCatalogStatus = { loading: false, error: errorMessage(error) };
+    render();
+  }
+}
+
+function showPlatformRoot() {
+  const target = selectedPlatformTarget();
+  if (!target) {
+    observeAsync(openPlatformSubject(), "Opening Platform");
+    return;
+  }
+  navigationSequence.begin();
+  installPlatformTarget(target);
+  state.platformOpeningStatus = { loading: false, error: "" };
+  render();
+  document.querySelector<HTMLElement>(".platform-library-list")?.focus();
+}
+
+function renderPlatformView() {
+  const target = selectedPlatformTarget();
+  const idle = { loading: false, error: "" };
+  app.innerHTML = `<div class="workbench"${state.settings || state.keyboardHelp ? " inert" : ""}>
+    ${workbenchShellHtml({
+      applicationScopeHtml: renderApplicationScopeBar(null, true, escapeHtml),
+      inspectedTargetHtml: `<div class="inspected-target"><span class="subject-icon" aria-hidden="true">.NET</span><div class="subject-path">${renderInspectedSubjectPath(currentInspectedSubjectPath())}</div></div>`,
+      subjectInspectorHtml: renderScopeBar(["platform"]),
+      titleNavigationHtml: renderTitleNavigation(navigationHistory.canBack(), navigationHistory.canForward()),
+    })}
+    <div class="notice-stack">${renderQueryNotice()}</div>
+    <main id="subject-panel" class="workspace platform-workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+      <section class="detail-pane"><article id="inspector-panel" class="detail-scroll">
+        ${renderPlatformSubject({
+          target, selection: state.platformSelection,
+          frameworks: [...new Set(state.platformIndex?.targets()
+            .filter(platformSupportsRuntimeAcquisition).map(candidate => candidate.tfm) ?? [])],
+          versions: target ? platformVersions.get(target.tfm)?.values ?? [] : [],
+          catalog: state.platformCatalogStatus,
+          discovery: target ? platformVersions.get(target.tfm) ?? idle : idle,
+          warmup: target ? platformWarmups.get(platformTargetKey(target)) ?? idle : idle,
+          opening: state.platformOpeningStatus, escapeHtml,
+        })}
+      </article></section>
+    </main>
+    ${statusBarHtml({ buildIdentity: state.buildIdentity, diagnostics: state.diag, packageCache: state.packageCacheStats, framework: target?.tfm ?? "", expanded: state.statusBarExpanded }, escapeHtml)}
+    ${state.spotlightOpen ? spotlight.modalHtml() : ""}
+    </div>${renderApplicationMenu(true)}
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}`;
+  bindStatusBarEvents();
+  bindScopeBarEvents();
+  bindSettingsPanelEvents();
+  workbenchShellBinding = bindWorkbenchShell(document, workbenchShellActions);
+  if (state.spotlightOpen) spotlight.bind(document, "modal");
+  bindPlatformSubject(document, {
+    onFramework: tfm => observeAsync(openPlatformSubject(tfm, state.platformIndex?.target(tfm)?.version), "Changing Platform target"),
+    onVersion: version => observeAsync(openPlatformSubject(platformScopeTfm(), version), "Changing Platform version"),
+    onFilter: filter => {
+      if (!state.platformSelection) return;
+      state.platformSelection.filter = filter;
+      render();
+      document.querySelector<HTMLElement>("#platform-filter")?.focus();
+    },
+    onIncludeAll: include => {
+      if (!state.platformSelection) return;
+      state.platformSelection.includeAllLibraries = include;
+      render();
+      document.querySelector<HTMLElement>("#platform-include-all")?.focus();
+    },
+    onLibrary: key => {
+      const row = target?.rows.find(candidate => platformLibraryKey(candidate) === key);
+      if (!row) throw new Error("The selected Platform library is no longer in this target.");
+      observeAsync(openPlatformLibrary(row.assembly, row.pack, { inPlace: true }), "Opening Platform Library");
+    },
+    onRetry: kind => {
+      if (kind === "catalog" && platformCatalogRetry) observeAction(platformCatalogRetry, "Retrying Platform catalog");
+      else if (kind === "versions" && target) observeAsync(discoverPlatformVersions(target.tfm, true), "Retrying version discovery");
+      else if (kind === "warmup" && target) observeAsync(warmPlatformTarget(target, true), "Retrying runtime download");
+      else if (kind === "library" && platformLibraryRetry) observeAction(platformLibraryRetry, "Retrying Platform Library");
+    },
+  });
+}
+
+// Search uses the exact catalog target without acquiring inspected bytes.
 function platformLibraryRoster(query: string) {
   const idx = state.platformIndex;
   if (!idx) return [];
-  const tfm = platformScopeTfm();
+  const target = selectedPlatformTarget();
+  if (!target) return [];
   const lower = query.trim().toLowerCase();
   const rt = runtimePackPackage();
-  const rows: Array<{
-    assembly: string;
-    pack: string;
-    publicTypes: number;
-    loaded: boolean;
-    ranges: HighlightRange[];
-  }> = [];
-  for (const pack of ["netcore.app", "aspnetcore.app"] as const) {
-    for (const row of idx.assembliesFor(tfm, pack)) {
-      if (row.kind !== "impl") continue;
-      if (lower && !row.assembly.toLowerCase().includes(lower)) continue;
-      rows.push({
-        assembly: row.assembly,
-        pack,
-        publicTypes: row.publicTypes,
-        loaded: runtimeAssemblyIsResident(rt, row.assembly, pack),
-        ranges: computeHighlightRanges(row.assembly, lower),
-      });
-    }
-  }
+  const rows = platformInventory(target, true, lower).map(row => ({
+    ...row, role: platformLibraryRole(row).label,
+    version: target.version,
+    loaded: runtimeAssemblyIsResident(rt, row.assembly, row.pack),
+    ranges: computeHighlightRanges(row.assembly, lower),
+  }));
   rows.sort((a, b) =>
     (a.pack === b.pack ? 0 : a.pack === "netcore.app" ? -1 : 1)
     || b.publicTypes - a.publicTypes
@@ -8095,18 +8615,15 @@ function persistRecentPackages() {
 // exclude anything already open.
 function runtimeSpotlightResults(query: string): SpotlightResult[] {
   const results: SpotlightResult[] = [];
-  if (state.runtimePackLoading) {
-    results.push({ kind: "rtpack-status", loading: true });
-    return results;
-  }
-  if (state.runtimePackError && !runtimePackLoaded()) {
-    results.push({ kind: "rtpack-status", error: state.runtimePackError });
-  }
+  const target = selectedPlatformTarget();
+  results.push(target
+    ? { kind: "platform", tfm: target.tfm, version: target.version }
+    : { kind: "rtpack-suggest" });
   // Index-first: the platform library roster needs no pack download. Selecting
   // "Platform" instantly lists the CoreCLR + ASP.NET Core libraries the static
   // index knows for the active framework, filterable by name.
   const roster = platformLibraryRoster(query);
-  for (const lib of roster.slice(0, 200)) {
+  for (const lib of roster.filter(row => row.hasImplementation).slice(0, 200)) {
     results.push({ ...lib, kind: "platform-lib" });
   }
   // Once a pack is resident, blend its type/member matches so drilled-in
@@ -8124,9 +8641,6 @@ function runtimeSpotlightResults(query: string): SpotlightResult[] {
   }
   // Only when the static index is unavailable do we fall back to the old
   // download-first prompt, so the scope is never empty and inert.
-  if (!roster.length && !runtimePackLoaded()) {
-    results.push({ kind: "rtpack-suggest" });
-  }
   return results;
 }
 
@@ -8200,9 +8714,7 @@ function spotlightResults(): SpotlightResult[] {
   }
   // Offer the runtime pack when the user is clearly hunting a platform type but it isn't
   // loaded yet — one gesture makes BCL types (TextWriter, String…) searchable session-wide.
-  if ((all || spotlightScope === "types") && query.length >= 2 && !runtimePackLoaded() && !state.runtimePackLoading) {
-    results.push({ kind: "rtpack-suggest" });
-  }
+  if (all) results.push(...runtimeSpotlightResults(query).slice(0, 5));
   return results;
 }
 
@@ -8311,10 +8823,6 @@ async function queryDotnetReleases(): Promise<DotnetRelease[]> {
     })
     .filter(row => Number.isFinite(row.major) && row.major >= 8 && row.version)
     .sort((a, b) => b.major - a.major);
-}
-
-function ensureDotnetReleases() {
-  return catalogRequests.ensureDotnetReleases();
 }
 
 function updatePlatformVersionSelect() {
@@ -8523,17 +9031,18 @@ function pickSpotlightResult(result: SpotlightResult) {
     case "member":
       observeAsync(pickSpotlightMember(result), "Opening a Spotlight member");
       break;
+    case "platform":
+      observeAsync(openPlatformSubject(result.tfm, result.version), "Opening Platform");
+      break;
     case "rtpack-suggest":
-      state.spotlightScope = "runtime";
-      state.spotlightIndex = 0;
-      observeAsync(activateRuntimePack(), "Loading the runtime pack");
+      observeAsync(openPlatformSubject(), "Opening Platform");
       break;
     case "platform-lib":
       observeAsync(
         openPlatformLibrary(
           result.assembly,
           result.pack,
-          { inPlace: result.loaded === true }),
+          { inPlace: result.loaded === true, tfm: result.tfm, version: result.version }),
         "Opening a platform library");
       break;
     case "rtpack-status": break;
@@ -8612,76 +9121,14 @@ async function loadPackageFromSpotlight(
   }
 }
 
-// Loads the runtime pack into a fresh Workspace, then reopens Spotlight over that
-// published Platform Workspace so its types and members become searchable.
-async function activateRuntimePack() {
-  if (runtimePackLoaded() || state.runtimePackLoading) {
-    spotlight.refresh();
-    return;
-  }
-  if (!canPublishRetainedWorkspace()) {
-    appendQueryNotice(retainedWorkspaceCapacityMessage(), null);
-    spotlight.reset();
-    render({ synchronizeUrl: false });
-    afterCurrentNavigationFrame(focusWorkbenchSearchOrHeading);
-    return;
-  }
-  const framework = state.package?.activeFramework || "";
-  const query = state.spotlightQuery;
-  const spotlightScope = state.spotlightScope;
-  beginSpotlightNavigation();
-  const navigationSeq = navigationSequence.begin();
-  spotlight.reset();
-  const construction =
-    captureWorkspaceConstructionSnapshots(navigationSeq);
-  prepareUnpublishedWorkspace();
-  state.home = false;
-  state.loading = true;
-  state.loadingMessage = "Loading the .NET runtime pack…";
-  state.loadingSubtitle = framework || DEFAULT_REQUESTED_FRAMEWORK;
-  render({ synchronizeUrl: false });
-  const result = await loadRuntimePack(
-    framework,
-    () => navigationSequence.isCurrent(navigationSeq));
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
-  if (!result.packageModel) {
-    failWorkspaceCatalogAction(
-      result.failureMessage || "The .NET runtime pack could not be loaded.",
-      construction.supersessionSnapshot,
-      activateRuntimePack,
-      focusWorkbenchSearchOrHeading,
-    );
-    return;
-  }
-  state.loading = false;
-  selectWorkspacePackage(result.packageModel);
-  let destination: string;
-  try {
-    destination = buildStateUrl().toString();
-  } catch (error) {
-    failWorkspaceCatalogAction(
-      `Couldn’t open the .NET Platform: ${errorMessage(error)}`,
-      construction.supersessionSnapshot,
-      activateRuntimePack,
-      focusWorkbenchSearchOrHeading,
-    );
-    return;
-  }
-  publishCurrentWorkspace(construction.retainedSnapshot);
-  workspaceLocation.push(destination);
-  spotlight.open(query, spotlightScope);
-}
-
-// Drill into one platform library from the index-first Platform scope: lazily fetch just
-// that assembly from its shared-framework pack (CoreCLR or ASP.NET Core), creating or
-// extending the resident runtime pseudo-package, then scope the workbench to it and land in
-// its type list. The download happens only here, on demand — selecting the Platform scope
-// itself never downloads.
+// Only an exact catalog row creates demand for the shared Library inspection surface.
 interface OpenPlatformLibraryOptions {
   scopeOnly?: boolean;
   inPlace?: boolean;
   navigationSeq?: number;
   retryAction?: RetryAction;
+  tfm?: string | undefined;
+  version?: string | undefined;
 }
 
 async function openPlatformLibrary(
@@ -8691,6 +9138,11 @@ async function openPlatformLibrary(
 ) {
   const scopeOnly = options.scopeOnly === true;
   const createsWorkspace = !scopeOnly && options.inPlace !== true;
+  const capacityError = createsWorkspace ? "" : platformCoordinateCapacityError();
+  if (capacityError) {
+    showToast(capacityError);
+    return undefined;
+  }
   if (createsWorkspace && !canPublishRetainedWorkspace()) {
     appendQueryNotice(retainedWorkspaceCapacityMessage(), null);
     spotlight.reset();
@@ -8702,119 +9154,111 @@ async function openPlatformLibrary(
   const focusGeneration = documentFocusGeneration;
   const navigationSeq = options.navigationSeq ?? navigationSequence.begin();
   if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
-  const key = (assembly || "").replace(/\.dll$/i, "");
-  const fileName = key ? `${key}.dll` : "";
-  const tfm = platformScopeTfm();
-  const platformVersion = runtimePackPackage()?.version ?? "";
+  const tfm = options.tfm ?? platformScopeTfm();
+  const version = options.version ?? state.platformSelection?.version;
   if (createsWorkspace) spotlight.reset();
   const construction = createsWorkspace
     ? captureWorkspaceConstructionSnapshots(navigationSeq)
     : null;
   if (construction) prepareUnpublishedWorkspace();
   else spotlight.reset();
-  const alreadyLoaded = !createsWorkspace && runtimeAssemblyIsResident(
-    runtimePackPackage(),
-    key,
-    pack);
-  if (!alreadyLoaded) {
-    state.home = false;
-    state.loading = true;
-    state.error = "";
-    state.retryAction = null;
-    state.loadingMessage = "Loading the platform library…";
-    state.loadingSubtitle = `${key} · ${tfm}`;
-    render();
-    const runtimeResult = await loadRuntimePackAssembly(
-      tfm,
-      fileName,
-      pack,
-      () => navigationSequence.isCurrent(navigationSeq),
-      platformVersion);
-    const loaded = runtimeResult.packageModel;
+  try {
+    const target = await ensurePlatformCatalog(tfm, version);
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
-    if (!loaded) {
-      state.loading = false;
-      const failureMessage =
-        runtimeResult.failureMessage || state.runtimePackError;
-      const message = failureMessage
-        ? `Couldn’t load ${key}: ${failureMessage}`
-        : `Couldn’t load ${key} from the .NET runtime pack.`;
-      if (construction) {
-        failWorkspaceCatalogAction(
-          message,
-          construction.rollbackSnapshot,
-          () => openPlatformLibrary(assembly, pack),
-          focusWorkbenchSearchOrHeading,
-        );
-        return undefined;
-      }
-      state.error = message;
-      state.errorTitle = "Platform library failed";
-      state.retryAction = options.retryAction
-        ?? (() => openPlatformLibrary(assembly, pack, options));
-      render();
-      return undefined;
+    const matches = target.rows.filter(row =>
+      (!pack || row.pack === pack)
+      && (platformLibraryKey(row) === assembly
+        || row.assembly.toLowerCase() === assembly.replace(/\.dll$/i, "").toLowerCase()));
+    if (matches.length !== 1) throw new Error(`Platform library '${assembly}' is not uniquely available in this target.`);
+    const row = matches[0]!;
+    if (!row.hasImplementation) throw new Error(`${row.assembly} has no runtime implementation to inspect.`);
+    installPlatformTarget(target);
+    state.platformOpeningStatus = { loading: true, error: "" };
+    platformLibraryRetry = () => openPlatformLibrary(assembly, pack, {
+      ...options, tfm: target.tfm, version: target.version,
+    });
+    if (!scopeOnly) render();
+    startPlatformTargetWork(target);
+    let pkg = runtimePackPackage();
+    const alreadyLoaded = pkg?.assemblies.some(item => platformLibraryMatchesDescriptor(row, item));
+    if (!alreadyLoaded) {
+      const runtimeResult = await loadRuntimePackAssembly(
+        target.tfm, platformAssemblyRequest(row), row.pack,
+        () => navigationSequence.isCurrent(navigationSeq), target.version,
+        row.file);
+      if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
+      pkg = runtimeResult.packageModel;
+      if (!pkg) throw new Error(runtimeResult.failureMessage || `Could not inspect ${row.assembly}.`);
     }
-  }
-  const pkg = runtimePackPackage();
-  if (!pkg) {
+    if (!pkg) throw new Error("The Platform inspection did not return a Library.");
+    if (pkg.version !== target.version || pkg.activeFramework !== target.tfm) {
+      throw new Error("The inspected Library does not match the selected Platform target.");
+    }
+    if (!state.packages.includes(pkg)) retainPackageModel(pkg);
+    platformPackages.set(platformTargetKey(target), pkg);
+    const libraries = pkg.assemblies.filter(item => platformLibraryMatchesDescriptor(row, item));
+    if (libraries.length !== 1) throw new Error(`The Platform inspection did not return an exact descriptor for ${row.assembly}.`);
+    const library = libraries[0]!;
+    activatePackage(pkg, { resetAccessibility: true });
+    state.libraryScope = new Set([library.id]);
+    recordPlatformRecent(library.name, row.pack);
+    state.platformOpeningStatus = { loading: false, error: "" };
+    if (scopeOnly) return pkg;
+    state.loading = false;
+    state.atPackageRoot = false;
+    state.atLibraryRoot = true;
+    state.libraryLens = "overview";
+    state.namespaceFilter = "";
+    state.typeFilter = "";
+    state.kindFilter = "";
+    state.selectedTypeId = filteredTypes()[0]?.id ?? "";
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    state.selectedOverloadIndex = null;
+    resetMemberFilters();
+    render();
+    await loadSelectionData();
+    if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
+    if (construction) {
+      const destination = buildStateUrl().toString();
+      publishCurrentWorkspace(construction.retainedSnapshot);
+      workspaceLocation.push(destination);
+      render({ synchronizeUrl: false });
+    } else {
+      ensureCurrentWorkspacePublished();
+    }
+    if (navigationGeneration != null)
+      focusTypeList(navigationGeneration, focusGeneration);
+    return pkg;
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     if (construction) {
       failWorkspaceCatalogAction(
-        `Couldn’t load ${key} from the .NET runtime pack.`,
+        `Could not open Platform Library: ${errorMessage(error)}`,
         construction.rollbackSnapshot,
-        () => openPlatformLibrary(assembly, pack),
-        focusWorkbenchSearchOrHeading,
-      );
-    } else {
+        () => openPlatformLibrary(assembly, pack, { ...options, tfm, version }),
+        focusWorkbenchSearchOrHeading);
+      return undefined;
+    }
+    state.loading = false;
+    state.platformOpeningStatus = { loading: false, error: `Could not open Platform Library: ${errorMessage(error)}` };
+    platformLibraryRetry = options.retryAction ?? (() => openPlatformLibrary(assembly, pack, options));
+    if (!selectedPlatformTarget()) {
+      state.platformCatalogStatus = { ...state.platformOpeningStatus };
+      platformCatalogRetry = platformLibraryRetry;
+    }
+    if (!scopeOnly) {
+      if (scope() !== "platform") {
+        state.rootKind = "platform";
+        state.atPackageRoot = true;
+        state.atLibraryRoot = false;
+        state.workspaceSubjectOpen = false;
+        state.home = false;
+      }
       render();
     }
     return undefined;
   }
-  activatePackage(pkg, { resetAccessibility: true });
-  state.home = false;
-  const library = resolvePackageLibrary(pkg.assemblies, key);
-  const hasLib = library !== null;
-  state.libraryScope = library ? new Set([library.id]) : null;
-  if (library) recordPlatformRecent(library.name.replace(/\.dll$/i, ""), pack);
-  if (scopeOnly) return hasLib ? pkg : undefined;
-  state.loading = false;
-  state.atPackageRoot = !hasLib;
-  state.atLibraryRoot = hasLib;
-  state.packageLens = "overview";
-  state.libraryLens = "overview";
-  state.namespaceFilter = "";
-  state.typeFilter = "";
-  state.kindFilter = "";
-  const scoped = filteredTypes();
-  state.selectedTypeId = scoped[0]?.id || "";
-  state.selectedMemberKey = "";
-  state.memberBrowseTypeId = "";
-  resetMemberFilters();
-  state.selectedOverloadIndex = null;
-  if (construction) {
-    let destination: string;
-    try {
-      destination = buildStateUrl().toString();
-    } catch (error) {
-      failWorkspaceCatalogAction(
-        `Couldn’t open ${key}: ${errorMessage(error)}`,
-        construction.rollbackSnapshot,
-        () => openPlatformLibrary(assembly, pack),
-        focusWorkbenchSearchOrHeading,
-      );
-      return undefined;
-    }
-    publishCurrentWorkspace(construction.retainedSnapshot);
-    workspaceLocation.push(destination);
-  } else {
-    ensureCurrentWorkspacePublished();
-  }
-  const selectionData = loadSelectionData();
-  render();
-  await selectionData;
-  if (navigationGeneration != null)
-    focusTypeList(navigationGeneration, focusGeneration);
-  return undefined;
 }
 
 function pickSpotlightLoadedPackage(pkg: {
@@ -8835,6 +9279,25 @@ function pickSpotlightLoadedPackage(pkg: {
   focusTypeList(focusGeneration);
 }
 
+async function spotlightPlatformTypeIsAvailable(
+  pkg: AppPackage,
+  type: AppTypeSurface,
+  navigationIsCurrent: () => boolean,
+): Promise<boolean> {
+  if (pkg.source.kind !== "platform") return true;
+  try {
+    await exactPlatformCatalogForType(pkg, type);
+    return navigationIsCurrent();
+  } catch (error) {
+    if (navigationIsCurrent()) {
+      showToast(
+        `Could not open ${type.name}: the exact Platform target is unavailable: `
+        + errorMessage(error));
+    }
+    return false;
+  }
+}
+
 async function pickSpotlightMember(
   result: Extract<SpotlightResult, { kind: "member" }>,
 ) {
@@ -8845,6 +9308,13 @@ async function pickSpotlightMember(
       || item.activeFramework === result.pkg.activeFramework));
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!pkg || !type) { closeSpotlight(); return; }
+  const navigationSeq = navigationSequence.begin();
+  if (!await spotlightPlatformTypeIsAvailable(
+      pkg,
+      type,
+      () => navigationSequence.isCurrent(navigationSeq))) {
+    return;
+  }
   const navigationGeneration = beginSpotlightNavigation();
   const focusGeneration = documentFocusGeneration;
   spotlight.reset();
@@ -8886,6 +9356,13 @@ async function pickSpotlight(
   const type = pkg?.types?.find(item => item.id === typeId);
   if (!pkg || !type) {
     closeSpotlight();
+    return;
+  }
+  const navigationSeq = navigationSequence.begin();
+  if (!await spotlightPlatformTypeIsAvailable(
+      pkg,
+      type,
+      () => navigationSequence.isCurrent(navigationSeq))) {
     return;
   }
   const navigationGeneration = beginSpotlightNavigation();
@@ -8951,6 +9428,7 @@ function executeCommand(
       : pkg.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
         || pkg.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
     if (match) {
+      navigationSequence.begin();
       enterTypeSubject(match);
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
@@ -9125,7 +9603,7 @@ function workbenchModalOwnsFocus() {
 
 function resolvedWorkspaceShareTabs():
 BrowserWorkspaceShareState["tabs"] {
-  return state.packages.map((pkg, index) => ({
+  const tabs: Array<BrowserWorkspaceShareState["tabs"][number]> = state.packages.filter(pkg => pkg.source.kind !== "platform").map((pkg, index) => ({
     id: `t${index}`,
     kind: pkg.isRuntimePack ? "group" : "package",
     source: pkg.isRuntimePack ? ":Platform" : pkg.id,
@@ -9133,6 +9611,18 @@ BrowserWorkspaceShareState["tabs"] {
     framework: pkg.activeFramework || null,
     runtimeIdentifier: null,
   }));
+  if (state.platformSelection && !tabs.some(tab => tab.kind === "group" && tab.source === ":Platform")) {
+    tabs.splice(state.platformSlot < 0 ? tabs.length : Math.min(state.platformSlot, tabs.length), 0, {
+      id: `t${tabs.length}`, kind: "group", source: ":Platform",
+      version: state.platformSelection.version, framework: state.platformSelection.tfm,
+      runtimeIdentifier: null,
+    });
+  }
+  return tabs.map((tab, index) => ({ ...tab, id: `t${index}` }));
+}
+
+function workspaceCoordinateCount() {
+  return resolvedWorkspaceShareTabs().length;
 }
 
 function capturedShareTabs() {
@@ -9144,7 +9634,7 @@ function capturedShareTabs() {
     preservesBasis && basis
       ? basis.tabs.map(tab => ({ ...tab }))
       : resolvedTabs;
-  return { tabs, preservesBasis };
+  return { tabs, resolvedTabs, preservesBasis };
 }
 
 function commitWorkspaceShareBasis(
@@ -9157,18 +9647,20 @@ function commitWorkspaceShareBasis(
 function selectedCallGraphWorkspacePackages(): AppPackage[] {
   if (state.package?.isRuntimePack) return [];
   const basis = state.workspaceShareBasis;
-  const { tabs, preservesBasis } = capturedShareTabs();
-  const activeIndex = state.package
-    ? state.packages.indexOf(state.package)
-    : -1;
+  const { tabs, resolvedTabs, preservesBasis } = capturedShareTabs();
+  const activeIndex = activeShareTabIndex(tabs, resolvedTabs);
   const activeTab = tabs[activeIndex];
   if (!activeTab) {
     throw new Error(
       "The active package is no longer part of the Browser workspace.");
   }
   const packageForTabId = (id: string) => {
-    const index = tabs.findIndex(tab => tab.id === id);
-    return index >= 0 ? state.packages[index] ?? null : null;
+    const index = tabs.findIndex(candidate => candidate.id === id);
+    const resolved = resolvedTabs[index];
+    return resolved?.kind === "package" ? state.packages.find(pkg =>
+      pkg.id === resolved.source
+      && pkg.version === resolved.version
+      && pkg.activeFramework === resolved.framework) ?? null : null;
   };
   if (!preservesBasis || !basis) {
     return browserCreatedCallGraphTabIds(tabs, activeIndex)
@@ -9192,10 +9684,21 @@ function selectedCallGraphWorkspacePackages(): AppPackage[] {
   });
 }
 
+function activeShareTabIndex(
+  tabs: BrowserWorkspaceShareState["tabs"],
+  resolvedTabs = tabs,
+) {
+  return state.rootKind === "platform"
+    ? tabs.findIndex(tab => tab.kind === "group" && tab.source === ":Platform")
+    : resolvedTabs.findIndex(tab => tab.kind === "package" && tab.source === state.package?.id
+      && tab.version === state.package?.version && tab.framework === state.package?.activeFramework);
+}
+
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
-  if (!state.package) return null;
+  if (!state.package && !state.platformSelection) return null;
   const workspaceSubjectOpen = scope() === "workspace";
-  if (state.atPackageRoot && !workspaceSubjectOpen) {
+  const platformRoot = scope() === "platform";
+  if (state.atPackageRoot && !workspaceSubjectOpen && !platformRoot) {
     throw new Error(
       "Package views do not yet have product-owned share facet identities.");
   }
@@ -9206,7 +9709,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
 
   const captured = capturedShareTabs();
   const tabs = captured.tabs;
-  const activeIndex = state.packages.indexOf(state.package);
+  const activeIndex = activeShareTabIndex(tabs, captured.resolvedTabs);
   const activeTab = tabs[activeIndex];
   if (!activeTab) return null;
 
@@ -9216,13 +9719,13 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     activeIndex,
     basis,
     captured.preservesBasis,
-    !workspaceSubjectOpen && state.memberSection === "call-graph");
+    !workspaceSubjectOpen && !platformRoot && state.memberSection === "call-graph");
 
   const librarySubjectOpen = state.atLibraryRoot;
-  const type = workspaceSubjectOpen || librarySubjectOpen
+  const type = workspaceSubjectOpen || platformRoot || librarySubjectOpen
     ? null
     : selectedType();
-  const member = workspaceSubjectOpen || librarySubjectOpen
+  const member = workspaceSubjectOpen || platformRoot || librarySubjectOpen
     ? null
     : selectedMember(type);
   let memberAnchor: string | null = null;
@@ -9260,22 +9763,22 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     throw new Error(
       "Select one library before sharing this Browser workspace.");
   }
-  const library = selectedLibraryRequest();
-  const libraries = workspaceSubjectOpen || !library ? [] : [library];
+  const library = selectedLibraryShareKey();
+  const libraries = workspaceSubjectOpen || platformRoot || !library ? [] : [library];
   return {
-    package: state.package.id,
+    package: state.rootKind === "platform" ? "" : state.package?.id ?? "",
     subject: workspaceSubjectOpen ? "workspace" : null,
     tabs,
     contexts,
     activeTabId: activeTab.id,
     selectedContextId,
     view: {
-      lens: workspaceSubjectOpen
+      lens: workspaceSubjectOpen || platformRoot
         ? null
         : librarySubjectOpen
           ? `library:${state.libraryLens}`
           : state.lens,
-      type: workspaceSubjectOpen || librarySubjectOpen
+      type: workspaceSubjectOpen || platformRoot || librarySubjectOpen
         ? null
         : state.selectedTypeId || null,
       memberAnchor,
@@ -9300,8 +9803,27 @@ function captureSavedWorkspacePacket(): string {
   if (!snapshot || snapshot.tabs.length === 0) {
     throw new Error("Load a package before saving the Workspace.");
   }
+  const resolvedTabs = resolvedWorkspaceShareTabs();
   const tabs = snapshot.tabs.map((tab, index) => {
-    const pkg = state.packages[index];
+    const resolvedTab = resolvedTabs[index];
+    if (tab.kind === "group" && tab.source === ":Platform") {
+      if (resolvedTab?.kind !== "group"
+        || resolvedTab.source !== ":Platform"
+        || !resolvedTab.version
+        || !resolvedTab.framework) {
+        throw new Error("The Platform target must be pinned before saving.");
+      }
+      return {
+        ...tab,
+        version: resolvedTab.version,
+        framework: resolvedTab.framework,
+      };
+    }
+    const pkg = resolvedTab?.kind === "package"
+      ? state.packages.find(candidate => candidate.id === resolvedTab.source
+        && candidate.version === resolvedTab.version
+        && candidate.activeFramework === resolvedTab.framework)
+      : null;
     if (!pkg?.version || !pkg.activeFramework) {
       throw new Error("Every saved coordinate must have a resolved version and framework.");
     }
@@ -9321,7 +9843,7 @@ function buildStateUrl(base = location.href) {
       ? workspaceLocation.build(snapshot, base)
       : new URL(base);
   }
-  if (state.atPackageRoot && state.package) {
+  if (state.atPackageRoot && state.rootKind === "package" && state.package) {
     return buildPackageRootStateUrl(base, {
       package: state.package.id,
       version: state.package.version,
@@ -10178,7 +10700,7 @@ async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void
   }
   const limitMessage =
     `Workspace holds at most ${MAX_WORKSPACE_PACKAGES} coordinates. Remove a package before adding another.`;
-  if (state.packages.length >= MAX_WORKSPACE_PACKAGES) {
+  if (workspaceCoordinateCount() >= MAX_WORKSPACE_PACKAGES) {
     appendQueryNotice(limitMessage, null);
     render({ synchronizeUrl: false });
     afterCurrentNavigationFrame(() =>
@@ -10200,7 +10722,7 @@ async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void
       framework: coordinate.framework,
       // Background acquisition can fill the last slot while this request waits.
       isCurrent: () => navigationSequence.isCurrent(navigationSeq)
-        && state.packages.length < MAX_WORKSPACE_PACKAGES,
+        && workspaceCoordinateCount() < MAX_WORKSPACE_PACKAGES,
     });
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (!packageModel) throw new Error(limitMessage);
@@ -10302,7 +10824,7 @@ async function restoreWorkspaceCatalogEntry(
       false);
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
-      && state.package) {
+      && (state.package || state.platformSelection)) {
       void buildStateUrl().toString();
       publishCurrentWorkspace(previousSnapshot);
       if (!commitDemoNavigation(navigationSeq)) return;
@@ -10368,7 +10890,7 @@ async function restoreFreshWorkspaceFromHistory(
       false);
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
-      && state.package) {
+      && (state.package || state.platformSelection)) {
       const destination = buildStateUrl().toString();
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.replace(destination, history.state);
@@ -10675,7 +11197,13 @@ function openPackageQueryRoute(
 
 function selectWorkspaceApplicationScope() {
   const pkg = state.package;
-  if (!pkg) return;
+  if (!pkg) {
+    if (state.platformSelection) {
+      navigationSequence.begin();
+      openDefaultWorkspace();
+    }
+    return;
+  }
   navigationSequence.begin();
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
@@ -11231,7 +11759,11 @@ async function loadSelectedTypeMetadata() {
     return;
   }
   const pkg = currentPackage();
-  const signature = typeMetadataSignature(type, pkg);
+  const metadataLibraryIdentity = selectedTypeMetadataLibraryIdentity();
+  const signature = typeMetadataSignature(
+    type,
+    pkg,
+    metadataLibraryIdentity);
   return metadataInspection.loadTypeMetadata({
     signature,
     packageId: pkg.id,
@@ -11252,7 +11784,10 @@ async function loadSelectedTypeMetadata() {
       && !state.atPackageRoot
       && !state.atLibraryRoot
       && currentType != null
-      && typeMetadataSignature(currentType, pkg) === signature;
+      && typeMetadataSignature(
+        currentType,
+        pkg,
+        selectedTypeMetadataLibraryIdentity()) === signature;
     },
   });
 }
@@ -11816,7 +12351,7 @@ function callGraphTargetBinding(
     if (target.id === "n0" || !target.assembly || !typeId) return null;
     const pack = runtimePackForFramework(
       runtimePackPackage(),
-      state.package?.activeFramework || "");
+      platformCatalogFramework(state.package?.activeFramework || ""));
     const candidate = pack
       ? resolveRuntimeGraphTargetCandidate(pack, target)
       : { status: "missing" } as const;
@@ -11851,13 +12386,22 @@ function callGraphTargetBinding(
       platform: disposition === "lookup",
       onSelect: () => {
         if (disposition === "member" && pack && resident) {
-          navigateToRuntimeMember(
-            pack,
-            resident.type,
-            resident.group,
-            resident.overloadIndex,
-            target,
-            runtimeSection);
+          navigationSequence.begin();
+          let owner = captureViewOperation(state.memberCallGraphSeq);
+          observeAsync(
+            openRuntimeMemberFromGraph(
+              pack,
+              resident.type,
+              resident.group,
+              resident.overloadIndex,
+              target,
+              runtimeSection,
+              () => ownsViewOperation(owner, state.memberCallGraphSeq),
+              () => {
+                owner = captureViewOperation(state.memberCallGraphSeq);
+              },
+              failureSurface),
+            "Opening a platform call-graph member");
         } else if (disposition === "lookup") {
           observeAsync(
             navigateOrDrillPlatform(
@@ -11914,7 +12458,7 @@ function callGraphTargetBinding(
   }
   const pack = runtimePackForFramework(
     runtimePackPackage(),
-    state.package?.activeFramework || "");
+    platformCatalogFramework(state.package?.activeFramework || ""));
   const runtimeCandidate = (candidate.status === "missing"
       || candidate.status === "skew") && pack
     ? resolveRuntimeGraphTargetCandidate(pack, target)
@@ -11979,13 +12523,22 @@ function callGraphTargetBinding(
           "Opening a graph member");
       } else if (disposition === "resident") {
         if (pack && resident) {
-          navigateToRuntimeMember(
-            pack,
-            resident.type,
-            resident.group,
-            resident.overloadIndex,
-            target,
-            runtimeSection);
+          navigationSequence.begin();
+          let owner = captureViewOperation(state.memberCallGraphSeq);
+          observeAsync(
+            openRuntimeMemberFromGraph(
+              pack,
+              resident.type,
+              resident.group,
+              resident.overloadIndex,
+              target,
+              runtimeSection,
+              () => ownsViewOperation(owner, state.memberCallGraphSeq),
+              () => {
+                owner = captureViewOperation(state.memberCallGraphSeq);
+              },
+              failureSurface),
+            "Opening a resident platform call-graph member");
         } else {
           observeAsync(
             destination === "member"
@@ -12065,7 +12618,10 @@ function dependencyGraphAvailable() {
 function typeGraphAvailable() {
   const type = selectedType();
   return Boolean(type && state.package
-    && state.typeMetadataKey === typeMetadataSignature(type, state.package)
+    && state.typeMetadataKey === typeMetadataSignature(
+      type,
+      state.package,
+      selectedTypeMetadataLibraryIdentity())
     && !state.typeMetadataLoading
     && !state.typeMetadataError
     && state.typeMetadata && state.typeMetadata.graphNodes.length > 1);
@@ -12083,7 +12639,10 @@ function graphExplorerKey(): string | null {
   }
   const type = selectedType();
   if (scope() === "type" && state.lens === "metadata" && type && state.package) {
-    const signature = typeMetadataSignature(type, state.package);
+    const signature = typeMetadataSignature(
+      type,
+      state.package,
+      selectedTypeMetadataLibraryIdentity());
     const metadata = state.typeMetadataKey === signature ? state.typeMetadata : null;
     if (metadata && metadata.graphNodes.length < 2) return null;
     return JSON.stringify(["type", signature]);
@@ -12548,18 +13107,13 @@ async function drillPlatformNode(
       "the target does not carry a complete navigable identity");
     return;
   }
-  const framework = currentPackage().activeFramework;
+  const framework = platformCatalogFramework(currentPackage().activeFramework);
   const runtimePack = runtimePackForFramework(
     runtimePackPackage(),
     framework);
-  const runtimeIndex = runtimePack
-    ? state.packages.indexOf(runtimePack)
-    : -1;
   const captured = capturedShareTabs();
-  const platformVersion = retainedPlatformTargetVersion(
-    captured.preservesBasis && runtimeIndex >= 0
-      ? captured.tabs[runtimeIndex]
-      : null,
+  const platformVersion = resolvedPlatformTargetVersion(
+    captured.resolvedTabs,
     runtimePack,
     framework);
   return callGraphInspection.drill({
@@ -12570,7 +13124,7 @@ async function drillPlatformNode(
       node.assembly,
       node.platformPack,
       runtimePackPackage(),
-      currentPackage().activeFramework) ?? "",
+      framework) ?? "",
     assemblyVersion: node.assemblyVersion,
     assemblyCulture: node.assemblyCulture,
     assemblyPublicKeyToken: node.assemblyPublicKeyToken,
@@ -12616,7 +13170,7 @@ async function navigateOrDrillPlatform(
 ) {
   invalidateGraphMemberNavigation();
   const seq = ++state.memberCallGraphSeq;
-  const owner = captureViewOperation(seq);
+  let owner = captureViewOperation(seq);
   const navigationIsCurrent = () =>
     ownsViewOperation(owner, state.memberCallGraphSeq);
   const discardIfStale = (
@@ -12642,7 +13196,8 @@ async function navigateOrDrillPlatform(
       failureSurface);
     return;
   }
-  const framework = state.package?.activeFramework || "";
+  const framework = platformCatalogFramework(
+    state.package?.activeFramework || "");
   let pack = runtimePackForFramework(
     runtimePackPackage(),
     framework);
@@ -12660,14 +13215,12 @@ async function navigateOrDrillPlatform(
         node.platformPack,
         runtimePackPackage(),
         framework);
-    const runtimeResult = await loadRuntimePackAssembly(
+    const runtimeResult = await loadRuntimeGraphAssembly(
       framework,
-      node.assembly.endsWith(".dll")
-        ? node.assembly
-        : `${node.assembly}.dll`,
-      targetPack ?? "",
-      navigationIsCurrent,
-      retainedPlatform?.version ?? "");
+      retainedPlatform?.version ?? "",
+      node.assembly,
+      targetPack,
+      navigationIsCurrent);
     pack = runtimeResult.packageModel;
     if (discardIfStale(preservedFocus)) return;
     if (pack && retainedPlatform) {
@@ -12717,14 +13270,12 @@ async function navigateOrDrillPlatform(
         node.platformPack,
         runtimePackPackage(),
         framework);
-    const runtimeResult = await loadRuntimePackAssembly(
+    const runtimeResult = await loadRuntimeGraphAssembly(
       framework,
-      node.assembly.endsWith(".dll")
-        ? node.assembly
-        : `${node.assembly}.dll`,
-      targetPack ?? "",
-      navigationIsCurrent,
-      pack.version);
+      pack.version,
+      node.assembly,
+      targetPack,
+      navigationIsCurrent);
     pack = runtimeResult.packageModel;
     if (!navigationIsCurrent()) {
       if (seq === state.memberCallGraphSeq) {
@@ -12791,13 +13342,77 @@ async function navigateOrDrillPlatform(
     await drillPlatformNode(node, navigationIsCurrent);
     return;
   }
-  navigateToRuntimeMember(
+  await openRuntimeMemberFromGraph(
     pack,
     selection.type,
     selection.group,
     selection.overloadIndex,
     node,
+    section,
+    navigationIsCurrent,
+    () => {
+      owner = captureViewOperation(state.memberCallGraphSeq);
+    },
+    failureSurface);
+}
+
+async function openRuntimeMemberFromGraph(
+  pack: AppPackage,
+  type: AppTypeSurface,
+  group: AppMemberGroup,
+  overloadIndex: number,
+  node: InspectedCallGraphTarget,
+  section: "overview" | "call-graph",
+  navigationIsCurrent: () => boolean,
+  renewNavigationOwnership: () => void,
+  failureSurface: GraphNavigationFailureSurface,
+): Promise<void> {
+  try {
+    const target = await exactPlatformCatalogForType(pack, type);
+    if (!navigationIsCurrent()) return;
+    const alreadyRetained = state.packages.includes(pack);
+    if (retainPlatformPackageForTarget(target) !== pack) {
+      throw new Error(
+        "The matching Platform runtime model is unavailable.");
+    }
+    if (!alreadyRetained) renewNavigationOwnership();
+  } catch (error) {
+    if (!navigationIsCurrent()) return;
+    if (pack.source.kind === "platform" && state.packages.includes(pack)) {
+      state.packages = state.packages.filter(candidate => candidate !== pack);
+      invalidateWorkspaceMembershipViews();
+    }
+    await showPlatformTargetError(
+      node,
+      `the exact Platform target is unavailable: ${errorMessage(error)}`,
+      failureSurface);
+    return;
+  }
+  if (!navigationIsCurrent()) return;
+  navigateToRuntimeMember(
+    pack,
+    type,
+    group,
+    overloadIndex,
+    node,
     section);
+}
+
+async function exactPlatformCatalogForType(
+  pack: AppPackage,
+  type: AppTypeSurface,
+): Promise<PlatformCatalogTarget> {
+  const target = await ensurePlatformCatalog(
+    pack.activeFramework,
+    pack.version);
+  const library = resolvePackageLibrary(pack.assemblies, libraryKey(type));
+  if (!library || !target.rows.some(row =>
+    row.hasImplementation
+    && platformLibraryMatchesDescriptor(row, library))) {
+    throw new Error(
+      "The matching Platform catalog does not contain the selected Library.");
+  }
+  return target;
 }
 
 async function showPlatformTargetError(
@@ -13397,15 +14012,12 @@ async function loadPackage(
   }
 }
 
-function runtimePackLoaded() {
-  return runtimePackIsResident(runtimePackPackage());
-}
-
 function platformSurfaceLoaded() {
   return runtimePackPackage() !== null;
 }
 
 function runtimePackPackage() {
+  if (state.platformSelection) return runtimePackageForTarget(state.platformSelection);
   return state.packages.find(item => item.isRuntimePack) || null;
 }
 
@@ -13501,11 +14113,13 @@ const packageAcquisition = createPackageAcquisition({
     platformVersion,
     assemblyFileName,
     pack,
+    assetFileName,
   ) => inspectLoadRuntimePackAssembly(
     framework,
     platformVersion,
     assemblyFileName,
-    pack),
+    pack,
+    assetFileName),
   parseRuntimeSurface: json => parseEngineJson<BrowserPackageSurface>(json),
   runtimePackage: runtimePackPackage,
   retainPackage: retainPackageModel,
@@ -13549,17 +14163,52 @@ async function loadRuntimePackAssembly(
   pack: string,
   isCurrent: () => boolean = () => true,
   platformVersion = "",
+  assetFileName = assemblyFileName,
 ): Promise<RuntimeLoadResult> {
   const result = await packageAcquisition.loadRuntimePackAssembly(
     framework,
     assemblyFileName,
     pack,
     isCurrent,
-    platformVersion);
+    platformVersion,
+    assetFileName);
   return {
     packageModel: result.packageModel,
     failureMessage: result.error === null ? "" : errorMessage(result.error),
   };
+}
+
+async function loadRuntimeGraphAssembly(
+  framework: string,
+  platformVersion: string,
+  assembly: string,
+  pack: PlatformPack | null,
+  isCurrent: () => boolean,
+): Promise<RuntimeLoadResult> {
+  try {
+    const target = await ensurePlatformCatalog(
+      platformCatalogFramework(framework),
+      platformVersion);
+    if (!isCurrent()) return { packageModel: null, failureMessage: "" };
+    const row = platformGraphLibraryForTarget(target, assembly, pack);
+    if (!row) {
+      const family = pack ? ` in ${pack}` : "";
+      return {
+        packageModel: null,
+        failureMessage:
+          `The exact Platform catalog does not uniquely identify an implementation for ${assembly}${family}.`,
+      };
+    }
+    return loadRuntimePackAssembly(
+      target.tfm,
+      platformAssemblyRequest(row),
+      row.pack,
+      isCurrent,
+      target.version,
+      row.file);
+  } catch (error) {
+    return { packageModel: null, failureMessage: errorMessage(error) };
+  }
 }
 
 async function runCallGraphDemo(
@@ -13826,7 +14475,11 @@ async function restoreWorkspaceFromLocation(
   const target: WorkspaceCoordinate = {
     id: loc.package,
     version: loc.version || "latest",
-    framework: loc.framework || ""
+    framework: loc.framework || "",
+    ...(loc.shareState ? {
+      shareKind: loc.rootKind === "platform" ? "group" as const : "package" as const,
+      shareSource: loc.rootKind === "platform" ? ":Platform" : "nuget.org",
+    } : {}),
   };
   const tabs = (loc.tabs && loc.tabs.length)
     ? loc.tabs.slice(0, MAX_WORKSPACE_PACKAGES)
@@ -13836,18 +14489,25 @@ async function restoreWorkspaceFromLocation(
     version: string;
     framework?: string;
     activeFramework?: string;
+    shareKind?: "package" | "group";
+    shareSource?: string;
+    source?: AppPackage["source"];
   };
+  const platformCoordinate = (coordinate: RestorableCoordinate) =>
+    coordinate.source ? coordinate.source.kind === "platform"
+      : coordinate.shareKind ? coordinate.shareKind === "group" && coordinate.shareSource === ":Platform"
+        : isRuntimePackId(coordinate.id);
   const matchesFramework = (tab: RestorableCoordinate) =>
     !target.framework
     || (tab.framework || tab.activeFramework || "").toLowerCase()
       === target.framework.toLowerCase();
   const matchesTarget = (tab: RestorableCoordinate) =>
-    isRuntimePackId(tab.id)
-      ? isRuntimePackId(target.id)
+    platformCoordinate(tab)
+      ? platformCoordinate(target)
         && (target.version.toLowerCase() === "latest"
           || tab.version.toLowerCase() === target.version.toLowerCase())
         && matchesFramework(tab)
-      : (tab.id.toLowerCase() === target.id.toLowerCase()
+      : (!platformCoordinate(target) && tab.id.toLowerCase() === target.id.toLowerCase()
         && tab.version.toLowerCase() === target.version.toLowerCase()
         && matchesFramework(tab));
   if (!tabs.some(matchesTarget)) {
@@ -13866,25 +14526,26 @@ async function restoreWorkspaceFromLocation(
   // once, below — so a non-target tab (e.g. an STJ tab on a platform-library link) never
   // flashes into view before the target resolves.
   let loadedTargetModel: AppPackage | null = null;
+  let loadedPlatformTarget: PlatformCatalogTarget | null = null;
   let runtimeFailureMessage = "";
   let failedTabCount = 0;
   for (const tab of tabs) {
     let loaded: AppPackage | null;
-    if (isRuntimePackId(tab.id)) {
-      const runtimeResult = await loadRuntimePack(
-        tab.framework,
-        () => navigationSequence.isCurrent(navigationSeq),
-        tab.version);
-      loaded = runtimeResult.packageModel;
-      runtimeFailureMessage = runtimeResult.failureMessage;
-      if (!loaded && navigationSequence.isCurrent(navigationSeq)) {
-        const failure =
-          `Workspace restore was incomplete: ${tab.id}: ${runtimeFailureMessage
-            || state.runtimePackError
-            || "runtime pack acquisition failed."}`;
-        state.queryNotice = state.queryNotice
-          ? `${state.queryNotice} ${failure}`
-          : failure;
+    if (platformCoordinate(tab)) {
+      try {
+        const catalog = await ensurePlatformCatalog(
+          tab.framework || DEFAULT_PLATFORM_FRAMEWORK,
+          tab.version === "latest" ? undefined : tab.version);
+        if (!navigationSequence.isCurrent(navigationSeq)) return;
+        state.platformSelection = { tfm: catalog.tfm, version: catalog.version, includeAllLibraries: false, filter: "" };
+        state.platformSlot = tabs.indexOf(tab);
+        if (matchesTarget(tab)) loadedPlatformTarget = catalog;
+        continue;
+      } catch (error) {
+        if (!navigationSequence.isCurrent(navigationSeq)) return;
+        loaded = null;
+        runtimeFailureMessage = errorMessage(error);
+        state.queryNotice = `Workspace restore was incomplete: ${runtimeFailureMessage}`;
       }
     } else {
       loaded = await loadPackage(tab.id, tab.version, tab.framework, {
@@ -13913,6 +14574,46 @@ async function restoreWorkspaceFromLocation(
     return;
   }
 
+  if (loadedPlatformTarget) {
+    installPlatformTarget(loadedPlatformTarget);
+    if (loc.library) {
+      const opened = await openPlatformLibrary(loc.library, loc.libraryPack ?? "", {
+        scopeOnly: true, navigationSeq,
+        tfm: loadedPlatformTarget.tfm, version: loadedPlatformTarget.version,
+      });
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
+      if (!opened) {
+        failRestore(state.platformOpeningStatus.error || `Could not restore Platform Library '${loc.library}'.`);
+        return;
+      }
+      applyLocationView(loc);
+      const failure = canonicalViewRestorationFailure(opened, deep, loc.lens, loc.libraryLens);
+      if (failure) { failRestore(failure); return; }
+      applyDeepLink(deep);
+    } else {
+      if (loc.type || loc.memberAnchor || loc.memberSignature || loc.section || loc.lens || loc.libraryLens) {
+        failRestore("A shared Platform inspection requires an exact Library.");
+        return;
+      }
+      state.workspaceSubjectOpen = loc.workspaceSubjectOpen;
+    }
+    commitWorkspaceShareBasis(loc.shareState);
+    if (!failureHandler) {
+      ensureCurrentWorkspacePublished();
+    }
+    state.loading = false;
+    render();
+    startPlatformTargetWork(loadedPlatformTarget);
+    await loadSelectionData();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (!commitRestoredWorkspaceNavigation(navigationSeq, failureHandler, commitHistory)) return;
+    if (focusResult) focusInspectionResult(navigationSeq);
+    if (!failureHandler) {
+      workspaceLocation.replace(location.href, history.state);
+    }
+    return;
+  }
+
   const targetModel = loadedTargetModel ?? state.packages.find(matchesTarget);
   if (targetModel) {
     activatePackage(targetModel, { resetAccessibility: true });
@@ -13921,7 +14622,7 @@ async function restoreWorkspaceFromLocation(
     // unconditionally (not just when loc.library is set) so an aggregate/no-library restore
     // also clears any scope left over from a previous session -- applyPlatformLibraryScope's
     // own falsy-key branch handles that case synchronously.
-    if (isRuntimePackId(targetModel.id)) {
+    if (targetModel.source.kind === "platform") {
       const scoped = await applyPlatformLibraryScope(
         loc.library,
         loc.libraryPack,
@@ -13968,17 +14669,14 @@ async function restoreWorkspaceFromLocation(
     render();
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return;
-    if (failureHandler && commitHistory) {
-      if (!commitDemoNavigation(navigationSeq)) return;
-      syncUrl();
-    }
+    if (!commitRestoredWorkspaceNavigation(navigationSeq, failureHandler, commitHistory)) return;
     if (focusResult) {
       focusInspectionResult(navigationSeq);
     }
     if (!failureHandler) {
       workspaceLocation.replace(location.href, history.state);
     }
-  } else if (!isRuntimePackId(target.id)) {
+  } else if (!platformCoordinate(target)) {
     // The focused NuGet target failed to load during the silent background pass; re-run it in
     // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
     const loaded = await loadPackage(
@@ -14109,6 +14807,7 @@ function failCanonicalWorkspaceRestore(
 }
 
 function applyLocationView(loc: ParsedLocation) {
+  state.rootKind = loc.rootKind;
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
   state.atLibraryRoot = !state.atPackageRoot
@@ -14350,6 +15049,10 @@ async function navigateWithinCurrentWorkspace(
   loc: ParsedLocation,
   navigationSeq: number,
 ): Promise<void> {
+  if (loc.rootKind === "platform") {
+    await restoreRetainedWorkspaceFromHistory(loc, navigationSeq);
+    return;
+  }
   const canonicalSnapshot = loc.hasWorkspaceState
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
@@ -14439,7 +15142,7 @@ async function openFreshWorkspaceLink(
       false);
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
-      && state.package) {
+      && (state.package || state.platformSelection)) {
       const destination = buildStateUrl().toString();
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.push(destination);
@@ -15180,6 +15883,10 @@ window.addEventListener("popstate", () => {
       || retainedWorkspaces.activeWorkspaceId === null
       ? restoreFreshWorkspaceFromHistory(loc, navigationSeq)
       : restoreRetainedWorkspaceFromHistory(loc, navigationSeq);
+  if (loc.rootKind === "platform") {
+    observeAsync(restoreHistoryWorkspace(), "Restoring Platform history");
+    return;
+  }
   if (!state.package) {
     observeAsync(
       restoreHistoryWorkspace(),
@@ -15310,16 +16017,11 @@ async function applyPlatformLibraryScope(
     return undefined;
   const key = (requestedLibraryKey ?? "").replace(/\.dll$/i, "");
   if (!key) { state.libraryScope = null; return true; }
-  // The pack (CoreCLR vs ASP.NET Core) is resolved from the static index roster; ensure it
-  // is loaded on a cold shared/refreshed link so the right assembly is fetched.
-  if (!state.platformIndex) {
-    try { state.platformIndex = await loadPlatformIndex(); } catch { /* product acquisition can resolve an unknown pack */ }
-  }
   if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
     return undefined;
   return Boolean(await openPlatformLibrary(
     key,
-    platformPackForAssembly(key, libraryPack) ?? "",
+    libraryPack ?? "",
     {
       ...(navigationSeq === null ? {} : { navigationSeq }),
       retryAction,
@@ -15354,6 +16056,7 @@ window.__platformIndex = loadPlatformIndex();
 observeAsync(
   window.__platformIndex.then(index => {
     if (index) state.platformIndex = index;
+    if (state.spotlightOpen) spotlight.refresh();
     return undefined;
   }),
   "Loading the platform index");
