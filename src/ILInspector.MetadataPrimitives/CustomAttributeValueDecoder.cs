@@ -62,6 +62,13 @@ internal static class CustomAttributeValueDecoder
         MetadataSafetyPolicy.MaxSignatureTypeNodes;
 
     /// <summary>
+    /// Maximum metadata name bytes rendered or compared while resolving enums
+    /// across one attribute decode.
+    /// </summary>
+    public const int MaxEnumResolutionNameWork =
+        MetadataSafetyPolicy.MaxStructuralSignatureWorkChars;
+
+    /// <summary>
     /// Returns <see langword="true"/> and a materialized <paramref name="value"/>
     /// when decoding succeeds, or <see langword="false"/> when the blob is refused.
     /// Caller-callback failures are raised as
@@ -132,8 +139,15 @@ internal static class CustomAttributeValueDecoder
 
         public long StructuralMatchFrames { get; internal set; }
 
+        public long TypeDefinitionIndexNameBytes { get; internal set; }
+
+        public long TypeReferenceMatchNameBytes { get; internal set; }
+
         public long Operations =>
             TypeDefinitionCandidatesVisited + StructuralMatchFrames;
+
+        public long NameBytes =>
+            TypeDefinitionIndexNameBytes + TypeReferenceMatchNameBytes;
 
         internal void VisitTypeDefinitionCandidate()
         {
@@ -146,6 +160,12 @@ internal static class CustomAttributeValueDecoder
             EnsureBudget();
             StructuralMatchFrames++;
         }
+
+        internal void VisitTypeDefinitionIndexNameBytes(int bytes) =>
+            TypeDefinitionIndexNameBytes += bytes;
+
+        internal void VisitTypeReferenceMatchNameBytes(int bytes) =>
+            TypeReferenceMatchNameBytes += bytes;
 
         void EnsureBudget()
         {
@@ -1048,7 +1068,7 @@ internal static class CustomAttributeValueDecoder
                     name = TypeResolver.GetTypeNameFromDefinition(
                         _reader,
                         handle,
-                        ObserveBeforeMaterialize);
+                        ObserveTypeDefinitionIndexName);
                 }
                 catch (Exception ex) when (
                     ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -1061,6 +1081,12 @@ internal static class CustomAttributeValueDecoder
             }
 
             return result;
+        }
+
+        void ObserveTypeDefinitionIndexName(int amount)
+        {
+            _enumResolutionWork.VisitTypeDefinitionIndexNameBytes(amount);
+            ObserveBeforeMaterialize(amount);
         }
 
         void ObserveBeforeMaterialize(int amount)
