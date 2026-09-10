@@ -64,9 +64,11 @@ The service classifies each considered observation in this order:
    rewrite that compiler observation.
 5. An admitted reusable positive observation is accessible.
 6. Otherwise, the service performs the owned HEAD operation.
-7. A successful response is accessible only when
+7. Cancellation observed after HEAD completion propagates before response
+   classification or cache publication.
+8. A successful response is accessible only when
    `SourceFetchOriginValidator.Validate` admits its final origin.
-8. Every other result is missing for this operation.
+9. Every other result is missing for this operation.
 
 Missing paths are reported using the authored document path in ordinal order.
 Embedded, accessible, and missing counts are counts of considered observations.
@@ -115,7 +117,8 @@ Positive reuse follows provenance mutability:
 
 Only a live successful response whose final origin is admitted may publish an
 `ok` observation. Embedded, rejected, unsupported, build-intermediate,
-non-success, transport-failure, and cancellation paths publish nothing.
+non-success, and transport-failure paths publish nothing. Cancellation
+observed before response classification also publishes nothing.
 
 The category and `ok` extension bind reusable entries to this decision's
 final-origin admission. An entry from another category or extension cannot
@@ -130,8 +133,8 @@ HTTP and transport failures remain visible as missing observations and in the
 aggregate summary. They are not converted into durable misses.
 
 The caller's cancellation token flows into the owned HTTP operation.
-Cancellation is not cacheable evidence and is not translated into a reusable
-availability result.
+Cancellation observed before response classification propagates, is not
+cacheable evidence, and is not translated into a reusable availability result.
 
 ## Concurrency and ordering
 
@@ -154,6 +157,7 @@ The contract-defining cases are:
 - an immutable positive observation is reused without expiry;
 - a mutable positive observation is reused for at most one day;
 - a 404 and every other non-success remain operation-local;
+- cancellation observed as a HEAD completes publishes no positive entry;
 - an attributed request redirected to a different origin is missing and
   publishes no cache entry; and
 - duplicate URLs retain per-document counts and use the same cross-audit cache
@@ -167,6 +171,7 @@ The contract-defining cases are:
 - empty and duplicate-URL censuses retain the explicit denominator semantics;
 - positive cache category, URL key, extension, mutability-based age, and reuse;
 - absence of negative publication for 404 and other non-success responses;
+- cancellation between HEAD completion and classification publishes nothing;
 - absence of publication after final-origin rejection; and
 - absence of cache and network work for locally classified observations.
 

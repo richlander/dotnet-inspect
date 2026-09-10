@@ -327,6 +327,27 @@ public class SourceLinkQueryServiceTests
     }
 
     [Fact]
+    public async Task Availability_CancellationAfterHeadDoesNotPublishPositiveEvidence()
+    {
+        using CancellationTokenSource cancellation = new();
+        using var client = new HttpClient(new StubHandler(_ =>
+        {
+            cancellation.Cancel();
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }));
+        RecordingSourceLinkQueryCache cache = new();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => SourceAvailabilityService.InspectAsync(
+                [Document("/src/A.cs", url: "https://example.test/src/a.cs")],
+                client,
+                cache,
+                cancellationToken: cancellation.Token));
+
+        Assert.Empty(cache.Writes);
+    }
+
+    [Fact]
     public async Task Integrity_DoesNotAcceptMatchingBytesFromCrossOriginRedirect()
     {
         byte[] body = "exact source"u8.ToArray();

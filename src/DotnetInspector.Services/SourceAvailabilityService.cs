@@ -104,6 +104,7 @@ public static class SourceAvailabilityService
                         cancellationToken: ct,
                         trafficKind: NetworkTrafficKind.SourceAudit).ConfigureAwait(false);
                     using var response = result.Response;
+                    ct.ThrowIfCancellationRequested();
                     string? finalUrl = response?.RequestMessage?.RequestUri?.AbsoluteUri;
                     bool originPreserved = response is not null
                         && SourceFetchOriginValidator.Validate(
