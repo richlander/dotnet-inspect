@@ -60,6 +60,69 @@ public sealed class CustomAttributeBoundedCostTests
         Assert.Null(ordinary);
     }
 
+    [Fact]
+    public void DecodeLocalNameBudgetExhaustion_DoesNotPoisonSharedIndex()
+    {
+        using var image = Open(BuildSharedNamespaceIndexImage(
+            definitionCount: 16,
+            namespaceLength: 16));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        long indexNameBytes =
+            ExpectedTypeDefinitionIndexNameBytes(image.Reader);
+        var context = new AttributeDecoder.MaterializationContext(
+            static _ => { });
+        var exhaustedWork =
+            new CustomAttributeValueDecoder.EnumResolutionWork();
+        exhaustedWork.VisitTypeReferenceMatchNameBytes(
+            checked((int)(
+                CustomAttributeValueDecoder.MaxEnumResolutionNameWork
+                - indexNameBytes
+                + 1)));
+
+        Assert.False(CustomAttributeValueDecoder.TryDecode(
+            image.Reader,
+            attribute,
+            preserveSerializedTypeNames: false,
+            captureDefaultedWidths: false,
+            context.Observe,
+            enumUnderlyingType: null,
+            out _,
+            out _,
+            out _,
+            enumResolutionWork: exhaustedWork));
+        Assert.Equal(
+            CustomAttributeValueDecoder.MaxEnumResolutionNameWork,
+            exhaustedWork.NameBytes);
+
+        var retryWork = new CustomAttributeValueDecoder.EnumResolutionWork();
+        Assert.True(CustomAttributeValueDecoder.TryDecode(
+            image.Reader,
+            attribute,
+            preserveSerializedTypeNames: false,
+            captureDefaultedWidths: false,
+            context.Observe,
+            enumUnderlyingType: null,
+            out _,
+            out _,
+            out _,
+            enumResolutionWork: retryWork));
+        Assert.Equal(indexNameBytes, retryWork.TypeDefinitionIndexNameBytes);
+
+        var cachedWork = new CustomAttributeValueDecoder.EnumResolutionWork();
+        Assert.True(CustomAttributeValueDecoder.TryDecode(
+            image.Reader,
+            attribute,
+            preserveSerializedTypeNames: false,
+            captureDefaultedWidths: false,
+            context.Observe,
+            enumUnderlyingType: null,
+            out _,
+            out _,
+            out _,
+            enumResolutionWork: cachedWork));
+        Assert.Equal(0, cachedWork.TypeDefinitionIndexNameBytes);
+    }
+
     [Theory]
     [InlineData(1, 4096)]
     [InlineData(1024, 1)]

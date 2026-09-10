@@ -1134,8 +1134,9 @@ metadata-name budget across TypeDef-index rendering and TypeRef candidate
 matching (#5757, #5758). The budget charges encoded metadata string bytes
 before each render or comparison. Encoded byte length is a conservative upper
 bound on decoded character comparisons and is available without first
-materializing the string. Exhaustion uses the same internal malformed-input
-signal as the candidate/frame budget, so `AttributeDecoder` returns `null`.
+materializing the string. Exhaustion uses a decode-local refusal signal, so
+`AttributeDecoder` returns `null` without caching the event as intrinsic
+type-index corruption across later attribute rows.
 
 `CustomAttributeBoundedCostTests` contains two generated shapes:
 

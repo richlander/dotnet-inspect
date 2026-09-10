@@ -112,15 +112,19 @@ internal static class CustomAttributeValueDecoder
                 out namedArgumentWidthDefaulted);
         }
         catch (Exception ex) when (
-            ex is BadImageFormatException or ArgumentOutOfRangeException)
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or EnumResolutionBudgetExceededException)
         {
             // Malformed structure — including truncation, a bad signature, and
             // a definition-index failure — is a decode outcome, not a laundered
             // exception. A caller callback failure is wrapped in
             // CallerCallbackException, which is not one of these types, so it
             // escapes here and is rethrown at the public edge. Resource
-            // exhaustion (OutOfMemoryException) and every other internal failure
-            // also propagate: this filter is exact, never a bare catch.
+            // exhaustion (OutOfMemoryException) and every other internal
+            // failure also propagate. Enum-resolution budget exhaustion is a
+            // separate decode-local refusal so it is never cached as an
+            // intrinsic type-definition-index failure.
             value = default;
             fixedArgumentWidthDefaulted = default;
             namedArgumentWidthDefaulted = default;
@@ -190,9 +194,8 @@ internal static class CustomAttributeValueDecoder
         {
             if (accepted != requested)
             {
-                throw new BadImageFormatException(
-                    "Custom-attribute enum resolution exceeds the "
-                    + "name-work budget.");
+                throw new EnumResolutionBudgetExceededException(
+                    "Custom-attribute enum resolution exceeds the name-work budget.");
             }
         }
 
@@ -200,11 +203,14 @@ internal static class CustomAttributeValueDecoder
         {
             if (Operations >= MaxEnumResolutionWork)
             {
-                throw new BadImageFormatException(
+                throw new EnumResolutionBudgetExceededException(
                     "Custom-attribute enum resolution exceeds the work budget.");
             }
         }
     }
+
+    sealed class EnumResolutionBudgetExceededException(string message)
+        : Exception(message);
 
     /// <summary>
     /// One decode of one attribute value. Fixed arguments are read from the
