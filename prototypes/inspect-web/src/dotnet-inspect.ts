@@ -29,6 +29,7 @@ import {
   libraryLenses,
   memberSectionDefinitions,
   memberSectionIdsFor,
+  packageCoordinateLabel,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
@@ -386,6 +387,7 @@ import {
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
+  TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
   type MemberNavEntry,
   typeMetadataSignature,
   typeSourceSignature,
@@ -5398,6 +5400,9 @@ function packageDependenciesStatus(
   return `${dependencyCount} package${dependencyCount === 1 ? "" : "s"}`;
 }
 
+const DEPENDENCY_GRAPH_SUMMARY =
+  "callers above · dependencies below · click a package to open";
+
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
   const fresh = state.packageDependenciesKey === current;
@@ -5444,7 +5449,7 @@ function renderPackageDependencies() {
 
   const graphSection = `
     <section class="document-section dependency-graph-section">
-      <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
+      <div class="section-title"><h2>Dependency graph</h2><span>${DEPENDENCY_GRAPH_SUMMARY}</span></div>
       ${workspaceDependencyErrorHtml()}
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
@@ -6665,8 +6670,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     // open-package workspace. Keep its scope label distinct while preserving callers returned
     // from every platform assembly loaded into that binding-consistent group.
     const platformView = drilled || Boolean(state.package?.isRuntimePack);
-    const callers = active?.callers?.children ?? [];
-    const callees = active?.callees?.children ?? [];
     const graphScope = active?.scope;
     const otherWorkspaceLibraries = Math.max(
       0,
@@ -6693,7 +6696,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         ? `<section class="document-section empty-member-section"><h2>No call graph</h2><p>${escapeHtml(active.callees?.memberName || "This member")} is an abstract or interface method — it declares no IL body, so it has no in-assembly callers or callees to graph.</p></section>`
         : active
         ? `<section class="document-section call-graph-section">
-            <div class="section-title"><h2>Call graph</h2><span>${callers.length} caller${callers.length === 1 ? "" : "s"} · ${callees.length} callee${callees.length === 1 ? "" : "s"}</span></div>
+            <div class="section-title"><h2>Call graph</h2><span>${callGraphSummary(active)}</span></div>
             ${breadcrumb}
             ${state.platformDrillLoading
               ? `<div class="graph-expanding"><span class="loader"></span> Range-fetching the implementation assembly from the runtime pack…</div>`
@@ -12816,6 +12819,12 @@ function currentCallGraph() {
   return top ? top.graph : state.memberCallGraph;
 }
 
+function callGraphSummary(graph: ReturnType<typeof currentCallGraph>) {
+  const callerCount = graph?.callers.children.length ?? 0;
+  const calleeCount = graph?.callees.children.length ?? 0;
+  return `${callerCount} caller${callerCount === 1 ? "" : "s"} · ${calleeCount} callee${calleeCount === 1 ? "" : "s"}`;
+}
+
 function dependencyGraphAvailable() {
   return state.packageDependenciesKey === packageDependenciesSignature()
     && !state.packageDependenciesLoading
@@ -12871,22 +12880,61 @@ function graphExplorerKey(): string | null {
 function graphExplorerTarget() {
   const key = graphExplorerKey();
   const dependencies = scope() === "package";
-  const type = scope() === "type";
+  const typeRelationships = scope() === "type";
   const content = document.querySelector<HTMLElement>(
     dependencies ? "[data-dependency-graph-surface]"
-      : type ? "[data-type-graph-surface]" : "[data-call-graph-surface]");
+      : typeRelationships ? "[data-type-graph-surface]" : "[data-call-graph-surface]");
   const invoker = document.querySelector<HTMLElement>("[data-graph-explore]");
-  return key && content && invoker
-    ? {
-        key,
-        title: dependencies ? "Dependency graph" : type ? "Type relationships" : "Call graph",
-        context: dependencies
-          ? `${currentPackage().id}@${currentPackage().version} · ${currentPackage().activeFramework}`
-          : currentInspectedSubjectPath().map(segment => segment.label).join(" > "),
-        content,
-        invoker,
-      }
+  if (!key || !content || !invoker) return null;
+
+  const pkg = currentPackage();
+  if (dependencies) {
+    return {
+      key,
+      kind: "Dependency graph",
+      subject: packageCoordinateLabel(pkg),
+      context: `Target framework ${pkg.activeFramework}`,
+      summary: DEPENDENCY_GRAPH_SUMMARY,
+      content,
+      invoker,
+    };
+  }
+
+  const path = currentInspectedSubjectPath();
+  if (typeRelationships) {
+    return {
+      key,
+      kind: "Type relationships",
+      subject: path.at(-1)?.label ?? "Selected type",
+      context: packageCoordinateLabel(pkg),
+      summary: TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
+      content,
+      invoker,
+    };
+  }
+
+  const selected = selectedType();
+  const member = selectedMember(selected);
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
     : null;
+  const parent = selected
+    ? (selected.namespace
+      ? `${selected.namespace}.${typeDisplayName(selected)}`
+      : typeDisplayName(selected))
+    : "Selected type";
+  const packageContext = pkg.isRuntimePack
+    ? platformTargetLabel()
+    : packageCoordinateLabel(pkg);
+  return {
+    key,
+    kind: "Call graph",
+    subject: overload?.signature ?? path.at(-1)?.label ?? "Selected member",
+    context: `${packageContext} · ${parent}`,
+    summary: callGraphSummary(currentCallGraph()),
+    content,
+    invoker,
+  };
 }
 
 function openGraphExplorer() {

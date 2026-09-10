@@ -2340,7 +2340,7 @@ while validating that every runtime returns the same semantic result.
 
 ```bash
 npm run benchmark:published -- \
-  --site mono=https://dotnet-inspect.ca \
+  --site mono=https://dotnet-inspect.net \
   --site coreclr=https://coreclr.dotnet-inspect.ca \
   --samples 5 \
   --member-count 10 \
@@ -2354,6 +2354,9 @@ explicitly non-comparable. The daily
 `inspect-web-performance-nightly.yml` workflow runs the comparison on one
 runner, retains raw evidence for 90 days, and emits a trend point only for a
 fully successful, matched-head, semantically equivalent report.
+The Mono control uses the promoted production site because it and CoreCLR
+advance from the same promotion SHA. The continuously deployed Mono staging
+site is not a stable comparison peer.
 
 `.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
 archives the resulting `wwwroot` and prebuilt managed API as the run-scoped
