@@ -574,12 +574,12 @@ end-to-end tracker. Its current total is 12 steps:
 9. adopt it for direct-library and Workspace assembly-context inputs;
 10. delegate `AssemblyContextSourceQuery` to SourceHouse and retire its fallback
    policy;
-11. adopt SourceHouse in the CLI; and
-12. adopt SourceHouse in Inspect Web Browser/Wasm and retire the remaining
-    legacy composition.
+11. adopt SourceHouse in Inspect Web Browser/Wasm; and
+12. adopt SourceHouse in the CLI, retire the remaining legacy composition, and
+    close the source portion of #6335.
 
-Each step changes one owner. Steps 2-8 supply the reusable path; steps 9-11
-prove production adoption and retire the alternative architecture. A change
+Each step changes one owner. Steps 2-9 establish the reusable path; steps 10-12
+migrate production consumers and retire the alternative architecture. A change
 to the count or host coverage requires an explicit tracker update.
 
 ## Evidence plan
