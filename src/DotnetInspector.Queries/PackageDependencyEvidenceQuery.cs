@@ -24,6 +24,7 @@ public enum PackageDependencyEvidenceAcquisitionForm
     PackageSourceManifest,
     ProjectAssets,
     ProjectLocator,
+    ProjectXml,
 }
 
 /// <summary>The fidelity basis claimed by one root's declaration phase.</summary>
@@ -79,6 +80,12 @@ public abstract record PackageDependencyEvidenceInput
         RestoredProjectDependencyFacts Facts,
         PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         InertString? SourceLabel = null) : PackageDependencyEvidenceInput;
+
+    /// <summary>Authored-project syntax facts, including incomplete or failed outcomes.</summary>
+    public sealed record AuthoredProject(
+        AuthoredProjectDependencyFactsResult Result,
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
+        InertString? SourceLabel = null) : PackageDependencyEvidenceInput;
 }
 
 /// <summary>One typed upstream failure for a root that could not be admitted.</summary>
@@ -97,6 +104,11 @@ public abstract record PackageDependencyEvidenceRootFailure
     public sealed record RestoredProject(
         PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         RestoredProjectDependencyFailure Failure,
+        InertString? SourceLabel = null) : PackageDependencyEvidenceRootFailure;
+
+    public sealed record AuthoredProject(
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
+        AuthoredProjectDependencyFactsFailure Failure,
         InertString? SourceLabel = null) : PackageDependencyEvidenceRootFailure;
 
     public sealed record PackageProfile(
@@ -221,6 +233,9 @@ public abstract record PackageDependencyEvidenceRootIdentity
 
     public sealed record RestoredProject(RestoredProjectRootIdentity Identity) :
         PackageDependencyEvidenceRootIdentity;
+
+    public sealed record AuthoredProject(AuthoredProjectIdentity Identity) :
+        PackageDependencyEvidenceRootIdentity;
 }
 
 /// <summary>Identity trust, content provenance, and acquisition form for one admitted root.</summary>
@@ -246,6 +261,11 @@ public abstract record PackageDependencyEvidenceRootProvenance
         PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         RestoredProjectContentProvenance ContentProvenance,
         InertString? SourceLabel) : PackageDependencyEvidenceRootProvenance;
+
+    public sealed record AuthoredProject(
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
+        AuthoredProjectContentProvenance ContentProvenance,
+        InertString? SourceLabel) : PackageDependencyEvidenceRootProvenance;
 }
 
 /// <summary>The semantic framework scope of one logical declaration group.</summary>
@@ -254,6 +274,7 @@ public enum PackageDependencyFrameworkScopeKind
     AnyFramework,
     ExactFramework,
     UnrecognizedFramework,
+    UnresolvedFramework,
 }
 
 /// <summary>
@@ -305,6 +326,15 @@ public sealed record PackageDependencyFrameworkScopeIdentity
             null,
             opaqueIdentity,
             sourceSpelling);
+
+    internal static PackageDependencyFrameworkScopeIdentity Unresolved(
+        string opaqueIdentity,
+        InertString sourceSpelling) =>
+        new(
+            PackageDependencyFrameworkScopeKind.UnresolvedFramework,
+            null,
+            opaqueIdentity,
+            sourceSpelling);
 }
 
 /// <summary>Stable identity for one normalized logical declaration group.</summary>
@@ -322,6 +352,12 @@ public abstract record PackageDependencyEvidenceGroupIdentity
     public sealed record RestoredProject(
         RestoredProjectDeclarationGroupIdentity Identity) :
         PackageDependencyEvidenceGroupIdentity;
+
+    public sealed record AuthoredProject(
+        AuthoredProjectIdentity Root,
+        PackageDependencyFrameworkScopeKind ScopeKind,
+        string ScopeIdentity) :
+        PackageDependencyEvidenceGroupIdentity;
 }
 
 /// <summary>One owner-issued occurrence contributing to a logical declaration group.</summary>
@@ -337,6 +373,25 @@ public abstract record PackageDependencyEvidenceGroupOccurrence
     public sealed record RestoredProject(
         RestoredProjectDeclarationGroupIdentity Identity) :
         PackageDependencyEvidenceGroupOccurrence;
+
+    public sealed record AuthoredProjectTarget(
+        AuthoredProjectTargetFrameworkIdentity Identity,
+        InertString SourceSpelling,
+        string SyntaxContextIdentity) :
+        PackageDependencyEvidenceGroupOccurrence;
+
+    public sealed record AuthoredProjectDeclaration(
+        AuthoredProjectPackageDeclarationIdentity Identity,
+        int SourceOccurrenceCount) :
+        PackageDependencyEvidenceGroupOccurrence
+    {
+        public int SourceOccurrenceCount { get; } = SourceOccurrenceCount >= 1
+            ? SourceOccurrenceCount
+            : throw new ArgumentOutOfRangeException(
+                nameof(SourceOccurrenceCount),
+                SourceOccurrenceCount,
+                "A source occurrence count must be at least one.");
+    }
 }
 
 /// <summary>Identity for one successful declaration row.</summary>
@@ -396,6 +451,14 @@ public abstract record PackageDependencyEvidenceDeclarationFailure
 
     public sealed record RestoredProject(
         RestoredProjectDeclarationFailure Failure) :
+        PackageDependencyEvidenceDeclarationFailure;
+
+    public sealed record AuthoredProject(
+        AuthoredProjectDependencyLimitation Limitation) :
+        PackageDependencyEvidenceDeclarationFailure;
+
+    public sealed record AuthoredProjectUnresolvedSyntax(
+        AuthoredProjectUnresolvedDependencySyntax Syntax) :
         PackageDependencyEvidenceDeclarationFailure;
 }
 
@@ -688,6 +751,9 @@ public sealed record PackageDependencyEvidenceRoot(
             (PackageDependencyEvidenceRootIdentity.RestoredProject _,
                 PackageDependencyEvidenceRootProvenance.RestoredProject _) =>
                     Provenance,
+            (PackageDependencyEvidenceRootIdentity.AuthoredProject _,
+                PackageDependencyEvidenceRootProvenance.AuthoredProject _) =>
+                    Provenance,
             _ => throw new ArgumentException(
                 "Root identity and provenance must describe the same semantic input.",
                 nameof(Provenance)),
@@ -702,6 +768,9 @@ public sealed record PackageDependencyEvidenceRoot(
             (PackageDependencyEvidenceRootIdentity.RestoredProject _,
                 PackageDependencyEvidenceRootProvenance.RestoredProject _) =>
                     PackageDependencyEvidenceInputKind.RestoredProject,
+            (PackageDependencyEvidenceRootIdentity.AuthoredProject _,
+                PackageDependencyEvidenceRootProvenance.AuthoredProject _) =>
+                    PackageDependencyEvidenceInputKind.AuthoredProject,
             _ => throw new ArgumentException(
                 "Root identity and provenance must describe the same semantic input kind.",
                 nameof(Provenance)),
@@ -716,6 +785,10 @@ public sealed record PackageDependencyEvidenceRoot(
             (PackageDependencyEvidenceRootIdentity.RestoredProject _,
                 PackageDependencyEvidenceRootProvenance.RestoredProject _) =>
                     PackageDependencyEvidenceDeclarationBasis.RestoredProject,
+            (PackageDependencyEvidenceRootIdentity.AuthoredProject _,
+                PackageDependencyEvidenceRootProvenance.AuthoredProject _) =>
+                    PackageDependencyEvidenceDeclarationBasis
+                        .AuthoredProjectSyntax,
             _ => throw new ArgumentException(
                 "Root identity and provenance must describe the same declaration basis.",
                 nameof(Provenance)),
@@ -858,6 +931,22 @@ public static class PackageDependencyEvidenceQuery
             sourceLabel);
     }
 
+    /// <summary>Builds an authored-project input from one complete provider outcome.</summary>
+    public static PackageDependencyEvidenceInput.AuthoredProject
+        CreateAuthoredProjectInput(
+            AuthoredProjectDependencyFactsResult result,
+            PackageDependencyEvidenceAcquisitionForm acquisitionForm =
+                PackageDependencyEvidenceAcquisitionForm.ProjectXml,
+            InertString? sourceLabel = null)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        RequireAuthoredProjectAcquisitionForm(acquisitionForm);
+        return new PackageDependencyEvidenceInput.AuthoredProject(
+            result,
+            acquisitionForm,
+            sourceLabel);
+    }
+
     /// <summary>Contains package-profile failure text before it reaches a sink.</summary>
     public static PackageDependencyEvidenceRootFailure.PackageProfile
         CreatePackageProfileFailure(PackageProfileFailure failure)
@@ -938,6 +1027,11 @@ public static class PackageDependencyEvidenceQuery
                     RequireRestoredAcquisitionForm(restored.AcquisitionForm);
                     ArgumentNullException.ThrowIfNull(restored.Failure);
                     break;
+                case PackageDependencyEvidenceRootFailure.AuthoredProject authored:
+                    RequireAuthoredProjectAcquisitionForm(
+                        authored.AcquisitionForm);
+                    ArgumentNullException.ThrowIfNull(authored.Failure);
+                    break;
                 case PackageDependencyEvidenceRootFailure.PackageProfile profile:
                     if (profile.Kind is PackageProfileFailureKind.Search
                             or PackageProfileFailureKind.SearchContract
@@ -957,26 +1051,57 @@ public static class PackageDependencyEvidenceQuery
             }
         }
 
-        ImmutableArray<PackageDependencyEvidenceRoot> roots =
-            [.. request.Roots.Select(ProjectRoot)];
+        var roots =
+            ImmutableArray.CreateBuilder<PackageDependencyEvidenceRoot>(
+                request.Roots.Length);
+        var failedRoots =
+            ImmutableArray.CreateBuilder<PackageDependencyEvidenceRootFailure>(
+                request.FailedRoots.Length);
+        failedRoots.AddRange(request.FailedRoots);
+        foreach (PackageDependencyEvidenceInput input in request.Roots)
+        {
+            if (input is PackageDependencyEvidenceInput.AuthoredProject
+                {
+                    Result:
+                        AuthoredProjectDependencyFactsResult.Failed failed,
+                } authored)
+            {
+                RequireAuthoredProjectAcquisitionForm(
+                    authored.AcquisitionForm);
+                ArgumentNullException.ThrowIfNull(failed.Failure);
+                failedRoots.Add(
+                    new PackageDependencyEvidenceRootFailure.AuthoredProject(
+                        authored.AcquisitionForm,
+                        failed.Failure,
+                        authored.SourceLabel));
+                continue;
+            }
+
+            roots.Add(ProjectRoot(input));
+        }
+
+        ImmutableArray<PackageDependencyEvidenceRoot> admittedRoots =
+            roots.ToImmutable();
+        ImmutableArray<PackageDependencyEvidenceRootFailure>
+            allFailedRoots = failedRoots.ToImmutable();
         PackageDependencyEvidenceRootSetCompletion rootSetCompletion =
             !request.IsTruncated
             && request.RejectedRootCount == 0
-            && request.FailedRoots.IsEmpty
+            && allFailedRoots.IsEmpty
                 ? PackageDependencyEvidenceRootSetCompletion.Complete
                 : PackageDependencyEvidenceRootSetCompletion.Incomplete;
 
         return new PackageDependencyEvidenceOutcome(
-            roots,
-            request.FailedRoots,
+            admittedRoots,
+            allFailedRoots,
             new PackageDependencyEvidenceRootSetSummary(
                 rootSetCompletion,
-                roots.Length,
+                admittedRoots.Length,
                 request.RejectedRootCount,
-                request.FailedRoots.Length,
+                allFailedRoots.Length,
                 request.IsTruncated,
                 request.PackagePrefixCompletion),
-            SummarizePhases(roots));
+            SummarizePhases(admittedRoots));
     }
 
     public static PackageDependencyEvidenceComparison Compare(
@@ -1028,6 +1153,8 @@ public static class PackageDependencyEvidenceQuery
                 ProjectPackage(package),
             PackageDependencyEvidenceInput.RestoredProject restored =>
                 ProjectRestoredProject(restored),
+            PackageDependencyEvidenceInput.AuthoredProject authored =>
+                ProjectAuthoredProject(authored),
             _ => throw new InvalidOperationException(
                 "Unknown package dependency evidence input."),
         };
@@ -1091,6 +1218,56 @@ public static class PackageDependencyEvidenceQuery
             input.Facts.SelectedTarget,
             ProjectRestoredRelationships(rootIdentity, input.Facts),
             ProjectRestoredProcessing(input.Facts));
+    }
+
+    private static PackageDependencyEvidenceRoot ProjectAuthoredProject(
+        PackageDependencyEvidenceInput.AuthoredProject input)
+    {
+        ArgumentNullException.ThrowIfNull(input.Result);
+        RequireAuthoredProjectAcquisitionForm(input.AcquisitionForm);
+        (AuthoredProjectDependencyFacts facts,
+            ImmutableArray<AuthoredProjectDependencyLimitation> limitations) =
+            input.Result switch
+            {
+                AuthoredProjectDependencyFactsResult.Available available =>
+                    (available.Value,
+                        ImmutableArray<AuthoredProjectDependencyLimitation>.Empty),
+                AuthoredProjectDependencyFactsResult.Incomplete incomplete
+                    when incomplete.Limitations.IsDefaultOrEmpty =>
+                    throw new ArgumentException(
+                        "An incomplete authored-project result requires at least one typed limitation.",
+                        nameof(input)),
+                AuthoredProjectDependencyFactsResult.Incomplete incomplete =>
+                    (incomplete.Value, incomplete.Limitations),
+                AuthoredProjectDependencyFactsResult.Failed =>
+                    throw new InvalidOperationException(
+                        "Failed authored-project facts must be projected as a failed root."),
+                _ => throw new InvalidOperationException(
+                    "Unknown authored-project facts result."),
+            };
+        ArgumentNullException.ThrowIfNull(facts);
+
+        var rootIdentity =
+            new PackageDependencyEvidenceRootIdentity.AuthoredProject(
+                facts.Identity);
+        return new PackageDependencyEvidenceRoot(
+            rootIdentity,
+            new PackageDependencyEvidenceRootProvenance.AuthoredProject(
+                input.AcquisitionForm,
+                facts.ContentProvenance,
+                input.SourceLabel),
+            input.SourceLabel
+                ?? new InertString(TextPolicy.Prose, "Authored project"),
+            ProjectAuthoredProjectDeclaration(facts, limitations),
+            new PackageDependencyEvidenceSelection(
+                PackageDependencyEvidenceSelectionStatus.Unavailable,
+                null,
+                null,
+                null,
+                null),
+            null,
+            new PackageDependencyEvidenceRelationshipResult.NotApplicable(),
+            new PackageDependencyEvidenceProcessingResult.NotApplicable());
     }
 
     private static PackageDependencyEvidenceDeclarationResult.Available
@@ -1331,6 +1508,293 @@ public static class PackageDependencyEvidenceQuery
                     TextPolicy.Field,
                     source.SelectedTargetFramework,
                     PackageManifestFactsQuery.MaxScalarCharacters));
+    }
+
+    private static PackageDependencyEvidenceDeclarationResult.Available
+        ProjectAuthoredProjectDeclaration(
+            AuthoredProjectDependencyFacts facts,
+            ImmutableArray<AuthoredProjectDependencyLimitation> limitations)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        limitations = limitations.IsDefault ? [] : limitations;
+        if (limitations.IsEmpty
+            && (!facts.UnresolvedDependencySyntax.IsDefaultOrEmpty
+                || facts.PackageDeclarations.Any(static declaration =>
+                    declaration.CanonicalPackageId is null
+                    || declaration.CanonicalVersionConstraint is null
+                    || declaration.SourcePackageIdSpelling is null
+                    || declaration.SourceVersionConstraintSpelling is null)))
+        {
+            throw new InvalidOperationException(
+                "Complete authored-project facts must contain only fully projected declarations.");
+        }
+
+        var groups = new Dictionary<string, AuthoredProjectGroupAccumulator>(
+            StringComparer.Ordinal);
+        foreach (AuthoredProjectTargetFramework target in facts.TargetFrameworks)
+        {
+            AuthoredProjectScope scope = CreateAuthoredProjectScope(target);
+            AuthoredProjectGroupAccumulator group =
+                GetOrAddAuthoredProjectGroup(groups, scope);
+            group.SourceOccurrences.Add(
+                new PackageDependencyEvidenceGroupOccurrence
+                    .AuthoredProjectTarget(
+                        target.Identity,
+                        target.SourceSpelling,
+                        target.SyntaxContextIdentity));
+        }
+
+        foreach (AuthoredProjectPackageDeclaration declaration in
+            facts.PackageDeclarations)
+        {
+            AuthoredProjectScope scope =
+                CreateAuthoredProjectScope(declaration.Condition);
+            AuthoredProjectGroupAccumulator group =
+                GetOrAddAuthoredProjectGroup(groups, scope);
+            group.SourceOccurrences.Add(
+                new PackageDependencyEvidenceGroupOccurrence
+                    .AuthoredProjectDeclaration(
+                        declaration.Identity,
+                        declaration.SourceOccurrenceCount));
+            group.Declarations.Add(declaration);
+        }
+
+        var failures =
+            ImmutableArray.CreateBuilder<
+                PackageDependencyEvidenceDeclarationFailure>();
+        failures.AddRange(
+            limitations.Select(limitation =>
+                new PackageDependencyEvidenceDeclarationFailure
+                    .AuthoredProject(limitation)));
+        failures.AddRange(
+            facts.UnresolvedDependencySyntax.Select(syntax =>
+                new PackageDependencyEvidenceDeclarationFailure
+                    .AuthoredProjectUnresolvedSyntax(syntax)));
+
+        var projectedGroups =
+            ImmutableArray.CreateBuilder<PackageDependencyEvidenceGroup>(
+                groups.Count);
+        foreach (AuthoredProjectGroupAccumulator sourceGroup in
+            groups.Values.OrderBy(
+                static group => group.OrderKey,
+                StringComparer.Ordinal))
+        {
+            var identity =
+                new PackageDependencyEvidenceGroupIdentity.AuthoredProject(
+                    facts.Identity,
+                    sourceGroup.Kind,
+                    sourceGroup.ScopeIdentity);
+            ImmutableArray<PackageDependencyEvidenceDeclaration> declarations =
+                ProjectAuthoredProjectDeclarations(
+                    identity,
+                    sourceGroup.Declarations,
+                    failures);
+            projectedGroups.Add(
+                new PackageDependencyEvidenceGroup(
+                    identity,
+                    sourceGroup.CreateFrameworkScope(),
+                    sourceGroup.SourceOccurrences.ToImmutableArray(),
+                    sourceGroup.OrderKey,
+                    declarations));
+        }
+
+        return new PackageDependencyEvidenceDeclarationResult.Available(
+            projectedGroups.MoveToImmutable(),
+            failures.ToImmutable(),
+            failures.Count == 0
+                ? PackageDependencyEvidencePhaseCompletion.Complete
+                : PackageDependencyEvidencePhaseCompletion.Incomplete);
+    }
+
+    private static ImmutableArray<PackageDependencyEvidenceDeclaration>
+        ProjectAuthoredProjectDeclarations(
+            PackageDependencyEvidenceGroupIdentity group,
+            List<AuthoredProjectPackageDeclaration> source,
+            ImmutableArray<PackageDependencyEvidenceDeclarationFailure>.Builder
+                failures)
+    {
+        var declarations =
+            ImmutableArray.CreateBuilder<PackageDependencyEvidenceDeclaration>();
+        foreach (IGrouping<string, AuthoredProjectPackageDeclaration> package in
+            source
+                .Where(static declaration =>
+                    declaration.CanonicalPackageId is not null
+                    && declaration.CanonicalVersionConstraint is not null
+                    && declaration.SourcePackageIdSpelling is not null
+                    && declaration.SourceVersionConstraintSpelling is not null)
+                .GroupBy(
+                    static declaration => declaration.CanonicalPackageId!,
+                    StringComparer.Ordinal)
+                .OrderBy(static group => group.Key, StringComparer.Ordinal))
+        {
+            AuthoredProjectPackageDeclaration[] occurrences =
+                [.. package];
+            string[] constraints =
+            [
+                .. occurrences
+                    .Select(static declaration =>
+                        declaration.CanonicalVersionConstraint!)
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal),
+            ];
+            int sourceOccurrenceCount = checked(
+                occurrences.Sum(static declaration =>
+                    declaration.SourceOccurrenceCount));
+            if (constraints.Length != 1)
+            {
+                failures.Add(
+                    new PackageDependencyEvidenceDeclarationFailure
+                        .ConflictingPackageDeclaration(
+                            group,
+                            package.Key,
+                            sourceOccurrenceCount));
+                continue;
+            }
+
+            AuthoredProjectPackageDeclaration representative =
+                occurrences
+                    .OrderBy(
+                        static declaration =>
+                            declaration.SourcePackageIdSpelling!.ToString(),
+                        StringComparer.Ordinal)
+                    .ThenBy(
+                        static declaration =>
+                            declaration.SourceVersionConstraintSpelling!
+                                .ToString(),
+                        StringComparer.Ordinal)
+                    .First();
+            declarations.Add(
+                new PackageDependencyEvidenceDeclaration(
+                    new PackageDependencyEvidenceDeclarationIdentity(
+                        group,
+                        package.Key),
+                    package.Key,
+                    constraints[0],
+                    representative.SourcePackageIdSpelling!.Value,
+                    representative.SourceVersionConstraintSpelling!.Value,
+                    sourceOccurrenceCount,
+                    PackageDependencyEvidenceAuthorship.ApplicationAuthored));
+        }
+
+        return declarations.ToImmutable();
+    }
+
+    private static AuthoredProjectGroupAccumulator
+        GetOrAddAuthoredProjectGroup(
+            Dictionary<string, AuthoredProjectGroupAccumulator> groups,
+            AuthoredProjectScope scope)
+    {
+        if (!groups.TryGetValue(scope.Key, out AuthoredProjectGroupAccumulator? group))
+        {
+            group = new AuthoredProjectGroupAccumulator(scope);
+            groups.Add(scope.Key, group);
+        }
+        else
+        {
+            group.AddSourceSpelling(scope.SourceSpelling);
+        }
+
+        return group;
+    }
+
+    private static AuthoredProjectScope CreateAuthoredProjectScope(
+        AuthoredProjectTargetFramework target) =>
+        CreateAuthoredProjectScope(
+            target.Identity,
+            target.SourceSpelling,
+            target.SyntaxContextIdentity);
+
+    private static AuthoredProjectScope CreateAuthoredProjectScope(
+        AuthoredProjectDependencyCondition condition) =>
+        condition switch
+        {
+            AuthoredProjectDependencyCondition.Unconditional =>
+                new AuthoredProjectScope(
+                    "0:any",
+                    PackageDependencyFrameworkScopeKind.AnyFramework,
+                    "any",
+                    null,
+                    null,
+                    new InertString(TextPolicy.Field, string.Empty),
+                    "0:any"),
+            AuthoredProjectDependencyCondition.TargetFramework target =>
+                CreateAuthoredProjectScope(
+                    target.Framework,
+                    target.SourceSpelling,
+                    syntaxContextIdentity: null),
+            AuthoredProjectDependencyCondition.Unresolved unresolved =>
+                CreateUnresolvedAuthoredProjectScope(
+                    "condition",
+                    unresolved.OpaqueIdentity,
+                    syntaxContextIdentity: null,
+                    SelectAuthoredSourceSpelling(
+                        unresolved.SourceSpellings)),
+            _ => throw new InvalidOperationException(
+                "Unknown authored-project declaration condition."),
+        };
+
+    private static InertString SelectAuthoredSourceSpelling(
+        ImmutableArray<InertString> sourceSpellings) =>
+        sourceSpellings.IsDefaultOrEmpty
+            ? new InertString(TextPolicy.Field, string.Empty)
+            : sourceSpellings
+                .OrderBy(
+                    static spelling => spelling.ToString(),
+                    StringComparer.Ordinal)
+                .First();
+
+    private static AuthoredProjectScope CreateAuthoredProjectScope(
+        AuthoredProjectTargetFrameworkIdentity identity,
+        InertString sourceSpelling,
+        string? syntaxContextIdentity) =>
+        identity.Kind switch
+        {
+            AuthoredProjectTargetFrameworkKind.Exact =>
+                new AuthoredProjectScope(
+                    $"1:{identity.CanonicalFramework}",
+                    PackageDependencyFrameworkScopeKind.ExactFramework,
+                    $"exact:{identity.CanonicalFramework}",
+                    identity.CanonicalFramework,
+                    null,
+                    sourceSpelling,
+                    $"1:{identity.CanonicalFramework}"),
+            AuthoredProjectTargetFrameworkKind.Unrecognized =>
+                new AuthoredProjectScope(
+                    $"2:{identity.ComparisonIdentity}",
+                    PackageDependencyFrameworkScopeKind.UnrecognizedFramework,
+                    $"unrecognized:{identity.ComparisonIdentity}",
+                    null,
+                    identity.ComparisonIdentity,
+                    sourceSpelling,
+                    $"2:{identity.ComparisonIdentity}"),
+            AuthoredProjectTargetFrameworkKind.Unresolved =>
+                CreateUnresolvedAuthoredProjectScope(
+                    "target",
+                    identity.ComparisonIdentity,
+                    syntaxContextIdentity,
+                    sourceSpelling),
+            _ => throw new InvalidOperationException(
+                "Unknown authored-project target framework kind."),
+        };
+
+    private static AuthoredProjectScope CreateUnresolvedAuthoredProjectScope(
+        string sourceKind,
+        string opaqueIdentity,
+        string? syntaxContextIdentity,
+        InertString sourceSpelling)
+    {
+        string identity = RestoredProjectIdentityText.Opaque(
+            $"{sourceKind.Length}:{sourceKind}"
+            + $"{opaqueIdentity.Length}:{opaqueIdentity}"
+            + $"{syntaxContextIdentity?.Length ?? 0}:{syntaxContextIdentity}");
+        return new AuthoredProjectScope(
+            $"3:{identity}",
+            PackageDependencyFrameworkScopeKind.UnresolvedFramework,
+            $"unresolved:{identity}",
+            null,
+            identity,
+            sourceSpelling,
+            $"3:{identity}");
     }
 
     private static PackageDependencyEvidenceDeclarationResult
@@ -1756,6 +2220,18 @@ public static class PackageDependencyEvidenceQuery
         }
     }
 
+    private static void RequireAuthoredProjectAcquisitionForm(
+        PackageDependencyEvidenceAcquisitionForm acquisitionForm)
+    {
+        if (acquisitionForm
+            != PackageDependencyEvidenceAcquisitionForm.ProjectXml)
+        {
+            throw new ArgumentException(
+                "An authored-project root requires direct project-XML provenance.",
+                nameof(acquisitionForm));
+        }
+    }
+
     private static void RequireKnownAcquisitionForm(
         PackageDependencyEvidenceAcquisitionForm acquisitionForm)
     {
@@ -1776,6 +2252,78 @@ public static class PackageDependencyEvidenceQuery
                 or PackageProfileFailureKind.InvalidManifest
                 ? TryCreatePackageCoordinate(failure.PackageId, failure.Version)
                 : null;
+
+    private sealed record AuthoredProjectScope(
+        string Key,
+        PackageDependencyFrameworkScopeKind Kind,
+        string ScopeIdentity,
+        string? CanonicalFramework,
+        string? OpaqueIdentity,
+        InertString SourceSpelling,
+        string OrderKey);
+
+    private sealed class AuthoredProjectGroupAccumulator
+    {
+        private InertString _sourceSpelling;
+
+        public AuthoredProjectGroupAccumulator(AuthoredProjectScope scope)
+        {
+            Kind = scope.Kind;
+            ScopeIdentity = scope.ScopeIdentity;
+            CanonicalFramework = scope.CanonicalFramework;
+            OpaqueIdentity = scope.OpaqueIdentity;
+            OrderKey = scope.OrderKey;
+            _sourceSpelling = scope.SourceSpelling;
+        }
+
+        public PackageDependencyFrameworkScopeKind Kind { get; }
+
+        public string ScopeIdentity { get; }
+
+        public string? CanonicalFramework { get; }
+
+        public string? OpaqueIdentity { get; }
+
+        public string OrderKey { get; }
+
+        public List<PackageDependencyEvidenceGroupOccurrence> SourceOccurrences
+            { get; } = [];
+
+        public List<AuthoredProjectPackageDeclaration> Declarations
+            { get; } = [];
+
+        public void AddSourceSpelling(InertString sourceSpelling)
+        {
+            if (string.CompareOrdinal(
+                    sourceSpelling.ToString(),
+                    _sourceSpelling.ToString()) < 0)
+            {
+                _sourceSpelling = sourceSpelling;
+            }
+        }
+
+        public PackageDependencyFrameworkScopeIdentity CreateFrameworkScope() =>
+            Kind switch
+            {
+                PackageDependencyFrameworkScopeKind.AnyFramework =>
+                    PackageDependencyFrameworkScopeIdentity.Any(
+                        _sourceSpelling),
+                PackageDependencyFrameworkScopeKind.ExactFramework =>
+                    PackageDependencyFrameworkScopeIdentity.Exact(
+                        CanonicalFramework!,
+                        _sourceSpelling),
+                PackageDependencyFrameworkScopeKind.UnrecognizedFramework =>
+                    PackageDependencyFrameworkScopeIdentity.Unrecognized(
+                        OpaqueIdentity!,
+                        _sourceSpelling),
+                PackageDependencyFrameworkScopeKind.UnresolvedFramework =>
+                    PackageDependencyFrameworkScopeIdentity.Unresolved(
+                        OpaqueIdentity!,
+                        _sourceSpelling),
+                _ => throw new InvalidOperationException(
+                    "Unknown authored-project framework scope kind."),
+            };
+    }
 
     private static InertString? TreatOptionalField(string? value) =>
         value is null
@@ -2021,12 +2569,13 @@ public static class PackageDependencyEvidenceQuery
     [
         .. groups
             .Where(group =>
-                group.FrameworkScope.Kind
-                    == PackageDependencyFrameworkScopeKind.UnrecognizedFramework)
+                group.FrameworkScope.Kind is
+                    PackageDependencyFrameworkScopeKind.UnrecognizedFramework
+                    or PackageDependencyFrameworkScopeKind.UnresolvedFramework)
             .Select(group =>
                 group.FrameworkScope.OpaqueIdentity
                 ?? throw new InvalidOperationException(
-                    "An unrecognized framework scope requires opaque comparison identity."))
+                    "An opaque framework scope requires comparison identity."))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal),
     ];
@@ -2050,7 +2599,20 @@ public static class PackageDependencyEvidenceQuery
         PackageDependencyEvidenceGroup group) =>
         string.Concat(group.Declarations.Select(declaration =>
             EncodePart(declaration.CanonicalPackageId)
-            + EncodePart(declaration.CanonicalVersionConstraint)));
+            + EncodePart(
+                CanonicalVersionConstraintIdentity(
+                    declaration.CanonicalVersionConstraint))));
+
+    private static string CanonicalVersionConstraintIdentity(string value)
+    {
+        if (!VersionRange.TryParse(value, out VersionRange? range))
+        {
+            throw new InvalidOperationException(
+                "A normalized package dependency requires a valid NuGet version constraint.");
+        }
+
+        return range.ToNormalizedString().ToLowerInvariant();
+    }
 
     private static string CanonicalScopeIdentity(
         PackageDependencyFrameworkScopeIdentity scope) =>
@@ -2061,6 +2623,8 @@ public static class PackageDependencyEvidenceQuery
                 "exact:" + scope.CanonicalFramework,
             PackageDependencyFrameworkScopeKind.UnrecognizedFramework =>
                 "opaque:" + scope.OpaqueIdentity,
+            PackageDependencyFrameworkScopeKind.UnresolvedFramework =>
+                "unresolved:" + scope.OpaqueIdentity,
             _ => throw new InvalidOperationException(
                 "Unknown package dependency framework scope."),
         };
