@@ -427,12 +427,28 @@ jobs:
         run: dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 
       - name: Prepare real-world corpus
-        run: bash eng/prepare-decompiler-corpus.sh corpus-assemblies.txt
+        run: |
+          mkdir -p artifacts/deep-inspect
+          bash eng/prepare-decompiler-corpus.sh artifacts/deep-inspect/corpus-assemblies.txt
+
+      - name: Record independently selected native RTS cutover evidence
+        shell: bash
+        run: |
+          set -o pipefail
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
+          mkdir -p artifacts/deep-inspect
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --emit-corpus-snapshot artifacts/deep-inspect/rts-cutover-snapshot.json \
+            --compile-cap 0 \
+            --corpus-fidelity-cap 50 \
+            --corpus-fidelity-oracle rts-cutover \
+            --max-examples 10 \
+            2>&1 | tee artifacts/deep-inspect/rts-cutover.txt
 
       - name: Run real-world corpus sensor
         shell: bash
         run: |
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --emit-corpus-snapshot artifacts/deep-inspect/corpus-snapshot.json \
@@ -459,7 +475,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --emit-return-address-snapshot artifacts/deep-inspect/return-address-snapshot.json \
@@ -471,7 +487,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --emit-not-my-type-snapshot artifacts/deep-inspect/not-my-type-snapshot.json \
@@ -495,7 +511,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --validity-predicate-scan \
@@ -506,7 +522,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --validity-check \
@@ -536,7 +552,7 @@ jobs:
         run: |
           mkdir -p artifacts/analysis-census
           dotnet run --project tools/AnalysisHarness -c Release -- \
-            --corpus-list corpus-assemblies.txt \
+            --corpus-list artifacts/deep-inspect/corpus-assemblies.txt \
             --emit-corpus-snapshot artifacts/analysis-census/analysis-corpus-snapshot.json \
             --diff-corpus-baseline tools/AnalysisHarness/corpus/analysis-baseline.json
 
