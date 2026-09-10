@@ -1944,8 +1944,8 @@ internal static class PromotionWorkflowContract
                 and .readyToRun.inspectWebApplicationAssetCount == 8
                 and .readyToRun.ilOnlyAssets == [
                   "System.ComponentModel.wasm",
-                  "System.wasm",
-                  "System.Xml.Linq.wasm"
+                  "System.Xml.Linq.wasm",
+                  "System.wasm"
                 ]
                 and all(.readyToRun.frameworkPayload[];
                   .fileCount > 0 and .bytes > 0)

@@ -95,6 +95,18 @@ function createPublication(context: TestContext): {
       readyToRun: true,
     },
     {
+      virtualPath: "System.ComponentModel.wasm",
+      name: "System.ComponentModel.facade.wasm",
+      bytes: Buffer.from("webcil"),
+      readyToRun: false,
+    },
+    {
+      virtualPath: "System.Xml.Linq.wasm",
+      name: "System.Xml.Linq.facade.wasm",
+      bytes: Buffer.from("webcil"),
+      readyToRun: false,
+    },
+    {
       virtualPath: "System.wasm",
       name: "System.facade.wasm",
       bytes: Buffer.from("webcil"),
@@ -163,12 +175,16 @@ test("records R2R evidence with SDK runtime aliases present", context => {
     "utf8",
   ));
   assert.ok(isEvidenceView(evidence));
-  assert.equal(evidence.managedAssets.publishedCount, 3);
+  assert.equal(evidence.managedAssets.publishedCount, 5);
   assert.equal(evidence.managedAssets.readyToRunCount, 2);
   assert.equal(evidence.managedAssets.inspectWebApplicationReadyToRunCount, 1);
   assert.deepEqual(
     evidence.managedAssets.ilOnly.map(asset => asset.virtualPath),
-    ["System.wasm"],
+    [
+      "System.ComponentModel.wasm",
+      "System.Xml.Linq.wasm",
+      "System.wasm",
+    ],
   );
   assert.deepEqual(evidence.frameworkPayload.brotli, {
     fileCount: 1,
