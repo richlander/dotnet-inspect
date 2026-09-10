@@ -143,6 +143,8 @@ tests/NuGetFetch.Tests
 tests/TestExtensions
 tests/nuget/NuGetFetch.CustomClientFixture
 tests/nuget/NuGetFetch.PluginFixture
+tests/nuget/PackageAssetSelection.BuildOracle/Consumer
+tests/nuget/PackageAssetSelection.BuildOracle/Package
 tests/runfaster.Tests
 tools/AnalysisHarness
 tools/AotProbe

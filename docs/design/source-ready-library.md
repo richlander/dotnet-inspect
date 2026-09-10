@@ -36,7 +36,7 @@ The owner defines:
 - `SourceReadyLibrary`, which carries that selected assembly and an optional
   companion Portable PDB candidate;
 - `SourceReadyPortablePdbCandidate`, which records the declared association
-  between the exact assembly projection and the candidate content; and
+  between the exact assembly projection and the candidate content;
 - `SourceReadySourceContent`, which retains already-present source bytes by
   owner-issued artifact identity; and
 - construction guards that reject an assembly projection for a different
