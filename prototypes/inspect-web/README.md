@@ -546,7 +546,9 @@ The same gate includes the two-host scenario
 `Microsoft.Extensions.Http@10.0.0` / `net10.0`. The production CLI's default
 selection resolves `net10.0`; Browser explicitly selects that framework, opens
 and activates its occurrence, and reports the matching `IHttpClientFactory`
-and `AddHttpClient` signals. This network-backed case uses the live Gallery CDN;
+and `AddHttpClient` signals. The same network-backed case opens
+`System.Text.Json@10.0.0/net10.0` through the ordinary Worker transport as its
+large-package payload boundary. These coordinates use the live Gallery CDN;
 the lifecycle and malformed-implementation cases use deterministic local
 archive responses. Run the gate after building the frontend and publishing
 `DotnetInspect.Web.csproj` in Release to `artifacts/inspect-web-publish`.
