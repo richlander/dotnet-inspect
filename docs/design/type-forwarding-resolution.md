@@ -1861,6 +1861,12 @@ delegated snapshot's pre-consumption match; the existing selection/version
 models check the distinct outer-token association, later replacement, and
 commit point.
 
+When a handoff passes through a routing composite before the adjacent
+arbitration owner finalizes one selected contender, the resulting occurrence
+preserves the delegated request occurrence that reached the domain issuer.
+Finalization must not replace that route with a seed occurrence merely because
+the handoff itself carried descriptors rather than a terminal selection.
+
 This contract owns identity-domain completeness, descriptor preservation,
 deterministic evidence order, and the closed finalization boundary. It does not
 define how identity eligibility is computed; designated/platform roles or
@@ -1890,6 +1896,12 @@ and retaining lower-precedence platform evidence beneath a designated tie.
 `SourceRelativeAssemblyGroupBindingPolicyTests.Select_DesignatedPrecedenceFinalizesCompositionHandoff`
 gates the adjacent source-relative arbitration owner consuming a compatible
 handoff and finalizing its exact designated contenders before Metadata.
+`Select_RoutingOnlyCompositionPreservesSelectingRoute` gates the delegated
+request occurrence through routing-only handoff forwarding and singleton
+finalization.
+`Select_NestedTerminalAmbiguityPreservesInactiveOrder` gates existing inactive
+projection order when compatibility composition deduplicates adjacent root
+evidence.
 `SourceRelativeAssemblyGroupBindingPolicyTests.Select_ForeignCompositionSnapshotEscapesBeforeDomainInterpretation`
 gates
 foreign-snapshot exclusion before a transforming composite can inspect the

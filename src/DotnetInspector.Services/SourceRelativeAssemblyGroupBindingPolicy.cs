@@ -289,13 +289,23 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
 
         AssemblyBindingSelection selection =
             SelectDelegate(state, route, request);
+        AssemblyBindingOccurrence? compositionOrigin = null;
         if (reference is not null
             && pendingDesignated is not null)
         {
+            bool compositionRequired =
+                selection
+                    is AssemblyBindingSelection.CompositionRequired;
             selection = ComposePendingDesignated(
                 reference.Identity,
                 pendingDesignated,
                 selection);
+            if (compositionRequired
+                && selection
+                    is AssemblyBindingSelection.Selected)
+            {
+                compositionOrigin = route.RequestingOccurrence;
+            }
         }
         if (reference is not null
             && (selection
@@ -315,7 +325,11 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             selection = mismatch;
         }
 
-        return IssueSelection(state, route, selection);
+        return IssueSelection(
+            state,
+            route,
+            selection,
+            compositionOrigin);
     }
 
     AssemblyBindingSelection SelectDelegate(
@@ -417,9 +431,9 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             ShadowedCandidates(designated);
         ImmutableArray<ResolvedAssemblyReference> platforms =
             DistinctRegistrations(
-                designatedShadows
-                    .Concat(policyCandidates)
+                policyCandidates
                     .Concat(policyShadows)
+                    .Concat(designatedShadows)
                     .Where(candidate => IsCompatiblePlatform(
                         requested,
                         candidate,
@@ -685,7 +699,8 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
     AssemblyBindingSelection IssueSelection(
         BindingPolicyState state,
         RoutedRequest route,
-        AssemblyBindingSelection selection)
+        AssemblyBindingSelection selection,
+        AssemblyBindingOccurrence? delegatedOccurrenceOverride = null)
     {
         if (selection
             is not AssemblyBindingSelection.Selected selected)
@@ -704,15 +719,19 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         DelegateCapture bindingDelegate = route.Delegate;
         ResolvedAssemblyReference assembly = selected.Assembly;
         AssemblyBindingOccurrence delegatedOccurrence =
-            selected.Occurrence;
+            delegatedOccurrenceOverride
+            ?? selected.Occurrence;
         if (_routes.TryGetValue(
                 selected.Assembly.Registration,
                 out AssemblyRoute? canonicalRoute))
         {
-            bindingDelegate = state.DelegateFor(
-                canonicalRoute.Policy);
-            delegatedOccurrence = AssemblyBindingOccurrence.Seed(
-                canonicalRoute.Assembly);
+            if (delegatedOccurrenceOverride is null)
+            {
+                bindingDelegate = state.DelegateFor(
+                    canonicalRoute.Policy);
+                delegatedOccurrence = AssemblyBindingOccurrence.Seed(
+                    canonicalRoute.Assembly);
+            }
             if (_restrictToParticipants)
                 assembly = canonicalRoute.Assembly;
         }

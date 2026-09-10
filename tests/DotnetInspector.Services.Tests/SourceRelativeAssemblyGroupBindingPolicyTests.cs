@@ -226,6 +226,100 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
     }
 
     [Fact]
+    public void Select_RoutingOnlyCompositionPreservesSelectingRoute()
+    {
+        var fallback = NamedDescriptor("Fallback");
+        var owner = NamedDescriptor("Owner");
+        var selected = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("selected overlay"));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "routing-only composition"));
+        var dependency = NamedDescriptor("Dependency");
+        var missing = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.NameNotOwned());
+        var selecting = new SelectionPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Platform.Library" }
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create(
+                        [platform, selected]))
+                : AssemblyBindingSelection.Found(dependency));
+        var inner =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [
+                    (fallback, (IAssemblyBindingPolicy)missing),
+                    (owner, (IAssemblyBindingPolicy)selecting),
+                ]);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (fallback, (IAssemblyBindingPolicy)inner),
+                (owner, (IAssemblyBindingPolicy)inner),
+                (selected, (IAssemblyBindingPolicy)inner),
+                (platform, (IAssemblyBindingPolicy)inner),
+            ]);
+
+        var first = Selected(outer, Request(selected, owner));
+        var continued = Selected(
+            outer,
+            Request(dependency, first.Occurrence));
+
+        Assert.Same(selected, first.Assembly);
+        Assert.Same(dependency, continued.Assembly);
+    }
+
+    [Fact]
+    public void Select_NestedTerminalAmbiguityPreservesInactiveOrder()
+    {
+        var owner = NamedDescriptor("Owner");
+        var first = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("first overlay"));
+        var firstPlatform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "first inactive"));
+        var second = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("second overlay"),
+            new Version(2, 0, 0, 0));
+        var secondPlatform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "second inactive"));
+        AssemblyBindingSelection terminal =
+            AssemblyBindingCandidateDomain.Create(
+                [first, firstPlatform, second, secondPlatform])
+                .Finalize([first, second]);
+        var policy = new SelectionPolicy(_ => terminal);
+        var inner =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [(owner, (IAssemblyBindingPolicy)policy)]);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)inner),
+                (first, (IAssemblyBindingPolicy)inner),
+                (secondPlatform, (IAssemblyBindingPolicy)inner),
+            ]);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            outer.Select(Request(first, owner)).Selection);
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
+        Assert.Equal(
+            [firstPlatform, secondPlatform],
+            ambiguous.ShadowedAssemblies);
+    }
+
+    [Fact]
     public void Select_RejectsForeignAndStaleContinuations()
     {
         var owner = NamedDescriptor("Owner");
