@@ -431,18 +431,6 @@ jobs:
           mkdir -p artifacts/deep-inspect
           bash eng/prepare-decompiler-corpus.sh artifacts/deep-inspect/corpus-assemblies.txt
 
-      - name: Run real-world corpus sensor
-        shell: bash
-        run: |
-          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
-          mkdir -p artifacts/deep-inspect
-          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
-            --emit-corpus-snapshot artifacts/deep-inspect/corpus-snapshot.json \
-            --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
-            --compile-cap 4000 \
-            --corpus-fidelity-cap 50 \
-            --max-examples 3
-
       - name: Record independently selected native RTS cutover evidence
         shell: bash
         run: |
@@ -456,6 +444,18 @@ jobs:
             --corpus-fidelity-oracle rts-cutover \
             --max-examples 10 \
             2>&1 | tee artifacts/deep-inspect/rts-cutover.txt
+
+      - name: Run real-world corpus sensor
+        shell: bash
+        run: |
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
+          mkdir -p artifacts/deep-inspect
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --emit-corpus-snapshot artifacts/deep-inspect/corpus-snapshot.json \
+            --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+            --compile-cap 4000 \
+            --corpus-fidelity-cap 50 \
+            --max-examples 3
 
       - name: Build classic state-machine corpus fixture
         run: dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release

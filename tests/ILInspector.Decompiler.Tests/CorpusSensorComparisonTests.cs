@@ -2267,6 +2267,14 @@ public class CorpusSensorComparisonTests
             "artifacts/deep-inspect/corpus-assemblies.txt",
             workflow,
             StringComparison.Ordinal);
+        Assert.True(
+            workflow.IndexOf(
+                "Record independently selected native RTS cutover evidence",
+                StringComparison.Ordinal)
+            < workflow.IndexOf(
+                "Run real-world corpus sensor",
+                StringComparison.Ordinal),
+            "Native RTS cutover evidence must run before baseline-gated census steps.");
     }
 
     [Fact]
