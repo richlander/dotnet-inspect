@@ -103,6 +103,43 @@ Commands may have specialized acquisition and projection steps, but those
 steps retain the same ownership boundary: the host composes the request;
 reusable owners produce the facts.
 
+### Configured package search Roots
+
+The first production adoption in
+[#6170](https://github.com/richlander/dotnet-inspect/issues/6170) routes the
+existing `find`, member-find, `implements`, `extensions`, and reachable
+extension implementations through one invocation-owned asynchronous
+`InspectionWorkspace` for a deliberately bounded source shape:
+
+- normalized source intent contains exactly one explicitly versioned package
+  reference whose version is an exact NuGet version;
+- the resolved request contains that package and no assembly, platform,
+  project, or directory sources;
+- the request has one explicit target framework other than `all`; and
+- `find` and member-find have no numeric result limit.
+
+The host acquires one package Root, commits it with `ReplaceScopeAsync`, retains
+the committed correspondence and generation, and executes the existing typed
+group queries through `ExecutePackageRootQueryAsync`. Type search reuses that
+same committed Root for its direct and fallback census passes. Package results
+project library and source provenance from `PackageRootIdentity` and
+`PackageCompileAsset`; the CLI does not manufacture host filesystem paths for
+package-relative assets.
+
+Floating, `@latest`, and wildcard package versions; package archives, package
+groups and prefixes; multiple or mixed sources; implicit and `all` target
+frameworks; and limited searches retain the `AssemblySetResolver` and
+`AssemblySetInspectionWorkspace` path. That boundary preserves the CLI's
+existing version-selection and streaming-limit behavior rather than making
+Workspace acquisition redefine either contract. Type-mode `depends` remains
+outside this slice: its group-scoped dependency query and production caller
+land together rather than adding another caller-free query surface.
+
+This cutover consumes the package Root's reference-preferred compile surface.
+An explicit empty compile group therefore remains an empty configured Root and
+does not reactivate platform defaults, package fallback, or an implementation
+assembly.
+
 ### Library inspection subject
 
 After a `library` source resolver identifies a physical participant, the

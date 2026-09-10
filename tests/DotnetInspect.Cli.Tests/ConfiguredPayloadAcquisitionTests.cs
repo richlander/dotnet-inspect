@@ -736,13 +736,21 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
     private static void WriteLocalPackage(
         string root, string id, string readme, bool hierarchical = false,
-        string? redirectId = null, string version = Version)
+        string? redirectId = null, string version = Version,
+        byte[]? library = null,
+        string libraryName = "Npgsql.dll")
     {
         string directory = hierarchical ? Path.Combine(root, id.ToLowerInvariant(), version) : root;
         Directory.CreateDirectory(directory);
         File.WriteAllBytes(
             Path.Combine(directory, $"{id.ToLowerInvariant()}.{version}.nupkg"),
-            CreatePackage(id, readme, redirectId, version));
+            CreatePackage(
+                id,
+                readme,
+                redirectId,
+                version,
+                library,
+                libraryName));
     }
 
     private static HttpContent PackageContent(string id, string readme) =>
@@ -750,7 +758,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
     private static byte[] CreatePackage(
         string id, string readme, string? redirectId = null,
-        string version = Version, byte[]? library = null)
+        string version = Version, byte[]? library = null,
+        string libraryName = "Npgsql.dll")
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
@@ -765,7 +774,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             WriteEntry(archive, "README.md", readme);
             if (library is not null)
             {
-                using Stream entry = archive.CreateEntry("lib/net11.0/Npgsql.dll").Open();
+                using Stream entry = archive.CreateEntry(
+                    $"lib/net11.0/{libraryName}").Open();
                 entry.Write(library);
             }
             if (redirectId is not null)
