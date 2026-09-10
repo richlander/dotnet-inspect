@@ -1,4 +1,5 @@
-using DotnetInspector.Options;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
 
 namespace SectionRegistrySpike.CurrentBaseline;

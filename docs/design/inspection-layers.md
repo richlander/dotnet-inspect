@@ -274,7 +274,7 @@ coordinate, no package archive requests, one registry materialization reused by
 subsequent reads, and exactly 25 projected rows. Run it with:
 
 ```bash
-dotnet run --project tests/dotnet-inspect.Tests -c Release -- \
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
   --filter-method '*PackageProfileDefaultScale*'
 ```
 
@@ -384,7 +384,7 @@ Markout renders markdown, tsv, and jsonl, so most of the format axis is
 implemented below L3 even though L3 names the value. Read the owner column as
 "who chooses", not "who writes the characters" — the same distinction the Shape
 row makes by crediting Markout with defining the ladder that L2 selects a rung
-from. A renderer that lives in `src/dotnet-inspect/Output/` is not evidence that
+from. A renderer that lives in `src/DotnetInspect.Cli/Output/` is not evidence that
 rendering is an L3 responsibility; it is either genuinely
 dotnet-inspect-specific or a candidate to move.
 
