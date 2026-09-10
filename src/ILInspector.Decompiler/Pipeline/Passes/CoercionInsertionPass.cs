@@ -170,9 +170,9 @@ public static class CoercionSinks
                 : LoadSinkTargetType(load, returnType, shapes);
 
     /// <summary>
-    /// The enum family a slot load contributes when it is an operand of a
-    /// flags-enum bitwise op (<c>and</c>/<c>or</c>/<c>xor</c>) whose sibling
-    /// operand is enum-typed. #3009: a spilled accumulator holding a bare
+    /// The enum family a slot load contributes when its contiguous flags-enum
+    /// bitwise chain (<c>and</c>/<c>or</c>/<c>xor</c>) has an enum-typed sibling.
+    /// #3009: a spilled accumulator holding a bare
     /// integer flag constant (<c>long S_0 = (long)512</c>) is only ever
     /// consumed as the enum in the OR chain, so it should testify — and
     /// materialize as — the enum, not the integer storage width the IL stack
@@ -184,15 +184,26 @@ public static class CoercionSinks
     /// </summary>
     static TypeRef? BitwiseEnumSinkType(LoadStackSlot load, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
     {
-        if (load.Parent is not Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary)
-            return null;
-        var sibling = ReferenceEquals(binary.Left, load) ? binary.Right : binary.Left;
-        if (sibling is Constant || sibling.ResultType is not { } siblingType
-                || shapes.GetValueOrDefault(siblingType) != TypeShape.Enum)
-            return null;
-        if (load.Type is { } loadType && shapes.GetValueOrDefault(loadType) == TypeShape.Enum)
-            return null;
-        return siblingType;
+        IrExpression operand = load;
+        while (operand.Parent is Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary)
+        {
+            IrExpression sibling;
+            if (ReferenceEquals(binary.Left, operand))
+                sibling = binary.Right;
+            else if (ReferenceEquals(binary.Right, operand))
+                sibling = binary.Left;
+            else
+                break;
+
+            if (sibling is not Constant
+                && sibling.ResultType is { } siblingType
+                && CoercionRendering.IsEnum(siblingType, shapes))
+            {
+                return CoercionRendering.IsEnum(load.Type, shapes) ? null : siblingType;
+            }
+            operand = binary;
+        }
+        return null;
     }
 
     /// <summary>
@@ -309,7 +320,7 @@ public static class CoercionSinks
                 // counts their mismatches as residuals rather than hiding them
                 // behind the exclusion (#2145).
                 case Conditional { MergedType: { } merged } conditional:
-                    var armScope = function.TypeShapes.GetValueOrDefault(merged) == TypeShape.Enum
+                    var armScope = CoercionRendering.IsEnum(merged, function.TypeShapes)
                         ? SinkScope.Wrappable
                         : SinkScope.PrinterOwned;
                     yield return new(conditional.WhenTrue, merged, armScope);
@@ -347,7 +358,7 @@ public static class CoercionDomain
         // explicit disjunct (it is deliberately not a numeric primitive).
         => TypeFamilies.IsNumericPrimitive(target)
             || TypeFamilies.IsBoolean(target)
-            || shapes.GetValueOrDefault(target) == TypeShape.Enum;
+            || CoercionRendering.IsEnum(target, shapes);
 
     public static bool IsAtTarget(IrExpression value, TypeRef target)
         => value.ResultType is { } resultType && resultType.Equals(target);

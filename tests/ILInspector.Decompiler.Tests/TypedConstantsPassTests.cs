@@ -127,6 +127,33 @@ public class TypedConstantsPassTests
     }
 
     [Fact]
+    public void GenericNestedEnumConditionalArgument_RetainsEnumIdentity()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            "SetConditional")).Output!;
+
+        Assert.Contains("CompletionPart.Attributes", output);
+        Assert.DoesNotContain("? 4", output);
+        Assert.DoesNotContain(": 4", output);
+    }
+
+    [Fact]
+    public void GenericNestedFlagsAccumulator_RetainsEnumTyping()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            "Accumulate")).Output!;
+
+        Assert.Contains("FlagCaps64.Protocol", output);
+        Assert.Contains("FlagCaps64.Secure", output);
+        Assert.Contains("FlagCaps64.MultiStatements", output);
+        Assert.Contains("FlagCaps64.MultiResults", output);
+        Assert.DoesNotContain("long S_", output);
+        Assert.DoesNotContain("| (long)", output);
+    }
+
+    [Fact]
     public void GenericNestedEnumSwitch_RestoresGoverningValueAndNamesLabels()
     {
         string output = CSharpPrinter.Print(Raised(
