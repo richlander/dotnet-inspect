@@ -53,6 +53,15 @@ internal static class CustomAttributeValueDecoder
     public const int MaxSerializedDepth = SignatureBlobGuard.DefaultMaxDepth;
 
     /// <summary>
+    /// Maximum local enum-resolution operations across one attribute decode.
+    /// Candidate visits and recursive structural-match frames share this
+    /// aggregate budget so distinct unresolved TypeRefs cannot multiply a full
+    /// TypeDef scan without bound.
+    /// </summary>
+    public const int MaxEnumResolutionWork =
+        MetadataSafetyPolicy.MaxSignatureTypeNodes;
+
+    /// <summary>
     /// Returns <see langword="true"/> and a materialized <paramref name="value"/>
     /// when decoding succeeds, or <see langword="false"/> when the blob is refused.
     /// Caller-callback failures are raised as
@@ -70,7 +79,8 @@ internal static class CustomAttributeValueDecoder
         out CustomAttributeValue<string> value,
         out ImmutableArray<bool> fixedArgumentWidthDefaulted,
         out ImmutableArray<bool> namedArgumentWidthDefaulted,
-        GenericContextWork? genericContextWork = null)
+        GenericContextWork? genericContextWork = null,
+        EnumResolutionWork? enumResolutionWork = null)
     {
         value = default;
         fixedArgumentWidthDefaulted = default;
@@ -86,7 +96,8 @@ internal static class CustomAttributeValueDecoder
                 captureDefaultedWidths,
                 beforeMaterialize,
                 enumUnderlyingType,
-                genericContextWork);
+                genericContextWork,
+                enumResolutionWork);
             return decoder.Run(
                 attribute,
                 out value,
@@ -115,6 +126,16 @@ internal static class CustomAttributeValueDecoder
         public long BytesSkipped { get; internal set; }
     }
 
+    internal sealed class EnumResolutionWork
+    {
+        public long TypeDefinitionCandidatesVisited { get; internal set; }
+
+        public long StructuralMatchFrames { get; internal set; }
+
+        public long Operations =>
+            TypeDefinitionCandidatesVisited + StructuralMatchFrames;
+    }
+
     /// <summary>
     /// One decode of one attribute value. Fixed arguments are read from the
     /// constructor signature interleaved with their values from the value blob,
@@ -129,7 +150,8 @@ internal static class CustomAttributeValueDecoder
         bool captureDefaultedWidths,
         Action<int>? beforeMaterialize,
         AttributeDecoder.EnumWidthResolver? enumUnderlyingType,
-        GenericContextWork? genericContextWork)
+        GenericContextWork? genericContextWork,
+        EnumResolutionWork? enumResolutionWork)
     {
         readonly MetadataReader _reader = reader;
         readonly EntityHandle _constructor = constructor;
@@ -139,7 +161,8 @@ internal static class CustomAttributeValueDecoder
             reader,
             preserveSerializedTypeNames,
             beforeMaterialize,
-            enumUnderlyingType);
+            enumUnderlyingType,
+            enumResolutionWork ?? new EnumResolutionWork());
         readonly Stack<ValueJob> _work = new();
 
         BlobReader _value;
@@ -811,13 +834,16 @@ internal static class CustomAttributeValueDecoder
         MetadataReader reader,
         bool preserveSerializedTypeNames,
         Action<int>? beforeMaterialize,
-        AttributeDecoder.EnumWidthResolver? enumUnderlyingType)
+        AttributeDecoder.EnumWidthResolver? enumUnderlyingType,
+        EnumResolutionWork? enumResolutionWork = null)
     {
         readonly MetadataReader _reader = reader;
         readonly bool _preserveSerializedTypeNames = preserveSerializedTypeNames;
         readonly Action<int>? _beforeMaterialize = beforeMaterialize;
         readonly AttributeDecoder.EnumWidthResolver? _enumUnderlyingType =
             enumUnderlyingType;
+        readonly EnumResolutionWork _enumResolutionWork =
+            enumResolutionWork ?? new EnumResolutionWork();
         readonly AttributeDecoder.MaterializationContext? _materializationContext =
             beforeMaterialize?.Target as AttributeDecoder.MaterializationContext;
 
@@ -942,6 +968,7 @@ internal static class CustomAttributeValueDecoder
                     && EnumUnderlyingPrimitive.TryResolveDefinition(
                         pendingReader,
                         pendingReference,
+                        _enumResolutionWork,
                         out TypeDefinitionHandle referenced))
                 {
                     return EnumUnderlyingPrimitive.FromDefinition(pendingReader, referenced);
