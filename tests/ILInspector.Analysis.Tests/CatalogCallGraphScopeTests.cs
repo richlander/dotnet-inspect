@@ -246,6 +246,111 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    public void FallbackSignatureRequiresExactDependencyAssemblyScopes()
+    {
+        var sourceIdentity = new AssemblyReferenceIdentity(
+            "Caller",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        var targetIdentity = new AssemblyReferenceIdentity(
+            "Provider",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        var dependencyV1 = new AssemblyReferenceIdentity(
+            "Dependency",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        var dependencyV2 = dependencyV1 with
+        {
+            Version = new Version(2, 0, 0, 0),
+        };
+        MetadataTypeDefinitionName providerTypeName =
+            TypeName("Provider", "Api");
+        MetadataTypeDefinitionName dependencyTypeName =
+            TypeName("Dependency", "Value");
+        TypeRef providerReference = TypeRef.Definition(
+            targetIdentity.Name,
+            providerTypeName.Namespace,
+            providerTypeName.Segments[0],
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    targetIdentity),
+                providerTypeName));
+        TypeRef providerDefinition = TypeRef.Definition(
+            targetIdentity.Name,
+            providerTypeName.Namespace,
+            providerTypeName.Segments[0],
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(
+                    targetIdentity),
+                providerTypeName));
+        TypeRef Dependency(AssemblyReferenceIdentity identity) =>
+            TypeRef.Definition(
+                identity.Name,
+                dependencyTypeName.Namespace,
+                dependencyTypeName.Segments[0],
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.AssemblyReference(
+                        identity),
+                    dependencyTypeName));
+        TypeRef retainedCoreLibraryVoid = TypeRef.Definition(
+            TypeRef.CoreLibrary,
+            "System",
+            "Void",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.IntrinsicCoreLibrary(),
+                TypeName("System", "Void")));
+        MemberRef callSite = new(
+            providerReference,
+            "Use",
+            [Dependency(dependencyV1)],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = false,
+        };
+        MethodIdentity Definition(
+            AssemblyReferenceIdentity dependency,
+            TypeRef? returnType = null) =>
+            new(
+                targetIdentity.Name,
+                Guid.NewGuid(),
+                providerDefinition,
+                "Use",
+                [Dependency(dependency)],
+                returnType ?? TypeRef.CoreLib("System", "Void"),
+                0x06000001,
+                IsStatic: true);
+
+        Assert.Equal(
+            GraphNodeIdentity.FromMember(callSite),
+            GraphNodeIdentity.FromMethod(Definition(dependencyV2)));
+        Assert.True(
+            CatalogCallGraphScope.ExactFallbackSignatureScopesMatch(
+                callSite,
+                Definition(dependencyV1),
+                sourceIdentity,
+                targetIdentity));
+        Assert.True(
+            CatalogCallGraphScope.ExactFallbackSignatureScopesMatch(
+                callSite,
+                Definition(
+                    dependencyV1,
+                    retainedCoreLibraryVoid),
+                sourceIdentity,
+                targetIdentity));
+        Assert.False(
+            CatalogCallGraphScope.ExactFallbackSignatureScopesMatch(
+                callSite,
+                Definition(dependencyV2),
+                sourceIdentity,
+                targetIdentity));
+    }
+
+    [Fact]
     public void ExactVersionSkewedParticipantRetainsTypedConflictEvidence()
     {
         LibraryBodyIndex targetV2 = LibraryBodyIndex.Open(
@@ -762,6 +867,14 @@ public class CatalogCallGraphScopeTests
             index.Path,
             AssemblyResolutionProvenance.Local(
                 "catalog call-graph test"));
+
+    static MetadataTypeDefinitionName TypeName(
+        string @namespace,
+        string name) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                [name])).Name;
 
     sealed class CountingGroupPolicy(
         ImmutableArray<ResolvedAssemblyReference> roots,

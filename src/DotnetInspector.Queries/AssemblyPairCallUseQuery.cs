@@ -259,14 +259,28 @@ public static class AssemblyPairCallUseQuery
         HashSet<PhysicalCallSite> resolvedSites) =>
         source.Index.DirectCalls.Count(call =>
             IsAdmittedKind(call.Kind)
-            && string.Equals(
-                call.Callee.DeclaringType.Assembly,
-                target.ResultParticipant.Subject.Identity.Name,
-                StringComparison.Ordinal)
+            && NamesTargetAssembly(
+                call,
+                target.ResultParticipant.Subject.Identity.Name)
             && !resolvedSites.Contains(
                 PhysicalSite(
                     source.ResultParticipant,
                     call)));
+
+    static bool NamesTargetAssembly(
+        Analysis.DirectCall call,
+        string targetAssemblyName)
+    {
+        Analysis.TypeRef declaringType =
+            Analysis.GenericMemberIdentity.OpenDeclaringType(
+                call.Callee.DeclaringType);
+        return declaringType.Resolution?.Origin
+                is Analysis.TypeReferenceOrigin.AssemblyReference reference
+            && string.Equals(
+                reference.Assembly.Name,
+                targetAssemblyName,
+                StringComparison.OrdinalIgnoreCase);
+    }
 
     static bool IsAdmittedKind(Analysis.CallKind kind) =>
         kind is

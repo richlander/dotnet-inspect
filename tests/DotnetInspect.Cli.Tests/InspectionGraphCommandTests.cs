@@ -214,8 +214,93 @@ public sealed class InspectionGraphCommandTests
                     row.RootElement.TryGetProperty(
                         "target_member",
                         out _));
+                Assert.Contains(
+                    "Version=",
+                    row.RootElement
+                        .GetProperty("source_library")
+                        .GetString(),
+                    StringComparison.Ordinal);
+                Assert.NotEqual(
+                    Guid.Empty,
+                    Guid.Parse(
+                        row.RootElement
+                            .GetProperty("source_mvid")
+                            .GetString()!));
+                Assert.StartsWith(
+                    "0x06",
+                    row.RootElement
+                        .GetProperty("source_token")
+                        .GetString(),
+                    StringComparison.Ordinal);
+                Assert.NotEqual(
+                    Guid.Empty,
+                    Guid.Parse(
+                        row.RootElement
+                            .GetProperty("target_mvid")
+                            .GetString()!));
+                Assert.StartsWith(
+                    "0x06",
+                    row.RootElement
+                        .GetProperty("target_token")
+                        .GetString(),
+                    StringComparison.Ordinal);
+                Assert.NotEqual(
+                    Guid.Empty,
+                    Guid.Parse(
+                        row.RootElement
+                            .GetProperty("evidence_mvid")
+                            .GetString()!));
+                Assert.StartsWith(
+                    "0x06",
+                    row.RootElement
+                        .GetProperty("evidence_token")
+                        .GetString(),
+                    StringComparison.Ordinal);
             });
         Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_WindowsHumanSummaryAndRowsTogether()
+    {
+        async Task<(int ExitCode, string Output, string Error)> Execute(
+            string rows) =>
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.CreateRootCommand()
+                    .Parse(
+                        [
+                            "graph",
+                            "libraries",
+                            "--library",
+                            FixtureCatalog.AnalysisCallerGraphCaller
+                                .AssemblyPath(),
+                            "--library",
+                            FixtureCatalog.AnalysisCallerGraphTarget
+                                .AssemblyPath(),
+                            "--rows",
+                            rows,
+                        ])
+                    .InvokeAsync());
+
+        var partial = await Execute("1..2");
+        var empty = await Execute("999..1000");
+
+        Assert.Equal(0, partial.ExitCode);
+        Assert.Contains(
+            "2 call sites.",
+            partial.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(0, empty.ExitCode);
+        Assert.Contains(
+            "No direct pair call use is selected by the row window.",
+            empty.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "source members",
+            empty.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(partial.Error);
+        Assert.Empty(empty.Error);
     }
 
     [Fact]

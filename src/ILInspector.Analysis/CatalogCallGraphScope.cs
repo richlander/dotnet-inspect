@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 using ILInspector.Metadata;
 
@@ -347,6 +348,218 @@ public sealed class CatalogCallGraphScope : IDisposable
                 nameof(participant));
         }
     }
+
+    internal static bool ExactFallbackSignatureScopesMatch(
+        MemberRef callSite,
+        MethodIdentity definition,
+        AssemblyReferenceIdentity sourceIdentity,
+        AssemblyReferenceIdentity targetIdentity)
+    {
+        MemberRef definitionMember =
+            CallTreeMember.FromDefinition(definition);
+        if (!ReferenceScopesMatch(
+                GenericMemberIdentity.OpenDeclaringType(
+                    callSite.DeclaringType),
+                sourceIdentity,
+                GenericMemberIdentity.OpenDeclaringType(
+                    definitionMember.DeclaringType),
+                targetIdentity))
+        {
+            return false;
+        }
+
+        ImmutableArray<TypeRef> callParameters =
+            IdentityParameters(callSite);
+        ImmutableArray<TypeRef> definitionParameters =
+            IdentityParameters(definitionMember);
+        if (callParameters.Length != definitionParameters.Length)
+            return false;
+        for (int i = 0; i < callParameters.Length; i++)
+        {
+            if (!ReferenceScopesMatch(
+                    callParameters[i],
+                    sourceIdentity,
+                    definitionParameters[i],
+                    targetIdentity))
+            {
+                return false;
+            }
+        }
+
+        return ReferenceScopesMatch(
+            callSite.OpenSignatureReturn,
+            sourceIdentity,
+            definitionMember.OpenSignatureReturn,
+            targetIdentity);
+    }
+
+    static ImmutableArray<TypeRef> IdentityParameters(MemberRef member)
+    {
+        const byte CallingConventionMask = 0x0F;
+        const byte VarargCallingConvention = 0x05;
+
+        ImmutableArray<TypeRef> parameters =
+            member.OpenSignatureParameters;
+        if ((member.SignatureHeader & CallingConventionMask)
+                == VarargCallingConvention
+            && member.RequiredParameterCount >= 0
+            && member.RequiredParameterCount <= parameters.Length)
+        {
+            return parameters[..member.RequiredParameterCount];
+        }
+
+        return parameters;
+    }
+
+    static bool ReferenceScopesMatch(
+        TypeRef left,
+        AssemblyReferenceIdentity leftCurrentAssembly,
+        TypeRef right,
+        AssemblyReferenceIdentity rightCurrentAssembly,
+        int depth = 0)
+    {
+        const int MaxDepth = 256;
+        bool coreLibraryType =
+            left.Assembly == TypeRef.CoreLibrary
+            && right.Assembly == TypeRef.CoreLibrary;
+        if (depth >= MaxDepth
+            || (!coreLibraryType
+                && !OriginsMatch(
+                    left.Resolution?.Origin,
+                    leftCurrentAssembly,
+                    right.Resolution?.Origin,
+                    rightCurrentAssembly))
+            || (left.ElementType is null) != (right.ElementType is null)
+            || left.TypeArguments.Length != right.TypeArguments.Length
+            || (left.UnmodifiedType is null)
+                != (right.UnmodifiedType is null)
+            || (left.ModifierType is null)
+                != (right.ModifierType is null)
+            || (left.FunctionPointerSignature is null)
+                != (right.FunctionPointerSignature is null))
+        {
+            return false;
+        }
+
+        if (left.ElementType is { } leftElement
+            && !ReferenceScopesMatch(
+                leftElement,
+                leftCurrentAssembly,
+                right.ElementType!,
+                rightCurrentAssembly,
+                depth + 1))
+        {
+            return false;
+        }
+        for (int i = 0; i < left.TypeArguments.Length; i++)
+        {
+            if (!ReferenceScopesMatch(
+                    left.TypeArguments[i],
+                    leftCurrentAssembly,
+                    right.TypeArguments[i],
+                    rightCurrentAssembly,
+                    depth + 1))
+            {
+                return false;
+            }
+        }
+        if (left.UnmodifiedType is { } leftUnmodified
+            && !ReferenceScopesMatch(
+                leftUnmodified,
+                leftCurrentAssembly,
+                right.UnmodifiedType!,
+                rightCurrentAssembly,
+                depth + 1))
+        {
+            return false;
+        }
+        if (left.ModifierType is { } leftModifier
+            && !ReferenceScopesMatch(
+                leftModifier,
+                leftCurrentAssembly,
+                right.ModifierType!,
+                rightCurrentAssembly,
+                depth + 1))
+        {
+            return false;
+        }
+        if (left.FunctionPointerSignature is { } leftFunction)
+        {
+            MethodSignature<TypeRef> rightFunction =
+                right.FunctionPointerSignature!.Value;
+            if (!ReferenceScopesMatch(
+                    leftFunction.ReturnType,
+                    leftCurrentAssembly,
+                    rightFunction.ReturnType,
+                    rightCurrentAssembly,
+                    depth + 1)
+                || leftFunction.ParameterTypes.Length
+                    != rightFunction.ParameterTypes.Length)
+            {
+                return false;
+            }
+            for (int i = 0;
+                i < leftFunction.ParameterTypes.Length;
+                i++)
+            {
+                if (!ReferenceScopesMatch(
+                        leftFunction.ParameterTypes[i],
+                        leftCurrentAssembly,
+                        rightFunction.ParameterTypes[i],
+                        rightCurrentAssembly,
+                        depth + 1))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    static bool OriginsMatch(
+        TypeReferenceOrigin? left,
+        AssemblyReferenceIdentity leftCurrentAssembly,
+        TypeReferenceOrigin? right,
+        AssemblyReferenceIdentity rightCurrentAssembly)
+    {
+        AssemblyReferenceIdentity? leftAssembly =
+            OriginAssembly(left, leftCurrentAssembly);
+        AssemblyReferenceIdentity? rightAssembly =
+            OriginAssembly(right, rightCurrentAssembly);
+        if (leftAssembly is not null || rightAssembly is not null)
+        {
+            return leftAssembly is not null
+                && rightAssembly is not null
+                && leftAssembly.IsEquivalentTo(rightAssembly);
+        }
+
+        return (left, right) switch
+        {
+            (null, null) => true,
+            (TypeReferenceOrigin.IntrinsicCoreLibrary,
+                TypeReferenceOrigin.IntrinsicCoreLibrary) => true,
+            (TypeReferenceOrigin.ModuleReference leftModule,
+                TypeReferenceOrigin.ModuleReference rightModule) =>
+                string.Equals(
+                    leftModule.ModuleName,
+                    rightModule.ModuleName,
+                    StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    static AssemblyReferenceIdentity? OriginAssembly(
+        TypeReferenceOrigin? origin,
+        AssemblyReferenceIdentity currentAssembly) =>
+        origin switch
+        {
+            TypeReferenceOrigin.AssemblyReference reference =>
+                reference.Assembly,
+            TypeReferenceOrigin.CurrentAssembly local =>
+                local.Assembly ?? currentAssembly,
+            _ => null,
+        };
 
     sealed class ScopeGraph : IDisposable
     {
@@ -1166,6 +1379,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                         CorrespondsTo(
                             edge.Callee,
                             definition,
+                            source.Assembly.Identity,
                             target.Assembly.Identity)),
                 ];
                 if (matches.Length != 1)
@@ -1206,6 +1420,7 @@ public sealed class CatalogCallGraphScope : IDisposable
         static bool CorrespondsTo(
             StoredCallSite callSite,
             StoredDefinition definition,
+            AssemblyReferenceIdentity sourceIdentity,
             AssemblyReferenceIdentity targetIdentity)
         {
             if (callSite.Evidence.Correspondence
@@ -1229,7 +1444,12 @@ public sealed class CatalogCallGraphScope : IDisposable
                     is TypeReferenceOrigin.AssemblyReference reference
                 && reference.Assembly.IsEquivalentTo(targetIdentity)
                 && GraphNodeIdentity.FromMember(callSite.Call.Callee)
-                    == GraphNodeIdentity.FromMethod(definition.Method);
+                    == GraphNodeIdentity.FromMethod(definition.Method)
+                && ExactFallbackSignatureScopesMatch(
+                    callSite.Call.Callee,
+                    definition.Method,
+                    sourceIdentity,
+                    targetIdentity);
         }
 
         public void Dispose() => _context.Dispose();

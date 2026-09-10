@@ -101,6 +101,26 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
+    public void SameNameParticipantsDoNotTurnLocalCallsIntoPairGaps()
+    {
+        using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
+
+        AssemblyPairCallUseResult result =
+            AssemblyPairCallUseQuery.Execute(
+                context.Group,
+                context.First,
+                context.Second);
+
+        Assert.True(result.IsComplete);
+        Assert.Equal(
+            0,
+            result.Diagnostics.UnresolvedCandidateCallCount);
+        Assert.Empty(result.Occurrences);
+    }
+
+    [Fact]
     public void ExecuteCarriesRejectedParticipantBesideAvailableEvidence()
     {
         string callerPath =

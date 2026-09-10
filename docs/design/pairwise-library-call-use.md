@@ -178,8 +178,10 @@ call semantics.
 The default human view summarizes source-member, target-member, and call-site
 counts per observed direction, then shows the directed source and target member
 pair, call kind, and physical location. Structured formats retain the exact
-occurrence rows.
-Row windows and counts operate on occurrences, not unique methods.
+occurrence rows, including full assembly identities, source and target MVIDs
+and method tokens, and the evidence method MVID and token.
+Row windows apply once before human summaries and table rendering. Counts
+operate on the same windowed occurrences, not unique methods.
 
 If a later slice projects the result into `InspectionGraphDocument`, every
 rolled-up library edge must retain the member-level occurrence receipts behind

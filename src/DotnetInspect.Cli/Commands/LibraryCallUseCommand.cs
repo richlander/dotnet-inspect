@@ -16,11 +16,17 @@ public static class LibraryCallUseCommand
     static readonly string[] Labels =
     [
         "Source Library",
+        "Source MVID",
         "Source Member",
+        "Source Token",
         "Target Library",
+        "Target MVID",
         "Target Member",
+        "Target Token",
         "Call",
         "Evidence Method",
+        "Evidence MVID",
+        "Evidence Token",
         "IL Offset",
         "Operand Token",
         "Exact Target",
@@ -29,11 +35,17 @@ public static class LibraryCallUseCommand
     static readonly string[] Ids =
     [
         "source-library",
+        "source-mvid",
         "source-member",
+        "source-token",
         "target-library",
+        "target-mvid",
         "target-member",
+        "target-token",
         "call",
         "evidence-method",
+        "evidence-mvid",
+        "evidence-token",
         "il-offset",
         "operand-token",
         "exact-target",
@@ -148,12 +160,13 @@ public static class LibraryCallUseCommand
         AssemblyPairCallUseResult result,
         LibraryCallUseOptions options)
     {
+        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences =
+            RowWindow.Apply(
+                options.Rows,
+                result.Occurrences);
         if (options.Count)
         {
-            CountOutput.WriteCount(
-                RowWindow.Apply(
-                    options.Rows,
-                    result.Occurrences).Count);
+            CountOutput.WriteCount(occurrences.Count);
             return;
         }
 
@@ -161,7 +174,9 @@ public static class LibraryCallUseCommand
         string[]? fields = options.Fields;
         if (columns is null
             && fields is null
-            && options.Format != OutputFormat.Json)
+            && options.Format is
+                OutputFormat.Markdown
+                or OutputFormat.PlainText)
         {
             columns = DefaultColumns;
         }
@@ -173,7 +188,7 @@ public static class LibraryCallUseCommand
                     writer,
                     formatter,
                     writerOptions);
-                WriteTable(markout, result.Occurrences);
+                WriteTable(markout, occurrences);
                 markout.Flush();
             };
         switch (options.Format)
@@ -184,7 +199,7 @@ public static class LibraryCallUseCommand
                     columns,
                     fields,
                     serialize,
-                    maxRows: options.Rows);
+                    maxRows: null);
                 break;
             case OutputFormat.Table:
             case OutputFormat.Tsv:
@@ -197,14 +212,14 @@ public static class LibraryCallUseCommand
                     columns,
                     fields,
                     serialize,
-                    options.Rows);
+                    maxRows: null);
                 break;
             default:
                 var writerOptions =
                     OutputFormatter.CreateProjectedWriterOptions(
                         columns,
                         fields,
-                        options.Rows);
+                        rows: null);
                 var markout = new MarkoutWriter(
                     Console.Out,
                     options.Format == OutputFormat.PlainText
@@ -218,18 +233,21 @@ public static class LibraryCallUseCommand
                     + FormatAssembly(
                         result.Subjects[1]));
                 string[] summaries =
-                    [.. RelationshipSummaries(result.Occurrences)];
+                    [.. RelationshipSummaries(occurrences)];
                 if (summaries.Length == 0)
                 {
                     markout.WriteParagraph(
-                        result.IsComplete
+                        result.Occurrences.Length > 0
+                            && options.Rows is not null
+                            ? "No direct pair call use is selected by the row window."
+                            : result.IsComplete
                             ? "No direct pair call use was observed."
                             : "No exact pair call use was observed; the evidence is incomplete.");
                 }
                 else
                     foreach (string summary in summaries)
                         markout.WriteParagraph(summary);
-                WriteTable(markout, result.Occurrences);
+                WriteTable(markout, occurrences);
                 markout.Flush();
                 break;
         }
@@ -244,15 +262,24 @@ public static class LibraryCallUseCommand
             [
                 .. occurrences.Select(occurrence => new[]
                 {
-                    FormatAssembly(occurrence.Source),
+                    AssemblyIdentityFormatter.Format(
+                        occurrence.Source.Identity),
+                    occurrence.SourceModuleVersionId.ToString("D"),
                     LibraryMetadataService.FormatMethod(
                         occurrence.SourceMethod),
-                    FormatAssembly(occurrence.Target),
+                    $"0x{occurrence.SourceMethod.MetadataToken:X8}",
+                    AssemblyIdentityFormatter.Format(
+                        occurrence.Target.Identity),
+                    occurrence.TargetModuleVersionId.ToString("D"),
                     LibraryMetadataService.FormatMethod(
                         occurrence.TargetMethod),
+                    $"0x{occurrence.TargetMethod.MetadataToken:X8}",
                     FormatCallKind(occurrence.Call.Kind),
                     LibraryMetadataService.FormatMethod(
                         occurrence.Call.EvidenceMethod),
+                    occurrence.Call.EvidenceMethod.ModuleVersionId
+                        .ToString("D"),
+                    $"0x{occurrence.Call.EvidenceMethod.MetadataToken:X8}",
                     $"0x{occurrence.Call.ILOffset:X4}",
                     $"0x{occurrence.Call.OperandToken:X8}",
                     occurrence.Call.ExactTarget ? "yes" : "no",
