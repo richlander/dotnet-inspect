@@ -5533,6 +5533,10 @@ public sealed class CfgGenericNestedEnumSink<T>
 
     public void SetUnnamed() => Complete((CompletionPart)3);
 
+    void StoreNamed(CompletionPart[] values) => values[0] = CompletionPart.Attributes;
+
+    void StoreUnnamed(CompletionPart[] values) => values[0] = (CompletionPart)3;
+
     void Complete(CompletionPart part)
     {
     }

@@ -102,6 +102,31 @@ public class TypedConstantsPassTests
     }
 
     [Fact]
+    public void GenericNestedEnumArrayStore_RendersNamedMember()
+    {
+        var function = Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            "StoreNamed");
+        var store = Assert.Single(function.Descendants.OfType<StoreElement>());
+        var elementType = store.Array.ResultType!.ElementType!;
+
+        Assert.Equal(TypeRefKind.GenericInstance, elementType.Kind);
+        Assert.Equal(elementType, CoercionSinks.StoreElementTarget(store, function.TypeShapes));
+        Assert.Contains("values[0] = CompletionPart.Attributes;", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void GenericNestedUnnamedEnumArrayStore_RendersCast()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            "StoreUnnamed")).Output!;
+
+        Assert.Contains("values[0] = (CompletionPart)3;", output);
+        Assert.DoesNotContain("values[0] = 3;", output);
+    }
+
+    [Fact]
     public void GenericNestedEnumSwitch_RestoresGoverningValueAndNamesLabels()
     {
         string output = CSharpPrinter.Print(Raised(

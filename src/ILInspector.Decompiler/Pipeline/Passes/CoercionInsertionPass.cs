@@ -67,17 +67,19 @@ public static class CoercionSinks
     /// The one semantic target for an array-element store, shared by the
     /// printer's cast decision and this sink model: the stelem opcode carries a
     /// storage width (`stelem.i8` says Int64, not the long-backed enum), so the
-    /// array's element type wins exactly when it is an enum-like definition —
-    /// a named type with no primitive stack family that the shape map does not
-    /// class as a reference or non-enum struct. TypedConstantsPass's ungated
-    /// preference is a different question (identity recovery for bool/char,
-    /// where the storage width is never the semantic type).
+    /// array's element type wins exactly when it is a metadata-known enum or an
+    /// unresolved enum-like definition — a named type with no primitive stack
+    /// family that the shape map does not class as a reference or non-enum
+    /// struct. TypedConstantsPass's ungated preference is a different question
+    /// (identity recovery for bool/char, where the storage width is never the
+    /// semantic type).
     /// </summary>
     public static TypeRef? StoreElementTarget(StoreElement store, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
-            && element is { Kind: TypeRefKind.Definition }
-            && TypeFamilies.Of(element) is null
-            && shapes.GetValueOrDefault(element) is not (TypeShape.Reference or TypeShape.ValueType)
+            && (CoercionRendering.IsEnum(element, shapes)
+                || (element is { Kind: TypeRefKind.Definition }
+                    && TypeFamilies.Of(element) is null
+                    && shapes.GetValueOrDefault(element) is not (TypeShape.Reference or TypeShape.ValueType)))
             ? element
             : store.ElementType;
 
