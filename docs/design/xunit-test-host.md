@@ -243,6 +243,12 @@ required PR and developer commands remain unfiltered. These paths reuse the
 pinned outcome-level host gate without changing the suite's unresolved-intent,
 cohort-binding, owner-identity, selection, or structured-failure evidence.
 
+`ILInspector.Instructions.Tests` is the sixteenth migrated adopter. Its
+required PR and developer commands remain unfiltered. These paths reuse the
+pinned outcome-level host gate without changing the suite's instruction
+decoding, block graph, typed-stack, metadata resolution, fidelity, comparison,
+analysis-diff, Finding value-equality, or review-fix evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
