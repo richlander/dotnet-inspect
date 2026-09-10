@@ -1732,6 +1732,35 @@ public class CorpusSensorComparisonTests
         Assert.Same(fidelityDiff, aligned.FidelityDiff);
     }
 
+    [Fact]
+    public void ReturnToSenderCutover_ContextFailureRetainsEverySelectedTarget()
+    {
+        FidelityCheck.CompileBackTarget[] targets =
+        [
+            new("test.dll", "Fixture", "One", 0, "() -> corelib:System.Int32"),
+            new("test.dll", "Fixture", "Two", 0, "() -> corelib:System.Int32"),
+        ];
+
+        var results = CorpusSensor.EvaluateReturnToSenderCutoverTargetsForTesting(
+            targets,
+            () => throw new InvalidOperationException(
+                "Compilation reference preparation failed with ReferencePlatformSelectionUnavailable."));
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, result =>
+        {
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.Contains("ReferencePlatformSelectionUnavailable", result.Detail);
+            Assert.Equal(
+                "return-to-sender-cutover; compile-back-floor=false",
+                result.CaptureDetail);
+        });
+        var buckets = FidelityCheck.SummarizeFailures(
+            results,
+            FidelityCheck.CompileBackStatus.ContextFail);
+        Assert.Equal(2, buckets["return-to-sender context unavailable"].Count);
+    }
+
     /// <summary>
     /// The contract must compose every declared <see cref="IlBodyDiffNormalization"/>
     /// option. The enforcement set is derived from the enum rather than restated,

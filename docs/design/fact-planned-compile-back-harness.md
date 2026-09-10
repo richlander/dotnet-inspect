@@ -918,7 +918,11 @@ disabled. Legacy compile-back then evaluates the same assembly path, type,
 method, overload, and signature only as reference evidence. A legacy outcome
 cannot admit a target, replace an RTS result, refine its status, or hide a
 missing result. Missing native output remains `ContextFail`; every selected row
-retains the native status and matching legacy status.
+retains the native status and matching legacy status. An expected native
+assembly-context failure (I/O, invalid metadata, access, or compilation-reference
+selection) produces a distinct `ContextFail` row for every selected target in
+that assembly and does not prevent the remaining native assemblies or the later
+legacy-reference phase from running. Unexpected failures still abort the run.
 
 The retained text report enumerates every native/legacy status pair and marks
 every exact or availability loss. The quality diff card remains the bounded
@@ -949,6 +953,7 @@ The Release gates
 `DeterministicReturnToSenderCutoverTargets_FailsWhenExactCapIsUnavailable`,
 `SelectThenEvaluateNativeFirst_CompletesEveryPhaseAcrossAssemblies`,
 `AlignReturnToSenderResults_ReportsUnavailableTarget`,
+`ReturnToSenderCutover_ContextFailureRetainsEverySelectedTarget`,
 `SummarizeReturnToSenderCutover_SeparatesExactAndAvailabilityChanges`,
 `ReturnToSenderCutover_RealFixtureRetainsEveryNativePairWithoutFloor`,
 `ReturnToSenderCutoverReport_RendersEveryStatusPairAndLoss`,

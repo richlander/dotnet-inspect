@@ -1051,7 +1051,7 @@ internal static class CorpusSensor
                     assembly => new ReturnToSenderCutoverTargetSet(
                         assembly,
                         DeterministicReturnToSenderCutoverTargets(methods.Values, assembly, cap)),
-                    targetSet => EvaluateReturnToSenderTargets(
+                    targetSet => EvaluateReturnToSenderCutoverTargets(
                         targetSet.AssemblyPath,
                         targetSet.Targets,
                         "return-to-sender-cutover; compile-back-floor=false"),
@@ -1310,6 +1310,67 @@ internal static class CorpusSensor
             AlignReturnToSenderResults(selectedTargets, returnToSenderResults, captureDetail),
             returnToSenderResults.Count(result => result.UsedCompileBackFloor));
     }
+
+    static ReturnToSenderEvaluation EvaluateReturnToSenderCutoverTargets(
+        string assemblyPath,
+        IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
+        string captureDetail)
+        => EvaluateReturnToSenderCutoverTargets(
+            assemblyPath,
+            selectedTargets,
+            captureDetail,
+            () => EvaluateReturnToSenderTargets(assemblyPath, selectedTargets, captureDetail));
+
+    static ReturnToSenderEvaluation EvaluateReturnToSenderCutoverTargets(
+        string assemblyPath,
+        IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
+        string captureDetail,
+        Func<ReturnToSenderEvaluation> evaluate)
+    {
+        try
+        {
+            return evaluate();
+        }
+        catch (Exception ex) when (
+            ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            HarnessLog.Status($"RTS cutover unavailable {PortablePath(assemblyPath)}: {ex.Message}");
+            return new ReturnToSenderEvaluation(
+                selectedTargets
+                    .Select(target => new FidelityCheck.CompileBackResult(
+                        target.Type,
+                        target.Method,
+                        target.Overload,
+                        target.Signature,
+                        FidelityCheck.CompileBackStatus.ContextFail,
+                        "",
+                        "",
+                        $"return-to-sender-context-unavailable: {ex.Message}",
+                        FidelityCheck.CaptureMode.WholeModule,
+                        captureDetail))
+                    .ToArray(),
+                CompileBackFloorAppliedMethods: 0);
+        }
+    }
+
+    internal static IReadOnlyList<FidelityCheck.CompileBackResult>
+        EvaluateReturnToSenderCutoverTargetsForTesting(
+            IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
+            Func<IReadOnlyList<ReturnToSender.Result>> evaluate)
+        => EvaluateReturnToSenderCutoverTargets(
+            "test.dll",
+            selectedTargets,
+            "return-to-sender-cutover; compile-back-floor=false",
+            () =>
+            {
+                var results = evaluate().ToArray();
+                return new ReturnToSenderEvaluation(
+                    AlignReturnToSenderResults(
+                        selectedTargets,
+                        results,
+                        "return-to-sender-cutover; compile-back-floor=false"),
+                    results.Count(result => result.UsedCompileBackFloor));
+            }).Results;
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateTargetsInAttemptOrderUntilUseful(
         IReadOnlyList<string> assemblies,

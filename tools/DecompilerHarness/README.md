@@ -1020,8 +1020,11 @@ built, Roslyn compiler identity, runtime and platform. Cutover metrics separate
 exact losses from availability losses and report the corresponding gains,
 same-status rows, and any compile-back floor applications. Missing native or
 legacy target output remains an explicit `ContextFail`; legacy success cannot
-admit a target or replace the native result. The run fails when an assembly
-cannot supply the exact requested eligible-method cap.
+admit a target or replace the native result. Expected native assembly-context
+failures are retained as `ContextFail` for every selected member in that
+assembly, so the corpus run continues and exposes the matching legacy
+outcomes. The run fails when an assembly cannot supply the exact requested
+eligible-method cap or an unexpected native failure occurs.
 
 The on-demand Deep Inspect `census` lane retains
 `rts-cutover-snapshot.json` and the bounded text report. This is evidence for
