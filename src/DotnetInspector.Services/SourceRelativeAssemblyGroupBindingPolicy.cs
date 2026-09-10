@@ -503,16 +503,24 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 selected.Assembly.Registration,
                 requesting.Assembly.Registration))
         {
-            ResolvedAssemblyReference canonical =
-                requestingOccurrence.Assembly;
-            return IssueSelection(
-                state,
-                route,
-                AssemblyBindingCandidateDomain.Create(
+            if (ReferenceEquals(
+                    requestingOccurrence.Assembly.Registration,
+                    selected.Assembly.Registration))
+            {
+                ResolvedAssemblyReference canonical =
+                    requestingOccurrence.Assembly;
+                selection = AssemblyBindingCandidateDomain.Create(
                     [
                         canonical,
                         .. selected.ShadowedAssemblies,
-                    ]).Finalize(requestingOccurrence));
+                    ]).Finalize(requestingOccurrence);
+            }
+
+            return IssueSelection(
+                state,
+                route,
+                selection,
+                requestingOccurrence);
         }
 
         return IssueSelection(state, route, selection);

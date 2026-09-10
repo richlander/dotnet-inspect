@@ -671,6 +671,43 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
         Assert.Same(selected.Assembly, Selected(group, request).Assembly);
     }
 
+    [Fact]
+    public void Select_ComposedCoreLibraryKeepsItsDescriptorAndSelectingRoute()
+    {
+        var owner = Descriptor(
+            typeof(SourceRelativeAssemblyGroupBindingPolicyTests)
+                .Assembly.Location);
+        var core = Descriptor(
+            typeof(object).Assembly.Location,
+            AssemblyResolutionProvenance.Designated(
+                "composed core library"));
+        var dependency = NamedDescriptor("Dependency");
+        var policy = new SelectionPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "System.Private.CoreLib" }
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create([core]))
+                : AssemblyBindingSelection.Found(dependency));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)policy)]);
+
+        var selected = Selected(group, Request(core, owner));
+        var intrinsic = Selected(
+            group,
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromOccurrence(
+                    selected.Occurrence),
+                AssemblyResolutionScope.Any));
+        var continued = Selected(
+            group,
+            Request(dependency, intrinsic.Occurrence));
+
+        Assert.Same(core, selected.Assembly);
+        Assert.Same(core, intrinsic.Assembly);
+        Assert.Same(dependency, continued.Assembly);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -726,10 +763,14 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
         }
     }
 
-    static ResolvedAssemblyReference Descriptor(string path) =>
+    static ResolvedAssemblyReference Descriptor(
+        string path,
+        AssemblyResolutionProvenance? provenance = null) =>
         ResolvedAssemblyReference.CreateFromPath(
             path,
-            AssemblyResolutionProvenance.Local("resolver-lineage fixture"));
+            provenance
+                ?? AssemblyResolutionProvenance.Local(
+                    "resolver-lineage fixture"));
 
     static ResolvedAssemblyReference NamedDescriptor(string name) =>
         NamedDescriptor(

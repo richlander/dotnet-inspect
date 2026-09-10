@@ -1365,8 +1365,9 @@ Intrinsic core-library facts remain relative to the requesting occurrence's
 image. Retaining its selecting resolver must not re-root those facts at that
 resolver's original target. The shared intrinsic-binding path enforces this
 for both modes; `Select_RoutingOnlyKeepsTheContinuedCoreLibraryAsItsOwnIntrinsic`
-gates a continued core-library selection rather than a return to its caller's
-facade.
+and `Select_ComposedCoreLibraryKeepsItsDescriptorAndSelectingRoute` gate a
+continued core-library selection rather than a return to its caller's facade,
+including a core library selected from a root-free composition handoff.
 
 Caller-scope reachability follows bound occurrences through forwarders and
 distinguishes visited resolver contexts. It must not reconstruct a seed from a
