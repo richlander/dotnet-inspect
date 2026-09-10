@@ -506,6 +506,7 @@ public static class CommandLineBuilder
 
         // Product-owned query vocabulary
         rootCommand.Subcommands.Add(VocabularyCommandDefinitions.CreateVocabularyCommand(opts));
+        rootCommand.Subcommands.Add(EcosystemCommandDefinitions.CreateEcosystemCommand(opts));
 
         // Implements command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateImplementsCommand(opts));
