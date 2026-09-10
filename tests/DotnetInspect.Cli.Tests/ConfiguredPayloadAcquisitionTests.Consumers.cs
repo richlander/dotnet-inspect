@@ -178,6 +178,52 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Theory]
+    [InlineData("", "2.0.0")]
+    [InlineData("@latest", "2.0.0")]
+    [InlineData("@1.*", "1.1.0-preview.1")]
+    public async Task ApiSelection_LocalFeedUsesConfiguredAuthority(
+        string selector, string expectedVersion)
+    {
+        const string Id = "selection.api.local";
+        string source = Path.Combine(_root, "api-selection");
+        foreach (string version in new[] { "1.0.0", "1.1.0-preview.1", "2.0.0" })
+            WriteApiPackage(source, Id, version);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            throw new InvalidOperationException("Local API selection opened an HTTP transport."));
+
+        var result = await RunCommandAsync(
+            ["type", RangeType, "--package", $"{Id}{selector}",
+                "--source", source, "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Contains(RangeType, result.Output);
+        Assert.Contains($"{Id} {expectedVersion}", result.Output);
+    }
+
+    [Fact]
+    public async Task ApiSelection_UnreadablePeerFailsBeforePayload()
+    {
+        const string Id = "selection.api.partial";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(FirstFeed, Id, ["1.0.0", "2.0.0"],
+                _ => throw new InvalidOperationException("Partial discovery reached a payload."),
+                requests));
+        string missing = Path.Combine(_root, "missing-selection-peer");
+
+        var result = await RunCommandAsync(
+            ["type", RangeType, "--package", Id,
+                "--source", FirstFeed, "--source", missing, "--tips", "q"]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains("could not be acquired", result.Error);
+        Assert.Contains(missing, result.Error);
+        Assert.DoesNotContain(requests,
+            request => request.EndsWith(".nupkg", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task TimelineRange_ConfigDirectoryErrorsPrecedeDiscovery(bool conflictingConfig)

@@ -671,9 +671,8 @@ Authority-safe candidate caching remains deferred; local payload caching and
 HTTP temporary ownership reuse the caller-pinned path unchanged.
 
 The same six-step plan and recorded CLI-only approval apply. Multi-package
-inspection, floating API selection, other consumers, offline behavior, and
-corresponding legacy retirement remain in step 6. Existing Markout-backed
-package views and
+inspection, other consumers, offline behavior, and corresponding legacy
+retirement remain in step 6. Existing Markout-backed package views and
 file/content projection remain the rendering boundary; no new default output
 section is introduced.
 
@@ -692,6 +691,14 @@ Existing caller-pinned acquisition and authority-store gates remain applicable
 to their shared implementation.
 
 ### API and timeline range consumers
+
+Online API inspection with an omitted version, `@latest`, or a wildcard uses
+the same complete current selection and reporting-authority handoff as ordinary
+package inspection. Omitted and `@latest` requests select the highest stable
+listed version; wildcard requests retain the package owner's existing
+case-insensitive prefix and prerelease semantics. Exact caller pins and ranges
+retain their separate acquisition paths. Local archives and offline API
+inspection remain on the legacy extractor.
 
 Online API range inspection (`type`, `member`, and `match` with `--at`) and
 `timeline` retain one complete configured-authority discovery together with
@@ -733,10 +740,12 @@ credential-bearing command.
 
 The observable rendering remains the existing Markout-backed API, match, and
 timeline views. This slice introduces no output section and does not migrate
-API floating/wildcard selection, offline behavior, dependency acquisition,
-multi-package commands, symbols, or workspace acquisition.
+offline behavior, dependency acquisition, multi-package commands, symbols, or
+workspace acquisition.
 
 Release gates in `ConfiguredPayloadAcquisitionTests` are
+`ApiSelection_LocalFeedUsesConfiguredAuthority`,
+`ApiSelection_UnreadablePeerFailsBeforePayload`,
 `OpenRange_OneMetadataDiscoveryServesMultipleAddressesAndReporters`,
 `Range_NonReportingWarmLocalCacheCannotAnswer`,
 `OpenRange_GalleryUnlistedEndpointNeedsIndependentReporter`,
@@ -813,8 +822,8 @@ The Release gates
 enforce this seam.
 
 Typed route composition, exact result adoption, and version discovery are live
-for the online desktop consumer described above. Payload and cache
-authorization plus the remaining consumer migrations remain later slices of
+for the online desktop consumers described above. Remaining consumer
+migrations continue in later slices of
 [#5400](https://github.com/richlander/dotnet-inspect/issues/5400). The legacy
 `Sources` projection remains available during those migrations; it is not an
 alternative authority identity.
