@@ -80,6 +80,13 @@ fallback. `Example.dll` may still be selected independently as an
 implementation asset, but the package has no compile surface for that target.
 This is an explicit outcome, not missing package data.
 
+A compatible marker has the same effect when compile and implementation groups
+reduce to different frameworks. The retained build oracle at
+`tests/nuget/PackageAssetSelection.BuildOracle` packages
+`ref/net8.0/_._` with `lib/net6.0/Example.dll`. With the repository SDK, a
+`net9.0` consumer receives the empty `net8.0` compile group while retaining the
+`net6.0` runtime asset; it does not compile against `Example.dll`.
+
 A real reference-assembly group at the exactly selected target wins over a
 compatible empty group. A compatible real `ref` group at another target
 framework is not a compile candidate. A library empty group such as
@@ -104,11 +111,16 @@ Current behavior is gated by:
 - `PackageCompileAssetSelectorTests.InMemorySelection_FallsBackToLibraryAssetsAtHighestTfm`;
 - `PackageCompileAssetSelectorTests.EmptyReferenceGroup_AtTheSelectedFramework_SuppressesLibraryFallback`;
 - `PackageCompileAssetSelectorTests.EmptyReferenceGroup_NearestCompatibleGroupSuppressesLibraryFallback`;
+- `PackageCompileAssetSelectorTests.CompatibleImplementation_UsesRequestedFrameworkForEmptyGroupReduction`;
+- `PackageCompileAssetSelectorTests.CompatibleImplementation_DoesNotUseCompatibleReferenceAssets`;
 - `PackageCompileAssetSelectorTests.EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework`;
 - `PackageCompileAssetSelectorTests.RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback`;
 - `PackageAssetSelectorTests.Select_PrefersTheRuntimeSpecificAssetForTheRequestedRid`;
 - `PackageAssetSelectorTests.Select_WithoutARid_UsesOnlyRuntimeNeutralAssets`;
+- `PackageAssemblyContextRealizationTests.PackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback`;
 - `PackageAssemblyContextRealizationTests.RidSpecificImplementation_UsesSeparateNeutralCompileRole`;
+- `BrowserEngineBoundaryTests.QueryPackage_CompatibleEmptyCompileGroupSuppressesLibraryFallback`;
+- `BrowserEngineBoundaryTests.QueryPackage_ReferenceOnlyCompatibleFrameworkRetainsDependencies`;
 - `BrowserEngineBoundaryTests.RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
 For the upstream role semantics, NuGet's

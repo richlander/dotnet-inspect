@@ -3756,6 +3756,42 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryPackage_CompatibleEmptyCompileGroupSuppressesLibraryFallback()
+    {
+        const string packageId = "Compatible.Empty.Compile.Group";
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                PackageEntries(
+                    ($"ref/net6.0/{packageId}.dll",
+                        File.ReadAllBytes(
+                            typeof(BrowserEngineBoundaryTests).Assembly.Location)),
+                    ("ref/net8.0/_._", []),
+                    ($"lib/net6.0/{packageId}.dll",
+                        File.ReadAllBytes(
+                            typeof(BrowserEngineBoundaryTests).Assembly.Location))),
+                fromCache: false));
+
+        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
+            JsonSerializer.Deserialize(
+                await PackageExports.QueryPackage(
+                    packageId,
+                    "1.0.0",
+                    "net9.0"),
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+
+        Assert.Equal("net9.0", surface.ActiveFramework);
+        Assert.Equal(
+            BrowserCompileLibraryStatus.EmptyCompileGroup,
+            surface.CompileLibrary.Status);
+        Assert.Equal("net6.0", surface.CompileLibrary.TargetFramework);
+        Assert.Null(surface.DefaultAssemblyId);
+        Assert.Empty(surface.Assemblies);
+        Assert.Empty(surface.Types);
+    }
+
+    [Fact]
     public async Task QueryPackage_NoMatchingFrameworkRetainsRequestedRoot()
     {
         const string packageId = "Future.Library";
@@ -3788,6 +3824,70 @@ public sealed partial class BrowserEngineBoundaryTests
             packageId,
             "net10.0",
             BrowserCompileLibraryStatus.NoMatchingTargetFramework);
+    }
+
+    [Fact]
+    public async Task QueryPackage_ReferenceOnlyCompatibleFrameworkRetainsDependencies()
+    {
+        const string packageId = "Reference.Only";
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                PackageEntries(
+                    ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                        $"""
+                         <?xml version="1.0" encoding="utf-8"?>
+                         <package>
+                           <metadata>
+                             <id>{packageId}</id>
+                             <version>1.0.0</version>
+                             <dependencies>
+                               <group targetFramework="net10.0">
+                                 <dependency id="Reference.Dependency" version="[1.0.0]" />
+                               </group>
+                             </dependencies>
+                           </metadata>
+                         </package>
+                         """)),
+                    ($"ref/net10.0/{packageId}.dll",
+                        File.ReadAllBytes(
+                            typeof(BrowserEngineBoundaryTests).Assembly.Location))),
+                fromCache: false));
+
+        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
+            JsonSerializer.Deserialize(
+                await PackageExports.QueryPackage(
+                    packageId,
+                    "1.0.0",
+                    "net11.0"),
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+
+        Assert.Equal("net11.0", surface.ActiveFramework);
+        Assert.Equal(
+            BrowserCompileLibraryStatus.NoMatchingTargetFramework,
+            surface.CompileLibrary.Status);
+        Assert.Equal("net11.0", surface.CompileLibrary.TargetFramework);
+        Assert.Null(surface.DefaultAssemblyId);
+        Assert.Empty(surface.Assemblies);
+
+        BrowserPackageDependencies dependencies =
+            Assert.IsType<BrowserPackageDependencies>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageDependencies(
+                        packageId,
+                        "1.0.0",
+                        "net11.0",
+                        assemblyId: ""),
+                    BrowserPackageJsonContext.Default.BrowserPackageDependencies));
+
+        Assert.Null(dependencies.Assembly);
+        Assert.Equal(
+            BrowserCompileLibraryStatus.NoMatchingTargetFramework,
+            dependencies.CompileLibrary.Status);
+        BrowserPackageDependency dependency = Assert.Single(
+            Assert.Single(dependencies.DependencyGroups).Dependencies);
+        Assert.Equal("Reference.Dependency", dependency.Id);
     }
 
     static async Task AssertRootOnlyAggregateStatus(

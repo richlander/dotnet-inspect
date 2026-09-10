@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 
@@ -146,8 +147,13 @@ public sealed class PackageRootBinding
             displayPackageId: displayPackageId);
         if (exact.Root.AssetSelection.Status
                 is not PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
-            || PackageAssetSelector.Select(payload.Content, requestedTargetFramework)
-                is not PackageAssetSelection.Selected compatible)
+            || TrySelectCompatibleCompileAssets(
+                payload.Content,
+                payload.Coordinate.PackageId,
+                requestedTargetFramework,
+                runtimeIdentifier: null,
+                out PackageCompileAssetSelection? compatibleSelection)
+                is false)
         {
             return exact;
         }
@@ -165,8 +171,9 @@ public sealed class PackageRootBinding
             payload.Content,
             payload.ProducerKey,
             acquisitionFramework,
-            compatible.Universe.TargetFramework,
-            runtimeIdentifier: null);
+            compatibleSelection.TargetFramework,
+            runtimeIdentifier: null,
+            assetSelection: compatibleSelection);
     }
 
     internal static PackageRootBinding CreateFromReacquiredSource(
@@ -225,16 +232,51 @@ public sealed class PackageRootBinding
             displayPackageId);
         if (exact.Root.AssetSelection.Status
                 is not PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
-            || PackageAssetSelector.Select(payload.Content, requestedTargetFramework)
-                is not PackageAssetSelection.Selected compatible)
+            || TrySelectCompatibleCompileAssets(
+                payload.Content,
+                payload.Coordinate.PackageId,
+                requestedTargetFramework,
+                payload.Coordinate.RuntimeIdentifier,
+                out PackageCompileAssetSelection? compatibleSelection)
+                is false)
         {
             return exact;
         }
 
-        return CreateFromResolved(
+        return Create(
             payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            payload.Coordinate.Framework,
+            compatibleSelection.TargetFramework,
+            payload.Coordinate.RuntimeIdentifier,
+            compatibleSelection);
+    }
+
+    static bool TrySelectCompatibleCompileAssets(
+        IPackageContent content,
+        string packageId,
+        string requestedTargetFramework,
+        string? runtimeIdentifier,
+        [NotNullWhen(true)] out PackageCompileAssetSelection? selection)
+    {
+        if (PackageAssetSelector.Select(content, requestedTargetFramework)
+            is not PackageAssetSelection.Selected compatible)
+        {
+            selection = null;
+            return false;
+        }
+
+        selection = PackageCompileAssetSelector.SelectForCompatibleImplementation(
+            content,
+            packageId,
+            requestedTargetFramework,
             compatible.Universe.TargetFramework,
-            displayPackageId);
+            runtimeIdentifier);
+        return true;
     }
 
     static PackageRootBinding Create(
@@ -246,7 +288,8 @@ public sealed class PackageRootBinding
         string producerKey,
         string? acquisitionFramework,
         string? targetFramework,
-        string? runtimeIdentifier)
+        string? runtimeIdentifier,
+        PackageCompileAssetSelection? assetSelection = null)
     {
         if (!displayPackageId.Equals(
                 coordinatePackageId,
@@ -268,7 +311,8 @@ public sealed class PackageRootBinding
             displayPackageId,
             packageVersion,
             targetFramework,
-            runtimeIdentifier);
+            runtimeIdentifier,
+            assetSelection);
         string? effectiveFramework =
             (string.IsNullOrWhiteSpace(acquisitionFramework)
                 ? null
@@ -316,6 +360,23 @@ public sealed class PackageRootRealization
         string packageVersion,
         string? targetFramework = null,
         string? runtimeIdentifier = null)
+        : this(
+            content,
+            packageId,
+            packageVersion,
+            targetFramework,
+            runtimeIdentifier,
+            assetSelection: null)
+    {
+    }
+
+    internal PackageRootRealization(
+        IPackageContent content,
+        string packageId,
+        string packageVersion,
+        string? targetFramework,
+        string? runtimeIdentifier,
+        PackageCompileAssetSelection? assetSelection)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -332,7 +393,8 @@ public sealed class PackageRootRealization
             targetFramework,
             runtimeIdentifier);
         AssetSelection = Freeze(
-            PackageCompileAssetSelector.Select(
+            assetSelection
+            ?? PackageCompileAssetSelector.Select(
                 content,
                 packageId,
                 targetFramework,
