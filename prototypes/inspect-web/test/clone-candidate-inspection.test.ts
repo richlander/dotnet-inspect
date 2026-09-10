@@ -94,11 +94,16 @@ test("leaving Clone retires endpoint navigation without discarding search eviden
     cloneCandidateEndpointNavigationIsCurrent(authority, generation),
     true);
 
-  retireCloneCandidateEndpointNavigation(authority, state);
+  assert.equal(
+    retireCloneCandidateEndpointNavigation(authority, state),
+    true);
   assert.equal(state.navigationLoading, false);
   assert.equal(state.navigationError, "");
   assert.equal(
     cloneCandidateEndpointNavigationIsCurrent(authority, generation),
+    false);
+  assert.equal(
+    retireCloneCandidateEndpointNavigation(authority, state),
     false);
 
   assert.equal(state.request, retainedRequest);
@@ -191,6 +196,50 @@ test("control replacement suppresses a late result from the old request", async 
   assert.equal(state.breadth, "Self");
   assert.ok(state.revision > initialRevision);
   assert.ok(renders >= 1);
+});
+
+test("a hidden discarded completion reloads when its request returns", async () => {
+  const state = createCloneCandidateInspectionState();
+  const pending = deferred<BrowserCloneCandidateResult>();
+  let current = true;
+  let queries = 0;
+  let request: BrowserCloneCandidateRequest | null = null;
+  const coordinator = createCloneCandidateInspectionCoordinator({
+    state,
+    query: () => {
+      queries++;
+      if (queries === 1) return pending.promise;
+      if (!state.request) {
+        throw new Error("The replacement query did not publish its request.");
+      }
+      return Promise.resolve(result(state.request));
+    },
+    isCurrent: () => current,
+    describeError: String,
+    render: () => {},
+  });
+
+  const firstLoad = coordinator.load(input);
+  request = state.request;
+  assert.ok(request);
+  assert.equal(coordinator.reconcile(input, ""), false);
+  current = false;
+  pending.resolve(result(request));
+  await firstLoad;
+
+  assert.equal(state.request, request);
+  assert.equal(state.loading, false);
+  assert.equal(state.result, null);
+  assert.equal(state.error, "");
+
+  current = true;
+  assert.equal(coordinator.reconcile(input, ""), true);
+  await coordinator.load(input);
+
+  assert.equal(queries, 2);
+  assert.deepEqual(state.result, result(request));
+  assert.equal(state.loading, false);
+  assert.equal(coordinator.reconcile(input, ""), false);
 });
 
 test("invalidation suppresses pending work without replacing coordinator state", async () => {

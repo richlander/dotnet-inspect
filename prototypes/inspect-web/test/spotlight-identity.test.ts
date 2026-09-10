@@ -3650,6 +3650,9 @@ test("browser history reuses available identities and publishes only unavailable
     /function retireCloneEndpointNavigationOutsideClone\(\): void \{[\s\S]*cloneCandidateSurfaceIsActive\(\)[\s\S]*retireCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\)[\s\S]*function render\([\s\S]*retireCloneEndpointNavigationOutsideClone\(\);/);
   assert.match(
     appSource,
+    /case "select":[\s\S]*const navigationChanged = retireCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\);[\s\S]*!cloneCandidateInspection\.selectRank\(action\.rank\)[\s\S]*&& navigationChanged[\s\S]*render\(\);/);
+  assert.match(
+    appSource,
     /async function openCloneCandidateEndpoint\([\s\S]*retireCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\)[\s\S]*const cloneRevision = state\.cloneCandidates\.revision;[\s\S]*beginCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\)[\s\S]*cloneCandidateEndpointNavigationIsCurrent\([\s\S]*cloneEndpointNavigation,[\s\S]*navigationGeneration\)[\s\S]*cloneRevision === state\.cloneCandidates\.revision/);
   assert.match(
     appSource,

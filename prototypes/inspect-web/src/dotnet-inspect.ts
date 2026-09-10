@@ -3414,12 +3414,16 @@ function applyCloneCandidateAction(action: CloneCandidateViewAction): void {
           "Searching the selected Clone candidate population");
       }
       return;
-    case "select":
-      retireCloneCandidateEndpointNavigation(
+    case "select": {
+      const navigationChanged = retireCloneCandidateEndpointNavigation(
         cloneEndpointNavigation,
         state.cloneCandidates);
-      cloneCandidateInspection.selectRank(action.rank);
+      if (!cloneCandidateInspection.selectRank(action.rank)
+        && navigationChanged) {
+        render();
+      }
       return;
+    }
     case "navigate":
       observeAsync(
         openCloneCandidateEndpoint(action),

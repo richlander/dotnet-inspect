@@ -69,10 +69,12 @@ export function beginCloneCandidateEndpointNavigation(
 export function retireCloneCandidateEndpointNavigation(
   authority: CloneCandidateEndpointNavigationAuthority,
   state: CloneCandidateInspectionState,
-): void {
+): boolean {
+  const changed = state.navigationLoading || state.navigationError !== "";
   authority.generation++;
   state.navigationLoading = false;
   state.navigationError = "";
+  return changed;
 }
 
 export function cloneCandidateEndpointNavigationIsCurrent(
@@ -223,7 +225,8 @@ export function createCloneCandidateInspectionCoordinator(
       if (availability.request) {
         if (state.request
           && JSON.stringify(state.request)
-            === JSON.stringify(availability.request)) {
+            === JSON.stringify(availability.request)
+          && (state.loading || state.result !== null || state.error !== "")) {
           return false;
         }
       } else if (state.request === null
