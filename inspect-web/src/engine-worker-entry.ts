@@ -8,6 +8,10 @@ import {
 import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
 import { registerEngineWorkerCpuOperation } from "./engine-worker-cpu.ts";
 import {
+  registerEngineWorkerCloneCandidateOperation,
+  type EngineWorkerCloneCandidateFacade,
+} from "./engine-worker-analysis.ts";
+import {
   registerEngineWorkerPackageQueryOperation,
   type EngineWorkerPackageQueryFacade,
 } from "./engine-worker-package-query.ts";
@@ -54,6 +58,12 @@ registerEngineWorkerStartupOperations(operations, {
   },
 });
 let sourceFacade: EngineWorkerTypeSourceFacade | undefined;
+let analysisFacade: EngineWorkerCloneCandidateFacade | undefined;
+registerEngineWorkerCloneCandidateOperation(operations, () => {
+  if (analysisFacade === undefined)
+    throw new Error("Analysis facade is unavailable before Worker readiness.");
+  return analysisFacade;
+});
 registerEngineWorkerTypeSourceOperation(operations, () => {
   if (sourceFacade === undefined)
     throw new Error("Type Source facade is unavailable before Worker readiness.");
@@ -97,7 +107,7 @@ const bootstrapWorker = async (value: string): Promise<void> => {
   const [
     packageFacade,
     metadataFacade,
-    analysisFacade,
+    loadedAnalysisFacade,
     loadedSourceFacade,
     callGraphFacade,
     catalogFacade,
@@ -109,12 +119,13 @@ const bootstrapWorker = async (value: string): Promise<void> => {
     import("/inspect-web-call-graph.js"),
     import("/inspect-web-catalog.js"),
   ]);
+  analysisFacade = loadedAnalysisFacade;
   sourceFacade = loadedSourceFacade;
   packageQueryFacade = packageFacade;
   ordinaryFacades = {
     package: packageFacade,
     metadata: metadataFacade,
-    analysis: analysisFacade,
+    analysis: loadedAnalysisFacade,
     source: loadedSourceFacade,
     callGraph: callGraphFacade,
     catalog: catalogFacade,

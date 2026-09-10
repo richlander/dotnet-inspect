@@ -61,7 +61,8 @@ type MetadataOperationName =
   | "queryPlatformHeapEntries"
   | "queryPackageMetadata"
   | "queryPlatformMetadata"
-  | "queryGraphMemberSurface";
+  | "queryGraphMemberSurface"
+  | "queryGraphMemberSurfaceByMethodAddress";
 
 type AnalysisOperationName =
   | "queryMemberFacts"
@@ -916,6 +917,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryGraphMemberSurface"]>
       ) => facades.metadata.queryGraphMemberSurface(...args),
     ),
+    queryGraphMemberSurfaceByMethodAddress: valueOperation(
+      "ordinary-metadata-query-graph-member-surface-by-method-address",
+      9,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryGraphMemberSurfaceByMethodAddress"]
+        >
+      ) => facades.metadata.queryGraphMemberSurfaceByMethodAddress(...args),
+    ),
   },
   analysis: {
     queryMemberFacts: valueOperation(
@@ -1238,6 +1249,10 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryGraphMemberSurface: bind(
         engineWorkerOrdinaryOperations.metadata.queryGraphMemberSurface,
+      ),
+      queryGraphMemberSurfaceByMethodAddress: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryGraphMemberSurfaceByMethodAddress,
       ),
     },
     analysis: {

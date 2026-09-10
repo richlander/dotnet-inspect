@@ -29,6 +29,12 @@ public sealed class Widget
     }
 
     public void Raise() => _changed?.Invoke(this, EventArgs.Empty);
+
+    public int ApplyGenerated(int value)
+    {
+        Func<int, int> transform = static candidate => candidate + 1;
+        return transform(value);
+    }
 }
 
 /// <summary>

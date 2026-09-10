@@ -55,6 +55,10 @@ import {
 import { createMethodBodyDiffState } from "../src/method-body-comparison.ts";
 import { createSourceDiffState } from "../src/source-comparison.ts";
 import {
+  createCloneCandidateInspectionCoordinator,
+  createCloneCandidateInspectionState,
+} from "../src/clone-candidate-inspection.ts";
+import {
   documentViewerIsOpen,
   normalizeDocumentViewerSnapshot,
   type DocumentViewerState,
@@ -266,6 +270,7 @@ function harness() {
     dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
+    cloneCandidates: createCloneCandidateInspectionState(),
     methodBodyDiff: createMethodBodyDiffState(),
     sourceDiff: createSourceDiffState(),
     platformStack: [] as object[], platformRecent: [], recentPackages: [],
@@ -534,6 +539,9 @@ function harness() {
     methodBodyComparison: { dispose: () => {} },
     sourceComparison: { dispose: () => {} },
     memberDetailInspection: { invalidate: () => {} },
+    cloneCandidateInspection: {
+      invalidate: () => invalidations.push("clone-candidates"),
+    },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},
@@ -773,12 +781,25 @@ test("canonical package Dependencies restoration clears a resident group overrid
 
 test("canonical restoration preserves coordinator-owned comparison state identities", () => {
   const h = harness();
+  const cloneCandidates = h.state.cloneCandidates;
+  const cloneCandidateInspection = createCloneCandidateInspectionCoordinator({
+    state: cloneCandidates,
+    query: () => {
+      throw new Error("State restoration must not start Clone analysis.");
+    },
+    isCurrent: () => true,
+    describeError: String,
+    render: () => {},
+  });
   const methodBodyDiff = h.state.methodBodyDiff;
   const sourceDiff = h.state.sourceDiff;
   const snapshot: unknown = runInNewContext(
     "cloneCanonicalWorkspaceSnapshotForRetention(captureCanonicalWorkspaceRestoreSnapshot())",
     h.context);
 
+  assert.equal(cloneCandidates.revision, 0);
+  cloneCandidates.breadth = "Self";
+  cloneCandidates.revision = 7;
   methodBodyDiff.open = true;
   sourceDiff.open = true;
   h.state.sourceRequestGeneration = 7;
@@ -789,6 +810,11 @@ test("canonical restoration preserves coordinator-owned comparison state identit
     "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
     { ...h.context, snapshot });
 
+  assert.equal(h.state.cloneCandidates, cloneCandidates);
+  assert.equal(cloneCandidates.breadth, "Everything");
+  assert.equal(cloneCandidates.revision, 8);
+  assert.equal(cloneCandidateInspection.setBreadth("Self"), true);
+  assert.equal(h.state.cloneCandidates.breadth, "Self");
   assert.equal(h.state.methodBodyDiff, methodBodyDiff);
   assert.equal(h.state.sourceDiff, sourceDiff);
   assert.equal(methodBodyDiff.open, false);
@@ -1228,7 +1254,7 @@ for (const failure of [
 }
 
 for (const failure of ["acquisition", "selection"] as const) {
-  test(`failed ${failure} Open restores comparison choices and their Package associations`, async () => {
+  test(`failed ${failure} Open restores the Diff comparison choice`, async () => {
     const h = harness();
     const other = { ...sourcePackage, id: "Comparison.Target" };
     h.state.packages.push(other);
@@ -1236,8 +1262,6 @@ for (const failure of ["acquisition", "selection"] as const) {
     const inventory = h.catalogRequests.packageVersions(sourcePackage);
     h.packageComparisonTargets.selectDiff(
       sourcePackage, { kind: "exact", version: sourcePackage.version }, inventory);
-    h.packageComparisonTargets.selectClone(
-      sourcePackage, { kind: "package", package: other });
     if (failure === "acquisition")
       h.controls.acquisition = async id => id !== "Beta";
     else
@@ -1247,18 +1271,12 @@ for (const failure of ["acquisition", "selection"] as const) {
     await h.settle();
 
     const restored = h.state.packages.find(pkg => pkg.id === sourcePackage.id);
-    const restoredTarget = h.state.packages.find(pkg => pkg.id === other.id);
     assert.ok(restored);
-    assert.ok(restoredTarget);
     assert.notEqual(restored, sourcePackage);
-    assert.notEqual(restoredTarget, other);
     assert.equal(h.state.package, restored);
     assert.deepEqual(h.packageComparisonTargets.get(restored).diff, {
       kind: "exact", version: sourcePackage.version,
     });
-    const clone = h.packageComparisonTargets.get(restored).clone;
-    assert.equal(clone.kind, "package");
-    if (clone.kind === "package") assert.equal(clone.package, restoredTarget);
     assert.deepEqual(h.catalogRequests.packageVersions(restored), inventory);
     assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
   });
@@ -1275,7 +1293,7 @@ test("successful saved Open retires comparison settings with the discarded Packa
 
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" },
+    diff: { kind: "previous" },
   });
   assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
   assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });

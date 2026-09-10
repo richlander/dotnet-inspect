@@ -177,8 +177,14 @@ public sealed class AssemblyInspectionSession : IDisposable
     public ApiSurfaceExtractionResult BoundedApiSurface(
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
-        bool typesOnly = false)
-        => ApiSurfaceExtractor.ExtractBounded(_image.PEReader, scope, bounds, typesOnly);
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ApiSurfaceExtractor.ExtractBounded(
+            _image.PEReader,
+            scope,
+            bounds,
+            typesOnly,
+            includeCompilerGenerated);
 
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()

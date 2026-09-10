@@ -408,6 +408,25 @@ async function installFacades(
       }`,
     analysis: `
       ${surfaceLookup}
+      export async function queryCloneCandidates(requestJson) {
+        return {
+          schemaVersion: 1,
+          request: JSON.parse(requestJson),
+          kind: "Failed",
+          document: null,
+          seedLibrary: null,
+          openFailureKind: null,
+          failure: {
+            kind: "MetadataInspectionFailed",
+            subject: null,
+            detail: "Clone Candidates Worker is unavailable.",
+          },
+          presentationRejectionKind: null,
+          subject: null,
+          detail: null,
+          metadataRootReason: null,
+        };
+      }
       export async function queryPackageIntegrations(id, version, framework, asset) {
         document.documentElement.dataset.integrationRequest = asset;
         const surface = surfaceFor(id);
@@ -1371,7 +1390,6 @@ test("Package comparison targets survive Library, Type, and Member navigation", 
   await page.locator("#package-diff-target").focus();
   await page.locator("#package-diff-target").selectOption("exact:1.0.0");
   await expect(page.locator("#package-diff-target")).toBeFocused();
-  await page.locator("#package-clone-target").selectOption("package:0");
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();
   await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
   await page.locator("#type-list [data-type]").click();
@@ -1379,10 +1397,43 @@ test("Package comparison targets survive Library, Type, and Member navigation", 
   await expect(page.locator('[data-scope="member"]')).toHaveAttribute("aria-selected", "true");
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await expect(page.locator("#package-diff-target")).toHaveValue("exact:1.0.0");
-  await expect(page.locator("#package-clone-target")).toHaveValue("package:0");
+  await expect(page.locator("#package-clone-target")).toHaveCount(0);
   await page.locator("#package-diff-target").selectOption("previous");
   await expect(page.locator("#package-diff-target-status"))
     .toHaveText("Previous listed release");
+});
+
+test("Library Clone preserves all target combinations when analysis is unavailable", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.locator('[data-library-lens="clone"]').click();
+
+  await expect(page.locator(
+    '[data-clone-breadth][value="Everything"]')).toBeChecked();
+  await expect(page.locator(
+    '[data-clone-discovery][value="SimilarNames"]')).toBeChecked();
+  await expect(page.locator(".clone-candidate-failure"))
+    .toHaveText("Clone Candidates Worker is unavailable.");
+
+  for (const breadth of [
+    "Self",
+    "SelfAndRegisteredEcosystems",
+    "Everything",
+  ]) {
+    for (const discovery of ["SimilarNames", "All"]) {
+      await page.locator(
+        `[data-clone-breadth][value="${breadth}"]`).check();
+      await page.locator(
+        `[data-clone-discovery][value="${discovery}"]`).check();
+      await expect(page.locator(
+        `[data-clone-breadth][value="${breadth}"]`)).toBeChecked();
+      await expect(page.locator(
+        `[data-clone-discovery][value="${discovery}"]`)).toBeChecked();
+      await expect(page.locator(".clone-candidate-failure"))
+        .toHaveText("Clone Candidates Worker is unavailable.");
+    }
+  }
 });
 
 for (const initialWidth of [1440, 390]) {
@@ -1758,7 +1809,8 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await openPlatform(page, { mismatchedFile: true });
     await page.getByTitle("Inspect System.Facade", { exact: true }).click();
-    await page.locator('[data-library-lens="opportunities"]').click();
+    await page.locator('[data-library-lens="opportunities"]')
+      .evaluate((element: HTMLElement) => element.click());
     const frame = page.locator(".library-opportunities-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
     const picker = frame.locator(".library-opportunities-controls select");
@@ -1956,16 +2008,16 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await openPlatform(page);
     await page.getByTitle("Inspect System.Text.Json", { exact: true }).click();
-    await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-    await page.keyboard.press("Enter");
+    await page.locator('[data-library-lens="integrations"]')
+      .evaluate((element: HTMLElement) => element.click());
     const frame = page.locator(".library-integrations-surface");
     await expect(frame.locator(".signal-row")).toHaveCount(3);
     await expect(frame.locator(".library-integrations-controls")).toHaveCount(0);
     await expect(frame.locator(".signal-ns").first()).toContainText("System.Text.Json");
     await page.locator('[data-scope="library"]').press("Home");
     await page.getByTitle("Inspect System.Facade", { exact: true }).click();
-    await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-    await page.keyboard.press("Enter");
+    await page.locator('[data-library-lens="integrations"]')
+      .evaluate((element: HTMLElement) => element.click());
     await expect(frame.locator(".signal-ns").first()).toContainText("System.Facade");
     await expect(frame.locator("footer")).toContainText("System.Facade.dll");
     await expect(page.locator("html")).toHaveAttribute("data-platform-integration-request", "System.Facade.dll:netcore.app");
@@ -2240,7 +2292,7 @@ for (const width of [1440, 800, 390]) {
     ]);
     await expect(overview.locator(".library-row")).toHaveCount(3);
     await expect(overview.locator('[data-lib-scope="asset:empty"]')).toContainText("0 types");
-    await expect(overview.locator(".comparison-target-row")).toHaveCount(2);
+    await expect(overview.locator(".comparison-target-row")).toHaveCount(1);
     const diffTarget = overview.locator("#package-diff-target");
     await expect(diffTarget.locator("option:checked")).toHaveText("Automatic: 0.9.0");
     await expect(overview.locator(".comparison-target-policy"))

@@ -50,6 +50,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Metadata");
         value = $ownDataProperty(value, "MetadataExports");
+        value = $ownDataProperty(value, "QueryGraphMemberSurfaceByMethodAddress.642387634");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryGraphMemberSurfaceByMethodAddress.642387634\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Metadata");
+        value = $ownDataProperty(value, "MetadataExports");
         value = $ownDataProperty(value, "QueryPackageHeapEntries.649160465");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPackageHeapEntries.649160465\u0027 is not callable.");
@@ -154,6 +166,11 @@ export function runEntryPoint(mainAssemblyName, args) {
 }
 export async function queryGraphMemberSurface(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryGraphMemberSurface.1542089313"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryGraphMemberSurfaceByMethodAddress(packageId, version, targetFramework, assemblyName, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, moduleVersionId, metadataToken) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryGraphMemberSurfaceByMethodAddress.642387634"](packageId, version, targetFramework, assemblyName, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, moduleVersionId, metadataToken);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

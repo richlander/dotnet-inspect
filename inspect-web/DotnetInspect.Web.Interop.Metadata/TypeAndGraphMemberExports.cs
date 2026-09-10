@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using ILInspector.Research;
+using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
 using DotnetInspect.Web;
@@ -155,6 +156,91 @@ public static partial class MetadataExports
             BrowserMetadataJsonContext.Default.BrowserGraphMemberSurface);
     }
 
+    /// <summary>
+    /// Projects the exact member body named by a portable physical method
+    /// address. The MVID prevents a later package resolution from silently
+    /// retargeting the gesture to a different module.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryGraphMemberSurfaceByMethodAddress(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string assemblyVersion,
+        string assemblyCulture,
+        string assemblyPublicKeyToken,
+        string moduleVersionId,
+        int metadataToken)
+    {
+        if (!Guid.TryParse(moduleVersionId, out Guid mvid)
+            || mvid == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "A non-empty module version ID is required.",
+                nameof(moduleVersionId));
+        }
+        BrowserGraphMemberSurface surface =
+            await GraphMemberSurfaceByMethodAddressAsync(
+                packageId,
+                version,
+                targetFramework,
+                ParseAssemblyIdentity(
+                    assemblyName,
+                    assemblyVersion,
+                    assemblyCulture,
+                    assemblyPublicKeyToken),
+                mvid,
+                metadataToken);
+        return JsonSerializer.Serialize(
+            surface,
+            BrowserMetadataJsonContext.Default.BrowserGraphMemberSurface);
+    }
+
+    static async Task<BrowserGraphMemberSurface>
+        GraphMemberSurfaceByMethodAddressAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            AssemblyReferenceIdentity assemblyIdentity,
+            Guid moduleVersionId,
+            int metadataToken)
+    {
+        await using BrowserMemberResolution.ScopedResolution resolved =
+            await BrowserMemberResolution.ImplementationMethodAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyIdentity,
+                moduleVersionId,
+                metadataToken);
+        return ProjectGraphMemberSurface(resolved);
+    }
+
+    static AssemblyReferenceIdentity ParseAssemblyIdentity(
+        string name,
+        string version,
+        string culture,
+        string publicKeyToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        Version? parsedVersion = null;
+        if (!string.IsNullOrWhiteSpace(version)
+            && !Version.TryParse(version, out parsedVersion))
+        {
+            throw new ArgumentException(
+                "The assembly version is invalid.",
+                nameof(version));
+        }
+        return new AssemblyReferenceIdentity(
+            name,
+            parsedVersion,
+            string.IsNullOrWhiteSpace(culture) ? null : culture,
+            string.IsNullOrWhiteSpace(publicKeyToken)
+                ? null
+                : publicKeyToken);
+    }
+
     static async Task<BrowserGraphMemberSurface> GraphMemberSurfaceAsync(
         string packageId,
         string version,
@@ -175,7 +261,14 @@ public static partial class MetadataExports
                 memberName,
                 selectorKey,
                 metadataToken);
-        BrowserWorkspaceParticipant surfaceParticipant = resolved.SurfaceParticipant;
+        return ProjectGraphMemberSurface(resolved);
+    }
+
+    static BrowserGraphMemberSurface ProjectGraphMemberSurface(
+        BrowserMemberResolution.ScopedResolution resolved)
+    {
+        BrowserWorkspaceParticipant surfaceParticipant =
+            resolved.SurfaceParticipant;
         Analysis.CallGraphMemberResolution resolution = resolved.Member;
         var textBudget = new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
             BrowserApiSurfacePolicy.MaxRetainedTextCharacters);

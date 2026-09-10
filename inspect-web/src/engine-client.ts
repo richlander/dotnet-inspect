@@ -43,6 +43,7 @@ type PackageOperations =
 
 type MetadataOperations =
   | "queryGraphMemberSurface"
+  | "queryGraphMemberSurfaceByMethodAddress"
   | "queryPackageHeapEntries"
   | "queryPackageMetadata"
   | "queryPackageMetadataTable"
@@ -52,6 +53,7 @@ type MetadataOperations =
   | "queryTypeProjection";
 
 type AnalysisOperations =
+  | "queryCloneCandidates"
   | "queryMemberFacts"
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"

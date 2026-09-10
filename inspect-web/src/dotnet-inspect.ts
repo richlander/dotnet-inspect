@@ -63,6 +63,22 @@ import {
   workspaceCoordinatesMatch
 } from "./data.ts";
 import type { EngineClient } from "./engine-client.ts";
+import {
+  beginCloneCandidateEndpointNavigation,
+  buildCloneCandidateRequest,
+  cloneCandidateEndpointNavigationIsCurrent,
+  createCloneCandidateEndpointNavigationAuthority,
+  createCloneCandidateInspectionCoordinator,
+  createCloneCandidateInspectionState,
+  retireCloneCandidateEndpointNavigation,
+  type CloneCandidateInspectionState,
+  type CloneCandidateRequestInput,
+} from "./clone-candidate-inspection.ts";
+import {
+  bindCloneCandidateInspection,
+  renderCloneCandidateInspection,
+  type CloneCandidateViewAction,
+} from "./clone-candidate-view.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -520,6 +536,7 @@ import type {
 } from "./facades/inspect-web-package.d.ts";
 import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
 import type {
+  BrowserCloneCandidateRequest,
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
 } from "./facades/inspect-web-analysis.d.ts";
@@ -569,6 +586,8 @@ let inspectClearWorkspacePackageOccurrences:
   EngineClient["package"]["clearWorkspacePackageOccurrences"];
 let inspectGraphMemberSurface:
   EngineClient["metadata"]["queryGraphMemberSurface"];
+let inspectGraphMemberSurfaceByMethodAddress:
+  EngineClient["metadata"]["queryGraphMemberSurfaceByMethodAddress"];
 let inspectPackageHeapEntries:
   EngineClient["metadata"]["queryPackageHeapEntries"];
 let inspectPackageMetadata:
@@ -582,6 +601,8 @@ let inspectPlatformMetadata:
 let inspectPlatformMetadataTable:
   EngineClient["metadata"]["queryPlatformMetadataTable"];
 let inspectTypeProjection: EngineClient["metadata"]["queryTypeProjection"];
+let inspectCloneCandidates:
+  EngineClient["analysis"]["queryCloneCandidates"];
 let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
 let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
@@ -690,6 +711,8 @@ async function loadEngineModule() {
     } = engineClient.package);
     ({
       queryGraphMemberSurface: inspectGraphMemberSurface,
+      queryGraphMemberSurfaceByMethodAddress:
+        inspectGraphMemberSurfaceByMethodAddress,
       queryPackageHeapEntries: inspectPackageHeapEntries,
       queryPackageMetadata: inspectPackageMetadata,
       queryPackageMetadataTable: inspectPackageMetadataTable,
@@ -699,6 +722,7 @@ async function loadEngineModule() {
       queryTypeProjection: inspectTypeProjection,
     } = engineClient.metadata);
     ({
+      queryCloneCandidates: inspectCloneCandidates,
       queryMemberFacts: inspectMemberFacts,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
@@ -947,6 +971,7 @@ const initialState = {
   memberAnnotatedModal: null,
   memberFindingInteraction: null,
   memberFindingSelectionError: "",
+  cloneCandidates: createCloneCandidateInspectionState(),
   methodBodyDiff: createMethodBodyDiffState(),
   sourceDiff: createSourceDiffState(),
   typeSource: null,
@@ -1073,6 +1098,7 @@ interface StateOverrides {
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
   memberFindingInteraction: MemberFindingInteraction | null;
+  cloneCandidates: CloneCandidateInspectionState;
   methodBodyDiff: MethodBodyDiffState;
   sourceDiff: SourceDiffState;
   typeSource: BrowserSource | null;
@@ -1218,6 +1244,7 @@ CanonicalWorkspaceRestoreSnapshot {
       memberAnnotatedModal: state.memberAnnotatedModal
         ? structuredClone(state.memberAnnotatedModal)
         : null,
+      cloneCandidates: structuredClone(state.cloneCandidates),
       platformStack: structuredClone(state.platformStack),
       platformRecent: structuredClone(state.platformRecent),
       recentPackages: structuredClone(state.recentPackages),
@@ -1262,6 +1289,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
   const memberFactsLoading = snapshotState.memberFactsLoading;
   const memberDocumentationLoading = snapshotState.memberDocumentationLoading;
+  const cloneCandidatesLoading = snapshotState.cloneCandidates.loading;
 
   snapshotState.loading = false;
   snapshotState.memberSourceLoading = false;
@@ -1295,6 +1323,16 @@ function normalizeWorkspaceAsyncSnapshotState(
     );
   snapshotState.workspaceOccurrenceLoading = false;
   snapshotState.workspaceDependencyLoads = new Set();
+  snapshotState.cloneCandidates.loading = false;
+  snapshotState.cloneCandidates.navigationLoading = false;
+  snapshotState.cloneCandidates.navigationError = "";
+  snapshotState.cloneCandidates.revision++;
+  if (cloneCandidatesLoading) {
+    snapshotState.cloneCandidates.request = null;
+    snapshotState.cloneCandidates.result = null;
+    snapshotState.cloneCandidates.error = "";
+    snapshotState.cloneCandidates.selectedRank = null;
+  }
   snapshotState.sourceRequestGeneration++;
   snapshotState.typeMetadataGeneration++;
   snapshotState.memberCallGraphSeq++;
@@ -1334,18 +1372,26 @@ function settleInterruptedPlatformStatus(targetState: AppState): void {
 function restoreCanonicalWorkspaceRestoreSnapshot(
   snapshot: CanonicalWorkspaceRestoreSnapshot,
 ) {
+  const cloneCandidates = state.cloneCandidates;
   const methodBodyDiff = state.methodBodyDiff;
   const sourceDiff = state.sourceDiff;
   const sourceRequestGeneration = state.sourceRequestGeneration;
   const typeMetadataGeneration = state.typeMetadataGeneration;
   const memberCallGraphSeq = state.memberCallGraphSeq;
   const graphMemberNavigationSeq = state.graphMemberNavigationSeq;
+  const cloneCandidateRevision = cloneCandidates.revision;
   const platformIndex = state.platformIndex ?? snapshot.state.platformIndex;
   clearWorkspaceOccurrenceView();
   clearWorkspacePackages();
   Object.assign(state, snapshot.state);
+  Object.assign(cloneCandidates, snapshot.state.cloneCandidates);
   Object.assign(methodBodyDiff, snapshot.state.methodBodyDiff);
   Object.assign(sourceDiff, snapshot.state.sourceDiff);
+  cloneCandidates.revision =
+    Math.max(
+      cloneCandidateRevision,
+      snapshot.state.cloneCandidates.revision) + 1;
+  state.cloneCandidates = cloneCandidates;
   state.methodBodyDiff = methodBodyDiff;
   state.sourceDiff = sourceDiff;
   state.sourceRequestGeneration =
@@ -1422,6 +1468,7 @@ CanonicalWorkspaceRestoreSnapshot {
 
 function invalidateWorkspaceAsyncOwners(): void {
   memberDetailInspection.invalidate();
+  cloneCandidateInspection.invalidate();
   invalidateGraphMemberNavigation();
   invalidateMemberCallGraphWork(state);
   packageInspection.invalidatePackageResults();
@@ -2089,6 +2136,17 @@ const documentInspection = createDocumentInspectionCoordinator({
   describeError: errorMessage,
   render,
 });
+const cloneCandidateInspection =
+  createCloneCandidateInspectionCoordinator({
+    state: state.cloneCandidates,
+    query: requestJson => inspectCloneCandidates(requestJson),
+    isCurrent: request => cloneCandidateRequestIsCurrent(request),
+    describeError: errorMessage,
+    render,
+  });
+let cloneCandidateReloadScheduled = false;
+const cloneEndpointNavigation =
+  createCloneCandidateEndpointNavigationAuthority();
 
 function captureView(): WorkspaceView | null {
   if (!state.package && !state.platformSelection) return null;
@@ -2328,6 +2386,8 @@ function applyView(view: WorkspaceView) {
       observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
     else if (section === "call-graph")
       observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+    else if (section === "clone")
+      observeAsync(loadCloneCandidateInspection(), "Searching Clone Candidates");
     else if (section === "facts")
       observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
     else if (section === "overview")
@@ -2454,6 +2514,9 @@ function memberSectionsFor(member: AppMemberGroup) {
       member,
       state.package?.isRuntimePack,
       memberHasSelectedBody(member)));
+  if (member.overloads.every(overload => overload.graphOnly)) {
+    allowed.delete("clone");
+  }
   return memberSectionDefinitions.filter(([id]) => allowed.has(id));
 }
 
@@ -3138,6 +3201,237 @@ function selectedTypeMetadataLibraryIdentity() {
   return state.rootKind === "platform"
     ? selectedLibraryShareKey()
     : "";
+}
+
+function cloneCandidateSurfaceIsActive(): boolean {
+  if (state.explorer?.open
+    || state.credits
+    || state.packageQueryOpen
+    || state.loading
+    || Boolean(state.error)
+    || state.home) {
+    return false;
+  }
+  const activeScope = scope();
+  return (activeScope === "library" && state.libraryLens === "clone")
+    || (activeScope === "type" && state.lens === "clone")
+    || (activeScope === "member" && state.memberSection === "clone");
+}
+
+function retireCloneEndpointNavigationOutsideClone(): void {
+  if (cloneCandidateSurfaceIsActive()
+    || (!state.cloneCandidates.navigationLoading
+      && !state.cloneCandidates.navigationError)) {
+    return;
+  }
+  retireCloneCandidateEndpointNavigation(
+    cloneEndpointNavigation,
+    state.cloneCandidates);
+}
+
+function currentCloneCandidateRequestInput(): {
+  input: CloneCandidateRequestInput | null;
+  reason: string;
+} {
+  const pkg = state.package;
+  const library = selectedLibrary();
+  if (!pkg || !library) {
+    return {
+      input: null,
+      reason: "Select a package library before searching for Clone Candidates.",
+    };
+  }
+
+  let seed: CloneCandidateRequestInput["seed"];
+  const activeScope = scope();
+  if (activeScope === "library") {
+    seed = {
+      kind: "Library",
+      typeDefinitionId: null,
+      member: null,
+      body: null,
+    };
+  } else {
+    const type = selectedType();
+    if (!type?.definitionId) {
+      return {
+        input: null,
+        reason: "The selected type does not have an exact metadata identity.",
+      };
+    }
+    if (activeScope === "type") {
+      seed = {
+        kind: "Type",
+        typeDefinitionId: type.definitionId,
+        member: null,
+        body: null,
+      };
+    } else if (activeScope === "member") {
+      const group = selectedMember(type);
+      const member = group
+        ? selectedConcreteOverload(
+            group.overloads,
+            state.selectedOverloadIndex)
+        : undefined;
+      if (!member) {
+        return {
+          input: null,
+          reason: "Select one exact member before searching for Clone Candidates.",
+        };
+      }
+      if (member.graphOnly) {
+        return {
+          input: null,
+          reason: "Clone Candidates requires an API member identity.",
+        };
+      }
+      if (!member.stableSelector
+        || !member.canonicalSignature
+        || !member.anchorDigest
+        || !member.anchorTypeFullName) {
+        return {
+          input: null,
+          reason: "The selected member does not have a complete portable identity.",
+        };
+      }
+      const selectedBody = state.selectedBodyTarget;
+      let body: CloneCandidateRequestInput["seed"]["body"] = null;
+      if (selectedBody) {
+        const {
+          memberName,
+          selectorKey,
+          metadataToken,
+        } = selectedBody;
+        if (!memberName || !selectorKey || !metadataToken) {
+          return {
+            input: null,
+            reason: "The selected member body does not have a complete physical identity.",
+          };
+        }
+        body = {
+          memberName,
+          selectorKey,
+          metadataToken,
+        };
+      }
+      seed = {
+        kind: "Member",
+        typeDefinitionId: type.definitionId,
+        member: {
+          stableSelector: member.stableSelector,
+          canonicalSignature: member.canonicalSignature,
+          fingerprint: member.anchorDigest,
+          typeFullName: member.anchorTypeFullName,
+          memberName: member.name,
+        },
+        body,
+      };
+    } else {
+      return {
+        input: null,
+        reason: "Clone Candidates is available for Library, Type, and Member subjects.",
+      };
+    }
+  }
+
+  return {
+    input: {
+      packages: state.packages.map(item => ({
+        id: item.id,
+        version: item.version,
+        framework: item.activeFramework,
+        runtimePack: item.isRuntimePack,
+      })),
+      selectedPackage: {
+        id: pkg.id,
+        version: pkg.version,
+        framework: pkg.activeFramework,
+        runtimePack: pkg.isRuntimePack,
+      },
+      assembly: library.id,
+      seed,
+    },
+    reason: "",
+  };
+}
+
+function cloneCandidateRequestIsCurrent(
+  request: BrowserCloneCandidateRequest,
+): boolean {
+  if (!cloneCandidateSurfaceIsActive()) return false;
+  const current = currentCloneCandidateRequestInput();
+  if (!current.input) return false;
+  const available = buildCloneCandidateRequest(
+    current.input,
+    state.cloneCandidates.breadth,
+    state.cloneCandidates.discovery);
+  return available.request !== null
+    && JSON.stringify(available.request) === JSON.stringify(request);
+}
+
+function loadCloneCandidateInspection(): Promise<void> {
+  const current = currentCloneCandidateRequestInput();
+  if (!current.input) {
+    cloneCandidateInspection.showUnavailable(current.reason);
+    return Promise.resolve();
+  }
+  return cloneCandidateInspection.load(current.input);
+}
+
+function reconcileCloneCandidateInspectionForRender(): void {
+  if (!cloneCandidateSurfaceIsActive()) return;
+  const current = currentCloneCandidateRequestInput();
+  if (!cloneCandidateInspection.reconcile(
+    current.input,
+    current.reason)) {
+    return;
+  }
+  if (cloneCandidateReloadScheduled) return;
+  cloneCandidateReloadScheduled = true;
+  queueMicrotask(() => {
+    cloneCandidateReloadScheduled = false;
+    if (cloneCandidateSurfaceIsActive()) {
+      observeAsync(
+        loadCloneCandidateInspection(),
+        "Synchronizing Clone Candidates with the selected subject");
+    }
+  });
+}
+
+function applyCloneCandidateAction(action: CloneCandidateViewAction): void {
+  switch (action.kind) {
+    case "breadth":
+      if (cloneCandidateInspection.setBreadth(action.value)) {
+        observeAsync(
+          loadCloneCandidateInspection(),
+          "Searching the selected Clone breadth");
+      }
+      return;
+    case "discovery":
+      if (cloneCandidateInspection.setDiscovery(action.value)) {
+        observeAsync(
+          loadCloneCandidateInspection(),
+          "Searching the selected Clone candidate population");
+      }
+      return;
+    case "select": {
+      const navigationChanged = retireCloneCandidateEndpointNavigation(
+        cloneEndpointNavigation,
+        state.cloneCandidates);
+      if (!cloneCandidateInspection.selectRank(action.rank)
+        && navigationChanged) {
+        render();
+      }
+      return;
+    }
+    case "navigate":
+      observeAsync(
+        openCloneCandidateEndpoint(action),
+        "Opening a Clone candidate endpoint");
+      return;
+    default:
+      assertNever(action, "Clone candidate action");
+  }
 }
 
 function selectDefaultPackageSubject(pkg: AppPackage) {
@@ -3911,13 +4205,25 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
     const selected = libraryLensesFor(state.package)[index];
     if (selected) {
       state.libraryLens = selected[0];
-      render();
+      if (state.libraryLens === "clone") {
+        observeAsync(
+          loadCloneCandidateInspection(),
+          "Searching Library Clone Candidates");
+      } else {
+        render();
+      }
     }
   } else if (workspaceScope === "type") {
     const selected = typeLensesFor(state.package)[index];
     if (selected) {
       state.lens = selected[0];
-      render();
+      if (state.lens === "clone") {
+        observeAsync(
+          loadCloneCandidateInspection(),
+          "Searching Type Clone Candidates");
+      } else {
+        render();
+      }
     }
   } else if (workspaceScope === "member") {
     const member = selectedMember(selectedType());
@@ -3936,7 +4242,8 @@ function packageLensesFor(pkg: AppPackage | null) {
 
 function libraryLensesFor(pkg: AppPackage | null) {
   if (!pkg?.isRuntimePack) return libraryLenses;
-  return libraryLenses.filter(([id]) => id !== "references");
+  return libraryLenses.filter(([id]) =>
+    id !== "references" && id !== "clone");
 }
 
 function scopedPlatformLibrary() {
@@ -4018,6 +4325,8 @@ function loadMemberSectionContent(id: MemberSection) {
     observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+  else if (id === "clone")
+    observeAsync(loadCloneCandidateInspection(), "Searching Clone Candidates");
   else if (id === "facts")
     observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
   else if (id === "overview")
@@ -4220,7 +4529,13 @@ function stepHorizontal(delta: number) {
     const next = strip[(index + delta + strip.length) % strip.length];
     if (!next) return;
     state.libraryLens = next[0];
-    render();
+    if (state.libraryLens === "clone") {
+      observeAsync(
+        loadCloneCandidateInspection(),
+        "Searching Library Clone Candidates");
+    } else {
+      render();
+    }
     return;
   }
   const type = selectedType();
@@ -4241,7 +4556,13 @@ function stepHorizontal(delta: number) {
     const next = available[(index + delta + available.length) % available.length];
     if (!next) return;
     state.lens = next[0];
-    render();
+    if (state.lens === "clone") {
+      observeAsync(
+        loadCloneCandidateInspection(),
+        "Searching Type Clone Candidates");
+    } else {
+      render();
+    }
   }
 }
 
@@ -4346,6 +4667,8 @@ function typeDisplayName(
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
+  retireCloneEndpointNavigationOutsideClone();
+  reconcileCloneCandidateInspectionForRender();
   const graphExplorerWasOpen = graphExplorer.isOpen;
   graphExplorer.beforeRender(graphExplorerKey());
   if (graphExplorerWasOpen && !graphExplorer.isOpen) {
@@ -4554,6 +4877,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "library" && state.libraryLens === "opportunities";
   const libraryAnalysisWorkingSurface =
     activeScope === "library" && state.libraryLens === "analysis";
+  const cloneWorkingSurface = cloneCandidateSurfaceIsActive();
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -4595,6 +4919,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || libraryIntegrationsWorkingSurface
     || libraryOpportunitiesWorkingSurface
     || libraryAnalysisWorkingSurface
+    || cloneWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -4689,7 +5014,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${cloneWorkingSurface ? " clone-candidate-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -5110,6 +5435,7 @@ function libraryLensPresentation(
     case "integrations": return "⌁";
     case "opportunities": return "◇";
     case "analysis": return "∿";
+    case "clone": return "≈";
     case "metadata": return "≡";
     default: return assertNever(id, "library lens presentation");
   }
@@ -5120,6 +5446,7 @@ function typeLensPresentation(
 ): string {
   switch (id) {
     case "api": return "⌘";
+    case "clone": return "≈";
     case "metadata": return "≡";
     case "source": return "⌑";
     default: return assertNever(id, "type lens presentation");
@@ -5132,6 +5459,7 @@ function memberSectionPresentation(
   switch (id) {
     case "overview": return "◫";
     case "call-graph": return "⑂";
+    case "clone": return "≈";
     case "facts": return "·";
     case "source": return "⌑";
     case "annotated": return "✎";
@@ -5285,6 +5613,7 @@ function renderLibraryView() {
     || state.libraryLens === "integrations"
     || state.libraryLens === "opportunities"
     || state.libraryLens === "analysis"
+    || state.libraryLens === "clone"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -5327,6 +5656,8 @@ function libraryLensBody() {
     case "integrations": return renderPackageIntegrations();
     case "opportunities": return renderPackageOpportunities();
     case "analysis": return renderPackagePerformance();
+    case "clone":
+      return renderCloneCandidateInspection(state.cloneCandidates, escapeHtml);
     case "metadata": return renderPackageMetadata();
     default: return assertNever(state.libraryLens, "library lens");
   }
@@ -6453,6 +6784,8 @@ function renderLens(item: AppTypeSurface | null | undefined) {
       return renderTypeSourceHtml(item);
     case "metadata":
       return renderTypeMetadataHtml(item);
+    case "clone":
+      return renderCloneCandidateInspection(state.cloneCandidates, escapeHtml);
     case "api":
       return renderApiLens(item);
     default:
@@ -6698,6 +7031,8 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
+  } else if (state.memberSection === "clone") {
+    content = renderCloneCandidateInspection(state.cloneCandidates, escapeHtml);
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(state);
   } else if (state.memberSection === "annotated") {
@@ -7307,7 +7642,13 @@ function bindScopeBarEvents() {
     onLibraryLensSelect: lens => {
       contentFramePane = "detail";
       state.libraryLens = lens;
-      render();
+      if (lens === "clone") {
+        observeAsync(
+          loadCloneCandidateInspection(),
+          "Searching Library Clone Candidates");
+      } else {
+        render();
+      }
     },
     onPackageLensSelect: lens => {
       contentFramePane = "detail";
@@ -7358,7 +7699,13 @@ function bindScopeBarEvents() {
       state.lens = lens;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
-      render();
+      if (lens === "clone") {
+        observeAsync(
+          loadCloneCandidateInspection(),
+          "Searching Type Clone Candidates");
+      } else {
+        render();
+      }
     },
   }, scopeBarState);
 }
@@ -8020,6 +8367,9 @@ function bindEvents() {
   bindAnnotatedSourceEvents();
   bindMethodBodyDiffEvents();
   bindSourceDiff(document, { onAction: applySourceDiffAction });
+  bindCloneCandidateInspection(document, {
+    onAction: applyCloneCandidateAction,
+  });
   bindPackageViewEvents();
   bindPackageComparisonControls();
   bindLibraryControlsEvents();
@@ -9036,7 +9386,6 @@ function ensurePackageVersions(pkg: AppPackage | null) {
 function packageComparisonControlsHtml(pkg: AppPackage) {
   return renderPackageComparisonTargets({
     package: pkg,
-    packages: state.packages,
     ...packageComparisonTargets.get(pkg),
     versions: catalogRequests.packageVersions(pkg),
   }, escapeHtml);
@@ -9069,12 +9418,10 @@ function bindPackageComparisonControls() {
       showToast(errorMessage(error));
     }
   };
-  bindPackageComparisonTargets(controls, [...state.packages], {
+  bindPackageComparisonTargets(controls, {
     selectDiff: target => apply(() =>
       packageComparisonTargets.selectDiff(
         pkg, target, catalogRequests.packageVersions(pkg))),
-    selectClone: target => apply(() =>
-      packageComparisonTargets.selectClone(pkg, target)),
     retry: () => {
       catalogRequests.forgetPackage(pkg);
       observeAsync(ensurePackageVersions(pkg), "Loading package versions");
@@ -10381,6 +10728,7 @@ function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
   switch (state.lens) {
     case "source": return loadSelectedTypeSource();
     case "metadata": return loadSelectedTypeMetadata();
+    case "clone": return loadCloneCandidateInspection();
     case "api": return "member";
   }
   return assertNever(state.lens, "type lens");
@@ -10397,7 +10745,12 @@ function loadSelectionData() {
   if (state.pendingGraphMemberDeepLink) {
     return restorePendingGraphMember();
   }
-  if (state.atPackageRoot || state.atLibraryRoot) return undefined;
+  if (state.atPackageRoot) return undefined;
+  if (state.atLibraryRoot) {
+    return state.libraryLens === "clone"
+      ? loadCloneCandidateInspection()
+      : undefined;
+  }
   const typeLensLoad = loadSelectedTypeLensData();
   if (typeLensLoad !== "member") return typeLensLoad;
   if (!state.selectedMemberKey) return undefined;
@@ -10408,6 +10761,7 @@ function loadSelectionData() {
     case "source": return loadSelectedMemberSource();
     case "annotated": return loadSelectedMemberAnnotatedSource();
     case "call-graph": return loadSelectedMemberCallGraph();
+    case "clone": return loadCloneCandidateInspection();
     case "facts": return loadSelectedMemberFactsSurface();
     case "overview": return loadSelectedMemberDocumentation();
     default: return assertNever(state.memberSection, "member section");
@@ -13014,6 +13368,126 @@ function singleProjectedGraphMember(
       "The projected graph type did not retain exactly one selected member.");
   }
   return member;
+}
+
+async function openCloneCandidateEndpoint(
+  action: Extract<CloneCandidateViewAction, { kind: "navigate" }>,
+) {
+  retireCloneCandidateEndpointNavigation(
+    cloneEndpointNavigation,
+    state.cloneCandidates);
+  const cloneRevision = state.cloneCandidates.revision;
+  const cloneRequest = state.cloneCandidates.request;
+  const document = state.cloneCandidates.result?.kind === "Available"
+    ? state.cloneCandidates.result.document
+    : null;
+  const selected = document?.rows.find(
+    row => row.rank === state.cloneCandidates.selectedRank)
+    ?? document?.rows[0];
+  const endpoint = selected
+    ? [selected.left, selected.right].find(candidate =>
+        candidate.participant.ordinal === action.participantOrdinal
+        && candidate.moduleVersionId === action.moduleVersionId
+        && candidate.methodDefinitionToken === action.methodDefinitionToken)
+    : null;
+  if (!cloneRequest || !endpoint) {
+    state.cloneCandidates.navigationError =
+      "The selected Clone endpoint is no longer available.";
+    render();
+    return;
+  }
+
+  const provenance = endpoint.participant.provenance;
+  const packageId = provenance.packageId;
+  const packageVersion = provenance.packageVersion;
+  const framework = provenance.tfm;
+  const pkg = state.packages.find(candidate =>
+    packageId !== null
+    && packageVersion !== null
+    && framework !== null
+    && candidate.id.toLowerCase() === packageId.toLowerCase()
+    && candidate.version.toLowerCase() === packageVersion.toLowerCase()
+    && candidate.activeFramework.toLowerCase() === framework.toLowerCase());
+  if (!pkg) {
+    state.cloneCandidates.navigationError =
+      "The exact package coordinate for this Clone endpoint is not currently available.";
+    render();
+    return;
+  }
+
+  const navigationGeneration = beginCloneCandidateEndpointNavigation(
+    cloneEndpointNavigation,
+    state.cloneCandidates);
+  const requestJson = JSON.stringify(cloneRequest);
+  const navigationIsCurrent = () =>
+    cloneCandidateEndpointNavigationIsCurrent(
+      cloneEndpointNavigation,
+      navigationGeneration)
+    && cloneRevision === state.cloneCandidates.revision
+    &&
+    cloneCandidateSurfaceIsActive()
+    && state.cloneCandidates.request !== null
+    && JSON.stringify(state.cloneCandidates.request) === requestJson;
+  render();
+  try {
+    const projection = await inspectGraphMemberSurfaceByMethodAddress(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      endpoint.participant.assembly.name,
+      endpoint.participant.assembly.version ?? "",
+      endpoint.participant.assembly.culture ?? "",
+      endpoint.participant.assembly.publicKeyToken ?? "",
+      endpoint.moduleVersionId,
+      endpoint.methodDefinitionToken);
+    if (!navigationIsCurrent()) return;
+
+    const projectedType = createAppTypeSurface(projection.type);
+    const projectedMember = singleProjectedGraphMember(projection.type);
+    const target: GraphMemberShareIdentity = {
+      assembly: projection.type.assembly,
+      typeDefinitionId: projection.type.definitionId,
+      memberName: projection.selectedBody.memberName,
+      selectorKey: projection.selectedBody.selectorKey,
+      metadataToken: projection.selectedBody.token,
+    };
+    const existingType = pkg.types.find(type =>
+      type.definitionId === projectedType.definitionId
+      && type.assemblyId === projectedType.assemblyId) ?? null;
+    const type = existingType ?? {
+      ...projectedType,
+      api: [],
+      graphOnly: true,
+    };
+    const staged = stageGraphMemberSelection(
+      pkg,
+      type,
+      target,
+      projectedMember);
+    if (!existingType) pkg.types.push(type);
+    const selection = commitGraphMemberSelection(
+      pkg,
+      type,
+      target,
+      staged);
+    state.cloneCandidates.navigationLoading = false;
+    navigateToMember(
+      selection.pkg,
+      selection.type,
+      selection.group,
+      selection.overloadIndex,
+      selection.selectedBodyTarget,
+      "overview");
+  } catch (error) {
+    if (!navigationIsCurrent()) return;
+    state.cloneCandidates.navigationError =
+      `Could not open the exact Clone endpoint: ${errorMessage(error)}`;
+  } finally {
+    if (navigationIsCurrent()) {
+      state.cloneCandidates.navigationLoading = false;
+      render();
+    }
+  }
 }
 
 function stageGraphMemberSelection(

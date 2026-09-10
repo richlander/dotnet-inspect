@@ -350,6 +350,9 @@ public static class AssemblyContextApiSurfaceQuery
     /// participant of <paramref name="group"/>. Selecting a subset is how a host that needs one
     /// package's surface out of a multi-package workspace avoids materializing the rest.
     /// </param>
+    /// <param name="includeCompilerGenerated">
+    /// Whether compiler-generated types and members participate in the projected surface.
+    /// </param>
     /// <remarks>
     /// <para>
     /// The bound is enforced inside the extraction, not checked after it: each participant is
@@ -383,7 +386,8 @@ public static class AssemblyContextApiSurfaceQuery
         AssemblyContextGroup group,
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits limits,
-        IReadOnlyList<AssemblyContextParticipant>? participants = null)
+        IReadOnlyList<AssemblyContextParticipant>? participants = null,
+        bool includeCompilerGenerated = false)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(limits);
@@ -433,7 +437,11 @@ public static class AssemblyContextApiSurfaceQuery
                 AssemblyContextQueryExecutor.ExecuteParticipant(
                     group,
                     participant,
-                    session => ProjectBounded(session, scope, bounds));
+                    session => ProjectBounded(
+                        session,
+                        scope,
+                        bounds,
+                        includeCompilerGenerated));
             walked++;
             if (entry is not AssemblyContextEntry<ApiSurfaceExtractionResult>.Available available)
             {
@@ -545,8 +553,12 @@ public static class AssemblyContextApiSurfaceQuery
     static ApiSurfaceExtractionResult ProjectBounded(
         AssemblyInspectionSession session,
         ApiSurfaceScope scope,
-        ApiSurfaceExtractionBounds bounds)
-        => session.BoundedApiSurface(ExtractionScope(scope), bounds);
+        ApiSurfaceExtractionBounds bounds,
+        bool includeCompilerGenerated)
+        => session.BoundedApiSurface(
+            ExtractionScope(scope),
+            bounds,
+            includeCompilerGenerated: includeCompilerGenerated);
 
     /// <summary>
     /// Carries a participant outcome that produced no surface across to the projected result's

@@ -31,6 +31,13 @@ import {
   type EngineWorkerTypeSourceFailure,
 } from "./engine-worker-source.ts";
 import {
+  createEngineWorkerCloneCandidateHostRegistration,
+  type EngineWorkerCloneCandidateAdapter,
+} from "./engine-worker-analysis.ts";
+import type {
+  BrowserCloneCandidateResult,
+} from "./facades/inspect-web-analysis.d.ts";
+import {
   createEngineWorkerPackageQueryHostRegistration,
   type EngineWorkerPackageQueryCompletionEvent,
   type EngineWorkerPackageQueryDurableEvent,
@@ -117,6 +124,49 @@ export function registerEngineWorkerTypeSourceAdapter(
   return host.registerOperation(
     createEngineWorkerTypeSourceHostRegistration(),
   );
+}
+
+export function registerEngineWorkerCloneCandidateAdapter(
+  host: EngineWorkerHost,
+): EngineWorkerCloneCandidateAdapter {
+  return host.registerOperation(
+    createEngineWorkerCloneCandidateHostRegistration(),
+  );
+}
+
+function bindCloneCandidateFacade(
+  adapter: EngineWorkerCloneCandidateAdapter,
+  reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
+  authority: SharedEngineOperationAuthority,
+): Pick<EngineClient["analysis"], "queryCloneCandidates">
+  & { readonly dispose: () => void } {
+  const session = authority.page.createSession<
+    string,
+    BrowserCloneCandidateResult,
+    string,
+    never,
+    WorkerRuntimePreparationError
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: reportDiagnostic },
+  });
+  return {
+    async queryCloneCandidates(requestJson) {
+      const started = session.start(requestJson, adapter);
+      if (started.kind === "rejected") {
+        throw new Error(
+          `Clone Candidates could not start: ${startFailureReason(started.reason)}.`);
+      }
+      const outcome = await started.handle.outcome;
+      await started.handle.quiesced;
+      if (outcome.kind === "succeeded") return outcome.value;
+      if (outcome.kind === "failed") throw new Error(outcome.error);
+      throw new Error(`Clone Candidates operation was ${outcome.reason}.`);
+    },
+    dispose() {
+      session.dispose();
+    },
+  };
 }
 
 export type EngineWorkerPackageQueryAdapter =
@@ -568,6 +618,8 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
     boundaryErrors: engineWorkerBoundaryErrors,
   });
   const typeSourceAdapter = registerEngineWorkerTypeSourceAdapter(host);
+  const cloneCandidateAdapter =
+    registerEngineWorkerCloneCandidateAdapter(host);
   const page = createOperationAuthorityPage();
   const cpu = bindEngineWorkerCpuProbe(host, page, options.operationDiagnostic);
   const session = page.createSession<
@@ -586,15 +638,28 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
     feature: { publish: () => undefined },
     diagnostic: { report: options.operationDiagnostic },
   });
+  const cloneCandidateSession = page.createSession<
+    string,
+    BrowserCloneCandidateResult,
+    string,
+    never,
+    WorkerRuntimePreparationError
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: options.operationDiagnostic },
+  });
   return {
     host,
     probe: () => session.start("", adapter),
     cpuProbe: () => cpu.start(),
     typeSource: (request: TypeSourceLoadRequest) =>
       typeSourceSession.start(request, typeSourceAdapter),
+    cloneCandidates: (requestJson: string) =>
+      cloneCandidateSession.start(requestJson, cloneCandidateAdapter),
     dispose: () => {
       session.dispose();
       typeSourceSession.dispose();
+      cloneCandidateSession.dispose();
       cpu.dispose();
       host.dispose();
     },
@@ -650,6 +715,11 @@ export function createProductionEngineWorkerClient(
     options.operationDiagnostic,
     authority,
   );
+  const cloneCandidates = bindCloneCandidateFacade(
+    registerEngineWorkerCloneCandidateAdapter(host),
+    options.operationDiagnostic,
+    authority,
+  );
   const packageQuery = bindPackageQueryFacade(
     registerEngineWorkerPackageQueryAdapter(host),
     options.operationDiagnostic,
@@ -666,7 +736,10 @@ export function createProductionEngineWorkerClient(
       ...packageQuery,
     },
     metadata: ordinary.metadata,
-    analysis: ordinary.analysis,
+    analysis: {
+      ...ordinary.analysis,
+      ...cloneCandidates,
+    },
     source: {
       ...ordinary.source,
       ...typeSource,
@@ -683,6 +756,7 @@ export function createProductionEngineWorkerClient(
     ready: identity.then(() => undefined),
     dispose() {
       packageQuery.dispose();
+      cloneCandidates.dispose();
       typeSource.dispose();
       host.dispose();
     },

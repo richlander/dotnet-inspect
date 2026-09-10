@@ -136,6 +136,34 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void ResolveMethodDefinition_FindsTheExactPhysicalBody()
+    {
+        ApiMember member = Method("int");
+        member.MetadataToken = 0x0600002A;
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [member],
+        };
+        var surface = new ApiSurface { Types = [type] };
+
+        CallGraphMemberResolution? resolved =
+            CallGraphMemberResolver.ResolveMethodDefinition(
+                surface,
+                0x0600002A);
+
+        Assert.NotNull(resolved);
+        Assert.Same(type, resolved.Type);
+        Assert.Same(member, resolved.Member);
+        Assert.Equal(0x0600002A, resolved.BodyToken);
+        Assert.Null(
+            CallGraphMemberResolver.ResolveMethodDefinition(
+                surface,
+                0x0600002B));
+    }
+
+    [Fact]
     public void Resolve_RequiresTokenAndSelectorToAgree()
     {
         var first = Indexer("int", 0x06000001);

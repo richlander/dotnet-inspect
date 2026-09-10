@@ -637,10 +637,10 @@ test("platform type and member navigation hides package-only operations", () => 
     ["overview", "call-graph"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
-    ["overview", "call-graph", "facts", "source", "annotated"]);
+    ["overview", "call-graph", "clone", "facts", "source", "annotated"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "annotated"]);
+    ["overview", "call-graph", "clone", "facts", "annotated"]);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
@@ -1749,7 +1749,13 @@ test("typed scope bar owns its rendered control bindings", () => {
     [
       'assign:contentFramePane = "detail"',
       "assign:state.libraryLens = lens",
-      "call:render()",
+      {
+        if: 'lens === "clone"',
+        whenTrue: [
+          'call:observeAsync(loadCloneCandidateInspection(), "Searching Library Clone Candidates")',
+        ],
+        whenFalse: ["call:render()"],
+      },
     ]);
 
   const scope = callbackProperty(actions, "onScopeSelect");
@@ -1833,7 +1839,13 @@ test("typed scope bar owns its rendered control bindings", () => {
       "assign:state.lens = lens",
       'assign:state.selectedMemberKey = ""',
       'assign:state.memberBrowseTypeId = ""',
-      "call:render()",
+      {
+        if: 'lens === "clone"',
+        whenTrue: [
+          'call:observeAsync(loadCloneCandidateInspection(), "Searching Type Clone Candidates")',
+        ],
+        whenFalse: ["call:render()"],
+      },
     ]);
   assert.match(
     scopeBarSource,
@@ -2521,6 +2533,10 @@ test("bare home paints before wasm engine download", () => {
   assert.match(
     appSource,
     /async function loadEngineModule\(\)[\s\S]*import\("\.\/engine-worker-client\.ts"\)[\s\S]*createProductionEngineWorkerClient\(origin,/);
+  assert.doesNotMatch(appSource, /createEngineWorkerCloneCandidateClient/);
+  assert.match(
+    appSource,
+    /queryCloneCandidates: inspectCloneCandidates/);
   for (const module of generatedFacadeModules) {
     assert.doesNotMatch(
       appSource,
@@ -3613,10 +3629,10 @@ test("browser history reuses available identities and publishes only unavailable
     /if \(snapshot\.state\.packages\.length === 0 && !snapshot\.state\.platformSelection\) \{\s*snapshot\.state\.workspaceSubjectOpen = true;\s*snapshot\.state\.atPackageRoot = true;\s*snapshot\.state\.atLibraryRoot = false;/);
   assert.match(
     appSource,
-    /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const methodBodyDiff = state\.methodBodyDiff;\s*const sourceDiff = state\.sourceDiff;[\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);\s*Object\.assign\(methodBodyDiff, snapshot\.state\.methodBodyDiff\);\s*Object\.assign\(sourceDiff, snapshot\.state\.sourceDiff\);\s*state\.methodBodyDiff = methodBodyDiff;\s*state\.sourceDiff = sourceDiff;[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);
+    /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const cloneCandidates = state\.cloneCandidates;\s*const methodBodyDiff = state\.methodBodyDiff;\s*const sourceDiff = state\.sourceDiff;[\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);\s*Object\.assign\(cloneCandidates, snapshot\.state\.cloneCandidates\);\s*Object\.assign\(methodBodyDiff, snapshot\.state\.methodBodyDiff\);\s*Object\.assign\(sourceDiff, snapshot\.state\.sourceDiff\);[\s\S]*state\.cloneCandidates = cloneCandidates;\s*state\.methodBodyDiff = methodBodyDiff;\s*state\.sourceDiff = sourceDiff;[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);
   assert.match(
     appSource,
-    /function cloneCanonicalWorkspaceSnapshotForRetention\([\s\S]*const platformIndex = snapshot\.state\.platformIndex;\s*const cloned = structuredClone\(\{\s*\.\.\.snapshot\.state,\s*platformIndex: null,[\s\S]*const retainedState: AppState = \{\s*\.\.\.cloned,\s*platformIndex,/);
+    /function captureCanonicalWorkspaceRestoreSnapshot\([\s\S]*cloneCandidates: structuredClone\(state\.cloneCandidates\),[\s\S]*function cloneCanonicalWorkspaceSnapshotForRetention\([\s\S]*const platformIndex = snapshot\.state\.platformIndex;\s*const cloned = structuredClone\(\{\s*\.\.\.snapshot\.state,\s*platformIndex: null,[\s\S]*const retainedState: AppState = \{\s*\.\.\.cloned,\s*platformIndex,/);
   assert.match(
     appSource,
     /function retainedWorkspaceItems\(\) \{\s*const publishedActiveSnapshot = pendingWorkspaceConstruction\s*\? pendingWorkspaceConstruction\.retainedSnapshot\s*\?\? pendingWorkspaceConstruction\.supersessionSnapshot[\s\S]*const workspaceState = workspace\.id === retainedWorkspaces\.activeWorkspaceId\s*\? publishedActiveSnapshot\?\.state \?\? state\s*: workspace\.snapshot\?\.state;[\s\S]*packageCount: workspaceState[\s\S]*workspaceState\.packages\.filter\(pkg => pkg\.source\.kind !== "platform"\)\.length\s*\+ \(workspaceState\.platformSelection \? 1 : 0\)/);
@@ -3626,6 +3642,18 @@ test("browser history reuses available identities and publishes only unavailable
   assert.match(
     appSource,
     /function invalidateWorkspaceAsyncOwners\(\): void \{\s*memberDetailInspection\.invalidate\(\);/);
+  assert.match(
+    appSource,
+    /function cloneCandidateSurfaceIsActive\(\): boolean \{[\s\S]*state\.explorer\?\.open[\s\S]*state\.credits[\s\S]*state\.packageQueryOpen[\s\S]*state\.loading[\s\S]*Boolean\(state\.error\)[\s\S]*state\.home[\s\S]*return false;/);
+  assert.match(
+    appSource,
+    /function retireCloneEndpointNavigationOutsideClone\(\): void \{[\s\S]*cloneCandidateSurfaceIsActive\(\)[\s\S]*retireCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\)[\s\S]*function render\([\s\S]*retireCloneEndpointNavigationOutsideClone\(\);/);
+  assert.match(
+    appSource,
+    /case "select":[\s\S]*const navigationChanged = retireCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\);[\s\S]*!cloneCandidateInspection\.selectRank\(action\.rank\)[\s\S]*&& navigationChanged[\s\S]*render\(\);/);
+  assert.match(
+    appSource,
+    /async function openCloneCandidateEndpoint\([\s\S]*retireCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\)[\s\S]*const cloneRevision = state\.cloneCandidates\.revision;[\s\S]*beginCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\)[\s\S]*cloneCandidateEndpointNavigationIsCurrent\([\s\S]*cloneEndpointNavigation,[\s\S]*navigationGeneration\)[\s\S]*cloneRevision === state\.cloneCandidates\.revision/);
   assert.match(
     appSource,
     /const workspaceModalContextIsAvailable = \(\) =>\s*pendingWorkspaceConstruction === null/);
@@ -4663,11 +4691,11 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   for (const kind of ["property", "field", "event", "constant"]) {
     assert.deepEqual(
       memberSectionIdsFor({ kind }),
-      ["overview"]);
+      ["overview", "clone"]);
   }
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
-    ["overview", "call-graph", "facts", "source", "annotated"]);
+    ["overview", "call-graph", "clone", "facts", "source", "annotated"]);
 });
 
 // Arrowing between members keeps the active section (e.g. Source) sticky, the same way
@@ -5327,7 +5355,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "annotated"]);
+    ["overview", "call-graph", "clone", "facts", "annotated"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -5909,7 +5937,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "opportunities"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "opportunities"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "clone"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
