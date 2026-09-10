@@ -338,7 +338,7 @@ public static class SearchCommandDefinitions
                 SourceOptions = sourceOptions
             };
 
-            return await ImplementsCommand.ExecuteAsync(options);
+            return await ImplementsCommand.ExecuteAsync(options, ct);
         });
 
         return implCommand;
@@ -478,7 +478,7 @@ public static class SearchCommandDefinitions
                 SourceOptions = sourceOptions
             };
 
-            return await ExtensionsCommand.ExecuteAsync(options);
+            return await ExtensionsCommand.ExecuteAsync(options, ct);
         });
 
         return extCommand;
