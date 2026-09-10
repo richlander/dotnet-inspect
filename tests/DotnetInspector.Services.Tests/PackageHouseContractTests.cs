@@ -300,6 +300,86 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void VersionDiscoveryRetainsPackageIdentityWithoutCandidates()
+    {
+        PackageVersionDiscoveryResult absent = VersionDiscovery(
+            PackageVersionDiscoveryState.Authoritative,
+            includePrerelease: false,
+            hasAnyCandidate: false);
+        PackageVersionDiscoveryResult failed = VersionDiscovery(
+            PackageVersionDiscoveryState.Failed,
+            includePrerelease: false,
+            hasAnyCandidate: false);
+
+        Assert.Equal("contoso.json", absent.PackageId);
+        Assert.Equal("contoso.json", failed.PackageId);
+    }
+
+    [Fact]
+    public void VersionDiscoveryReservesMissingIdentityForInputFailure()
+    {
+        var inputFailure = new PackageVersionDiscoveryResult(
+            packageId: null,
+            PackageVersionDiscoveryState.Failed,
+            sourceListings: [],
+            failures:
+            [
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Input,
+                    "The package ID is invalid."),
+            ],
+            hasAnyCandidate: false);
+
+        Assert.Null(inputFailure.PackageId);
+        Assert.Throws<ArgumentException>(
+            () => new PackageVersionDiscoveryResult(
+                packageId: null,
+                PackageVersionDiscoveryState.Authoritative,
+                sourceListings: [],
+                failures: [],
+                hasAnyCandidate: false));
+    }
+
+    [Fact]
+    public void VersionDiscoveryRejectsCandidateForAnotherPackage()
+    {
+        var authority = new ConfiguredPackageAuthority(
+            new PackageSource(
+                "version-selection",
+                "https://versions.example/v3/index.json"));
+        PackageSourceResultFactory factory = ResultFactory(
+            authority.Association);
+        var candidate = new ConfiguredPackageCandidateObservation(
+            authority,
+            factory.Candidate(
+                PackageSourceCoordinate.Create(
+                    "other.package",
+                    "4.0.0"),
+                PackageDiscoveryContract.CompleteVersionEnumeration,
+                PackageListingState.Listed));
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageVersionDiscoveryResult(
+                "contoso.json",
+                PackageVersionDiscoveryState.Authoritative,
+                [
+                    new PackageVersionSourceInfo(
+                        "4.0.0",
+                        "version-selection",
+                        Listed: true),
+                ],
+                failures: [],
+                hasAnyCandidate: true,
+                candidates: [candidate],
+                contract: PackageVersionDiscoveryContract.Create(
+                    includePrerelease: false,
+                    includeUnlisted: false,
+                    limit: null),
+                candidateIssuer: new object()));
+    }
+
+    [Fact]
     public void PartialDiscoveryCannotProduceASelectedCoordinate()
     {
         var request = new PackageVersionSelectionRequest.LatestStable(
@@ -1673,6 +1753,7 @@ public sealed class PackageHouseContractTests
                 ];
 
         return new PackageVersionDiscoveryResult(
+            "contoso.json",
             state,
             [
                 .. versions.Select(version =>
