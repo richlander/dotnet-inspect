@@ -29,6 +29,7 @@ import {
   libraryLenses,
   memberSectionDefinitions,
   memberSectionIdsFor,
+  packageCoordinateLabel,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
@@ -12634,7 +12635,7 @@ function graphExplorerTarget() {
     return {
       key,
       kind: "Dependency graph",
-      subject: `${pkg.id}@${pkg.version}`,
+      subject: packageCoordinateLabel(pkg),
       context: `Target framework ${pkg.activeFramework}`,
       summary: DEPENDENCY_GRAPH_SUMMARY,
       content,
@@ -12648,7 +12649,7 @@ function graphExplorerTarget() {
       key,
       kind: "Type relationships",
       subject: path.at(-1)?.label ?? "Selected type",
-      context: packageDisplayName(pkg),
+      context: packageCoordinateLabel(pkg),
       summary: TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
       content,
       invoker,
@@ -12667,7 +12668,7 @@ function graphExplorerTarget() {
     : "Selected type";
   const packageContext = pkg.isRuntimePack
     ? platformTargetLabel()
-    : `${pkg.id}@${pkg.version}`;
+    : packageCoordinateLabel(pkg);
   return {
     key,
     kind: "Call graph",

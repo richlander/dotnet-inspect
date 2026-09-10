@@ -1,4 +1,5 @@
 import mermaid from "mermaid";
+import { packageCoordinateLabel } from "../src/data.ts";
 import { bindGraphExplore, createGraphExplorer } from "../src/graph-explorer.ts";
 import { bindGraphPanZoom } from "../src/graph-interactions.ts";
 import { buildDependencyGraphMermaid, resolveMermaidCssVariables } from "../src/graph-mermaid.ts";
@@ -59,7 +60,7 @@ function target() {
   return {
     key: key(),
     kind: "Dependency graph",
-    subject: `${pkg.id}@${pkg.version}`,
+    subject: packageCoordinateLabel(pkg),
     context: `Target framework ${pkg.activeFramework}`,
     summary: "callers above · dependencies below · click a package to open",
     content: document.querySelector<HTMLElement>("[data-dependency-graph-surface]")!,

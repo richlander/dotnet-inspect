@@ -1,4 +1,5 @@
 import mermaid from "mermaid";
+import { packageCoordinateLabel } from "../src/data.ts";
 import { bindGraphExplore, createGraphExplorer } from "../src/graph-explorer.ts";
 import { bindGraphPanZoom } from "../src/graph-interactions.ts";
 import { buildTypeGraphMermaid, resolveMermaidCssVariables } from "../src/graph-mermaid.ts";
@@ -72,7 +73,7 @@ function target() {
         key: owner,
         kind: "Type relationships",
         subject: item.id,
-        context: `${pkg.id}@${pkg.version}`,
+        context: packageCoordinateLabel(pkg),
         summary: TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
         content,
         invoker,

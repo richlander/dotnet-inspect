@@ -114,6 +114,12 @@ export function packageIdentityKey(pkg: PackageIdentity | null | undefined): str
     .join("|");
 }
 
+export function packageCoordinateLabel(
+  pkg: Pick<PackageIdentity, "id" | "version">,
+): string {
+  return `${pkg.id}@${pkg.version}`;
+}
+
 export interface AssemblyDescriptor {
   id?: string;
   name?: string;
