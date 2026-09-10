@@ -145,6 +145,7 @@
     <Project Path="src/Inspector.Artifacts.Local/Inspector.Artifacts.Local.csproj" />
     <Project Path="src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
     <Project Path="src/Inspector.Findings/Inspector.Findings.csproj" />
+    <Project Path="src/Inspector.Resources/Inspector.Resources.csproj" />
     <Project Path="src/Inspector.Text/Inspector.Text.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
     <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
@@ -185,6 +186,7 @@
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
     <Project Path="tests/Inspector.Artifacts.Tests/Inspector.Artifacts.Tests.csproj" />
+    <Project Path="tests/Inspector.Resources.Tests/Inspector.Resources.Tests.csproj" />
     <Project Path="tests/Inspector.Text.Tests/Inspector.Text.Tests.csproj" />
     <Project Path="tests/InertText.Tests/InertText.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />

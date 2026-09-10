@@ -123,6 +123,8 @@ ecosystem:
 - `Inspector.Artifacts` owns source-neutral artifact identity, acquisition,
   authorization, and lifetime contracts.
 - `Inspector.Findings` owns the domain-neutral Finding algebra.
+- `Inspector.Resources` owns host-neutral resource lifecycle declarations and
+  synchronous borrowing contracts.
 - `Inspector.Text` owns generic text Findings and deterministic text
   construction used by inspection producers.
 
