@@ -257,9 +257,9 @@ outputs.
 The artifact carries the complete per-assembly manifest and its digest in the
 runtime cohort receipt. The same gate replays before artifact upload and before
 deployment. The receipt also records uncompressed, Brotli, gzip, and total
-`/_framework/` file counts and byte sizes. The initial current-source
-publication measured 77,090,439 uncompressed bytes, 16,593,315 Brotli bytes,
-and 22,983,094 gzip bytes; deployed artifacts remain authoritative because
+`/_framework/` file counts and byte sizes. The replacement-head current-source
+publication measured 77,180,680 uncompressed bytes, 16,593,730 Brotli bytes,
+and 22,981,185 gzip bytes; deployed artifacts remain authoritative because
 fingerprints and compression can change with application code.
 
 The earlier runtime-main cohort had a Linux path-casing defect: Crossgen2 wrote
