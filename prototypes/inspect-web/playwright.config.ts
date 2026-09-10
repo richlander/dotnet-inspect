@@ -6,6 +6,7 @@ export default defineConfig({
   testIgnore: [
     "worker-runtime.spec.ts",
     "worker-cpu-isolation.spec.ts",
+    "production-worker.spec.ts",
     "package-adoption.spec.ts",
     "content-security-policy.spec.ts",
   ],
