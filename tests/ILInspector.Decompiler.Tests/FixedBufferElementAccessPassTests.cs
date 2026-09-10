@@ -50,13 +50,34 @@ public class FixedBufferElementAccessPassTests
                 (LegacyUnsafePath, LegacyFixedBufferType),
             })
             {
-                data.Add(assemblyPath, typeName, "ReadFirst", "return Data[0];");
+                bool usesUnsafeExpressions = assemblyPath == NewUnsafePath;
+                data.Add(
+                    assemblyPath,
+                    typeName,
+                    "ReadFirst",
+                    usesUnsafeExpressions ? "return unsafe(Data[0]);" : "return Data[0];");
                 data.Add(assemblyPath, typeName, "WriteFirst", "Data[0] = value;");
-                data.Add(assemblyPath, typeName, "RefFirst", "return ref Data[0];");
+                data.Add(
+                    assemblyPath,
+                    typeName,
+                    "RefFirst",
+                    usesUnsafeExpressions ? "return ref unsafe(Data[0]);" : "return ref Data[0];");
                 data.Add(assemblyPath, typeName, "PassFirstByRef", "Increment(ref Data[0]);");
-                data.Add(assemblyPath, typeName, "RefLocalFirstIncrement", "ref int value = ref Data[0];");
+                data.Add(
+                    assemblyPath,
+                    typeName,
+                    "RefLocalFirstIncrement",
+                    usesUnsafeExpressions
+                        ? "ref int value = ref unsafe(Data[0]);"
+                        : "ref int value = ref Data[0];");
                 data.Add(assemblyPath, typeName, "PointerLocalFirstValue", "&value.Data[0]");
-                data.Add(assemblyPath, typeName, "PointerReturnFirst", "return &value.Data[0];");
+                data.Add(
+                    assemblyPath,
+                    typeName,
+                    "PointerReturnFirst",
+                    usesUnsafeExpressions
+                        ? "return unsafe(&value.Data[0]);"
+                        : "return &value.Data[0];");
                 data.Add(assemblyPath, typeName, "PointerArgumentFirst", "ConsumePointer(&value.Data[0]);");
             }
 
@@ -122,7 +143,11 @@ public class FixedBufferElementAccessPassTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
-        Assert.Contains("return Data[index];", output);
+        Assert.Contains(
+            assemblyPath == NewUnsafePath
+                ? "return unsafe(Data[index]);"
+                : "return Data[index];",
+            output);
         Assert.DoesNotContain("FixedElementField", output);
         Assert.DoesNotContain("Unsafe.Add", output);
     }
@@ -179,6 +204,8 @@ public class FixedBufferElementAccessPassTests
         Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
         Assert.Contains("fixed (int* ", output);
         Assert.Contains(" = &Data[index])", output);
+        if (assemblyPath == NewUnsafePath)
+            Assert.Contains("unsafe\n{", output);
         Assert.DoesNotContain("FixedElementField", output);
     }
 
@@ -191,7 +218,11 @@ public class FixedBufferElementAccessPassTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
-        Assert.Contains("return ref Data[index];", output);
+        Assert.Contains(
+            assemblyPath == NewUnsafePath
+                ? "return ref unsafe(Data[index]);"
+                : "return ref Data[index];",
+            output);
         Assert.DoesNotContain("FixedElementField", output);
         Assert.DoesNotContain("Unsafe.Add", output);
     }
@@ -219,7 +250,11 @@ public class FixedBufferElementAccessPassTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
-        Assert.Contains("ref int value = ref Data[index];", output);
+        Assert.Contains(
+            assemblyPath == NewUnsafePath
+                ? "ref int value = ref unsafe(Data[index]);"
+                : "ref int value = ref Data[index];",
+            output);
         Assert.Contains("value++;", output);
         Assert.DoesNotContain("FixedElementField", output);
         Assert.DoesNotContain("Unsafe.Add", output);
@@ -250,7 +285,11 @@ public class FixedBufferElementAccessPassTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
-        Assert.Contains("return &value.Data[index];", output);
+        Assert.Contains(
+            assemblyPath == NewUnsafePath
+                ? "return unsafe(&value.Data[index]);"
+                : "return &value.Data[index];",
+            output);
         Assert.DoesNotContain("FixedElementField", output);
         Assert.DoesNotContain("Unsafe.Add", output);
     }
@@ -296,7 +335,11 @@ public class FixedBufferElementAccessPassTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
-        Assert.Contains("return Values[index].ToString();", output);
+        Assert.Contains(
+            assemblyPath == NewUnsafePath
+                ? "return unsafe(Values[index].ToString());"
+                : "return Values[index].ToString();",
+            output);
         Assert.DoesNotContain("FixedElementField", output);
         Assert.DoesNotContain("Unsafe.Add", output);
     }
@@ -310,7 +353,11 @@ public class FixedBufferElementAccessPassTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
-        Assert.Contains("return Values[0].GetHashCode();", output);
+        Assert.Contains(
+            assemblyPath == NewUnsafePath
+                ? "return unsafe(Values[0].GetHashCode());"
+                : "return Values[0].GetHashCode();",
+            output);
         Assert.DoesNotContain("FixedElementField", output);
         Assert.DoesNotContain("Unsafe.Add", output);
     }
@@ -363,7 +410,11 @@ public class FixedBufferElementAccessPassTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
-        Assert.Contains("return Ints[", output);
+        Assert.Contains(
+            assemblyPath == NewUnsafePath
+                ? "return unsafe(Ints["
+                : "return Ints[",
+            output);
         Assert.Contains("index", output);
         Assert.DoesNotContain("FixedElementField", output);
     }

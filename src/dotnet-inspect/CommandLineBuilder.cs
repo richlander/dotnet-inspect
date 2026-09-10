@@ -45,6 +45,7 @@ public static class CommandLineBuilder
                 && result.CommandResult.Parent is
                     System.CommandLine.Parsing.CommandResult parentCommand
                 && parentCommand.Command.Name == PackageCommand.Name)
+            || result.CommandResult.Command.Name == "depends"
             || (result.CommandResult.Command.Name
                     == PackageCommand.Name
                 && (HasParsedOption(result, "--versions")
