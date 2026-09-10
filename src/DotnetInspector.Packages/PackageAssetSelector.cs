@@ -207,6 +207,9 @@ public sealed class PackageAssetSelectionReceipt
 /// <c>Select_IgnoresRuntimeAssetsForAnotherRid</c>, and
 /// <c>Select_IgnoresARuntimeFolderMatchingTheRidOnlyByCase</c> for the
 /// runtime-identifier rule;
+/// <c>SelectCanonicalFramework_IgnoresNewerCompatibleUniverse</c> and
+/// <c>SelectCanonicalFramework_RejectsDistinctAliasUniverses</c> for frozen
+/// canonical framework selection;
 /// <c>Select_ReportsCaseCollidingNeutralAssetsAsAmbiguous</c> for ambiguity;
 /// <c>Select_AmbiguityNamesOnlyTheRequestedFramework</c> and
 /// <c>Select_KeepsABidiBearingEntryOutOfTheFailureMessage</c> for the message
@@ -283,6 +286,74 @@ public static class PackageAssetSelector
         string? runtimeIdentifier = null) =>
         Evaluate(content, targetFramework, runtimeIdentifier).Selection;
 
+    internal static PackageAssetSelection SelectCanonicalFramework(
+        IPackageContent content,
+        string canonicalTargetFramework,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        if (!NuGetTargetFrameworkIdentity.TryNormalize(
+                canonicalTargetFramework,
+                out string normalizedTargetFramework)
+            || !string.Equals(
+                normalizedTargetFramework,
+                canonicalTargetFramework,
+                StringComparison.Ordinal))
+        {
+            return new PackageAssetSelection.Invalid(
+                "A canonical package framework selection requires a canonical target framework.");
+        }
+
+        if (runtimeIdentifier is not null
+            && IsBlankOrPadded(runtimeIdentifier))
+        {
+            return new PackageAssetSelection.Invalid(
+                "A package asset runtime identifier cannot be empty or have surrounding whitespace.");
+        }
+
+        if (TryDiscoverCandidates(
+                content,
+                runtimeIdentifier,
+                out List<CandidateEntry> candidates)
+            is { } discoveryFailure)
+        {
+            return discoveryFailure;
+        }
+
+        string[] matchingFrameworks =
+        [
+            .. candidates
+                .Select(static candidate => candidate.TargetFramework)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(candidate =>
+                    NuGetTargetFrameworkIdentity.TryNormalize(
+                        candidate,
+                        out string canonicalCandidate)
+                    && string.Equals(
+                        canonicalCandidate,
+                        canonicalTargetFramework,
+                        StringComparison.Ordinal))
+                .OrderBy(static framework => framework, StringComparer.Ordinal),
+        ];
+        if (matchingFrameworks.Length == 0)
+        {
+            return new PackageAssetSelection.NoMatch(
+                $"The package carries no assembly assets for '{canonicalTargetFramework}'.");
+        }
+
+        if (matchingFrameworks.Length > 1)
+        {
+            return new PackageAssetSelection.Ambiguous(
+                $"More than one asset folder represents '{canonicalTargetFramework}'.");
+        }
+
+        return SelectUniverse(
+            candidates,
+            matchingFrameworks[0],
+            canonicalTargetFramework,
+            runtimeIdentifier);
+    }
+
     /// <summary>
     /// Selects the effective asset universe and retains its exact invocation
     /// correspondence without retaining package content.
@@ -320,7 +391,73 @@ public static class PackageAssetSelector
                 "A package asset runtime identifier cannot be empty or have surrounding whitespace.");
         }
 
-        List<CandidateEntry> candidates = [];
+        if (TryDiscoverCandidates(
+                content,
+                runtimeIdentifier,
+                out List<CandidateEntry> candidates)
+            is { } discoveryFailure)
+        {
+            return discoveryFailure;
+        }
+
+        FrameworkFolder target = FrameworkFolder.Parse(targetFramework);
+        List<string> applicable =
+        [
+            .. candidates
+                .Select(static candidate => candidate.TargetFramework)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(tfm => IsApplicable(FrameworkFolder.Parse(tfm), target)),
+        ];
+        if (applicable.Count == 0)
+        {
+            return new PackageAssetSelection.NoMatch(
+                $"The package carries no assembly assets applicable to '{targetFramework}'.");
+        }
+
+        (int FallbackRank, Version Version, int PlatformRank) bestRank =
+            applicable.Max(Rank);
+        List<string> best =
+        [
+            .. applicable
+                .Where(tfm => Rank(tfm) == bestRank)
+                .OrderBy(static tfm => tfm, StringComparer.Ordinal),
+        ];
+        if (best.Count > 1)
+        {
+            return new PackageAssetSelection.Ambiguous(
+                $"More than one asset folder is equally applicable to '{targetFramework}'.");
+        }
+
+        return SelectUniverse(
+            candidates,
+            best[0],
+            targetFramework,
+            runtimeIdentifier);
+
+        (int FallbackRank, Version Version, int PlatformRank) Rank(string tfm)
+        {
+            FrameworkFolder folder = FrameworkFolder.Parse(tfm);
+            Version version =
+                TfmResolver.TryGetFrameworkIdentity(
+                    folder.BaseFramework,
+                    out TfmResolver.FrameworkIdentity identity)
+                    ? identity.Version
+                    : EmptyVersion;
+            return (
+                TfmResolver.GetFrameworkFallbackRank(
+                    folder.BaseFramework,
+                    target.BaseFramework),
+                version,
+                folder.Platform is null ? 0 : 1);
+        }
+    }
+
+    static PackageAssetSelection? TryDiscoverCandidates(
+        IPackageContent content,
+        string? runtimeIdentifier,
+        out List<CandidateEntry> candidates)
+    {
+        candidates = [];
         foreach (string entry in content.EnumerateEntries())
         {
             if (entry is null
@@ -352,35 +489,15 @@ public static class PackageAssetSelector
                 "The package carries no assembly asset folder.");
         }
 
-        FrameworkFolder target = FrameworkFolder.Parse(targetFramework);
-        List<string> applicable =
-        [
-            .. candidates
-                .Select(static candidate => candidate.TargetFramework)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Where(tfm => IsApplicable(FrameworkFolder.Parse(tfm), target)),
-        ];
-        if (applicable.Count == 0)
-        {
-            return new PackageAssetSelection.NoMatch(
-                $"The package carries no assembly assets applicable to '{targetFramework}'.");
-        }
+        return null;
+    }
 
-        (int FallbackRank, Version Version, int PlatformRank) bestRank =
-            applicable.Max(Rank);
-        List<string> best =
-        [
-            .. applicable
-                .Where(tfm => Rank(tfm) == bestRank)
-                .OrderBy(static tfm => tfm, StringComparer.Ordinal),
-        ];
-        if (best.Count > 1)
-        {
-            return new PackageAssetSelection.Ambiguous(
-                $"More than one asset folder is equally applicable to '{targetFramework}'.");
-        }
-
-        string selectedFramework = best[0];
+    static PackageAssetSelection SelectUniverse(
+        List<CandidateEntry> candidates,
+        string selectedFramework,
+        string requestedFramework,
+        string? runtimeIdentifier)
+    {
         List<CandidateEntry> selected =
         [
             .. candidates.Where(candidate =>
@@ -424,7 +541,7 @@ public static class PackageAssetSelector
             // select the bytes. The selected folder name is archive-controlled
             // text, so the message names the framework the caller asked for.
             return new PackageAssetSelection.Ambiguous(
-                $"More than one assembly asset has the same identity in the universe selected for '{targetFramework}'.");
+                $"More than one assembly asset has the same identity in the universe selected for '{requestedFramework}'.");
         }
 
         var assetPaths = new HashSet<string>(
@@ -450,23 +567,6 @@ public static class PackageAssetSelector
                 selectedFramework,
                 runtimeIdentifier,
                 assets));
-
-        (int FallbackRank, Version Version, int PlatformRank) Rank(string tfm)
-        {
-            FrameworkFolder folder = FrameworkFolder.Parse(tfm);
-            Version version =
-                TfmResolver.TryGetFrameworkIdentity(
-                    folder.BaseFramework,
-                    out TfmResolver.FrameworkIdentity identity)
-                    ? identity.Version
-                    : EmptyVersion;
-            return (
-                TfmResolver.GetFrameworkFallbackRank(
-                    folder.BaseFramework,
-                    target.BaseFramework),
-                version,
-                folder.Platform is null ? 0 : 1);
-        }
     }
 
     static readonly Version EmptyVersion = new(0, 0, 0);

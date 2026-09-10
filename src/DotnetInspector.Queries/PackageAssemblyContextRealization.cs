@@ -341,29 +341,63 @@ public sealed class PackageRootBinding
                 : exactSelection;
         }
 
-        string effectiveSelectionTargetFramework =
-            selectionTargetFramework;
-        PackageAssetSelection currentImplementationSelection =
-            PackageAssetSelector.Select(
+        PackageAssetSelection frozenImplementationSelection =
+            PackageAssetSelector.SelectCanonicalFramework(
                 content,
-                compileTargetFramework);
-        if (currentImplementationSelection
-                is PackageAssetSelection.Selected selected
-            && string.Equals(
-                PackageArtifactRootRequest.NormalizeFramework(
-                    selected.Universe.TargetFramework),
                 selectionTargetFramework,
-                StringComparison.Ordinal))
+                request.SelectionRuntimeIdentifier);
+        if (frozenImplementationSelection
+            is not PackageAssetSelection.Selected selected)
         {
-            effectiveSelectionTargetFramework =
-                selected.Universe.TargetFramework;
+            PackageCompileAssetSelection frozenCompileSelection =
+                PackageCompileAssetSelector.SelectForCompatibleImplementation(
+                    content,
+                    packageId,
+                    compileTargetFramework,
+                    selectionTargetFramework,
+                    request.SelectionRuntimeIdentifier);
+            return frozenImplementationSelection switch
+            {
+                PackageAssetSelection.NoMatch noMatch =>
+                    frozenCompileSelection with
+                    {
+                        Status =
+                            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+                        Assets = [],
+                        DefaultAsset = null,
+                        ImplementationAssets = [],
+                        Message = noMatch.Message,
+                    },
+                PackageAssetSelection.Ambiguous ambiguous =>
+                    frozenCompileSelection with
+                    {
+                        Status =
+                            PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+                        Assets = [],
+                        DefaultAsset = null,
+                        ImplementationAssets = [],
+                        Message = ambiguous.Message,
+                    },
+                PackageAssetSelection.Invalid invalid =>
+                    frozenCompileSelection with
+                    {
+                        Status =
+                            PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+                        Assets = [],
+                        DefaultAsset = null,
+                        ImplementationAssets = [],
+                        Message = invalid.Message,
+                    },
+                _ => throw new UnreachableException(
+                    "Canonical package asset selection returned an unsupported outcome."),
+            };
         }
 
         return PackageCompileAssetSelector.SelectForCompatibleImplementation(
             content,
             packageId,
             compileTargetFramework,
-            effectiveSelectionTargetFramework,
+            selected.Universe.TargetFramework,
             request.SelectionRuntimeIdentifier);
     }
 

@@ -97,6 +97,45 @@ public sealed class PackageAssetSelectorTests
     }
 
     [Fact]
+    public void SelectCanonicalFramework_IgnoresNewerCompatibleUniverse()
+    {
+        var content = new InMemoryPackageContent(
+            TestPackageArchive.Create(
+                "lib/netcoreapp5.0/Alias.dll",
+                "lib/net6.0/Newer.dll"),
+            fromCache: true,
+            "test-source");
+
+        PackageAssetUniverse universe = Selected(
+            PackageAssetSelector.SelectCanonicalFramework(
+                content,
+                "net5.0"));
+
+        Assert.Equal("netcoreapp5.0", universe.TargetFramework);
+        Assert.Equal(
+            "lib/netcoreapp5.0/Alias.dll",
+            Assert.Single(universe.Assets).EntryPath);
+    }
+
+    [Fact]
+    public void SelectCanonicalFramework_RejectsDistinctAliasUniverses()
+    {
+        var content = new InMemoryPackageContent(
+            TestPackageArchive.Create(
+                "lib/netcoreapp5.0/Alias.dll",
+                "lib/net5.0/Canonical.dll"),
+            fromCache: true,
+            "test-source");
+
+        PackageAssetSelection selection =
+            PackageAssetSelector.SelectCanonicalFramework(
+                content,
+                "net5.0");
+
+        Assert.IsType<PackageAssetSelection.Ambiguous>(selection);
+    }
+
+    [Fact]
     public void Select_FallsBackToACompatibleOlderFramework()
     {
         PackageAssetSelection selection = Select(

@@ -3173,6 +3173,16 @@ generation that no longer satisfies the selection target reports that
 owner-typed outcome instead of a neighboring asset set. Cancellation is not an
 outcome arm and propagates with the caller's token.
 
+For compatible-selection reacquisition, the normalized implementation target
+is frozen selection identity rather than a request to rank the replacement
+generation again. The package selector resolves that canonical identity across
+all implementation folders. Exactly one canonical-equivalent raw folder, such
+as `netcoreapp5.0` for frozen `net5.0`, preserves that folder spelling for
+compile and implementation selection even when a newer compatible folder is
+now present. No matching folder remains a visible no-match; multiple distinct
+raw folders for the same canonical identity remain an invalid implementation
+selection.
+
 ##### The transport seam
 
 Hosts pass the issued request opaquely. Reconstructing one from package id,
@@ -3244,6 +3254,11 @@ raw package framework folder.
 `CompatibleFrameworkAlias_ReacquisitionRejectsDifferentReplacementTarget`
 gates replacement content whose compatible universe has a different canonical
 target, preserving the frozen target as a visible no-match.
+`CompatibleFrameworkAlias_ReacquisitionKeepsRetainedFrozenTarget` gates
+replacement content that retains the frozen alias while adding a newer
+compatible target.
+`CompatibleFrameworkAliases_ReacquisitionRemainsInvalid` gates multiple raw
+implementation folders for one frozen canonical identity.
 `CompatibleAmbiguousImplementationLayout_ReacquisitionRemainsInvalid` gates
 compatible-selection intent when no unique implementation universe exists.
 

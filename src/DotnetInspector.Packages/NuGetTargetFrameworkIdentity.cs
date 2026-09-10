@@ -1,7 +1,7 @@
 using DotnetInspector.Packages;
 using NuGet.Frameworks;
 
-namespace DotnetInspector.Queries;
+namespace DotnetInspector.Packages;
 
 /// <summary>Creates canonical NuGet framework identity without repairing target-plus-RID text.</summary>
 static class NuGetTargetFrameworkIdentity
