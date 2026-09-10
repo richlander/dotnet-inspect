@@ -14,6 +14,12 @@ test("Dependencies relocates the live graph and group controls, not the lists", 
   }));
   await page.getByRole("button", { name: "Explore", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Dependency graph" });
+  await expect(dialog.locator(".graph-explorer-kind")).toHaveText("Dependency graph");
+  await expect(dialog.locator("#graph-explorer-title")).toHaveText("Example.Package@1.0.0");
+  await expect(dialog.locator(".graph-explorer-context")).toHaveText("Target framework net10.0");
+  await expect(dialog.locator(".graph-explorer-summary"))
+    .toHaveText("callers above · dependencies below · click a package to open");
+  await expect(dialog.locator(".dependency-graph-section > .section-title")).toBeHidden();
   await expect(dialog.locator("#dep-tfm-chips")).toBeVisible();
   await expect(dialog.locator("#dep-list-section, #assembly-references, #coordinates")).toHaveCount(0);
   await expect(page.locator("#graph-explorer-title")).toBeFocused();

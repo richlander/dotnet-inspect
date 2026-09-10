@@ -58,8 +58,10 @@ function key() {
 function target() {
   return {
     key: key(),
-    title: "Dependency graph",
-    context: `${pkg.id}@${pkg.version} · ${pkg.activeFramework}`,
+    kind: "Dependency graph",
+    subject: `${pkg.id}@${pkg.version}`,
+    context: `Target framework ${pkg.activeFramework}`,
+    summary: "callers above · dependencies below · click a package to open",
     content: document.querySelector<HTMLElement>("[data-dependency-graph-surface]")!,
     invoker: document.querySelector<HTMLElement>("#explore")!,
   };

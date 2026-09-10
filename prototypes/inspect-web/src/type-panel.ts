@@ -3,6 +3,9 @@ import { renderContentNavigationCloseButton } from "./content-frame.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
+export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
+  "base · interfaces · derived — select a highlighted node to open";
+
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata working surface, and source sections shown for the "type" scope) as pure,
 // dependency-injected render functions. This module also binds the controls that its nav pane
@@ -617,7 +620,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const graph = (meta.graphNodes || []).length > 1
     ? `<div data-type-graph-surface>
         <section class="document-section call-graph-section">
-          <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — select a highlighted node to open</span></div>
+          <div class="section-title"><h2>Type relationships</h2><span>${TYPE_RELATIONSHIPS_GRAPH_SUMMARY}</span></div>
           <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
         </section>
         ${failures}
