@@ -1,5 +1,10 @@
 # Browser architecture spike
 
+> **Historical record.** This document captures the architecture spike that
+> established Inspect Web. The released product workspace now lives at
+> top-level `inspect-web/`; prototype wording below describes the original
+> evaluation phase.
+
 ## Recommendation
 
 Use a small DOM-based JavaScript UI with a .NET 11 inspection engine running in
@@ -70,8 +75,8 @@ The app will retain dotnet-inspect's trimming and NativeAOT-friendly product
 constraints without depending on that runtime.
 
 The comparison deployment at <https://coreclr.dotnet-inspect.ca> exercises the
-packaged CoreCLR interpreter from .NET 11 Preview 7 without changing the
-prototype's Mono default or production promotion path. It remains an
+packaged CoreCLR interpreter from .NET 11 Preview 7 without changing Inspect
+Web's Mono default or production promotion path. It remains an
 experimental deployment rather than a product dependency until the browser
 runtime and native toolchain are complete enough to replace those explicit
 preview workarounds. Its publish explicitly enables runtime async across the
