@@ -94,28 +94,160 @@ public class SourceLinkQueryServiceTests
             "https://dev.azure.com/org/project/_apis/git/repositories/repo/items"
             + "?api-version=7.1&versionType=commit"
             + "&version=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&path=/A.cs";
+        int requests = 0;
         using var client = new HttpClient(new StubHandler(_ =>
-            new HttpResponseMessage((HttpStatusCode)203)
+        {
+            requests++;
+            return new HttpResponseMessage((HttpStatusCode)203)
             {
                 RequestMessage = new HttpRequestMessage(
                     HttpMethod.Head,
                     "https://spsprodeus27.vssps.visualstudio.com/_signin"),
-            }));
+            };
+        }));
         List<string> logs = [];
+        RecordingSourceLinkQueryCache cache = new();
 
         SourceAvailabilitySummary result = await SourceAvailabilityService.InspectAsync(
             [Document("/src/A.cs", url: Url)],
             client,
+            cache,
             log: logs.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+        SourceAvailabilitySummary repeated = await SourceAvailabilityService.InspectAsync(
+            [Document("/src/A.cs", url: Url)],
+            client,
+            cache,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, result.AccessibleSourceFiles);
+        Assert.Equal(0, repeated.AccessibleSourceFiles);
         Assert.Equal(["/src/A.cs"], result.MissingSourceFiles);
+        Assert.Equal(2, requests);
+        Assert.Empty(cache.Writes);
         Assert.DoesNotContain(logs, message => message.Contains(Url, StringComparison.Ordinal));
         Assert.DoesNotContain(
             logs,
             message => message.Contains("spsprodeus27", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(logs, message => message.Contains("https://", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(
+        "https://raw.githubusercontent.com/example/repo/0123456789abcdef0123456789abcdef01234567/src/a.cs",
+        true)]
+    [InlineData("https://example.test/src/a.cs", false)]
+    public async Task Availability_ReusesPositiveEvidenceWithProvenanceLifetime(
+        string url,
+        bool immutable)
+    {
+        int requests = 0;
+        using var client = new HttpClient(new StubHandler(_ =>
+        {
+            requests++;
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }));
+        RecordingSourceLinkQueryCache cache = new();
+
+        SourceAvailabilitySummary initial = await SourceAvailabilityService.InspectAsync(
+            [Document("/src/A.cs", url: url)],
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+        SourceAvailabilitySummary repeated = await SourceAvailabilityService.InspectAsync(
+            [Document("/src/A.cs", url: url)],
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(initial.AllSourcesAccessible);
+        Assert.True(repeated.AllSourcesAccessible);
+        Assert.Equal(1, requests);
+        Assert.Equal(2, cache.Lookups.Count);
+        Assert.All(
+            cache.Lookups,
+            lookup =>
+            {
+                Assert.Equal("source-audit-v2", lookup.Category);
+                Assert.Equal(url, lookup.Key);
+                Assert.Equal("ok", lookup.Extension);
+                Assert.Equal(immutable ? null : TimeSpan.FromDays(1), lookup.MaxAge);
+            });
+        Assert.Equal(
+            new CacheWrite("source-audit-v2", url, "1", "ok"),
+            Assert.Single(cache.Writes));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.Gone)]
+    public async Task Availability_NonSuccessRemainsOperationLocal(HttpStatusCode statusCode)
+    {
+        int requests = 0;
+        using var client = new HttpClient(new StubHandler(_ =>
+        {
+            requests++;
+            return new HttpResponseMessage(statusCode);
+        }));
+        RecordingSourceLinkQueryCache cache = new();
+        cache.Seed(
+            "source-audit-v2",
+            "https://example.test/src/a.cs",
+            "1",
+            "miss");
+        SourceDocumentObservation[] documents =
+            [Document("/src/A.cs", url: "https://example.test/src/a.cs")];
+
+        SourceAvailabilitySummary initial = await SourceAvailabilityService.InspectAsync(
+            documents,
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+        SourceAvailabilitySummary repeated = await SourceAvailabilityService.InspectAsync(
+            documents,
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(initial.AllSourcesAccessible);
+        Assert.False(repeated.AllSourcesAccessible);
+        Assert.Equal(2, requests);
+        Assert.All(cache.Lookups, lookup => Assert.Equal("ok", lookup.Extension));
+        Assert.Empty(cache.Writes);
+    }
+
+    [Fact]
+    public async Task Availability_LocalClassificationsNeedNoCacheOrNetwork()
+    {
+        int requests = 0;
+        using var client = new HttpClient(new StubHandler(_ =>
+        {
+            requests++;
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }));
+        RecordingSourceLinkQueryCache cache = new();
+        SourceDocumentObservation[] documents =
+        [
+            Document("/src/Embedded.cs", SourceDocumentStorage.Embedded),
+            Document("/src/Unresolved.cs"),
+            Document("/src/Unsupported.cs", url: "ftp://example.test/unsupported.cs"),
+            Document(
+                "/repo/artifacts/obj/Generated.g.cs",
+                url: "https://example.test/generated.cs"),
+        ];
+
+        SourceAvailabilitySummary result = await SourceAvailabilityService.InspectAsync(
+            documents,
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, result.EmbeddedSourceFiles);
+        Assert.Equal(3, result.MissingSourceFiles.Length);
+        Assert.Equal(0, requests);
+        Assert.Empty(cache.Lookups);
+        Assert.Empty(cache.Writes);
     }
 
     [Fact]
@@ -252,6 +384,49 @@ public class SourceLinkQueryServiceTests
             => Task.FromException<HttpResponseMessage>(
                 new InvalidOperationException(message));
     }
+
+    private sealed class RecordingSourceLinkQueryCache : ISourceLinkQueryCache
+    {
+        private readonly Dictionary<(string Category, string Key, string Extension), string>
+            _entries = [];
+
+        public List<CacheLookup> Lookups { get; } = [];
+
+        public List<CacheWrite> Writes { get; } = [];
+
+        public void Seed(string category, string key, string content, string extension)
+            => _entries[(category, key, extension)] = content;
+
+        public string? TryGet(
+            string category,
+            string key,
+            TimeSpan? maxAge,
+            string extension)
+        {
+            Lookups.Add(new CacheLookup(category, key, maxAge, extension));
+            return _entries.TryGetValue((category, key, extension), out string? value)
+                ? value
+                : null;
+        }
+
+        public void Set(string category, string key, string content, string extension)
+        {
+            Writes.Add(new CacheWrite(category, key, content, extension));
+            _entries[(category, key, extension)] = content;
+        }
+    }
+
+    private sealed record CacheLookup(
+        string Category,
+        string Key,
+        TimeSpan? MaxAge,
+        string Extension);
+
+    private sealed record CacheWrite(
+        string Category,
+        string Key,
+        string Content,
+        string Extension);
 
     private sealed class TrackingContent(byte[] content) : HttpContent
     {
