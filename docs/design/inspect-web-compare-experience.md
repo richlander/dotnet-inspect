@@ -131,6 +131,19 @@ lens identity nor a portable Workspace field. Replacing or removing the
 retained Package model discards it with the rest of that model's session-local
 comparison settings.
 
+Mode retention is independent of how the Compare lens becomes active. An
+atomic descendant-subject plus Compare-lens action, standalone exact-lens
+activation, Back or Forward restoration, and ordinary lens recommendation all
+present the retained Package model's current mode. None mints fresh mode state
+or resets an existing selection.
+
+This preserves a future recommendation change without coupling it to mode. If
+Compare later becomes the preferred lens for a subject, entering that subject
+through ordinary recommendation keeps **Diff** when Diff is current and keeps
+**Clone** when Clone is current. Only a retained Package model with no Compare
+mode state uses Diff as the presentation default. Assigning Compare a
+recommendation role remains a separate Registry and Navigation policy change.
+
 ## Shared surface frame
 
 Every subject uses one quiet frame:
@@ -408,6 +421,9 @@ advertise an action backed by a placeholder or success-shaped fallback.
 5. Switch Library Compare from Diff to Clone, drill to Type and Member, use
    Back and Forward, and confirm that the retained Package's current mode
    remains active without becoming Navigation lens identity or portable state.
+   Repeat with a recommendation fixture that selects Compare for the
+   destination subject: current Diff remains Diff, current Clone remains
+   Clone, and only absent mode state defaults to Diff.
 6. Open Member Clone and confirm that candidate score and checked relation are
    separately labelled. Open Explore and close it; confirm that the same row,
    scroll position, mode, and useful focus are restored.
