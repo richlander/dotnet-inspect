@@ -161,11 +161,40 @@ internal static class CustomAttributeValueDecoder
             StructuralMatchFrames++;
         }
 
-        internal void VisitTypeDefinitionIndexNameBytes(int bytes) =>
-            TypeDefinitionIndexNameBytes += bytes;
+        internal void VisitTypeDefinitionIndexNameBytes(int bytes)
+        {
+            long accepted = ReserveNameBytes(bytes);
+            TypeDefinitionIndexNameBytes += accepted;
+            RefuseIncompleteNameCharge(accepted, bytes);
+        }
 
-        internal void VisitTypeReferenceMatchNameBytes(int bytes) =>
-            TypeReferenceMatchNameBytes += bytes;
+        internal void VisitTypeReferenceMatchNameBytes(int bytes)
+        {
+            long accepted = ReserveNameBytes(bytes);
+            TypeReferenceMatchNameBytes += accepted;
+            RefuseIncompleteNameCharge(accepted, bytes);
+        }
+
+        long ReserveNameBytes(int bytes)
+        {
+            if (bytes <= 0)
+                return 0;
+            return Math.Min(
+                bytes,
+                MaxEnumResolutionNameWork - NameBytes);
+        }
+
+        static void RefuseIncompleteNameCharge(
+            long accepted,
+            int requested)
+        {
+            if (accepted != requested)
+            {
+                throw new BadImageFormatException(
+                    "Custom-attribute enum resolution exceeds the "
+                    + "name-work budget.");
+            }
+        }
 
         void EnsureBudget()
         {
