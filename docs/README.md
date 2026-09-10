@@ -57,6 +57,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Signals](assembly-audit.md) | Understanding Signals output and network scope flags. |
 | [SourceLink Exposure](sourcelink-exposure.md) | Where SourceLink appears in package/library/type/member flows and how PDB/network costs are controlled. |
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
+| [SourceHouse Composition](design/source-house.md) | Content-first source settlement over SourceLink-authored and C#-decompiled producers with independent consumer-selected source and PDB policy. |
 | [Local Repository Source Acquisition](design/local-repository-source-acquisition.md) | When caller-supplied Git clones may provide checksum-verified PDB source; local locator meaning, decline/fallback, and execution limits. |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs. |
 | [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |
@@ -72,6 +73,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Uncertified Scan Results](design/uncertified-scan-results.md) | How a command reports a multi-candidate scan that lost a candidate: exclusions named first, uncertainty carried beside the outcome, exit code `3`. |
 | [Semantic Row Selection](design/semantic-row-selection.md) | Typed ordered Head, Tail, Window, and Top stages over complete logical sequences. |
 | [CLI Row-Selection Grammar](design/cli-row-selection.md) | L3 item, Window, Top, direction, line-unit, shorthand, capability, and lowering rules for command-by-command adoption. |
+| [CLI Execution Bounds](design/cli-execution-bounds.md) | L3 classification, vocabulary, validation, and typed lowering for explicit owner-dimensioned limits on upstream work, separate from semantic row selection. |
 | [Source Delegation](design/source-delegation.md) | Delegated source execution: the effect protocol, closed result algebra, completion-evidence bases, and equivalence gates for row handoff and exact upstream Count. |
 | [Package Input and Dependency Evidence](design/package-dependency-evidence.md) | Common declarations and produced relationships across project, package, assets, and runtime inputs, preserving authorship, requested/resolved evidence, processing observations, equivalence, completion, and `InertString` containment. |
 | [Package Dependency Candidate Resolution](design/package-dependency-candidate-resolution.md) | Host-neutral composition from one normalized declaration to an exact source-authorized package candidate, typed failure, or incomplete source evidence. |

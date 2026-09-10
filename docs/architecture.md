@@ -137,7 +137,10 @@ substitution of Git blob bytes for one PDB source request. PDB acquisition
 retains the surrounding source-selection, checksum, and fallback policy.
 The existing `SourceFetch` implementation targets the independent transport
 root rather than the PDB owner: it retrieves authorized source bytes, while
-`PdbSourceHouse` decides when and how those bytes satisfy a PDB document.
+`PdbSourceHouse` currently decides when and how those bytes satisfy a PDB
+document. The target [SourceHouse composition](design/source-house.md)
+consumes content-backed authored-source and decompiler services; migration and
+retirement of the current source composition are tracked by #6512.
 
 The artifact floor is intentionally package- and Metadata-free. Its contracts,
 local adapter, and workspace session are implemented migration foundations, not
@@ -154,6 +157,7 @@ and query workspaces while migration continues.
 | `CSharpText.MemberSlicing` | Member-text processor | Conservative selection of one complete C# member declaration from caller-supplied line evidence, using only public `CSharpText` contracts. | [Library family boundaries](design/library-family-boundaries.md), [untrusted-data threat model](design/untrusted-data-threat-model.md) |
 | `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, ReadyToRun image envelopes, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), [ReadyToRun image projection](design/readytorun-image-projection.md), focused Metadata designs |
 | `ILInspector.SourceLink` | Source interpreter and composer | SourceLink map matching, provenance grammar, extraction, canonical paths, URL decoration, source correlation, and source Findings. | [PDB acquisition](pdb-acquisition.md), [source Finding producers](design/source-finding-producers.md) |
+| Target `SourceHouse` composition | Source service | Content-first settlement of SourceLink-authored or C#-decompiled source for one exact target, with independent consumer-selected source and PDB policy and retained producer evidence. | [SourceHouse composition](design/source-house.md), [#6512](https://github.com/richlander/dotnet-inspect/issues/6512) |
 | `ILInspector.CSharp` | Typed projection | Model-bound C# spelling and typed type/member views. | [Type, member, and API representation](design/type-member-api-representation.md) |
 
 Metadata owns metadata facts. SourceLink owns SourceLink interpretation.
