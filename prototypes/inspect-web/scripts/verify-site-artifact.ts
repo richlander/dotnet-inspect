@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { verifyPublishedRuntimeModules } from "./publish-runtime-loader.ts";
 
 // This script gates `npm run build`, and the manifest it reads is Rollup output rather
 // than a hand-written file, so the shape it relies on can change under it. `JSON.parse`
@@ -124,6 +125,10 @@ export function verifySiteArtifact(siteArgument: string): void {
     if (!index.includes(`href="/${stylesheet}"`)) {
       throw new Error(`index.html does not load Vite stylesheet '${stylesheet}'.`);
     }
+  }
+
+  if (existsSync(resolve(site, "_framework"))) {
+    verifyPublishedRuntimeModules(site);
   }
 }
 
