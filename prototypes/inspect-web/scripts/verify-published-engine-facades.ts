@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import {
-  existsSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -199,21 +198,22 @@ assert.deepEqual(
 
 const site = resolve(siteArgument);
 const dotnetModule = publishedRuntimeTarget(site);
+const stableDotnetModule = "./_framework/dotnet.js";
 const runtimeLoader = resolve(site, "runtime-loader.js");
 const originalLoader = readFileSync(runtimeLoader);
 assert.equal(
   originalLoader.toString("utf8"),
-  `export { dotnet } from ${JSON.stringify(dotnetModule)};\n`,
-  "published runtime loader does not address the SDK import-map target");
-assert.equal(
-  existsSync(resolve(site, "_framework/dotnet.js")),
-  false,
-  "published framework unexpectedly contains an unhashed dotnet.js");
+  `export { dotnet } from ${JSON.stringify(stableDotnetModule)};\n`,
+  "published runtime loader does not address the stable Worker runtime module");
+assert.deepEqual(
+  readFileSync(resolve(site, stableDotnetModule)),
+  readFileSync(resolve(site, dotnetModule)),
+  "stable Worker runtime module does not match the SDK import-map target");
 
 try {
   writeFileSync(
     runtimeLoader,
-    `import { dotnet as sdkDotnet } from ${JSON.stringify(dotnetModule)};
+    `import { dotnet as sdkDotnet } from ${JSON.stringify(stableDotnetModule)};
 const runtimes = new Set();
 let createCalls = 0;
 let runMainCount = 0;

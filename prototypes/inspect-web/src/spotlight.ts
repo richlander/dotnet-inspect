@@ -59,6 +59,12 @@ interface RuntimeSuggestionResult {
   kind: "rtpack-suggest";
 }
 
+interface PlatformSubjectResult {
+  kind: "platform";
+  tfm: string;
+  version: string;
+}
+
 interface RuntimeStatusResult {
   kind: "rtpack-status";
   loading?: boolean;
@@ -72,6 +78,9 @@ interface PlatformLibraryResult {
   publicTypes: number;
   loaded?: boolean;
   ranges: readonly HighlightRange[];
+  tfm?: string;
+  version?: string;
+  role?: string;
 }
 
 interface TypeResult {
@@ -100,6 +109,7 @@ export type SpotlightResult =
   | SpotlightPackageResult
   | PackageQueryResult
   | RuntimeSuggestionResult
+  | PlatformSubjectResult
   | RuntimeStatusResult
   | PlatformLibraryResult
   | TypeResult
@@ -177,6 +187,7 @@ const GROUP_LABELS: Readonly<Record<SpotlightResult["kind"], string>> = {
   type: "Types",
   member: "Members",
   "platform-lib": "Libraries",
+  platform: "Platform",
   "rtpack-suggest": "Runtime",
   "rtpack-status": "Runtime",
 };
@@ -200,14 +211,6 @@ export function nextSpotlightScope(
   return backward
     ? (current - 1 + count) % count
     : (current + 1) % count;
-}
-
-export function visibleSpotlightPackageHits(
-  query: string,
-  resolvedQuery: string,
-  hits: readonly SpotlightPackageHit[],
-): readonly SpotlightPackageHit[] {
-  return query === resolvedQuery ? hits : [];
 }
 
 export function spotlightResultIdentity(result: SpotlightResult): string {
@@ -238,7 +241,9 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
     case "package-query":
       return JSON.stringify([result.kind, result.prefix]);
     case "platform-lib":
-      return JSON.stringify([result.kind, result.pack, result.assembly]);
+      return JSON.stringify([result.kind, result.tfm ?? "", result.version ?? "", result.pack, result.assembly]);
+    case "platform":
+      return JSON.stringify([result.kind, result.tfm, result.version]);
     case "type":
       return JSON.stringify([
         result.kind,
@@ -373,12 +378,12 @@ export function createSpotlight(options: SpotlightOptions) {
         <span class="spotlight-item-ns">${suffix}</span>
       </button>`;
     }
-    if (result.kind === "rtpack-suggest") {
+    if (result.kind === "platform" || result.kind === "rtpack-suggest") {
       const framework = options.activeFramework() || "runtime";
       return `<button ${base} data-sl-load-runtime="1">
-        <span class="kind-icon sl-pkg-new">↓</span>
-        <span class="spotlight-item-name">Load .NET runtime pack</span>
-        <span class="spotlight-item-ns">Search platform types (TextWriter, String…) · ${escapeHtml(framework)}</span>
+        <span class="kind-icon sl-lib">▤</span>
+        <span class="spotlight-item-name">Platform</span>
+        <span class="spotlight-item-ns">Browse .NET libraries · ${escapeHtml(result.kind === "platform" ? `${result.tfm} · ${result.version}` : framework)}</span>
       </button>`;
     }
     if (result.kind === "rtpack-status") {
@@ -393,7 +398,7 @@ export function createSpotlight(options: SpotlightOptions) {
     if (result.kind === "platform-lib") {
       const label = PLATFORM_PACK_LABEL[result.pack] || result.pack;
       const types = `${result.publicTypes} type${result.publicTypes === 1 ? "" : "s"}`;
-      const meta = `${label} · ${types}${result.loaded ? " · loaded" : ""}`;
+      const meta = `Platform · ${label}${result.tfm ? ` · ${result.tfm}` : ""}${result.version ? ` · ${result.version}` : ""} · ${result.role ?? types}${result.loaded ? " · loaded" : ""}`;
       return `<button ${base} data-sl-platform-lib="${escapeHtml(result.assembly)}" data-sl-platform-pack="${escapeHtml(result.pack)}">
         <span class="kind-icon sl-lib">▤</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.assembly, result.ranges)}</span>

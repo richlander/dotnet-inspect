@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
+using System.Security.Cryptography;
 
 namespace DotnetInspector.Packages;
 
@@ -10,7 +11,10 @@ namespace DotnetInspector.Packages;
 /// and <see cref="NupkgPath"/> are always <c>null</c> because nothing is
 /// materialized on disk.
 /// </summary>
-public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEntryManifest
+public sealed class InMemoryPackageContent :
+    IPackageContent,
+    IPackageContentEntryManifest,
+    IPackageContentDigestSource
 {
     const long MaxEntryMaterializationBytes = 512L * 1024 * 1024;
 
@@ -113,6 +117,23 @@ public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEnt
     {
         stream = new MemoryStream(_nupkgBytes, writable: false);
         return true;
+    }
+
+    PackageContentDigest IPackageContentDigestSource.GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PackageContentDigest digest = _generationIdentity.GetOrCreateDigest(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            chargeWork(_nupkgBytes.LongLength);
+            return new PackageContentDigest(
+                _generationIdentity,
+                Convert.ToHexStringLower(SHA256.HashData(_nupkgBytes)));
+        })!;
+        cancellationToken.ThrowIfCancellationRequested();
+        return digest;
     }
 
     /// <inheritdoc />

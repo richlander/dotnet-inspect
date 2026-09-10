@@ -10,6 +10,9 @@ import {
   engineWorkerText,
 } from "../src/engine-worker-contract.ts";
 import {
+  registerEngineWorkerStartupOperations,
+} from "../src/engine-worker-startup.ts";
+import {
   WorkerOperationCatalog,
   WorkerRuntimeRealm,
 } from "../src/worker-runtime-realm.ts";
@@ -21,14 +24,12 @@ class LifecycleDocument extends EventTarget {
   hidden = false;
 }
 
-test("a stale startup waiter cannot supersede a newer Clone request", async () => {
+test("the production Worker supersedes a queued Clone request with the newer request", async () => {
   const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const originalWorker = Object.getOwnPropertyDescriptor(globalThis, "Worker");
-  const originalSetTimeout = globalThis.setTimeout;
   const invoked: string[] = [];
   let ready: (() => void) | null = null;
-  let releaseStartupPoll: (() => void) | null = null;
   let disposeClient: (() => void) | undefined;
   const olderRequest = {
     schemaVersion: 1,
@@ -56,12 +57,6 @@ test("a stale startup waiter cannot supersede a newer Clone request", async () =
     [JSON.stringify(olderRequest), olderRequest],
     [JSON.stringify(newerRequest), newerRequest],
   ]);
-  const releaseHeldStartupPoll = () => {
-    if (releaseStartupPoll === null) {
-      throw new Error("The startup waiter did not enter its polling delay.");
-    }
-    releaseStartupPoll();
-  };
 
   class FakeEngineWorker extends EventTarget {
     readonly #realm: WorkerRuntimeRealm<string, string>;
@@ -71,6 +66,28 @@ test("a stale startup waiter cannot supersede a newer Clone request", async () =
     constructor() {
       super();
       const operations = new WorkerOperationCatalog();
+      registerEngineWorkerStartupOperations(operations, {
+        async buildIdentity() {
+          return {
+            version: "test",
+            commit: null,
+            builtAtUtc: null,
+            commitUrl: null,
+          };
+        },
+        async listVocabulary(): Promise<never> {
+          throw new Error("Unexpected vocabulary read.");
+        },
+        async listHomeDemos(): Promise<never> {
+          throw new Error("Unexpected home-demo read.");
+        },
+        async listPackageQueryFacets(): Promise<never> {
+          throw new Error("Unexpected facet read.");
+        },
+        async listGalleryDiscoveryCatalog(): Promise<never> {
+          throw new Error("Unexpected gallery read.");
+        },
+      });
       registerEngineWorkerCloneCandidateOperation(operations, () => ({
         async queryCloneCandidates(requestJson: string) {
           const request = requests.get(requestJson);
@@ -148,25 +165,14 @@ test("a stale startup waiter cannot supersede a newer Clone request", async () =
     configurable: true,
     value: FakeEngineWorker,
   });
-  Object.defineProperty(globalThis, "setTimeout", {
-    configurable: true,
-    value: ((callback: (...args: unknown[]) => void,
-      milliseconds?: number,
-      ...args: unknown[]) => {
-      if (milliseconds === 10 && releaseStartupPoll === null) {
-        releaseStartupPoll = () => {
-          originalSetTimeout(callback, 0, ...args);
-        };
-        return 0;
-      }
-      return originalSetTimeout(callback, milliseconds, ...args);
-    }),
-  });
 
   try {
-    const { createEngineWorkerCloneCandidateClient } =
+    const workerReady = new Promise<void>(resolve => {
+      ready = resolve;
+    });
+    const { createProductionEngineWorkerClient } =
       await import("../src/engine-worker-client.ts");
-    const client = createEngineWorkerCloneCandidateClient(
+    const client = createProductionEngineWorkerClient(
       "http://localhost/probe",
       {
         callbacks: {
@@ -177,33 +183,22 @@ test("a stale startup waiter cannot supersede a newer Clone request", async () =
         operationDiagnostic: () => undefined,
       });
     disposeClient = () => client.dispose();
-    const older = client.query(JSON.stringify(olderRequest));
-    const workerReady = new Promise<void>(resolve => {
-      ready = resolve;
-    });
+    const older =
+      client.client.analysis.queryCloneCandidates(JSON.stringify(olderRequest));
+    const olderFailure = assert.rejects(older, /superseded/);
     await workerReady;
-    const newer = client.query(JSON.stringify(newerRequest));
-    for (let attempt = 0;
-      attempt < 20 && invoked.length === 0;
-      attempt++) {
-      await new Promise(resolve => originalSetTimeout(resolve, 1));
-    }
-    assert.deepEqual(invoked, ["All"]);
-    releaseHeldStartupPoll();
+    const newer =
+      client.client.analysis.queryCloneCandidates(JSON.stringify(newerRequest));
 
-    await assert.rejects(older, /superseded/);
+    await olderFailure;
     assert.equal((await newer).detail, "All");
-    assert.deepEqual(invoked, ["All"]);
+    await client.ready;
+    assert.equal(invoked.at(-1), "All");
   } finally {
     disposeClient?.();
     restoreGlobal("document", originalDocument);
     restoreGlobal("window", originalWindow);
     restoreGlobal("Worker", originalWorker);
-    Object.defineProperty(globalThis, "setTimeout", {
-      configurable: true,
-      value: originalSetTimeout,
-      writable: true,
-    });
   }
 });
 

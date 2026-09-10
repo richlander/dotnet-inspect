@@ -2,13 +2,14 @@
 
 Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
-The [page-facing engine client](#page-facing-engine-client) is **partially
-implemented**: startup reads, home-demo resolution, and dependency-coordinate
-matching have Promise-valued main-thread bindings, and the Worker-only host has
-a typed Type Source producer adapter with no production caller.
-The single-runtime Worker cutover remains unimplemented, tracked by
-[#5987](https://github.com/richlander/dotnet-inspect/issues/5987) and its Source
-consumer [#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
+The [page-facing engine client](#page-facing-engine-client) is **implemented**
+through the single-runtime production cutover:
+[`engine-worker-client.ts`](../../prototypes/inspect-web/src/engine-worker-client.ts)
+binds every production managed call to one Worker epoch, and the page runtime
+has no generated-facade import or managed-runtime fallback. The remaining
+cross-runtime Source lifecycle work tracked by
+[#5420](https://github.com/richlander/dotnet-inspect/issues/5420) is feature
+lifecycle adoption, not runtime placement.
 
 This is the owning document for the inspect-web production facade partition:
 which existing browser-host exports belong together, how independently
@@ -386,10 +387,13 @@ All generated facades use the exact same runtime module specifier:
 ./runtime-loader.js
 ```
 
-The published loader resolves the SDK's fingerprinted runtime module without
-requiring a document import map. The coordinator is shared by the implemented
-page host and the separate Worker diagnostic host; sharing its source does not
-share a runtime between realms.
+Publication materializes stable `dotnet.js`, `dotnet.native.js`, and
+`dotnet.runtime.js` modules as exact copies of the SDK's import-map-selected
+fingerprinted modules. The loader imports the stable `dotnet.js`, so the
+Worker and the SDK's internal dynamic imports use one module identity without
+depending on the document import map. The coordinator is shared by the
+implemented page host and the separate Worker diagnostic host; sharing its
+source does not share a runtime between realms.
 
 The consumer owns one coordinator:
 
@@ -471,7 +475,7 @@ stronger close negative than the production names.
 
 ## Page-facing engine client
 
-This proposed extension owns **consumer binding to the generated facade set
+This extension owns **consumer binding to the generated facade set
 through one asynchronous client**. The production consumer is Inspect Web,
 with Type Source as the first fully composed Worker feature in
 [#5420](https://github.com/richlander/dotnet-inspect/issues/5420). It retains the
@@ -537,6 +541,58 @@ activation, focus, and current-view publication. The client does not reproduce
 managed codecs or ranking in JavaScript. Typed results still reach their
 existing rendering owners; this extension adds no rendering or format-lowering
 domain.
+
+### Implemented production composition
+
+The production composition root imports only
+[`engine-worker-client.ts`](../../prototypes/inspect-web/src/engine-worker-client.ts).
+`createProductionEngineWorkerClient` creates one Worker host and binds startup,
+ordinary, Type Source, and Package Query surfaces to its initial epoch. The
+retained `buildIdentity` request is the complete page readiness barrier and is
+also the result returned by the first `host.buildIdentity()` call. Worker
+startup, protocol, and lifecycle failures remain visible through the existing
+load-error path; production neither creates a page runtime nor retries by
+directly importing a generated facade.
+
+The Worker entry starts the shared managed runtime and installs the six
+capability facade groups before readiness. Five startup reads retain their
+closed specialized operations. Type Source and Package Query retain their
+operation-authority adapters, exact caller-issued operation IDs, keyed
+cancellation, and terminal/quiescence contracts. Package Query durable events
+return through its generated event sink, and match credit counts only after the
+exact asynchronous Worker and managed acknowledgment.
+
+All other managed calls use the closed ordinary-operation catalog in
+[`engine-worker-ordinary.ts`](../../prototypes/inspect-web/src/engine-worker-ordinary.ts).
+Its 49 entries are named at build time across Package (19), Metadata (8),
+Analysis (7), Source (9), Call Graph (2), and Catalog (4). Callers cannot send a
+module, facade, or member name. Arguments and results cross as inert JSON trees
+only, bounded to 1,048,576 characters, 64 nesting levels, and 65,536 collection
+entries. The reader rejects accessors, symbols, prototype drift, sparse or
+extended arrays, cycles, functions, `undefined`, and non-finite numbers rather
+than converting malformed data into an empty or partial result.
+
+Page consumers await formerly synchronous managed behavior. Workspace packet
+encoding and decoding, demo resolution, Spotlight ranking, package-cache
+statistics, application-scope selection, Workspace occurrence clearing, saved
+Workspace capture and restoration, and navigation publication all retain their
+own stale-result and transaction authority. Occurrence clear is a barrier for
+following occurrence queries and activation. Initial Workspace publication
+commits only after successful canonical URL encoding and ignores stale
+navigation completion.
+
+Share-copy preserves transient user activation by passing a Promise-backed
+`Blob` to `ClipboardItem` before awaiting Worker packet encoding. A browser
+without that capability receives a visible unsupported error; the page does
+not make an unreliable post-`await` clipboard attempt. This is a page
+interaction constraint, not a codec or Worker-protocol contract.
+
+A client remains bound to the epoch that created it. Restart or disposal
+rejects its held and active work and cannot retarget old controls or ordinary
+calls into a replacement runtime. Production recovery remains reload-only.
+This cutover does not claim in-place Workspace rehydration, physical
+quiescence for ordinary Promise calls, or feature-specific lifecycle
+completion beyond the adapters named above.
 
 ### Call-site migration inventory
 
@@ -661,7 +717,8 @@ is the production-host adoption and retirement path under #5418 and #5420:
    Worker-only host, without activating them alongside the production runtime
    (**implemented**).
 5. Switch production bootstrap and all required bindings together, retire the
-   temporary page client/direct managed calls, and complete the Source demo.
+   temporary page client/direct managed calls, and complete the Source demo
+   (**implemented**).
 
 Steps 2 and 3 may proceed independently under their owners. Step 5 waits for
 all required paths; it includes the production demonstration rather than
@@ -722,39 +779,38 @@ credit acknowledgment across settlement, terminal-callback rejection entering
 Worker draining, malformed fulfilled results, payload bounds, and continued
 realm health after an operation-local result failure.
 
-This is preparation, not production activation. The production
-`PackageQueryDataSource`, `dotnet-inspect.ts` Package facade binding, UI
-generation policy, credit thresholds, batching, rendering, Worker protocol,
-managed bridge, and TLA+ models remain unchanged. Package Query's remaining
-production path has four total steps:
+The production cutover consumes this adapter without changing
+`PackageQueryDataSource` generation policy, batching, rendering, the Worker
+protocol, the managed bridge, or their TLA+ models. Package Query's production
+path had four total steps:
 
 1. Worker operation-addressed controls, completed through #6376 and #6385.
 2. Operation-keyed managed controls, completed through #6390 and #6393.
 3. The typed Worker adapter with durable events and acknowledged credit,
-   implemented here.
+   completed through the Worker-only preparation slices.
 4. Atomic activation of the single Worker runtime, retirement of direct page
-   managed dispatch, and the #5816 responsiveness evidence.
+   managed dispatch, and the #5816 responsiveness evidence, completed by
+   [#6435](https://github.com/richlander/dotnet-inspect/issues/6435).
 
-Milestone 5 still owns lifecycle composition, production bootstrap, all
-required neighboring bindings, direct page-runtime retirement, and the
-real-browser Source and Package Query responsiveness demonstrations.
-
-Outstanding production-runtime and responsiveness claims remain **unverified**
-until milestone 5. Extend the existing published facade-composition gate to
-exercise the actual client bootstrap, one SDK creation across the page/Worker
-composition, all required bindings, and visible startup failure. Its
-neighboring case uses package and metadata through the same runtime. This is
-behavioral evidence for that consumer path, not a repository-wide source
-absence audit.
+Milestone 5 supplies production bootstrap, all required neighboring bindings,
+direct page-runtime retirement, and real-browser Source and Package Query
+evidence. The published Worker runtime gate exercises startup reads, Type
+Source, lifecycle loss, and visible bootstrap failure through the actual
+client. The package-adoption gate now boots the same production client for
+ordinary Package and Analysis calls and observes exactly one Worker. Its
+production website scenario records a useful Package Query row, page input, a
+two-frame render opportunity, render activity, and bounded timer delay before
+the deliberately held query completes. The separate managed CPU isolation
+gate retains the stronger compute-bound proof.
 
 Worker protocol/lifecycle and durable ordering remain covered by their owner's
-gates; managed lifetime remains covered by #5419. Consumer adoption gates must
-exercise pending-query controls and preserve existing feature outcomes across
-the new asynchronous boundary. The #5420 browser scenario must show paint/input
-during representative managed Source work and distinguish logical cancellation
-from physical release, with a browser-native neighboring producer. Existing
-models remain evidence for their owned components, not proof of these new
-consumer bindings.
+gates; managed lifetime remains covered by #5419. Consumer gates preserve
+existing feature outcomes across the asynchronous boundary. Feature-specific
+Source lifecycle evidence under #5420 may still distinguish logical
+cancellation from physical release with a browser-native neighboring producer;
+that remaining work does not reopen the single-runtime placement decision.
+Existing models remain evidence for their owned components rather than proof
+of consumer bindings.
 
 ### Comparative basis and mock demo
 

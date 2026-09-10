@@ -788,7 +788,7 @@ Build and reproduce from the repository root with the selected SDK:
 
 ```bash
 "$DOTNET_ROOT/dotnet" build \
-  src/dotnet-inspect/dotnet-inspect.csproj -c Release
+  src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -c Release
 "$DOTNET_ROOT/dotnet" run \
   tools/PackageAssemblyQueryBenchmark.cs -c Release -- \
   cf96f4e7be43e905a2bd1908ac1d8f42687cc095 \

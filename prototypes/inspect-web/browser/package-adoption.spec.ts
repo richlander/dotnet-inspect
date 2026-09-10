@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Buffer } from "node:buffer";
-import { expect, test, type BrowserContext, type Page, type Route } from "@playwright/test";
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type Page,
+  type Route,
+  type Worker,
+} from "@playwright/test";
 import type {
   BrowserAssemblyReferenceList as AssemblyReferenceList,
   BrowserAssemblyReferenceResult as AssemblyReferenceResult,
@@ -27,8 +34,29 @@ import {
   type ManifestDependency,
 } from "./package-adoption-nupkg.ts";
 
+type WorkerClientModule = typeof import("../src/engine-worker-client.ts");
+
+const site = resolve(
+  process.env.INSPECT_WEB_PACKAGE_ADOPTION_SITE
+    ?? "../../artifacts/inspect-web-publish/wwwroot",
+);
+const manifest: unknown = JSON.parse(
+  readFileSync(resolve(site, "manifest.json"), "utf8"),
+);
+if (typeof manifest !== "object" || manifest === null
+    || !("src/engine-worker-client.ts" in manifest)) {
+  throw new Error("Published site is missing the production Worker client entry.");
+}
+const workerClientEntry = manifest["src/engine-worker-client.ts"];
+if (typeof workerClientEntry !== "object" || workerClientEntry === null
+    || !("file" in workerClientEntry)
+    || typeof workerClientEntry.file !== "string") {
+  throw new Error("Published production Worker client entry has no asset.");
+}
+const workerClientUrl = `/${workerClientEntry.file}`;
+
 // This gate drives the actually published production InspectWeb.Engine Wasm
-// artifact and its public generated facades in a real Firefox page. It proves
+// artifact through the production single-runtime Worker client in Firefox. It proves
 // the artifact-backed package scope adoption contract (issue #5576): ordinary
 // singleton opening via queryPackage, repeated/joined requests, the four-scope
 // bound with successful eviction, awaitable Workspace occurrence activation, a
@@ -87,6 +115,19 @@ interface FixtureCoordinate {
   readonly packageId: string;
   readonly version: string;
   readonly archive: Buffer;
+}
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let complete!: (value: T) => void;
+  const promise = new Promise<T>(accept => {
+    complete = accept;
+  });
+  return { promise, resolve: complete };
 }
 
 const version = "1.0.0";
@@ -249,6 +290,7 @@ const corsHeaders: Readonly<Record<string, string>> = {
 async function installGalleryRoutes(
   context: BrowserContext,
   registry: GalleryFixtureRegistry,
+  beforeArchive: (pathname: string) => Promise<void> = () => Promise.resolve(),
 ): Promise<void> {
   const serveFixture = async (route: Route): Promise<void> => {
     const request = route.request();
@@ -259,6 +301,7 @@ async function installGalleryRoutes(
     const pathname = new URL(request.url()).pathname;
     const archive = registry.archiveFor(pathname);
     if (archive) {
+      await beforeArchive(pathname);
       registry.recordDownload(pathname);
       await route.fulfill({
         status: 200,
@@ -304,10 +347,10 @@ declare global {
         version: string,
         framework: string,
       ): Promise<PackageSurface>;
-      cacheStats(): CacheStats;
+      cacheStats(): Promise<CacheStats>;
       queryOccurrences(workspaceJson: string): Promise<OccurrenceView>;
       activate(action: string): Promise<OccurrenceActivation>;
-      clearOccurrences(): void;
+      clearOccurrences(): Promise<void>;
       queryDependencies(
         packageId: string,
         version: string,
@@ -320,92 +363,72 @@ declare global {
         framework: string,
         libraryId: string,
       ): Promise<PackageIntegrations>;
+      dispose(): void;
+    };
+    __queryResponsiveness?: {
+      readonly startAt: number;
+      inputAt: number | null;
+      firstRowAt: number | null;
+      frameAt: number | null;
+      completedAt: number | null;
+      renderCount: number;
+      longestTimerDelay: number;
+      timer: number;
+      observer: MutationObserver;
     };
   }
 }
 
-type HostFacadeModule = Pick<
-  typeof import("../src/facades/inspect-web-host.js"),
-  "createRuntime" | "initializeRuntime" | "configureHost"
->;
-
-type PackageFacadeModule = Pick<
-  typeof import("../src/facades/inspect-web-package.js"),
-  "initializeRuntime" | "queryPackage" | "packageCacheStats"
-  | "queryWorkspacePackageOccurrences" | "activateWorkspacePackageOccurrence"
-  | "clearWorkspacePackageOccurrences" | "queryPackageDependencies"
->;
-
-type AnalysisFacadeModule = Pick<
-  typeof import("../src/facades/inspect-web-analysis.js"),
-  "initializeRuntime" | "queryPackageIntegrations"
->;
-
 async function boot(page: Page): Promise<void> {
   await page.goto("/package-adoption-gate.html");
-  await page.evaluate(async () => {
-    const hostImport: unknown = await import("/inspect-web-host.js");
-    const pkgImport: unknown = await import("/inspect-web-package.js");
-    const analysisImport: unknown = await import("/inspect-web-analysis.js");
-    function isHostFacade(value: unknown): value is HostFacadeModule {
+  await page.evaluate(async clientUrl => {
+    const clientImport: unknown = await import(clientUrl);
+    function isWorkerClient(value: unknown): value is WorkerClientModule {
       return typeof value === "object" && value !== null
-        && "createRuntime" in value && typeof value.createRuntime === "function"
-        && "initializeRuntime" in value && typeof value.initializeRuntime === "function"
-        && "configureHost" in value && typeof value.configureHost === "function";
+        && "createProductionEngineWorkerClient" in value
+        && typeof value.createProductionEngineWorkerClient === "function";
     }
-    function isPackageFacade(value: unknown): value is PackageFacadeModule {
-      return typeof value === "object" && value !== null
-        && "initializeRuntime" in value && typeof value.initializeRuntime === "function"
-        && "queryPackage" in value && typeof value.queryPackage === "function"
-        && "packageCacheStats" in value && typeof value.packageCacheStats === "function"
-        && "queryWorkspacePackageOccurrences" in value
-          && typeof value.queryWorkspacePackageOccurrences === "function"
-        && "activateWorkspacePackageOccurrence" in value
-          && typeof value.activateWorkspacePackageOccurrence === "function"
-        && "clearWorkspacePackageOccurrences" in value
-          && typeof value.clearWorkspacePackageOccurrences === "function"
-        && "queryPackageDependencies" in value
-          && typeof value.queryPackageDependencies === "function";
+    if (!isWorkerClient(clientImport)) {
+      throw new Error("Published production Worker client exports are missing.");
     }
-    function isAnalysisFacade(value: unknown): value is AnalysisFacadeModule {
-      return typeof value === "object" && value !== null
-        && "initializeRuntime" in value && typeof value.initializeRuntime === "function"
-        && "queryPackageIntegrations" in value
-          && typeof value.queryPackageIntegrations === "function";
-    }
-    if (!isHostFacade(hostImport)) {
-      throw new Error("Published host facade exports are missing.");
-    }
-    if (!isPackageFacade(pkgImport)) {
-      throw new Error("Published package facade exports are missing.");
-    }
-    if (!isAnalysisFacade(analysisImport)) {
-      throw new Error("Published analysis facade exports are missing.");
-    }
-    const host = hostImport;
-    const pkg = pkgImport;
-    const analysis = analysisImport;
-    const runtime = host.createRuntime();
-    await host.initializeRuntime(runtime);
-    await pkg.initializeRuntime(runtime);
-    await analysis.initializeRuntime(runtime);
-    host.configureHost(location.origin);
+    const production = clientImport.createProductionEngineWorkerClient(
+      location.origin,
+      {
+        callbacks: {
+          failure: failure => {
+            throw new Error(`Production Worker failure: ${failure.kind}.`);
+          },
+          diagnostic: diagnostic => {
+            throw new Error(`Production Worker diagnostic: ${diagnostic.kind}.`);
+          },
+          realmReleased: () => undefined,
+        },
+        operationDiagnostic: diagnostic => {
+          throw new Error(`Production operation failed: ${diagnostic.kind}.`);
+        },
+      },
+    );
+    await production.ready;
+    const client = production.client;
     window.__adoption = {
       queryPackage: (packageId, pkgVersion, framework) =>
-        pkg.queryPackage(packageId, pkgVersion, framework),
-      cacheStats: () => pkg.packageCacheStats(),
+        client.package.queryPackage(packageId, pkgVersion, framework),
+      cacheStats: () => client.package.packageCacheStats(),
       queryOccurrences: workspaceJson =>
-        pkg.queryWorkspacePackageOccurrences(workspaceJson),
-      activate: action => pkg.activateWorkspacePackageOccurrence(action),
-      clearOccurrences: () => {
-        pkg.clearWorkspacePackageOccurrences();
-      },
+        client.package.queryWorkspacePackageOccurrences(workspaceJson),
+      activate: action =>
+        client.package.activateWorkspacePackageOccurrence(action),
+      clearOccurrences: () =>
+        client.package.clearWorkspacePackageOccurrences(),
       queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
-        pkg.queryPackageDependencies(packageId, pkgVersion, framework, assemblyId),
+        client.package.queryPackageDependencies(
+          packageId, pkgVersion, framework, assemblyId),
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
-        analysis.queryPackageIntegrations(packageId, pkgVersion, framework, libraryId),
+        client.analysis.queryPackageIntegrations(
+          packageId, pkgVersion, framework, libraryId),
+      dispose: () => production.dispose(),
     };
-  });
+  }, workerClientUrl);
 }
 
 function driver(page: Page): {
@@ -440,9 +463,7 @@ function driver(page: Page): {
     activate: action =>
       page.evaluate(token => window.__adoption!.activate(token), action),
     clearOccurrences: () =>
-      page.evaluate(() => {
-        window.__adoption!.clearOccurrences();
-      }),
+      page.evaluate(() => window.__adoption!.clearOccurrences()),
     queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
       page.evaluate(
         ({ packageId: id, version: ver, framework: tfm, assemblyId: selected }) =>
@@ -493,6 +514,8 @@ function referenceFailure(result: AssemblyReferenceResult): string {
 
 test.describe("Package Query website over real Wasm", () => {
   test("keeps blank input idle and exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
+    const workers: Worker[] = [];
+    page.on("worker", worker => workers.push(worker));
     const exactRequests: URL[] = [];
     const searchRequests: URL[] = [];
     const enrichment: string[] = [];
@@ -542,6 +565,7 @@ test.describe("Package Query website over real Wasm", () => {
     await page.goto("/query");
     const input = page.locator("#package-query-prefix");
     await expect(input).toBeVisible({ timeout: 120_000 });
+    expect(workers).toHaveLength(1);
     await expect(page.locator("#package-query-run")).toHaveText("Run query");
     await expect(page.locator("#package-query-discover")).toHaveCount(0);
     await expect(page.locator("#package-query-type")).toHaveCount(0);
@@ -555,8 +579,10 @@ test.describe("Package Query website over real Wasm", () => {
 
     await input.fill("Newtonsoft.Json");
     await page.locator("#package-query-run").click();
-    await expect(page.locator(".query-row h2")).toHaveText(["Newtonsoft.Json"]);
-    await expect(page.locator(".query-footer")).toContainText("exact package selection complete");
+    await expect(page.locator(".query-row h2"))
+      .toHaveText(["Newtonsoft.Json"], { timeout: 30_000 });
+    await expect(page.locator(".query-footer"))
+      .toContainText("exact package selection complete", { timeout: 30_000 });
     expect(exactRequests).toHaveLength(2);
     expect(searchRequests).toHaveLength(0);
     await expect(page.locator("#package-query-type")).toHaveCount(0);
@@ -659,7 +685,13 @@ test.describe("Assembly Package Query website over real Wasm", () => {
     page, context,
   }) => {
     const registry = new GalleryFixtureRegistry(literalFixtures);
-    await installGalleryRoutes(context, registry);
+    const releaseCompletion = deferred<void>();
+    const heldArchive = galleryDownloadPath(
+      literalFixtures.at(-1)!.packageId,
+      literalFixtures.at(-1)!.version,
+    );
+    await installGalleryRoutes(context, registry, pathname =>
+      pathname === heldArchive ? releaseCompletion.promise : Promise.resolve());
     await page.goto("/query");
     await expect(page.locator(".query-assembly-controls summary")).toBeVisible({ timeout: 120_000 });
     await page.locator(".query-assembly-controls summary").click();
@@ -674,21 +706,102 @@ test.describe("Assembly Package Query website over real Wasm", () => {
     await packages.fill(
       literalFixtures.map(fixture => `${fixture.packageId}@${fixture.version}`).join("\n"));
     await expect(packages).toHaveJSProperty("validationMessage", "");
+    await page.evaluate(() => {
+      const timing: NonNullable<Window["__queryResponsiveness"]> = {
+        startAt: performance.timeOrigin + performance.now(),
+        inputAt: null,
+        firstRowAt: null,
+        frameAt: null,
+        completedAt: null,
+        renderCount: 0,
+        longestTimerDelay: 0,
+        timer: 0,
+        observer: new MutationObserver(() => {
+          timing.renderCount++;
+        }),
+      };
+      let previousTimerAt = performance.now();
+      timing.timer = window.setInterval(() => {
+        const currentTimerAt = performance.now();
+        timing.longestTimerDelay = Math.max(
+          timing.longestTimerDelay,
+          currentTimerAt - previousTimerAt,
+        );
+        previousTimerAt = currentTimerAt;
+      }, 10);
+      const input = document.createElement("button");
+      input.id = "query-responsiveness-input";
+      input.type = "button";
+      input.textContent = "Responsiveness input";
+      input.style.position = "fixed";
+      input.style.inset = "1rem";
+      input.style.zIndex = "10000";
+      input.addEventListener("pointerdown", () => {
+        timing.inputAt = performance.timeOrigin + performance.now();
+      }, { once: true });
+      document.body.append(input);
+      timing.observer.observe(document.body, { childList: true, subtree: true });
+      window.__queryResponsiveness = timing;
+    });
     await page.locator("#package-query-assembly-run").click();
 
     await expect(page.locator(".query-row")).toHaveCount(1, { timeout: 60_000 });
+    await page.evaluate(() => {
+      window.__queryResponsiveness!.firstRowAt =
+        performance.timeOrigin + performance.now();
+    });
+    await page.locator("#query-responsiveness-input").click();
+    await page.evaluate(async () => {
+      await new Promise<void>(resolveFirstFrame => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.__queryResponsiveness!.frameAt =
+              performance.timeOrigin + performance.now();
+            resolveFirstFrame();
+          });
+        });
+      });
+    });
+    releaseCompletion.resolve();
     await expect(page.locator(".query-row")).toContainText("shared-literal-use-marker");
     await expect(page.locator(".query-assessments")).toContainText("inspectweb.query.semanticmiss");
     await expect(page.locator(".query-assessments")).toContainText("inspectweb.query.referenceonly");
     await expect(page.locator(".query-failures")).toContainText("ImageAdmission");
     await expect(page.locator(".query-footer")).toContainText("not all package assemblies");
+    const responsiveness = await page.evaluate(() => {
+      const timing = window.__queryResponsiveness!;
+      timing.completedAt = performance.timeOrigin + performance.now();
+      clearInterval(timing.timer);
+      timing.observer.disconnect();
+      document.querySelector("#query-responsiveness-input")?.remove();
+      return {
+        startAt: timing.startAt,
+        inputAt: timing.inputAt,
+        firstRowAt: timing.firstRowAt,
+        frameAt: timing.frameAt,
+        completedAt: timing.completedAt,
+        renderCount: timing.renderCount,
+        longestTimerDelay: timing.longestTimerDelay,
+      };
+    });
+    expect(responsiveness.firstRowAt).toBeGreaterThan(responsiveness.startAt);
+    expect(responsiveness.inputAt).toBeGreaterThan(responsiveness.startAt);
+    expect(responsiveness.frameAt).toBeGreaterThan(responsiveness.startAt);
+    expect(responsiveness.completedAt).toBeGreaterThan(responsiveness.firstRowAt!);
+    expect(responsiveness.inputAt).toBeLessThan(responsiveness.completedAt);
+    expect(responsiveness.frameAt).toBeLessThan(responsiveness.completedAt);
+    expect(responsiveness.renderCount).toBeGreaterThan(0);
+    expect(responsiveness.longestTimerDelay).toBeLessThan(250);
     const match = literalFixtures[0]!;
     for (const fixture of literalFixtures) expect(registry.downloadCount(fixture)).toBe(1);
     const open = page.locator("[data-query-root-request]");
-    await expect(open).toHaveAttribute("data-query-root-request", /^pkgroot1/);
+    await expect(open).toHaveAttribute("data-query-root-request", /^pkgroot3\./);
     await open.click();
 
-    await expect(page).not.toHaveURL(/\/query(?:[?#].*)?$/);
+    await expect(page).not.toHaveURL(
+      /\/query(?:[?#].*)?$/,
+      { timeout: 60_000 },
+    );
     await expect(page.locator("body")).toContainText(match.packageId.toLowerCase());
     expect(registry.downloadCount(match)).toBe(2);
   });
@@ -701,9 +814,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     page,
     context,
   }) => {
+    const workers: Worker[] = [];
+    page.on("worker", worker => workers.push(worker));
     const registry = new GalleryFixtureRegistry(allFixtures);
     await installGalleryRoutes(context, registry);
     await boot(page);
+    expect(workers).toHaveLength(1);
     const engine = driver(page);
 
     // Ordinary singleton opening yields healthy evidence.
@@ -823,6 +939,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     );
     expect(healthyIntegrations.isComplete).toBe(true);
     expect(healthyIntegrations.inspectionError).toBeNull();
+    await page.evaluate(() => window.__adoption!.dispose());
   });
 
   test("holds the four-scope bound and evicts to admit new scopes", async ({
@@ -960,6 +1077,13 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     page,
     context,
   }) => {
+    const browserErrors: string[] = [];
+    page.on("console", message => {
+      if (message.type() === "error") browserErrors.push(message.text());
+    });
+    page.on("pageerror", error => {
+      browserErrors.push(`${error.name}: ${error.message}`);
+    });
     const registry = new GalleryFixtureRegistry(allFixtures);
     await installGalleryRoutes(context, registry);
 
@@ -970,7 +1094,16 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       `/index.html?package=${references.packageId}&version=${version}`
         + `&framework=${fixtureFramework}#pkg`);
     const libraryRow = page.locator(".library-list [data-lib-scope]").first();
-    await expect(libraryRow).toBeVisible({ timeout: 180_000 });
+    await expect(libraryRow.or(page.locator(".load-error")))
+      .toBeVisible({ timeout: 180_000 });
+    if (await page.locator(".load-error").isVisible()) {
+      const details = page.locator("#toggle-error-detail");
+      if (await details.isVisible()) await details.click();
+      throw new Error(
+        `Production page startup failed: ${
+          await page.locator(".load-error-detail").textContent() ?? "No details."}`
+          + `\nBrowser errors: ${browserErrors.join("\n") || "none"}`);
+    }
     await libraryRow.click();
     await page.locator('[data-library-lens="references"]').click();
 

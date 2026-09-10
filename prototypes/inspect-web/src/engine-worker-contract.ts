@@ -57,4 +57,19 @@ WorkerRuntimeBoundaryErrors<string> = {
   "worker-message": "Worker message delivery failed.",
 };
 
+export function mapEngineWorkerBoundaryErrors<TError>(
+  map: (message: string) => TError,
+): WorkerRuntimeBoundaryErrors<TError> {
+  return {
+    startup: map(engineWorkerBoundaryErrors.startup),
+    "worker-crash": map(engineWorkerBoundaryErrors["worker-crash"]),
+    protocol: map(engineWorkerBoundaryErrors.protocol),
+    watchdog: map(engineWorkerBoundaryErrors.watchdog),
+    "control-response": map(engineWorkerBoundaryErrors["control-response"]),
+    "probe-exhaustion": map(engineWorkerBoundaryErrors["probe-exhaustion"]),
+    "worker-declared": map(engineWorkerBoundaryErrors["worker-declared"]),
+    "worker-message": map(engineWorkerBoundaryErrors["worker-message"]),
+  };
+}
+
 export const engineWorkerCanaryKind = "runtime-async-lowering-canary";

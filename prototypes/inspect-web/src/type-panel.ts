@@ -3,6 +3,9 @@ import { renderContentNavigationCloseButton } from "./content-frame.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
+export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
+  "base · interfaces · derived — select a highlighted node to open";
+
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata working surface, and source sections shown for the "type" scope) as pure,
 // dependency-injected render functions. This module also binds the controls that its nav pane
@@ -308,7 +311,7 @@ export interface TypeNavOptions {
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
   library: string;
-  parentSubject: "package" | "library";
+  parentSubject: "package" | "platform" | "library";
   filtersExpanded: boolean;
   filterSummary: string;
   escapeHtml: EscapeHtml;
@@ -496,8 +499,14 @@ export function renderGraphMemberPending(options: RenderGraphMemberPendingOption
     </section>`;
 }
 
-export function typeMetadataSignature(item: TypeSummary, packageContext: TypePanelPackageContext): string {
-  return `${packageContext.id}@${packageContext.version}/${packageContext.activeFramework}/${item.assembly}/${item.id}`;
+export function typeMetadataSignature(
+  item: TypeSummary,
+  packageContext: TypePanelPackageContext,
+  libraryIdentity = "",
+): string {
+  const signature =
+    `${packageContext.id}@${packageContext.version}/${packageContext.activeFramework}/${item.assembly}/${item.id}`;
+  return libraryIdentity ? `${signature}/${libraryIdentity}` : signature;
 }
 
 export interface TypeMetadataStateSlice {
@@ -510,6 +519,7 @@ export interface TypeMetadataStateSlice {
 export interface RenderTypeMetadataOptions {
   item: TypeSummary;
   packageContext: TypePanelPackageContext;
+  libraryIdentity?: string;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
   escapeHtml: EscapeHtml;
@@ -519,10 +529,13 @@ export interface RenderTypeMetadataOptions {
 
 export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const {
-    item, packageContext, metadataState, memberCompositionHtml,
+    item, packageContext, libraryIdentity, metadataState, memberCompositionHtml,
     escapeHtml, relatedTypeChip, factRows,
   } = options;
-  const current = typeMetadataSignature(item, packageContext);
+  const current = typeMetadataSignature(
+    item,
+    packageContext,
+    libraryIdentity);
   const fresh = metadataState.typeMetadataKey === current;
   const meta = fresh ? metadataState.typeMetadata : null;
   const renderSurface = (content: string) => {
@@ -607,7 +620,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const graph = (meta.graphNodes || []).length > 1
     ? `<div data-type-graph-surface>
         <section class="document-section call-graph-section">
-          <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — select a highlighted node to open</span></div>
+          <div class="section-title"><h2>Type relationships</h2><span>${TYPE_RELATIONSHIPS_GRAPH_SUMMARY}</span></div>
           <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
         </section>
         ${failures}

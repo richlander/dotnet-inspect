@@ -64,6 +64,14 @@ reference resolution ladder. PackageHouse delegation, Queries, Workspace
 composition, CLI platform operations, and Inspect Web adopt the same House
 contract in separately reviewed slices.
 
+Production-adoption step 3 is implemented by the resource-free request,
+operation, source-plan, contribution, outcome, and receipt contracts in
+`DotnetInspector.PlatformHouse`. No source implementation or product consumer
+moved in that slice. After the PackageHouse contract floor landed, the request
+origin also gained an orchestration-owned delegation association. It retains
+no PackageHouse type or receipt; orchestration keeps the package and platform
+receipts separate.
+
 This is one owner claim. Documentation evidence is another facet of the same
 exact-target, reference-to-implementation settlement rather than a second
 platform architecture. The design specifies the House request, settlement,
@@ -1365,6 +1373,14 @@ There are eleven counted production steps:
 Each step after the House contract is a separately reviewed owner adoption.
 The stack preserves a usable product after every step; a bypass is retired only
 after its House replacement is live in every supported host that uses it.
+
+Step 4 is staged without changing the eleven-step count. Step 4a is owned by
+[Installed Reference-Pack Realization](installed-reference-pack-realization.md)
+and adds explicit-hive reference target discovery, immutable reference-pack
+realization, and the installed PlatformHouse bridge. Step 4b remains the
+manifest-defined installed implementation closure owned by
+[Platform Composition and Overlays](platform-composition-and-overlays.md#installed-implementation-platform-realization).
+Step 4 is not complete until both sub-slices are implemented.
 
 No CLI flag is retained solely for compatibility. User-facing platform
 coordinates project to the shared target and House request, and unsupported

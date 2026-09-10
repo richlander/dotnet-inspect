@@ -7,6 +7,7 @@ import {
   buildPackageRootStateUrl,
   buildWorkspaceStateUrl,
   callGraphCaptureTopology,
+  createAsyncWorkspaceLocationPersistence,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
@@ -15,6 +16,7 @@ import {
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
+  resolvedPlatformTargetVersion,
   retainWorkspaceUrlPreservation,
   resolveWorkspaceRoute,
   selectedBrowserCallGraphPackageTabIds,
@@ -37,6 +39,12 @@ import type {
 interface TestView {
   id: string;
   revision: number;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(accept => { resolve = accept; });
+  return { promise, resolve };
 }
 
 function locationSnapshot(value: string | URL): WorkspaceLocationSnapshot {
@@ -413,6 +421,53 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
   assert.equal(parsed.workspaceNotice, "");
 });
 
+test("canonical package dependency views restore the package root lens", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view,
+      lens: "dependencies",
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+    },
+  });
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(
+      "https://inspect.example/?package=Example.Second&w=canonical"),
+    () => decoded(state));
+
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.workspaceSubjectOpen, false);
+  assert.equal(parsed.packageLens, "dependencies");
+  assert.equal(parsed.lens, null);
+  assert.equal(parsed.type, null);
+});
+
+test("canonical package views reject contradictory structural selection", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view,
+      lens: "dependencies",
+      type: "Example.Widget",
+    },
+  });
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(
+      "https://inspect.example/?package=Example.Second&w=canonical"),
+    () => decoded(state));
+
+  assert.deepEqual(parsed.tabs, []);
+  assert.match(
+    parsed.workspaceNotice,
+    /package view cannot also select a type, member, section, or library/);
+});
+
 test("canonical Library views restore one exact library and its lens", () => {
   const initial = workspaceState();
   const state = workspaceState({
@@ -610,6 +665,18 @@ test("Platform drill target version preserves exact versus floating packet ident
   assert.equal(
     retainedPlatformTargetVersion(null, runtimePack, "net10.0"),
     "");
+  assert.equal(
+    resolvedPlatformTargetVersion([
+      { ...tab, id: "t2" },
+      { ...tab, id: "t0", source: "Example.Package", kind: "package" },
+    ], runtimePack, "net10.0"),
+    "10.0.10");
+  assert.equal(
+    resolvedPlatformTargetVersion([
+      tab,
+      { ...tab, id: "t1" },
+    ], runtimePack, "net10.0"),
+    "");
 });
 
 test("canonical tabs must remain distinct and ordered after resolution", () => {
@@ -645,6 +712,12 @@ test("missing Platform reacquisition retains only an aligned canonical pin", () 
 
   assert.deepEqual(
     retainedMissingPlatformTarget(basis, [packageTab], "net10.0"),
+    { tabIndex: 1, version: "10.0.10" });
+  assert.deepEqual(
+    retainedMissingPlatformTarget(basis, basis, "net10.0"),
+    { tabIndex: 1, version: "10.0.10" });
+  assert.deepEqual(
+    retainedMissingPlatformTarget(undefined, basis, "net10.0"),
     { tabIndex: 1, version: "10.0.10" });
   assert.deepEqual(
     retainedMissingPlatformTarget(
@@ -1076,10 +1149,71 @@ test("history signatures distinguish captured library scope", () => {
     libraryScope: ["System.Collections", "System.Runtime"],
   });
 
+  test("catalog-only Platform history retains its exact target independently of an acquired package", () => {
+    const view = workspaceView({
+      rootKind: "platform", package: "", packageKey: "",
+      atPackageRoot: true, atLibraryRoot: false, selectedTypeId: "",
+      platform: { tfm: "net11.0", version: "11.0.0-preview.7.26381.103", includeAllLibraries: false, filter: "" },
+    });
+    assert.notEqual(workspaceViewSignature(view), workspaceViewSignature({ ...view, rootKind: "package" }));
+    assert.notEqual(workspaceViewSignature(view), workspaceViewSignature({
+      ...view, platform: { ...view.platform!, version: "11.0.0" },
+    }));
+    assert.notEqual(workspaceViewSignature(view), workspaceViewSignature({
+      ...view, platform: { ...view.platform!, includeAllLibraries: true },
+    }));
+    let current = view;
+    const history = createNavigationHistory({
+      capture: () => current, signature: workspaceViewSignature,
+      apply: restored => { current = restored; return true; }, onExhausted() {},
+    });
+    history.record();
+    current = { ...view, atPackageRoot: false, atLibraryRoot: true, libraryScope: ["exact-platform-assembly-id"] };
+    history.record();
+    assert.equal(history.back(), true);
+    assert.equal(current.package, "");
+    assert.equal(current.atPackageRoot, true);
+    assert.equal(current.platform?.version, "11.0.0-preview.7.26381.103");
+    assert.equal(history.forward(), true);
+    assert.deepEqual(current.libraryScope, ["exact-platform-assembly-id"]);
+  });
+
+  test("Platform root and Library locations round-trip typed grouping without a package courtesy label", () => {
+    const root = workspaceState({
+      package: "",
+      tabs: [{ id: "p", kind: "group", source: ":Platform", version: "11.0.0-preview.7.26381.103",
+        framework: "net11.0", runtimeIdentifier: null }],
+      contexts: [{ id: "g", tabIds: ["p"] }], activeTabId: "p", selectedContextId: "g",
+      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [] },
+    });
+    for (const library of [null, '["aspnetcore.app","Microsoft.AspNetCore.dll"]']) {
+      const state = { ...root, view: { ...root.view,
+        lens: library ? "library:metadata" : null, libraries: library ? [library] : [] } };
+      const url = buildWorkspaceStateUrl("https://example.test/?package=Old", state, () => encoded());
+      assert.equal(url.searchParams.has("package"), false);
+      const restored = parseWorkspaceLocation(locationSnapshot(url), () => decoded(state));
+      assert.equal(restored.rootKind, "platform");
+      assert.equal(restored.version, "11.0.0-preview.7.26381.103");
+      assert.equal(restored.atPackageRoot, library === null);
+      assert.equal(restored.atLibraryRoot, library !== null);
+      assert.equal(restored.library, library);
+      assert.equal(restored.type, null);
+    }
+  });
+
   assert.notEqual(
     workspaceViewSignature(original),
     workspaceViewSignature(workspaceView({
       libraryScope: ["System.Text.Json"],
+    })));
+  assert.notEqual(
+    workspaceViewSignature(workspaceView({
+      rootKind: "platform",
+      platformLibrary: '["netcore.app","System.Text.Json.dll"]',
+    })),
+    workspaceViewSignature(workspaceView({
+      rootKind: "platform",
+      platformLibrary: '["aspnetcore.app","System.Text.Json.dll"]',
     })));
 });
 
@@ -1246,6 +1380,28 @@ test("location persistence contains sync failures but leaves direct build failur
     () => persistence.build(workspaceState()),
     /selected context is not projectable/);
 });
+
+for (const navigate of ["push", "replace"] as const) {
+  test(`direct ${navigate} invalidates a pending asynchronous URL sync`, async () => {
+    const current = locationSnapshot("https://inspect.example/");
+    const writes: Array<{ kind: "push" | "replace"; url: string }> = [];
+    const encode = deferred<BrowserWorkspaceShareEncodeResult>();
+    const persistence = createAsyncWorkspaceLocationPersistence({
+      current: () => current,
+      replace: url => writes.push({ kind: "replace", url }),
+      push: url => writes.push({ kind: "push", url }),
+      decode: async () => rejected("unused"),
+      encode: () => encode.promise,
+    });
+
+    persistence.sync(workspaceState());
+    persistence[navigate]("/credits");
+    encode.resolve(encoded());
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.deepEqual(writes, [{ kind: navigate, url: "/credits" }]);
+  });
+}
 
 function linkClick(overrides: Partial<LinkNavigationClick> = {}): LinkNavigationClick {
   return {

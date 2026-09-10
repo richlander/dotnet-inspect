@@ -12,6 +12,8 @@ public sealed class PackageAcquisitionCandidateIssuer
 {
     private readonly object _issuer = new();
 
+    internal object Identity => _issuer;
+
     internal bool OwnsCandidate(
         PackageAcquisitionCandidate candidate)
     {
@@ -140,6 +142,7 @@ public sealed class PackageAcquisitionCandidateIssuer
         }
 
         return new PackageVersionDiscoveryResult(
+            discovery.PackageId,
             PackageVersionDiscoveryState.Failed,
             discovery.SourceListings,
             [.. discovery.Failures, .. terminalFailures],
@@ -183,6 +186,7 @@ public sealed class PackageAcquisitionCandidateIssuer
                     ]
                     : terminalFailures;
             return new PackageVersionDiscoveryResult(
+                packageId,
                 PackageVersionDiscoveryState.Failed,
                 [],
                 emptyFailures,
@@ -213,7 +217,7 @@ public sealed class PackageAcquisitionCandidateIssuer
             {
                 RequireAuthority(failure.Source, authority);
                 failures.Add(
-                    DesktopPackageSourceComposition.DescribeFailure(
+                    PackageAuthorityFailureAdapter.DescribeVersionFailure(
                         authority.Source,
                         failure));
                 continue;
@@ -292,6 +296,7 @@ public sealed class PackageAcquisitionCandidateIssuer
             _ => PackageVersionDiscoveryState.Failed,
         };
         return new PackageVersionDiscoveryResult(
+            packageId,
             state,
             orderedListings,
             failures,

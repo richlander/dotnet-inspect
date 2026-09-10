@@ -791,7 +791,7 @@ jobs:
 
       - name: Run embedded skill tests
         shell: bash
-        run: dotnet run --project tests/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.SkillCommandTests"
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- --filter-class "DotnetInspect.Cli.Tests.SkillCommandTests"
 
   # These tests inspect repository paths outside their owning projects. Run
   # them for every pre-merge candidate so their selection is never narrower
@@ -819,8 +819,8 @@ jobs:
 
       - name: Run repository line-ending guard
         run: >
-          dotnet run --project tests/dotnet-inspect.Tests -c Release --
-          --filter-class "DotnetInspector.Tests.RepositoryLineEndingTests"
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --
+          --filter-class "DotnetInspect.Cli.Tests.RepositoryLineEndingTests"
           --minimum-expected-tests 2
 
       - name: Run legacy source-identity guard
@@ -950,7 +950,7 @@ jobs:
         run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
 
       - name: Run CLI tests (fast)
-        run: dotnet run --project tests/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run GitHub Packages fixture test
         id: package_fixture
@@ -964,7 +964,7 @@ jobs:
           results_dir="$RUNNER_TEMP"
           results_name="package-fixture-tests.xml"
           results="$results_dir/$results_name"
-          dotnet run --project tests/dotnet-inspect.Tests -c Release --no-build -- \
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build -- \
             --filter-method '*Package_Manifest_RendersToolManifestRows*' \
             --report-xunit \
             --report-xunit-filename "$results_name" \
@@ -991,6 +991,12 @@ jobs:
 
       - name: Run platform target currency tests
         run: dotnet run --project tests/DotnetInspector.Platforms.Tests -c Release
+
+      - name: Run PlatformHouse contract tests
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Tests -c Release
+
+      - name: Run installed PlatformHouse adapter tests
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Installed.Tests -c Release
 
       - name: Run row-selection tests
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
@@ -1243,7 +1249,7 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build tool for net10.0 fallback
-        run: dotnet build src/dotnet-inspect -c Release -p:DefaultTargetFramework=net10.0 -p:PublishAot=false
+        run: dotnet build src/DotnetInspect.Cli -c Release -p:DefaultTargetFramework=net10.0 -p:PublishAot=false
 
   # Decompiler docket and byte-neutrality gates, pre-merge.
   #
@@ -1636,7 +1642,7 @@ jobs:
         # pointer carries no implementation, so SelfContained pulls in no runtime.
         # RID-specific packages are built by their dedicated steps; disabling
         # inner RID packs keeps this step pointer-only on .NET 11 Preview 7+.
-        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
+        run: dotnet pack src/DotnetInspect.Cli -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7
@@ -1649,7 +1655,7 @@ jobs:
         # TFM is pinned to net10.0 structurally via Directory.Build.props
         # (OfficialBuild + non-AOT) so this fallback stays installable on the LTS
         # runtime even though dev/AOT builds use the latest runtime. See issue #240.
-        run: dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
+        run: dotnet pack src/DotnetInspect.Cli -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
 
       - name: Upload any package
         uses: actions/upload-artifact@v7
@@ -1659,7 +1665,7 @@ jobs:
           if-no-files-found: error
 
       - name: Pack linux-x64 AOT package
-        run: dotnet pack src/dotnet-inspect -c Release -r linux-x64 -p:OfficialAotBuild=true
+        run: dotnet pack src/DotnetInspect.Cli -c Release -r linux-x64 -p:OfficialAotBuild=true
 
       - name: Upload linux-x64 package
         uses: actions/upload-artifact@v7
