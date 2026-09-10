@@ -1877,7 +1877,10 @@ A source-relative group's local name-owner mismatch rule applies after
 `NoNameOwner`, when no candidate evidence exists. It cannot replace a terminal
 `Selected` or `Ambiguous` result, even when the group contains another
 same-named root not represented by that result. Such roots do not authorize
-reconstructing contenders or promoting inactive evidence.
+reconstructing contenders or promoting inactive evidence. An exact terminal
+selection outside the group therefore remains an external resolution and does
+not become correspondence-incomplete solely because the group contains a
+different version of the same simple name.
 
 This contract owns identity-domain completeness, descriptor preservation,
 deterministic evidence order, and the closed finalization boundary. It does not
@@ -1926,6 +1929,11 @@ consumption when no handoff member is an initial group root.
 `Select_RoutingOnlyCompositionPreservesSelectingRoute` jointly gate the
 continuation distinction between a direct canonical-participant handoff and a
 handoff forwarded by a routing-only composite.
+`MemberCallGraphSessionTests.CrossLibrary_ResolvedVersionSkewIsNotIncomplete`
+and `CrossLibraryCalleeNeighborhood_ResolvedVersionSkewStaysExternal` gate the
+observable query consequence: an exact terminal selection outside the group is
+external rather than an incomplete correspondence with a version-skewed group
+participant.
 `SourceRelativeAssemblyGroupBindingPolicyTests.Select_ForeignCompositionSnapshotEscapesBeforeDomainInterpretation`
 gates
 foreign-snapshot exclusion before a transforming composite can inspect the
