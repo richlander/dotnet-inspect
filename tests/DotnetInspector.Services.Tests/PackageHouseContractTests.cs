@@ -1691,7 +1691,7 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
-    public async Task SourceLeaseSettlesManifestAndRetiresWithoutDisposingClient()
+    public async Task PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient()
     {
         PackageSourceAuthorization authorization =
             PackageSourceAuthorization.Authorize(
@@ -1713,8 +1713,8 @@ public sealed class PackageHouseContractTests
                     return tracking;
                 });
         NuGetOperationContext? createdContext = null;
-        using PackageHouseSourceLease lease =
-            new PackageHouse().IssueSourceLease(
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
                 _ => client,
                 cancellationToken =>
                     createdContext = new NuGetOperationContext(
@@ -1755,7 +1755,7 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
-    public async Task SourceLeaseRejectsForeignCandidateAndClientAssociation()
+    public async Task PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation()
     {
         PackageSourceAuthorization authorization =
             PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
@@ -1769,10 +1769,10 @@ public sealed class PackageHouseContractTests
             PackageSourceClientFactory.Create(
                 foreignAuthority.Source,
                 foreignAuthority.Association);
-        using PackageHouseSourceLease lease =
-            new PackageHouse().IssueSourceLease(_ => foreignClient);
-        using PackageHouseSourceLease foreignLease =
-            new PackageHouse().IssueSourceLease(_ => foreignClient);
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(_ => foreignClient);
+        using PackageSourceSettlementLease foreignLease =
+            PackageSourceSettlementService.IssueLease(_ => foreignClient);
         PackageAcquisitionCandidate candidate =
             Assert.IsType<PackageAcquisitionCandidate>(
                 lease.ResolvePinnedCandidate(
