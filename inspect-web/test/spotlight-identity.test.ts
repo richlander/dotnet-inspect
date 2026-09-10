@@ -225,6 +225,8 @@ test("normalizing a history entry keeps its consumed position and later entries"
 });
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+const graphLegendsSource =
+  readFileSync(new URL("../src/graph-legends.ts", import.meta.url), "utf8");
 const parsedAppSource = parseSync("dotnet-inspect.ts", appSource);
 const appSyntax = parsedAppSource.program;
 
@@ -5083,10 +5085,10 @@ test("graph-only members open through the typed member surface", () => {
   assert.match(
     generatedFacadeSource("inspect-web-metadata"),
     /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);
-  assert.match(appSource, /solid border: no platform lookup/);
+  assert.match(graphLegendsSource, /solid border: no platform lookup/);
   assert.match(
-    appSource,
-    /dashed border: external assembly \(platform lookup on click\)/);
+    graphLegendsSource,
+    /dashed border: platform lookup on click/);
 });
 
 test("graph-only deep links win over colliding public member groups", () => {
@@ -5212,7 +5214,7 @@ test("shared package graph navigation retains portable accessor identity", () =>
     shareState,
     /memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
   assert.doesNotMatch(shareState, /selectedBodyTarget:/);
-  assert.match(appSource, /solid border: no platform lookup/);
+  assert.match(graphLegendsSource, /solid border: no platform lookup/);
 });
 
 test("stale graph member loads cannot mutate the visible member surface", () => {
