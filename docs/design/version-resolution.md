@@ -107,6 +107,20 @@ Caller cancellation remains cancellation rather than becoming a receipt.
 Typed non-success keeps the discovery evidence and does not manufacture an
 exact coordinate.
 
+`PackageVersionSelectionResolver` is the owner's total request-to-receipt
+operation. Discovery that omits package identity or names a package other than
+the request is `Rejected` before terminal-state precedence. Compatible
+authoritative evidence produces `Resolved`, `NotFound`, or `NoMatch`.
+Incompatible authoritative evidence is `Rejected`. Partial evidence and
+incomplete listing metadata are `Incomplete`. Failed discovery is `Failed`
+when timeout or transport evidence is present, `Rejected` when input or
+returned evidence is unusable, and otherwise `Unavailable` when the configured
+source or capability cannot answer. Operational failure takes precedence in a
+mixed failed-discovery set after request correspondence is established. The
+current closed request forms are deterministic, so `Ambiguous` remains a
+reserved owner-issued arm rather than an outcome manufactured by this
+resolver.
+
 An authoritative empty selectable list is not automatically `NotFound`.
 `PackageVersionDiscoveryResult.HasAnyCandidate` distinguishes authoritative
 package absence from a package whose observed versions were excluded by
@@ -137,6 +151,8 @@ PackageHouse adoption work under #6426.
 
 - distinct request forms and discovery requirements;
 - semantic latest, prerelease, wildcard, and directed-range selection;
+- total request-to-receipt resolution and deterministic terminal precedence;
+- rejection of missing or mismatched discovery package identity;
 - refresh evidence for `AlwaysLatest`;
 - authoritative absence versus no matching version;
 - rejection of selection from partial discovery;
