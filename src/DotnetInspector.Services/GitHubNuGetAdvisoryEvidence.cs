@@ -350,11 +350,21 @@ public sealed class GitHubNuGetAdvisoryService
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
         deadline.CancelAfter(_options.OperationTimeout);
+        var operationDeadline = new OperationDeadline(
+            _timeProvider,
+            _options.OperationTimeout);
 
         foreach (ImmutableArray<GitHubNuGetAdvisoryRequest.Package> batch
             in CreateBatches(request.Packages))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (operationDeadline.IsExpired(deadline.Token))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                state.AddFailure(
+                    GitHubNuGetAdvisoryFailureKind.DeadlineReached);
+                break;
+            }
             if (state.ApiRequests == _options.MaxApiRequests)
             {
                 state.AddFailure(
@@ -369,6 +379,13 @@ public sealed class GitHubNuGetAdvisoryService
 
             while (next is not null)
             {
+                if (operationDeadline.IsExpired(deadline.Token))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    state.AddFailure(
+                        GitHubNuGetAdvisoryFailureKind.DeadlineReached);
+                    break;
+                }
                 if (state.ApiRequests == _options.MaxApiRequests)
                 {
                     state.AddFailure(
@@ -464,9 +481,10 @@ public sealed class GitHubNuGetAdvisoryService
                     batch,
                     state,
                     deadline.Token,
+                    operationDeadline,
                     out bool localDeadlineReached);
                 if (localDeadlineReached
-                    || deadline.IsCancellationRequested)
+                    || operationDeadline.IsExpired(deadline.Token))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     state.AddFailure(
@@ -707,10 +725,11 @@ public sealed class GitHubNuGetAdvisoryService
         ImmutableArray<GitHubNuGetAdvisoryRequest.Package> batch,
         AcquisitionState state,
         CancellationToken deadlineToken,
+        OperationDeadline operationDeadline,
         out bool deadlineReached)
     {
         deadlineReached = false;
-        if (deadlineToken.IsCancellationRequested)
+        if (operationDeadline.IsExpired(deadlineToken))
         {
             deadlineReached = true;
             return false;
@@ -737,91 +756,121 @@ public sealed class GitHubNuGetAdvisoryService
 
             var batchIds = batch.Select(static package => package.PackageId)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            try
+            if (operationDeadline.IsExpired(deadlineToken))
             {
-                deadlineToken.ThrowIfCancellationRequested();
-                foreach (JsonElement element
-                    in document.RootElement.EnumerateArray())
+                deadlineReached = true;
+                return true;
+            }
+
+            foreach (JsonElement element
+                in document.RootElement.EnumerateArray())
+            {
+                if (operationDeadline.IsExpired(deadlineToken))
                 {
-                    deadlineToken.ThrowIfCancellationRequested();
-                    if (!TryReadAdvisory(
-                            element,
-                            batchIds,
-                            deadlineToken,
-                            out ParsedAdvisory? advisory))
+                    deadlineReached = true;
+                    return true;
+                }
+
+                if (!TryReadAdvisory(
+                        element,
+                        batchIds,
+                        deadlineToken,
+                        operationDeadline,
+                        out bool advisoryDeadlineReached,
+                        out ParsedAdvisory? advisory))
+                {
+                    if (advisoryDeadlineReached)
                     {
-                        state.MarkInvalid(batch);
+                        deadlineReached = true;
+                        return true;
+                    }
+
+                    state.MarkInvalid(batch);
+                    continue;
+                }
+
+                if (operationDeadline.IsExpired(deadlineToken))
+                {
+                    deadlineReached = true;
+                    return true;
+                }
+
+                foreach (ParsedVulnerability vulnerability
+                    in advisory!.Vulnerabilities)
+                {
+                    if (operationDeadline.IsExpired(deadlineToken))
+                    {
+                        deadlineReached = true;
+                        return true;
+                    }
+
+                    if (!state.Packages.TryGetValue(
+                            vulnerability.PackageId,
+                            out PackageState? package))
+                    {
                         continue;
                     }
 
-                    foreach (ParsedVulnerability vulnerability
-                        in advisory!.Vulnerabilities)
+                    if (vulnerability.Range is null)
                     {
-                        deadlineToken.ThrowIfCancellationRequested();
-                        if (!state.Packages.TryGetValue(
-                            vulnerability.PackageId,
-                            out PackageState? package))
+                        package.CurrentDataValid = false;
+                        state.AddFailure(
+                            GitHubNuGetAdvisoryFailureKind.InvalidData);
+                    }
+                    else
+                    {
+                        foreach (CoordinateState coordinate
+                            in package.Coordinates)
                         {
-                            continue;
-                        }
-
-                        if (vulnerability.Range is null)
-                        {
-                            package.CurrentDataValid = false;
-                            state.AddFailure(
-                                GitHubNuGetAdvisoryFailureKind.InvalidData);
-                        }
-                        else
-                        {
-                            foreach (CoordinateState coordinate
-                                in package.Coordinates)
+                            if (operationDeadline.IsExpired(deadlineToken))
                             {
-                                deadlineToken.ThrowIfCancellationRequested();
-                                if (!TryEvaluateRange(
-                                        vulnerability.Range,
-                                        coordinate.Version,
-                                        out bool affected))
-                                {
-                                    package.CurrentDataValid = false;
-                                    state.AddFailure(
-                                        GitHubNuGetAdvisoryFailureKind.InvalidData);
-                                    break;
-                                }
-
-                                if (affected)
-                                    coordinate.Current.TryAdd(advisory.Reference);
+                                deadlineReached = true;
+                                return true;
                             }
-                        }
 
-                        if (vulnerability.FirstPatchedVersionMalformed)
-                        {
-                            package.FixedDataValid = false;
-                            state.AddFailure(
-                                GitHubNuGetAdvisoryFailureKind.InvalidData);
-                        }
-                        else if (vulnerability.FirstPatchedVersion
-                            is { } fixedVersion)
-                        {
-                            foreach (CoordinateState coordinate
-                                in package.Coordinates)
+                            if (!TryEvaluateRange(
+                                    vulnerability.Range,
+                                    coordinate.Version,
+                                    out bool affected))
                             {
-                                deadlineToken.ThrowIfCancellationRequested();
-                                if (VersionComparer.VersionRelease.Equals(
-                                        fixedVersion,
-                                        coordinate.Version))
-                                {
-                                    coordinate.Fixed.TryAdd(advisory.Reference);
-                                }
+                                package.CurrentDataValid = false;
+                                state.AddFailure(
+                                    GitHubNuGetAdvisoryFailureKind.InvalidData);
+                                break;
+                            }
+
+                            if (affected)
+                                coordinate.Current.TryAdd(advisory.Reference);
+                        }
+                    }
+
+                    if (vulnerability.FirstPatchedVersionMalformed)
+                    {
+                        package.FixedDataValid = false;
+                        state.AddFailure(
+                            GitHubNuGetAdvisoryFailureKind.InvalidData);
+                    }
+                    else if (vulnerability.FirstPatchedVersion
+                        is { } fixedVersion)
+                    {
+                        foreach (CoordinateState coordinate
+                            in package.Coordinates)
+                        {
+                            if (operationDeadline.IsExpired(deadlineToken))
+                            {
+                                deadlineReached = true;
+                                return true;
+                            }
+
+                            if (VersionComparer.VersionRelease.Equals(
+                                    fixedVersion,
+                                    coordinate.Version))
+                            {
+                                coordinate.Fixed.TryAdd(advisory.Reference);
                             }
                         }
                     }
                 }
-            }
-            catch (OperationCanceledException)
-                when (deadlineToken.IsCancellationRequested)
-            {
-                deadlineReached = true;
-                return true;
             }
         }
 
@@ -832,9 +881,15 @@ public sealed class GitHubNuGetAdvisoryService
         JsonElement element,
         IReadOnlySet<string> requestedPackageIds,
         CancellationToken deadlineToken,
+        OperationDeadline operationDeadline,
+        out bool deadlineReached,
         out ParsedAdvisory? advisory)
     {
+        deadlineReached = operationDeadline.IsExpired(deadlineToken);
         advisory = null;
+        if (deadlineReached)
+            return false;
+
         if (element.ValueKind != JsonValueKind.Object
             || !TryRequiredString(element, "ghsa_id", out string? ghsaId)
             || !IsGhsaId(ghsaId)
@@ -877,7 +932,12 @@ public sealed class GitHubNuGetAdvisoryService
         var parsed = ImmutableArray.CreateBuilder<ParsedVulnerability>();
         foreach (JsonElement vulnerability in vulnerabilities.EnumerateArray())
         {
-            deadlineToken.ThrowIfCancellationRequested();
+            if (operationDeadline.IsExpired(deadlineToken))
+            {
+                deadlineReached = true;
+                return false;
+            }
+
             if (!TryReadVulnerability(
                     vulnerability,
                     requestedPackageIds,
@@ -1188,6 +1248,24 @@ public sealed class GitHubNuGetAdvisoryService
         bool FirstPatchedVersionMalformed);
 
     private readonly record struct LinkResult(string? Next, bool Invalid);
+
+    private sealed class OperationDeadline
+    {
+        private readonly TimeProvider _timeProvider;
+        private readonly long _startedAt;
+        private readonly TimeSpan _timeout;
+
+        internal OperationDeadline(TimeProvider timeProvider, TimeSpan timeout)
+        {
+            _timeProvider = timeProvider;
+            _startedAt = timeProvider.GetTimestamp();
+            _timeout = timeout;
+        }
+
+        internal bool IsExpired(CancellationToken timerToken) =>
+            timerToken.IsCancellationRequested
+            || _timeProvider.GetElapsedTime(_startedAt) >= _timeout;
+    }
 
     private sealed class AdvisorySet
     {

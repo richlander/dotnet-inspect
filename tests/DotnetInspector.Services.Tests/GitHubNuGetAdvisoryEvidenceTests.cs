@@ -673,56 +673,23 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
     [Fact]
     public async Task OperationDeadlineBoundsLocalEvaluation()
     {
-        var vulnerabilities = new StringBuilder();
-        for (int index = 0; index < 1_500; index++)
-        {
-            if (index != 0)
-                vulnerabilities.Append(',');
-            vulnerabilities.Append(
-                """
-                {
-                  "package": {
-                    "ecosystem": "nuget",
-                    "name": "Example.Client"
-                  },
-                  "vulnerable_version_range": ">= 0.0.0",
-                  "first_patched_version": null
-                }
-                """);
-        }
-
-        string page =
-            $$"""
-            [
-              {
-                "ghsa_id": "GHSA-aaaa-bbbb-cccc",
-                "cve_id": "CVE-2026-1234",
-                "type": "reviewed",
-                "severity": "high",
-                "published_at": "2026-09-09T16:04:11Z",
-                "updated_at": "2026-09-09T18:00:00Z",
-                "withdrawn_at": null,
-                "vulnerabilities": [{{vulnerabilities}}]
-              }
-            ]
-            """;
+        string page = AdvisoryPage(
+            packageId: "Example.Client",
+            range: ">= 0.0.0",
+            fixedVersion: null);
         using var handler = new RoutingHandler((_, _) => Json(page));
         using var client = new HttpClient(handler);
-        PackageSourceCoordinate[] coordinates = Enumerable.Range(0, 1_000)
+        PackageSourceCoordinate[] coordinates = Enumerable.Range(0, 100)
             .Select(index => At("Example.Client", $"1.0.{index}"))
             .ToArray();
-
-        var warmup = new GitHubNuGetAdvisoryService(client);
-        _ = await warmup.AcquireAsync(
-            Request(coordinates),
-            TestContext.Current.CancellationToken);
 
         var service = new GitHubNuGetAdvisoryService(
             client,
             new GitHubNuGetAdvisoryOptions
             {
                 OperationTimeout = TimeSpan.FromMilliseconds(20),
-            });
+            },
+            new AdvancingTimeProvider());
 
         GitHubNuGetAdvisoryAcquisition result =
             await service.AcquireAsync(
@@ -952,6 +919,16 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    private sealed class AdvancingTimeProvider : TimeProvider
+    {
+        private long _timestamp;
+
+        public override long TimestampFrequency => 1_000;
+
+        public override long GetTimestamp() =>
+            Interlocked.Increment(ref _timestamp);
     }
 
     private sealed class RoutingHandler(
