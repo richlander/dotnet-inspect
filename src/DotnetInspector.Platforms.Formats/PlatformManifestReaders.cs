@@ -40,16 +40,14 @@ public static class PlatformRuntimeConfigurationReader
             ManifestSettings defaults = ParseSettings(
                 runtimeOptions,
                 state);
+            var frameworkElements =
+                new List<(JsonElement Element, string Context)>();
 
             if (runtimeOptions.TryGetProperty(
                     "framework",
                     out JsonElement framework))
             {
-                state.AddReference(
-                    ParseFramework(
-                        RequireObject(framework, "framework"),
-                        defaults,
-                        state));
+                frameworkElements.Add((framework, "framework"));
             }
 
             if (runtimeOptions.TryGetProperty(
@@ -67,14 +65,27 @@ public static class PlatformRuntimeConfigurationReader
                     in frameworks.EnumerateArray())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    state.AddReference(
-                        ParseFramework(
-                            RequireObject(
-                                frameworkElement,
-                                "frameworks entry"),
-                            defaults,
-                            state));
+                    frameworkElements.Add(
+                        (frameworkElement, "frameworks entry"));
                 }
+            }
+
+            foreach ((JsonElement frameworkElement, string context)
+                in frameworkElements
+                    .OrderBy(
+                        static entry =>
+                            FrameworkElementSortKey(entry.Element),
+                        StringComparer.Ordinal)
+                    .ThenBy(
+                        static entry => entry.Element.GetRawText(),
+                        StringComparer.Ordinal))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                state.AddReference(
+                    ParseFramework(
+                        RequireObject(frameworkElement, context),
+                        defaults,
+                        state));
             }
 
             if (state.SawRollForward && state.SawLegacyCompatibilitySetting)
@@ -241,6 +252,30 @@ public static class PlatformRuntimeConfigurationReader
         return null;
     }
 
+    private static string FrameworkElementSortKey(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(
+                "name",
+                out JsonElement name)
+            && name.ValueKind == JsonValueKind.String)
+        {
+            try
+            {
+                return "0:" + name.GetString();
+            }
+            catch (InvalidOperationException)
+            {
+                return "1:string:" + name.GetRawText();
+            }
+        }
+
+        return "1:"
+            + element.ValueKind
+            + ":"
+            + element.GetRawText();
+    }
+
     private static JsonDocument ParseDocument(
         ReadOnlyMemory<byte> utf8Json)
     {
@@ -287,17 +322,17 @@ public static class PlatformRuntimeConfigurationReader
 
         internal void AddReference(PlatformFrameworkReference reference)
         {
-            if (References.Count == _budget.MaxFrameworkReferences)
-            {
-                throw new ManifestBudgetException(
-                    "The runtime configuration exceeds the framework-reference limit.");
-            }
             if (!_names.Add(reference.Name))
             {
                 throw Invalid(
                     PlatformManifestDiagnosticKind
                         .DuplicateFrameworkReference,
                     "A framework name appears more than once in the runtime configuration.");
+            }
+            if (References.Count == _budget.MaxFrameworkReferences)
+            {
+                throw new ManifestBudgetException(
+                    "The runtime configuration exceeds the framework-reference limit.");
             }
 
             References.Add(reference);

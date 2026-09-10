@@ -38,21 +38,21 @@ public sealed class PlatformManifestReaderTests
             framework =>
             {
                 Assert.Equal(
+                    "Microsoft.AspNetCore.App",
+                    framework.Name.Value);
+                Assert.Equal(
+                    PlatformFrameworkRollForward.Disable,
+                    framework.RollForward);
+            },
+            framework =>
+            {
+                Assert.Equal(
                     "Microsoft.NETCore.App",
                     framework.Name.Value);
                 Assert.Equal(
                     PlatformFrameworkRollForward.LatestMinor,
                     framework.RollForward);
                 Assert.True(framework.ApplyPatches);
-            },
-            framework =>
-            {
-                Assert.Equal(
-                    "Microsoft.AspNetCore.App",
-                    framework.Name.Value);
-                Assert.Equal(
-                    PlatformFrameworkRollForward.Disable,
-                    framework.RollForward);
             });
     }
 
@@ -180,6 +180,50 @@ public sealed class PlatformManifestReaderTests
         Assert.IsType<
             PlatformManifestParseOutcome<
                 PlatformRuntimeConfiguration>.Incomplete>(outcome);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RuntimeConfiguration_DuplicatePrecedesBudgetRegardlessOfOrder(
+        bool duplicateBeforeUnique)
+    {
+        string frameworks = duplicateBeforeUnique
+                ? """
+                  { "name": "Framework.A", "version": "1.0.0" },
+                  { "name": "Framework.A", "version": "1.0.0" },
+                  { "name": "Framework.B", "version": "1.0.0" }
+                  """
+                : """
+                  { "name": "Framework.A", "version": "1.0.0" },
+                  { "name": "Framework.B", "version": "1.0.0" },
+                  { "name": "Framework.A", "version": "1.0.0" }
+                  """;
+        PlatformManifestParseOutcome<PlatformRuntimeConfiguration> outcome =
+                PlatformRuntimeConfigurationReader.Parse(
+                    Utf8(
+                        $$"""
+                        {
+                          "runtimeOptions": {
+                            "frameworks": [
+                              {{frameworks}}
+                            ]
+                          }
+                        }
+                        """),
+                    new PlatformManifestParseBudget(
+                        maxBytes: 4096,
+                        maxFrameworkReferences: 2,
+                        maxLibraries: 1,
+                        maxAssets: 1),
+                    TestContext.Current.CancellationToken);
+
+        var rejected = Assert.IsType<
+                PlatformManifestParseOutcome<
+                    PlatformRuntimeConfiguration>.Rejected>(outcome);
+        Assert.Equal(
+                PlatformManifestDiagnosticKind.DuplicateFrameworkReference,
+                rejected.Diagnostic.Kind);
     }
 
     [Fact]

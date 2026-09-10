@@ -438,6 +438,51 @@ public sealed class InstalledImplementationPlatformSourceTests
                 InstalledImplementationRealization>.Incomplete>(outcome);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Realize_DuplicateFrameworkPrecedesBudgetRegardlessOfOrder(
+        bool duplicateBeforeUnique)
+    {
+        using var hive = new TestHive();
+        hive.CreateFramework(
+                "Microsoft.AspNetCore.App",
+                "1.0.0",
+                duplicateBeforeUnique
+                    ? RuntimeConfiguration(
+                        ("Framework.A", "1.0.0", "Minor"),
+                        ("Framework.A", "1.0.0", "Minor"),
+                        ("Framework.B", "1.0.0", "Minor"))
+                    : RuntimeConfiguration(
+                        ("Framework.A", "1.0.0", "Minor"),
+                        ("Framework.B", "1.0.0", "Minor"),
+                        ("Framework.A", "1.0.0", "Minor")),
+                []);
+        var work = new InstalledImplementationWorkBudget(
+                maxFrameworks: 2,
+                maxResolutionSteps: 128,
+                maxManifestLibraries: 128,
+                maxManifestAssets: 512,
+                maxAssemblies: 64,
+                maxBytes: 64 * 1024 * 1024);
+
+        InstalledPlatformSourceOutcome<InstalledImplementationRealization>
+                outcome = await hive.CreateSource().RealizeAsync(
+                    new InstalledImplementationRealizationRequest(
+                        hive.Coordinate(
+                            InstalledPlatformFamily.AspNetCore,
+                            "1.0.0"),
+                        work),
+                    TestContext.Current.CancellationToken);
+
+        var rejected = Assert.IsType<
+                InstalledPlatformSourceOutcome<
+                    InstalledImplementationRealization>.Rejected>(outcome);
+        Assert.Equal(
+                InstalledPlatformSourceDiagnosticKind.InvalidManifest,
+                rejected.Diagnostic.Kind);
+    }
+
     [Fact]
     public async Task Realize_RejectsFrameworkCycle()
     {
