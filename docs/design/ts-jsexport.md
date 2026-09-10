@@ -78,7 +78,7 @@ parts:
    first resolves the complete root set, then generates the same independent
    facade for each resolved assembly.
 3. **Inspect-web is a consumer of the tool.** Its managed
-   `InspectWeb.Engine.dll` exposes dotnet-inspect functionality through one
+   `DotnetInspect.Web.dll` exposes dotnet-inspect functionality through one
    `InspectionEngine` type containing static `[JSExport]` methods.
 4. **`ILInspector.JsExportSurface` is part of the tool's implementation.** It
    is a host-side library over Metadata- and Analysis-owned facts. It constructs
@@ -102,7 +102,7 @@ The phases compose as follows:
 ```text
 ts-jsexport process on a developer or CI host
 
-InspectWeb.Engine.dll --compiled context--> seven rooted export assemblies
+DotnetInspect.Web.dll --compiled context--> seven rooted export assemblies
                                                     |
                                                     v
                                           JsExportSurface models
@@ -144,7 +144,7 @@ That raw object is usable without `ts-jsexport`:
 ```js
 const runtime = await dotnet.create();
 const exports =
-  await runtime.getAssemblyExports("InspectWeb.Engine");
+  await runtime.getAssemblyExports("DotnetInspect.Web");
 const json =
   await exports.InspectionEngine.QueryPackage(
     packageId,

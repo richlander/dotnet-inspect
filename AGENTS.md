@@ -30,14 +30,12 @@ development model and rationale. The binding summary:
   user-observable experience.
 - **Design first and state the basis.** Name one normative owner and exact
   claim, then supporting designs, models, constraints, and evidence by role.
-- **Start architectures from production-host adoption.** Every new architecture,
-  capability, or substrate names its consumer and links an end-to-end tracker
-  that enumerates the production-host adoption path and total step count, even
-  when the component is host-neutral. Test infrastructure may treat its harness
-  as the production host. An alternative to an existing architecture must also
-  track that architecture's retirement. Shared product substrate must plan
-  enablement through both CLI and browser/Wasm hosts; single-consumer or
-  single-host scope requires explicit user approval.
+- **Plan every feature through production adoption.** Each feature, architecture,
+  capability, or substrate links an overall plan with a direct path to CLI or
+  website use. A sliced or stacked plan includes a production-consumer adoption
+  slice. Test infrastructure may treat its harness as the production host.
+  Alternatives track retirement; shared substrate plans both CLI and
+  browser/Wasm adoption, while narrower scope requires explicit user approval.
 - **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
   code. Duplicated host logic triggers a review for a shared abstraction that
   would also benefit another future host.
@@ -60,9 +58,9 @@ development model and rationale. The binding summary:
 - **Treat critical review feedback as a design question first.** Ask whether
   the owning design addresses it before repairing code; keep paired design
   work moving quickly when the contract needs clarification.
-- **Use extraordinary pre-work for complicated features.** Corpus evidence,
-  an established oracle, a TLA+ model, or a closely developed specification
-  should bound the contract before implementation.
+- **Ground behavior in real assets.** Features and significant fixes cite a
+  motivating nuget.org package or real repository in their design and normally
+  preserve it in tests; synthetic-only work requires user/operator approval.
 - **Use only approved OpenAI GPT configurations.** In agent harnesses that
   advertise GPT models, never start non-GPT, `Fast`, or extra-high (`xhigh`)
   configurations. This launch prohibition does not invalidate work: observe and
@@ -345,7 +343,7 @@ threshold, placement convention, and existing consumers.
 | Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
-| Research and additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
+| Additional library and host suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
 | Inspection queries | `dotnet run --project tests/DotnetInspector.Queries.Tests -c Release` |
 | Shared services | `dotnet run --project tests/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |

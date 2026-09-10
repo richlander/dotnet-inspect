@@ -88,11 +88,20 @@ Compare consumes, without redefining:
 - optional owner-issued immersive destinations whose viewer interaction is
   separately owned.
 
-Compare first requires subject-scoped Library, Type, and Member facet
-descriptors from
-[#6494](https://github.com/richlander/dotnet-inspect/issues/6494). Drill-down
-then requires one product-owned atomic descendant-subject and exact-lens
-activation. That prerequisite is tracked by
+The subject-scoped `library.compare`, `type.compare`, and `member.compare`
+descriptor contract is owned by
+[View Facet Registry](view-facet-registry.md#compare-facet-extension) and
+tracked by
+[#6494](https://github.com/richlander/dotnet-inspect/issues/6494). Its runtime
+registrations remain unverified until exact occurrence-bound subjects from
+[#5518](https://github.com/richlander/dotnet-inspect/issues/5518), the
+Registry's Workspace/Package grammar from
+[#5509](https://github.com/richlander/dotnet-inspect/issues/5509), and the
+public execution handoff from
+[#6519](https://github.com/richlander/dotnet-inspect/issues/6519) are
+available. The active registrations then land with the first Browser adapter
+for that handoff. Drill-down also requires one product-owned atomic
+descendant-subject and exact-lens activation. That prerequisite is tracked by
 [#6490](https://github.com/richlander/dotnet-inspect/issues/6490).
 The Browser must not emulate it by coordinating a subject request and a later
 lens request through local mutable state. Until #6490 lands, sticky Compare
@@ -366,9 +375,10 @@ This design does not claim:
 The staged path is:
 
 1. this Browser Compare contract and its Surface Composition placement;
-2. Registry-owned Library, Type, and Member Compare facets in #6494;
+2. Registry-owned Library, Type, and Member Compare facet contract in #6494;
 3. Navigation-owned atomic descendant subject and lens activation in #6490;
-4. a bounded managed/browser projection for the Compare drill-down rows;
+4. the host-neutral facet execution handoff, consumer-paired runtime
+   registration, and bounded managed/browser projection in #6519;
 5. Library Diff adoption and retirement of the transient authored-source
    comparison interaction;
 6. Library and Type Clone drill-down adoption;

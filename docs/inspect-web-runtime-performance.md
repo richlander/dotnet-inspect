@@ -106,7 +106,7 @@ as the site does.
 Install the existing Inspect Web toolchain, including Firefox:
 
 ```bash
-cd prototypes/inspect-web
+cd inspect-web
 npm ci
 npx playwright install firefox
 ```
@@ -246,7 +246,7 @@ as the non-ReadyToRun deployment, but sets `PublishReadyToRun=true` and
 containers in the canonical `R2R/` directory. The publication gate parses the
 SDK-owned runtime asset inventory and requires every emitted Crossgen2 file to
 have the WebAssembly magic number and to be byte-identical to its fingerprinted
-published asset. It also requires every `InspectWeb.Engine*` application asset
+published asset. It also requires every `DotnetInspect.Web*` application asset
 and `System.Private.CoreLib` to be in that ReadyToRun set, rejects orphaned
 Crossgen2 outputs, and records the remaining IL-only managed assets explicitly.
 For the initial candidate, Crossgen2 emits 71 of 74 managed assets, including

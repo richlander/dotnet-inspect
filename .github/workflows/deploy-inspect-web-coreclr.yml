@@ -82,7 +82,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Install browser Wasm workload
         shell: bash
@@ -136,7 +136,7 @@ jobs:
           test "$vmr_commit" = "$DOTNET_VMR_COMMIT"
 
           target_framework=$(dotnet msbuild \
-            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -getProperty:TargetFramework \
             -nologo)
           test "$target_framework" = "net11.0"
@@ -201,7 +201,7 @@ jobs:
             ' "$manifest" > "$cohort_dir/runtime-cohort.json"
 
       - name: Build browser frontend
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: |
           npm ci
           npm run build
@@ -242,7 +242,7 @@ jobs:
           version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
-            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output artifacts/inspect-web-coreclr-publish \
             --configfile "$nuget_config" \
@@ -264,10 +264,10 @@ jobs:
             artifacts/inspect-web-coreclr-runtime-cohort/workload-list.txt \
             artifacts/inspect-web-coreclr-runtime-cohort/runtime-cohort.json \
             artifacts/inspect-web-coreclr-publish/runtime-cohort/
-          node prototypes/inspect-web/scripts/verify-coreclr-r2r-publication.ts \
+          node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
             --record \
             artifacts/inspect-web-coreclr-publish/wwwroot \
-            prototypes/inspect-web/engine/obj/Release/net11.0/R2R \
+            inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
             artifacts/inspect-web-coreclr-publish/runtime-cohort
 
       - name: Verify runtime-async deployment
@@ -276,7 +276,7 @@ jobs:
           RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
             eng/verify-inspect-web-async-deployment.sh \
               runtime \
-              prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
+              inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
               artifacts/inspect-web-coreclr-publish/wwwroot \
               artifacts/inspect-web-coreclr-publish/async-lowering.json \
               artifacts/inspect-web-runtime-async-receipts
@@ -284,7 +284,7 @@ jobs:
       - name: Publish MSDL managed API
         run: >
           dotnet publish
-          prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj
+          inspect-web/msdl-proxy/MsdlProxy.csproj
           -c Release
           --output artifacts/inspect-web-coreclr-publish/api
 
@@ -313,13 +313,13 @@ jobs:
             and .repository_projects == (.repository_projects | sort | unique)
             and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
             and ([.assemblies[].name] == [
-              "InspectWeb.Engine",
-              "InspectWeb.Engine.AnalysisExports",
-              "InspectWeb.Engine.CallGraphExports",
-              "InspectWeb.Engine.CatalogExports",
-              "InspectWeb.Engine.MetadataExports",
-              "InspectWeb.Engine.PackageExports",
-              "InspectWeb.Engine.SourceExports"
+              "DotnetInspect.Web",
+              "DotnetInspect.Web.Interop.Analysis",
+              "DotnetInspect.Web.Interop.CallGraph",
+              "DotnetInspect.Web.Interop.Catalog",
+              "DotnetInspect.Web.Interop.Metadata",
+              "DotnetInspect.Web.Interop.Package",
+              "DotnetInspect.Web.Interop.Source"
             ])
             and ([.assemblies[].module] == [
               "inspect-web-host",
@@ -341,7 +341,7 @@ jobs:
               and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
               and .webcil_assembly == .name
               and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
-              and (.published_webcil_file | test("^InspectWeb\\.Engine(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+              and (.published_webcil_file | test("^DotnetInspect\\.Web(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
               and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
               and .js_export_method_count > 0
               and .async_method_count > 0
@@ -401,10 +401,10 @@ jobs:
           cohort=artifacts/inspect-web-coreclr-publish/runtime-cohort
           test -f "$cohort/dotnet-info.txt"
           test -f "$cohort/workload-list.txt"
-          node prototypes/inspect-web/scripts/verify-coreclr-r2r-publication.ts \
+          node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
             --verify \
             "$site" \
-            prototypes/inspect-web/engine/obj/Release/net11.0/R2R \
+            inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
             "$cohort"
           jq -e '
             .schema == 2
@@ -523,13 +523,13 @@ jobs:
             and .repository_projects == (.repository_projects | sort | unique)
             and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
             and ([.assemblies[].name] == [
-              "InspectWeb.Engine",
-              "InspectWeb.Engine.AnalysisExports",
-              "InspectWeb.Engine.CallGraphExports",
-              "InspectWeb.Engine.CatalogExports",
-              "InspectWeb.Engine.MetadataExports",
-              "InspectWeb.Engine.PackageExports",
-              "InspectWeb.Engine.SourceExports"
+              "DotnetInspect.Web",
+              "DotnetInspect.Web.Interop.Analysis",
+              "DotnetInspect.Web.Interop.CallGraph",
+              "DotnetInspect.Web.Interop.Catalog",
+              "DotnetInspect.Web.Interop.Metadata",
+              "DotnetInspect.Web.Interop.Package",
+              "DotnetInspect.Web.Interop.Source"
             ])
             and ([.assemblies[].module] == [
               "inspect-web-host",
@@ -551,7 +551,7 @@ jobs:
               and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
               and .webcil_assembly == .name
               and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
-              and (.published_webcil_file | test("^InspectWeb\\.Engine(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+              and (.published_webcil_file | test("^DotnetInspect\\.Web(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
               and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
               and .js_export_method_count > 0
               and .async_method_count > 0
@@ -611,10 +611,10 @@ jobs:
           cohort=artifacts/inspect-web-coreclr-publish/runtime-cohort
           test -f "$cohort/dotnet-info.txt"
           test -f "$cohort/workload-list.txt"
-          node prototypes/inspect-web/scripts/verify-coreclr-r2r-publication.ts \
+          node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
             --verify \
             "$site" \
-            prototypes/inspect-web/engine/obj/Release/net11.0/R2R \
+            inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
             "$cohort"
           jq -e '
             .schema == 2

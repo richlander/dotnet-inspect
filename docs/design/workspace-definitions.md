@@ -26,7 +26,7 @@ below is **unverified** until the gates named in
 
 The initiative began with three consumers needing a portable workspace
 description and being served by none (the browser workbench described below
-lives in the main tree under `prototypes/inspect-web`; claims about it cite that
+lives in the main tree under `inspect-web`; claims about it cite that
 implementation):
 
 - The browser workbench's home demos were hand-authored base64 URL strings, and
@@ -872,7 +872,7 @@ location; calling the engine without updating location would regress refresh
 and sharing. That follow-up can then delete the host-owned share encoding and
 the residual platform → `Microsoft.NETCore.App` runtime-pack mapping (for
 future platform members) from
-`prototypes/inspect-web/src/product-home-demos.ts`. TypeScript applies the
+`inspect-web/src/product-home-demos.ts`. TypeScript applies the
 current Call Graph result without parsing definition member keys or
 reconstructing package/query inputs. Until that native Platform navigation
 adoption lands, the frontend rejects a Platform activation explicitly; no
@@ -1162,8 +1162,9 @@ The packet separates navigation from binding:
   focused tab, and preserving tabs does not imply relationships across
   independent groups.
 - `v` and the selection keys project the peer view preset. Library scope is
-  encoded for package and platform coordinates alike; the current prototype's
-  `l`-only-for-runtime-pack omission does not survive into v1.
+  encoded for package and platform coordinates alike; the current Inspect Web
+  implementation's `l`-only-for-runtime-pack omission does not survive into
+  v1.
 
 Session → packet totality is a design constraint: every interactively
 reachable v1 session has explicit navigation and context state and must
