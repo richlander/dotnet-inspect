@@ -47,19 +47,39 @@ internal static class PackageInspector
                     sourceOptions,
                     [resolution.ProducerKey]);
 
+        PackageIndexCacheSubject? cacheSubject = null;
+        if (!isLocalFile)
+        {
+            var digestBudget = new PackageIndexDigestBudget(
+                PackagePayloadLimits.Default.MaxArchiveBytes);
+            try
+            {
+                cacheSubject = PackageIndexCacheSubject.TryCreate(
+                    resolution,
+                    digestBudget.Charge,
+                    CancellationToken.None);
+            }
+            catch (PackageIndexDigestBudgetExceededException ex)
+            {
+                logger.LogWarning(ex.Message);
+            }
+        }
+
         // Try package index cache (skips all filesystem scanning)
-        if (!isLocalFile && resolution.CacheScopeKey is { } cacheScopeKey)
+        if (cacheSubject is not null)
         {
             InspectionResult? cached;
             using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
             {
-                cached = PackageIndexCache.TryGet(
-                    packageName,
-                    version,
-                    cacheScopeKey);
+                cached = PackageIndexCache.TryGet(cacheSubject);
             }
             if (cached != null)
             {
+                if (nupkgPath != null && File.Exists(nupkgPath))
+                {
+                    cached.BuiltDate = GetNupkgBuildDate(nupkgPath);
+                }
+
                 if (resolution.ToolWrapperChain.Count == 0
                     && verifyRidPackageAvailability
                     && cached.IsRidSpecificPointerPackage
@@ -135,10 +155,23 @@ internal static class PackageInspector
         string libDir = Path.Combine(extractPath, "lib");
         bool hasToolsDir = Directory.Exists(toolsDir);
         bool hasLibDir = Directory.Exists(libDir);
+        bool productionComplete = nuspec is not null;
+        if (cacheSubject is not null && nuspec is null)
+        {
+            logger.LogWarning(
+                "Package manifest facts were unavailable; "
+                + "the package index will not be cached.");
+        }
 
         if (hasToolsDir)
         {
-            ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, result);
+            if (!ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, result))
+            {
+                productionComplete = false;
+                logger.LogWarning(
+                    "Tool settings could not be projected completely; "
+                    + "the package index will not be cached.");
+            }
         }
 
         if (hasLibDir)
@@ -165,18 +198,53 @@ internal static class PackageInspector
         ToolsAnalyzer.AnalyzeContentDirectories(extractPath, result);
         result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
         PopulateLibraryFiles(extractPath, result);
-        result.BinarySignals = await ScanBinarySignalsAsync(
+        PackageBinarySignalScan binaryScan =
+            await ScanBinarySignalsForCacheAsync(
             extractPath, packageName, version, httpClient, logger,
             acquirePdb: false, sourceOptions);
+        result.BinarySignals = binaryScan.Signals;
+        productionComplete &= binaryScan.IsComplete;
 
         // Parse deps.json files (present in tool packages, typically in tools/{tfm}/{rid}/)
         if (hasToolsDir)
         {
-            foreach (string depsFile in Directory.GetFiles(toolsDir, "*.deps.json", SearchOption.AllDirectories))
+            var runtimeTargets = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string depsFile in Directory.GetFiles(
+                         toolsDir,
+                         "*.deps.json",
+                         SearchOption.AllDirectories)
+                     .Order(StringComparer.Ordinal))
             {
-                ApplyDepsJson(DepsJsonParser.Parse(depsFile), result);
+                DepsJsonParseResult parsed = DepsJsonParser.TryParse(depsFile);
+                if (parsed.Data is not { } deps)
+                {
+                    productionComplete = false;
+                    logger.LogWarning(
+                        $"Could not project {Path.GetFileName(depsFile)}: "
+                        + $"{parsed.Error ?? "unknown parse failure"}");
+                    continue;
+                }
+
+                ApplyDepsJson(deps, result);
+                if (deps.RuntimeTargetRid is { } rid)
+                    runtimeTargets.Add(rid);
+            }
+
+            if (runtimeTargets.Count == 1)
+            {
+                result.RuntimeTargetRid = runtimeTargets.Single();
+            }
+            else if (runtimeTargets.Count > 1)
+            {
+                result.RuntimeTargetRid = null;
+                productionComplete = false;
+                logger.LogWarning(
+                    "Multiple distinct deps-file runtime targets made the "
+                    + "package index ineligible for caching.");
             }
         }
+
+        CanonicalizePersistentProjection(result);
 
         // Verify RID-specific packages exist (always do this for RID pointer packages)
         if (resolution.ToolWrapperChain.Count == 0
@@ -196,14 +264,25 @@ internal static class PackageInspector
         }
 
         // Cache the filesystem-derived result (before metadata overlay)
-        if (!isLocalFile && resolution.CacheScopeKey is { } writeCacheScopeKey)
+        if (cacheSubject is not null)
         {
-            using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad);
-            PackageIndexCache.Set(
-                packageName,
-                version,
-                writeCacheScopeKey,
-                result);
+            PackageIndexProduction production = PackageIndexProduction.Create(
+                cacheSubject,
+                resolution.AcquiredPayload!.Content.GenerationIdentity,
+                result,
+                productionComplete,
+                "At least one package-tree projection was incomplete.");
+            if (production is PackageIndexProduction.Complete complete)
+            {
+                using var cacheScope =
+                    NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad);
+                PackageIndexCache.Set(complete);
+            }
+            else if (production is PackageIndexProduction.Incomplete incomplete)
+            {
+                logger.LogWarning(
+                    $"Package index was not cached: {incomplete.Reason}");
+            }
         }
 
         // Fetch package metadata from NuGet (only at detailed verbosity)
@@ -393,11 +472,6 @@ internal static class PackageInspector
 
     private static void ApplyDepsJson(DepsJsonData depsJson, InspectionResult result)
     {
-        if (depsJson.RuntimeTargetRid != null)
-        {
-            result.RuntimeTargetRid = depsJson.RuntimeTargetRid;
-        }
-
         if (depsJson.RuntimeDependencies != null)
         {
             result.RuntimeDependencies ??= [];
@@ -413,10 +487,28 @@ internal static class PackageInspector
         VerboseLogger logger,
         bool acquirePdb,
         NuGetSourceOptions? sourceOptions = null)
+        => (await ScanBinarySignalsForCacheAsync(
+            extractPath,
+            packageName,
+            packageVersion,
+            httpClient,
+            logger,
+            acquirePdb,
+            sourceOptions)).Signals;
+
+    private static async Task<PackageBinarySignalScan>
+        ScanBinarySignalsForCacheAsync(
+        string extractPath,
+        string? packageName,
+        string? packageVersion,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool acquirePdb,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var dlls = TfmSelector.GetPackageAssemblies(extractPath);
         if (dlls.Count == 0)
-            return null;
+            return new PackageBinarySignalScan(Signals: null, IsComplete: true);
 
         int symbols = 0;
         int sourceLink = 0;
@@ -430,6 +522,7 @@ internal static class PackageInspector
         int snupkgSourceLinkPdbs = 0;
         int msdlSourceLinkPdbs = 0;
         int otherSourceLinkPdbs = 0;
+        bool isComplete = true;
         foreach (var dll in dlls)
         {
             try
@@ -475,26 +568,29 @@ internal static class PackageInspector
             }
             catch (Exception ex)
             {
+                isComplete = false;
                 logger.LogWarning($"Error scanning binary signals in {Path.GetFileName(dll)}: {ex.Message}");
             }
         }
 
-        return new PackageBinarySignals
-        {
-            TotalBinaries = dlls.Count,
-            SymbolsAvailable = symbols,
-            SourceLinkAvailable = sourceLink,
-            EmbeddedPdbs = embeddedPdbs,
-            InPackagePdbs = inPackagePdbs,
-            SnupkgPdbs = snupkgPdbs,
-            MsdlPdbs = msdlPdbs,
-            OtherPdbs = otherPdbs,
-            EmbeddedSourceLinkPdbs = embeddedSourceLinkPdbs,
-            InPackageSourceLinkPdbs = inPackageSourceLinkPdbs,
-            SnupkgSourceLinkPdbs = snupkgSourceLinkPdbs,
-            MsdlSourceLinkPdbs = msdlSourceLinkPdbs,
-            OtherSourceLinkPdbs = otherSourceLinkPdbs
-        };
+        return new PackageBinarySignalScan(
+            new PackageBinarySignals
+            {
+                TotalBinaries = dlls.Count,
+                SymbolsAvailable = symbols,
+                SourceLinkAvailable = sourceLink,
+                EmbeddedPdbs = embeddedPdbs,
+                InPackagePdbs = inPackagePdbs,
+                SnupkgPdbs = snupkgPdbs,
+                MsdlPdbs = msdlPdbs,
+                OtherPdbs = otherPdbs,
+                EmbeddedSourceLinkPdbs = embeddedSourceLinkPdbs,
+                InPackageSourceLinkPdbs = inPackageSourceLinkPdbs,
+                SnupkgSourceLinkPdbs = snupkgSourceLinkPdbs,
+                MsdlSourceLinkPdbs = msdlSourceLinkPdbs,
+                OtherSourceLinkPdbs = otherSourceLinkPdbs
+            },
+            isComplete);
     }
 
     private enum PackagePdbSource
@@ -558,12 +654,81 @@ internal static class PackageInspector
 
         var files = Directory.GetFiles(libDir, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(extractPath, f).Replace('\\', '/'))
-            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(f => f, StringComparer.Ordinal)
             .ToList();
 
         if (files.Count > 0)
             result.LibraryFiles = files;
     }
+
+    private static void CanonicalizePersistentProjection(
+        InspectionResult result)
+    {
+        Sort(result.ContentDirectories);
+        Sort(result.TargetFrameworks);
+        Sort(result.SupportedRids);
+        Sort(result.NativeFiles);
+        Sort(result.LibraryFiles);
+
+        result.DependencyGroups?.Sort(static (left, right) =>
+            StringComparer.Ordinal.Compare(
+                left.TargetFramework,
+                right.TargetFramework));
+        foreach (DependencyGroup group in result.DependencyGroups ?? [])
+        {
+            group.Dependencies.Sort(CompareDependencies);
+        }
+
+        result.RuntimeDependencies?.Sort(CompareDependencies);
+        result.RuntimeIdentifierPackages?.Sort(static (left, right) =>
+        {
+            int rid = StringComparer.Ordinal.Compare(
+                left.RuntimeIdentifier,
+                right.RuntimeIdentifier);
+            return rid != 0
+                ? rid
+                : StringComparer.Ordinal.Compare(
+                    left.PackageId,
+                    right.PackageId);
+        });
+    }
+
+    private static void Sort(List<string>? values)
+        => values?.Sort(StringComparer.Ordinal);
+
+    private static int CompareDependencies(
+        PackageDependency left,
+        PackageDependency right)
+    {
+        int id = StringComparer.Ordinal.Compare(left.Id, right.Id);
+        return id != 0
+            ? id
+            : StringComparer.Ordinal.Compare(left.Version, right.Version);
+    }
+
+    private sealed record PackageBinarySignalScan(
+        PackageBinarySignals? Signals,
+        bool IsComplete);
+
+    private sealed class PackageIndexDigestBudget(long remaining)
+    {
+        private long _remaining = remaining;
+
+        internal void Charge(long bytes)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(bytes);
+            if (bytes > _remaining)
+            {
+                throw new PackageIndexDigestBudgetExceededException(
+                    "Package-index digest work exceeded the admitted package archive limit.");
+            }
+
+            _remaining -= bytes;
+        }
+    }
+
+    private sealed class PackageIndexDigestBudgetExceededException(
+        string message) : Exception(message);
 
     /// <summary>
     /// Extracts the build date from a .nupkg file by finding the newest content file timestamp.
