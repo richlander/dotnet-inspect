@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Services;
@@ -241,14 +242,12 @@ internal static class DependencyGraphProjection
         [
             new(0, rootIdentity, rootLabel),
         ];
-        private readonly Dictionary<DependencyGraphNodeIdentity, int> _nodeIds =
-            new(DependencyGraphNodeIdentityComparer.Instance)
+        private readonly Dictionary<string, int> _nodeIds =
+            new(StringComparer.Ordinal)
             {
-                [rootIdentity] = 0,
+                [Key(rootIdentity)] = 0,
             };
         private readonly List<PendingEdge> _edges = [];
-        private readonly HashSet<PendingEdge> _edgeIdentities =
-            new(PendingEdgeComparer.Instance);
 
         internal void AddEdge(
             DependencyGraphNodeIdentity source,
@@ -261,14 +260,13 @@ internal static class DependencyGraphProjection
         {
             int sourceId = AddNode(source, sourceLabel);
             int targetId = AddNode(target, targetLabel);
-            var edge = new PendingEdge(
-                sourceId,
-                targetId,
-                relationship,
-                resolution,
-                evidenceIdentity);
-            if (_edgeIdentities.Add(edge))
-                _edges.Add(edge);
+            _edges.Add(
+                new PendingEdge(
+                    sourceId,
+                    targetId,
+                    relationship,
+                    resolution,
+                    evidenceIdentity));
         }
 
         internal DependencyGraphDocument Build()
@@ -299,11 +297,12 @@ internal static class DependencyGraphProjection
             DependencyGraphNodeIdentity identity,
             InertString label)
         {
-            if (_nodeIds.TryGetValue(identity, out int id))
+            string key = Key(identity);
+            if (_nodeIds.TryGetValue(key, out int id))
                 return id;
 
             id = _nodes.Count;
-            _nodeIds.Add(identity, id);
+            _nodeIds.Add(key, id);
             _nodes.Add(new DependencyGraphNode(id, identity, label));
             return id;
         }
@@ -336,179 +335,57 @@ internal static class DependencyGraphProjection
             return distances;
         }
 
+        private static string Key(DependencyGraphNodeIdentity identity) =>
+            identity switch
+            {
+                DependencyGraphNodeIdentity.Type type =>
+                    "type\0" + type.Name,
+                DependencyGraphNodeIdentity.Library library =>
+                    LibraryKey(library.Identity),
+                DependencyGraphNodeIdentity.Package package =>
+                    "package\0"
+                    + package.Id.ToUpperInvariant()
+                    + "\0"
+                    + package.Version.ToUpperInvariant(),
+                _ => throw new InvalidOperationException(
+                    "Unknown dependency graph node identity."),
+            };
+
+        private static string LibraryKey(
+            ManagedMetadataIdentity identity) =>
+            identity switch
+            {
+                ManagedMetadataIdentity.Assembly assembly =>
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"library\0assembly\0"
+                        + $"{assembly.Identity.Name.ToUpperInvariant()}\0"
+                        + $"{assembly.Identity.Version}\0"
+                        + $"{CanonicalCulture(assembly.Identity.Culture)}\0"
+                        + $"{(assembly.Identity.PublicKeyToken ?? "").ToUpperInvariant()}"),
+                ManagedMetadataIdentity.Module module =>
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"library\0module\0"
+                        + $"{module.Name.ToUpperInvariant()}\0"
+                        + $"{module.ModuleVersionId:D}"),
+                _ => throw new InvalidOperationException(
+                    "Unknown managed metadata identity."),
+            };
+
+        private static string CanonicalCulture(string? culture) =>
+            string.IsNullOrEmpty(culture)
+                || culture.Equals(
+                    "neutral",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? ""
+                    : culture.ToUpperInvariant();
+
         private sealed record PendingEdge(
             int SourceNodeId,
             int TargetNodeId,
             string Relationship,
             DependencyGraphResolutionState Resolution,
             DependencyGraphEvidenceIdentity? EvidenceIdentity);
-
-        private sealed class DependencyGraphNodeIdentityComparer :
-            IEqualityComparer<DependencyGraphNodeIdentity>
-        {
-            internal static DependencyGraphNodeIdentityComparer Instance
-            {
-                get;
-            } = new();
-
-            public bool Equals(
-                DependencyGraphNodeIdentity? x,
-                DependencyGraphNodeIdentity? y) =>
-                ReferenceEquals(x, y)
-                || (x, y) switch
-                {
-                    (
-                        DependencyGraphNodeIdentity.Type left,
-                        DependencyGraphNodeIdentity.Type right) =>
-                            StringComparer.Ordinal.Equals(
-                                left.Name,
-                                right.Name),
-                    (
-                        DependencyGraphNodeIdentity.Library
-                        {
-                            Identity: ManagedMetadataIdentity.Assembly left,
-                        },
-                        DependencyGraphNodeIdentity.Library
-                        {
-                            Identity: ManagedMetadataIdentity.Assembly right,
-                        }) =>
-                            AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                                left.Identity,
-                                right.Identity),
-                    (
-                        DependencyGraphNodeIdentity.Library
-                        {
-                            Identity: ManagedMetadataIdentity.Module left,
-                        },
-                        DependencyGraphNodeIdentity.Library
-                        {
-                            Identity: ManagedMetadataIdentity.Module right,
-                        }) =>
-                            StringComparer.OrdinalIgnoreCase.Equals(
-                                left.Name,
-                                right.Name)
-                            && left.ModuleVersionId == right.ModuleVersionId,
-                    (
-                        DependencyGraphNodeIdentity.Package left,
-                        DependencyGraphNodeIdentity.Package right) =>
-                            StringComparer.OrdinalIgnoreCase.Equals(
-                                left.Id,
-                                right.Id)
-                            && StringComparer.OrdinalIgnoreCase.Equals(
-                                left.Version,
-                                right.Version),
-                    _ => false,
-                };
-
-            public int GetHashCode(DependencyGraphNodeIdentity identity)
-            {
-                var hash = new HashCode();
-                hash.Add(identity.Kind);
-                switch (identity)
-                {
-                    case DependencyGraphNodeIdentity.Type type:
-                        hash.Add(type.Name, StringComparer.Ordinal);
-                        break;
-                    case DependencyGraphNodeIdentity.Library
-                    {
-                        Identity: ManagedMetadataIdentity.Assembly assembly,
-                    }:
-                        hash.Add(
-                            AssemblyReferenceIdentity.EquivalentComparer
-                                .GetHashCode(assembly.Identity));
-                        break;
-                    case DependencyGraphNodeIdentity.Library
-                    {
-                        Identity: ManagedMetadataIdentity.Module module,
-                    }:
-                        hash.Add(
-                            module.Name,
-                            StringComparer.OrdinalIgnoreCase);
-                        hash.Add(module.ModuleVersionId);
-                        break;
-                    case DependencyGraphNodeIdentity.Package package:
-                        hash.Add(
-                            package.Id,
-                            StringComparer.OrdinalIgnoreCase);
-                        hash.Add(
-                            package.Version,
-                            StringComparer.OrdinalIgnoreCase);
-                        break;
-                    default:
-                        throw new InvalidOperationException(
-                            "Unknown dependency graph node identity.");
-                }
-                return hash.ToHashCode();
-            }
-        }
-
-        private sealed class PendingEdgeComparer :
-            IEqualityComparer<PendingEdge>
-        {
-            internal static PendingEdgeComparer Instance { get; } = new();
-
-            public bool Equals(PendingEdge? x, PendingEdge? y) =>
-                ReferenceEquals(x, y)
-                || x is not null
-                    && y is not null
-                    && x.SourceNodeId == y.SourceNodeId
-                    && x.TargetNodeId == y.TargetNodeId
-                    && StringComparer.Ordinal.Equals(
-                        x.Relationship,
-                        y.Relationship)
-                    && x.Resolution == y.Resolution
-                    && EvidenceEquals(
-                        x.EvidenceIdentity,
-                        y.EvidenceIdentity);
-
-            public int GetHashCode(PendingEdge edge)
-            {
-                var hash = new HashCode();
-                hash.Add(edge.SourceNodeId);
-                hash.Add(edge.TargetNodeId);
-                hash.Add(edge.Relationship, StringComparer.Ordinal);
-                hash.Add(edge.Resolution);
-                switch (edge.EvidenceIdentity)
-                {
-                    case null:
-                        break;
-                    case DependencyGraphEvidenceIdentity.AssemblyReference
-                        assembly:
-                        hash.Add(
-                            AssemblyReferenceIdentity.EquivalentComparer
-                                .GetHashCode(assembly.Identity));
-                        break;
-                    case DependencyGraphEvidenceIdentity.PackageVersionConstraint
-                        package:
-                        hash.Add(package.Value);
-                        break;
-                    default:
-                        throw new InvalidOperationException(
-                            "Unknown dependency graph evidence identity.");
-                }
-                return hash.ToHashCode();
-            }
-
-            private static bool EvidenceEquals(
-                DependencyGraphEvidenceIdentity? x,
-                DependencyGraphEvidenceIdentity? y) =>
-                ReferenceEquals(x, y)
-                || (x, y) switch
-                {
-                    (
-                        DependencyGraphEvidenceIdentity.AssemblyReference left,
-                        DependencyGraphEvidenceIdentity.AssemblyReference right) =>
-                            AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                                left.Identity,
-                                right.Identity),
-                    (
-                        DependencyGraphEvidenceIdentity.PackageVersionConstraint
-                        left,
-                        DependencyGraphEvidenceIdentity.PackageVersionConstraint
-                        right) =>
-                            left.Value.Equals(right.Value),
-                    _ => false,
-                };
-        }
     }
 }

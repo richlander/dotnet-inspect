@@ -159,7 +159,7 @@ public class AssemblyReferenceTreeResolutionTests
                         graph));
 
             Assert.Equal(2, graph.Relationships.Count);
-            Assert.Single(document.Edges);
+            Assert.Equal(2, document.Edges.Length);
             Assert.Equal(2, document.Nodes.Length);
         }
         finally
