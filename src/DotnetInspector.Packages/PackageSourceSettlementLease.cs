@@ -4,21 +4,21 @@ using NuGetFetch;
 namespace DotnetInspector.Packages;
 
 /// <summary>
-/// The package clearing house that issues bounded source-settlement leases.
+/// The package-source-owned service that issues bounded settlement leases.
 /// </summary>
-public sealed class PackageHouse
+public static class PackageSourceSettlementService
 {
     /// <summary>
     /// Issues one source-settlement lease over caller-owned source clients and
     /// an optional lower-owner operation-context factory.
     /// </summary>
-    public PackageHouseSourceLease IssueSourceLease(
+    public static PackageSourceSettlementLease IssueLease(
         Func<ConfiguredPackageAuthority, IPackageSourceClient> getClient,
         Func<CancellationToken, NuGetOperationContext>?
             createOperationContext = null)
     {
         ArgumentNullException.ThrowIfNull(getClient);
-        return new PackageHouseSourceLease(
+        return new PackageSourceSettlementLease(
             getClient,
             createOperationContext
                 ?? (cancellationToken =>
@@ -27,15 +27,15 @@ public sealed class PackageHouse
 }
 
 /// <summary>
-/// A House-issued source-settlement capability over caller-owned source
-/// clients.
+/// An owner-issued package-source settlement capability over caller-owned
+/// source clients.
 /// </summary>
 /// <remarks>
 /// Retiring the lease rejects new settlement but does not dispose source
 /// clients, operation contexts, payload streams, stores, or Workspace
 /// participants owned by adjacent layers.
 /// </remarks>
-public sealed class PackageHouseSourceLease : IDisposable
+public sealed class PackageSourceSettlementLease : IDisposable
 {
     private readonly Func<
         ConfiguredPackageAuthority,
@@ -49,7 +49,7 @@ public sealed class PackageHouseSourceLease : IDisposable
         _manifestAcquirer;
     private int _retired;
 
-    internal PackageHouseSourceLease(
+    internal PackageSourceSettlementLease(
         Func<ConfiguredPackageAuthority, IPackageSourceClient> getClient,
         Func<CancellationToken, NuGetOperationContext>
             createOperationContext)
