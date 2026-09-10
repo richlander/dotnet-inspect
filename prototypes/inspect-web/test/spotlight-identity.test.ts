@@ -7089,6 +7089,9 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /const revision = workspaceOccurrenceRevision;[\s\S]*superseded = view\.superseded;[\s\S]*const ownsCurrentRequest =\s*revision === workspaceOccurrenceRevision\s*&& signature === state\.workspaceOccurrenceSignature;[\s\S]*const desiredSignature = JSON\.stringify\(workspaceOccurrenceRequest\(\)\);[\s\S]*!state\.workspaceOccurrenceLoading[\s\S]*state\.workspaceOccurrenceSignature !== desiredSignature/);
   assert.match(
     appSource,
+    /async function activateWorkspacePackageOccurrence\(action: string\) \{\s*const navigationSeq = navigationSequence\.begin\(\);\s*const revision = workspaceOccurrenceRevision;\s*const signature = state\.workspaceOccurrenceSignature;[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\s*\|\| revision !== workspaceOccurrenceRevision\s*\|\| signature !== state\.workspaceOccurrenceSignature\) return;[\s\S]*selectWorkspacePackage\(packageModel, \{ navigationSeq \}\)/);
+  assert.match(
+    appSource,
     /if \(!workspaceOccurrenceViewIsVisible\(\)\s*&& \(state\.workspaceOccurrenceSignature\s*\|\| state\.workspaceOccurrences\)\) \{\s*clearWorkspaceOccurrenceView\(\)/);
   assert.match(
     appSource,
@@ -7099,6 +7102,59 @@ test("workspace UI routes replacements and restore notices through bounded paths
   assert.match(
     appSource,
     /activatePackage\(targetPackage, \{ resetAccessibility: true \}\)/);
+});
+
+test("package occurrence activation cannot publish into a newer workspace", async () => {
+  const activation = appSource.match(
+    /async function activateWorkspacePackageOccurrence\(action: string\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.notEqual(activation, "");
+  let completeActivation!: (result: {
+    activated: boolean;
+    superseded: boolean;
+    package: { id: string };
+  }) => void;
+  const pendingActivation = new Promise<{
+    activated: boolean;
+    superseded: boolean;
+    package: { id: string };
+  }>(resolve => { completeActivation = resolve; });
+  let currentNavigation = 0;
+  const retained: unknown[] = [];
+  const selected: unknown[] = [];
+  const toasts: string[] = [];
+  const context = {
+    activationPromise: Promise.resolve(),
+    navigationSequence: {
+      begin: () => ++currentNavigation,
+      isCurrent: (sequence: number) => sequence === currentNavigation,
+    },
+    workspaceOccurrenceRevision: 1,
+    state: { workspaceOccurrenceSignature: "workspace-a" },
+    inspectActivateWorkspacePackageOccurrence: () => pendingActivation,
+    ensureWorkspaceOccurrenceView: () => undefined,
+    showToast: (message: string) => toasts.push(message),
+    createNuGetPackageModel: (value: unknown) => value,
+    retainPackageModel: (value: unknown) => retained.push(value),
+    selectWorkspacePackage: async (value: unknown) => { selected.push(value); },
+  };
+  runInNewContext(
+    stripTypeScriptTypes(
+      `${activation}\nactivationPromise = activateWorkspacePackageOccurrence("open-alpha");`),
+    context);
+
+  context.navigationSequence.begin();
+  context.state.workspaceOccurrenceSignature = "workspace-b";
+  completeActivation({
+    activated: true,
+    superseded: false,
+    package: { id: "Alpha" },
+  });
+  await context.activationPromise;
+
+  assert.deepEqual(retained, []);
+  assert.deepEqual(selected, []);
+  assert.deepEqual(toasts, []);
 });
 
 test("member documentation state is scoped to the exact request", () => {

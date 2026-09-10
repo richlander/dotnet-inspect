@@ -3397,8 +3397,14 @@ function workspaceOccurrenceViewIsVisible() {
 }
 
 async function activateWorkspacePackageOccurrence(action: string) {
+  const navigationSeq = navigationSequence.begin();
+  const revision = workspaceOccurrenceRevision;
+  const signature = state.workspaceOccurrenceSignature;
   const result: BrowserWorkspacePackageOccurrenceActivation =
     await inspectActivateWorkspacePackageOccurrence(action);
+  if (!navigationSequence.isCurrent(navigationSeq)
+    || revision !== workspaceOccurrenceRevision
+    || signature !== state.workspaceOccurrenceSignature) return;
   if (!result.activated || !result.package) {
     state.workspaceOccurrenceSignature = "";
     ensureWorkspaceOccurrenceView();
@@ -3412,7 +3418,7 @@ async function activateWorkspacePackageOccurrence(action: string) {
 
   const packageModel = createNuGetPackageModel(result.package);
   retainPackageModel(packageModel);
-  await selectWorkspacePackage(packageModel);
+  await selectWorkspacePackage(packageModel, { navigationSeq });
 }
 
 function activatePackage(
