@@ -237,19 +237,27 @@ test("navigation supersedes both successful and rejected capture completion", as
     const capture = deferred<string>();
     let generation = 1;
     let stored: string | null = null;
-    let renders = 0;
-    const saves = createSavedWorkspaces({
+    const renderedFocus: (SavedWorkspaceFocus | undefined)[] = [];
+    let rendered = "";
+    let saves!: ReturnType<typeof createSavedWorkspaces>;
+    saves = createSavedWorkspaces({
       read: () => stored,
       write: value => { stored = value; },
       capture: () => capture.promise,
       captureGeneration: () => generation,
       open: () => {},
-      render: () => { renders++; },
+      render: focus => {
+        renderedFocus.push(focus);
+        rendered = renderSavedWorkspaces(
+          { state: saves.state, canSave: true, canOpen: true },
+          escapeHtml);
+      },
     });
     saves.beginSave();
     saves.setName("Superseded");
     const pending = saves.save();
-    const rendersBeforeNavigation = renders;
+    const rendersBeforeNavigation = renderedFocus.length;
+    assert.match(rendered, /data-workspace-save-submit disabled/);
     generation++;
     if (reject) capture.reject(new Error("stale capture"));
     else capture.resolve("stale-packet");
@@ -259,7 +267,9 @@ test("navigation supersedes both successful and rejected capture completion", as
     assert.equal(saves.state.formOpen, false);
     assert.equal(saves.state.saving, false);
     assert.equal(saves.state.error, "");
-    assert.equal(renders, rendersBeforeNavigation);
+    assert.equal(renderedFocus.length, rendersBeforeNavigation + 1);
+    assert.equal(renderedFocus.at(-1), undefined);
+    assert.doesNotMatch(rendered, /data-workspace-save-form/);
   }
 });
 

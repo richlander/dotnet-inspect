@@ -154,6 +154,7 @@ export function createSavedWorkspaces(options: {
             state.formOpen = false;
             state.name = "";
             state.error = "";
+            options.render();
           }
         }
       }
