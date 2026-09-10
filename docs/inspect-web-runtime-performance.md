@@ -115,7 +115,7 @@ Run a matched-head comparison:
 
 ```bash
 npm run benchmark:published -- \
-  --site mono=https://dotnet-inspect.ca \
+  --site mono=https://dotnet-inspect.net \
   --site coreclr=https://coreclr.dotnet-inspect.ca \
   --samples 5 \
   --member-count 10 \
@@ -140,6 +140,12 @@ site order, five samples per site, and ten distinct member operations per
 sample. Manual dispatch may change the sample and member counts for diagnostic
 runs without changing the scheduled defaults.
 
+The Mono control is the promoted production site at
+`https://dotnet-inspect.net`, not the continuously deployed staging site at
+`https://dotnet-inspect.ca`. Production Mono and the isolated CoreCLR site
+advance from the same promotion SHA, while staging advances on every successful
+`main` deployment and cannot provide a stable cross-site commit pair.
+
 The report records the runner's raw one-, five-, and fifteen-minute load
 averages before and after the browser work, along with values normalized by
 logical processor count. These measurements expose obvious runner contention;
@@ -162,7 +168,7 @@ For a short diagnostic run while deployments intentionally differ:
 
 ```bash
 npm run benchmark:published -- \
-  --site mono=https://dotnet-inspect.ca \
+  --site mono=https://dotnet-inspect.net \
   --site coreclr=https://coreclr.dotnet-inspect.ca \
   --samples 1 \
   --member-count 3 \
