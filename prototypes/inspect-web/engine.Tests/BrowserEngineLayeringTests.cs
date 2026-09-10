@@ -340,6 +340,9 @@ public sealed class BrowserEngineLayeringTests
         IReadOnlyList<string> banned = BannedSymbols();
         string[] approvedOwners =
         [
+            // Bounded XML transforms over streams acquired and supplied by hosts.
+            "CSharpText.XmlDocumentationCatalog",
+            "CSharpText.XmlDocumentationReader",
             "DotnetInspector.Core.HardenedXml",
             "DotnetInspector.Packages.AuthorityScopedFileSystemPackageStore",
             "DotnetInspector.Packages.BoundedContentReader",

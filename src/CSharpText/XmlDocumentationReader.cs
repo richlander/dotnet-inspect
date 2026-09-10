@@ -96,15 +96,6 @@ public sealed class XmlDocumentationCatalog
         this.members = members;
 
     public static XmlDocumentationCatalog Load(
-        string path,
-        XmlDocumentationReadLimits? limits = null)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        using Stream stream = File.OpenRead(path);
-        return Load(stream, limits);
-    }
-
-    public static XmlDocumentationCatalog Load(
         Stream stream,
         XmlDocumentationReadLimits? limits = null)
     {

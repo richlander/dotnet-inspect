@@ -673,7 +673,8 @@ internal static class SourceEnricher
     {
         try
         {
-            return XmlDocumentationCatalog.Load(path);
+            using Stream stream = File.OpenRead(path);
+            return XmlDocumentationCatalog.Load(stream);
         }
         catch (Exception error) when (
             error is IOException
