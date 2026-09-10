@@ -44,6 +44,7 @@ public sealed record PackageArtifactRootCorrespondence :
 
 internal readonly record struct PackageArtifactRootRequest(
     RealizedMemberCoordinate.Package Coordinate,
+    string? CompileTargetFramework,
     string? SelectionTargetFramework,
     string? SelectionRuntimeIdentifier)
 {
@@ -53,19 +54,34 @@ internal readonly record struct PackageArtifactRootRequest(
         ArgumentNullException.ThrowIfNull(binding);
         return Create(
             binding.Coordinate,
+            binding.CompileTargetFramework,
             binding.Root.RequestedTargetFramework,
             binding.Root.RequestedRuntimeIdentifier);
     }
 
     internal static PackageArtifactRootRequest Create(
         RealizedMemberCoordinate.Package coordinate,
+        string? compileTargetFramework,
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
+        string? normalizedCompileTarget =
+            NormalizeFramework(compileTargetFramework);
+        string? normalizedSelectionTarget =
+            NormalizeFramework(selectionTargetFramework);
+        if ((normalizedCompileTarget is null)
+            != (normalizedSelectionTarget is null))
+        {
+            throw new ArgumentException(
+                "Compile and implementation selection targets must both be present or both be absent.",
+                nameof(selectionTargetFramework));
+        }
+
         return new(
             coordinate,
-            NormalizeFramework(selectionTargetFramework),
+            normalizedCompileTarget,
+            normalizedSelectionTarget,
             NormalizeRuntime(selectionRuntimeIdentifier));
     }
 
