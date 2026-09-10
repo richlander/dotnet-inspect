@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { expectGraphNodeInteractionFeedback } from "./graph-interaction-assertions.ts";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/browser/type-graph-explorer.html");
@@ -87,6 +88,12 @@ test("the inspected type follows the shell-purple palette in both themes", async
   });
   await expect(target).toHaveAttribute("style", /stroke:#702b90/);
   expect(await contrast()).toBeGreaterThanOrEqual(3);
+});
+
+test("Type graph nodes show hover and keyboard-focus feedback", async ({ page }) => {
+  await page.getByRole("button", { name: "Explore", exact: true }).click();
+  const node = page.getByRole("button", { name: "Open Example.Derived", exact: true });
+  await expectGraphNodeInteractionFeedback(page, node);
 });
 
 for (const activation of ["Enter", "Space"]) {

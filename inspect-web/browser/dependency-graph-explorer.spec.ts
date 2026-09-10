@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { expectGraphNodeInteractionFeedback } from "./graph-interaction-assertions.ts";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/browser/dependency-graph-explorer.html");
@@ -69,6 +70,12 @@ test("a pending diagram completes in the viewer without another mount", async ({
   await page.evaluate(() => window.dependencyExploreProbe.finishPending());
   await expect(page.getByRole("dialog").locator("svg")).toBeVisible();
   expect(await page.evaluate(() => window.dependencyExploreProbe.counts())).toEqual(before);
+});
+
+test("Dependency graph nodes show hover and keyboard-focus feedback", async ({ page }) => {
+  await page.getByRole("button", { name: "Explore", exact: true }).click();
+  const node = page.getByRole("button", { name: "Open Loaded.Dependency", exact: true });
+  await expectGraphNodeInteractionFeedback(page, node);
 });
 
 test("dependency nodes are keyboard navigable and dragging does not activate them", async ({ page }) => {

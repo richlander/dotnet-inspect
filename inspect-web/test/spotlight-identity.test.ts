@@ -6148,7 +6148,10 @@ test("navigable call graph targets share mouse and keyboard activation", () => {
     /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\);[\s\S]*node\.setAttribute\("aria-label", binding\.label\)/);
   assert.match(
     stylesSource,
-    /\.graph-viewport g\.node\.nav-node:focus-visible rect,[\s\S]*?stroke: var\(--blue\); stroke-width: 3px;/);
+    /\.graph-viewport g\.node\.nav-node:hover \{ filter: drop-shadow\(0 0 2px var\(--blue\)\); \}/);
+  assert.match(
+    stylesSource,
+    /\.graph-viewport g\.node\.nav-node:focus-visible \{[\s\S]*?outline: 2px solid var\(--blue\);[\s\S]*?filter: drop-shadow\(0 0 4px var\(--blue\)\);/);
   assert.match(
     appSource,
     /id="platform-drill-error" class="graph-drill-error" role="alert" tabindex="-1"/);

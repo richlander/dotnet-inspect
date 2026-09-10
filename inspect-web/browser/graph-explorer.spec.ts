@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { expectGraphNodeInteractionFeedback } from "./graph-interaction-assertions.ts";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/browser/graph-explorer.html");
@@ -112,6 +113,12 @@ test("production Call graph roles match the legend palette in both themes", asyn
     sameType: "rgb(185, 225, 223)",
     differentAssembly: "rgb(224, 227, 232)",
   });
+});
+
+test("Call graph nodes show hover and keyboard-focus feedback", async ({ page }) => {
+  await page.getByRole("button", { name: "Explore", exact: true }).click();
+  const node = page.getByRole("button", { name: "Open member", exact: true });
+  await expectGraphNodeInteractionFeedback(page, node);
 });
 
 for (const interaction of ["wheel", "keyboard", "pointer"] as const) {
