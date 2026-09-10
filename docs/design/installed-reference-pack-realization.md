@@ -15,11 +15,10 @@ PlatformHouse request into this source owner's coordinates and returns the live
 source result beside a resource-free House contribution.
 
 This is step 4a within the existing eleven-step adoption sequence. It does not
-complete step 4. Installed implementation-platform realization remains owned
-by
+own implementation-platform realization. Step 4b is now implemented under
 [Platform Composition and Overlays](platform-composition-and-overlays.md#installed-implementation-platform-realization)
-and requires the manifest-defined closure described there before it can
-contribute authoritative implementation evidence.
+with byte interpretation owned by
+[Platform Manifest Formats](platform-manifest-formats.md).
 
 ## Authority and exact claim
 
@@ -275,13 +274,14 @@ This slice advances the existing eleven-step PlatformHouse adoption sequence:
    seam.
 2. Step 4a adds installed reference target discovery, immutable reference-pack
    realization, and the package-free House bridge.
-3. Step 4b must implement the manifest-defined installed implementation
-   closure and reference-to-implementation source correspondence.
-4. Steps 5-11 remain unchanged.
+3. Step 4b adds host-neutral manifest interpretation, the manifest-defined
+   installed implementation closure, and the installed implementation House
+   contribution.
+4. Step 4 is complete; steps 5-11 remain unchanged.
 
-Step 4 is complete only when both 4a and 4b are implemented and reviewed. No
-production host switches from `PlatformResolver` in 4a; later House adoption
-selects this capability through the existing host-neutral source plan.
+No production host switches from `PlatformResolver` in step 4; later House
+adoption selects these capabilities through the existing host-neutral source
+plan.
 
 ## Evidence gates
 

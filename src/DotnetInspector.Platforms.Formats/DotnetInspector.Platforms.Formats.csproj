@@ -10,14 +10,13 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Package-free installed platform discovery and reference-pack realization</Description>
+    <Description>Host-neutral platform manifest format interpretation</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <ProjectReference Include="../DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
-    <ProjectReference Include="../DotnetInspector.Platforms.Formats/DotnetInspector.Platforms.Formats.csproj" />
-    <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
   </ItemGroup>
 
 </Project>

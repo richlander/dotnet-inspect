@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
+using static DotnetInspector.Platforms.Installed.InstalledHiveFileSystem;
 
 namespace DotnetInspector.Platforms.Installed;
 
@@ -54,8 +55,8 @@ public sealed class InstalledReferencePackSource
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        DirectoryProbe rootProbe = ProbeDirectory(_dotnetRoot);
-        if (rootProbe == DirectoryProbe.Missing)
+        InstalledDirectoryProbe rootProbe = ProbeDirectory(_dotnetRoot);
+        if (rootProbe == InstalledDirectoryProbe.Missing)
         {
             return Unavailable<InstalledReferenceTargetInventory>(
                 generation,
@@ -63,37 +64,38 @@ public sealed class InstalledReferencePackSource
                 InstalledPlatformSourceDiagnosticKind.InvalidLayout,
                 "The explicit dotnet hive is unavailable.");
         }
-        if (rootProbe == DirectoryProbe.NotDirectory)
+        if (rootProbe == InstalledDirectoryProbe.NotDirectory)
         {
             return Rejected<InstalledReferenceTargetInventory>(
                 generation,
                 InstalledPlatformSourceDiagnosticKind.InvalidLayout,
                 "The explicit dotnet hive is not a directory.");
         }
-        if (rootProbe == DirectoryProbe.Failed)
+        if (rootProbe == InstalledDirectoryProbe.Failed)
         {
             return Failed<InstalledReferenceTargetInventory>(
                 generation,
                 "The explicit dotnet hive could not be inspected.");
         }
 
-        int observedEntries = 0;
+        var observation = new InstalledObservationBudget(
+            _maxObservedEntries);
         List<string> versionEntries;
         try
         {
             string? packsRoot = FindExactChild(
                 _dotnetRoot,
                 "packs",
-                LocalEntryKind.Directory,
-                ref observedEntries,
+                InstalledEntryKind.Directory,
+                observation,
                 cancellationToken);
             string? packRoot = packsRoot is null
                 ? null
                 : FindExactChild(
                     packsRoot,
                     PackName(request.Family),
-                    LocalEntryKind.Directory,
-                    ref observedEntries,
+                    InstalledEntryKind.Directory,
+                    observation,
                     cancellationToken);
             if (packRoot is null)
             {
@@ -103,17 +105,17 @@ public sealed class InstalledReferencePackSource
 
             versionEntries = EnumerateEntriesBounded(
                 packRoot,
-                ref observedEntries,
+                observation,
                 cancellationToken);
         }
-        catch (InvalidLayoutException)
+        catch (InstalledInvalidLayoutException)
         {
             return Rejected<InstalledReferenceTargetInventory>(
                 generation,
                 InstalledPlatformSourceDiagnosticKind.InvalidLayout,
                 "The installed reference-pack root does not match the canonical layout.");
         }
-        catch (ObservedEntryLimitException)
+        catch (InstalledObservationLimitException)
         {
             return Incomplete<InstalledReferenceTargetInventory>(
                 generation,
@@ -141,8 +143,8 @@ public sealed class InstalledReferencePackSource
                 string? referenceRoot = FindExactChild(
                     versionEntry,
                     "ref",
-                    LocalEntryKind.Directory,
-                    ref observedEntries,
+                    InstalledEntryKind.Directory,
+                    observation,
                     cancellationToken);
                 if (referenceRoot is null)
                     continue;
@@ -150,8 +152,8 @@ public sealed class InstalledReferencePackSource
                 string? referenceDirectory = FindExactChild(
                     referenceRoot,
                     request.TargetFramework.ToString(),
-                    LocalEntryKind.Directory,
-                    ref observedEntries,
+                    InstalledEntryKind.Directory,
+                    observation,
                     cancellationToken);
                 if (referenceDirectory is null)
                     continue;
@@ -189,14 +191,14 @@ public sealed class InstalledReferencePackSource
                             version)));
             }
         }
-        catch (InvalidLayoutException)
+        catch (InstalledInvalidLayoutException)
         {
             return Rejected<InstalledReferenceTargetInventory>(
                 generation,
                 InstalledPlatformSourceDiagnosticKind.InvalidLayout,
                 "An installed reference-pack coordinate does not match the canonical layout.");
         }
-        catch (ObservedEntryLimitException)
+        catch (InstalledObservationLimitException)
         {
             return Incomplete<InstalledReferenceTargetInventory>(
                 generation,
@@ -261,8 +263,8 @@ public sealed class InstalledReferencePackSource
                 "The installed reference-pack coordinate belongs to a different dotnet hive.");
         }
 
-        DirectoryProbe rootProbe = ProbeDirectory(_dotnetRoot);
-        if (rootProbe == DirectoryProbe.Missing)
+        InstalledDirectoryProbe rootProbe = ProbeDirectory(_dotnetRoot);
+        if (rootProbe == InstalledDirectoryProbe.Missing)
         {
             return Unavailable<InstalledReferenceRealization>(
                 generation,
@@ -270,37 +272,38 @@ public sealed class InstalledReferencePackSource
                 InstalledPlatformSourceDiagnosticKind.InvalidLayout,
                 "The explicit dotnet hive is unavailable.");
         }
-        if (rootProbe == DirectoryProbe.NotDirectory)
+        if (rootProbe == InstalledDirectoryProbe.NotDirectory)
         {
             return Rejected<InstalledReferenceRealization>(
                 generation,
                 InstalledPlatformSourceDiagnosticKind.InvalidLayout,
                 "The explicit dotnet hive is not a directory.");
         }
-        if (rootProbe == DirectoryProbe.Failed)
+        if (rootProbe == InstalledDirectoryProbe.Failed)
         {
             return Failed<InstalledReferenceRealization>(
                 generation,
                 "The explicit dotnet hive could not be inspected.");
         }
 
-        int observedEntries = 0;
+        var observation = new InstalledObservationBudget(
+            _maxObservedEntries);
         string? referenceDirectory;
         try
         {
             referenceDirectory = FindReferenceDirectory(
                 request.Coordinate,
-                ref observedEntries,
+                observation,
                 cancellationToken);
         }
-        catch (InvalidLayoutException)
+        catch (InstalledInvalidLayoutException)
         {
             return Rejected<InstalledReferenceRealization>(
                 generation,
                 InstalledPlatformSourceDiagnosticKind.InvalidLayout,
                 "The exact installed reference-pack coordinate does not match the canonical layout.");
         }
-        catch (ObservedEntryLimitException)
+        catch (InstalledObservationLimitException)
         {
             return Incomplete<InstalledReferenceRealization>(
                 generation,
@@ -334,7 +337,7 @@ public sealed class InstalledReferencePackSource
                         request,
                         referenceDirectory,
                         assembly.Identity,
-                        observedEntries,
+                        observation,
                         cancellationToken)
                     .ConfigureAwait(false),
             InstalledReferencePopulationDemand.CompletePopulation =>
@@ -342,7 +345,7 @@ public sealed class InstalledReferencePackSource
                         generation,
                         request,
                         referenceDirectory,
-                        observedEntries,
+                        observation,
                         cancellationToken)
                     .ConfigureAwait(false),
             _ => throw new InvalidOperationException(
@@ -357,7 +360,7 @@ public sealed class InstalledReferencePackSource
             InstalledReferenceRealizationRequest request,
             string referenceDirectory,
             AssemblyReferenceIdentity requestedIdentity,
-            int observedEntries,
+            InstalledObservationBudget observation,
             CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -384,18 +387,18 @@ public sealed class InstalledReferencePackSource
             path = FindExactChild(
                 referenceDirectory,
                 fileName!,
-                LocalEntryKind.File,
-                ref observedEntries,
+                InstalledEntryKind.File,
+                observation,
                 cancellationToken);
         }
-        catch (InvalidLayoutException)
+        catch (InstalledInvalidLayoutException)
         {
             return Rejected<InstalledReferenceRealization>(
                 generation,
                 InstalledPlatformSourceDiagnosticKind.InvalidLayout,
                 "The installed reference assembly coordinate does not match the canonical layout.");
         }
-        catch (ObservedEntryLimitException)
+        catch (InstalledObservationLimitException)
         {
             return Incomplete<InstalledReferenceRealization>(
                 generation,
@@ -456,7 +459,7 @@ public sealed class InstalledReferencePackSource
             InstalledPlatformSourceGeneration generation,
             InstalledReferenceRealizationRequest request,
             string referenceDirectory,
-            int observedEntries,
+            InstalledObservationBudget observation,
             CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -465,10 +468,10 @@ public sealed class InstalledReferencePackSource
         {
             entries = EnumerateEntriesBounded(
                 referenceDirectory,
-                ref observedEntries,
+                observation,
                 cancellationToken);
         }
-        catch (ObservedEntryLimitException)
+        catch (InstalledObservationLimitException)
         {
             return Incomplete<InstalledReferenceRealization>(
                 generation,
@@ -721,110 +724,50 @@ public sealed class InstalledReferencePackSource
                     generation,
                     Array.Empty<InstalledReferenceTarget>()));
 
-    List<string> EnumerateEntriesBounded(
-        string path,
-        ref int observedEntries,
-        CancellationToken cancellationToken)
-    {
-        var entries = new List<string>();
-        foreach (string entry in Directory.EnumerateFileSystemEntries(path))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (observedEntries == _maxObservedEntries)
-                throw new ObservedEntryLimitException();
-            observedEntries++;
-            entries.Add(entry);
-        }
-
-        entries.Sort(StringComparer.Ordinal);
-        return entries;
-    }
-
     string? FindReferenceDirectory(
         InstalledReferencePackCoordinate coordinate,
-        ref int observedEntries,
+        InstalledObservationBudget observation,
         CancellationToken cancellationToken)
     {
         string? packsRoot = FindExactChild(
             _dotnetRoot,
             "packs",
-            LocalEntryKind.Directory,
-            ref observedEntries,
+            InstalledEntryKind.Directory,
+            observation,
             cancellationToken);
         if (packsRoot is null)
             return null;
         string? packRoot = FindExactChild(
             packsRoot,
             PackName(coordinate.Family),
-            LocalEntryKind.Directory,
-            ref observedEntries,
+            InstalledEntryKind.Directory,
+            observation,
             cancellationToken);
         if (packRoot is null)
             return null;
         string? versionRoot = FindExactChild(
             packRoot,
             coordinate.Version.Value,
-            LocalEntryKind.Directory,
-            ref observedEntries,
+            InstalledEntryKind.Directory,
+            observation,
             cancellationToken);
         if (versionRoot is null)
             return null;
         string? referenceRoot = FindExactChild(
             versionRoot,
             "ref",
-            LocalEntryKind.Directory,
-            ref observedEntries,
+            InstalledEntryKind.Directory,
+            observation,
             cancellationToken);
         if (referenceRoot is null)
             return null;
         return FindExactChild(
             referenceRoot,
             coordinate.TargetFramework.ToString(),
-            LocalEntryKind.Directory,
-            ref observedEntries,
+            InstalledEntryKind.Directory,
+            observation,
             cancellationToken);
     }
-
-    string? FindExactChild(
-        string parent,
-        string expectedName,
-        LocalEntryKind expectedKind,
-        ref int observedEntries,
-        CancellationToken cancellationToken)
-    {
-        bool foundCaseVariant = false;
-        foreach (string entry in Directory.EnumerateFileSystemEntries(parent))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (observedEntries == _maxObservedEntries)
-                throw new ObservedEntryLimitException();
-            observedEntries++;
-
-            string actualName = Path.GetFileName(entry);
-            if (string.Equals(
-                    actualName,
-                    expectedName,
-                    StringComparison.Ordinal))
-            {
-                bool isDirectory = IsDirectory(entry);
-                if (isDirectory != (expectedKind == LocalEntryKind.Directory))
-                    throw new InvalidLayoutException();
-                return entry;
-            }
-
-            foundCaseVariant |= string.Equals(
-                actualName,
-                expectedName,
-                StringComparison.OrdinalIgnoreCase);
-        }
-
-        if (foundCaseVariant)
-            throw new InvalidLayoutException();
-        return null;
-    }
-
-    static bool IsDirectory(string path) =>
-        (File.GetAttributes(path) & FileAttributes.Directory) != 0;
 
     static string PackName(InstalledPlatformFamily family) =>
         family switch
@@ -851,30 +794,6 @@ public sealed class InstalledReferencePackSource
 
         fileName = assemblyName + ".dll";
         return true;
-    }
-
-    static DirectoryProbe ProbeDirectory(string path)
-    {
-        try
-        {
-            FileAttributes attributes = File.GetAttributes(path);
-            return (attributes & FileAttributes.Directory) != 0
-                ? DirectoryProbe.Directory
-                : DirectoryProbe.NotDirectory;
-        }
-        catch (Exception ex) when (
-            ex is FileNotFoundException
-                or DirectoryNotFoundException)
-        {
-            return DirectoryProbe.Missing;
-        }
-        catch (Exception ex) when (
-            ex is IOException
-                or UnauthorizedAccessException
-                or NotSupportedException)
-        {
-            return DirectoryProbe.Failed;
-        }
     }
 
     static InstalledPlatformSourceOutcome<T> Unavailable<T>(
@@ -922,25 +841,4 @@ public sealed class InstalledReferencePackSource
             $"{Hive.Name}-attempt-"
             + Interlocked.Increment(ref s_nextGeneration));
 
-    private sealed class ObservedEntryLimitException : Exception
-    {
-    }
-
-    private sealed class InvalidLayoutException : Exception
-    {
-    }
-
-    private enum LocalEntryKind
-    {
-        File,
-        Directory,
-    }
-
-    private enum DirectoryProbe
-    {
-        Missing,
-        Directory,
-        NotDirectory,
-        Failed,
-    }
 }
