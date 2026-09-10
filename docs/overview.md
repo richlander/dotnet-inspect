@@ -151,6 +151,15 @@ substrates, and inspection producers that will extend that space.
 - `src/Inspector.Text/` provides the reusable
   `TextFindings` API for exact, ordered line inspection and generic text
   comparison on the shared Finding spine, plus deterministic LF construction.
+- [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md)
+  is the host-neutral resource protocol for service-issued leases, explicit
+  transfer, direct and snapshot-callback borrowing, resource-free references
+  and receipts, C# representation, the residual enforcement overhang before
+  compiler ownership, and the declaration boundary consumed by Analysis.
+  Resource issuers retain their acquisition and cleanup semantics; Analysis
+  retains IL interpretation and Finding semantics; Houses compose and settle
+  scenarios without issuing adjacent-owner leases. Adoption and retirement are
+  tracked by #6544.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its
