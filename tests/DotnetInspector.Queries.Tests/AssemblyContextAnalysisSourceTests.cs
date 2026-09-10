@@ -73,7 +73,8 @@ public sealed class AssemblyContextAnalysisSourceTests
         ResolvedAssemblyReference selected = Descriptor();
         ResolvedAssemblyReference shadow = Descriptor();
         var policy = new FixedPolicy(
-            AssemblyBindingSelection.Found(selected, [shadow]));
+            AssemblyBindingCandidateDomain.Create(
+                [selected, shadow]).Finalize([selected]));
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
@@ -132,6 +133,40 @@ public sealed class AssemblyContextAnalysisSourceTests
         Assert.DoesNotContain(second, retained.Assemblies);
     }
 
+    [Fact]
+    public void BindingPolicyResolver_RetainsCompositionDomainDescriptors()
+    {
+        ResolvedAssemblyReference root = Descriptor();
+        ResolvedAssemblyReference first = Descriptor();
+        ResolvedAssemblyReference second = Descriptor();
+        var policy = new FixedPolicy(
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [first, second])));
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(root, policy),
+                    new AssemblyContextParticipant(first, policy),
+                    new AssemblyContextParticipant(second, policy),
+                ]);
+        var subject = new AssemblyContextSubject(root);
+        var bindingPolicy = Assert.IsAssignableFrom<IAssemblyBindingPolicy>(
+            AssemblyContextAnalysisSource.Resolver(group, subject));
+
+        var required = Assert.IsType<
+            AssemblyBindingSelection.CompositionRequired>(
+                bindingPolicy.Select(Request(root)).Selection);
+
+        Assert.Equal(
+            [first.Registration, second.Registration],
+            required.Domain.Candidates.Select(
+                assembly => assembly.Registration));
+        Assert.DoesNotContain(first, required.Domain.Candidates);
+        Assert.DoesNotContain(second, required.Domain.Candidates);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -170,9 +205,10 @@ public sealed class AssemblyContextAnalysisSourceTests
     public void Facade_ForwardsForeignSnapshotBeforeDescriptorEffects(bool observing)
     {
         using var fixture = new FacadeFixture();
-        fixture.Inner.Selection = AssemblyBindingSelection.Found(
-            fixture.Selected,
-            [fixture.Root]);
+        fixture.Inner.Selection =
+            AssemblyBindingCandidateDomain.Create(
+                [fixture.Selected, fixture.Root])
+                .Finalize([fixture.Selected]);
         fixture.Inner.SnapshotVersion = new();
         IAssemblyBindingPolicy policy = fixture.CreatePolicy(observing);
         AssemblyBindingPolicyVersion version = policy.Version;

@@ -195,9 +195,9 @@ commits. They justify the harness shape only.
 
 ## Runtime migration evidence
 
-The .NET 12 non-ReadyToRun and ReadyToRun deployments must use one exact,
-coherent SDK and workload cohort. A floating daily or a stable SDK combined
-with separately overridden runtime packages is not comparable evidence.
+Each .NET 12 deployment must use one exact, coherent SDK and workload cohort.
+A floating daily or a stable SDK combined with separately overridden runtime
+packages is not comparable evidence.
 
 The non-ReadyToRun CoreCLR deployment pins the runtime-main cohort:
 
@@ -232,9 +232,39 @@ ReadyToRun publication must additionally record:
 - the same runtime-async deployment and browser correctness gates used by the
   non-ReadyToRun CoreCLR deployment.
 
-The current runtime-main daily has a Linux path-casing defect: Crossgen2 writes
-`R2R/` while the browser packaging target probes `r2r/`.
+The ReadyToRun CoreCLR deployment pins the later runtime-main cohort:
+
+- SDK `12.0.100-alpha.1.26459.112`;
+- runtime and browser workload packs `12.0.0-alpha.1.26459.112`;
+- dotnet/dotnet VMR source commit
+  `7792b064d8573a30d8527944de8184b7e108837e`; and
+- the same `dotnet12` workload feed used by the non-ReadyToRun cohort.
+
+This cohort follows the same `net11.0` workload and .NET 12 CoreCLR composition
+as the non-ReadyToRun deployment, but sets `PublishReadyToRun=true` and
+`PublishReadyToRunComposite=false`. Its Crossgen2 output uses per-assembly Wasm
+containers in the canonical `R2R/` directory. The publication gate parses the
+SDK-owned runtime asset inventory and requires every emitted Crossgen2 file to
+have the WebAssembly magic number and to be byte-identical to its fingerprinted
+published asset. It also requires every `DotnetInspect.Web*` application asset
+and `System.Private.CoreLib` to be in that ReadyToRun set, rejects orphaned
+Crossgen2 outputs, and records the remaining IL-only managed assets explicitly.
+For the initial candidate, Crossgen2 emits 71 of 74 managed assets, including
+all eight application assets; `System.ComponentModel`, `System`, and
+`System.Xml.Linq` are the three recorded framework facades without Crossgen2
+outputs.
+
+The artifact carries the complete per-assembly manifest and its digest in the
+runtime cohort receipt. The same gate replays before artifact upload and before
+deployment. The receipt also records uncompressed, Brotli, gzip, and total
+`/_framework/` file counts and byte sizes. The replacement-head current-source
+publication measured 77,180,680 uncompressed bytes, 16,593,730 Brotli bytes,
+and 22,981,185 gzip bytes; deployed artifacts remain authoritative because
+fingerprints and compression can change with application code.
+
+The earlier runtime-main cohort had a Linux path-casing defect: Crossgen2 wrote
+`R2R/` while the browser packaging target probed `r2r/`.
 [dotnet/runtime#133203](https://github.com/dotnet/runtime/pull/133203) carries
-the fix. The deployment should select a daily containing that fix rather than
-commit a dependency on the private `_WasmPublishR2RDir` workaround used during
-the investigation.
+the fix. The pinned ReadyToRun cohort contains the synchronized fix and does
+not depend on the private `_WasmPublishR2RDir` workaround used during the
+investigation.

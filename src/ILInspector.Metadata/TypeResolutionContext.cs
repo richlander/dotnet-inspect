@@ -2753,7 +2753,7 @@ public sealed class TypeResolutionContext : IDisposable
             AssemblyBindingSelection selection;
             if (snapshot is null)
             {
-                selection = AssemblyBindingSelection.ValidateForRequest(
+                selection = AssemblyBindingSelection.ValidateForMetadataRequest(
                     request,
                     selection: null);
             }
@@ -2768,7 +2768,7 @@ public sealed class TypeResolutionContext : IDisposable
                         snapshot.Version);
                 }
 
-                selection = AssemblyBindingSelection.ValidateForRequest(
+                selection = AssemblyBindingSelection.ValidateForMetadataRequest(
                     request,
                     snapshot.Selection);
             }
@@ -2802,7 +2802,9 @@ public sealed class TypeResolutionContext : IDisposable
                         new AssemblyBindingOutcome.Unavailable(
                             unavailable.Failure)),
                 AssemblyBindingSelection.Ambiguous ambiguous =>
-                    SelectMany(ambiguous.Assemblies),
+                    SelectMany(
+                        ambiguous.Assemblies,
+                        ambiguous.ShadowedAssemblies),
                 AssemblyBindingSelection.Rejected rejected =>
                     new(
                         new AssemblyBindingOutcome.Rejected(
@@ -2855,7 +2857,8 @@ public sealed class TypeResolutionContext : IDisposable
         }
 
         CachedBindingEvaluation SelectMany(
-            ImmutableArray<ResolvedAssemblyReference> assemblies)
+            ImmutableArray<ResolvedAssemblyReference> assemblies,
+            ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
         {
             var candidates =
                 ImmutableArray.CreateBuilder<ResolvedAssemblyCandidate>();
@@ -2892,14 +2895,16 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 return new(
                     new AssemblyBindingOutcome.Ambiguous(
-                        candidates.ToImmutable()),
+                        candidates.ToImmutable(),
+                        shadowedAssemblies),
                     Registrations: assemblies);
             }
 
             return unavailableFailure is not null
                 ? new(
                     new AssemblyBindingOutcome.Unavailable(
-                        CandidateUnavailableBinding(unavailableFailure)),
+                        CandidateUnavailableBinding(unavailableFailure),
+                        shadowedAssemblies),
                     unavailableAssembly,
                     unavailableFailure,
                     assemblies)
@@ -2914,8 +2919,10 @@ public sealed class TypeResolutionContext : IDisposable
                     SelectOne(
                         resolved.Occurrence,
                         resolved.ShadowedAssemblies),
-                AssemblyBindingOutcome.Ambiguous =>
-                    SelectMany(evaluation.Registrations),
+                AssemblyBindingOutcome.Ambiguous ambiguous =>
+                    SelectMany(
+                        evaluation.Registrations,
+                        ambiguous.ShadowedAssemblies),
                 _ => evaluation,
             };
 
