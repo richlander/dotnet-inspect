@@ -1,5 +1,7 @@
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -206,6 +208,109 @@ public sealed class AssemblyContextParticipantTests
         Assert.Same(dependency, continued.Assembly);
     }
 
+    [Fact]
+    public void OccurrenceRootedParticipant_RealPackageTopologyPreservesGlobalCompositionContinuation()
+    {
+        const string packageVersion = "11.0.0-preview.7.26381.103";
+        ResolvedAssemblyReference owner = RealAsset(
+            "package",
+            "System.Memory.Data.dll",
+            AssemblyResolutionProvenance.Package(
+                "System.Memory.Data",
+                packageVersion,
+                "net10.0",
+                rid: null));
+        ResolvedAssemblyReference selectedJson = RealAsset(
+            "package",
+            "System.Text.Json.dll",
+            AssemblyResolutionProvenance.Designated(
+                $"System.Text.Json@{packageVersion} package compile asset"));
+        ResolvedAssemblyReference platformJson = RealAsset(
+            "platform",
+            "System.Text.Json.dll",
+            AssemblyResolutionProvenance.Platform(
+                "Microsoft.NETCore.App.Ref",
+                packageVersion,
+                "nuget.org reference pack"));
+        ResolvedAssemblyReference selectedEncoding = RealAsset(
+            "package",
+            "System.Text.Encodings.Web.dll",
+            AssemblyResolutionProvenance.Designated(
+                $"System.Text.Encodings.Web@{packageVersion} package compile asset"));
+        ResolvedAssemblyReference platformEncoding = RealAsset(
+            "platform",
+            "System.Text.Encodings.Web.dll",
+            AssemblyResolutionProvenance.Platform(
+                "Microsoft.NETCore.App.Ref",
+                packageVersion,
+                "nuget.org reference pack"));
+
+        AssemblyReferenceIdentity jsonReference =
+            Reference(owner, selectedJson.Identity.Name);
+        AssemblyReferenceIdentity encodingReference =
+            Reference(selectedJson, selectedEncoding.Identity.Name);
+        Assert.True(jsonReference.IsEquivalentTo(selectedJson.Identity));
+        Assert.True(encodingReference.IsEquivalentTo(selectedEncoding.Identity));
+        Assert.True(selectedJson.Identity.IsEquivalentTo(platformJson.Identity));
+        Assert.True(
+            selectedEncoding.Identity.IsEquivalentTo(
+                platformEncoding.Identity));
+        Assert.NotEqual(ModuleVersionId(selectedJson), ModuleVersionId(platformJson));
+        Assert.NotEqual(
+            ModuleVersionId(selectedEncoding),
+            ModuleVersionId(platformEncoding));
+
+        var selecting = new SelectingPolicy(request =>
+        {
+            if (request.Target is not AssemblyBindingTarget.AssemblyReference target)
+                return AssemblyBindingSelection.NameNotOwned();
+
+            if (target.Identity.IsEquivalentTo(jsonReference))
+            {
+                return AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create(
+                        [platformJson, selectedJson]));
+            }
+
+            return target.Identity.IsEquivalentTo(encodingReference)
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create(
+                        [selectedEncoding, platformEncoding]))
+                : AssemblyBindingSelection.NameNotOwned();
+        });
+        IAssemblyBindingPolicy routing =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [(owner, (IAssemblyBindingPolicy)selecting)]);
+        IAssemblyBindingPolicy participant =
+            new AssemblyContextParticipant(
+                AssemblyBindingOccurrence.Seed(owner),
+                routing)
+                .BindingPolicy;
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, participant)]);
+
+        var first = Assert.IsType<AssemblyBindingSelection.Selected>(
+            outer.Select(
+                    Request(
+                        selectedJson,
+                        AssemblyBindingOrigin.Global()))
+                .Selection);
+        var continued = Assert.IsType<AssemblyBindingSelection.Selected>(
+            outer.Select(
+                    Request(
+                        selectedEncoding,
+                        AssemblyBindingOrigin.FromOccurrence(
+                            first.Occurrence)))
+                .Selection);
+
+        Assert.Same(selectedJson, first.Assembly);
+        Assert.Same(platformJson, Assert.Single(first.ShadowedAssemblies));
+        Assert.Same(selectedEncoding, continued.Assembly);
+        Assert.Same(
+            platformEncoding,
+            Assert.Single(continued.ShadowedAssemblies));
+    }
+
     static AssemblyBindingRequest Request(
         AssemblyBindingOrigin origin) =>
         new(
@@ -238,6 +343,42 @@ public sealed class AssemblyContextParticipantTests
             path: null,
             static () => new MemoryStream(),
             provenance ?? AssemblyResolutionProvenance.Local("test"));
+
+    static ResolvedAssemblyReference RealAsset(
+        string role,
+        string fileName,
+        AssemblyResolutionProvenance provenance) =>
+        ResolvedAssemblyReference.CreateFromPath(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "BindingComposition",
+                role,
+                fileName),
+            provenance);
+
+    static AssemblyReferenceIdentity Reference(
+        ResolvedAssemblyReference assembly,
+        string name)
+    {
+        using Stream stream = assembly.OpenRead();
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        return reader.AssemblyReferences
+            .Select(handle => AssemblyReferenceIdentity.From(reader, handle))
+            .Single(reference => string.Equals(
+                reference.Name,
+                name,
+                StringComparison.Ordinal));
+    }
+
+    static Guid ModuleVersionId(ResolvedAssemblyReference assembly)
+    {
+        using Stream stream = assembly.OpenRead();
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        return reader.GetGuid(reader.GetModuleDefinition().Mvid);
+    }
 
     sealed class RecordingPolicy : IAssemblyBindingPolicy
     {

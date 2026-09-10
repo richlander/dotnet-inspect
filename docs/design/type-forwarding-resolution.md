@@ -1766,6 +1766,24 @@ authority; no implementation code or runtime-loading mechanism is imported.
 > interaction contract. Focused Metadata, Services, and Queries Release gates
 > establish the product correspondence named below.
 
+The motivating real asset is
+[`System.Memory.Data@11.0.0-preview.7.26381.103`][composition-memory-data].
+Its `lib/net10.0/System.Memory.Data.dll` references
+`System.Text.Json, Version=11.0.0.0`, whose package assembly in turn references
+`System.Text.Encodings.Web, Version=11.0.0.0`. The package copies and the
+corresponding `Microsoft.NETCore.App.Ref@11.0.0-preview.7.26381.103` reference
+assemblies have equal ECMA-335 identities but distinct module identities. The
+source package records dotnet/dotnet commit
+[`e2c1e00b3d0f96afb892fb261d5921565b400246`][composition-runtime-commit];
+[`System.Memory.Data.csproj`][composition-memory-data-project] declares the
+`System.Text.Json` dependency, [`BinaryData.cs`][composition-binary-data]
+consumes it, and
+[`System.Text.Json.csproj`][composition-json-project] declares the
+`System.Text.Encodings.Web` dependency. This topology motivates a complete
+identity-eligible domain that preserves both the designated package copy and
+the inactive platform copy, plus a continuation that can resolve the real
+second-hop reference without replacing the selecting route.
+
 `AssemblyBindingCandidateDomain` is the binding identity owner's immutable
 handoff for one exact `AssemblyBindingRequest`. It contains every and only
 `ResolvedAssemblyReference` that the issuing policy state has proved eligible
@@ -1941,7 +1959,22 @@ gate the same selecting-route continuation through transparent and
 occurrence-rooted policy facades.
 `OccurrenceRootedParticipant_PreservesGlobalCompositionContinuation` gates the
 global-origin arm through handoff finalization and occurrence-rooted
-continuation.
+continuation at the policy seam.
+`OccurrenceRootedParticipant_RealPackageTopologyPreservesGlobalCompositionContinuation`
+uses the pinned `System.Memory.Data`, `System.Text.Json`,
+`System.Text.Encodings.Web`, and `Microsoft.NETCore.App.Ref` assemblies above.
+It verifies the emitted two-hop references, identity-equal but physically
+distinct package/platform candidates, exact inactive evidence, and successful
+second-hop selection through the preserved global route.
+
+This is deliberately a real-asset-backed composition gate, not a claim that
+current package realization originates the handoff. Package participants still
+carry package provenance, while the current adjacent precedence owner consumes
+designated and platform roles. Until #5133 and #5216 provide that production
+role projection and domain issuer, the test supplies those roles around the
+real owner-issued identities and bytes. The synthetic companion remains the
+smallest seam-isolation gate; acquisition-to-handoff correspondence remains
+unverified by this slice.
 `MemberCallGraphSessionTests.CrossLibrary_ResolvedVersionSkewIsNotIncomplete`
 and `CrossLibraryCalleeNeighborhood_ResolvedVersionSkewStaysExternal` gate the
 observable query consequence: an exact terminal selection outside the group is
@@ -1956,6 +1989,12 @@ neighboring terminal-preservation evidence.
 `AssemblyContextAnalysisSourceTests`, and
 `AssemblyContextSourceQueryTests` gate exact domain-descriptor transformation
 through closed-world, retained-image, and cancellation-observing facades.
+
+[composition-memory-data]: https://www.nuget.org/packages/System.Memory.Data/11.0.0-preview.7.26381.103
+[composition-runtime-commit]: https://github.com/dotnet/dotnet/commit/e2c1e00b3d0f96afb892fb261d5921565b400246
+[composition-memory-data-project]: https://github.com/dotnet/dotnet/blob/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Memory.Data/src/System.Memory.Data.csproj#L27-L29
+[composition-binary-data]: https://github.com/dotnet/dotnet/blob/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Memory.Data/src/System/BinaryData.cs#L4-L24
+[composition-json-project]: https://github.com/dotnet/dotnet/blob/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Text.Json/src/System.Text.Json.csproj#L440-L444
 
 #### Binding miss name ownership
 
