@@ -1,0 +1,239 @@
+using DotnetInspector.Packages;
+using CoreFactory = DotnetInspector.Core.HttpClientFactory;
+
+namespace DotnetInspect.Cli.Tests;
+
+/// <summary>
+/// Verifies that quiet and minimal verbosities are fully offline —
+/// no network requests are made for type listings, single-type views,
+/// or member views on platform assemblies. Tests pass --offline through
+/// the same flow as Program.cs so any network attempt throws OfflineException.
+/// </summary>
+[Collection("Console")]
+public class OfflineVerbosityTests : IDisposable
+{
+    public OfflineVerbosityTests()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+    }
+
+    public void Dispose()
+    {
+        CoreFactory.Initialize(new DotnetInspector.Core.HttpClientFactoryOptions());
+        CoreFactory.ResetSharedForTesting();
+    }
+
+    /// <summary>
+    /// Mirrors the Program.cs entry point: strips --offline, initializes factory,
+    /// preprocesses args, creates root command, and invokes.
+    /// </summary>
+    private static async Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
+    {
+        return await ConsoleCapture.RunAsync(async () =>
+        {
+            bool offline = args.Contains("--offline");
+            if (offline)
+                args = args.Where(a => a != "--offline").ToArray();
+
+            CoreFactory.Initialize(new DotnetInspector.Core.HttpClientFactoryOptions { Offline = offline });
+            CoreFactory.ResetSharedForTesting();
+
+            args = CommandLineBuilder.PreprocessArgs(args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            return await root.Parse(args).InvokeAsync();
+        });
+    }
+
+    // ── type command: library listing ────────────────────────────────
+
+    [Fact]
+    public async Task TypeListing_Quiet_Offline_Succeeds()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-v:q", "--offline");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("System.Text.Json", output);
+    }
+
+    [Fact]
+    public async Task TypeListing_Minimal_Offline_Succeeds()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-v:m", "--offline");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("JsonSerializer", output);
+    }
+
+    // ── type command: single type ────────────────────────────────────
+
+    [Fact]
+    public async Task SingleType_MarkdownQuiet_Offline_Succeeds()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "JsonSerializer", "--platform", "System.Text.Json", "--markdown", "-v:q", "--offline");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("JsonSerializer", output);
+        Assert.Contains("Methods", output);
+    }
+
+    [Fact]
+    public async Task SingleType_Minimal_Offline_Succeeds()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "JsonSerializer", "--platform", "System.Text.Json", "-v:m", "--offline");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Deserialize", output);
+        // Minimal type shape keeps logical method groups bounded.
+        Assert.Contains("Methods", output);
+        Assert.DoesNotContain("# System.Text.Json.JsonSerializer", output);
+    }
+
+    [Fact]
+    public async Task SingleType_QualifiedTypeTypo_Offline_SuggestsPlatformType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializizer", "-v:q", "--offline", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type 'JsonSerializizer' not found", error);
+        Assert.Contains("JsonSerializer", error);
+        Assert.DoesNotContain("Package 'System.Text.Json.JsonSerializizer'", error);
+    }
+
+    // ── member command ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task Member_Quiet_Offline_Succeeds()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", "-v:q", "--offline");
+
+        Assert.Equal(0, exit);
+        // Table table row contains the method name
+        Assert.Contains("Serialize", output);
+    }
+
+    [Fact]
+    public async Task Member_Minimal_Offline_Succeeds()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", "-v:m", "--offline");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Serialize", output);
+    }
+
+    [Fact]
+    public async Task Member_QualifiedTypeTypo_Offline_SuggestsPlatformType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializizer", "-v:q", "--offline", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type 'JsonSerializizer' not found", error);
+        Assert.Contains("JsonSerializer", error);
+        Assert.DoesNotContain("Package 'System.Text.Json.JsonSerializizer'", error);
+    }
+
+    // ── router -> qualified type name ─────────────────────────────────
+
+    [Fact]
+    public async Task Router_QualifiedType_MarkdownQuiet_Offline_Succeeds()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "System.Text.Json.JsonSerializer", "--markdown", "-v:q", "--offline");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("JsonSerializer", output);
+    }
+
+    [Fact]
+    public async Task Router_QualifiedType_Minimal_Offline_Succeeds()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "System.Text.Json.JsonSerializer", "-v:m", "--offline");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Deserialize", output);
+        Assert.Contains("overloads", output);
+    }
+
+    [Fact]
+    public async Task Router_QualifiedMember_Minimal_Offline_Succeeds()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json.JsonSerializer.SerializeToNode", "-v:m", "--offline", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("SerializeToNode", output);
+        Assert.DoesNotContain("Type 'JsonSerializer.SerializeToNode' not found", error);
+    }
+
+    [Fact]
+    public async Task Router_QualifiedTypeTypo_Offline_SuggestsPlatformType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json.JsonSerializizer", "-v:q", "--offline", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type 'JsonSerializizer' not found", error);
+        Assert.Contains("JsonSerializer", error);
+        Assert.DoesNotContain("Package 'System.Text.Json.JsonSerializizer'", error);
+    }
+
+    // ── type forwarder following ─────────────────────────────────────
+
+    [Fact]
+    public async Task TypeListing_FollowsForwarders_Offline()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Collections", "-v:q", "--offline");
+
+        Assert.Equal(0, exit);
+        // Native types (e.g., SortedSet) + forwarded types (e.g., HashSet)
+        Assert.Contains("System.Collections", output);
+    }
+
+    [Fact]
+    public async Task TypeListing_ForwardedTypeMatchesFilter_Offline()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Collections", "-t", "HashSet*", "--offline");
+
+        Assert.Equal(0, exit);
+        // Table table: type name appears in row
+        Assert.Contains("HashSet", output);
+    }
+
+    [Fact]
+    public async Task TypeListing_NativeAndForwardedTypes_Offline()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Collections", "-v:m", "--offline");
+
+        Assert.Equal(0, exit);
+        // Forwarded type
+        Assert.Contains("HashSet", output);
+        // Native type
+        Assert.Contains("SortedSet", output);
+    }
+
+    [Fact]
+    public async Task SingleType_ForwardedType_Offline()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "HashSet", "--platform", "System.Collections", "--markdown", "-v:q", "--offline");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("HashSet", output);
+    }
+}

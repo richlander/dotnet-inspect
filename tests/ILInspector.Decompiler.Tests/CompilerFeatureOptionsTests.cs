@@ -359,8 +359,8 @@ public class CompilerFeatureOptionsTests
                 result.Fidelity == DecompilationFidelity.Full,
                 $"{output}\n{string.Join('\n', result.Diagnostics)}");
             Assert.Contains("await", output);
-            Assert.Contains("unsafe", output);
-            Assert.DoesNotContain("await", FirstUnsafeBlockBody(output));
+            Assert.Contains("=> unsafe(", output);
+            Assert.DoesNotContain("unsafe\n{", output);
             using var recompiled = Compile(
                 $$"""
                 using System.Threading.Tasks;
@@ -1041,9 +1041,9 @@ public class CompilerFeatureOptionsTests
             string output = Assert.IsType<string>(result.Output);
 
             Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
-            Assert.DoesNotContain(
-                "await",
-                FirstUnsafeBlockBody(output));
+            Assert.Contains("unsafe(", output);
+            Assert.DoesNotContain("unsafe(await", output);
+            Assert.DoesNotContain("unsafe\n{", output);
             Assert.DoesNotContain("S_256_1", output);
 
             var validity = ValidityCheck.Evaluate(

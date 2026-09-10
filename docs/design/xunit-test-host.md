@@ -149,7 +149,7 @@ repository evidence profile rather than motivating a second command-line
 parser.
 
 `MtpTestHostTests` is the outcome-level gate for the first adopter,
-`dotnet-inspect.Tests`. It starts the built test apphost and covers the
+`DotnetInspect.Cli.Tests`. It starts the built test apphost and covers the
 unmatched, valid, and mixed valid/stale filter outcomes. The suite's workflow
 contract tests pin its MTP call sites and preserve the authenticated package
 fixture's stronger not-skipped receipt.
@@ -231,6 +231,12 @@ the pinned outcome-level host gate without changing the suite's identifier,
 signature, declaration, conditional-recovery, or layout evidence. Manual
 decompiler fixture probes continue to inspect the built test assembly rather
 than invoke its test host.
+
+`DotnetInspector.RowSelection.Tests` is the fourteenth migrated adopter. Its
+required PR and developer commands remain unfiltered. These paths reuse the
+pinned outcome-level host gate without changing the suite's typed-language,
+reference-evaluator, failure, or separately compiled non-friend consumer
+evidence.
 
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that

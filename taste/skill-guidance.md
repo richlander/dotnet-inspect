@@ -98,7 +98,7 @@ separation; this section owns the mechanics.
 
 When adding a focused product skill under `skills/`, register it in
 `SkillCommand.Skills` and add an `EmbeddedResource` line for it in
-`src/dotnet-inspect/dotnet-inspect.csproj`; the embeds are enumerated per
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj`; the embeds are enumerated per
 skill. `FocusedSkillFilesRegistryAndEmbeddedResourcesAgree` keeps the skill
 directories, runtime registry, and embedded resources equal. Its YAML
 frontmatter `description:` is the single source of truth for the generated

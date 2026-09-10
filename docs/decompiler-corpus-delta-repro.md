@@ -43,7 +43,7 @@ The PR quick card must use the PR quick corpus script with the PR quick baseline
 Do not mix it with the Deep Inspect corpus script or baseline.
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-pr-corpus.sh /tmp/pr-corpus-assemblies.txt
 mapfile -t assemblies < /tmp/pr-corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
@@ -86,7 +86,7 @@ Use this broader card when reviewing risky decompiler behavior or validating a
 manual corpus claim. It uses the Deep Inspect corpus script and baseline.
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \

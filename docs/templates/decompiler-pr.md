@@ -438,7 +438,7 @@ For the full local delta, see
 ## Validation
 
 ```bash
-dotnet build src/dotnet-inspect -c Release --nologo --verbosity quiet
+dotnet build src/DotnetInspect.Cli -c Release --nologo --verbosity quiet
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -filter "/*/*/{FocusedTests}/*"
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 ```
