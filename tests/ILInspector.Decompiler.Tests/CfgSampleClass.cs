@@ -5524,10 +5524,12 @@ public sealed class CfgGenericNestedEnumSink<T>
     enum CompletionPart
     {
         None,
-        Complete = 4,
+        Attributes = 4,
+        Decoded,
+        Complete,
     }
 
-    public void Set() => Complete(CompletionPart.Complete);
+    public void Set() => Complete(CompletionPart.Attributes);
 
     public void SetUnnamed() => Complete((CompletionPart)3);
 
@@ -5539,6 +5541,17 @@ public sealed class CfgGenericNestedEnumSink<T>
 
     void CompleteInteger(int value)
     {
+    }
+
+    int Switch(CompletionPart part)
+    {
+        return part switch
+        {
+            CompletionPart.Attributes => 1,
+            CompletionPart.Decoded => 2,
+            CompletionPart.Complete => 3,
+            _ => 0,
+        };
     }
 }
 

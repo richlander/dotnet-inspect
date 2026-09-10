@@ -56,7 +56,7 @@ internal static class SwitchTypeFacts
         };
         if (type is null)
             return null;
-        if (function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum)
+        if (CoercionRendering.IsEnum(type, function.TypeShapes))
             return type;
         return type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
             && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Unknown

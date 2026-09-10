@@ -134,6 +134,6 @@ public static class CoercionRendering
         return IsEnum(definition, shapes) ? StackFamily.I4 : null;
     }
 
-    static TypeRef NamedDefinition(TypeRef type)
+    internal static TypeRef NamedDefinition(TypeRef type)
         => type.Kind == TypeRefKind.GenericInstance ? type.ElementType! : type;
 }

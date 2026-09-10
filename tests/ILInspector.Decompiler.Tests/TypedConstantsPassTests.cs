@@ -77,7 +77,7 @@ public class TypedConstantsPassTests
         Assert.Equal(TypeRefKind.GenericInstance, parameterType.Kind);
         Assert.Equal(TypeShape.Enum, function.TypeShapes.GetValueOrDefault(parameterType.ElementType!));
         Assert.Equal(call.Callee.ParameterTypes[0], constant.Type);
-        Assert.Contains("Complete(CompletionPart.Complete);", CSharpPrinter.Print(function).Output);
+        Assert.Contains("Complete(CompletionPart.Attributes);", CSharpPrinter.Print(function).Output);
     }
 
     [Fact]
@@ -99,6 +99,21 @@ public class TypedConstantsPassTests
 
         Assert.Contains("Complete((CompletionPart)3);", output);
         Assert.DoesNotContain("Complete(3);", output);
+    }
+
+    [Fact]
+    public void GenericNestedEnumSwitch_RestoresGoverningValueAndNamesLabels()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            "Switch")).Output!;
+
+        Assert.Contains("part switch", output);
+        Assert.Contains("CompletionPart.Attributes => 1", output);
+        Assert.Contains("CompletionPart.Decoded => 2", output);
+        Assert.Contains("CompletionPart.Complete => 3", output);
+        Assert.DoesNotContain("part - 4", output);
+        Assert.DoesNotContain("4 => 1", output);
     }
 
     // --- Slice 2 (value-typed-emission.md): Convert folding, semantic element
