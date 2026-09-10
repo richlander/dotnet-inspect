@@ -581,6 +581,8 @@ public sealed record DependencyEvidenceFailureJson
 
     public required int Occurrences { get; init; }
 
+    public string? EvidenceIdentity { get; init; }
+
     internal static DependencyEvidenceFailureJson Create(
         DependencyEvidenceFailureRow row,
         DependencyEvidenceSourceTokens tokens) =>
@@ -602,6 +604,7 @@ public sealed record DependencyEvidenceFailureJson
             SourceLabel = row.SourceLabel,
             Message = row.Message,
             Occurrences = row.Occurrences,
+            EvidenceIdentity = row.EvidenceIdentity,
         };
 }
 

@@ -225,7 +225,9 @@ public class ExtensionsCommandTests
 
         var (exitCode, output, error) =
             await ConsoleCapture.RunAsync(
-                () => ExtensionsCommand.ExecuteAsync(options));
+                () => ExtensionsCommand.ExecuteAsync(
+                    options,
+                    TestContext.Current.CancellationToken));
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
