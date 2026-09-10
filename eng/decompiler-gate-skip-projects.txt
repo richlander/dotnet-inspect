@@ -100,6 +100,7 @@ src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
+src/Inspector.Resources
 src/TsJsExport.Contracts
 src/mdi
 src/runfaster
@@ -141,6 +142,7 @@ tests/ILInspector.Research.Tests
 tests/InertText.Tests
 tests/Inspector.Artifacts.Local.PlatformProbe
 tests/Inspector.Artifacts.Tests
+tests/Inspector.Resources.Tests
 tests/Inspector.Text.Tests
 tests/NetworkAccess.Tests
 tests/NuGetFetch.Tests
