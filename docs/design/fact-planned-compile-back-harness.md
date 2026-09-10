@@ -920,6 +920,12 @@ cannot admit a target, replace an RTS result, refine its status, or hide a
 missing result. Missing native output remains `ContextFail`; every selected row
 retains the native status and matching legacy status.
 
+The retained text report enumerates every native/legacy status pair and marks
+every exact or availability loss. The quality diff card remains the bounded
+aggregate projection: it carries provenance, inputs, caps, availability, losses,
+gains, same-status counts, and floor use without duplicating the member ledger
+already present in the snapshot and text artifact.
+
 The typed snapshot records the repository revision and source state captured
 when the harness was built, Roslyn compiler identity, runtime and platform
 identity, corpus profile, caps, input paths and module MVIDs. An assembly that
@@ -941,6 +947,7 @@ reconstruction.
 The Release gates
 `DeterministicReturnToSenderCutoverTargets_SelectsExactCapBeforeEitherOracle`,
 `DeterministicReturnToSenderCutoverTargets_FailsWhenExactCapIsUnavailable`,
+`SelectThenEvaluateNativeFirst_CompletesEveryPhaseAcrossAssemblies`,
 `AlignReturnToSenderResults_ReportsUnavailableTarget`,
 `SummarizeReturnToSenderCutover_SeparatesExactAndAvailabilityChanges`,
 `ReturnToSenderCutover_RealFixtureRetainsEveryNativePairWithoutFloor`,

@@ -1045,6 +1045,19 @@ internal static class CorpusSensor
         var reports = ImmutableArray.CreateBuilder<FidelityCapReport>();
         foreach (var cap in caps.Where(cap => cap > 0).Distinct().OrderBy(cap => cap))
         {
+            var cutoverEvaluations = fidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
+                ? SelectThenEvaluateNativeFirst(
+                    assemblies,
+                    assembly => new ReturnToSenderCutoverTargetSet(
+                        assembly,
+                        DeterministicReturnToSenderCutoverTargets(methods.Values, assembly, cap)),
+                    targetSet => EvaluateReturnToSenderTargets(
+                        targetSet.AssemblyPath,
+                        targetSet.Targets,
+                        "return-to-sender-cutover; compile-back-floor=false"),
+                    CompleteReturnToSenderCutover)
+                : [];
+            int cutoverEvaluationIndex = 0;
             var selectedResults = new List<FidelityCheck.CompileBackResult>();
             var allResults = new List<FidelityCheck.CompileBackResult>();
             int parityRescued = 0, paritySame = 0, parityWorse = 0;
@@ -1062,20 +1075,23 @@ internal static class CorpusSensor
             foreach (var assembly in assemblies)
             {
                 var portablePath = PortablePath(assembly);
-                var targetAttempts = fidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
-                    ? DeterministicReturnToSenderCutoverTargets(methods.Values, assembly, cap)
-                    : DeterministicCompileBackTargetAttempts(methods.Values, assembly, cap);
                 FidelityOracleEvaluation evaluation;
                 try
                 {
-                    evaluation = fidelityOracle switch
+                    evaluation = fidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
+                        ? cutoverEvaluations[cutoverEvaluationIndex++]
+                        : fidelityOracle switch
                     {
                         CorpusFidelityOracle.CompileBack
-                            => EvaluateCompileBackTargets([assembly], targetAttempts, cap),
+                            => EvaluateCompileBackTargets(
+                                [assembly],
+                                DeterministicCompileBackTargetAttempts(methods.Values, assembly, cap),
+                                cap),
                         CorpusFidelityOracle.ReturnToSender
-                            => EvaluateReturnToSenderParity(assembly, targetAttempts, cap),
-                        CorpusFidelityOracle.ReturnToSenderCutover
-                            => EvaluateReturnToSenderCutover(assembly, targetAttempts),
+                            => EvaluateReturnToSenderParity(
+                                assembly,
+                                DeterministicCompileBackTargetAttempts(methods.Values, assembly, cap),
+                                cap),
                         _ => throw new ArgumentOutOfRangeException(nameof(fidelityOracle)),
                     };
                 }
@@ -1237,18 +1253,13 @@ internal static class CorpusSensor
             SummarizeReturnToSenderParity(targetSample, returnToSender.Results));
     }
 
-    static FidelityOracleEvaluation EvaluateReturnToSenderCutover(
-        string assemblyPath,
-        IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets)
+    static FidelityOracleEvaluation CompleteReturnToSenderCutover(
+        ReturnToSenderCutoverTargetSet targetSet,
+        ReturnToSenderEvaluation returnToSender)
     {
-        if (selectedTargets.Count == 0)
-            return new FidelityOracleEvaluation([], AllResults: []);
-
-        var returnToSender = EvaluateReturnToSenderTargets(
-            assemblyPath,
-            selectedTargets,
-            "return-to-sender-cutover; compile-back-floor=false");
-        var compileBackResults = EvaluateTargetsInAttemptOrder([assemblyPath], selectedTargets);
+        var compileBackResults = EvaluateTargetsInAttemptOrder(
+            [targetSet.AssemblyPath],
+            targetSet.Targets);
         var cutover = SummarizeReturnToSenderCutover(
             compileBackResults,
             returnToSender.Results,
@@ -1261,6 +1272,21 @@ internal static class CorpusSensor
                 result => result.Status,
                 StringComparer.Ordinal),
             Cutover: cutover);
+    }
+
+    internal static IReadOnlyList<TResult> SelectThenEvaluateNativeFirst<TInput, TSelected, TNative, TResult>(
+        IReadOnlyList<TInput> inputs,
+        Func<TInput, TSelected> select,
+        Func<TSelected, TNative> evaluateNative,
+        Func<TSelected, TNative, TResult> evaluateLegacy)
+    {
+        var selected = inputs.Select(select).ToArray();
+        var native = selected
+            .Select(item => (Selected: item, Native: evaluateNative(item)))
+            .ToArray();
+        return native
+            .Select(item => evaluateLegacy(item.Selected, item.Native))
+            .ToArray();
     }
 
     static ReturnToSenderEvaluation EvaluateReturnToSenderTargets(
@@ -1691,6 +1717,10 @@ internal static class CorpusSensor
     sealed record ReturnToSenderEvaluation(
         IReadOnlyList<FidelityCheck.CompileBackResult> Results,
         int CompileBackFloorAppliedMethods);
+
+    sealed record ReturnToSenderCutoverTargetSet(
+        string AssemblyPath,
+        IReadOnlyList<FidelityCheck.CompileBackTarget> Targets);
 
     internal static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttemptsForTesting(
         IReadOnlyList<CorpusMethodSnapshot> methods,
@@ -2540,25 +2570,8 @@ internal static class CorpusSensor
         Console.WriteLine();
         Console.WriteLine($"Assemblies: {snapshot.Assemblies.Count}");
         Console.WriteLine($"Methods: {metrics.TotalMethods}");
-        if (snapshot.RunIdentity is { } run)
-        {
-            Console.WriteLine(
-                $"Source revision: {run.SourceRevision}"
-                + $"{(run.SourceState == "clean" ? "" : $" ({run.SourceState})")}");
-            Console.WriteLine($"Compiler: {run.Compiler}");
-            Console.WriteLine($"Runtime: {run.Runtime}");
-            Console.WriteLine(
-                $"Platform: {run.OperatingSystem} ({run.ProcessArchitecture})");
-            Console.WriteLine("Inputs:");
-            foreach (var assembly in snapshot.Assemblies)
-            {
-                Console.WriteLine(
-                    $"  {assembly.Path} @ "
-                    + $"{assembly.ModuleVersionId?.ToString("D") ?? "MVID unavailable"}");
-            }
-        }
-        if (snapshot.MethodCap is { } cap)
-            Console.WriteLine($"Sample: hash-stable {Number(cap)} methods per assembly");
+        foreach (string line in CorpusDisclosureLines(snapshot))
+            Console.WriteLine(line);
         var verified = VerifiedFullyRaised(snapshot);
         int loweringResidue = metrics.TotalMethods - metrics.FullyRaisedMethods;
         Console.WriteLine(
@@ -2620,6 +2633,33 @@ internal static class CorpusSensor
                 + "of completed validity outcomes)");
         }
         PrintFidelityResidualPortfolio(snapshot);
+    }
+
+    internal static ImmutableArray<string> CorpusDisclosureLinesForTesting(
+        CorpusSensorSnapshot snapshot)
+        => CorpusDisclosureLines(snapshot);
+
+    static ImmutableArray<string> CorpusDisclosureLines(CorpusSensorSnapshot snapshot)
+    {
+        var lines = ImmutableArray.CreateBuilder<string>();
+        lines.Add($"Corpus profile: {CorpusProfileName(snapshot.Profile)}");
+        lines.Add($"Method cap: {CapText(snapshot.MethodCap)}");
+        if (snapshot.FidelityCompileCap > 0)
+            lines.Add($"Per-assembly fidelity cap: {snapshot.FidelityCompileCap}");
+        if (snapshot.RunIdentity is { } run)
+        {
+            lines.Add(
+                $"Source revision: {run.SourceRevision}"
+                + $"{(run.SourceState == "clean" ? "" : $" ({run.SourceState})")}");
+            lines.Add($"Compiler: {run.Compiler}");
+            lines.Add($"Runtime: {run.Runtime}");
+            lines.Add($"Platform: {run.OperatingSystem} ({run.ProcessArchitecture})");
+            lines.Add("Inputs:");
+            lines.AddRange(snapshot.Assemblies.Select(assembly =>
+                $"  {assembly.Path} @ "
+                + $"{assembly.ModuleVersionId?.ToString("D") ?? "MVID unavailable"}"));
+        }
+        return lines.ToImmutable();
     }
 
     static void PrintFidelityResidualPortfolio(CorpusSensorSnapshot snapshot)
@@ -2909,11 +2949,13 @@ internal static class CorpusSensor
         var input = new List<string>
         {
             $"Corpus: {current.Description} {AssemblyCount(current.Assemblies.Count)}, {Number(current.Metrics.TotalMethods)} methods",
+            $"Corpus profile: {CorpusProfileName(current.Profile)}",
+            $"Method cap: {CapText(current.MethodCap)}",
         };
+        if (current.FidelityCompileCap > 0)
+            input.Add($"Per-assembly fidelity cap: {Number(current.FidelityCompileCap)}");
         if (baselineRef is not null)
             input.Add($"Baseline ref: `{baselineRef}`");
-        if (current.MethodCap is { } cap)
-            input.Add($"Sample: hash-stable {Number(cap)} methods per assembly");
         if (current.FidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
             && current.RunIdentity is { } run)
         {

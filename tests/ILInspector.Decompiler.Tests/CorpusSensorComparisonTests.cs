@@ -1951,6 +1951,44 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void SelectThenEvaluateNativeFirst_CompletesEveryPhaseAcrossAssemblies()
+    {
+        var events = new List<string>();
+
+        var results = CorpusSensor.SelectThenEvaluateNativeFirst(
+            new[] { "A", "B" },
+            assembly =>
+            {
+                events.Add($"select:{assembly}");
+                return $"{assembly}:target";
+            },
+            target =>
+            {
+                events.Add($"native:{target}");
+                return $"{target}:native";
+            },
+            (target, native) =>
+            {
+                events.Add($"legacy:{target}");
+                return $"{native}:legacy";
+            });
+
+        Assert.Equal(
+        [
+            "select:A",
+            "select:B",
+            "native:A:target",
+            "native:B:target",
+            "legacy:A:target",
+            "legacy:B:target",
+        ],
+            events);
+        Assert.Equal(
+            ["A:target:native:legacy", "B:target:native:legacy"],
+            results);
+    }
+
+    [Fact]
     public void SummarizeReturnToSenderCutover_SeparatesExactAndAvailabilityChanges()
     {
         FidelityCheck.CompileBackResult[] legacy =
@@ -2144,6 +2182,9 @@ public class CorpusSensorComparisonTests
 
         string card = CorpusSensor.QualityDiffCardForTesting(baseline, current, []);
 
+        Assert.Contains("Corpus profile: real-world", card);
+        Assert.Contains("Method cap: 100", card);
+        Assert.Contains("Per-assembly fidelity cap: 1", card);
         Assert.Contains("Source revision: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` (clean)", card);
         Assert.Contains("RTS cutover native available", card);
         Assert.Contains("RTS cutover legacy unavailable", card);
@@ -2151,6 +2192,12 @@ public class CorpusSensorComparisonTests
         Assert.Contains("RTS cutover availability gains", card);
         Assert.Contains("RTS cutover same status", card);
         Assert.Contains("RTS cutover compile-back floor applications", card);
+
+        var disclosure = CorpusSensor.CorpusDisclosureLinesForTesting(
+            current with { MethodCap = null });
+        Assert.Contains("Corpus profile: real-world", disclosure);
+        Assert.Contains("Method cap: uncapped", disclosure);
+        Assert.Contains("Per-assembly fidelity cap: 1", disclosure);
     }
 
     [Fact]
@@ -3037,8 +3084,10 @@ public class CorpusSensorComparisonTests
         Assert.Contains(
             "**Input**\n\n"
             + "- Corpus: test 1 assembly, 8,000 methods\n"
+            + "- Corpus profile: real-world\n"
+            + "- Method cap: 100\n"
             + "- Baseline ref: `abc123`\n"
-            + "- Sample: hash-stable 100 methods per assembly\n\n"
+            + "\n"
             + "**Analysis**\n\n"
             + "- Correctness coverage: validity compiled 2 methods (compile-cap 2; per-sample, not corpus-wide); fidelity not run\n"
             + "- Pinned control-flow raise gate: 1 comparison input mismatch(es); review required.\n"
@@ -3066,7 +3115,8 @@ public class CorpusSensorComparisonTests
         Assert.Contains(
             "**Input**\n\n"
             + "- Corpus: test 1 assembly, 8,000 methods\n"
-            + "- Sample: hash-stable 100 methods per assembly\n\n"
+            + "- Corpus profile: opt-in-net11\n"
+            + "- Method cap: 100\n\n"
             + "**Analysis**\n\n"
             + "- Correctness coverage: validity not run; fidelity not run\n"
             + "- Current measured debt: 900 methods with detected lowering residue.\n"
