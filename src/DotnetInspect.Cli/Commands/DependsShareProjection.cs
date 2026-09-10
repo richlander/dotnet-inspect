@@ -22,9 +22,7 @@ internal static class DependsShareProjection
             || options.Tree
             || options.NoHeader
             || options.Rows is not null
-            || options.Count
-            || options.Tree
-            || options.NoHeader)
+            || options.Count)
         {
             return "--share selects packet or URL output and cannot be combined "
                 + "with other output formatting or projection options.";
