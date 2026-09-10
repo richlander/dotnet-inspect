@@ -995,6 +995,9 @@ jobs:
       - name: Run PlatformHouse contract tests
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Tests -c Release
 
+      - name: Run installed PlatformHouse adapter tests
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Installed.Tests -c Release
+
       - name: Run row-selection tests
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
 
