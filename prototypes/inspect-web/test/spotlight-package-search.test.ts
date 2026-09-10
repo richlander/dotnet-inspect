@@ -3,7 +3,13 @@ import test from "node:test";
 
 import {
   createSpotlightPackageSearch,
+  normalizeSpotlightPackageSearchSnapshot,
+  spotlightPackageSearchError,
+  spotlightPackageSearchIsLoading,
+  visibleSpotlightPackageHits,
+  type ReadySpotlightPackageSearch,
   type SpotlightPackageSearchDependencies,
+  type SpotlightPackageSearchResultState,
   type SpotlightPackageSearchState,
 } from "../src/spotlight-package-search.ts";
 import type { SpotlightPackageHit } from "../src/spotlight.ts";
@@ -14,15 +20,27 @@ interface ScheduledSearch {
   callback: () => Promise<void>;
 }
 
+function ready(
+  query: string,
+  hits: readonly SpotlightPackageHit[] = [],
+): ReadySpotlightPackageSearch {
+  return { status: "ready", query, hits };
+}
+
+function loading(
+  query: string,
+  cached: ReadySpotlightPackageSearch | null = null,
+): SpotlightPackageSearchResultState {
+  return { status: "loading", query, cached };
+}
+
 function searchState(
   overrides: Partial<SpotlightPackageSearchState> = {},
 ): SpotlightPackageSearchState {
   return {
     spotlightQuery: "",
     spotlightScope: "all",
-    spotlightPkgHits: [],
-    spotlightPkgQuery: "",
-    spotlightPkgLoading: false,
+    spotlightPackageSearch: { status: "idle" },
     ...overrides,
   };
 }
@@ -85,7 +103,7 @@ test("eligible package queries schedule one trimmed debounced request", async ()
   search.schedule();
 
   assert.equal(queries, 0);
-  assert.equal(state.spotlightPkgLoading, true);
+  assert.deepEqual(state.spotlightPackageSearch, loading("Example"));
   assert.equal(harness.scheduled.length, 1);
   assert.equal(harness.scheduled[0]?.delay, 220);
   await harness.scheduled[0]?.callback();
@@ -103,7 +121,7 @@ test("the dedicated Packages scope schedules NuGet discovery", () => {
   search.schedule();
 
   assert.equal(harness.scheduled.length, 1);
-  assert.equal(state.spotlightPkgLoading, true);
+  assert.equal(state.spotlightPackageSearch.status, "loading");
 });
 
 test("rescheduling cancels the prior debounce before replacing it", () => {
@@ -112,37 +130,43 @@ test("rescheduling cancels the prior debounce before replacing it", () => {
   const search = createSpotlightPackageSearch(harness.dependencies);
 
   search.schedule();
+  const first = state.spotlightPackageSearch;
   state.spotlightQuery = "second";
   search.schedule();
 
   assert.deepEqual(harness.cancelled, [1]);
   assert.equal(harness.scheduled.length, 2);
-  assert.equal(state.spotlightPkgLoading, true);
+  assert.deepEqual(state.spotlightPackageSearch, loading("second"));
+  assert.notEqual(state.spotlightPackageSearch, first);
 });
 
 test("early-return transitions cancel a pending debounce", () => {
   const cases: readonly {
     name: string;
     transition: (state: SpotlightPackageSearchState) => void;
+    expected: SpotlightPackageSearchResultState;
   }[] = [
     {
       name: "ineligible scope",
       transition: state => {
         state.spotlightScope = "types";
       },
+      expected: { status: "idle" },
     },
     {
       name: "short query",
       transition: state => {
         state.spotlightQuery = "x";
       },
+      expected: { status: "idle" },
     },
     {
       name: "resolved query",
       transition: state => {
-        state.spotlightPkgQuery = "Example";
-        state.spotlightPkgHits = [{ id: "Example", version: "1.0.0" }];
+        state.spotlightPackageSearch =
+          ready("Example", [{ id: "Example", version: "1.0.0" }]);
       },
+      expected: ready("Example", [{ id: "Example", version: "1.0.0" }]),
     },
   ];
 
@@ -157,62 +181,61 @@ test("early-return transitions cancel a pending debounce", () => {
 
     assert.deepEqual(harness.cancelled, [1], scenario.name);
     assert.equal(harness.scheduled.length, 1, scenario.name);
-    assert.equal(state.spotlightPkgLoading, false, scenario.name);
+    assert.deepEqual(
+      state.spotlightPackageSearch,
+      scenario.expected,
+      scenario.name,
+    );
   }
 });
 
-test("ineligible scopes stop loading without clearing resolved results", () => {
-  const hits = [{ id: "Existing", version: "1.0.0" }];
+test("ineligible scopes settle loading to its successful cache", () => {
+  const cached = ready(
+    "Existing",
+    [{ id: "Existing", version: "1.0.0" }],
+  );
   const state = searchState({
     spotlightQuery: "Example",
     spotlightScope: "types",
-    spotlightPkgHits: hits,
-    spotlightPkgQuery: "Existing",
-    spotlightPkgLoading: true,
+    spotlightPackageSearch: loading("Example", cached),
   });
   const harness = searchDependencies(state);
   const search = createSpotlightPackageSearch(harness.dependencies);
 
   search.schedule();
 
-  assert.equal(state.spotlightPkgHits, hits);
-  assert.equal(state.spotlightPkgQuery, "Existing");
-  assert.equal(state.spotlightPkgLoading, false);
+  assert.equal(state.spotlightPackageSearch, cached);
   assert.equal(harness.scheduled.length, 0);
 });
 
-test("short queries clear package discovery state", () => {
+test("short queries discard package discovery state", () => {
   const state = searchState({
     spotlightQuery: "x",
-    spotlightPkgHits: [{ id: "Existing", version: "1.0.0" }],
-    spotlightPkgQuery: "Existing",
-    spotlightPkgLoading: true,
+    spotlightPackageSearch: loading(
+      "Example",
+      ready("Existing", [{ id: "Existing", version: "1.0.0" }]),
+    ),
   });
   const harness = searchDependencies(state);
   const search = createSpotlightPackageSearch(harness.dependencies);
 
   search.schedule();
 
-  assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "");
-  assert.equal(state.spotlightPkgLoading, false);
+  assert.deepEqual(state.spotlightPackageSearch, { status: "idle" });
 });
 
-test("already-resolved queries retain their results without another request", () => {
-  const hits = [{ id: "Example", version: "1.0.0" }];
+test("cached queries restore their exact ready value without another request", () => {
+  const cached = ready("Example", [{ id: "Example", version: "1.0.0" }]);
   const state = searchState({
     spotlightQuery: "Example",
-    spotlightPkgHits: hits,
-    spotlightPkgQuery: "Example",
-    spotlightPkgLoading: true,
+    spotlightPackageSearch: loading("Other", cached),
   });
   const harness = searchDependencies(state);
   const search = createSpotlightPackageSearch(harness.dependencies);
 
   search.schedule();
 
-  assert.equal(state.spotlightPkgHits, hits);
-  assert.equal(state.spotlightPkgLoading, false);
+  assert.equal(state.spotlightPackageSearch, cached);
   assert.equal(harness.scheduled.length, 0);
 });
 
@@ -233,17 +256,16 @@ test("current package results publish and refresh the mounted surface", async ()
   search.schedule();
   await harness.scheduled[0]?.callback();
 
-  assert.deepEqual(state.spotlightPkgHits, hits);
-  assert.notEqual(state.spotlightPkgHits, hits);
-  assert.equal(state.spotlightPkgQuery, "Example");
-  assert.equal(state.spotlightPkgLoading, false);
+  assert.deepEqual(state.spotlightPackageSearch, ready("Example", hits));
+  assert.equal(state.spotlightPackageSearch.status, "ready");
+  assert.notEqual(state.spotlightPackageSearch.hits, hits);
   assert.equal(harness.updates(), 1);
 });
 
-test("current package failures are visible and the same query can be retried", async () => {
+test("current failures discard cache and the same query can be retried", async () => {
   const state = searchState({
     spotlightQuery: "Example",
-    spotlightPkgHits: [{ id: "Old", version: "1.0.0" }],
+    spotlightPackageSearch: ready("Old", [{ id: "Old", version: "1.0.0" }]),
   });
   const harness = searchDependencies(state, {
     queryPackages: async () => {
@@ -255,16 +277,14 @@ test("current package failures are visible and the same query can be retried", a
   search.schedule();
   await harness.scheduled[0]?.callback();
 
-  assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "");
-  assert.equal(state.spotlightPkgLoading, false);
-  assert.match(state.spotlightPkgError ?? "", /NuGet unavailable/);
-  assert.match(state.spotlightPkgError ?? "", /try again/);
+  assert.equal(state.spotlightPackageSearch.status, "failed");
+  assert.equal(state.spotlightPackageSearch.query, "Example");
+  assert.match(state.spotlightPackageSearch.error, /NuGet unavailable/);
+  assert.match(state.spotlightPackageSearch.error, /try again/);
   assert.equal(harness.updates(), 1);
   search.schedule();
   assert.equal(harness.scheduled.length, 2);
-  assert.equal(state.spotlightPkgError, "");
-  assert.equal(state.spotlightPkgLoading, true);
+  assert.deepEqual(state.spotlightPackageSearch, loading("Example"));
 });
 
 for (const transition of ["edit-and-undo", "scope change"] as const) {
@@ -286,7 +306,8 @@ for (const transition of ["edit-and-undo", "scope change"] as const) {
 
     search.schedule();
     await harness.scheduled[0]?.callback();
-    assert.match(state.spotlightPkgError ?? "", /NuGet unavailable/);
+    assert.match(spotlightPackageSearchError(state.spotlightPackageSearch),
+      /NuGet unavailable/);
     if (transition === "edit-and-undo") {
       state.spotlightQuery = "Example.more";
       search.schedule();
@@ -296,17 +317,18 @@ for (const transition of ["edit-and-undo", "scope change"] as const) {
       search.schedule();
       state.spotlightScope = "packages";
     }
-    assert.equal(state.spotlightPkgError, "");
+    assert.equal(
+      spotlightPackageSearchError(state.spotlightPackageSearch),
+      "",
+    );
     search.schedule();
 
-    assert.equal(state.spotlightPkgLoading, true);
+    assert.equal(state.spotlightPackageSearch.status, "loading");
     assert.equal(harness.scheduled.length, transition === "edit-and-undo" ? 3 : 2);
     assert.deepEqual(harness.cancelled, transition === "edit-and-undo" ? [2] : []);
     await harness.scheduled.at(-1)?.callback();
     assert.deepEqual(queries, ["Example", "Example"]);
-    assert.deepEqual(state.spotlightPkgHits, hits);
-    assert.equal(state.spotlightPkgError, "");
-    assert.equal(state.spotlightPkgLoading, false);
+    assert.deepEqual(state.spotlightPackageSearch, ready("Example", hits));
   });
 }
 
@@ -323,6 +345,8 @@ test("successful empty results remain cached after edit-and-undo", async () => {
 
   search.schedule();
   await harness.scheduled[0]?.callback();
+  const cached = state.spotlightPackageSearch;
+  assert.equal(cached.status, "ready");
   state.spotlightQuery = "Example.more";
   search.schedule();
   state.spotlightQuery = "Example";
@@ -331,10 +355,8 @@ test("successful empty results remain cached after edit-and-undo", async () => {
   assert.deepEqual(queries, ["Example"]);
   assert.equal(harness.scheduled.length, 2);
   assert.deepEqual(harness.cancelled, [2]);
-  assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "Example");
-  assert.equal(state.spotlightPkgError, "");
-  assert.equal(state.spotlightPkgLoading, false);
+  assert.equal(state.spotlightPackageSearch, cached);
+  assert.deepEqual(visibleSpotlightPackageHits(cached, "Example"), []);
 });
 
 test("input changes independently suppress stale package results", async () => {
@@ -346,18 +368,18 @@ test("input changes independently suppress stale package results", async () => {
   const search = createSpotlightPackageSearch(harness.dependencies);
 
   search.schedule();
+  const pending = state.spotlightPackageSearch;
   const request = harness.scheduled[0]?.callback();
   state.spotlightQuery = "second";
   query.resolve([{ id: "Stale", version: "1.0.0" }]);
   await request;
 
-  assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "");
-  assert.equal(state.spotlightPkgLoading, true);
+  assert.equal(state.spotlightPackageSearch, pending);
+  assert.equal(spotlightPackageSearchIsLoading(state.spotlightPackageSearch), true);
   assert.equal(harness.updates(), 0);
 });
 
-test("newer generations suppress stale success while publishing the replacement", async () => {
+test("newer loading identity suppresses stale success while publishing replacement", async () => {
   const first = deferred<readonly SpotlightPackageHit[]>();
   const state = searchState({ spotlightQuery: "first" });
   const harness = searchDependencies(state, {
@@ -376,16 +398,14 @@ test("newer generations suppress stale success while publishing the replacement"
   first.resolve([{ id: "Stale", version: "1.0.0" }]);
   await firstRequest;
 
-  assert.deepEqual(state.spotlightPkgHits, [{
-    id: "Current",
-    version: "2.0.0",
-  }]);
-  assert.equal(state.spotlightPkgQuery, "second");
-  assert.equal(state.spotlightPkgLoading, false);
+  assert.deepEqual(
+    state.spotlightPackageSearch,
+    ready("second", [{ id: "Current", version: "2.0.0" }]),
+  );
   assert.equal(harness.updates(), 1);
 });
 
-test("same-input generations independently suppress stale failures", async () => {
+test("same-input loading identity independently suppresses stale failures", async () => {
   const first = deferred<readonly SpotlightPackageHit[]>();
   let queries = 0;
   const state = searchState({ spotlightQuery: "Example" });
@@ -405,13 +425,10 @@ test("same-input generations independently suppress stale failures", async () =>
   first.reject(new Error("stale failure"));
   await firstRequest;
 
-  assert.deepEqual(state.spotlightPkgHits, [{
-    id: "Current",
-    version: "2.0.0",
-  }]);
-  assert.equal(state.spotlightPkgQuery, "Example");
-  assert.equal(state.spotlightPkgLoading, false);
-  assert.equal(state.spotlightPkgError, "");
+  assert.deepEqual(
+    state.spotlightPackageSearch,
+    ready("Example", [{ id: "Current", version: "2.0.0" }]),
+  );
   assert.equal(harness.updates(), 1);
 });
 
@@ -424,18 +441,17 @@ test("input changes independently suppress stale failures", async () => {
   const search = createSpotlightPackageSearch(harness.dependencies);
 
   search.schedule();
+  const pending = state.spotlightPackageSearch;
   const request = harness.scheduled[0]?.callback();
   state.spotlightQuery = "second";
   query.reject(new Error("stale failure"));
   await request;
 
-  assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "");
-  assert.equal(state.spotlightPkgLoading, true);
+  assert.equal(state.spotlightPackageSearch, pending);
   assert.equal(harness.updates(), 0);
 });
 
-test("leaving package scopes invalidates an in-flight request with unchanged input", async () => {
+test("leaving package scopes invalidates an in-flight request", async () => {
   const query = deferred<readonly SpotlightPackageHit[]>();
   const state = searchState({ spotlightQuery: "Example" });
   const harness = searchDependencies(state, {
@@ -450,9 +466,7 @@ test("leaving package scopes invalidates an in-flight request with unchanged inp
   query.resolve([{ id: "Stale", version: "1.0.0" }]);
   await request;
 
-  assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "");
-  assert.equal(state.spotlightPkgLoading, false);
+  assert.deepEqual(state.spotlightPackageSearch, { status: "idle" });
   assert.equal(harness.updates(), 0);
 });
 
@@ -472,9 +486,7 @@ test("short-query cancellation stays effective if the prior input returns", asyn
   query.resolve([{ id: "Stale", version: "1.0.0" }]);
   await request;
 
-  assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "");
-  assert.equal(state.spotlightPkgLoading, false);
+  assert.deepEqual(state.spotlightPackageSearch, { status: "idle" });
   assert.equal(harness.updates(), 0);
 });
 
@@ -493,18 +505,18 @@ test("reset cancels scheduled and in-flight publication", async () => {
   await request;
 
   assert.deepEqual(harness.cancelled, []);
-  assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "");
-  assert.equal(state.spotlightPkgLoading, false);
+  assert.deepEqual(state.spotlightPackageSearch, { status: "idle" });
   assert.equal(harness.updates(), 0);
 });
 
 test("reset cancels a pending debounce and clears discovery state", () => {
   const state = searchState({
     spotlightQuery: "Example",
-    spotlightPkgHits: [{ id: "Old", version: "1.0.0" }],
-    spotlightPkgQuery: "Old",
-    spotlightPkgError: "Previous failure",
+    spotlightPackageSearch: {
+      status: "failed",
+      query: "Old",
+      error: "Previous failure",
+    },
   });
   const harness = searchDependencies(state);
   const search = createSpotlightPackageSearch(harness.dependencies);
@@ -513,8 +525,61 @@ test("reset cancels a pending debounce and clears discovery state", () => {
   search.reset();
 
   assert.deepEqual(harness.cancelled, [1]);
-  assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "");
-  assert.equal(state.spotlightPkgLoading, false);
-  assert.equal(state.spotlightPkgError, "");
+  assert.deepEqual(state.spotlightPackageSearch, { status: "idle" });
+});
+
+test("snapshot normalization settles loading without mutating live state", () => {
+  const cached = ready(
+    "Existing",
+    [{ id: "Existing", version: "1.0.0" }],
+  );
+  const withCache = loading("Pending", cached);
+  const withoutCache = loading("Pending");
+
+  assert.equal(normalizeSpotlightPackageSearchSnapshot(withCache), cached);
+  assert.deepEqual(
+    normalizeSpotlightPackageSearchSnapshot(withoutCache),
+    { status: "idle" },
+  );
+  assert.deepEqual(withCache, loading("Pending", cached));
+  assert.deepEqual(withoutCache, loading("Pending"));
+});
+
+test("a loading receipt cannot publish after snapshot settlement replaces it", async () => {
+  const query = deferred<readonly SpotlightPackageHit[]>();
+  const state = searchState({ spotlightQuery: "Example" });
+  const harness = searchDependencies(state, {
+    queryPackages: async () => query.promise,
+  });
+  const search = createSpotlightPackageSearch(harness.dependencies);
+
+  search.schedule();
+  const request = harness.scheduled[0]?.callback();
+  state.spotlightPackageSearch =
+    normalizeSpotlightPackageSearchSnapshot(state.spotlightPackageSearch);
+  query.resolve([{ id: "Stale", version: "1.0.0" }]);
+  await request;
+
+  assert.deepEqual(state.spotlightPackageSearch, { status: "idle" });
+  assert.equal(harness.updates(), 0);
+});
+
+test("result projections expose only evidence valid for the current variant", () => {
+  const cached = ready(
+    "Example",
+    [{ id: "Example.Package", version: "1.0.0" }],
+  );
+  const pending = loading("Other", cached);
+  const failed = {
+    status: "failed",
+    query: "Other",
+    error: "Package search failed",
+  } as const;
+
+  assert.deepEqual(visibleSpotlightPackageHits(pending, "Example"), cached.hits);
+  assert.deepEqual(visibleSpotlightPackageHits(pending, "Other"), []);
+  assert.equal(spotlightPackageSearchIsLoading(pending), true);
+  assert.equal(spotlightPackageSearchIsLoading(cached), false);
+  assert.equal(spotlightPackageSearchError(failed), "Package search failed");
+  assert.equal(spotlightPackageSearchError(pending), "");
 });
