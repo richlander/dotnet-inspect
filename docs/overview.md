@@ -194,6 +194,15 @@ substrates, and inspection producers that will extend that space.
   XML, PDB, SourceLink, and source-comment algorithms, Workspace admission,
   the assembly-reference ladder, and host presentation remain with their
   focused owners.
+- The target [SourceHouse Composition](design/source-house.md) owner defines
+  the sole host-neutral source settlement facade over one exact target and one
+  owner-issued content-backed library representation. It composes
+  `SourceLinkService` and `CSharpDecompilerService`, keeps source-result demand
+  independent from consumer-selected PDB access, prefers supplied assembly and
+  PDB content over acquisition, and preserves both producer attempts and
+  provenance. PackageHouse, PlatformHouse, and direct-library adapters produce
+  the shared representation; SourceLink, Decompiler, artifact lifetime,
+  documentation, and host presentation remain with their focused owners.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,
