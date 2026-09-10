@@ -474,6 +474,49 @@ public sealed class EcosystemCommandTests
     }
 
     [Fact]
+    public async Task JsonPreservesEmptyTableAsArray()
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspnetcore",
+            Select = ["Tool Packages"],
+            Format = OutputFormat.Json,
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement section =
+            document.RootElement.GetProperty("tool_packages");
+        Assert.Equal(JsonValueKind.Array, section.ValueKind);
+        Assert.Empty(section.EnumerateArray());
+    }
+
+    [Fact]
+    public async Task JsonOmitsSectionsProjectedAwayByColumns()
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "microsoft-extensions",
+            SelectDefault = true,
+            Columns = ["Package"],
+            Format = OutputFormat.Json,
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonProperty[] sections =
+            [.. document.RootElement.EnumerateObject()];
+        Assert.Equal(
+            ["core_packages", "tool_packages"],
+            sections.Select(section => section.Name));
+        Assert.Equal(JsonValueKind.Array, sections[0].Value.ValueKind);
+        Assert.Equal(JsonValueKind.Array, sections[1].Value.ValueKind);
+        Assert.Empty(sections[1].Value.EnumerateArray());
+    }
+
+    [Fact]
     public async Task UnknownSelector_ListsShortAndCanonicalChoices()
     {
         var result = await ExecuteAsync(new EcosystemOptions

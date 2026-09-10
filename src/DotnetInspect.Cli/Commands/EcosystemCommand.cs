@@ -191,8 +191,12 @@ public static class EcosystemCommand
                 or OutputFormat.Tsv
                 or OutputFormat.Jsonl
                 or OutputFormat.Json;
+        EcosystemSection[] renderSelected =
+        [
+            .. selected.Where(section => renderedNames.Contains(section.Name)),
+        ];
         EcosystemSection[] rendered = PrepareRenderSections(
-            selected,
+            renderSelected,
             options.Rows,
             structuredEmptyRows);
 
@@ -208,7 +212,8 @@ public static class EcosystemCommand
                         title,
                         description,
                         rendered,
-                        includeDocumentHeading),
+                        includeDocumentHeading,
+                        renderEmptyTables: true),
                 maxRows: null);
             return 0;
         }
@@ -672,7 +677,8 @@ public static class EcosystemCommand
         string title,
         string description,
         IEnumerable<EcosystemSection> sections,
-        bool includeDocumentHeading)
+        bool includeDocumentHeading,
+        bool renderEmptyTables = false)
     {
         if (includeDocumentHeading)
         {
@@ -688,7 +694,9 @@ public static class EcosystemCommand
             first = false;
             writer.WriteHeading(2, section.Name);
             writer.WriteParagraph(section.Summary);
-            if (section.Rows.Length == 0 && section.WasLogicallyEmpty)
+            if (section.Rows.Length == 0
+                && section.WasLogicallyEmpty
+                && !renderEmptyTables)
                 writer.WriteParagraph(section.EmptyText);
             else
                 WriteTable(writer, section);
