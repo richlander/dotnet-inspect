@@ -40,6 +40,9 @@ substrates, and inspection producers that will extend that space.
   `--share` gesture that projects an inspection command's effective resolved
   source, context, subject, facet, and query state to a canonical Workspace
   packet or Inspect Web URL without a second construction grammar.
+  [Inspection Plan Projections](design/inspection-plan-projections.md) owns the
+  shared resolved basis and closed terminal-purpose split among section
+  execution, effective-section discovery, and portable sharing.
   Its
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
@@ -476,6 +479,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md):
   proposed separation of type/member intent, section resolution, producer
   authorization, shared declaration validation, and C# representability.
+- [Inspection plan projections](design/inspection-plan-projections.md):
+  composition of one resolved inspection basis into distinct section-execution,
+  effective-discovery, or portable-share plans.
 - [Inspection graph document](design/inspection-graph-document.md): typed
   multi-subject graph projection for calls, metadata relationships,
   integrations, Findings, characteristics, and package/type lenses.
