@@ -911,7 +911,9 @@ Before ordinary fidelity consumers can move to RTS, one pinned corpus run must
 measure a target population selected without executing or consulting legacy
 compile-back. For each assembly and positive cap, the corpus-owned stable method
 hash and full stable member key choose exactly that many non-synthesized targets.
-Selection completes before either compiler oracle runs.
+Selection completes before either compiler oracle runs. Because one snapshot
+contains one complete member ledger, a cutover invocation accepts at most one
+distinct positive cap; cap comparisons use separate invocations.
 
 Native RTS evaluates every selected target first with its compile-back floor
 disabled. Legacy compile-back then evaluates the same assembly path, type,

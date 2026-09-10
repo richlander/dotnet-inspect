@@ -1012,7 +1012,9 @@ Use `--corpus-fidelity-oracle rts-cutover` (`return-to-sender-cutover` and
 `rts-parity`, this mode hash-selects exactly the requested cap from the corpus
 method inventory before either compiler oracle runs. Native RTS runs first with
 its compile-back floor disabled; legacy compile-back then evaluates the same
-stable member identities only as reference evidence.
+stable member identities only as reference evidence. A cutover run accepts at
+most one distinct positive `--corpus-fidelity-cap`; run separate invocations
+for cap comparisons so each snapshot retains its complete member ledger.
 
 The snapshot records every selected native status, the matching legacy status,
 module MVIDs, repository revision and source state captured when the harness was

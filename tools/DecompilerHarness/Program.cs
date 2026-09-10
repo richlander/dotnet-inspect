@@ -2528,6 +2528,8 @@ static class Program
                                 population; cutover independently hash-selects
                                 targets, runs native RTS without its compile-back
                                 floor, then records legacy results for comparison.
+                                Cutover accepts one distinct positive fidelity
+                                cap per run so the snapshot ledger is complete.
           --corpus-profile <name>        label corpus snapshots and cards as
                                 real-world (default), opt-in-net11, or
                                 classic-state-machines. Profiles keep curated

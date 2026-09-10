@@ -126,6 +126,15 @@ internal static class CorpusSensor
             return 1;
         }
 
+        var cutoverCapError = ValidateReturnToSenderCutoverCaps(
+            fidelityOracle,
+            fidelityCompileCaps);
+        if (cutoverCapError is not null)
+        {
+            Console.Error.WriteLine(cutoverCapError);
+            return 1;
+        }
+
         if (rtsParityKnownGaps is not null || emitRtsParityKnownGaps is not null)
         {
             var knownGapError = ValidateRtsParityKnownGapFlags(
@@ -1649,6 +1658,23 @@ internal static class CorpusSensor
             return "--rts-parity-known-gaps and --emit-rts-parity-known-gaps must not point at the same file; enforcing against a just-emitted manifest would self-certify new regressions.";
         }
         return null;
+    }
+
+    internal static string? ValidateReturnToSenderCutoverCaps(
+        CorpusFidelityOracle fidelityOracle,
+        IReadOnlyList<int> fidelityCompileCaps)
+    {
+        if (fidelityOracle != CorpusFidelityOracle.ReturnToSenderCutover)
+            return null;
+
+        int distinctPositiveCaps = fidelityCompileCaps
+            .Where(cap => cap > 0)
+            .Distinct()
+            .Take(2)
+            .Count();
+        return distinctPositiveCaps > 1
+            ? "--corpus-fidelity-oracle rts-cutover accepts only one distinct positive --corpus-fidelity-cap per run so its snapshot retains the complete selected member ledger; use separate runs for cap comparisons."
+            : null;
     }
 
     internal sealed record RtsParityKnownGapRow(string Method, string Status);

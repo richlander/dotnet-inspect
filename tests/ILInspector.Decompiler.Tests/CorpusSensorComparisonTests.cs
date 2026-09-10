@@ -356,6 +356,23 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void ValidateReturnToSenderCutoverCaps_RejectsMultipleDistinctPositiveCaps()
+    {
+        var error = CorpusSensor.ValidateReturnToSenderCutoverCaps(
+            CorpusFidelityOracle.ReturnToSenderCutover,
+            [0, 1, 2, 2]);
+
+        Assert.NotNull(error);
+        Assert.Contains("only one distinct positive", error, StringComparison.Ordinal);
+        Assert.Null(CorpusSensor.ValidateReturnToSenderCutoverCaps(
+            CorpusFidelityOracle.ReturnToSenderCutover,
+            [0, 2, 2]));
+        Assert.Null(CorpusSensor.ValidateReturnToSenderCutoverCaps(
+            CorpusFidelityOracle.CompileBack,
+            [1, 2]));
+    }
+
+    [Fact]
     public void ReadRtsParityKnownGapManifest_WithoutRowsArray_ReadsAsEmptyWithoutThrowing()
     {
         var path = Path.Combine(Path.GetTempPath(), $"rts-known-gaps-{Guid.NewGuid():N}.json");
