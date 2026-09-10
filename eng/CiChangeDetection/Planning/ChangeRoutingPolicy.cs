@@ -211,7 +211,6 @@ internal sealed class ChangeRoutingPolicy
     {
         if (BytePattern.MatchesAny(
             path,
-            "src/NetworkDestinationPolicy.cs",
             "src/UnionPolyfill.cs"))
         {
             state.Code = true;

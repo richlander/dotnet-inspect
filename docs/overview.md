@@ -277,9 +277,14 @@ substrates, and inspection producers that will extend that space.
   typed transport outcomes. `PdbSourceHouse` retains local, repository, and
   remote ordering, PDB checksum verification, decoding, and settled
   PDB-source outcomes.
+- `src/NetworkAccess/` owns the shared network-destination admission policy
+  used by Core HTTP composition and NuGet feed transports. Its project and
+  compiled assembly dependencies are restricted to the platform by
+  `network-access-stays-independent`.
 - `src/DotnetInspector.Core/` is a transitional runtime bucket beneath
-  Packages, Services, and the CLI. Its cache, networking, untrusted-document,
-  CLI telemetry, and single-consumer helpers move to subject owners under
+  Packages, Services, and the CLI. Its cache, remaining HTTP composition and
+  telemetry, untrusted-document, CLI telemetry, and single-consumer helpers
+  move to subject owners under
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
