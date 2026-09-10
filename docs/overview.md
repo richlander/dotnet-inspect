@@ -148,6 +148,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its
+  [Package Version Selection](design/version-resolution.md) owner defines
+  resource-free latest, prerelease, always-refresh, wildcard, and
+  addressable-range requests plus the resolution receipt that binds one exact
+  source-authorized coordinate or typed non-success to configured-authority
+  discovery evidence. Its
   [platform package supply policy](design/platform-package-supply-policy.md)
   owns the host-neutral decision from a Packages-owned coordinate and an
   independently owned target-bound prune inventory to preserved supply

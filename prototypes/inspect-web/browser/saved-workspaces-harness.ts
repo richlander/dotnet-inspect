@@ -41,7 +41,7 @@ const saves = createSavedWorkspaces({
     if (params.has("write-failure")) throw new Error("Quota exceeded");
     localStorage.setItem("inspect-saved-workspaces", value);
   },
-  capture: () => {
+  capture: async () => {
     if (params.has("projection-failure")) throw new Error("Workspace is not projectable");
     if (!state.package) throw new Error("No package is loaded");
     return state.package.id === "Alpha" ? "fixture-alpha-packet" : "fixture-beta-packet";
