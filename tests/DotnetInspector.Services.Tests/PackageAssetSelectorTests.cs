@@ -97,7 +97,7 @@ public sealed class PackageAssetSelectorTests
     }
 
     [Fact]
-    public void SelectCanonicalFramework_IgnoresNewerCompatibleUniverse()
+    public void SelectMatchingFramework_IgnoresNewerCompatibleUniverse()
     {
         var content = new InMemoryPackageContent(
             TestPackageArchive.Create(
@@ -107,9 +107,12 @@ public sealed class PackageAssetSelectorTests
             "test-source");
 
         PackageAssetUniverse universe = Selected(
-            PackageAssetSelector.SelectCanonicalFramework(
+            PackageAssetSelector.SelectMatchingFramework(
                 content,
-                "net5.0"));
+                "net5.0",
+                framework => framework.Equals(
+                    "netcoreapp5.0",
+                    StringComparison.OrdinalIgnoreCase)));
 
         Assert.Equal("netcoreapp5.0", universe.TargetFramework);
         Assert.Equal(
@@ -118,7 +121,7 @@ public sealed class PackageAssetSelectorTests
     }
 
     [Fact]
-    public void SelectCanonicalFramework_RejectsDistinctAliasUniverses()
+    public void SelectMatchingFramework_RejectsDistinctAliasUniverses()
     {
         var content = new InMemoryPackageContent(
             TestPackageArchive.Create(
@@ -128,9 +131,16 @@ public sealed class PackageAssetSelectorTests
             "test-source");
 
         PackageAssetSelection selection =
-            PackageAssetSelector.SelectCanonicalFramework(
+            PackageAssetSelector.SelectMatchingFramework(
                 content,
-                "net5.0");
+                "net5.0",
+                framework =>
+                    framework.Equals(
+                        "netcoreapp5.0",
+                        StringComparison.OrdinalIgnoreCase)
+                    || framework.Equals(
+                        "net5.0",
+                        StringComparison.OrdinalIgnoreCase));
 
         Assert.IsType<PackageAssetSelection.Ambiguous>(selection);
     }

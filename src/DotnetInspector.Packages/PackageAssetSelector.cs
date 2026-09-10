@@ -207,9 +207,9 @@ public sealed class PackageAssetSelectionReceipt
 /// <c>Select_IgnoresRuntimeAssetsForAnotherRid</c>, and
 /// <c>Select_IgnoresARuntimeFolderMatchingTheRidOnlyByCase</c> for the
 /// runtime-identifier rule;
-/// <c>SelectCanonicalFramework_IgnoresNewerCompatibleUniverse</c> and
-/// <c>SelectCanonicalFramework_RejectsDistinctAliasUniverses</c> for frozen
-/// canonical framework selection;
+/// <c>SelectMatchingFramework_IgnoresNewerCompatibleUniverse</c> and
+/// <c>SelectMatchingFramework_RejectsDistinctAliasUniverses</c> for
+/// caller-defined framework identity selection;
 /// <c>Select_ReportsCaseCollidingNeutralAssetsAsAmbiguous</c> for ambiguity;
 /// <c>Select_AmbiguityNamesOnlyTheRequestedFramework</c> and
 /// <c>Select_KeepsABidiBearingEntryOutOfTheFailureMessage</c> for the message
@@ -286,22 +286,18 @@ public static class PackageAssetSelector
         string? runtimeIdentifier = null) =>
         Evaluate(content, targetFramework, runtimeIdentifier).Selection;
 
-    internal static PackageAssetSelection SelectCanonicalFramework(
+    internal static PackageAssetSelection SelectMatchingFramework(
         IPackageContent content,
-        string canonicalTargetFramework,
+        string requestedFramework,
+        Predicate<string> matchesFramework,
         string? runtimeIdentifier = null)
     {
         ArgumentNullException.ThrowIfNull(content);
-        if (!NuGetTargetFrameworkIdentity.TryNormalize(
-                canonicalTargetFramework,
-                out string normalizedTargetFramework)
-            || !string.Equals(
-                normalizedTargetFramework,
-                canonicalTargetFramework,
-                StringComparison.Ordinal))
+        ArgumentNullException.ThrowIfNull(matchesFramework);
+        if (IsBlankOrPadded(requestedFramework))
         {
             return new PackageAssetSelection.Invalid(
-                "A canonical package framework selection requires a canonical target framework.");
+                "A package asset request requires a target framework without surrounding whitespace.");
         }
 
         if (runtimeIdentifier is not null
@@ -325,32 +321,25 @@ public static class PackageAssetSelector
             .. candidates
                 .Select(static candidate => candidate.TargetFramework)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Where(candidate =>
-                    NuGetTargetFrameworkIdentity.TryNormalize(
-                        candidate,
-                        out string canonicalCandidate)
-                    && string.Equals(
-                        canonicalCandidate,
-                        canonicalTargetFramework,
-                        StringComparison.Ordinal))
+                .Where(matchesFramework.Invoke)
                 .OrderBy(static framework => framework, StringComparer.Ordinal),
         ];
         if (matchingFrameworks.Length == 0)
         {
             return new PackageAssetSelection.NoMatch(
-                $"The package carries no assembly assets for '{canonicalTargetFramework}'.");
+                $"The package carries no assembly assets for '{requestedFramework}'.");
         }
 
         if (matchingFrameworks.Length > 1)
         {
             return new PackageAssetSelection.Ambiguous(
-                $"More than one asset folder represents '{canonicalTargetFramework}'.");
+                $"More than one asset folder represents '{requestedFramework}'.");
         }
 
         return SelectUniverse(
             candidates,
             matchingFrameworks[0],
-            canonicalTargetFramework,
+            requestedFramework,
             runtimeIdentifier);
     }
 

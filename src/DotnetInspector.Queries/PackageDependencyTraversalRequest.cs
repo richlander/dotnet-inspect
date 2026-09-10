@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using DotnetInspector.Packages;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries;

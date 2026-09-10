@@ -342,9 +342,14 @@ public sealed class PackageRootBinding
         }
 
         PackageAssetSelection frozenImplementationSelection =
-            PackageAssetSelector.SelectCanonicalFramework(
+            PackageAssetSelector.SelectMatchingFramework(
                 content,
                 selectionTargetFramework,
+                candidate =>
+                    string.Equals(
+                        PackageArtifactRootRequest.NormalizeFramework(candidate),
+                        selectionTargetFramework,
+                        StringComparison.Ordinal),
                 request.SelectionRuntimeIdentifier);
         if (frozenImplementationSelection
             is not PackageAssetSelection.Selected selected)
