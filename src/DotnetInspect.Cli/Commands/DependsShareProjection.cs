@@ -22,7 +22,18 @@ internal static class DependsShareProjection
             || options.Tree
             || options.NoHeader
             || options.Rows is not null
-            || options.Count)
+            || options.Count
+            || options.Depth is not null
+            || options.IncludePrerelease
+            || options.MaxPackages is not null
+            || options.PackagePrefix is not null
+            || options.Discover is not null
+            || options.Effective
+            || options.Schema
+            || options.Select is not null
+            || options.SelectDefault
+            || options.Columns is not null
+            || options.Fields is not null)
         {
             return "--share selects packet or URL output and cannot be combined "
                 + "with other output formatting or projection options.";
