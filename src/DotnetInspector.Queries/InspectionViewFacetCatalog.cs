@@ -98,9 +98,18 @@ public static class InspectionViewFacetCatalog
                 "library.integrations",
                 StructuralSubjectKind.Library,
                 "Integrations",
-                "Framework and ecosystem integrations found in, or suggested for, the active Library.",
+                "Framework and ecosystem integrations found in the active Library.",
                 200),
-            "Framework and ecosystem integrations found in, or suggested for, the active Library.",
+            "Framework and ecosystem integrations found in the active Library.",
+            AppliesToLibrary),
+        new ViewFacetRegistration.Tombstone(
+            Descriptor(
+                "library.opportunities",
+                StructuralSubjectKind.Library,
+                "Opportunities",
+                "Framework and ecosystem integrations the active Library could adopt.",
+                300),
+            "Framework and ecosystem integrations the active Library could adopt.",
             AppliesToLibrary),
         Active(
             Descriptor(

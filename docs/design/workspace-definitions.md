@@ -1388,6 +1388,7 @@ The lowerer uses this closed, scope-aware table:
 | package-capable coordinate with no Type or Member | `overview` | Package, `package.overview` |
 | package-capable coordinate with no Type or Member | `dependencies` | Package, `package.dependencies` |
 | package-capable coordinate with no Type or Member | `integrations` | All Libraries, `library.integrations` |
+| package-capable coordinate with no Type or Member | `opportunities` | All Libraries, `library.opportunities` |
 | package-capable coordinate with no Type or Member | `analysis` | All Libraries, `library.analysis` |
 | package-capable coordinate with no Type or Member | `metadata` | All Libraries, `library.metadata` |
 | packet or definition with exact Member and no `section` | absent | Member, `member.overview` |

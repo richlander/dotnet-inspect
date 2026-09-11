@@ -847,15 +847,19 @@ Library has one **Integrations** inspector with **Integrations** and
 **Opportunities** tabs inside its working surface, following Compare's
 one-inspector/two-modes composition. Integrations shows detected ecosystem
 support; Opportunities shows suggestions for support the Library could adopt.
-Opportunities is not a second persistent inspector or a separate view facet.
+Opportunities is not a second persistent inspector or an active standalone
+view facet. Its already-issued canonical facet ID remains known through the
+Registry's existing `Retired` tombstone contract.
 
 The selected tab defaults to Integrations and is session-local presentation
 state in the retained browser Workspace. Changing tabs preserves the selected
 Library. Ordinary Library, Type, and inspector navigation, Back/Forward, and
 returning from a row action retain the current tab. Sharing a Workspace carries
 the Integrations inspector, not its transient tab selection; a fresh session
-opens Integrations. Retired Opportunities inspector tokens follow ordinary
-unknown-lens handling rather than introducing a second routing vocabulary.
+opens Integrations. The Browser's removed standalone inspector token follows
+ordinary unknown-lens handling. This does not remove or rename the published
+canonical `library.opportunities` identity or its existing legacy-definition
+mapping; canonical resolution preserves its explicit retired outcome.
 
 Only the selected tab requests its existing scan. Previously obtained results
 remain subject to their existing Library/coordinate freshness checks. Each tab
