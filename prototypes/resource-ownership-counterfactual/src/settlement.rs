@@ -320,9 +320,12 @@ impl Future for SettlementFuture {
         let this = self.get_mut();
         assert!(!this.completed, "settlement polled after completion");
 
+        let incoming_waker = context.waker().clone();
         let mut state = lock_state(&this.state);
         if state.active_operations != 0 {
-            state.waker = Some(context.waker().clone());
+            let displaced_waker = state.waker.replace(incoming_waker);
+            drop(state);
+            drop(displaced_waker);
             return Poll::Pending;
         }
 
@@ -367,10 +370,12 @@ impl Drop for SettlementFuture {
 mod tests {
     use std::future::Future;
     use std::pin::Pin;
-    use std::sync::{Arc, Weak};
+    use std::sync::{Arc, Mutex, Weak, mpsc};
     use std::task::{Context, Poll, Wake, Waker};
+    use std::thread;
+    use std::time::Duration;
 
-    use super::{SettlementOutcome, SettlementRoot, SettlementStatus};
+    use super::{OperationLease, SettlementOutcome, SettlementRoot, SettlementStatus};
 
     fn poll_once<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
         let mut context = Context::from_waker(Waker::noop());
@@ -384,6 +389,16 @@ mod tests {
     // The custom no-op owns the retention probe; Waker::noop cannot model it.
     #[allow(clippy::manual_noop_waker)]
     impl Wake for RetainingWake {
+        fn wake(self: Arc<Self>) {}
+    }
+
+    struct OperationWake {
+        _operation: Mutex<Option<OperationLease>>,
+    }
+
+    // The custom no-op owns the operation released by waker replacement.
+    #[allow(clippy::manual_noop_waker)]
+    impl Wake for OperationWake {
         fn wake(self: Arc<Self>) {}
     }
 
@@ -458,6 +473,41 @@ mod tests {
             weak.upgrade().is_none(),
             "resource-free observation retained the abandoned task waker"
         );
+    }
+
+    #[test]
+    fn replacing_pending_waker_releases_displaced_task_outside_lock() {
+        let (completed_tx, completed_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let root = SettlementRoot::new("package-source");
+            let operation = root.issue_operation().unwrap();
+            let mut settlement = Box::pin(root.settle());
+            let operation_waker = Waker::from(Arc::new(OperationWake {
+                _operation: Mutex::new(Some(operation)),
+            }));
+
+            {
+                let mut context = Context::from_waker(&operation_waker);
+                assert!(matches!(
+                    Pin::new(&mut settlement).poll(&mut context),
+                    Poll::Pending
+                ));
+            }
+            drop(operation_waker);
+
+            assert!(poll_once(settlement.as_mut()).is_pending());
+            let Poll::Ready(SettlementOutcome::Failed(receipt)) = poll_once(settlement.as_mut())
+            else {
+                panic!("abandoned operation did not produce non-success");
+            };
+            completed_tx.send(receipt.abandoned_operations()).unwrap();
+        });
+
+        let abandoned = completed_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("waker replacement deadlocked operation release");
+        worker.join().unwrap();
+        assert_eq!(abandoned, 1);
     }
 
     #[test]
