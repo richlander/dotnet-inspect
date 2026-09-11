@@ -879,6 +879,27 @@ test("Home preserves focused controls through delayed Build identity", async ({
   await expect(page.locator("#spotlight-input")).not.toBeFocused();
 });
 
+test("Home preserves focused Settings controls through delayed Build identity", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  const darkTheme = page.getByRole("button", { name: "Dark" });
+  await darkTheme.focus();
+  await expect(darkTheme).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(darkTheme).toBeFocused();
+  await expect(page.locator("#settings-title")).not.toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
 test("Diagnostics opens from Settings and Spotlight without entering the Application menu", async ({
   page,
 }, testInfo) => {

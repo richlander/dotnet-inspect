@@ -4317,19 +4317,37 @@ function typeDisplayName(
 }
 
 type HomeFocusTarget =
-  | { kind: "id"; id: string }
+  | {
+    kind: "id";
+    surface: "home" | "settings";
+    id: string;
+  }
   | {
     kind: "link";
     region: "home-bar" | "data-bar";
     href: string;
   }
-  | { kind: "spotlight-scope"; scope: string };
+  | { kind: "spotlight-scope"; scope: string }
+  | { kind: "settings-theme"; theme: string }
+  | { kind: "settings-taste"; taste: string };
 
 function captureHomeFocus(
   focused: HTMLElement | null,
 ): HomeFocusTarget | null {
-  if (!focused?.closest(".home")) return null;
-  if (focused.id) return { kind: "id", id: focused.id };
+  if (!focused) return null;
+  const surface = focused.closest("#settings-dialog")
+    ? "settings"
+    : focused.closest(".home")
+      ? "home"
+      : null;
+  if (!surface) return null;
+  if (focused.id) return { kind: "id", surface, id: focused.id };
+  if (surface === "settings") {
+    const theme = focused.dataset.theme;
+    if (theme) return { kind: "settings-theme", theme };
+    const taste = focused.dataset.taste;
+    return taste ? { kind: "settings-taste", taste } : null;
+  }
   const spotlightScope = focused.dataset.slScope;
   if (spotlightScope) {
     return { kind: "spotlight-scope", scope: spotlightScope };
@@ -4352,6 +4370,18 @@ function restoreHomeFocus(target: HomeFocusTarget): boolean {
     element = [...document.querySelectorAll<HTMLElement>("[data-sl-scope]")]
       .find(candidate => candidate.dataset.slScope === target.scope)
       ?? null;
+  } else if (target.kind === "settings-theme") {
+    element = [...document.querySelectorAll<HTMLElement>(
+      "#settings-dialog [data-theme]",
+    )]
+      .find(candidate => candidate.dataset.theme === target.theme)
+      ?? null;
+  } else if (target.kind === "settings-taste") {
+    element = [...document.querySelectorAll<HTMLElement>(
+      "#settings-dialog [data-taste]",
+    )]
+      .find(candidate => candidate.dataset.taste === target.taste)
+      ?? null;
   } else {
     element = [...document.querySelectorAll<HTMLAnchorElement>(
       `.${target.region} a[href]`,
@@ -4361,6 +4391,12 @@ function restoreHomeFocus(target: HomeFocusTarget): boolean {
   if (!element) return false;
   element.focus({ preventScroll: true });
   return true;
+}
+
+function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
+  return target?.kind === "settings-theme"
+    || target?.kind === "settings-taste"
+    || (target?.kind === "id" && target.surface === "settings");
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
@@ -10290,8 +10326,12 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
     ${state.settings ? renderSettingsViewHtml() : ""}`;
   bindHomeEvents(preservedFocus);
   if (state.settings) {
-    document.querySelector<HTMLElement>("#settings-title")
-      ?.focus({ preventScroll: true });
+    if (!preservedFocus
+      || !settingsOwnsHomeFocusTarget(preservedFocus)
+      || !restoreHomeFocus(preservedFocus)) {
+      document.querySelector<HTMLElement>("#settings-title")
+        ?.focus({ preventScroll: true });
+    }
   }
 }
 
