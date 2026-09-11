@@ -2179,6 +2179,49 @@ public class FindCommandIntegrationTests
     }
 
     [Fact]
+    public void LiteralValueNamedTake_IsNotExecutionBound()
+    {
+        string[][] literalForms =
+        [
+            ["--literal", "--take"],
+            ["--literal=--take"],
+        ];
+
+        foreach (string[] literalForm in literalForms)
+        {
+            var arguments = new List<string>
+            {
+                "find",
+            };
+            arguments.AddRange(literalForm);
+            arguments.AddRange(
+            [
+                "--package",
+                "Example@1.0.0",
+                "--tfm",
+                "net10.0",
+                "-D",
+                "Matches",
+                "-n",
+                "1",
+                "--json",
+            ]);
+
+            var (exit, output, error) =
+                RunCli([.. arguments]);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "\"name\":\"Package\"",
+                output);
+            Assert.DoesNotContain(
+                "--take requires",
+                output);
+        }
+    }
+
+    [Fact]
     public async Task Find_RuntimeFramework_FindsJsonSerializer()
     {
         var options = new FindOptions

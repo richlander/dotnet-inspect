@@ -86,6 +86,10 @@ internal static class CliExecutionBoundCommandRegistry
                 "The execution-bound maximum must be positive.");
         }
 
+        CliArgumentOwnership.ParsedArgument[] mapped =
+            CliArgumentOwnership.MapArguments(
+                parseResult,
+                arguments);
         string optionName = adoption.Option.Name;
         var occurrences =
             new List<(int Position, string? Value, bool MissingValue)>();
@@ -94,6 +98,14 @@ internal static class CliExecutionBoundCommandRegistry
             string argument = arguments[index];
             if (argument == "--")
                 break;
+
+            if (!IsOwnedOptionOccurrence(
+                    mapped[index],
+                    adoption.Option,
+                    optionName))
+            {
+                continue;
+            }
 
             if (argument.Equals(
                     optionName,
@@ -184,6 +196,24 @@ internal static class CliExecutionBoundCommandRegistry
                     NumberStyles.None,
                     CultureInfo.InvariantCulture)));
         return new(null, null, null, true);
+    }
+
+    private static bool IsOwnedOptionOccurrence(
+        CliArgumentOwnership.ParsedArgument argument,
+        Option option,
+        string alias)
+    {
+        return argument.Tokens.Any(
+                token =>
+                    token.Type == TokenType.Option
+                    && token.Value.Equals(
+                        alias,
+                        StringComparison.Ordinal))
+            && ReferenceEquals(
+                CliArgumentOwnership.FindOption(
+                    argument.Scope,
+                    alias),
+                option);
     }
 
     public static int? GetPreparedValue(

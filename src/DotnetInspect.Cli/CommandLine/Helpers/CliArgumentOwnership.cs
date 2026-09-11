@@ -22,6 +22,26 @@ internal static class CliArgumentOwnership
         return results;
     }
 
+    public static Option? FindOption(
+        CommandResult scope,
+        string alias)
+    {
+        for (CommandResult? current = scope;
+            current is not null;
+            current = current.Parent as CommandResult)
+        {
+            Option? option = current.Children.OfType<OptionResult>()
+                .Select(result => result.Option)
+                .FirstOrDefault(option =>
+                    option.Name == alias
+                    || option.Aliases.Contains(alias));
+            if (option is not null)
+                return option;
+        }
+
+        return null;
+    }
+
     public static ParsedArgument[] MapArguments(
         ParseResult parseResult,
         IReadOnlyList<string> arguments)
