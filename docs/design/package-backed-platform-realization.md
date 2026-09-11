@@ -164,6 +164,7 @@ The identities remain separate:
 | Reference package ID | This source owner | Distribution coordinate selected from the family. |
 | Runtime package ID and RID | This source owner | RID-specific implementation distribution coordinate. |
 | `PackageAcquisitionCandidate` | Package source model | Exact package coordinate plus authorized reporting authorities. |
+| Package Platform target candidate/selection | This source owner | Exact target joined to the package-owner-issued candidate that established it. |
 | Configured package authority | Package source model | Authority permitted to provide the selected payload. |
 | Producer identity | NuGetFetch/package source | Credential-free origin of the admitted bytes. |
 | Package content generation | Package storage | Immutable retained payload generation. |
@@ -215,8 +216,11 @@ It:
 3. accepts only versions representable as canonical `PlatformVersion`;
 4. retains only versions whose major/minor release band equals the requested
    TFM;
-5. sorts by Platform SemVer precedence and then exact version identity; and
-6. returns one immutable candidate inventory tied to a fresh package Platform
+5. asks the package-owner result to issue the discovered
+   `PackageAcquisitionCandidate` for each accepted version;
+6. joins each issued candidate to the corresponding `PlatformFamilyTarget`;
+7. sorts by Platform SemVer precedence and then exact version identity; and
+8. returns one immutable candidate inventory tied to a fresh package Platform
    source generation.
 
 Package versions outside the Platform version grammar are outside this
@@ -230,13 +234,20 @@ shortened successful inventory. Exceeding the candidate bound is incomplete.
 
 Target discovery establishes that authorized package authorities listed the
 exact reference-pack version. It does not claim that its payload has already
-been acquired or validated. Exact realization re-authorizes and acquires the
-selected coordinate; absence or invalid layout remains visible there.
+been acquired or validated. Exact realization consumes the source-issued
+selection or separately authorizes an externally established exact target,
+then acquires the resulting candidate; absence or invalid layout remains
+visible there.
 
 The PlatformHouse adapter projects each candidate to
 `PlatformFamilyTarget`. PlatformHouse retains target selection policy and does
 not receive package IDs or live package candidates in the resource-free
-contribution.
+contribution. The live package Platform discovery result remains beside that
+contribution. When target settlement selects this source's candidate, the
+orchestrator asks the inventory to issue a
+`PackagePlatformTargetSelection` for the exact target. That selection retains
+the package candidate, inventory association, target correspondence, and
+source generation for later realization.
 
 ## Step 5a: exact reference coordinate
 
@@ -257,18 +268,40 @@ The exact package coordinate omits a RID. Its version is the exact canonical
 Platform version. Targets containing SemVer build metadata are rejected
 because NuGet package coordinates cannot preserve that identity.
 
+Reference realization has two explicit source-specific forms:
+
+- **Discovered selection** consumes a
+  `PackagePlatformTargetSelection` issued by this source's target inventory.
+  The source verifies the selection association and exact target, then uses its
+  retained `PackageAcquisitionCandidate` unchanged.
+- **Externally established exact target** consumes the package reference
+  coordinate directly and asks the package owner to issue a caller-pinned
+  candidate. This form applies when the House request was exact without this
+  package discovery result as its selection evidence, including a target
+  established by another authorized Platform source.
+
+The adapter must choose the discovered form whenever this source's discovery
+evidence established the settled target. Omitting that live selection is not
+permission to reconstruct a caller-pinned candidate.
+
 Realization:
 
-1. authorizes the exact reference package ID;
-2. asks the lease to issue one caller-pinned candidate;
-3. acquires one admitted retained payload only through that candidate;
+1. verifies the source selection or exact external coordinate;
+2. preserves the discovered candidate, or issues a caller-pinned candidate for
+   the externally established exact-target form;
+3. acquires one admitted retained payload only through the resulting
+   candidate;
 4. verifies the returned package ID and version;
 5. selects the exact package population root `ref/<tfm>/`;
 6. snapshots the requested assembly or complete reference population; and
 7. retains the serving authority, producer, package content generation, and
    cache/download origin beside the source result.
 
-No fallback version, TFM, package ID, or source widening is permitted.
+A discovered candidate may be served only by authorities that reported its
+coordinate under the complete discovery contract, including for cache hits.
+The externally established exact-target form may use every authority admitted
+by its package-ID authorization. No fallback version, TFM, package ID, or
+source widening is permitted within either form.
 
 ## Reference population membership
 
@@ -398,8 +431,8 @@ package-source discovery result.
 The source outcome is closed:
 
 - `Succeeded` retains an immutable inventory or realization;
-- `Unavailable` records authoritative empty discovery, denied authorization,
-  exact package absence, or absent requested membership;
+- `Unavailable` records denied authorization, exact package absence, or absent
+  requested membership;
 - `Rejected` records an unrepresentable coordinate, invalid package layout,
   coordinate collision, malformed assembly, identity mismatch, invalid
   manifest, or invalid framework closure;
@@ -453,7 +486,8 @@ The step 5a Release gates prove:
 - prerelease-inclusive authoritative target discovery;
 - canonical Platform version and TFM-band filtering;
 - empty, partial, failed, and candidate-bound outcomes;
-- exact package re-authorization without source widening;
+- discovered-candidate reporting-authority preservation and externally
+  established exact-target authorization without source widening;
 - filesystem-backed and in-memory package content produce equal source
   membership;
 - top-level reference population selection and case-collision rejection;
@@ -526,7 +560,8 @@ target discovery
 
 exact realization
   selected target: 11.0.0-rc.1.26425.128
-  pinned package candidate: Microsoft.NETCore.App.Ref
+  discovered package candidate: Microsoft.NETCore.App.Ref
+  serving authorities: only authorities that reported the selected version
   retained payload generation: package-owned
   population: ref/net11.0/*.dll
   result:
@@ -535,9 +570,11 @@ exact realization
     resource-free PlatformHouse correspondence
 ```
 
-What to notice: target identity contains no package ID or producer. Exact
-realization re-authorizes the selected package coordinate and fails visibly if
-the payload or expected layout is unavailable.
+What to notice: target identity contains no package ID or producer. The live
+source selection preserves which authorities reported the chosen version, and
+exact realization fails visibly if their payload or expected layout is
+unavailable. A target established outside this package discovery path instead
+uses explicit caller-pinned package semantics.
 
 ### ASP.NET Core implementation closure
 
