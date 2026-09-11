@@ -43,6 +43,10 @@ substrates, and inspection producers that will extend that space.
   [Inspection Plan Projections](design/inspection-plan-projections.md) owns the
   shared resolved basis and closed terminal-purpose split among section
   execution, effective-section discovery, and portable sharing.
+  [Inspection Operation Composition](design/inspection-operation-composition.md)
+  sequences that split with House settlement, Workspace admission, L1 query
+  plans, L2 section and row plans, work bounds, and host-specific projection
+  without introducing one universal operation plan.
   Its
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
