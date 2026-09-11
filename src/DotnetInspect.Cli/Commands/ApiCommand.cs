@@ -2814,6 +2814,15 @@ public class ApiCommand
 
         }
 
+        if (options is MemberOptions
+            && GetRequestedMemberSections(type, options)
+                .Contains(SectionNames.DecompiledSource)
+            && TryWriteMemorySafetyModeUnavailable(
+                view.MemberCode?.DecompiledSourceFailure))
+        {
+            return 1;
+        }
+
         if (sourceDocumentJson)
         {
             if (view.MemberCode?.AnnotatedSourceDocument is not { } sourceDocument)
@@ -2871,16 +2880,8 @@ public class ApiCommand
                     type, typeDllPath, options.PdbPath, resolver, metadata, options.RenderOptions)
                 : Decompiler.MemberBodyProducer.Project(
                     type, sourceAssembly, options.PdbPath, resolver, metadata, options.RenderOptions);
-            if (projection.Diagnostics.Any(
-                static diagnostic => diagnostic.Id
-                    == Decompiler.DiagnosticIds.MemorySafetyModeUnavailable))
-            {
-                CommandError.Write(string.Join(
-                    Environment.NewLine,
-                    projection.Diagnostics.Select(
-                        static diagnostic => diagnostic.ToString())));
+            if (TryWriteMemorySafetyModeUnavailable(projection))
                 return 1;
-            }
             if (sourceAssembly is not null
                 && projection.Diagnostics.Any(
                     static diagnostic => diagnostic.Id == Decompiler.DiagnosticIds.InternalError))
@@ -4347,6 +4348,24 @@ public class ApiCommand
 
     private static bool ShouldRenderSourceLocations(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
+    private static bool TryWriteMemorySafetyModeUnavailable(
+        Decompiler.DecompilerResult? result)
+    {
+        if (result is null
+            || !result.Diagnostics.Any(
+                static diagnostic => diagnostic.Id
+                    == Decompiler.DiagnosticIds.MemorySafetyModeUnavailable))
+        {
+            return false;
+        }
+
+        CommandError.Write(string.Join(
+            Environment.NewLine,
+            result.Diagnostics.Select(
+                static diagnostic => diagnostic.ToString())));
+        return true;
+    }
 
     internal static string AnnotatedSourceDocumentError(MemberCodeView? memberCode)
         => memberCode?.AnnotatedSourceDocumentFailure is { } failure

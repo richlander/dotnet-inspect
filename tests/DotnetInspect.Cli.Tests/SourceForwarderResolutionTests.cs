@@ -1976,6 +1976,52 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    public async Task MemberDecompilerAcquisition_ReportsUnavailableMemorySafetyMode()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = WriteUnsupportedMemorySafetyAssembly(directory);
+            const string TypeName =
+                "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals";
+            var source = CreateApiSource(path, SourceKind.Library) with
+            {
+                TypeName = TypeName,
+            };
+            var options = new MemberOptions
+            {
+                TypeName = TypeName,
+                MemberFilter = ["FirstValueHashCode"],
+                OverloadIndex = 1,
+                Select = [SectionNames.DecompiledSource],
+                DocsExplicitlySet = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Minimal,
+            };
+            var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
+                ApiServices.LoadTypeApi(source, options));
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteResolvedAsync(
+                    options,
+                    source,
+                    loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("DEC0016", error);
+            Assert.Contains(
+                "module memory-safety rules are Unsupported",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void TypeWholeTypeDecompilerAcquisition_CarriesExternalPdb()
     {
         string directory = CreateDirectory();

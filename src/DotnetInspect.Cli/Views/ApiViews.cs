@@ -1160,6 +1160,10 @@ public class MemberCodeView
     [MarkoutSection(Name = "Decompiled Source")]
     public CodeSection DecompiledSourceCode { get; set; }
 
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public ILInspector.Decompiler.DecompilerResult? DecompiledSourceFailure { get; set; }
+
     [MarkoutSection(Name = SectionNames.FidelityCauses)]
     public List<FidelityCauseRow>? FidelityCauseRows { get; set; }
 

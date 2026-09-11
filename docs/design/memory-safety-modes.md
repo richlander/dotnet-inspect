@@ -36,7 +36,9 @@ Production hosts preserve that diagnostic at their source boundary. An
 explicitly requested CLI source section fails instead of disappearing from a
 successful command, and the browser's source-unavailable result retains the
 decompiler reason instead of replacing it with only a generic acquisition
-failure.
+failure. Harness reports admit the same decision before mode-sensitive passes
+and retain unavailable methods as explicit coverage rather than silently
+omitting them.
 
 This distinction is module-wide. An invalid consumed-member contract can keep a
 body visible at Partial fidelity when the caller's own language mode is known;
