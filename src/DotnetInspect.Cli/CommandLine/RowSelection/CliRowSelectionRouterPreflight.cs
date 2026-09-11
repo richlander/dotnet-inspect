@@ -37,6 +37,18 @@ internal static class CliRowSelectionRouterPreflight
         return CliRowSelectionRouteEnvelope.Evaluate(arguments, candidates);
     }
 
+    public static bool HasActiveAdoption(
+        string[] arguments,
+        IReadOnlyList<Command> commands)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(commands);
+        return commands.Any(command =>
+            CliRowSelectionCommandRegistry.TryGetActiveAdoption(
+                command.Parse(arguments),
+                out _));
+    }
+
     public static string? FindCommonOptionValueError(
         string[] arguments,
         IReadOnlyList<Command> commands)

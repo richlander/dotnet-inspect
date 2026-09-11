@@ -350,6 +350,13 @@ public static class RouterCommandDefinition
                 tokens,
                 rootCommand,
                 rowSelectionCommands);
+        if (!CliRowSelectionRouterPreflight.HasActiveAdoption(
+                tokens,
+                rowSelectionCandidates))
+        {
+            return false;
+        }
+
         if (CliRowSelectionRouterPreflight.FindCommonOptionValueError(
                 tokens,
                 rowSelectionCandidates) is { } optionValueError)
