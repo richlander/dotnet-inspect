@@ -6,11 +6,12 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class StructuralSubjectIdentityTests
 {
     [Fact]
-    public void KindVocabulary_IsClosedAndStructurallyOrdered()
+    public void KindVocabulary_IsClosedAndWorkspaceRooted()
     {
         Assert.Equal(
             [
-                StructuralSubjectKind.Root,
+                StructuralSubjectKind.Workspace,
+                StructuralSubjectKind.Package,
                 StructuralSubjectKind.Library,
                 StructuralSubjectKind.Type,
                 StructuralSubjectKind.Member,
@@ -19,130 +20,146 @@ public sealed class StructuralSubjectIdentityTests
     }
 
     [Fact]
+    public void WorkspaceSubject_BindsOneExactWorkspaceOccurrence()
+    {
+        using var owner = new InspectionWorkspace();
+        using var otherOwner = new InspectionWorkspace();
+        StructuralSubjectIdentity.WorkspaceSubject workspace =
+            StructuralSubjectIdentity.ForWorkspace(owner.Identity);
+
+        Assert.Same(owner.Identity, workspace.Identity);
+        Assert.Same(workspace, workspace.Workspace);
+        Assert.Equal(StructuralSubjectKind.Workspace, workspace.Kind);
+        Assert.False(workspace.IsPortable);
+        Assert.Equal(
+            workspace,
+            StructuralSubjectIdentity.ForWorkspace(owner.Identity));
+        Assert.NotEqual(
+            workspace,
+            StructuralSubjectIdentity.ForWorkspace(
+                otherOwner.Identity));
+    }
+
+    [Fact]
     public void Identities_BindExactOwnerIssuedComponents()
     {
-        RealizedMemberCoordinate.Package firstCoordinate =
-            Coordinate("1.0.0");
-        RealizedMemberCoordinate.Package equalCoordinate =
-            Coordinate("1.0.0");
-        RealizedMemberCoordinate.Package otherCoordinate =
-            Coordinate("2.0.0");
-        WorkspaceContextMember firstLibrary =
-            Library(firstCoordinate, "Library");
-        WorkspaceContextMember equalLibrary = new(
-            WorkspaceMemberCoordinate.Package(
-                "sample.package",
-                version: null,
-                framework: "net11.0",
-                runtimeIdentifier: null),
-            equalCoordinate,
-            firstLibrary.Participant);
-        WorkspaceContextMember otherCoordinateLibrary = new(
-            firstLibrary.Declared,
-            otherCoordinate,
-            firstLibrary.Participant);
-        WorkspaceContextMember otherLibrary =
-            Library(firstCoordinate, "Library");
-        MetadataTypeDefinitionName firstType = TypeName("Sample", "Widget");
-        MetadataTypeDefinitionName equalType = TypeName("Sample", "Widget");
-        MetadataTypeDefinitionName otherType = TypeName("Sample", "Other");
+        RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
+        StructuralSubjectTestData.PackageContext context =
+            StructuralSubjectTestData.Package(coordinate);
+        WorkspaceContextMember libraryInput = Library(coordinate, "Library");
+        MetadataTypeDefinitionName typeName = TypeName("Sample", "Widget");
+        MemberAnchor anchor = Anchor("Sample.Widget", "Run");
 
-        StructuralSubjectIdentity.RootSubject root =
-            StructuralSubjectIdentity.ForRoot(firstCoordinate);
         StructuralSubjectIdentity.AllLibrariesSubject allLibraries =
-            StructuralSubjectIdentity.ForAllLibraries(firstCoordinate);
+            StructuralSubjectIdentity.ForAllLibraries(context.Subject);
         StructuralSubjectIdentity.LibrarySubject library =
-            StructuralSubjectIdentity.ForLibrary(firstLibrary);
-        StructuralSubjectIdentity.TypeSubject type =
-            StructuralSubjectIdentity.ForType(
-                library,
-                firstType);
-
-        Assert.Equal(StructuralSubjectKind.Root, root.Kind);
-        Assert.True(root.IsPortable);
-        Assert.Equal(StructuralSubjectKind.Library, allLibraries.Kind);
-        Assert.True(allLibraries.IsPortable);
-        Assert.Equal(StructuralSubjectKind.Library, library.Kind);
-        Assert.False(library.IsPortable);
-        Assert.Equal(StructuralSubjectKind.Type, type.Kind);
-        Assert.False(type.IsPortable);
-        Assert.Equal(
-            root,
-            StructuralSubjectIdentity.ForRoot(equalCoordinate));
-        Assert.NotEqual(
-            root,
-            StructuralSubjectIdentity.ForRoot(otherCoordinate));
-        Assert.NotEqual<StructuralSubjectIdentity>(
-            allLibraries,
-            library);
-        Assert.NotEqual<StructuralSubjectIdentity>(
-            root,
-            allLibraries);
-        Assert.Equal(
-            library,
-            StructuralSubjectIdentity.ForLibrary(equalLibrary));
-        Assert.NotEqual(
-            library,
-            StructuralSubjectIdentity.ForLibrary(otherLibrary));
-        Assert.Equal(
-            type,
-            StructuralSubjectIdentity.ForType(
-                StructuralSubjectIdentity.ForLibrary(
-                    equalLibrary),
-                equalType));
-        Assert.NotEqual(
-            type,
-            StructuralSubjectIdentity.ForType(
-                StructuralSubjectIdentity.ForLibrary(
-                    otherLibrary),
-                firstType));
-        Assert.NotEqual(
-            type,
-            StructuralSubjectIdentity.ForType(
-                library,
-                otherType));
-        Assert.NotEqual(
-            type,
-            StructuralSubjectIdentity.ForType(
-                StructuralSubjectIdentity.ForLibrary(
-                    otherCoordinateLibrary),
-                firstType));
-
-        var identities = new HashSet<StructuralSubjectIdentity>
-        {
-            root,
-            allLibraries,
-            library,
-            type,
-        };
-        Assert.Contains(
-            StructuralSubjectIdentity.ForRoot(equalCoordinate),
-            identities);
-        Assert.Contains(
             StructuralSubjectIdentity.ForLibrary(
-                equalLibrary),
-            identities);
-        Assert.Equal(4, identities.Count);
+                context.Subject,
+                libraryInput);
+        StructuralSubjectIdentity.TypeSubject type =
+            StructuralSubjectIdentity.ForType(library, typeName);
+        StructuralSubjectIdentity.MemberSubject member =
+            StructuralSubjectIdentity.ForMember(type, anchor);
+
+        Assert.Same(context.Workspace, context.Subject.Workspace);
+        Assert.Same(context.Occurrence, context.Subject.Occurrence);
+        Assert.Same(context.Occurrence.Package, context.Subject.Descriptor);
+        Assert.Equal(coordinate, context.Subject.Coordinate);
+        Assert.Same(context.Subject, allLibraries.Package);
+        Assert.Same(context.Subject, library.Package);
+        Assert.Same(library, type.Library);
+        Assert.Same(type, member.DeclaringType);
+        Assert.All(
+            new StructuralSubjectIdentity[]
+            {
+                context.Subject,
+                allLibraries,
+                library,
+                type,
+                member,
+            },
+            subject =>
+            {
+                Assert.Same(context.Workspace, subject.Workspace);
+                Assert.False(subject.IsPortable);
+            });
+        Assert.Equal(StructuralSubjectKind.Package, context.Subject.Kind);
+        Assert.Equal(StructuralSubjectKind.Library, allLibraries.Kind);
+        Assert.Equal(StructuralSubjectKind.Library, library.Kind);
+        Assert.Equal(StructuralSubjectKind.Type, type.Kind);
+        Assert.Equal(StructuralSubjectKind.Member, member.Kind);
+        Assert.Equal(typeName, type.Identity.Type);
+        Assert.Equal(anchor, member.Identity.Member);
+        Assert.NotEqual<StructuralSubjectIdentity>(allLibraries, library);
+    }
+
+    [Fact]
+    public void PortableCoordinateAlone_CannotIdentifyRetainedPackageSubject()
+    {
+        RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
+        StructuralSubjectTestData.PackageContext first =
+            StructuralSubjectTestData.Package(coordinate);
+        StructuralSubjectTestData.PackageContext replacement =
+            StructuralSubjectTestData.Package(
+                Coordinate("1.0.0"),
+                first.WorkspaceIdentity);
+        StructuralSubjectTestData.PackageContext foreign =
+            StructuralSubjectTestData.Package(Coordinate("1.0.0"));
+
+        Assert.Equal(first.Subject.Coordinate, replacement.Subject.Coordinate);
+        Assert.Equal(first.Subject.Coordinate, foreign.Subject.Coordinate);
+        Assert.NotEqual(first.Subject, replacement.Subject);
+        Assert.NotEqual(first.Subject, foreign.Subject);
+        Assert.DoesNotContain(
+            typeof(StructuralSubjectIdentity).GetMethods(),
+            method =>
+                method.Name == nameof(StructuralSubjectIdentity.ForPackage)
+                && method.GetParameters().Any(parameter =>
+                    parameter.ParameterType
+                        == typeof(RealizedMemberCoordinate.Package)));
+    }
+
+    [Fact]
+    public void PackageSubject_RequiresPackageOccurrence()
+    {
+        StructuralSubjectTestData.PackageContext first =
+            StructuralSubjectTestData.Package(Coordinate("1.0.0"));
+        StructuralSubjectTestData.PackageContext foreign =
+            StructuralSubjectTestData.Package(Coordinate("1.0.0"));
+
+        Assert.Throws<ArgumentNullException>(
+            () => StructuralSubjectIdentity.ForPackage(
+                first.Workspace,
+                null!));
+        Assert.Throws<ArgumentException>(
+            () => StructuralSubjectIdentity.ForPackage(
+                first.Workspace,
+                foreign.Occurrence));
     }
 
     [Fact]
     public void MemberIdentity_BindsExactDeclaringTypeAndAnchor()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
-        WorkspaceContextMember library = Library(coordinate, "Library");
-        StructuralSubjectIdentity.LibrarySubject librarySubject =
-            StructuralSubjectIdentity.ForLibrary(library);
+        StructuralSubjectTestData.PackageContext context =
+            StructuralSubjectTestData.Package(coordinate);
+        WorkspaceContextMember libraryInput = Library(coordinate, "Library");
+        StructuralSubjectIdentity.LibrarySubject library =
+            StructuralSubjectIdentity.ForLibrary(
+                context.Subject,
+                libraryInput);
         StructuralSubjectIdentity.TypeSubject firstType =
             StructuralSubjectIdentity.ForType(
-                librarySubject,
+                library,
                 TypeName("Sample", "Widget"));
         StructuralSubjectIdentity.TypeSubject equalType =
             StructuralSubjectIdentity.ForType(
                 StructuralSubjectIdentity.ForLibrary(
+                    context.Subject,
                     new WorkspaceContextMember(
-                        library.Declared,
+                        libraryInput.Declared,
                         Coordinate("1.0.0"),
-                        library.Participant)),
+                        libraryInput.Participant)),
                 TypeName("Sample", "Widget"));
         MemberAnchor firstAnchor = Anchor("Sample.Widget", "Run");
         MemberAnchor equalAnchor = Anchor("Sample.Widget", "Run");
@@ -151,10 +168,7 @@ public sealed class StructuralSubjectIdentityTests
         StructuralSubjectIdentity.MemberSubject member =
             StructuralSubjectIdentity.ForMember(firstType, firstAnchor);
 
-        Assert.Equal(StructuralSubjectKind.Member, member.Kind);
-        Assert.False(member.IsPortable);
         Assert.Same(firstType, member.DeclaringType);
-        Assert.Same(firstType.Coordinate, member.Coordinate);
         Assert.Equal(
             member,
             StructuralSubjectIdentity.ForMember(equalType, equalAnchor));
@@ -167,31 +181,39 @@ public sealed class StructuralSubjectIdentityTests
     public void Construction_RejectsAbsentOwnerIssuedComponents()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
-        WorkspaceContextMember library = Library(coordinate, "Library");
-        StructuralSubjectIdentity.LibrarySubject librarySubject =
-            StructuralSubjectIdentity.ForLibrary(library);
+        StructuralSubjectTestData.PackageContext context =
+            StructuralSubjectTestData.Package(coordinate);
+        WorkspaceContextMember libraryInput = Library(coordinate, "Library");
+        StructuralSubjectIdentity.LibrarySubject library =
+            StructuralSubjectIdentity.ForLibrary(
+                context.Subject,
+                libraryInput);
         MetadataTypeDefinitionName type = TypeName("Sample", "Widget");
         StructuralSubjectIdentity.TypeSubject typeSubject =
-            StructuralSubjectIdentity.ForType(librarySubject, type);
+            StructuralSubjectIdentity.ForType(library, type);
 
         Assert.Throws<ArgumentNullException>(
-            () => StructuralSubjectIdentity.ForRoot(null!));
+            () => StructuralSubjectIdentity.ForWorkspace(null!));
+        Assert.Throws<ArgumentNullException>(
+            () => StructuralSubjectIdentity.ForPackage(null!, context.Occurrence));
         Assert.Throws<ArgumentNullException>(
             () => StructuralSubjectIdentity.ForAllLibraries(null!));
         Assert.Throws<ArgumentNullException>(
-            () => StructuralSubjectIdentity.ForLibrary(null!));
+            () => StructuralSubjectIdentity.ForLibrary(null!, libraryInput));
         Assert.Throws<ArgumentNullException>(
-            () => StructuralSubjectIdentity.ForType(
+            () => StructuralSubjectIdentity.ForLibrary(context.Subject, null!));
+        Assert.Throws<ArgumentException>(
+            () => StructuralSubjectIdentity.ForLibrary(
+                context.Subject,
+                Library(Coordinate("2.0.0"), "Other")));
+        Assert.Throws<ArgumentNullException>(
+            () => StructuralSubjectIdentity.ForType(null!, type));
+        Assert.Throws<ArgumentNullException>(
+            () => StructuralSubjectIdentity.ForType(library, null!));
+        Assert.Throws<ArgumentNullException>(
+            () => StructuralSubjectIdentity.ForMember(
                 null!,
-                type));
-        Assert.Throws<ArgumentNullException>(
-            () => StructuralSubjectIdentity.ForType(
-                librarySubject,
-                null!));
-        Assert.Throws<ArgumentNullException>(
-            () => StructuralSubjectIdentity.ForMember(null!, Anchor(
-                "Sample.Widget",
-                "Run")));
+                Anchor("Sample.Widget", "Run")));
         Assert.Throws<ArgumentNullException>(
             () => StructuralSubjectIdentity.ForMember(typeSubject, null!));
     }
@@ -217,10 +239,10 @@ public sealed class StructuralSubjectIdentityTests
             path: null,
             () => new MemoryStream([0], writable: false),
             AssemblyResolutionProvenance.Package(
-                "sample.package",
-                "1.0.0",
-                "net11.0",
-                rid: null));
+                coordinate.PackageId,
+                coordinate.Version,
+                coordinate.Framework,
+                coordinate.RuntimeIdentifier));
         return new WorkspaceContextMember(
             WorkspaceMemberCoordinate.Package(
                 coordinate.PackageId,
