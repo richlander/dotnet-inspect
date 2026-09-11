@@ -982,6 +982,58 @@ test("Home preserves focused Settings controls through delayed Build identity", 
   await expect(page.locator("#spotlight-input")).not.toBeFocused();
 });
 
+test("Home preserves Settings dismissal through an adjacent Build rerender", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await expect(page.locator("#settings-title")).toBeFocused();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    fixtureWindow.homeFocusFrames = [];
+    fixtureWindow.homeFocusRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => {
+      fixtureWindow.homeFocusFrames!.push(callback);
+      return fixtureWindow.homeFocusFrames!.length;
+    };
+  });
+
+  await page.getByRole("button", { name: "Close" }).click();
+  const settingsButton = page.getByRole("button", { name: "Open settings" });
+  await expect(settingsButton).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    const frames = fixtureWindow.homeFocusFrames ?? [];
+    if (fixtureWindow.homeFocusRequestAnimationFrame) {
+      window.requestAnimationFrame =
+        fixtureWindow.homeFocusRequestAnimationFrame;
+    }
+    delete fixtureWindow.homeFocusFrames;
+    delete fixtureWindow.homeFocusRequestAnimationFrame;
+    const timestamp = performance.now();
+    for (const frame of frames) frame(timestamp);
+  });
+
+  await expect(settingsButton).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
 test("Diagnostics opens from Settings and Spotlight without entering the Application menu", async ({
   page,
 }, testInfo) => {

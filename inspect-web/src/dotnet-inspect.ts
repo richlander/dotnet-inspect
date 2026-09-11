@@ -871,6 +871,7 @@ const DEFAULT_REQUESTED_FRAMEWORK = "net10.0";
 let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 let homeFocusRenderGeneration = 0;
+let pendingHomeFocusTarget: HomeFocusTarget | null = null;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
@@ -4421,7 +4422,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const focusedElement = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
-  const homeFocus = captureHomeFocus(focusedElement);
+  const homeFocus =
+    pendingHomeFocusTarget ?? captureHomeFocus(focusedElement);
   contentFrameFocusOwner = null;
   contentFrameReplacementAuthority = null;
   const scopeBarOwnsFocus = focusedElement
@@ -10375,9 +10377,15 @@ function bindHomeEvents(preservedFocus: HomeFocusTarget | null) {
       return;
     }
   }
-  if (preservedFocus && restoreHomeFocus(preservedFocus)) return;
+  if (preservedFocus && restoreHomeFocus(preservedFocus)) {
+    if (preservedFocus === pendingHomeFocusTarget) {
+      pendingHomeFocusTarget = null;
+    }
+    return;
+  }
   afterCurrentNavigationFrame(() => {
     if (focusRenderGeneration !== homeFocusRenderGeneration) return;
+    if (pendingHomeFocusTarget) return;
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
     if (input
@@ -13759,12 +13767,18 @@ function openSettings(from: "home" | "workbench") {
 function closeSettings() {
   state.settings = false;
   reloadVisibleSource();
+  if (state.settingsReturn === "home") {
+    pendingHomeFocusTarget = {
+      kind: "id",
+      surface: "home",
+      id: "home-settings",
+    };
+    render();
+    return;
+  }
   render();
   requestAnimationFrame(() => {
-    const selector = state.settingsReturn === "workbench"
-      ? "#application-menu-button"
-      : "#home-settings";
-    document.querySelector<HTMLElement>(selector)
+    document.querySelector<HTMLElement>("#application-menu-button")
       ?.focus({ preventScroll: true });
   });
 }
