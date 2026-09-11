@@ -177,9 +177,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 edge.FromId == typeName
                 && edge.Kind == "implements"));
         Assert.Single(
-            bounded.GraphEdges.Where(edge =>
+            bounded.GraphEdges,
+            edge =>
                 edge.FromId == typeName
-                && edge.Kind == "implements"));
+                && edge.Kind == "implements");
         Assert.Empty(bounded.InspectionFailures);
     }
 
