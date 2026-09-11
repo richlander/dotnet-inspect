@@ -354,7 +354,12 @@ impl Drop for SettlementFuture {
         if self.completed {
             return;
         }
-        lock_state(&self.state).phase = SettlementPhase::ObservationAbandoned;
+        let abandoned_waker = {
+            let mut state = lock_state(&self.state);
+            state.phase = SettlementPhase::ObservationAbandoned;
+            state.waker.take()
+        };
+        drop(abandoned_waker);
     }
 }
 
@@ -362,13 +367,24 @@ impl Drop for SettlementFuture {
 mod tests {
     use std::future::Future;
     use std::pin::Pin;
-    use std::task::{Context, Poll, Waker};
+    use std::sync::{Arc, Weak};
+    use std::task::{Context, Poll, Wake, Waker};
 
     use super::{SettlementOutcome, SettlementRoot, SettlementStatus};
 
     fn poll_once<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
         let mut context = Context::from_waker(Waker::noop());
         future.poll(&mut context)
+    }
+
+    struct RetainingWake {
+        _retained: Arc<()>,
+    }
+
+    // The custom no-op owns the retention probe; Waker::noop cannot model it.
+    #[allow(clippy::manual_noop_waker)]
+    impl Wake for RetainingWake {
+        fn wake(self: Arc<Self>) {}
     }
 
     #[test]
@@ -415,11 +431,33 @@ mod tests {
         let root = SettlementRoot::new("package-source");
         let operation = root.issue_operation().unwrap();
         let observer = root.observer();
+        let mut settlement = Box::pin(root.settle());
 
-        drop(root.settle());
+        let retained = Arc::new(());
+        let weak: Weak<()> = Arc::downgrade(&retained);
+        let waker = Waker::from(Arc::new(RetainingWake {
+            _retained: Arc::clone(&retained),
+        }));
+        drop(retained);
+
+        {
+            let mut context = Context::from_waker(&waker);
+            assert!(matches!(
+                Pin::new(&mut settlement).poll(&mut context),
+                Poll::Pending
+            ));
+        }
+        drop(waker);
+        assert!(weak.upgrade().is_some());
+
+        drop(settlement);
         operation.succeed();
 
         assert_eq!(observer.status(), SettlementStatus::ObservationAbandoned);
+        assert!(
+            weak.upgrade().is_none(),
+            "resource-free observation retained the abandoned task waker"
+        );
     }
 
     #[test]
