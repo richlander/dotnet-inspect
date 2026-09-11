@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="DotnetInspector.Core" />
+    <InternalsVisibleTo Include="DotnetInspector.Networking" />
     <InternalsVisibleTo Include="NetworkAccess.Tests" />
     <InternalsVisibleTo Include="NuGetFetch" />
   </ItemGroup>

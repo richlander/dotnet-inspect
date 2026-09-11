@@ -71,7 +71,7 @@ public sealed partial class DesktopPackageSourceComposition
                 includeUnlisted: false, operationContext: operation).ConfigureAwait(false);
             failures.AddRange(discovery.Failures);
             if (discovery.State != PackageVersionDiscoveryState.Authoritative)
-                return new(null, null, failures);
+                return new(null, null, null, failures);
             operation.ThrowIfExpired();
 
             PackageSourceCoordinate? coordinate;
@@ -105,7 +105,7 @@ public sealed partial class DesktopPackageSourceComposition
 
             operation.ThrowIfExpired();
             if (coordinate is null)
-                return new(null, null, failures);
+                return new(null, null, null, failures);
 
             return await AcquireDiscoveredAsync(
                 discovery, coordinate, createStore, sourceOptions, log, operation,
@@ -139,7 +139,11 @@ public sealed partial class DesktopPackageSourceComposition
         ArgumentNullException.ThrowIfNull(createStore);
         var failures = new List<PackageAuthorityFailure>(discovery.Failures);
         if (discovery.State != PackageVersionDiscoveryState.Authoritative)
-            return Task.FromResult(new ConfiguredPackagePayloadResult(null, null, failures));
+            return Task.FromResult(new ConfiguredPackagePayloadResult(
+                null,
+                null,
+                null,
+                failures));
         if (sourceOptions?.AuthorizedSourceKeys is not null
             || sourceOptions?.ResolvedSources is not null)
             return Task.FromResult(InvalidSelection(
@@ -150,7 +154,11 @@ public sealed partial class DesktopPackageSourceComposition
             candidate.Coordinate, sourceOptions, operationContext: operation);
         failures.AddRange(originalPolicy.Failures);
         if (originalPolicy.Candidate is not { } originalSources)
-            return Task.FromResult(new ConfiguredPackagePayloadResult(null, null, failures));
+            return Task.FromResult(new ConfiguredPackagePayloadResult(
+                null,
+                null,
+                null,
+                failures));
 
         var reporters = new HashSet<ConfiguredPackageAuthority>(
             candidate.Authorities.Select(evidence => evidence.Authority),
@@ -171,7 +179,7 @@ public sealed partial class DesktopPackageSourceComposition
                 : NuGetVersion.TryParse(address, out _)));
 
     private static ConfiguredPackagePayloadResult InvalidSelection(string message) =>
-        new(null, null,
+        new(null, null, null,
         [
             new PackageAuthorityFailure(InertString.Empty, PackageAuthorityFailureKind.Input, message),
         ]);

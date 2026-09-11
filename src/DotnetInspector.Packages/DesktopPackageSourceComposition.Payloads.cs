@@ -31,7 +31,7 @@ public sealed partial class DesktopPackageSourceComposition
             failures.Add(new PackageAuthorityFailure(
                 InertString.Empty, PackageAuthorityFailureKind.Input,
                 "Payload acquisition requires a valid package ID and an exact version."));
-            return new(null, null, failures);
+            return new(null, null, null, failures);
         }
 
         using NuGetOperationContext? ownedOperation = operationContext is null
@@ -55,7 +55,7 @@ public sealed partial class DesktopPackageSourceComposition
             {
                 failures.Add(RequiredProducerUnavailable());
             }
-            return new(null, null, failures);
+            return new(null, null, null, failures);
         }
         if (requiredProducerKey is not null)
         {
@@ -74,7 +74,7 @@ public sealed partial class DesktopPackageSourceComposition
             if (matchingAuthorities.Length == 0)
             {
                 failures.Add(RequiredProducerUnavailable());
-                return new(null, null, failures);
+                return new(null, null, null, failures);
             }
 
             candidate = _sourceLease.CreatePinnedCandidate(
@@ -133,7 +133,6 @@ public sealed partial class DesktopPackageSourceComposition
                 PackageSourceTimeoutKind.Operation,
                 operation.OperationTimeout),
         });
-        return new(null, null, failures);
+        return new(null, null, null, failures);
     }
-
 }
