@@ -31,7 +31,7 @@ public static class InspectionGraphCommandDefinitions
     {
         var command = new Command(
             LibraryCallUseCommand.Name,
-            "Show exact direct call use between two local libraries");
+            "Show exact direct call use and typed summaries between two local libraries");
         var libraryOption = new Option<string[]>("--library")
         {
             Description =
@@ -44,22 +44,13 @@ public static class InspectionGraphCommandDefinitions
         command.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(command);
         opts.AddOutputOptionsTo(command);
-        command.Options.Add(opts.Columns);
-        command.Options.Add(opts.Fields);
+        opts.AddSectionOptionsTo(command);
         opts.AddCountOptionTo(command);
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
             string[] libraries =
                 parseResult.GetValue(libraryOption) ?? [];
-            if (libraries.Length != 2)
-            {
-                CommandError.Write(
-                    "Exactly two --library values are required.");
-                CommandError.WriteLine(
-                    "Run 'dotnet-inspect graph libraries --help' for usage.");
-                return 1;
-            }
 
             return await LibraryCallUseCommand.ExecuteAsync(
                 new LibraryCallUseOptions
@@ -76,6 +67,16 @@ public static class InspectionGraphCommandDefinitions
                         opts.ParseColumns(parseResult),
                     Fields =
                         opts.ParseFields(parseResult),
+                    Discover =
+                        opts.ParseDiscover(parseResult),
+                    Select =
+                        opts.ParseSelect(parseResult),
+                    SelectDefault =
+                        opts.ParseSelectDefault(parseResult),
+                    Schema =
+                        opts.ParseSchema(parseResult),
+                    Tree =
+                        opts.ParseTree(parseResult),
                 },
                 cancellationToken);
         });
