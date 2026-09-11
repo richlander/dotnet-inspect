@@ -1755,6 +1755,82 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public async Task PackageSourceSettlementLeaseAcquiresPayloadAndRetiresWithoutDisposingClient()
+    {
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                [
+                    new PackageSource(
+                        "browser",
+                        "https://browser.example/v3/index.json"),
+                ]);
+        ConfiguredPackageAuthority authority =
+            Assert.Single(authorization.Authorities);
+        TrackingPackageSourceClient? tracking = null;
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateCustom(
+                PackageSourceDescriptor.NuGetGallery,
+                authority.Association,
+                factory =>
+                {
+                    tracking = new TrackingPackageSourceClient(factory);
+                    return tracking;
+                });
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        PackageAcquisitionCandidate candidate =
+            Assert.IsType<PackageAcquisitionCandidate>(
+                lease.ResolvePinnedCandidate(
+                    authorization,
+                    Coordinate).Candidate);
+        var store = new InMemoryPackageStore();
+        byte[] nupkg = TestPackageArchive.Create(
+            (
+                "contoso.json.nuspec",
+                "<package><metadata><id>contoso.json</id><version>1.0.0</version></metadata></package>"u8.ToArray()),
+            ("lib/net10.0/contoso.json.dll", [1, 2, 3]));
+        IPackageContent committed = await store.CommitAsync(
+            Coordinate.PackageId,
+            Coordinate.Version,
+            client.Source.Producer.Key,
+            new MemoryStream(nupkg, writable: false),
+            TestContext.Current.CancellationToken);
+
+        ConfiguredPackagePayloadResult payload =
+            await lease.AcquireCandidatePayloadAsync(
+                candidate,
+                (_, producer) =>
+                {
+                    Assert.Equal(client.Source.Producer, producer);
+                    return store;
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Same(authority, payload.Authority);
+        Assert.Same(client.Source, payload.Source);
+        AcquiredPackageSourcePayload acquired =
+            Assert.IsType<AcquiredPackageSourcePayload>(payload.Payload);
+        Assert.Same(committed, acquired.Content);
+        Assert.Same(
+            committed.GenerationIdentity,
+            acquired.Content.GenerationIdentity);
+        Assert.Equal(client.Source.Producer.Key, acquired.ProducerKey);
+        Assert.Equal(PackagePayloadOrigin.Cache, acquired.Origin);
+        Assert.Empty(payload.Failures);
+
+        lease.Dispose();
+
+        Assert.False(tracking!.IsDisposed);
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            async () => await lease.AcquireCandidatePayloadAsync(
+                candidate,
+                (_, _) => store,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation()
     {
         PackageSourceAuthorization authorization =
@@ -1792,6 +1868,18 @@ public sealed class PackageHouseContractTests
             async () => await lease.AcquireCandidateManifestAsync(
                 candidate,
                 TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await lease.AcquireCandidatePayloadAsync(
+                foreignCandidate,
+                (_, _) => new InMemoryPackageStore(),
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await lease.AcquireCandidatePayloadAsync(
+                candidate,
+                (_, _) => new InMemoryPackageStore(),
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
     }
 
     private static PackageHouseRequest Request(

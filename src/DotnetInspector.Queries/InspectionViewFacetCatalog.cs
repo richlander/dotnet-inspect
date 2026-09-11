@@ -6,14 +6,14 @@ public static class InspectionViewFacetCatalog
     static readonly ViewFacetExecutionBinding[] Bindings =
     [
         Binding(
-            "root.package-overview",
+            "workspace.overview",
+            InspectionViewFacetExecution.WorkspaceOverview),
+        Binding(
+            "package.overview",
             InspectionViewFacetExecution.PackageOverview),
         Binding(
-            "root.package-dependencies",
+            "package.dependencies",
             InspectionViewFacetExecution.PackageDependencies),
-        Binding(
-            "root.overview",
-            InspectionViewFacetExecution.RootOverview),
         Binding(
             "library.references",
             InspectionViewFacetExecution.LibraryReferences),
@@ -30,6 +30,9 @@ public static class InspectionViewFacetCatalog
             "library.metadata",
             InspectionViewFacetExecution.LibraryMetadata),
         Binding(
+            "library.compare",
+            InspectionViewFacetExecution.LibraryCompare),
+        Binding(
             "type.api",
             InspectionViewFacetExecution.TypeApi),
         Binding(
@@ -38,6 +41,9 @@ public static class InspectionViewFacetCatalog
         Binding(
             "type.source",
             InspectionViewFacetExecution.TypeSource),
+        Binding(
+            "type.compare",
+            InspectionViewFacetExecution.TypeCompare),
         Binding(
             "member.overview",
             InspectionViewFacetExecution.MemberOverview),
@@ -53,39 +59,42 @@ public static class InspectionViewFacetCatalog
         Binding(
             "member.annotated-source",
             InspectionViewFacetExecution.MemberAnnotatedSource),
+        Binding(
+            "member.compare",
+            InspectionViewFacetExecution.MemberCompare),
     ];
 
     static readonly ViewFacetRegistration[] Registrations =
     [
         Active(
             Descriptor(
-                "root.package-overview",
-                StructuralSubjectKind.Root,
+                "workspace.overview",
+                StructuralSubjectKind.Workspace,
+                "Overview",
+                "Current Workspace scope, ordered packages, and realization status.",
+                100,
+                ViewFacetRole.WorkspaceOverview),
+            "Current Workspace scope, ordered packages, and realization status.",
+            AppliesToWorkspace),
+        Active(
+            Descriptor(
+                "package.overview",
+                StructuralSubjectKind.Package,
                 "Overview",
                 "Package identity, selected target, assets, and summary facts.",
                 100,
                 ViewFacetRole.PackageOverview),
             "Package identity, selected target, assets, and summary facts.",
-            AppliesToPackageRoot),
+            AppliesToPackage),
         Active(
             Descriptor(
-                "root.package-dependencies",
-                StructuralSubjectKind.Root,
+                "package.dependencies",
+                StructuralSubjectKind.Package,
                 "Dependencies",
                 "Declared package dependencies for the selected target framework.",
                 200),
             "Declared package dependencies for the selected target framework.",
-            AppliesToPackageRoot),
-        Active(
-            Descriptor(
-                "root.overview",
-                StructuralSubjectKind.Root,
-                "Overview",
-                "Coordinate identity, selected target, and available structural subjects.",
-                300,
-                ViewFacetRole.RootOverview),
-            "Coordinate identity, selected target, and available structural subjects.",
-            AppliesToNonPackageRoot),
+            AppliesToPackage),
         Active(
             Descriptor(
                 "library.references",
@@ -134,6 +143,15 @@ public static class InspectionViewFacetCatalog
             AppliesToLibrary),
         Active(
             Descriptor(
+                "library.compare",
+                StructuralSubjectKind.Library,
+                "Compare",
+                "Diff and clone results organized by Type for the active Library.",
+                600),
+            "Diff and clone results organized by Type for the active Library.",
+            AppliesToLibrary),
+        Active(
+            Descriptor(
                 "type.api",
                 StructuralSubjectKind.Type,
                 "API",
@@ -159,6 +177,15 @@ public static class InspectionViewFacetCatalog
                 "Source or decompiled code for the active Type.",
                 300),
             "Source or decompiled code for the active Type.",
+            AppliesToType),
+        Active(
+            Descriptor(
+                "type.compare",
+                StructuralSubjectKind.Type,
+                "Compare",
+                "Diff and clone results organized by Member for the active Type.",
+                400),
+            "Diff and clone results organized by Member for the active Type.",
             AppliesToType),
         Active(
             Descriptor(
@@ -206,6 +233,15 @@ public static class InspectionViewFacetCatalog
                 500),
             "Source for the active Member with product analysis annotations.",
             AppliesToMember),
+        Active(
+            Descriptor(
+                "member.compare",
+                StructuralSubjectKind.Member,
+                "Compare",
+                "Detailed diff and clone results for the active Member.",
+                600),
+            "Detailed diff and clone results for the active Member.",
+            AppliesToMember),
     ];
 
     public static ViewFacetRegistry Registry { get; } =
@@ -240,13 +276,11 @@ public static class InspectionViewFacetCatalog
         InspectionViewFacetExecution target) =>
         new(new ViewFacetId(id), target);
 
-    static bool AppliesToPackageRoot(ViewFacetTarget target) =>
-        target.Subject.Kind == StructuralSubjectKind.Root
-        && target.RootKind == ViewFacetRootKind.PackageCapable;
+    static bool AppliesToWorkspace(ViewFacetTarget target) =>
+        target.Subject.Kind == StructuralSubjectKind.Workspace;
 
-    static bool AppliesToNonPackageRoot(ViewFacetTarget target) =>
-        target.Subject.Kind == StructuralSubjectKind.Root
-        && target.RootKind == ViewFacetRootKind.NonPackage;
+    static bool AppliesToPackage(ViewFacetTarget target) =>
+        target.Subject.Kind == StructuralSubjectKind.Package;
 
     static bool AppliesToLibrary(ViewFacetTarget target) =>
         target.Subject.Kind == StructuralSubjectKind.Library;
@@ -260,20 +294,23 @@ public static class InspectionViewFacetCatalog
 
 internal enum InspectionViewFacetExecution
 {
+    WorkspaceOverview,
     PackageOverview,
     PackageDependencies,
-    RootOverview,
     LibraryReferences,
     LibraryIntegrations,
     LibraryOpportunities,
     LibraryAnalysis,
     LibraryMetadata,
+    LibraryCompare,
     TypeApi,
     TypeMetadata,
     TypeSource,
+    TypeCompare,
     MemberOverview,
     MemberCallGraph,
     MemberFacts,
     MemberSource,
     MemberAnnotatedSource,
+    MemberCompare,
 }

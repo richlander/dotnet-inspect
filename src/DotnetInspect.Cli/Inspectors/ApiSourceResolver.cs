@@ -82,7 +82,7 @@ internal static class ApiSourceResolver
 
                     try
                     {
-                        await using PackageRangeExtraction? rangeExtraction = Core.HttpClientFactory.IsOffline
+                        await using PackageRangeExtraction? rangeExtraction = DotnetInspector.Networking.HttpClientFactory.IsOffline
                             ? null
                             : await PackageExtractor.OpenPackageRangeAsync(
                                 context.HttpClient, range!, context.Logger.Log, "inspect-api",
@@ -150,7 +150,7 @@ internal static class ApiSourceResolver
                 {
                     outcome = rangeOutcome.Value;
                 }
-                else if (!target.IsLocalFile && !Core.HttpClientFactory.IsOffline)
+                else if (!target.IsLocalFile && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
                 {
                     outcome = PackageExtractor.TryNormalizePackageVersion(
                         target.Version, out string pinnedVersion)

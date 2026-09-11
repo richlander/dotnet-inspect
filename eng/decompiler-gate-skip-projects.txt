@@ -100,7 +100,6 @@ src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
-src/Inspector.Resources
 src/TsJsExport.Contracts
 src/mdi
 src/runfaster
@@ -114,6 +113,7 @@ tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
 tests/DotnetInspector.ILRoundtrip.Tests
 tests/DotnetInspector.MetadataRendering.Tests
+tests/DotnetInspector.Networking.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.PlatformHouse.Installed.Tests
 tests/DotnetInspector.PlatformHouse.Tests

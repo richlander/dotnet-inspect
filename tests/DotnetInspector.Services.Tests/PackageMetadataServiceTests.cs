@@ -2893,7 +2893,7 @@ public class PackageMetadataServiceTests : IDisposable
         List<string> log = [];
 
         PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
-            DotnetInspector.Core.HttpClientFactory.Shared,
+            DotnetInspector.Networking.HttpClientFactory.Shared,
             "Private.Package",
             "1.0.0",
             log.Add,

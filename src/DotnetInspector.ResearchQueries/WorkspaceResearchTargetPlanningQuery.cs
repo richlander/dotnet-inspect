@@ -78,7 +78,7 @@ public static class WorkspaceResearchTargetPlanningQuery
             projected.Admission,
             projected.Admission.Inputs.Select(input =>
                 new ResearchTargetInputRoleAssignment(input, ResearchTargetInputRole.Implementation)),
-            [new ResearchCarriedMemberSelection(question, declaringType.ToMetadataFullName(), selector)]);
+            [new ResearchCarriedMemberSelection(question, declaringType, selector)]);
         ResearchTargetPlanningOutcome outcome = ResearchTargetResolver.Resolve(request, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return outcome switch

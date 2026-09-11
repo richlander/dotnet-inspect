@@ -528,7 +528,7 @@ public class ApiMemberIdentityTests
             Assert.Equal(
                 2,
                 xmlIdentities
-                    .Select(identity => identity.NormalizedReturnType)
+                    .Select(identity => identity.Value)
                     .Distinct(StringComparer.Ordinal)
                     .Count());
         }

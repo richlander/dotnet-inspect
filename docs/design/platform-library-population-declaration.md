@@ -16,6 +16,11 @@ The declaration lets the application catalog say that a Workspace is relevant
 to the .NET runtime or ASP.NET Core library population without selecting or
 executing a platform source.
 
+The declaration contract is implemented by
+`DotnetInspector.SourceSelection.PlatformLibraryPopulationDeclaration`.
+Catalog projection, Workspace retention, source realization, and host adoption
+remain in their separately owned slices.
+
 ## Authority and exact claim
 
 **Platform Library Population Declaration** owns:

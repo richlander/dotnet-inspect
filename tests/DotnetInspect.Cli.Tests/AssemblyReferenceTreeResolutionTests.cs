@@ -161,6 +161,48 @@ public class AssemblyReferenceTreeResolutionTests
     }
 
     [Fact]
+    public void ReferenceGraph_PreservesDistinctUnresolvedCultures()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-graph-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    new AssemblyReferenceIdentity(
+                        "Example.resources",
+                        new Version(1, 0, 0, 0),
+                        "de",
+                        null),
+                    new AssemblyReferenceIdentity(
+                        "Example.resources",
+                        new Version(1, 0, 0, 0),
+                        "fr",
+                        null)));
+
+            LibraryMetadataService.AssemblyReferenceGraph graph =
+                BuildGraph(ownerPath);
+            DependencyGraphDocument document =
+                DependencyGraphProjection.Library(
+                    new LibraryDependencyGraphResult.Graph(
+                        "Owner",
+                        graph));
+
+            Assert.Equal(2, graph.Relationships.Count);
+            Assert.Equal(2, document.Edges.Length);
+            Assert.Equal(3, document.Nodes.Length);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReferenceGraph_CancellationIsObservedByTraversal()
     {
         string root = Directory.CreateTempSubdirectory(
@@ -197,6 +239,47 @@ public class AssemblyReferenceTreeResolutionTests
             Assert.Equal(
                 cancellation.Token,
                 exception.CancellationToken);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReferenceGraph_CoalescesEquivalentUnresolvedIdentities()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-graph-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    new AssemblyReferenceIdentity(
+                        "Example.resources",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null),
+                    new AssemblyReferenceIdentity(
+                        "example.resources",
+                        new Version(1, 0, 0, 0),
+                        "neutral",
+                        null)));
+
+            LibraryMetadataService.AssemblyReferenceGraph graph =
+                BuildGraph(ownerPath);
+            DependencyGraphDocument document =
+                DependencyGraphProjection.Library(
+                    new LibraryDependencyGraphResult.Graph(
+                        "Owner",
+                        graph));
+            Assert.Equal(2, graph.Relationships.Count);
+            Assert.Equal(2, document.Edges.Length);
+            Assert.Equal(2, document.Nodes.Length);
         }
         finally
         {
@@ -1059,4 +1142,14 @@ public class AssemblyReferenceTreeResolutionTests
         builder.Serialize(image);
         return image.ToArray();
     }
+
+    private static LibraryMetadataService.AssemblyReferenceGraph BuildGraph(
+        string ownerPath) =>
+        LibraryMetadataService.BuildTransitiveReferenceGraph(
+            AssemblyInspector.ExtractReferenceIdentities(ownerPath),
+            ownerPath,
+            AssemblyInspector.ExtractManagedMetadataIdentity(ownerPath)
+                ?? throw new InvalidOperationException(
+                    "The fixture must expose managed metadata."),
+            new VerboseLogger(enabled: false));
 }

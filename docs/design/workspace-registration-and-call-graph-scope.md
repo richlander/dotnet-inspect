@@ -105,6 +105,11 @@ An exact-library registration names one source-owner-issued library
 coordinate. It may identify a platform or package-origin library without
 converting either into the other's identity model.
 
+The
+[Exact Library Source Coordinate](exact-library-source-coordinate.md)
+owns the closed package/Platform source distinction, exact Metadata assembly
+identity, equality, and resource-free non-action retained by this arm.
+
 A Package may contribute one or more admitted libraries, but Package
 membership and exact-library registration remain distinct. Opening or
 admitting a package does not silently register all of its libraries.

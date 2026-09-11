@@ -445,13 +445,14 @@ internal static class ChangePlanTestSuite
                 "Direct inspect-web owner push did not retain only the fast backstop.");
         }
 
-        // A neighbouring documentation-only candidate selects documentation
-        // validation and the repository-wide guards, but no content gate.
+        // A neighbouring documentation-only candidate selects only
+        // documentation validation. The always-run changes job owns the
+        // repository-wide line-ending guard.
         ValidationSelections docsOnly = ValidationSelections.FromRouting(
             policy.Route(Evidence("docs/design/ci-change-plan.md")),
             PlanEventKind.PullRequestSyntheticCandidate);
         if (!docsOnly.Markdownlint
-            || !docsOnly.RepositoryGuards
+            || docsOnly.RepositoryGuards
             || docsOnly.Test
             || docsOnly.DecompilerGates
             || docsOnly.InspectWeb
@@ -461,15 +462,24 @@ internal static class ChangePlanTestSuite
                 "A documentation-only candidate selected a content gate.");
         }
 
+        ValidationSelections csharpSource =
+            ValidationSelections.FromRouting(
+                policy.Route(Evidence("src/NuGetFetch/PackageSource.cs")),
+                PlanEventKind.PullRequestSyntheticCandidate);
+        if (!csharpSource.RepositoryGuards || !csharpSource.Test)
+        {
+            throw new InvalidOperationException(
+                "A C# source candidate did not select the repository guards.");
+        }
+
         ValidationSelections emptyPreMerge =
             ValidationSelections.FromRouting(
                 policy.Route(ChangeEvidence.Create([])),
                 PlanEventKind.MergeGroup);
-        if (!emptyPreMerge.RepositoryGuards || emptyPreMerge.Test)
+        if (emptyPreMerge.RepositoryGuards || emptyPreMerge.Test)
         {
             throw new InvalidOperationException(
-                "An empty pre-merge candidate did not select only the "
-                + "repository-wide guards.");
+                "An empty pre-merge candidate selected a content gate.");
         }
     }
 
@@ -623,7 +633,7 @@ internal static class ChangePlanTestSuite
             + "{\"recordCount\":2,\"sha256\":"
             + "\"e2942177c268e91967eeb66ed6c48b8e8e426158f30a8f3371de8322"
             + "439a2a05\"},\"validations\":{\"test\":false,"
-            + "\"repositoryGuards\":true,"
+            + "\"repositoryGuards\":false,"
             + "\"dependencyPolicy\":false,"
             + "\"csharpDiffSmoke\":false,\"decompilerGates\":false,"
             + "\"markdownlint\":true,\"ilDiffSmoke\":false,"

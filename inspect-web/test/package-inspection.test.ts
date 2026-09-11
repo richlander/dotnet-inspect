@@ -42,6 +42,7 @@ function packageModel(
     assemblyId: "example-package",
     assemblyAsset: "lib/net10.0/Example.Package.dll",
     source: { kind: "nuget.org" },
+    producerLabel: "NuGet.org",
     assemblies: [],
     types: [],
     accessibility: [],

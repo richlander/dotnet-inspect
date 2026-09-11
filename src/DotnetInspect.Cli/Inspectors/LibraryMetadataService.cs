@@ -131,7 +131,7 @@ internal static class LibraryMetadataService
                 service,
                 FindingSubjectFor(path),
                 httpClient,
-                DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch,
+                DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch,
                 packageName,
                 packageVersion,
                 isPlatformAssembly,
@@ -1591,18 +1591,9 @@ internal static class LibraryMetadataService
                 && PathComparer.Equals(
                     x.BindingScope,
                     y.BindingScope)
-                && StringComparer.Ordinal.Equals(
-                    xReference.Name,
-                    yReference.Name)
-                && EqualityComparer<Version?>.Default.Equals(
-                    xReference.Version,
-                    yReference.Version)
-                && StringComparer.OrdinalIgnoreCase.Equals(
-                    xReference.Culture,
-                    yReference.Culture)
-                && StringComparer.OrdinalIgnoreCase.Equals(
-                    xReference.PublicKeyToken,
-                    yReference.PublicKeyToken);
+                && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    xReference,
+                    yReference);
         }
 
         public int GetHashCode(AssemblyReferenceTraversalKey value)
@@ -1616,15 +1607,8 @@ internal static class LibraryMetadataService
             {
                 hash.Add(value.BindingScope, PathComparer);
                 hash.Add(
-                    reference.Name,
-                    StringComparer.Ordinal);
-                hash.Add(reference.Version);
-                hash.Add(
-                    reference.Culture,
-                    StringComparer.OrdinalIgnoreCase);
-                hash.Add(
-                    reference.PublicKeyToken,
-                    StringComparer.OrdinalIgnoreCase);
+                    AssemblyReferenceIdentity.EquivalentComparer
+                        .GetHashCode(reference));
             }
             return hash.ToHashCode();
         }

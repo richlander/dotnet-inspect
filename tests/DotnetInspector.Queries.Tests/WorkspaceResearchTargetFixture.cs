@@ -80,14 +80,14 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
             MetadataMethodAddress address = MetadataMethodAddress.Create(
                 pe.GetMetadataReader(), MetadataTokens.MethodDefinitionHandle(1));
             selection = [new ResearchExactAddressMemberSelection(
-                question, projected.Admission.Inputs[0], "N.Type", selector, address,
+                question, projected.Admission.Inputs[0], TypeName, selector, address,
                 ResearchTargetRelationshipRole.Method)];
         }
         else
         {
             selection = Enumerable.Range(0, selections).Select(_ =>
                 (ResearchMemberSelectionOccurrence)new ResearchCarriedMemberSelection(
-                    question, "N.Type", selector)).ToArray();
+                    question, TypeName, selector)).ToArray();
         }
         var resolution = Assert.IsType<ResearchTargetPlanningOutcome.Planned>(
             ResearchTargetResolver.Resolve(new(

@@ -1181,8 +1181,10 @@ This browser-only placement is milestone 5 of the six-step adoption path in
 It has one consumer, the Member Diff working surface, and one focused tracker,
 [#5685](https://github.com/richlander/dotnet-inspect/issues/5685). It adds no
 comparison, transport, navigation, or viewer architecture. The existing
-cross-version `Compare authored source` dialog and Method Body Diff remain
-separate experiences; this placement does not retire or redefine either.
+cross-version `Compare authored source` and Method Body Diff contextual
+dialogs are retired under #6491. Their structured managed evidence remains
+available to an owner-issued immersive destination; this placement does not
+redefine that evidence.
 
 [VS Code](https://code.visualstudio.com/docs/sourcecontrol/overview) uses a
 dedicated side-by-side diff editor rather than embedding changed text in its
@@ -1303,7 +1305,8 @@ navigation band. It never scrolls or obscures the Application menu.
 
 ## Data bar and Diagnostics
 
-The bottom data bar is one compact product-information line. It does not wrap,
+The bottom data bar is one compact 30 CSS-pixel product-information line. Its
+grid row remains allocated when the notice stack is empty. It does not wrap,
 expand, or host runtime diagnostics:
 
 <!-- markdownlint-disable MD013 -->
@@ -1323,6 +1326,10 @@ The data bar includes:
 
 On a narrow viewport, the line remains non-wrapping and horizontally scrollable.
 It does not discard the source or promotional actions to fit.
+
+The acquisition owner supplies the compact producer label as display text. The
+data bar renders that label verbatim and does not parse or reconstruct it from
+an endpoint.
 
 The data bar does not contain:
 
