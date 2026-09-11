@@ -35,8 +35,6 @@ public static partial class AttributeReader
                 continue;
             if (skipAttribute?.Invoke(typeName) == true)
                 continue;
-            beforeMaterialize?.Invoke(
-                reader.GetBlobReader(attr.Value).Length);
             if (TryRenderAttribute(
                     reader,
                     attr,

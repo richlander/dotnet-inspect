@@ -1911,7 +1911,8 @@ public sealed class MemorySafetyMetadataIndexTests
     public void BudgetRefusalKeepsMarkersAlreadyDecoded()
     {
         // This budget is spent partway through the second marker row, so the
-        // first row is already decoded when the scan refuses.
+        // first row is already decoded when the scan refuses. Each eight-byte
+        // value blob is included in the decoder-owned work charge.
         using OpenedMetadata opened = Open(BuildSyntheticImage([2, 2]));
         var rules =
             Assert.IsType<MemorySafetyRulesResult.Unavailable>(
@@ -1919,7 +1920,7 @@ public sealed class MemorySafetyMetadataIndexTests
                     opened.Reader,
                     associationRowBudget: 100,
                     attributeRowBudget: 100,
-                    nameWorkBudget: 163).Rules);
+                    nameWorkBudget: 179).Rules);
 
         Assert.Equal(
             MemorySafetyMetadataFailureKind.BudgetExceeded,

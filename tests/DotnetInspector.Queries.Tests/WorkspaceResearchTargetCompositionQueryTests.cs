@@ -12,6 +12,53 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class WorkspaceResearchTargetCompositionQueryTests
 {
     [Fact]
+    public void WorkspaceResearchTarget_DerivesDirectTerminalDomain()
+    {
+        using var fixture = Direct();
+        WorkspaceResearchTargetPlan plan = fixture.PublicPlan();
+        fixture.RetainAll();
+
+        WorkspaceResearchTargetCompositionReceipt receipt = Composed(
+            plan.Compose(
+                fixture.Group,
+                fixture.Nodes[0].Participant,
+                QueryComparisonSide.Before,
+                AssemblyResolutionScope.Any,
+                TestContext.Current.CancellationToken));
+
+        Assert.Same(receipt.RootAttemptId, receipt.EffectiveAttemptId);
+        Assert.Equal(
+            "Direct",
+            plan.Scope.Domains.Single(domain =>
+                ReferenceEquals(domain.Id, receipt.Domain)).Key.Identity.Name);
+        Assert.Same(plan.Population.Before[0].Id, receipt.TerminalInput);
+    }
+
+    [Fact]
+    public void WorkspaceResearchTarget_DerivesForwardedTerminalDomain()
+    {
+        using var fixture = Forwarded();
+        WorkspaceResearchTargetPlan plan = fixture.PublicPlan();
+        fixture.RetainAll();
+
+        WorkspaceResearchTargetCompositionReceipt receipt = Composed(
+            plan.Compose(
+                fixture.Group,
+                fixture.Nodes[0].Participant,
+                QueryComparisonSide.Before,
+                AssemblyResolutionScope.Any,
+                TestContext.Current.CancellationToken));
+
+        Assert.NotSame(receipt.RootAttemptId, receipt.EffectiveAttemptId);
+        Assert.Equal(
+            "Terminal",
+            plan.Scope.Domains.Single(domain =>
+                ReferenceEquals(domain.Id, receipt.Domain)).Key.Identity.Name);
+        Assert.Same(plan.Population.Before[1].Id, receipt.TerminalInput);
+        Assert.Single(Resolved(receipt).Hops);
+    }
+
+    [Fact]
     public void WorkspaceResearchTarget_DirectDefinitionRetainsRootAttempt()
     {
         using var fixture = Direct();
