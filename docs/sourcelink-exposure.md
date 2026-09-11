@@ -330,10 +330,13 @@ network requests.
 - Symbol-package PDB caches are identity-keyed to avoid multi-TFM collisions.
 - Source availability and integrity queries accept an optional host cache;
   filesystem-free hosts may run without one.
-- Positive availability and integrity results are cached permanently only when
-  the provenance grammar establishes an immutable commit-pinned GitHub or Azure
-  DevOps URL. Other availability results retain a TTL; integrity results for
-  unknown hosts and moving or ambiguous selectors are not cached.
+- [Source availability audit](design/source-availability-audit.md) owns
+  availability reuse. Origin-validated positives are permanent only for
+  recognized immutable commit-pinned URLs and otherwise retain a one-day TTL.
+  Non-success results lack final-origin evidence and remain operation-local.
+- Integrity positives are cached permanently only when the provenance grammar
+  establishes an immutable commit-pinned GitHub or Azure DevOps URL. Integrity
+  results for unknown hosts and moving or ambiguous selectors are not cached.
 - The target bare-library effective catalog may persist successful
   package/platform section summaries under its versioned semantic key. The
   slice-5 successor keys on retained assembly content plus complete typed
