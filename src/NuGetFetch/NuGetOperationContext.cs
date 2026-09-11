@@ -18,6 +18,13 @@ public sealed class NuGetOperationContext : IDisposable
     private int _disposeState;
 
     /// <summary>
+    /// Gets the largest timeout representable by the operation cancellation
+    /// mechanism.
+    /// </summary>
+    public static TimeSpan MaximumTimeout { get; } =
+        TimeSpan.FromMilliseconds(uint.MaxValue - 1d);
+
+    /// <summary>
     /// Creates a context with default request and operation deadlines.
     /// </summary>
     public NuGetOperationContext(
