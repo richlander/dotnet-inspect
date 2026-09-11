@@ -83,6 +83,7 @@ public sealed class PackageSourceSettlementLease : IDisposable
     internal bool OwnsCandidate(
         PackageAcquisitionCandidate candidate)
     {
+        ThrowIfRetired();
         ArgumentNullException.ThrowIfNull(candidate);
         return _candidateIssuer.OwnsCandidate(candidate);
     }

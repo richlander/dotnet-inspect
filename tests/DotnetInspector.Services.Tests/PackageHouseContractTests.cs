@@ -13,7 +13,7 @@ public sealed class PackageHouseContractTests
         PackageSourceCoordinate.Create("contoso.json", "4.0.0");
 
     [Fact]
-    public void RequestFloorAcceptsOnlyAnExactDemand()
+    public void RequestFloorRetainsExactDemandAndAssociation()
     {
         var demand = new PackageHouseDemand.Exact(Coordinate);
         PackageHouseTargetContext target =
@@ -35,7 +35,7 @@ public sealed class PackageHouseContractTests
         Assert.Equal("linux-x64", request.TargetContext.RuntimeIdentifier);
         Assert.Same(association, request.Association);
         Assert.Equal(
-            ["Exact", "Selecting"],
+            ["Candidate", "Exact", "Selecting"],
             typeof(PackageHouseDemand)
                 .GetNestedTypes(BindingFlags.Public)
                 .Select(type => type.Name)
@@ -757,6 +757,44 @@ public sealed class PackageHouseContractTests
         PackageHouseDecisionReceipt decision =
             PackageHouseDecisionReceipt.RetainPackage(request, Coordinate);
         Assert.Same(Coordinate, decision.Coordinate);
+    }
+
+    [Fact]
+    public void CandidateDemandBindsDecisionToTheExactCandidate()
+    {
+        var authority = new ConfiguredPackageAuthority(
+            new PackageSource(
+                "candidate",
+                "https://candidate.example/v3/index.json"));
+        PackageAcquisitionCandidate candidate =
+            PackageAcquisitionCandidate.CreatePinned(
+                new object(),
+                Coordinate,
+                [authority]);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Candidate(candidate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle));
+
+        PackageHouseDecisionReceipt decision =
+            PackageHouseDecisionReceipt.RetainPackage(
+                request,
+                Coordinate,
+                candidate);
+
+        Assert.Same(candidate, decision.Candidate);
+        Assert.Throws<ArgumentException>(
+            () => PackageHouseDecisionReceipt.RetainPackage(
+                request,
+                Coordinate));
+        Assert.Throws<ArgumentException>(
+            () => PackageHouseDecisionReceipt.RetainPackage(
+                request,
+                Coordinate,
+                PackageAcquisitionCandidate.CreatePinned(
+                    new object(),
+                    Coordinate,
+                    [authority])));
     }
 
     [Fact]
