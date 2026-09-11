@@ -266,7 +266,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
-    public void DuplicateForwardersToSameTarget_PreserveTypedOutcomeAndEveryNativeFinding()
+    public void DuplicateForwardersToSameTarget_PublishExactTerminalComparisonAndEveryNativeFinding()
     {
         byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
             "Terminal",
@@ -297,33 +297,58 @@ public sealed class WorkspaceImplementationComparisonQueryTests
         using AssemblyContextGroup beforeGroup = fixture.CreateGroup([0, 1]);
         using AssemblyContextGroup afterGroup = fixture.CreateGroup([2, 3]);
 
-        var rejected = Assert.IsType<
-            WorkspaceImplementationComparisonResult.CompositionRejected>(
-                Execute(
-                    fixture,
-                    beforeGroup,
-                    afterGroup,
-                    beforeBindings: [0, 1],
-                    afterBindings: [2, 3]));
+        WorkspaceImplementationComparisonPublication publication = Published(
+            Execute(
+                fixture,
+                beforeGroup,
+                afterGroup,
+                beforeBindings: [0, 1],
+                afterBindings: [2, 3]));
 
         WorkspaceTypeForwarderUse[] beforeUses =
         [
-            .. rejected.Forwarders.Where(use =>
+            .. publication.Forwarders.Where(use =>
                 use.Side == QueryComparisonSide.Before),
         ];
-        ImmutableArray<Finding<TypeForwarderInfo>> native =
+        WorkspaceTypeForwarderUse[] afterUses =
+        [
+            .. publication.Forwarders.Where(use =>
+                use.Side == QueryComparisonSide.After),
+        ];
+        ImmutableArray<Finding<TypeForwarderInfo>> beforeNative =
             NativeForwarderFindings(beforeFacade);
+        ImmutableArray<Finding<TypeForwarderInfo>> afterNative =
+            NativeForwarderFindings(afterFacade);
         Assert.Equal(
-            WorkspaceResearchTargetCompositionRejection.RootAttemptMismatch,
-            rejected.Result.Reason);
-        Assert.Equal(QueryComparisonSide.Before, rejected.Side);
-        Assert.Null(rejected.CompletedSide);
-        Assert.Equal(2, native.Length);
+            ResearchTargetCorrespondenceKind.Paired,
+            publication.WorkItem.Correspondence.Kind);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeForwarded,
+            Assert.IsType<WorkspaceResearchTargetAttemptEvidence.Unavailable>(
+                publication.Before.RootAttempt).Diagnostic);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeForwarded,
+            Assert.IsType<WorkspaceResearchTargetAttemptEvidence.Unavailable>(
+                publication.After.RootAttempt).Diagnostic);
+        Assert.Equal(
+            new Guid("00000000-0000-0000-0000-000000000372"),
+            publication.Before.EffectiveAttempt.Address!.Value.ModuleVersionId);
+        Assert.Equal(
+            new Guid("00000000-0000-0000-0000-000000000374"),
+            publication.After.EffectiveAttempt.Address!.Value.ModuleVersionId);
+        Assert.Equal(2, beforeNative.Length);
+        Assert.Equal(2, afterNative.Length);
         Assert.All(beforeUses, use => Assert.Equal(0, use.HopIndex));
+        Assert.All(afterUses, use => Assert.Equal(0, use.HopIndex));
         Assert.Equal(
-            native,
+            beforeNative,
             beforeUses.Select(use => use.Finding));
-        Assert.Equal(2, rejected.Forwarders.Length);
+        Assert.Equal(
+            afterNative,
+            afterUses.Select(use => use.Finding));
+        Assert.Equal(4, publication.Forwarders.Length);
+        Assert.IsType<ResearchProducerSessionOutcome.Completed>(
+            publication.Outcome);
     }
 
     [Fact]

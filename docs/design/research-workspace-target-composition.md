@@ -980,6 +980,11 @@ divergent-domain, multi-hop, participant-image-failure, and cancellation
 neighbors are gated by the remaining
 `WorkspaceImplementationComparisonQueryTests`.
 
+`DuplicateForwardersToSameTarget_PublishExactTerminalComparisonAndEveryNativeFinding`
+proves that Metadata's one coalesced forwarding hop still publishes the exact
+terminal comparison while the Finding/use projection retains every native
+same-target declaration on both sides at that hop.
+
 - `WorkspaceResearchTarget_DirectDefinitionRetainsRootAttempt`
 - `WorkspaceResearchTarget_ForwardedDefinitionSelectsExactTerminalAttempt`
 - `WorkspaceResearchTarget_ForwardedRootAttemptRemainsUnavailable`
