@@ -48,7 +48,7 @@ internal static class TypeSearchService
                 return new([], HasFailures: true);
 
             List<TypeFindResult> configuredResults =
-                patterns.Length == 1 && !options.Tabular
+                patterns.Length == 1
                 ? await FindSinglePatternAsync(
                     patterns[0],
                     options,
@@ -83,7 +83,7 @@ internal static class TypeSearchService
                 MarkFailure);
 
         // Optimized single-pattern path: collect with filtering, then partial match if empty
-        if (patterns.Length == 1 && !options.Tabular)
+        if (patterns.Length == 1)
         {
             return new(
                 await FindSinglePatternAsync(

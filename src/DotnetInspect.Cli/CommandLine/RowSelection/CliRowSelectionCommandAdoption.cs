@@ -44,12 +44,14 @@ internal sealed record CliRowSelectionPreparation
         CliRowSelectionLowering<string>? lowering,
         string? error,
         int? errorPosition,
+        int? errorComparisonPosition,
         CliSelectionFailureCategory? errorCategory)
     {
         ParseResult = parseResult;
         Lowering = lowering;
         Error = error;
         ErrorPosition = errorPosition;
+        ErrorComparisonPosition = errorComparisonPosition;
         ErrorCategory = errorCategory;
     }
 
@@ -60,6 +62,8 @@ internal sealed record CliRowSelectionPreparation
     public string? Error { get; }
 
     public int? ErrorPosition { get; }
+
+    public int? ErrorComparisonPosition { get; }
 
     public CliSelectionFailureCategory? ErrorCategory { get; }
 
@@ -74,19 +78,26 @@ internal sealed record CliRowSelectionPreparation
     public bool IsActive => Lowering is not null || Error is not null;
 
     public static CliRowSelectionPreparation Inactive(ParseResult parseResult) =>
-        new(parseResult, null, null, null, null);
+        new(parseResult, null, null, null, null, null);
 
     public static CliRowSelectionPreparation Success(
         ParseResult parseResult,
         CliRowSelectionLowering<string> lowering) =>
-        new(parseResult, lowering, null, null, null);
+        new(parseResult, lowering, null, null, null, null);
 
     public static CliRowSelectionPreparation Failed(
         ParseResult parseResult,
         string error,
         int position,
-        CliSelectionFailureCategory category) =>
-        new(parseResult, null, error, position, category);
+        CliSelectionFailureCategory category,
+        int? comparisonPosition = null) =>
+        new(
+            parseResult,
+            null,
+            error,
+            position,
+            comparisonPosition ?? position,
+            category);
 }
 
 internal static class CliRowSelectionCommandRegistry
@@ -205,7 +216,12 @@ internal static class CliRowSelectionCommandRegistry
                 result.ParseResult,
                 FormatLoweringFailure(failure),
                 failure.Position,
-                FailureCategory(failure.Reason));
+                FailureCategory(failure.Reason),
+                comparisonPosition:
+                    failure.Reason
+                        == CliRowSelectionFailureReason.ModifierRequiresCount
+                    ? int.MaxValue
+                    : failure.Position);
         }
 
         CliRowSelectionLowering<string> lowering = loweringResult.Value!;

@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -234,7 +235,9 @@ public static class SearchCommandDefinitions
         CliExecutionBoundCommandRegistry.Register(
             findCommand,
             takeOption,
-            FindCommand.PackageProfileMaximumLimit,
+            result => result.GetValue(packageContentOption)
+                ? PackageQuery.MaximumPackageContentCandidates
+                : FindCommand.PackageProfileMaximumLimit,
             isActive: static _ => true);
 
         return findCommand;

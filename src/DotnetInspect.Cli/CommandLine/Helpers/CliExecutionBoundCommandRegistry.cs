@@ -14,7 +14,7 @@ internal sealed class CliExecutionBoundAdoption
 {
     public CliExecutionBoundAdoption(
         Option option,
-        int maximum,
+        Func<ParseResult, int> maximum,
         Func<ParseResult, bool> isActive)
     {
         Option = option;
@@ -23,7 +23,7 @@ internal sealed class CliExecutionBoundAdoption
     }
 
     public Option Option { get; }
-    public int Maximum { get; }
+    public Func<ParseResult, int> Maximum { get; }
     public Func<ParseResult, bool> IsActive { get; }
 }
 
@@ -40,13 +40,13 @@ internal static class CliExecutionBoundCommandRegistry
     public static void Register(
         Command command,
         Option option,
-        int maximum,
+        Func<ParseResult, int> maximum,
         Func<ParseResult, bool> isActive)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(option);
+        ArgumentNullException.ThrowIfNull(maximum);
         ArgumentNullException.ThrowIfNull(isActive);
-        ArgumentOutOfRangeException.ThrowIfLessThan(maximum, 1);
         Adoptions.Add(
             command,
             new CliExecutionBoundAdoption(
@@ -76,6 +76,13 @@ internal static class CliExecutionBoundCommandRegistry
             || !adoption.IsActive(parseResult))
         {
             return new(null, null, null);
+        }
+
+        int maximum = adoption.Maximum(parseResult);
+        if (maximum < 1)
+        {
+            throw new InvalidOperationException(
+                "The execution-bound maximum must be positive.");
         }
 
         string optionName = adoption.Option.Name;
@@ -127,11 +134,11 @@ internal static class CliExecutionBoundCommandRegistry
                     CliSelectionFailureCategory.Value);
             }
 
-            if (parsed > adoption.Maximum)
+            if (parsed > maximum)
             {
                 return new(
                     $"{optionName} must be between 1 and "
-                    + $"{adoption.Maximum.ToString(CultureInfo.InvariantCulture)}.",
+                    + $"{maximum.ToString(CultureInfo.InvariantCulture)}.",
                     position,
                     CliSelectionFailureCategory.Value);
             }

@@ -370,7 +370,7 @@ public static class CommandLineBuilder
                 : executionBound.Error;
         }
 
-        return rowSelection.ErrorPosition
+        return rowSelection.ErrorComparisonPosition
             <= executionBound.ErrorPosition
                 ? rowSelection.Error
                 : executionBound.Error;

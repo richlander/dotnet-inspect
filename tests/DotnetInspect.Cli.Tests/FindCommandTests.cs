@@ -1436,6 +1436,114 @@ public class FindCommandIntegrationTests
     }
 
     [Fact]
+    public void PackageProfileRepeatedTake_PrecedesMissingCountRegardlessOfOrder()
+    {
+        string[][] arguments =
+        [
+            [
+                "find",
+                "--package-prefix",
+                "Azure",
+                "--head",
+                "--take",
+                "1",
+                "--take",
+                "2",
+            ],
+            [
+                "find",
+                "--package-prefix",
+                "Azure",
+                "--take",
+                "1",
+                "--take",
+                "2",
+                "--head",
+            ],
+        ];
+
+        foreach (string[] args in arguments)
+        {
+            var (exit, output, error) = RunCli(args);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("--take may only be specified once.", error);
+            Assert.DoesNotContain("--head requires -n.", error);
+        }
+    }
+
+    [Fact]
+    public void PackageContentTakeMaximum_ParticipatesInComposedDiagnostics()
+    {
+        var takeBeforeRows = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Contoso.",
+                "--package-content",
+                "--where",
+                "facet=package.query.embedded-skill",
+                "--take",
+                "21",
+                "--rows",
+                "bad",
+            ]);
+        var rowsBeforeTake = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Contoso.",
+                "--package-content",
+                "--where",
+                "facet=package.query.embedded-skill",
+                "--rows",
+                "bad",
+                "--take",
+                "21",
+            ]);
+        var takeWithMissingCount = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Contoso.",
+                "--package-content",
+                "--where",
+                "facet=package.query.embedded-skill",
+                "--head",
+                "--take",
+                "21",
+            ]);
+
+        Assert.Equal(1, takeBeforeRows.Exit);
+        Assert.Empty(takeBeforeRows.Output);
+        Assert.Contains(
+            "--take must be between 1 and 20.",
+            takeBeforeRows.Error);
+        Assert.DoesNotContain(
+            "--rows requires",
+            takeBeforeRows.Error);
+
+        Assert.Equal(1, rowsBeforeTake.Exit);
+        Assert.Empty(rowsBeforeTake.Output);
+        Assert.Contains(
+            "--rows requires N..M, N.., or ..M",
+            rowsBeforeTake.Error);
+        Assert.DoesNotContain(
+            "--take must be between",
+            rowsBeforeTake.Error);
+
+        Assert.Equal(1, takeWithMissingCount.Exit);
+        Assert.Empty(takeWithMissingCount.Output);
+        Assert.Contains(
+            "--take must be between 1 and 20.",
+            takeWithMissingCount.Error);
+        Assert.DoesNotContain(
+            "--head requires -n.",
+            takeWithMissingCount.Error);
+    }
+
+    [Fact]
     public void PackageProfileExplicitEmptyPrefix_UsesProfileDiagnostic()
     {
         var (exit, output, error) = RunCli(
@@ -1555,6 +1663,41 @@ public class FindCommandIntegrationTests
     }
 
     // ── Framework coverage tests ─────────────────────────────────────
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    public void Find_UnmatchedTypeStrictWindow_IsFormatIndependent(
+        bool table,
+        bool jsonl,
+        bool count)
+    {
+        List<string> args =
+        [
+            "find",
+            "ZzzNoSuchApi6585*",
+            "--platform-library",
+            "System.Text.Json",
+            "--rows",
+            "1..1",
+        ];
+        if (table)
+            args.Add("--table");
+        if (jsonl)
+            args.Add("--jsonl");
+        if (count)
+            args.Add("--count");
+
+        var (exit, output, error) = RunCli([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "only 0 type rows are available.",
+            error);
+    }
 
     [Fact]
     public async Task Find_RuntimeFramework_FindsJsonSerializer()
