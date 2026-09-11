@@ -580,22 +580,31 @@ static class Program
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
 
+        int RunAggregate(Func<int> run)
+            => MemorySafetyModeAdmission.RunAggregateReport(assemblies, run);
+
         if (assertionScanMode)
-            return AssertionScan.Run(
-                assemblies,
-                new AssertionScan.Options(
-                    sampleSize,
-                    maxExamples,
-                    emitAssertionViolations,
-                    diffAssertionViolations,
-                    workers,
-                    sequential,
-                    assertionFixtureGuarantee));
+            return RunAggregate(
+                () => AssertionScan.Run(
+                    assemblies,
+                    new AssertionScan.Options(
+                        sampleSize,
+                        maxExamples,
+                        emitAssertionViolations,
+                        diffAssertionViolations,
+                        workers,
+                        sequential,
+                        assertionFixtureGuarantee)));
 
         if (validityCheckMode)
             return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
         if (validityPredicateScan)
-            return ValidityPredicateScan.Run(assemblies, maxExamples, workers, sequential);
+            return RunAggregate(
+                () => ValidityPredicateScan.Run(
+                    assemblies,
+                    maxExamples,
+                    workers,
+                    sequential));
 
         if (fidelityMethodDelta is not null)
         {
@@ -714,16 +723,36 @@ static class Program
             return TypeBindCheck.Run(assemblies, cap, maxExamples);
 
         if (gaps)
-            return CompletenessScan(assemblies, maxExamples, byShape);
+            return RunAggregate(
+                () => CompletenessScan(assemblies, maxExamples, byShape));
 
         if (annotationCheck)
             return AnnotationCheck.Run(assemblies, maxExamples);
 
         if (classifyDec0009)
-            return Dec0009Classifier.Run(assemblies, maxExamples, json);
+            return RunAggregate(
+                () => Dec0009Classifier.Run(assemblies, maxExamples, json));
 
         if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || diffCorpusBaselineRef is not null || emitCorpusDelta is not null || qualityDiffCard || emitRtsParityKnownGaps is not null || rtsParityKnownGaps is not null)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, diffCorpusBaselineRef, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle, corpusProfile, rtsParityKnownGaps, emitRtsParityKnownGaps);
+            return RunAggregate(
+                () => CorpusSensor.Run(
+                    assemblies,
+                    compileCap,
+                    corpusFidelityCaps,
+                    maxExamples,
+                    emitCorpusSnapshot,
+                    diffCorpusBaseline,
+                    diffCorpusBaselineRef,
+                    emitCorpusDelta,
+                    qualityDiffCard,
+                    qualityCardRisky,
+                    corpusMethodCap,
+                    workers,
+                    sequential,
+                    corpusFidelityOracle,
+                    corpusProfile,
+                    rtsParityKnownGaps,
+                    emitRtsParityKnownGaps));
 
         if (renderAb is not null || emitRenderAb is not null)
             return RenderAbSensor.Run(
@@ -737,13 +766,27 @@ static class Program
                 emitRenderAbStructuralDiffs);
 
         if (idempotenceCheck)
-            return IdempotenceSensor.Run(assemblies, maxExamples, corpusMethodCap, workers, sequential);
+            return RunAggregate(
+                () => IdempotenceSensor.Run(
+                    assemblies,
+                    maxExamples,
+                    corpusMethodCap,
+                    workers,
+                    sequential));
 
         if (slotResidualCensus)
-            return SlotResidualCensus.Run(assemblies, corpusMethodCap, maxExamples);
+            return RunAggregate(
+                () => SlotResidualCensus.Run(
+                    assemblies,
+                    corpusMethodCap,
+                    maxExamples));
 
         if (slotUnifierCensus)
-            return SlotUnifierCensus.Run(assemblies, corpusMethodCap, maxExamples);
+            return RunAggregate(
+                () => SlotUnifierCensus.Run(
+                    assemblies,
+                    corpusMethodCap,
+                    maxExamples));
 
         if (libraryReport)
             return LibraryReport.Run(
@@ -756,7 +799,11 @@ static class Program
                 corpusMethodCap);
 
         if (unsupportedNodes)
-            return UnsupportedNodeReport.Run(assemblies, maxExamples, json);
+            return RunAggregate(
+                () => UnsupportedNodeReport.Run(
+                    assemblies,
+                    maxExamples,
+                    json));
 
         // --dump is single-method inspection through the shipped product
         // pipeline (StageDump -> PrintRaised).
@@ -787,16 +834,26 @@ static class Program
         }
 
         if (passImpact)
-            return PassImpact(assemblies, passImpactPass, showDiff, cap);
+            return RunAggregate(
+                () => PassImpact(
+                    assemblies,
+                    passImpactPass,
+                    showDiff,
+                    cap));
 
         if (structuringStops)
-            return StructuringStops(assemblies, cap);
+            return RunAggregate(
+                () => StructuringStops(assemblies, cap));
 
         if (postdomProbe)
-            return PostDomProbe.Run(assemblies, cap, postdomSample);
+            return RunAggregate(
+                () => PostDomProbe.Run(
+                    assemblies,
+                    cap,
+                    postdomSample));
 
         // Default: the pipeline's fidelity/stop-reason inventory.
-        return Inventory(assemblies);
+        return RunAggregate(() => Inventory(assemblies));
     }
 
     static int FixtureSourceInventory(bool json)
