@@ -18,7 +18,7 @@ tracked end to end by
 > One realized managed Library has one immutable resource-free reference and
 > one Library-resource owner. Async consumers receive fresh owner-issued
 > operation authority by ownership transfer, use only synchronous scoped
-> borrows of the authorized assembly and companion contents, and return only
+> borrows of the referenced assembly and companion contents, and return only
 > detached values or resource-free evidence. A reference, House contribution,
 > result, or receipt never carries hidden lifetime authority.
 
@@ -27,9 +27,11 @@ Platform asset selection, Workspace membership, Metadata inspection, source
 settlement, documentation settlement, or host presentation. Those owners
 consume this contract without transferring their policy here.
 
-The initial production consumers are PackageHouse, PlatformHouse,
-Workspace/direct-library composition, SourceHouse, and DocumentationHouse.
-Both CLI and Browser/Wasm paths adopt the same host-neutral contract.
+The initial production consumers are PackageHouse, PlatformHouse, the
+Workspace-owned direct-library path used by the CLI, SourceHouse, and
+DocumentationHouse. CLI and Browser/Wasm package and Platform paths adopt the
+same host-neutral contract; this design does not add bare-Library loading to
+Inspect Web.
 
 ## Basis
 
@@ -51,8 +53,8 @@ Supporting owner-issued inputs are:
   artifact ownership contract from
   [Artifact Acquisition and Workspaces](artifact-acquisition-and-workspaces.md);
 - exact Metadata assembly identity;
-- the source-distinct package-or-Platform exact-library coordinate tracked by
-  [#6609](https://github.com/richlander/dotnet-inspect/issues/6609); and
+- the source-distinct package-or-Platform
+  [exact Library source coordinate](exact-library-source-coordinate.md); and
 - package-, Platform-, Workspace-, Metadata-, and PDB-owned correspondence
   evidence.
 
@@ -71,7 +73,7 @@ several independently acquired contents:
 
 One physical assembly may serve both assembly roles. A Library may omit an
 implementation, XML, or PDB role. The association still matters: a same-named
-XML file or PDB from another source, target, view, or generation is not an
+XML file or PDB from another source, target, view, or Library is not an
 eligible companion.
 
 PackageHouse, PlatformHouse, and direct-library adapters know how their source
@@ -85,53 +87,15 @@ provides one resource-specific operation and borrowing contract.
 
 ## Contract vocabulary
 
-### `LibraryIdentity`
-
-`LibraryIdentity` identifies one logical realized managed Library independently
-of any live resource.
-
-For package- and Platform-backed libraries, it consumes the exact
-source-distinct Library coordinate owned by #6609 together with exact Metadata
-assembly identity. Equal assembly identities from a package and from Platform
-remain different Library identities.
-
-For a direct artifact, the Library owner issues an opaque identity for the
-accepted realization together with exact Metadata assembly identity. The
-Library reference separately preserves process-local correspondence to the
-exact Artifact registration that produced it. It does not derive identity from
-a display path, file name, assembly simple name, or payload hash invented by
-this layer.
-
-`LibraryIdentity` is immutable and resource-free. It is not universally
-serializable and is not proof that content is still live.
-
-Package- and Platform-backed identities may have a durable source-owner
-projection. A direct Library identity is valid within its issuing composition
-scope unless the direct-library owner separately supplies durable source
-identity. Serializing a display projection, ordinal, digest, or Artifact
-registration does not recreate process-local Artifact correspondence after
-that Artifact generation ends.
-
-### `LibraryGeneration`
-
-`LibraryGeneration` identifies one immutable realization of a
-`LibraryIdentity`. Every content reference, correspondence record, operation
-lease, result, and receipt names the same generation.
-
-Replacing any associated content creates a new generation. A generation is not
-updated in place, even when the logical Library identity remains the same.
-
-The Library owner issues generations. It does not infer freshness from
-timestamps, paths, or adjacent mutable state.
-
 ### `LibraryReference`
 
-`LibraryReference` is the resource-free public reference to one
-`LibraryIdentity` and `LibraryGeneration`.
+`LibraryReference` is the resource-free public reference to one immutable
+realized managed Library and its `LibraryContentOwner`.
 
 It contains:
 
-- Library identity and generation;
+- the exact package-or-Platform source coordinate when one selected the
+  Library, or process-local direct-artifact correspondence otherwise;
 - exact API-declaration and optional implementation assembly references;
 - zero or more exact companion-content references;
 - the roles assigned to those contents;
@@ -145,15 +109,21 @@ delegate, or other live authority.
 A `LibraryReference` may outlive its Library owner. A later lease request then
 fails visibly; the reference does not silently reopen content.
 
-A host may serialize a detached source-owner projection of a Library reference.
-Deserializing that projection does not restore Artifact registration or live
-Library authority. Re-realization must acquire new content and issue a new
-Library generation.
+The package-or-Platform source coordinate remains the portable logical identity
+for search, Workspace definition, and later realization. The
+`LibraryReference` is the exact realized registration and is not a portable
+replacement for that coordinate. Process-local Artifact correspondence cannot
+be serialized and restored.
+
+Two Workspaces may independently realize the same source coordinate. They
+receive distinct Library references and owners. A consumer comparing logical
+source intent compares the source coordinate; a consumer borrowing content
+uses the exact Library reference.
 
 ### `LibraryContentReference`
 
-`LibraryContentReference` identifies one content item within one exact Library
-generation. Its closed initial roles are:
+`LibraryContentReference` identifies one content item within one exact
+`LibraryReference`. Its closed initial roles are:
 
 - `ApiAssembly`;
 - `ImplementationAssembly`;
@@ -176,8 +146,9 @@ The Library reference preserves, but does not manufacture:
 - Portable-PDB-to-implementation correspondence.
 
 The adjacent source or Metadata owner supplies the substantive evidence. The
-Library owner validates that every record names content in the same Library
-generation and preserves the evidence without reducing it to display text.
+Library owner validates that every record names content in the same
+`LibraryReference` and preserves the evidence without reducing it to display
+text.
 
 Reference forwarding remains Metadata-owned. Platform view and facade
 classification remain Platform-owned. A DocumentationHouse consumer must
@@ -186,8 +157,9 @@ Library contract does not select that supplier.
 
 ## `LibraryContentOwner`
 
-`LibraryContentOwner` is the sole resource owner for one realized Library
-generation. It is a resource under the shared `Inspector.Resources` protocol.
+`LibraryContentOwner` is the sole resource owner for one realized
+`LibraryReference`. It is a resource under the shared `Inspector.Resources`
+protocol.
 
 Construction consumes ownership of the artifact-backed content obligations
 accepted into the Library. A successful construction leaves the caller with
@@ -195,7 +167,7 @@ the resource-free `LibraryReference` and the live owner as separate values.
 
 Construction is atomic:
 
-1. validate Library identity, generation, roles, and correspondence against
+1. validate the Library reference, roles, and correspondence against
    resource-free inputs;
 2. validate that every transferred child obligation describes the matching
    content reference;
@@ -218,7 +190,7 @@ remain live across `await`. Beginning `DisposeAsync` is the linearized
 retirement transition:
 
 1. reject every new operation-lease request with `OwnerRetiring`;
-2. keep every previously issued lease usable against its immutable generation;
+2. keep every previously issued lease usable against its immutable Library;
 3. asynchronously await settlement of all issued leases without blocking a
    thread or single-threaded Browser/Wasm event loop;
 4. release every retained child obligation exactly once; and
@@ -242,16 +214,13 @@ separate resource and cannot be hidden inside either Library resource.
 ## `LibraryOperationLease`
 
 `LibraryOperationLease` is the resource-named authority for one async
-operation over one exact Library generation.
+operation over one exact `LibraryReference`.
 
-The Library owner issues a fresh lease for:
+The Library owner issues a fresh lease for one exact `LibraryReference`.
 
-- one exact `LibraryReference`;
-- an explicit authorized set of `LibraryContentReference` values; and
-- one operation identity.
-
-Issuance validates owner liveness, identity, generation, requested roles, and
-content membership. It never substitutes a same-named assembly or companion.
+Issuance validates owner liveness and exact reference identity. It never
+substitutes another realization of the same source coordinate or a same-named
+assembly or companion.
 
 The lease owns its child release obligation and is transferred into the async
 operation. The caller must not retain or dispose it after transfer. The
@@ -259,9 +228,8 @@ operation settles the lease on success, failure, cancellation, rejection, and
 incomplete completion.
 
 Stable service objects, deferred providers, requests, policies, operation
-plans, House contributions, and receipts may retain the `LibraryReference` and
-resource-free authorization facts. They never retain a
-`LibraryOperationLease`.
+plans, House contributions, and receipts may retain the `LibraryReference`.
+They never retain a `LibraryOperationLease`.
 
 This creates the standard call shape:
 
@@ -274,21 +242,21 @@ host or orchestrator
   -> result contains detached values and resource-free evidence only
 ```
 
-An operation may transfer the lease onward to exactly one consuming operation
-or result that explicitly owns continued Library access. It may not copy the
-lease, hide it in an ordinary result, or return both a live lease and a receipt
-claiming settlement.
+An operation may transfer the lease onward to exactly one consuming operation.
+The final consumer settles it. No result retains the lease, and an operation
+may not copy it, hide it in an ordinary result, or return both a live lease and
+a receipt claiming settlement.
 
 ## Synchronous content snapshots
 
-`LibraryOperationLease` exposes owner-controlled synchronous snapshots over an
-exact requested set of authorized Library content references.
+`LibraryOperationLease` exposes owner-controlled synchronous snapshots over
+exact content references in its Library.
 
 The public contract follows the `Inspector.Resources` callback model:
 
 1. the caller names one or more exact content references from the lease;
-2. the lease validates operation liveness, Library identity, generation,
-   authorization, and content membership;
+2. the lease validates operation liveness, exact Library reference, and content
+   membership;
 3. the owner begins read-only borrows for the complete set;
 4. it invokes one synchronous callback with a scoped ref-like Library content
    view;
@@ -296,10 +264,11 @@ The public contract follows the `Inspector.Resources` callback model:
 6. the callback returns a detached or independently owned value; and
 7. the owner ends all borrows before returning or propagating failure.
 
-One atomic multi-content snapshot is required because consumers such as
-SourceLink and decompilation may need assembly and PDB bytes under one
-consistent Library generation. Nesting heap callbacks or returning one span
-so that another can be borrowed later is not an equivalent contract.
+One callback may borrow multiple contents when an algorithm needs simultaneous
+spans, such as assembly and PDB input. This is an access convenience, not a
+freshness or atomic-snapshot requirement: Library content is immutable, and
+separate synchronous snapshots through the same live lease remain associated
+with the same `LibraryReference`.
 
 The snapshot view exposes content only by exact `LibraryContentReference`. Role
 convenience accessors may exist, but they must reject absent or ambiguous roles
@@ -314,8 +283,8 @@ The callback is synchronous. It cannot:
 - start background work that uses the borrow; or
 - access content after the callback returns.
 
-An async consumer materializes only the small detached value needed for its
-next asynchronous step, completes the callback, and then awaits.
+An async consumer materializes the detached value needed for its next
+asynchronous step, completes the callback, and then awaits.
 
 ## Results, contributions, and receipts
 
@@ -323,21 +292,17 @@ Library operation results contain only:
 
 - detached or independently owned values;
 - `LibraryReference`, `LibraryContentReference`, and correspondence evidence;
-- operation identity and completion state; and
+- completion state; and
 - visible diagnostics or failure evidence.
-
-A result requiring future Library reads must explicitly own a transferred
-`LibraryOperationLease`; it is then a resource result, not an ordinary
-resource-free result.
 
 House contributions and receipts are always resource-free. A House that needs
 Library content receives a lease from the Library owner by transfer into its
 operation. The House does not mint a House-named wrapper or issue a substitute
 lease over another owner's resource.
 
-Receipts may record the exact Library generation, authorized content set,
-operation identity, terminal outcome, and lease-settlement evidence. They do
-not provide a route back to live content.
+Receipts may record the exact `LibraryReference`, content read, terminal
+outcome, and lease-settlement evidence. They do not provide a route back to
+live content.
 
 ## Failure and completion algebra
 
@@ -346,25 +311,26 @@ The Library owner keeps these outcomes distinct:
 - `Issued`: exact operation authority was transferred;
 - `OwnerRetiring`: owner settlement began and new authority is unavailable;
 - `OwnerReleased`: the resource-free reference outlived its owner;
-- `GenerationMismatch`: the request and owner name different realizations;
+- `ReferenceMismatch`: the request and owner name different Library
+  references;
 - `ContentNotInLibrary`: a requested content reference is not a member;
 - `RoleUnavailable`: the exact requested role is absent;
 - `CorrespondenceRejected`: supplied association evidence is inconsistent;
-- `Unauthorized`: the operation plan does not authorize the requested content;
 - `BorrowRejected`: the lease is moved, settled, or otherwise not live;
 - `CallbackFailed`: the callback threw and the borrow ended before propagation;
-- `Cancelled`: cancellation won before terminal success;
-- `ReleaseFailed`: an owned release obligation failed; and
-- `Incomplete`: the implementation cannot establish a supported ownership or
-  correspondence result.
+- `ReleaseFailed`: an owned release obligation failed.
 
 None of these outcomes becomes an empty successful Library, missing companion,
 or successful receipt.
 
-## Concurrency and replacement
+Cancellation and finite-work completion belong to the consumer operation. The
+Library owner settles its transferred lease on those paths but does not define
+the House's cancellation or incomplete-result algebra.
+
+## Immutability, Workspace replacement, and retirement
 
 The initial contract permits concurrent read-only operation leases over one
-immutable generation. The Library owner does not permit content mutation.
+immutable Library. The Library owner does not permit content mutation.
 
 Retirement and lease issuance have one linearized owner-liveness decision. A
 lease either owns a valid child obligation before retirement begins or issuance
@@ -375,10 +341,20 @@ Retirement never synchronously waits for an active lease. Existing leases
 remain usable while the owner drains them, including on single-threaded
 Browser/Wasm. Aggregate child release starts only after the last lease settles.
 
-Replacing content creates a new owner and generation. Existing operation
-leases continue against their original immutable generation until settled.
-Resource-free references to the old generation remain valid identity evidence
-but cannot be rebound to the replacement.
+There is no Library refresh, replacement, or generation operation. The current
+product scenarios do not mutate a realized Library:
+
+- nuget.org package contents and realized Platform contents are immutable;
+- the CLI process is short-lived;
+- Inspect Web has one active Workspace and no bare-Library loader;
+- Spotlight is a one-shot Workspace editor; and
+- local or private-source content may change between acquisitions, but one
+  Artifact registration remains the immutable input to one Workspace.
+
+Changed content is acquired into a new Workspace, which constructs a new
+Library owner and reference. Existing operations finish against the old owner
+before that owner settles. Workspace revision and Artifact generation remain
+with those owners rather than being copied into a Library-owned generation.
 
 The protocol does not defend against a trusted caller concurrently violating
 its transfer obligation. Current C# declaration effects and Resource Lifecycle
@@ -419,7 +395,7 @@ NuGet package System.Text.Json
 ```
 
 The assembly identities may be equal. Their source coordinates and
-`LibraryIdentity` values are not.
+Library references are not.
 
 The Platform Library associates:
 
@@ -430,9 +406,9 @@ The Platform Library associates:
   forwarding.
 
 An operation lease issued for the package Library cannot borrow Platform
-content. A stale Platform generation cannot borrow replacement content. A
-same-named XML file from the package cannot become the Platform companion.
-Disposing one Library owner does not release or invalidate the other.
+content. A same-named XML file from the package cannot become the Platform
+companion. Disposing one Library owner does not release or invalidate the
+other.
 
 The neighboring ordinary case uses one direct implementation assembly serving
 both assembly roles with no XML or PDB. Metadata inspection can borrow that
@@ -450,7 +426,7 @@ The project may depend on:
 - the Artifact contract floor after #6544 step 9;
 - `ILInspector.MetadataPrimitives` for exact assembly identity; and
 - `DotnetInspector.SourceSelection` for the owner-issued exact source
-  coordinate after #6609 lands.
+  coordinate.
 
 It does not depend on PackageHouse, PlatformHouse, Workspace, SourceHouse,
 DocumentationHouse, Queries, CLI, Inspect Web, NuGet transports, filesystem
@@ -475,8 +451,8 @@ focused slices:
 
 1. lock this Library ownership and borrowing design;
 2. implement `DotnetInspector.Libraries` contracts and Release declaration
-   gates after #6544 step 9 and #6609;
-3. implement owner construction, operation transfer, multi-content snapshot,
+   gates after #6544 step 9;
+3. implement owner construction, operation transfer, scoped content snapshots,
    release, and pathological `System.Text.Json` gates;
 4. adopt the contract in PackageHouse;
 5. adopt it in PlatformHouse;
@@ -504,17 +480,16 @@ gates.
 The Library contract suite must gate:
 
 - references and receipts are resource-free;
-- durable source projections never claim to restore process-local Artifact
-  registration;
+- portable source coordinates remain distinct from process-local realized
+  Library and Artifact references;
 - package and Platform Libraries with equal assembly identities remain
   source-distinct;
 - construction transfers every accepted child exactly once;
 - rejection and partial failure leave no ambiguous ownership;
-- operation issuance rejects released owners, stale generations, foreign
-  content, absent roles, and unauthorized demands;
+- operation issuance rejects released owners and foreign Library references;
+- content access rejects foreign content and absent roles;
 - every operation terminal path settles its lease;
-- multi-content snapshots expose one generation and end every borrow on return
-  or exception;
+- single- and multi-content snapshots end every borrow on return or exception;
 - callback results used by product paths are detached or independently owned;
 - asynchronous owner settlement rejects new leases, drains active leases
   without blocking, releases aggregate children once, and surfaces settlement

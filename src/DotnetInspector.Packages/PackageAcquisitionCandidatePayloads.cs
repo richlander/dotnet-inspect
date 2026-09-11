@@ -4,18 +4,48 @@ using NuGetFetch;
 
 namespace DotnetInspector.Packages;
 
-/// <summary>An exact payload and its configured authority, or attributed failures.</summary>
+/// <summary>
+/// One exact payload and its configured source identity, or attributed
+/// failures.
+/// </summary>
 public sealed class ConfiguredPackagePayloadResult
 {
     internal ConfiguredPackagePayloadResult(
         ConfiguredPackageAuthority? authority,
+        PackageSourceResultIdentity? source,
         AcquiredPackageSourcePayload? payload,
         IReadOnlyList<PackageAuthorityFailure> failures,
         IReadOnlyList<ConfiguredPackageAuthority>? notFoundAuthorities = null,
         IReadOnlyList<ConfiguredPackageAuthority>? reportingAuthorities = null,
         bool selectionUsesOriginalSources = false)
     {
+        if ((authority is null) != (source is null)
+            || (authority is null) != (payload is null))
+        {
+            throw new ArgumentException(
+                "An acquired configured payload requires its authority and exact source identity.");
+        }
+        if (authority is not null
+            && !ReferenceEquals(
+                source!.Association,
+                authority.Association))
+        {
+            throw new ArgumentException(
+                "The configured payload source must belong to its authority.",
+                nameof(source));
+        }
+        if (payload is not null
+            && !payload.ProducerKey.Equals(
+                source!.Producer.Key,
+                StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The configured payload and source identify different producers.",
+                nameof(payload));
+        }
+
         Authority = authority;
+        Source = source;
         Payload = payload;
         Failures = new ReadOnlyCollection<PackageAuthorityFailure>([.. failures]);
         NotFoundAuthorities = new ReadOnlyCollection<ConfiguredPackageAuthority>(
@@ -28,6 +58,7 @@ public sealed class ConfiguredPackagePayloadResult
     }
 
     public ConfiguredPackageAuthority? Authority { get; }
+    public PackageSourceResultIdentity? Source { get; }
     public AcquiredPackageSourcePayload? Payload { get; }
     public IReadOnlyList<PackageAuthorityFailure> Failures { get; }
     public IReadOnlyList<ConfiguredPackageAuthority> NotFoundAuthorities { get; }
@@ -159,6 +190,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 {
                     return new(
                         authority,
+                        client.Source,
                         cached,
                         failures,
                         reportingAuthorities: selectedAuthorities,
@@ -191,6 +223,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                     {
                         return new(
                             authority,
+                            client.Source,
                             acquired.Payload,
                             failures,
                             notFoundAuthorities,
@@ -248,13 +281,14 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                         return new(
                             null,
                             null,
+                            null,
                             failures,
                             notFoundAuthorities);
                     }
                 }
             }
             operation.ThrowIfExpired();
-            return new(null, null, failures, notFoundAuthorities);
+            return new(null, null, null, failures, notFoundAuthorities);
         }
         catch (NuGetOperationTimeoutException)
         {
@@ -293,7 +327,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 PackageSourceTimeoutKind.Operation,
                 operation.OperationTimeout),
         });
-        return new(null, null, failures, notFoundAuthorities);
+        return new(null, null, null, failures, notFoundAuthorities);
     }
 
     private static PackageAuthorityFailure DescribePayloadFailure(

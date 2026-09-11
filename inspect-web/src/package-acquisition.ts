@@ -128,6 +128,7 @@ export interface AppPackage {
     | { kind: "feed"; host: string }
     | { kind: "platform" }
     | { kind: "unknown" };
+  producerLabel: string;
   assemblies: InspectedAssemblySurface[];
   types: AppTypeSurface[];
   accessibility: InspectedAccessibilityDescriptor[];
@@ -318,6 +319,7 @@ export function createNuGetPackageModel(
     assemblyId: assembly?.id ?? "",
     assemblyAsset: assembly?.asset ?? "",
     source: { kind: "nuget.org" },
+    producerLabel: "NuGet.org",
     assemblies: [...(result.assemblies ?? [])],
     types: packageTypes(result),
     accessibility: [...(result.accessibility ?? [])],
@@ -376,6 +378,7 @@ function createRuntimePackageModelForAssembly(
     assemblyId: assembly.id,
     assemblyAsset: assembly.asset,
     source: { kind: "platform" },
+    producerLabel: "Platform",
     assemblies: [...(result.assemblies ?? [])],
     types,
     accessibility: [...(result.accessibility ?? [])],
