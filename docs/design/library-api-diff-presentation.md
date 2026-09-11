@@ -99,8 +99,9 @@ modal layout, or result-state model.
 
 Package **Comparison targets** remain. They are session-local configuration
 for the replacement Diff and later Clone experiences, not the old result
-surface. Contextual **Compare method bodies** is also a separate operation and
-is not retired by this replacement.
+surface. The contextual **Compare method bodies** action and Method Body Diff
+dialog are retired alongside the authored-Source interaction under #6491.
+Their managed evidence remains available to a later Omni destination.
 
 This document records the downstream replacement requirement but does not own
 its Browser state transitions, interaction retirement, layout, or wording. Those

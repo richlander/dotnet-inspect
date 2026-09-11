@@ -2362,7 +2362,7 @@ public class LibraryCommand
         }
 
         var rawUrl = StripUrlFragment(GitHubUrlResolver.ConvertBlobToRawUrl(result.Url));
-        var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch);
         var fetch = await PdbSourceHouse.FetchVerifiedSourceTextAsync(
             fetcher,
             rawUrl,

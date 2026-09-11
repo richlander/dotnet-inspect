@@ -5,6 +5,7 @@ src/Inspector.Artifacts.Local
 src/Inspector.Artifacts.Workspaces
 src/DotnetInspector.Core
 src/DotnetInspector.Ecosystems
+src/DotnetInspector.Networking
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
 src/DotnetInspector.Platforms
@@ -16,6 +17,7 @@ src/DotnetInspector.Services
 src/DotnetInspector.SourceSelection
 src/DotnetInspector.Vocabulary
 src/Inspector.Findings
+src/Inspector.Resources
 src/Inspector.Text
 src/ILInspector.Analysis
 src/ILInspector.CallGraph

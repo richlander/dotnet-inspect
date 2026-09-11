@@ -113,6 +113,7 @@ tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
 tests/DotnetInspector.ILRoundtrip.Tests
 tests/DotnetInspector.MetadataRendering.Tests
+tests/DotnetInspector.Networking.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.PlatformHouse.Installed.Tests
 tests/DotnetInspector.PlatformHouse.Tests
@@ -141,6 +142,7 @@ tests/ILInspector.Research.Tests
 tests/InertText.Tests
 tests/Inspector.Artifacts.Local.PlatformProbe
 tests/Inspector.Artifacts.Tests
+tests/Inspector.Resources.Tests
 tests/Inspector.Text.Tests
 tests/NetworkAccess.Tests
 tests/NuGetFetch.Tests

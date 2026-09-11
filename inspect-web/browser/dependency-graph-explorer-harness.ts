@@ -1,7 +1,8 @@
 import mermaid from "mermaid";
 import { packageCoordinateLabel } from "../src/data.ts";
 import { bindGraphExplore, createGraphExplorer } from "../src/graph-explorer.ts";
-import { bindGraphPanZoom } from "../src/graph-interactions.ts";
+import { bindGraphPanZoom, graphControlsHtml } from "../src/graph-interactions.ts";
+import { dependencyGraphLegendHtml } from "../src/graph-legends.ts";
 import { buildDependencyGraphMermaid, resolveMermaidCssVariables } from "../src/graph-mermaid.ts";
 import { bindPackageView } from "../src/package-view.ts";
 import { createWorkbenchKeybindings } from "../src/workbench-keybindings.ts";
@@ -98,11 +99,7 @@ async function mountGraph() {
   diagram.innerHTML = `
     <div class="dependency-graph-stage">
       <div class="graph-viewport">${svg}</div>
-      <div class="graph-controls">
-        <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
-        <button type="button" data-zoom="out" aria-label="Zoom out">-</button>
-        <button type="button" data-zoom="reset" aria-label="Fit">fit</button>
-      </div>
+      ${graphControlsHtml()}
     </div>
     ${graph.truncated ? `<div class="graph-drill-error graph-diagnostics" role="status">Dependency graph truncated at ${graph.nodeLimit} nodes.</div>` : ""}`;
   bindGraphPanZoom(diagram, diagram.querySelector<HTMLElement>(".graph-viewport")!, {
@@ -168,6 +165,7 @@ async function render() {
                 <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
                 ${notices ? '<div class="graph-drill-error" role="status">Some workspace manifests could not be read.</div>' : ""}
                 <div id="dependency-graph-diagram" class="call-graph-diagram"><p>Rendering graph...</p></div>
+                ${dependencyGraphLegendHtml()}
               </section>`}
         </div>
         <section class="document-section" id="dep-list-section"></section>

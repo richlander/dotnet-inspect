@@ -7,6 +7,7 @@ namespace CiChangeDetection.Planning;
 /// </summary>
 internal readonly record struct RoutingSelections(
     bool Code,
+    bool RepositoryGuards,
     bool CSharpDiff,
     bool Decompiler,
     bool Docs,
@@ -24,7 +25,7 @@ internal readonly record struct RoutingSelections(
     /// </summary>
     internal static RoutingSelections All { get; } = new(
         true, true, true, true, true, true,
-        true, true, true, true, true, true);
+        true, true, true, true, true, true, true);
 }
 
 /// <summary>
@@ -108,12 +109,12 @@ internal sealed class ValidationSelections
     internal bool Tla { get; }
 
     /// <summary>
-    /// Applies the repository's event rules to raw routing selections. Every
-    /// pre-merge candidate runs the focused repository guards because their
-    /// tests scan the repository beyond ordinary path ownership. A push runs
-    /// the focused dependency-policy composition gate rather than the
-    /// pre-merge test matrix or repository guards; documentation lint, the
-    /// Browser/Wasm lane and the TLA+ lane have no event gate.
+    /// Applies the repository's event rules to raw routing selections. A
+    /// pre-merge candidate runs the focused repository guards when a changed
+    /// C# path can affect their scan set. A push runs the focused
+    /// dependency-policy composition gate rather than the pre-merge test
+    /// matrix or repository guards; documentation lint, the Browser/Wasm lane
+    /// and the TLA+ lane have no event gate.
     /// </summary>
     /// <param name="selections">The raw routing selections.</param>
     /// <param name="kind">The provenance kind supplying the event rule.</param>
@@ -125,7 +126,7 @@ internal sealed class ValidationSelections
         bool preMerge = kind != PlanEventKind.Push;
         return new ValidationSelections(
             test: selections.Code && preMerge,
-            repositoryGuards: preMerge,
+            repositoryGuards: selections.RepositoryGuards && preMerge,
             dependencyPolicy: kind == PlanEventKind.Push,
             cSharpDiffSmoke: selections.CSharpDiff && preMerge,
             decompilerGates: selections.Decompiler && preMerge,

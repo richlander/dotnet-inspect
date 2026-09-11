@@ -1,3 +1,4 @@
+#:project ../src/DotnetInspector.Networking/DotnetInspector.Networking.csproj
 #:project ../src/DotnetInspector.Services/DotnetInspector.Services.csproj
 #:property EnablePreviewFeatures=true
 
@@ -8,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Core;
+using DotnetInspector.Networking;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 

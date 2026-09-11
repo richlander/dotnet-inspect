@@ -44,9 +44,10 @@ call-graph reachability.
 The
 [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
 owns the explicit projection from one selected pack and the application-owned
-default sequence into lower immutable declarations. This catalog retains
+curated manifest into one newly constructed Workspace. This catalog retains
 application identity and contribution authorship; the handoff does not make
-Queries or browser Core depend on this assembly.
+Queries or browser Core depend on this assembly, and Workspace exposes no
+curated option.
 
 Explicit [tool-package references](#tool-package-references) are implemented
 under #6060, beginning with `Aspire.Cli`. They are independent discovery
@@ -77,7 +78,8 @@ Supporting owners:
   owns realization and workspace generations.
 - [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
   owns lower declaration identity, explicit pack correspondence, projection
-  outcomes, and product-default validation.
+  outcomes, curated-manifest validation, and complete curated Workspace
+  construction.
 - [Inspection bundles and demos](../inspection-space.md#inspection-bundles-and-demos)
   owns the bundle and runtime-workspace composition boundary.
 - [Capability-driven section registry spike](capability-section-registry-spike.md)
@@ -152,9 +154,9 @@ It does not own:
 The lower Workspace projection is not another catalog capability implemented
 by copying descriptor fields at selection time. This owner explicitly pairs a
 pack with one handoff-owned immutable declaration and separately authors the
-ordered product-default identities. The handoff defines projection validation
-and lower shape; this owner decides which shipped packs and contributions are
-paired.
+ordered current curated-Workspace identities. The handoff defines projection,
+construction validation, and lower shape; this owner decides which shipped
+packs and contributions are paired.
 
 The exact claim is:
 
@@ -444,10 +446,16 @@ The application manifest follows the repository's static-registry pattern:
   scanner binding to Integration orchestration.
 
 Workspace projection follows the same inert materialization rule. Selecting a
-pack's lower declaration or discovering product defaults returns only retained
-immutable handoff values. It does not resolve a package set, run a prefix
-query, inspect a platform catalog, invoke a scanner, construct a Workspace, or
-acquire content.
+pack's lower declaration returns only retained immutable handoff values. It
+does not resolve a package set, run a prefix query, inspect a platform catalog,
+invoke a scanner, construct a Workspace, or acquire content.
+
+The separate curated-Workspace API validates the complete authored manifest,
+passes the projected registrations as one complete explicit initialization to
+the public Workspace API, and returns the resulting Workspace. That operation
+adds no acquisition, prefix query, platform inspection, or scanner invocation.
+Repeated calls return independent Workspaces; raw Workspace construction
+remains outside this catalog and defaults to empty.
 
 The pattern does not require constructing an ecosystem object at any stage.
 The scanner binding statically roots its method and may materialize one
@@ -953,13 +961,16 @@ is not derived from package-set membership or demo records.
 
 The initial Workspace projection is staged under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
-application-owned default order is Platform, ASP.NET Core, then
+application-owned curated order is Platform, ASP.NET Core, then
 Microsoft.Extensions, which deliberately differs from ordinary pack discovery
 order. Platform requires a source-owned runtime population declaration;
 ASP.NET Core requires both its source-owned shared-framework population and
 the recorded `Microsoft.AspNetCore.` prefix; Microsoft.Extensions requires the
 recorded `Microsoft.Extensions.` prefix. Retrieval knowledge alone cannot make
-one of those defaults population-complete.
+one of those curated registrations population-complete. This is the current
+product composition rather than a permanent set of named Workspace presets;
+later product builds may change the one curated manifest without changing raw
+Workspace construction or existing expanded registration sets.
 
 | Global order | Scenario ID | Pack |
 | ---: | --- | --- |
@@ -1300,9 +1311,11 @@ The owner tracks may advance independently:
 5. Adopt CLI and browser actions through the same implementation slice's
    application-catalog handoff; Integration remains independently adoptable.
 
-The four owner tracks remain separately owned; #5720 records the package-set
-composition decision, while prefix catalog/host adoption and remaining scanner
-adoption stay staged. No
+The six listed owner tracks remain separately owned. The first four are the
+original catalog contribution tracks; Workspace registration and Platform
+population declaration are later composition prerequisites. #5720 records the
+package-set composition decision, while prefix catalog/host adoption and
+remaining scanner adoption stay staged. No
 implementation slice waits for every optional slot: each lands only when its
 owner-issued currency exists and one real application scenario makes that slice
 coherent.

@@ -793,9 +793,10 @@ jobs:
         shell: bash
         run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- --filter-class "DotnetInspect.Cli.Tests.SkillCommandTests"
 
-  # These tests inspect repository paths outside their owning projects. Run
-  # them for every pre-merge candidate so their selection is never narrower
-  # than the repository surface they validate.
+  # This migration guard scans C# paths outside its owning project. The planner
+  # selects it for every changed C# path so its selection is never narrower
+  # than the source surface it validates. The repository-wide line-ending
+  # guard runs in the always-selected changes job above.
   repository-guards:
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.repositoryGuards
@@ -816,12 +817,6 @@ jobs:
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
           restore-keys: |
             nuget-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Run repository line-ending guard
-        run: >
-          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --
-          --filter-class "DotnetInspect.Cli.Tests.RepositoryLineEndingTests"
-          --minimum-expected-tests 2
 
       - name: Run legacy source-identity guard
         run: >
@@ -983,6 +978,9 @@ jobs:
       - name: Run artifact contract tests
         run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
 
+      - name: Run resource ownership contract tests
+        run: dotnet run --project tests/Inspector.Resources.Tests -c Release
+
       - name: Run ecosystem registry tests
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
 
@@ -1037,7 +1035,10 @@ jobs:
       - name: Run NetworkAccess tests
         run: dotnet run --project tests/NetworkAccess.Tests -c Release
 
-      # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
+      - name: Run DotnetInspector.Networking tests
+        run: dotnet run --project tests/DotnetInspector.Networking.Tests -c Release
+
+      # NuGetFetch is the NuGet protocol and credential layer. Its live-network tests are tagged
       # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
       # depend on a third-party service, and the Azure DevOps ones need a private feed and a
       # token that CI — and any fork PR — does not have. Everything that can be proven with an

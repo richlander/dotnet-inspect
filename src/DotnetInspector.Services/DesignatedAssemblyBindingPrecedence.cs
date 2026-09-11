@@ -42,17 +42,10 @@ internal static class DesignatedAssemblyBindingPrecedence
                     is AssemblyResolutionProvenance.DesignatedAsset),
         ];
 
-        return designated.Length switch
-        {
-            0 => null,
-            1 => AssemblyBindingSelection.Found(
-                designated[0],
-                [
-                    .. eligible.Where(candidate =>
-                        candidate.Provenance
-                            is AssemblyResolutionProvenance.PlatformAsset),
-                ]),
-            _ => AssemblyBindingSelection.Multiple(designated),
-        };
+        return designated.IsEmpty
+            ? null
+            : AssemblyBindingCandidateDomain
+                .Create(eligible)
+                .Finalize(designated);
     }
 }

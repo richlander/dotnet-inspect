@@ -99,6 +99,7 @@ one compiled program. Their subjects include:
 - NuGet packages and package relationships
 - platforms, SDK assets, and restored-project evidence
 - source-selection and acquisition services
+- HTTP composition and product request telemetry
 - cross-host queries, sections, row selection, and presentation
 - product-owned catalogs shared by more than one host
 
@@ -123,6 +124,8 @@ ecosystem:
 - `Inspector.Artifacts` owns source-neutral artifact identity, acquisition,
   authorization, and lifetime contracts.
 - `Inspector.Findings` owns the domain-neutral Finding algebra.
+- `Inspector.Resources` owns host-neutral resource lifecycle declarations and
+  synchronous borrowing contracts.
 - `Inspector.Text` owns generic text Findings and deterministic text
   construction used by inspection producers.
 
@@ -273,7 +276,7 @@ implementation belongs to separately tracked owner-scoped work.
 | Classification | Representative projects |
 | --- | --- |
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
-| Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
+| Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Networking`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
 | Subject-neutral inspection substrate | `Inspector.Artifacts`, `Inspector.Artifacts.Local`, `Inspector.Artifacts.Workspaces`, `Inspector.Findings`, `Inspector.Text` |
 | Independent domain roots | `NuGetFetch`, `NetworkAccess`, `CSharpText`, `InertText`; target `SourceFetch` and `UntrustedDocuments` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
@@ -291,12 +294,19 @@ The following dispositions close the existing ambiguous names:
 | `DotnetInspector.Services` | Retire without a replacement assembly under [#6335](https://github.com/richlander/dotnet-inspect/issues/6335). | It groups unrelated package, platform, source, assembly-resolution, parser, and corpus components by role. Targeted `*Service` names remain valid, while Houses and helpers move to their subject owners. |
 
 `DotnetInspector.Core` decomposes by subject: shared cache behavior targets
-`DotnetInspector.Cache`; HTTP composition and product network telemetry target
-`DotnetInspector.Networking`; the destination-admission primitive shared with
-`NuGetFetch` now lives in the independent `NetworkAccess` root; hardened JSON
-and XML entry points target the independent `UntrustedDocuments` root; CLI
-measurement moves to `DotnetInspect.Cli`; and single-consumer helpers move
-beside their consumers.
+`DotnetInspector.Cache`; HTTP composition and product network telemetry moved
+to `DotnetInspector.Networking` under
+[#6572](https://github.com/richlander/dotnet-inspect/issues/6572); the
+destination-admission primitive shared with `NuGetFetch` lives in the
+independent `NetworkAccess` root; hardened JSON and XML entry points target the
+independent `UntrustedDocuments` root; CLI measurement moves to
+`DotnetInspect.Cli`; and single-consumer helpers move beside their consumers.
+
+`DotnetInspector.Networking` depends only on `InertText`, `NetworkAccess`, and
+the platform. `NuGetFetch` remains an independent root: package composition
+maps product traffic kinds to NuGet-owned failure phases rather than making the
+protocol library depend on a `DotnetInspector.*` assembly. Both boundaries are
+enforced over project and compiled-assembly graphs.
 
 `DotnetInspector.Services` likewise has no aggregate successor. Package
 components move to the
@@ -306,6 +316,8 @@ components move to the
 to the independent `SourceFetch` root, PDB-specific source composition to the
 current `PdbSourceHouse` owner and then the target
 [SourceHouse](source-house.md) composition under #6512, and
+compiled and authored-source documentation composition to
+[DocumentationHouse](documentation-house.md) under #6579, and
 assembly-set or dependency-resolution components to their workspace or
 assembly-resolution owner. `House` remains reserved for the accepted
 clearing-house scenarios and does not become an assembly bucket.

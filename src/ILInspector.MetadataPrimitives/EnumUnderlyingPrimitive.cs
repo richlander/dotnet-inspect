@@ -394,7 +394,14 @@ static class EnumUnderlyingPrimitive
         var comparer = reader.StringComparer;
         var reference = reader.GetTypeReference(referenceHandle);
         var definition = reader.GetTypeDefinition(definitionHandle);
-        if (!comparer.Equals(definition.Name, reader.GetString(reference.Name)))
+        if (work is not null)
+        {
+            work.VisitTypeReferenceMatchNameBytes(
+                reader.GetBlobReader(reference.Name).Length);
+        }
+        if (!comparer.Equals(
+                definition.Name,
+                reader.GetString(reference.Name)))
             return false;
 
         if (reference.ResolutionScope.Kind == HandleKind.TypeReference)
@@ -409,10 +416,16 @@ static class EnumUnderlyingPrimitive
                     depth + 1);
         }
 
-        return definition.GetDeclaringType().IsNil
-            && comparer.Equals(
-                definition.Namespace,
-                reader.GetString(reference.Namespace));
+        if (!definition.GetDeclaringType().IsNil)
+            return false;
+        if (work is not null)
+        {
+            work.VisitTypeReferenceMatchNameBytes(
+                reader.GetBlobReader(reference.Namespace).Length);
+        }
+        return comparer.Equals(
+            definition.Namespace,
+            reader.GetString(reference.Namespace));
     }
 
     static ReadOnlySpan<char> LeafName(ReadOnlySpan<char> name)
