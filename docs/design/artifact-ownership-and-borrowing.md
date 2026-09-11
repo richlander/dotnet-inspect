@@ -45,6 +45,12 @@ The normative basis is
 - asynchronous aggregate settlement drains children before releasing their
   backing resources.
 
+The merged
+[Rust ownership counterfactual](../../prototypes/resource-ownership-counterfactual/README.md)
+is supporting evidence, not an owner. It confirms that move invalidation and
+borrow checking would not remove Artifact-issued identity, revocation, exact
+content association, active-operation accounting, or asynchronous quiescence.
+
 The existing Artifact owner already supplies important parts of this shape:
 
 - immutable retained content;
@@ -67,6 +73,25 @@ It captures both `ArtifactSetSession` and `ArtifactQueryLease`, so registration,
 roles, digests, and content opening appear to be reference operations while
 actually using hidden revocable authority. A downstream aggregate cannot own
 that shape without retaining another caller's query-policy lease.
+
+## Motivating product scenario
+
+A search for `System.Text.Json` can select either its NuGet package or the
+Platform subject. Each realized Workspace Root may contribute an API assembly,
+an implementation assembly, compiled XML documentation, and a Portable PDB as
+distinct immutable Artifacts.
+
+The source owner selects and associates those real assets. The Artifact owner
+must then issue one exact child obligation per accepted content item so the
+Library owner can retain the association without keeping the query plan's lease
+alive. DocumentationHouse may later borrow the XML and assembly through one
+Library operation; SourceHouse may borrow the implementation assembly and PDB.
+Replacing query policy between those operations must not invalidate the
+already-realized Library, while replacing the Workspace creates new Artifact
+sessions, references, and child leases.
+
+This design does not choose package versus Platform assets or Library roles.
+It supplies the common lifetime seam both real source paths require.
 
 ## Contract vocabulary
 
@@ -340,7 +365,7 @@ Artifact keeps these outcomes distinct:
 - `LeaseReleased`: ownership-backed access used a released child lease;
 - `BorrowRejected`: owner validation rejected before callback invocation;
 - `CallbackFailed`: the callback threw after a borrow began and the borrow
-  ended before propagation; and
+  ended before propagation;
 - `CallbackCompleted`: normal return committed the callback result, including
   any propagated ownership, before later cancellation could override it; and
 - `ReleaseFailed`: acquisition or aggregate cleanup failed during observed
