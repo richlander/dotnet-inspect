@@ -31,7 +31,8 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
 | [Library Family Boundaries](design/library-family-boundaries.md) | Meaning of the `Inspector`, `ILInspector`, `DotnetInspector`, independent-domain, and host namespace families, independent of dependency altitude and component role. |
-| [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md) | Host-neutral resource protocol for service-issued leases, transfer, direct and snapshot-callback borrowing, release, analyzable declarations, and current-versus-future enforcement. |
+| [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md) | Host-neutral lifecycle semantics for service-issued leases, transfer, direct and snapshot-callback borrowing, release, and current-versus-future enforcement. |
+| [Resource Effect Language](design/resource-effect-language.md) | Portable attribute and JSON language that normalizes resource API effects for one lifecycle Analysis engine, including the ArrayPool compatibility oracle. |
 | [Artifact Ownership and Borrowing](design/artifact-ownership-and-borrowing.md) | Artifact resource classification, resource-free content references, transferable retained-content child leases, scoped byte borrowing, and child-before-acquisition release. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [CLI Workspace Sharing](design/cli-workspace-sharing.md) | Common `--share` projection of an inspection command's effective resolved state to a canonical Workspace packet or Inspect Web URL, without a second Workspace-construction grammar. |
@@ -140,8 +141,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [NuGet API Selection](design/nuget.md) | Scenario-to-API decisions, endpoint roles, first/last-result performance evidence, and current versus proposed adoption. |
 | [NuGet Catalog Acquisition](design/nuget-catalog-acquisition.md) | Bounded incremental acquisition of advertised Catalog event windows with source identity, horizon, completion, and typed failure. |
 | [GitHub NuGet Advisory Evidence](design/github-nuget-advisory-evidence.md) | Bounded reviewed-advisory acquisition and exact-coordinate current-affected and explicitly-fixed evidence with honest category availability. |
-| [NuGet Gallery Discovery](design/nuget-gallery-discovery.md) | Proposed NuGetFetch termless/type-filtered Gallery search, source orders, search-facet discovery, and bounded row-source delegation, with CLI/browser adoption tracked separately. |
-| [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID and explicit-prefix selection for Inspect Web, plus retained explicit Gallery input for other shared Query consumers. |
+| [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID and explicit-prefix selection shared by Package Query consumers, with blank input remaining idle. |
 | [Package Query Inspection Evidence](design/package-query-inspection-evidence.md) | Inspection-produced item counts and bounded previews, distinct from query-wide context. |
 | [NuGet Feed Authentication](design/nuget-authentication.md) | How feeds are authenticated: `nuget.config` credentials, credential provider discovery and the 401-driven plugin protocol, source-scoped plugin credential isolation, supported credential forms, and hermetic/live test tiers. See [Private NuGet Feeds](private-feeds.md) for setup instructions. |
 | [Local Package Source Identity](design/local-package-source-identity.md) | Canonical config- and command-relative path identity shared by local source consumers. |

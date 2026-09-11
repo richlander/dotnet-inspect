@@ -19,10 +19,12 @@
     <ProjectReference Include="..\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
     <ProjectReference Include="..\DotnetInspector.Platforms\DotnetInspector.Platforms.csproj" />
     <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
+    <ProjectReference Include="..\Inspector.Resources\Inspector.Resources.csproj" />
     <PackageReference Include="NuGet.Versioning" />
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
     <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
     <InternalsVisibleTo Include="DotnetInspect.Web.Core" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
   </ItemGroup>
 

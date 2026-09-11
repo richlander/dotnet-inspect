@@ -543,6 +543,7 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(LibraryBodyAnalysisFeatures.LeakTriage)]
     [InlineData(LibraryBodyAnalysisFeatures.All)]
     public void ResourceLifecycleAnalysis_MalformedMethodTokenIsVisible(
@@ -577,6 +578,7 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(LibraryBodyAnalysisFeatures.LeakTriage)]
     [InlineData(LibraryBodyAnalysisFeatures.All)]
     public void ResourceLifecycleAnalysis_MalformedMethodBodyIsVisible(
@@ -647,6 +649,7 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LibraryBodyIndex_RequiresLeakTriageFeature()
     {
         string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
@@ -674,6 +677,7 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LibraryBodyIndex_NormalizesFeatureDependencies()
     {
         string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
@@ -703,6 +707,7 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LibraryBodyIndex_ConsumesCallerOwnedPrefetchedImage()
     {
         string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
@@ -727,6 +732,7 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LibraryBodyIndex_PrefetchedImageHonorsBodyScope()
     {
         string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;

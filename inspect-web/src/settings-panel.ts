@@ -39,6 +39,7 @@ export function reconcileStyleTaste(
 
 export interface SettingsPanelBindingActions {
   onClose: () => void;
+  onOpenDiagnostics: () => void;
   onOpen: (from: "home" | "workbench") => void;
   onTasteClear: () => void;
   onTasteToggle: (taste: string) => void;
@@ -55,6 +56,9 @@ export function bindSettingsPanel(
   root.querySelector("#home-settings")?.addEventListener(
     "click",
     () => actions.onOpen("home"));
+  root.querySelector("#settings-diagnostics-open")?.addEventListener(
+    "click",
+    actions.onOpenDiagnostics);
   const backdrop = root.querySelector<HTMLElement>("#settings-backdrop");
   backdrop?.addEventListener("click", event => {
     if (event.target === backdrop) actions.onClose();
@@ -165,6 +169,16 @@ export function renderSettingsView(options: RenderSettingsViewOptions): string {
               ${activeCount
                 ? '<button id="settings-taste-clear" type="button" class="settings-reset">Reset to default</button>'
                 : '<span class="settings-muted">Default · opcode-faithful</span>'}
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <div class="settings-section-head">
+              <h2>Diagnostics</h2>
+              <p>View runtime, build, and aggregate package-cache evidence for this browser session.</p>
+            </div>
+            <div class="settings-control">
+              <button id="settings-diagnostics-open" type="button" class="settings-reset">Open Diagnostics</button>
             </div>
           </section>
         </div>

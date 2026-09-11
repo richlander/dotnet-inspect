@@ -56,9 +56,9 @@ Related docs:
   context. The future CLI facet projection consumes the same compact evidence
   through Sections/Markout; CLI facet wiring remains pending.
 - [Package Query input selection](package-query-input-selection.md) owns the
-  shared choice between exact-ID, explicit-prefix, and explicit Gallery
-  candidate inputs. Its host adoption is tracked separately in #6070; the
-  explicitly named CLI `--package-prefix` remains prefix intent.
+  shared choice between exact-ID and explicit-prefix candidate inputs. Its host
+  adoption is tracked separately in #6070; the explicitly named CLI
+  `--package-prefix` remains prefix intent.
 - [The package query experience](package-query-experience.md) — the browser
   front end this document is the CLI counterpart to. Its own non-goals already
   commit to "facets map 1:1 to the CLI's named profiles so the browser
@@ -104,8 +104,7 @@ examples plus focused Release gates. The reconciliation requires one bounded
 extension to the existing shared request/plan/summary contract so absence of a
 match budget survives execution. It requires no Browser control or behavior
 change: Browser requests continue to carry their present budget and receive
-their numeric denominator and existing completion mapping. Assembly-pattern
-and Gallery-input CLI adoption remain separate. The reconciled target spelling
+their numeric denominator and existing completion mapping. Assembly-pattern CLI adoption remains separate. The reconciled target spelling
 is:
 
 ```sh
@@ -241,48 +240,19 @@ bespoke logic the way it did before that split existed.
 
 ## Is this CLI-side or core?
 
-### Gallery source input
+### Exact and prefix source input
 
-[Website-first adoption #6019](https://github.com/richlander/dotnet-inspect/issues/6019)
-extends the shared Package Query input, not the CLI grammar. Its claim is that
-local package-facet evaluation and match selection preserve the exact bounded
-Gallery input supplied by NuGetFetch. The Package Query website was the first
-consumer; #6341 later retired that Browser gesture while retaining the shared
-input. [#5919](https://github.com/richlander/dotnet-inspect/issues/5919) retains
-the eight-milestone path through CLI adoption.
+Package Query accepts an exact package ID or one explicit terminal-star
+package-ID prefix. Exact input uses authoritative version and listing evidence
+without falling back to related search results. Prefix input uses the supported
+V3 Search page stream, preserves source order and truncation, and can emit
+search metadata without forcing manifest or archive acquisition.
 
-The [Gallery discovery owner](nuget-gallery-discovery.md) supplies optional
-search text, package-type selection, source order, and one fully admitted
-response of capacity K. These source selectors are distinct from the existing
-manifest/content facets. Selecting an inspection facet never silently rewrites
-it as a Gallery selector. Literal-prefix profiling remains a separate operation.
-
-With no inspection facets, the query returns metadata rows without acquiring
-manifests or archives. Rows retain unavailable optional metadata as unavailable
-and do not manufacture manifest facts. Selecting an inspection facet explicitly
-permits its existing acquisition/evaluation tier; content facets retain their
-explicit provider requirement and 20-candidate ceiling.
-
-The shared L1 local match bound N selects matching packages in incoming order,
-independently of K. A product match budget may stop further enrichment, but
-cannot shorten the already acquired source response. Completion distinguishes
-the acquired candidate count, processed candidates, and displayed matches.
-Finishing this finite response never means exhausting the Gallery population;
-any provider total remains an estimate. Failures and cancellation retain the
-existing visible query-event contract. This host-neutral capability does not
-define CLI `-n` lowering: the prefix CLI route evaluates its authorized
-candidate population before semantic row selection unless source delegation
-proves that an early match stop preserves every observable result.
-
-The user approved this ordinary acquisition/local-evaluation path before the
-general Source Delegation protocol and L2 adapter. This slice claims neither
-delegated operation execution nor upstream Count. The finite-input selection
-gate compares local selection with the row reference evaluator over the same
-acquired response, including the capacity-dependent ranking counterexample.
-
-CLI `-Q` and query-companion discovery belong to
-[PR #6004](https://github.com/richlander/dotnet-inspect/pull/6004). A source
-catalog entry or browser control does not advertise an implemented CLI binding.
+Selecting an inspection facet authorizes its existing acquisition/evaluation
+tier; content facets retain their explicit provider requirement and
+20-candidate ceiling. Match limits, candidate limits, source page limits,
+failures, and cancellation retain the visible query-event contract. The
+retired Gallery browse/order substrate is not a CLI adoption path.
 
 ### Existing layering
 

@@ -20,7 +20,6 @@ This document owns API-selection guidance, not neighboring contracts:
 [package sources](package-source-model.md) own authority and result adoption;
 [version resolution](version-resolution.md) and
 [metadata persistence](package-metadata-persistence.md) own their policies;
-[Gallery discovery](nuget-gallery-discovery.md) owns provider search semantics;
 and the query, row-selection, and [event-stream
 owners](engine-browser-async-event-stream.md) retain evaluation, completion,
 and delivery semantics. Implementation belongs in the appropriate shared
@@ -36,18 +35,16 @@ same query. Reuse eligible local evidence under its owning cache policy before
 adding network work; a local package or restored project need not become a
 Gallery request.
 
-The conventional baseline is NuGet's separation of discovery, per-package
-metadata, content, and change feeds. Gallery-specific ordering is a deliberate,
-separately documented extension, not a capability assumed of every V3 feed.
-Source eligibility and supported resource versions precede endpoint choice.
-Missing capability, failure, and authoritative absence remain distinct under
-the source owner; an API preference never authorizes borrowing another feed's
-answer.
+The conventional baseline is NuGet's separation of search, per-package
+metadata, content, and change feeds. Source eligibility and supported resource
+versions precede endpoint choice. Missing capability, failure, and
+authoritative absence remain distinct under the source owner; an API
+preference never authorizes borrowing another feed's answer.
 
 | Tool scenario and required evidence | Preferred route or combination | Boundary that makes the choice meaningful |
 | --- | --- | --- |
-| Find packages by text; obtain searchable display metadata | V3 Search for portable feed search; use the Gallery-specific route when its additional behavior is requested. | Ranked, policy-filtered package IDs, not every version or every historical package. Search results are candidates for deeper inspection. |
-| Browse popular packages, tools, or templates without a term | Gallery Search with its declared type selector and source order; basic rows need only search metadata. | Follow [Gallery discovery](nuget-gallery-discovery.md): one declared finite input, approximate population total, and page-local download ordering. This does not promise exact global top-N. |
+| Find packages by text; obtain searchable display metadata | V3 Search for portable feed search. | Ranked, policy-filtered package IDs, not every version or every historical package. Search results are candidates for deeper inspection. |
+| Browse popular packages, tools, or templates without a term | No supported dotnet-inspect product route. | V3 Search permits empty text, but the product does not expose a browse/order contract or package-type source selector. |
 | Suggest package IDs while entering a name | Autocomplete ID mode fits names-only suggestions; Search fits suggestions that also need version and description. | Suggestions are not exhaustive prefix enumeration. Compare equivalent UI evidence, not bare names against richer search rows. |
 | List downloadable versions of a known ID | Flat Container version index; add Registration when listing state or version metadata is needed. | Downloadable includes unlisted versions; normal user-facing latest/listed policy still belongs to version resolution. |
 | Populate a listed-version-only selector | Autocomplete version mode is a candidate when only version strings under its prerelease/SemVer policy are required. | Compare with the existing Flat Container plus Registration route. It cannot supply unlisted versions or per-version metadata, and is not the current adopted path. |
@@ -84,15 +81,14 @@ that every recommendation above has shipped.
 | Gallery version listing | [NuGetGalleryPackageSourceClient.GetVersionsAsync](../../src/NuGetFetch/NuGetGalleryPackageSourceClient.cs) combines Flat Container versions with Registration listing evidence. The [browser workspace](../../inspect-web/DotnetInspect.Web.Core/BrowserPackageWorkspace.cs) calls that source operation; package resolution also has its own policy. | A bare version array does not establish listed state. Evaluate reuse of existing Registration observations without changing version-resolution or partial-evidence policy. |
 | Exact-version metadata and advisories | [PackageMetadataService.FetchAllMetadataAsync](../../src/DotnetInspector.Services/PackageMetadataService.cs) composes Registration, referenced Catalog metadata, Search enrichment, a content probe, and vulnerability data. | This is an aggregate acquisition path, not a demonstrated minimal request plan for every individual field. [#5947](https://github.com/richlander/dotnet-inspect/issues/5947) tracks portable Registration-link discovery; compare field-specific alternatives before further routing changes. |
 | Browser Spotlight package suggestions | [querySpotlightPackages](../../inspect-web/src/dotnet-inspect.ts) directly calls V3 Search with `take=8` and consumes ID, version, and description. | Autocomplete names alone would reduce the result's information. Any move to shared discovery should retain those fields and be evaluated through the actual host. |
-| Termless/type-filtered Gallery browse and download ordering | [Gallery discovery](nuget-gallery-discovery.md) is the design from #5922, not evidence of completed host adoption. | [#5919](https://github.com/richlander/dotnet-inspect/issues/5919) retains its eight-milestone source, row, CLI, and browser sequence. This record does not restart or replace it. |
 | Catalog history/inventory | Referenced leaves already contribute metadata; the [package-set audits](package-set-registry.md#initial-registry) used the event Catalog as authoring evidence. | Bounded change queries and a maintained inventory are candidate capabilities, not product behavior established by those audits. Establish their scenario and cost before choosing a new runtime design. |
 
 Since that inventory, [#5947](https://github.com/richlander/dotnet-inspect/issues/5947)
 replaces the exact-version metadata service's guessed Registration leaf and
 Catalog fetch with [portable index/page lookup](#1-registration-api).
-The historical inventory above is not evidence that the old route remains
+The historical inventory above is not evidence that an old route remains
 active. Gallery version listing, browser suggestions, and Catalog enumeration
-are unchanged.
+are unchanged. The former Gallery browse/order discovery substrate is retired.
 
 Names-only Autocomplete adoption and Catalog enumeration are research
 directions here, not automatic replacements for current paths. Shared API
@@ -143,7 +139,6 @@ a substitute for either result metric.
 
 | Evidence | Observation | Decision supported, and limit |
 | --- | --- | --- |
-| [Gallery discovery probe](nuget-gallery-discovery.md#provider-and-convention-evidence), 2026-09-04 | Ten stable tools: 6,742 compressed response bytes and 0.355 s for the sorted Gallery request. | Metadata-only browse is practical in that observation. This is one HTTP timing, not product `T_first`/`T_n` or a measured win over an equivalent Catalog query. |
 | [Package-prefix benchmark](package-query-cli.md#measured-package-profile-limits), 2026-09-02 | For 500 `Microsoft.` IDs, Search took 0.72/0.73 s and the manifest profile took 36.89/28.02 s on the two recorded hosts. | Per-candidate enrichment materially changes end-to-end cost. The two operations answer different questions; Search alone cannot replace the profile's evidence. These are total timings, not first/last-result measurements. |
 | Same benchmark's source boundary | A request for 5,000 yielded 2,933 exact-prefix IDs from the current fixed-page Search path before `SourcePageLimit`. | A larger client limit does not make Search exhaustive. The provider permits `skip` only through 3,000; a larger final legal page still cannot continue beyond that offset. |
 | [Extensions/ASP.NET audit](package-set-registry.md#initial-registry), 2026-09-03 | 1,361 Catalog pages; three current Extensions IDs were missed by prefix Search. | Concrete completeness value. All three were shared-framework-only, so the additive set was unchanged. The scan's date boundary was justified by that membership rule, not by a universal completeness claim. |
@@ -753,9 +748,9 @@ The live benchmark above characterizes cost, not portability or correctness.
   filtering and `packageTypes`; these are not manifest/content predicates.
 - On nuget.org, `skip <= 3000` and `take <= 1000`. The response does not offer
   a continuation cursor beyond that window.
-- Portable V3 Search does not define a download-order parameter. The separate
-  [Gallery Search design](nuget-gallery-discovery.md) owns `/search/query`,
-  its provider extension, ordering limits, and approximate total.
+- Portable V3 Search does not define a download-order parameter.
+- The former Gallery-specific browse/order endpoint dependency is retired and
+  is not part of the supported product contract.
 
 ### 3. Vulnerability API
 

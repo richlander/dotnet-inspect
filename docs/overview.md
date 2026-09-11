@@ -155,7 +155,7 @@ substrates, and inspection producers that will extend that space.
   is the host-neutral resource protocol for service-issued leases, explicit
   transfer, direct and snapshot-callback borrowing, resource-free references
   and receipts, C# representation, the residual enforcement overhang before
-  compiler ownership, and the declaration boundary consumed by Analysis.
+  compiler ownership, and the lifecycle semantics declarations must express.
   Resource issuers retain their acquisition and cleanup semantics; Analysis
   retains IL interpretation and Finding semantics; Houses compose and settle
   scenarios without issuing adjacent-owner leases. Adoption and retirement are
@@ -165,6 +165,12 @@ substrates, and inspection producers that will extend that space.
   separate from current query authority and transferable per-content child
   leases, while session settlement drains children and scoped accesses before
   releasing source acquisition resources.
+- [Resource Effect Language](design/resource-effect-language.md) owns the
+  portable compiled-attribute and JSON declaration language, exact structural
+  API matching, declaration validation and provenance, and normalization into
+  resource-neutral effects. ArrayPool and repository ownership declarations
+  enter the same lifecycle engine through this boundary; the language owns no
+  control-flow or Finding policy.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its
@@ -246,8 +252,8 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,
-  committed execution, and completion-bound row or Count outcomes; Gallery,
-  L2, and host adoption remain staged under #5919.
+  committed execution, and completion-bound row or Count outcomes. Production
+  operation adoption remains separate from the protocol.
 - `src/DotnetInspector.Ecosystems/` is the static front-end application
   catalog. The [Package Set Registry](design/package-set-registry.md) reuses
   Packages-owned coordinate currency and validation while stable set identity,
@@ -706,16 +712,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   explicitly fixed evidence from GitHub-reviewed NuGet advisories. Package
   release dates, security-release classification, historical transitions,
   report selection, and presentation remain with their focused owners.
-- [NuGet Gallery discovery](design/nuget-gallery-discovery.md): proposed
-  NuGetFetch-owned termless/type-filtered discovery, source ordering,
-  search-selector catalog, typed metadata observations, and Gallery-specific
-  row-delegation evidence. Row meaning, generic source contracts, and host
-  adoption remain with their focused owners.
 - [Package Query input selection](design/package-query-input-selection.md):
-  shared Query interpretation of exact-ID, explicit-prefix, and explicit
-  Gallery candidate inputs, consuming existing source intent and acquisition
-  contracts without implicit input substitution. Browser adoption is implemented;
-  general CLI query execution remains tracked separately.
+  shared Query interpretation of exact-ID and explicit-prefix candidate
+  inputs, consuming existing source intent and acquisition contracts without
+  implicit input substitution. Browser adoption is implemented; general CLI
+  query execution remains tracked separately.
 - [Package Query inspection evidence](design/package-query-inspection-evidence.md):
   shared inspection-produced item counts and bounded previews, separated from
   query-wide source context; acquisition, matching, and host presentation retain

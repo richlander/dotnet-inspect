@@ -714,6 +714,7 @@ public class ScanTokenTests
     /// Each of those is gated by a named test above instead.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void EveryStringOverTheDelimiterAlphabet_IsFullyCovered()
     {
         // The alphabet is pinned by value, and the sweep scans exactly the set generated from
@@ -939,6 +940,7 @@ public class ScanTokenTests
     /// </para>
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void EveryFragmentOfACarriedLiteral_ReportsTheDepthWhereItsLiteralOpened()
     {
         const string Alphabet = "\"$\\{}a";
@@ -1053,6 +1055,7 @@ public class ScanTokenTests
     /// </para>
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void UnknowableDepth_IsCarriedByExactlyTheTokensTheScannerCouldNotPlace()
     {
         const string Alphabet = "\"$*/@\\a{}";
@@ -1269,6 +1272,7 @@ public class ScanTokenTests
     /// did not.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void EveryCharacterOfTheCorpus_IsAccountedFor()
 
     {
@@ -1570,6 +1574,7 @@ public class ScanTokenTests
     /// </para>
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void EnclosingContent_ShiftsEveryTokensDepthByExactlyOne()
     {
         const string Alphabet = "#/*'\"@$\\{}a";
