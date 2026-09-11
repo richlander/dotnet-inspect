@@ -178,9 +178,9 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
-| `graph libraries` | Show exact resolved `call`, `callvirt`, and `newobj` occurrences crossing between two explicit local libraries. |
+| `graph libraries` | Show exact resolved cross-library call sites or summarize the consumer methods and provider API types they connect. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
-| `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. It remains the direct-evidence-only surface; `depends` adds graph traversal and the same evidence sections. |
+| `dependency-evidence` | Report declarations and restored resolution evidence for explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots only; use `depends` to traverse. It remains supported until the planned retirement slice. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
@@ -568,7 +568,23 @@ dotnet-inspect graph integrations \
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  -S
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  -S "Provider API Types" \
+  --table
 ```
+
+`graph libraries` evaluates both directions in the pair; every row still names
+its directed source and target. Omitting `-S` preserves the exact physical call
+sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
+methods containing direct calls, and the provider declaring types selected by
+those calls. These are direct-use surfaces, not semantic feature clusters,
+public-entrypoint reachability, or a list of configured ecosystem Integrations.
 
 ### Workspace sharing and built-in guidance
 
