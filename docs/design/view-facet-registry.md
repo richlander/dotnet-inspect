@@ -5,9 +5,11 @@ facets. It gives navigation, portable-definition owners, and other hosts one
 stable identity and descriptor space without turning a browser label, CLI
 section name, or command flag into a contract.
 
-The inspection-lens catalog and the [Workspace and Package
-cutover](#workspace-and-package-cutover) are implemented in
-`DotnetInspector.Queries`.
+The inspection-lens catalog, the [Workspace and Package
+cutover](#workspace-and-package-cutover), and the
+[Compare facet extension](#compare-facet-extension) are implemented in
+`DotnetInspector.Queries`. The Compare Browser wire projection is implemented
+in `DotnetInspect.Web.Interop.Analysis`.
 Adjacent Navigation, workspace-definition, and host consumers remain separate
 work.
 
@@ -381,48 +383,58 @@ entries to the existing host-neutral Registry; it does not define a CLI
 Compare renderer or broaden the approved experience beyond that Browser
 consumer.
 
-The future private execution bindings are the host-neutral dispatch identities
+The private execution bindings are the host-neutral dispatch identities
 `LibraryCompare`, `TypeCompare`, and `MemberCompare`. They select the
 subject-scoped Compare entry contract only. They do not encode Diff or Clone,
 execute a mode query, or reference Browser implementation types. They remain
 internal to the Registry's owning layer.
 
-[#6519](https://github.com/richlander/dotnet-inspect/issues/6519) owns the
-public host-neutral execution handoff that will consume those private targets
-and return typed Compare entry outcomes. The approved Browser adapter consumes
-that public result and owns interactive DOM lowering; it never reads the
-private binding or maintains a parallel facet-ID-to-renderer table. Other hosts
-likewise cannot inspect the private bindings or reconstruct a mode from the
-descriptor title.
+`CompareFacetEntryExecution` implements
+[#6519](https://github.com/richlander/dotnet-inspect/issues/6519)'s public
+host-neutral execution handoff. It accepts one exact applied, unavailable, or
+failed Navigation activation, verifies that its descriptor is the exact
+product-Registry descriptor, consumes the matching private target, and returns
+a closed Library, Type, or Member entry result. Every result retains the exact
+subject, lens, Workspace, and retained Package occurrence. It neither selects
+nor executes Diff or Clone.
+
+`BrowserCompareEntryWireProjection` is the first bounded Browser adapter. It
+consumes only that public result and lowers its public descriptor, subject, and
+closed result state into the Analysis facade's transport-safe records. It does
+not read the private binding or maintain a parallel facet-ID-to-renderer table.
+Interactive DOM rendering and mode execution remain later Compare stages.
+Other hosts likewise cannot inspect the private bindings or reconstruct a mode
+from the descriptor title.
 
 This contract is stage 2 of Compare Experience's nine-stage production
 adoption path. Atomic descendant-subject plus exact-lens activation follows in
 [#6490](https://github.com/richlander/dotnet-inspect/issues/6490). Runtime
 registrations require the exact occurrence-bound subject identity from #5518
 and the Registry's Workspace/Package grammar from
-[#5509](https://github.com/richlander/dotnet-inspect/issues/5509), and they
-must not precede #6519's public executor. They then land with the first Browser
-adapter for that executor or at most one unmerged PR ahead of it. This design
-change does not publish active registrations, tombstones, or unavailable
-placeholders.
+[#5509](https://github.com/richlander/dotnet-inspect/issues/5509). Those
+prerequisites, the public executor, active registrations, compatibility
+manifest entries, and first Browser adapter are now implemented together.
 
-Adoption is **unverified** until the Release Registry suite adds:
+Adoption is gated in Release by:
 
-- `ViewFacetRegistryTests.CompareInventory_MatchesContract`, covering the
-  three exact IDs, common title, summaries, kinds, append-only orders, absent
-  roles, exact private execution targets, and structural applicability; and
+- `ViewFacetRegistryTests.CompareInventory_MatchesContract`, covering the three
+  exact IDs, common title, summaries, kinds, append-only orders, absent roles,
+  exact private execution targets, and structural applicability;
 - `ViewFacetRegistryTests.CompareLookup_PreservesFacetAndModeBoundaries`,
-  covering the three exact available results, cross-subject inapplicable
-  results, and unknown label or `*.diff`/`*.clone` outcomes without executing
-  a mode query.
+  covering exact available and cross-subject outcomes plus unknown label and
+  `*.diff`/`*.clone` requests;
+- `CompareFacetEntryExecutionTests.Execution_DispatchesEveryCompareTargetAndRetainsExactAncestry`
+  and its neighboring outcome tests, covering private-target consumption,
+  subject-specific public entries, exact ancestry, closed unavailability and
+  failure evidence, and rejection of non-Compare activations; and
+- `BrowserCompareEntryProjectionTests.Projection_PreservesTypedEntryAndClosedResultStates`,
+  covering Browser lowering and source-generated JSON for the public handoff.
 
-The compatibility manifest adds the three IDs only when their active runtime
-registrations ship. The existing complete-catalog, registration/binding, static
-discovery, target-discovery, exact-resolution, and compatibility gates remain
-applicable; the focused gates above make the shared-title and mode-boundary
-claims independently observable. #5518's exact-ancestry gates establish that
-equal portable coordinates cannot alias the applicable subject; the Compare
-Registry tests do not manufacture or duplicate that identity evidence.
+The existing complete-catalog, registration/binding, static discovery,
+target-discovery, exact-resolution, and compatibility gates remain applicable.
+Issue #5518's exact-ancestry gates establish that equal portable coordinates
+cannot alias the applicable subject; the Compare Registry tests do not
+manufacture or duplicate that identity evidence.
 
 ## Workspace and Package cutover
 
