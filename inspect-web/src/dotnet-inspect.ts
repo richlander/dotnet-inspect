@@ -6694,7 +6694,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
             ${callGraphLegendHtml()}
-            <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
@@ -12372,8 +12371,6 @@ function patchCallGraphSection(previousMermaid: string | undefined) {
     scopeEl.innerHTML =
       `<strong>Workspace callers</strong><span>${graphScope.packages} loaded packages · ${graphScope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span>`;
   }
-  const sourceCode = section.querySelector(".graph-mermaid pre code");
-  if (sourceCode) sourceCode.textContent = graph?.mermaid ?? "";
   if (graph?.mermaid && graph.mermaid !== previousMermaid)
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
 }
