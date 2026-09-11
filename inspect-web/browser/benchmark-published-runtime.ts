@@ -11,7 +11,13 @@ import {
 } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { firefox, type Page } from "@playwright/test";
+import { firefox, type Page, type Request } from "@playwright/test";
+import type {
+  PublishedRuntimeBenchmarkBridge,
+} from "../src/published-runtime-benchmark-bridge.ts";
+import {
+  publishedRuntimeBenchmarkParameter,
+} from "../src/published-runtime-benchmark-bridge.ts";
 import {
   benchmarkUsage,
   evaluateBuildComparability,
@@ -40,10 +46,11 @@ interface BuildIdentity {
 }
 
 interface FrameworkTransfer {
+  readonly source: "playwright-network";
   readonly resources: number;
   readonly transferBytes: number;
   readonly encodedBodyBytes: number;
-  readonly decodedBodyBytes: number;
+  readonly decodedBodyBytes: null;
 }
 
 interface StartupMeasurement {
@@ -175,7 +182,7 @@ interface AutomationEnvironment {
 }
 
 interface BenchmarkReport {
-  readonly schema: 1;
+  readonly schema: 2;
   readonly generatedAtUtc: string;
   readonly harness: {
     readonly commit: string | null;
@@ -287,70 +294,126 @@ function gitValue(arguments_: readonly string[]): string | null {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
+function observeFrameworkTransfer(page: Page): {
+  finish(): Promise<FrameworkTransfer>;
+  dispose(): void;
+} {
+  const requests: Request[] = [];
+  let observing = true;
+  const onRequest = (request: Request) => {
+    if (new URL(request.url()).pathname.includes("/_framework/")) {
+      requests.push(request);
+    }
+  };
+  page.on("request", onRequest);
+
+  function dispose(): void {
+    if (!observing) return;
+    observing = false;
+    page.off("request", onRequest);
+  }
+
+  return {
+    dispose,
+    async finish() {
+      dispose();
+      if (requests.length === 0) {
+        throw new Error(
+          "Managed readiness completed without framework network requests.",
+        );
+      }
+      const sizes = await Promise.all(requests.map(async request => {
+        const response = await request.response();
+        if (response === null) {
+          throw new Error(
+            `Framework request completed without a response: ${request.url()}`,
+          );
+        }
+        const failure = await response.finished();
+        if (failure !== null) {
+          throw new Error(
+            `Framework response failed: ${request.url()}`,
+            { cause: failure },
+          );
+        }
+        return request.sizes();
+      }));
+      return {
+        source: "playwright-network",
+        resources: requests.length,
+        transferBytes: sizes.reduce(
+          (total, size) =>
+            total + size.responseHeadersSize + size.responseBodySize,
+          0,
+        ),
+        encodedBodyBytes: sizes.reduce(
+          (total, size) => total + size.responseBodySize,
+          0,
+        ),
+        decodedBodyBytes: null,
+      };
+    },
+  };
+}
+
 async function openSite(
   page: Page,
   url: string,
 ): Promise<{ identity: BuildIdentity; startup: StartupMeasurement }> {
-  await page.goto(url, {
-    waitUntil: "commit",
-    timeout: 180_000,
-  });
+  const frameworkTransfer = observeFrameworkTransfer(page);
+  const benchmarkUrl = new URL(url);
+  benchmarkUrl.searchParams.set(publishedRuntimeBenchmarkParameter, "1");
+  try {
+    await page.goto(benchmarkUrl.href, {
+      waitUntil: "commit",
+      timeout: 180_000,
+    });
 
-  return page.evaluate(async () => {
-    const host = await import("/inspect-web-host.js");
-    const deadline = performance.now() + 180_000;
-    let identity: BuildIdentity;
-    while (true) {
+    const opened = await page.evaluate(async () => {
+      const deadline = performance.now() + 180_000;
+      let bridge: PublishedRuntimeBenchmarkBridge | undefined;
+      while (bridge === undefined) {
+        bridge = window.__inspectWebRuntimeBenchmark;
+        if (bridge === undefined) {
+          if (performance.now() >= deadline) {
+            throw new Error(
+              "Timed out waiting for the production Worker benchmark bridge.",
+            );
+          }
+          await new Promise(resolveDelay => setTimeout(resolveDelay, 50));
+        }
+      }
+      const remaining = Math.max(0, deadline - performance.now());
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_accept, rejectPromise) => {
+        timer = setTimeout(
+          () => rejectPromise(new Error(
+            "Timed out waiting for the production Worker runtime.",
+          )),
+          remaining,
+        );
+      });
+      let identity: BuildIdentity;
       try {
-        identity = host.buildIdentity();
-        break;
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!message.includes(
-          "The .NET runtime facade is not initialized.",
-        )) {
-          throw error;
+        identity = await Promise.race([bridge.host.buildIdentity(), timeout]);
+      } finally {
+        if (timer !== undefined) {
+          clearTimeout(timer);
         }
-        if (performance.now() >= deadline) {
-          throw new Error(
-            "Timed out waiting for the managed runtime facade.",
-            { cause: error },
-          );
-        }
-        await new Promise(resolveDelay => setTimeout(resolveDelay, 50));
       }
-    }
-    const frameworkResources = performance.getEntriesByType("resource")
-      .filter(entry => new URL(entry.name).pathname.includes("/_framework/"));
-    let transferBytes = 0;
-    let encodedBodyBytes = 0;
-    let decodedBodyBytes = 0;
-    for (const entry of frameworkResources) {
-      if ("transferSize" in entry && typeof entry.transferSize === "number") {
-        transferBytes += entry.transferSize;
-      }
-      if ("encodedBodySize" in entry
-          && typeof entry.encodedBodySize === "number") {
-        encodedBodyBytes += entry.encodedBodySize;
-      }
-      if ("decodedBodySize" in entry
-          && typeof entry.decodedBodySize === "number") {
-        decodedBodyBytes += entry.decodedBodySize;
-      }
-    }
+      return { identity, readyMilliseconds: performance.now() };
+    });
     return {
-      identity,
+      identity: opened.identity,
       startup: {
-        readyMilliseconds: performance.now(),
-        frameworkTransfer: {
-          resources: frameworkResources.length,
-          transferBytes,
-          encodedBodyBytes,
-          decodedBodyBytes,
-        },
+        readyMilliseconds: opened.readyMilliseconds,
+        frameworkTransfer: await frameworkTransfer.finish(),
       },
     };
-  });
+  } catch (error: unknown) {
+    frameworkTransfer.dispose();
+    throw error;
+  }
 }
 
 async function measurePackage(page: Page): Promise<{
@@ -358,10 +421,14 @@ async function measurePackage(page: Page): Promise<{
   warm: PackageMeasurement;
 }> {
   return page.evaluate(async coordinate => {
-    const packageFacade = await import("/inspect-web-package.js");
+    const bridge = window.__inspectWebRuntimeBenchmark;
+    if (!bridge) {
+      throw new Error("The production Worker benchmark bridge is unavailable.");
+    }
+    const benchmark = bridge;
     async function measure(): Promise<PackageMeasurement> {
       const started = performance.now();
-      const surface = await packageFacade.queryPackage(
+      const surface = await benchmark.package.queryPackage(
         coordinate.packageId,
         coordinate.version,
         coordinate.targetFramework,
@@ -404,10 +471,14 @@ async function measurePackagePerformance(
   assemblyName: string,
 ): Promise<PackagePerformanceMeasurement> {
   return page.evaluate(async input => {
-    const analysis = await import("/inspect-web-analysis.js");
+    const bridge = window.__inspectWebRuntimeBenchmark;
+    if (!bridge) {
+      throw new Error("The production Worker benchmark bridge is unavailable.");
+    }
+    const benchmark = bridge;
     async function measure() {
       const started = performance.now();
-      const result = await analysis.queryPackagePerformance(
+      const result = await benchmark.analysis.queryPackagePerformance(
         input.coordinate.packageId,
         input.coordinate.version,
         input.coordinate.targetFramework,
@@ -448,9 +519,12 @@ async function measureMemberThroughput(
   memberCount: number,
 ): Promise<MemberThroughputMeasurement> {
   return page.evaluate(async input => {
-    const packageFacade = await import("/inspect-web-package.js");
-    const analysis = await import("/inspect-web-analysis.js");
-    const surface = await packageFacade.queryPackage(
+    const bridge = window.__inspectWebRuntimeBenchmark;
+    if (!bridge) {
+      throw new Error("The production Worker benchmark bridge is unavailable.");
+    }
+    const benchmark = bridge;
+    const surface = await benchmark.package.queryPackage(
       input.coordinate.packageId,
       input.coordinate.version,
       input.coordinate.targetFramework,
@@ -489,7 +563,7 @@ async function measureMemberThroughput(
       ]!,
     );
     const warmup = candidates.at(-1)!;
-    await analysis.queryMemberFacts(
+    await bridge.analysis.queryMemberFacts(
       surface.package,
       surface.version,
       surface.activeFramework,
@@ -507,7 +581,7 @@ async function measureMemberThroughput(
     const batchStarted = performance.now();
     for (const candidate of selected) {
       const started = performance.now();
-      const facts = await analysis.queryMemberFacts(
+      const facts = await bridge.analysis.queryMemberFacts(
         surface.package,
         surface.version,
         surface.activeFramework,
@@ -552,9 +626,12 @@ async function measureMethodComparison(
   page: Page,
 ): Promise<MethodComparisonMeasurement> {
   return page.evaluate(async coordinate => {
-    const packageFacade = await import("/inspect-web-package.js");
-    const source = await import("/inspect-web-source.js");
-    const surface = await packageFacade.queryPackage(
+    const bridge = window.__inspectWebRuntimeBenchmark;
+    if (!bridge) {
+      throw new Error("The production Worker benchmark bridge is unavailable.");
+    }
+    const benchmark = bridge;
+    const surface = await benchmark.package.queryPackage(
       coordinate.packageId,
       coordinate.version,
       coordinate.targetFramework,
@@ -573,7 +650,7 @@ async function measureMethodComparison(
     }
 
     let started = performance.now();
-    const prepared = await source.queryMethodBodyComparisonTargets(
+    const prepared = await benchmark.source.queryMethodBodyComparisonTargets(
       `runtime-benchmark-targets-${crypto.randomUUID()}`,
       surface.package,
       surface.version,
@@ -608,7 +685,7 @@ async function measureMethodComparison(
 
     async function compare() {
       const comparisonStarted = performance.now();
-      const result = await source.queryMethodBodyComparison(
+      const result = await benchmark.source.queryMethodBodyComparison(
         `runtime-benchmark-comparison-${crypto.randomUUID()}`,
         JSON.stringify(request),
       );
@@ -894,7 +971,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<void> {
   const dirty = gitValue(["status", "--porcelain"]);
   const loadAfter = captureHostLoad(logicalProcessors);
   const report: BenchmarkReport = {
-    schema: 1,
+    schema: 2,
     generatedAtUtc: new Date().toISOString(),
     harness: {
       commit: gitValue(["rev-parse", "HEAD"]),

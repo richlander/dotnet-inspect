@@ -63,6 +63,10 @@ import {
   workspaceCoordinatesMatch
 } from "./data.ts";
 import type { EngineClient } from "./engine-client.ts";
+import {
+  createPublishedRuntimeBenchmarkBridge,
+  installPublishedRuntimeBenchmarkBridge,
+} from "./published-runtime-benchmark-bridge.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -664,6 +668,11 @@ async function loadEngineModule() {
       },
     });
     engineClient = worker.client;
+    installPublishedRuntimeBenchmarkBridge(
+      window,
+      window.location.search,
+      createPublishedRuntimeBenchmarkBridge(engineClient),
+    );
     cancelPackageQuery = (...args) =>
       engineClient.package.cancelPackageQuery(...args);
     inspectRequestPackageQueryMatches = (...args) =>

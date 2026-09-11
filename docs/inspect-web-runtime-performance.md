@@ -67,7 +67,7 @@ later observation to one runtime.
 | Measurement | Boundary | Interpretation |
 | --- | --- | --- |
 | Startup latency | Navigation start through callable managed build identity | User-visible cold site startup, including asset transfer and runtime initialization |
-| Framework bytes | Browser resource timing for `/_framework/` through readiness | Transfer evidence associated with startup; zero transfer sizes make the observation unsuitable for byte comparison |
+| Framework bytes | Playwright network accounting for page- and Worker-initiated `/_framework/` requests through readiness | Encoded response-body and response-header transfer evidence associated with startup |
 | Cold package inspection | First exact package query in the fresh context | Network-sensitive end-to-end user latency |
 | Warm package inspection | Immediate repeat of the exact query | Process-local package reuse plus repeated managed projection |
 | Package-performance latency | First and second whole-package performance scans | Expensive first-use and warm managed analysis |
@@ -98,8 +98,22 @@ other failure is retained in the report with its stage and message, makes the
 report non-comparable, and causes a nonzero exit.
 
 The harness does not repair product output, bypass product acquisition, or
-construct managed evidence. It invokes the published product facades exactly
-as the site does.
+construct managed evidence. It opts into a narrow browser benchmark bridge
+over the site's existing production `EngineClient`, so startup and every
+measured operation use the same long-lived Worker runtime and product
+operations as the UI. Ordinary site loads do not install the bridge.
+
+Window Resource Timing does not include the dedicated Worker's framework
+requests in Firefox. The harness therefore records framework transfers from
+Playwright's page-level network events, which include requests initiated by
+the page and its Worker. It reports encoded response bytes; decoded response
+bytes are unavailable at that boundary and remain `null` in the raw report.
+
+Promoted run `34545510641` established the migration failure that this boundary
+replaces: all ten samples timed out waiting for uninitialized main-thread
+generated facades, before build identity or timing evidence. The retained host
+load was modest, so the run was rejected as a deterministic harness defect and
+produced no trend point.
 
 ## Running the harness
 
