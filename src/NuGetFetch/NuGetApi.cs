@@ -146,6 +146,57 @@ public static class NuGetApi
         return response;
     }
 
+    internal static async ValueTask<SearchResponse?>
+        DeserializePrefixSearchResponseAsync(
+            Stream json,
+            CancellationToken cancellationToken)
+    {
+        PrefixSearchWireResponse? response =
+            await JsonSerializer.DeserializeAsync(
+                json,
+                PrefixSearchJsonContext.Default.PrefixSearchWireResponse,
+                cancellationToken).ConfigureAwait(false);
+
+        if (response is null)
+        {
+            return null;
+        }
+
+        if (response.Data is null)
+        {
+            throw InvalidMetadata("search response", "data");
+        }
+
+        var results = new SearchResult[response.Data.Count];
+        for (int index = 0; index < results.Length; index++)
+        {
+            PrefixSearchWireResult result = response.Data[index];
+            if (result is null || result.Id is null || result.Version is null)
+            {
+                throw InvalidMetadata("search response", "data");
+            }
+
+            if (result.Owners is not null
+                && result.Owners.Any(static owner => owner is null))
+            {
+                throw InvalidMetadata(
+                    "search response",
+                    "data[].owners");
+            }
+
+            results[index] = new SearchResult(
+                result.Id,
+                result.Version,
+                result.Description,
+                result.TotalDownloads,
+                result.Verified,
+                Versions: null,
+                Owners: result.Owners);
+        }
+
+        return new SearchResponse(results);
+    }
+
     private static JsonException InvalidMetadata(
         string document,
         string member) =>
@@ -226,5 +277,13 @@ internal sealed class StringOrArrayJsonConverter
 [JsonSerializable(typeof(VersionIndex))]
 [JsonSerializable(typeof(SearchResponse))]
 public partial class NuGetJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    NumberHandling = JsonNumberHandling.AllowReadingFromString)]
+[JsonSerializable(typeof(PrefixSearchWireResponse))]
+internal partial class PrefixSearchJsonContext : JsonSerializerContext
 {
 }

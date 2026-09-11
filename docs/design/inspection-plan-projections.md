@@ -97,7 +97,8 @@ parsed inspection intent
 `ResolvedInspectionBasis` is immutable. It retains only state that is common
 and meaningful before terminal policy:
 
-- one exact resolved source and context;
+- one exact resolved source and context, keeping the authorized package
+  coordinate separate from implementing-assembly discovery provenance;
 - one resolved structural target, including exact member identity when
   required;
 - one final section catalog and its version;

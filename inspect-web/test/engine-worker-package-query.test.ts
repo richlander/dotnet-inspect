@@ -155,7 +155,6 @@ const completionEvent: EngineWorkerPackageQueryCompletionEvent = {
     failures: 1,
     kind: "Exhausted",
     sourceCandidates: 2,
-    estimatedTotalHits: 2,
     semanticMisses: 0,
     notApplicable: 0,
     scope: "prefix",
@@ -457,14 +456,12 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   await startReady(harness);
 
   const request: QueryRequest = {
-    ...createQueryRequest("Contoso.", "gallery"),
+    ...createQueryRequest("Contoso.*"),
     facets: [{
       key: "package.query.source-verified",
       label: "Verified",
       tier: "nuspec",
     }],
-    packageType: "Dependency",
-    sourceOrderId: "downloads",
     includePrerelease: true,
   };
   const { handle, events } = startQuery(harness.adapter, request);
@@ -499,18 +496,14 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   );
   assert.deepEqual(runs[0]?.slice(0, 7), [
     "package-query-operation",
-    "Contoso.",
+    "Contoso.*",
     '["package.query.source-verified"]',
     200,
     100,
     true,
     20,
   ]);
-  assert.deepEqual(runs[0]?.slice(8), [
-    "Dependency",
-    "downloads",
-    true,
-  ]);
+  assert.equal(runs[0]?.length, 8);
 
   const start = harness.worker.receivedMessages.find(message =>
     typeof message === "object"
@@ -524,15 +517,12 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   }
   assert.deepEqual(payload, {
     kind: "query",
-    searchText: "Contoso.",
+    searchText: "Contoso.*",
     facetIds: ["package.query.source-verified"],
     maximumCandidates: 200,
     maximumMatches: 100,
     includePrerelease: true,
     initialMatchCredit: 20,
-    packageType: "Dependency",
-    sourceOrderId: "downloads",
-    discovery: true,
   });
   assert.doesNotThrow(() => structuredClone(payload));
   harness.host.dispose();
@@ -573,9 +563,6 @@ test("Package Query binding preserves caller identity and expected diagnostics",
     false,
     20,
     {},
-    null,
-    null,
-    false,
   ), failed(
     "Expected",
     "query unavailable",

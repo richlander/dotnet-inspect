@@ -18,7 +18,6 @@ public sealed class PackageQueryInputTests
         string text, bool prefix, string expected)
     {
         PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(text));
-        Assert.Null(plan.GalleryRequest);
         Assert.Equal(expected, plan.Prefix.ToString());
         if (prefix)
         {
@@ -252,7 +251,7 @@ public sealed class PackageQueryInputTests
     static PackageQuerySummary Summary(IEnumerable<PackageQueryEvent> events) =>
         Assert.Single(events.OfType<PackageQueryEvent.Completed>()).Value;
 
-    static INuGetGalleryPackageSourceClient Source(HttpMessageHandler handler) =>
+    static IPackageSourceClient Source(HttpMessageHandler handler) =>
         PackageSourceClientFactory.CreateGallery(PackageSourceAssociation.Create(), handler);
 
     sealed record VersionEntry(string Version, bool Listed);

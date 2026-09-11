@@ -62,7 +62,6 @@ public sealed class ProductionFacadeContextTests
             "GetPackageDocument",
             "GetPlatformCatalog",
             "GetPlatformVersions",
-            "ListGalleryDiscoveryCatalog",
             "ListPackageAssemblyQueryPatterns",
             "ListPackageQueryFacets",
             "LoadRuntimePack",
@@ -176,10 +175,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 68 operations, and no operation name in two modules: a move that forgot to delete its
+        // 67 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(68, everyExport.Length);
+        Assert.Equal(67, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
