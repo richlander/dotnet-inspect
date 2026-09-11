@@ -474,6 +474,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     // The requested scope applies identically to both endpoints: an include-all request reaches
     // each side's non-public types, and the result reports the scope it was asked for.
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Execute_RetainsTheRequestedScopeForBothEndpoints()
     {
         var policy = new TestBindingPolicy();

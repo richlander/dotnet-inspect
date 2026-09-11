@@ -63,6 +63,10 @@ import {
   workspaceCoordinatesMatch
 } from "./data.ts";
 import type { EngineClient } from "./engine-client.ts";
+import {
+  createPublishedRuntimeBenchmarkBridge,
+  installPublishedRuntimeBenchmarkBridge,
+} from "./published-runtime-benchmark-bridge.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -423,14 +427,32 @@ import { createPackageRemoval } from "./package-removal.ts";
 import {
   createCatalogRequests,
   type CatalogPackage,
-  type DotnetRelease,
 } from "./catalog-requests.ts";
 import {
   bindPackageComparisonTargets,
   createPackageComparisonTargets,
   renderPackageComparisonTargets,
 } from "./package-comparison-targets.ts";
-import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
+import {
+  AGENT_SKILL_URL,
+  CLI_TOOL_URL,
+  dataBarHtml,
+  fmtBytes,
+} from "./data-bar.ts";
+import {
+  DIAGNOSTICS_PATH,
+  diagnosticsHistoryState,
+  isDiagnosticsHistoryEntry,
+  isDiagnosticsPath,
+} from "./diagnostics-route.ts";
+import {
+  bindDiagnosticsView,
+  diagnosticsViewHtml,
+  type DiagnosticsPackageCacheState,
+  type DiagnosticsRuntimeState,
+  type DiagnosticsBuildState,
+  type RuntimeStartupDiagnostics,
+} from "./diagnostics-view.ts";
 import {
   bindCreditsPanel,
   isCreditsPath,
@@ -443,7 +465,6 @@ import {
   shouldExecuteQuery,
   toggleFacet,
   withEditorDraft,
-  withInputKind,
   withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
@@ -624,6 +645,11 @@ async function loadEngineModule() {
       },
     });
     engineClient = worker.client;
+    installPublishedRuntimeBenchmarkBridge(
+      window,
+      window.location.search,
+      createPublishedRuntimeBenchmarkBridge(engineClient),
+    );
     cancelPackageQuery = (...args) =>
       engineClient.package.cancelPackageQuery(...args);
     inspectRequestPackageQueryMatches = (...args) =>
@@ -838,16 +864,6 @@ interface RecentPackage {
   framework: string;
 }
 
-interface Diagnostics {
-  downloadMs: number;
-  startupMs: number;
-  precomputeMs: number;
-  totalMs: number;
-  transfer: number;
-  decoded: number;
-  assets: number;
-}
-
 let spotlightCache: SpotlightCache | null = null;
 const HOME_BOT_ANIMATION_DURATION_MS = 5500;
 const DEFAULT_REQUESTED_FRAMEWORK = "net10.0";
@@ -855,7 +871,6 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
-  statusBarExpanded: false,
   memberFiltersExpanded: false,
   typeFiltersExpanded: false,
   packages: [],
@@ -956,8 +971,6 @@ const initialState = {
   platformStack: [],
   platformDrillLoading: false,
   platformDrillError: "",
-  dotnetReleases: null,
-  dotnetReleasesLoading: false,
   memberFacts: null,
   memberFactsLoading: false,
   memberFactsError: "",
@@ -1007,6 +1020,7 @@ const initialState = {
   loadingMessage: "Starting browser inspection engine…",
   loadingSubtitle: "",
   engineReady: false,
+  engineRuntimeReady: false,
   engineStartupFailed: false,
   engineStatus: "Loading browser WebAssembly…",
   error: "",
@@ -1015,7 +1029,13 @@ const initialState = {
   retryAction: null,
   diag: null,
   buildIdentity: null,
+  buildIdentityStatus: "loading" as "loading" | "ready" | "failed",
+  buildIdentityError: "",
   packageCacheStats: null,
+  packageCacheStatsStatus: "idle" as
+    "idle" | "loading" | "ready" | "failed",
+  packageCacheStatsError: "",
+  diagnosticsCapturedAtUtc: null,
 };
 
 interface StateOverrides {
@@ -1047,7 +1067,6 @@ interface StateOverrides {
   memberCallGraph: InspectedCallGraph | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
-  dotnetReleases: DotnetRelease[] | null;
   memberFacts: MemberFacts | null;
   libraryScope: Set<string> | null;
   accessibilityFilter: Set<string>;
@@ -1067,9 +1086,12 @@ interface StateOverrides {
   styleOptions: StyleOption[] | null;
   history: string[];
   retryAction: ErrorRetryAction;
-  diag: Diagnostics | null;
+  diag: RuntimeStartupDiagnostics | null;
   buildIdentity: BrowserBuildIdentity | null;
+  buildIdentityStatus: "loading" | "ready" | "failed";
   packageCacheStats: BrowserPackageCacheStats | null;
+  packageCacheStatsStatus: "idle" | "loading" | "ready" | "failed";
+  diagnosticsCapturedAtUtc: string | null;
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
@@ -1096,6 +1118,11 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 let packageQueryHandoffNavigationSeq: number | null = null;
+let packageCacheStatsRequest = 0;
+let diagnosticsHeadingFocusPending = false;
+let diagnosticsDestinationFocusPending = false;
+let diagnosticsDestinationFocusScheduled = false;
+let diagnosticsDestinationFocusGeneration: number | null = null;
 let platformLibraryRetry: RetryAction = null;
 let platformCatalogRetry: RetryAction = null;
 
@@ -1380,7 +1407,6 @@ function invalidateWorkspaceAsyncOwners(): void {
 function captureRetainedHostState() {
   return {
     theme: state.theme,
-    statusBarExpanded: state.statusBarExpanded,
     home: state.home,
     credits: state.credits,
     packageQueryOpen: state.packageQueryOpen,
@@ -1404,8 +1430,6 @@ function captureRetainedHostState() {
     spotlightFocus: state.spotlightFocus,
     spotlightChipIndex: state.spotlightChipIndex,
     spotlightPackageSearch: state.spotlightPackageSearch,
-    dotnetReleases: state.dotnetReleases,
-    dotnetReleasesLoading: state.dotnetReleasesLoading,
     styleTiers: state.styleTiers,
     styleOptions: state.styleOptions,
     styleCatalogError: state.styleCatalogError,
@@ -1414,11 +1438,17 @@ function captureRetainedHostState() {
     settingsReturn: state.settingsReturn,
     keyboardHelp: state.keyboardHelp,
     engineReady: state.engineReady,
+    engineRuntimeReady: state.engineRuntimeReady,
     engineStartupFailed: state.engineStartupFailed,
     engineStatus: state.engineStatus,
     diag: state.diag,
     buildIdentity: state.buildIdentity,
+    buildIdentityStatus: state.buildIdentityStatus,
+    buildIdentityError: state.buildIdentityError,
     packageCacheStats: state.packageCacheStats,
+    packageCacheStatsStatus: state.packageCacheStatsStatus,
+    packageCacheStatsError: state.packageCacheStatsError,
+    diagnosticsCapturedAtUtc: state.diagnosticsCapturedAtUtc,
   };
 }
 
@@ -1839,9 +1869,6 @@ const packageQueryController = createPackageQueryController(
       includePrerelease,
       initialMatchCredit,
       eventSink,
-      packageType,
-      sourceOrderId,
-      discovery,
     ) => inspectRunPackageQuery(
       operationId,
       prefix,
@@ -1850,10 +1877,7 @@ const packageQueryController = createPackageQueryController(
       maximumMatches,
       includePrerelease,
       initialMatchCredit,
-      eventSink,
-      packageType,
-      sourceOrderId,
-      discovery),
+      eventSink),
   }, {
     reportUnexpectedFailure: (operationId, error, diagnostic) => {
       console.error(
@@ -2498,12 +2522,18 @@ const initialLocation = initialWorkspace.visible;
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.packageQueryOpen = isPackageQueryPath(location.pathname);
+const diagnosticsOpen = isDiagnosticsPath(location.pathname);
 const productHomeDemosOpen = isProductHomeDemosPath(location.pathname);
+if (diagnosticsOpen) {
+  state.diagnosticsCapturedAtUtc = new Date().toISOString();
+  diagnosticsHeadingFocusPending = true;
+}
 if (state.packageQueryOpen) {
   applyPackageQueryHistory(history.state);
 }
 state.home = state.credits
-  || (!state.packageQueryOpen
+  || (!diagnosticsOpen
+    && !state.packageQueryOpen
     && !productHomeDemosOpen
     && !initialLocation.package
     && !initialWorkspace.hasWorkspaceState
@@ -2673,9 +2703,7 @@ const spotlightPackageSearch = createSpotlightPackageSearch({
 });
 const catalogRequests = createCatalogRequests({
   state,
-  queryDotnetReleases,
   queryPackageVersions: pkg => inspectPackageVersions(pkg.id, pkg.version),
-  updatePlatformVersionSelect,
   updatePackageVersionSelect: updateVersionSelect,
 });
 const packageComparisonTargets =
@@ -4321,6 +4349,15 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
 
+  if (diagnosticsDestinationFocusPending
+    && !isDiagnosticsPath(location.pathname)) {
+    queueMicrotask(scheduleDiagnosticsDestinationFocus);
+  }
+  if (isDiagnosticsPath(location.pathname)) {
+    loadingBotSrc = null;
+    renderDiagnosticsPage();
+    return;
+  }
   // The Metadata Explorer is a full-bleed "browse the database" view layered over the
   // package workbench. Like Settings it owns no URL and renders first, returning to the
   // Metadata lens on close.
@@ -4617,16 +4654,12 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         </section>
       </main>
 
-      ${statusBarHtml({
+      ${dataBarHtml({
         buildIdentity: state.buildIdentity,
-        diagnostics: state.diag,
-        packageCache: state.packageCacheStats,
-        source: pkg.source,
-        assembly: activeScope === "library"
-          ? selectedLibraryName()
-          : current?.assembly ?? pkg.assembly,
-        framework: pkg.activeFramework,
-        expanded: state.statusBarExpanded,
+        producer: {
+          kind: pkg.source.kind === "platform" ? "acquisition" : "package",
+          label: pkg.producerLabel,
+        },
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
       ${graphSourceIsOpen(state.graphSource) ? renderGraphSource() : ""}
@@ -4738,11 +4771,8 @@ function renderWorkspaceCatalogView() {
           </article>
         </section>
       </main>
-      ${statusBarHtml({
+      ${dataBarHtml({
         buildIdentity: state.buildIdentity,
-        diagnostics: state.diag,
-        packageCache: state.packageCacheStats,
-        expanded: state.statusBarExpanded,
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>
@@ -4751,7 +4781,6 @@ function renderWorkspaceCatalogView() {
     ${state.keyboardHelp
       ? renderKeyboardHelpDialog(keyboardHelpBindings)
       : ""}`;
-  bindStatusBarEvents();
   bindScopeBarEvents();
   bindWorkspaceSubjectEvents();
   bindSettingsPanelEvents();
@@ -6956,15 +6985,6 @@ function bindPackageDependencyListEvents() {
   bindPackageDependencyList(document, packageViewActions);
 }
 
-function bindStatusBarEvents() {
-  bindStatusBar(document, {
-    onToggle: () => {
-      state.statusBarExpanded = !state.statusBarExpanded;
-      render();
-    },
-  });
-}
-
 function bindLibraryControlsEvents() {
   bindLibraryControls(document, libraryControlActions);
 }
@@ -7270,6 +7290,7 @@ function bindScopeBarEvents() {
 function bindSettingsPanelEvents() {
   bindSettingsPanel(document, {
     onClose: closeSettings,
+    onOpenDiagnostics: openDiagnosticsRoute,
     onOpen: openSettings,
     onTasteClear: clearTaste,
     onTasteToggle: toggleTaste,
@@ -7635,7 +7656,6 @@ function bindWorkspaceSubjectEvents() {
 }
 
 function bindEvents() {
-  bindStatusBarEvents();
   packageControls.bind(document);
   bindWorkspaceSubjectEvents();
   bindTypePanelEvents();
@@ -8236,12 +8256,14 @@ function renderPlatformView() {
         })}
       </article></section>
     </main>
-    ${statusBarHtml({ buildIdentity: state.buildIdentity, diagnostics: state.diag, packageCache: state.packageCacheStats, framework: target?.tfm ?? "", expanded: state.statusBarExpanded }, escapeHtml)}
+    ${dataBarHtml({
+      buildIdentity: state.buildIdentity,
+      producer: { kind: "acquisition", label: "Platform" },
+    }, escapeHtml)}
     ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>${renderApplicationMenu(true)}
     ${state.settings ? renderSettingsViewHtml() : ""}
     ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}`;
-  bindStatusBarEvents();
   bindScopeBarEvents();
   bindSettingsPanelEvents();
   workbenchShellBinding = bindWorkbenchShell(document, workbenchShellActions);
@@ -8475,24 +8497,11 @@ interface NugetSearchResponse {
   data?: NugetSearchResult[];
 }
 
-interface DotnetReleaseIndexEntry {
-  "channel-version": string;
-  "latest-release": string;
-}
-
 function isNugetSearchResult(value: unknown): value is NugetSearchResult {
   return isRecord(value)
     && typeof value.id === "string"
     && typeof value.version === "string"
     && (value.description === undefined || typeof value.description === "string");
-}
-
-function isDotnetReleaseIndexEntry(
-  value: unknown,
-): value is DotnetReleaseIndexEntry {
-  return isRecord(value)
-    && typeof value["channel-version"] === "string"
-    && typeof value["latest-release"] === "string";
 }
 
 async function querySpotlightPackages(query: string): Promise<SpotlightPackageHit[]> {
@@ -8516,7 +8525,6 @@ async function querySpotlightPackages(query: string): Promise<SpotlightPackageHi
 // Build the <option> list for the version selector. Always includes the currently loaded
 // version (even before the version inventory arrives) so the control is never empty.
 function versionOptionsHtml(pkg: AppPackage) {
-  if (pkg.isRuntimePack) return platformVersionOptionsHtml(pkg);
   const entry = catalogRequests.packageVersions(pkg);
   const versions = entry.status === "available" ? [...entry.inventory.versions] : [pkg.version];
   if (entry.status === "available"
@@ -8526,56 +8534,6 @@ function versionOptionsHtml(pkg: AppPackage) {
   return versions
     .map(v => `<option value="${escapeHtml(v)}" ${v.toLowerCase() === pkg.version.toLowerCase() ? "selected" : ""}>${escapeHtml(v)}</option>`)
     .join("");
-}
-
-// The Platform version selector's options: one entry per in-support .NET major (8+) from the
-// dotnet/core releases index, each labelled with that channel's latest release — the latest
-// stable patch for stable majors, the latest preview for a preview major (e.g. .NET 11). The
-// option value is the TFM (net8.0 …) so a change reloads the whole Platform at that major. A
-// preview major whose TFM the bundled library index doesn't carry loads (CoreLib browsing)
-// but offers no library roster yet — honest, not hidden. The active TFM is always present so
-// the control is never empty before the index loads.
-function platformVersionOptionsHtml(pkg: AppPackage) {
-  const releases = state.dotnetReleases || [];
-  const list = releases.map(r => ({ tfm: r.tfm, version: r.version }));
-  if (!list.some(r => r.tfm === pkg.activeFramework)) {
-    list.unshift({ tfm: pkg.activeFramework, version: pkg.version });
-  }
-  return list
-    .map(r => `<option value="${escapeHtml(r.tfm)}" ${r.tfm === pkg.activeFramework ? "selected" : ""}>${escapeHtml(r.version)}</option>`)
-    .join("");
-}
-
-async function queryDotnetReleases(): Promise<DotnetRelease[]> {
-  const url = "https://raw.githubusercontent.com/dotnet/core/refs/heads/main/release-notes/releases-index.json";
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const payload: unknown = await response.json();
-  if (!isRecord(payload)) throw new TypeError("The .NET release index was invalid.");
-  const releases = payload["releases-index"];
-  if (releases !== undefined
-      && (!Array.isArray(releases)
-        || !releases.every(isDotnetReleaseIndexEntry))) {
-    throw new TypeError("The .NET release index contained an invalid release.");
-  }
-  const typedReleases: DotnetReleaseIndexEntry[] = releases || [];
-  return typedReleases
-    .map(entry => {
-      const major = parseInt(entry["channel-version"], 10);
-      return {
-        major,
-        tfm: `net${entry["channel-version"]}`,
-        version: entry["latest-release"],
-      };
-    })
-    .filter(row => Number.isFinite(row.major) && row.major >= 8 && row.version)
-    .sort((a, b) => b.major - a.major);
-}
-
-function updatePlatformVersionSelect() {
-  if (!state.package?.isRuntimePack) return;
-  const select = document.querySelector("#package-version");
-  if (select) select.innerHTML = versionOptionsHtml(state.package);
 }
 
 // Switch the resident Platform to a different .NET major (by TFM). Drops the current
@@ -9165,9 +9123,17 @@ function executeCommand(
   value: string,
   result: CommandPaletteResult | null = null,
 ) {
+  const [verb, ...rest] = value.split(/\s+/);
+  if (verb === "diagnostics" && rest.length === 0) {
+    state.history = [
+      value,
+      ...state.history.filter(item => item !== value),
+    ].slice(0, 5);
+    openDiagnosticsRoute();
+    return undefined;
+  }
   const pkg = currentPackage();
   beginSpotlightNavigation();
-  const [verb, ...rest] = value.split(/\s+/);
   const argument = rest.join(" ");
   let operation;
   if (verb === "type") {
@@ -10229,7 +10195,7 @@ function renderHomeView() {
                 </div>`
               : ""}
           </div>
-          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
+          <p class="home-availability">Also available as a <a href="${CLI_TOOL_URL}" target="_blank" rel="noopener noreferrer">CLI tool</a> and <a href="${AGENT_SKILL_URL}" target="_blank" rel="noopener noreferrer">agent skill</a>.</p>
           <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
             <span class="home-demos-label">Explore product demos</span>
@@ -10243,13 +10209,8 @@ function renderHomeView() {
         </div>
         <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">${homeArtSvg()}</aside>
       </main>
-      ${statusBarHtml({
-        variant: "home",
-        ready: state.engineReady,
+      ${dataBarHtml({
         buildIdentity: state.buildIdentity,
-        diagnostics: state.diag,
-        compactDiagnostics: true,
-        expanded: state.statusBarExpanded,
       }, escapeHtml)}
     </div>
     ${state.settings ? renderSettingsViewHtml() : ""}`;
@@ -10275,10 +10236,25 @@ const homeShellActions: HomeShellBindingActions = {
 };
 
 function bindHomeEvents() {
-  bindStatusBarEvents();
   bindSettingsPanelEvents();
   bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
+  if (diagnosticsDestinationFocusPending) return;
+  const destinationFocusGeneration = diagnosticsDestinationFocusGeneration;
+  if (destinationFocusGeneration !== null) {
+    afterCurrentNavigationFrame(() => {
+      if (diagnosticsDestinationFocusGeneration
+        !== destinationFocusGeneration) return;
+      if (documentFocusGeneration !== destinationFocusGeneration) {
+        diagnosticsDestinationFocusGeneration = null;
+        return;
+      }
+      if (focusLevelOneHeading()) {
+        diagnosticsDestinationFocusGeneration = documentFocusGeneration;
+      }
+    });
+    return;
+  }
   afterCurrentNavigationFrame(() => {
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
@@ -10777,6 +10753,170 @@ function renderCreditsView() {
   });
 }
 
+function diagnosticsRuntimeState(): DiagnosticsRuntimeState {
+  if (state.engineStartupFailed) {
+    return {
+      kind: "failed",
+      message: "The browser inspection engine did not start.",
+      detail: state.errorDetail || state.error || null,
+    };
+  }
+  if (state.engineRuntimeReady) {
+    return {
+      kind: "ready",
+      message: ".NET is running in WebAssembly and ready for inspection.",
+      diagnostics: state.diag,
+      measurementsPending: !state.engineReady,
+    };
+  }
+  return {
+    kind: "loading",
+    message: state.engineStatus
+      || state.loadingMessage
+      || "Starting the browser inspection engine.",
+  };
+}
+
+function diagnosticsPackageCacheState(): DiagnosticsPackageCacheState {
+  if (state.engineStartupFailed) {
+    return {
+      kind: "failed",
+      message: "Package-cache statistics are unavailable because the inspection engine did not start.",
+    };
+  }
+  if (state.packageCacheStatsStatus === "failed") {
+    return {
+      kind: "failed",
+      message: state.packageCacheStatsError
+        || "Package-cache statistics are unavailable.",
+    };
+  }
+  if (state.packageCacheStatsStatus === "ready"
+    && state.packageCacheStats) {
+    return {
+      kind: "ready",
+      stats: state.packageCacheStats,
+    };
+  }
+  return { kind: "loading" };
+}
+
+function diagnosticsBuildState(): DiagnosticsBuildState {
+  if (state.buildIdentityStatus === "failed") {
+    return {
+      kind: "failed",
+      message: state.buildIdentityError
+        || "Product build identity is unavailable.",
+    };
+  }
+  if (state.buildIdentityStatus === "ready" && state.buildIdentity) {
+    return {
+      kind: "ready",
+      identity: state.buildIdentity,
+    };
+  }
+  return { kind: "loading" };
+}
+
+function renderDiagnosticsPage() {
+  const activeId = document.activeElement?.id;
+  const focusTargetId = diagnosticsHeadingFocusPending
+    || activeId === "diagnostics-heading"
+    ? "diagnostics-heading"
+    : activeId === "diagnostics-product"
+      || activeId === "diagnostics-commit"
+      || activeId === "diagnostics-back"
+      ? activeId
+      : null;
+  state.diagnosticsCapturedAtUtc ??= new Date().toISOString();
+  document.title = "Diagnostics · dotnet-inspect";
+  app.innerHTML = diagnosticsViewHtml({
+    runtime: diagnosticsRuntimeState(),
+    build: diagnosticsBuildState(),
+    packageCache: diagnosticsPackageCacheState(),
+    capturedAtUtc: state.diagnosticsCapturedAtUtc,
+  }, value => escapeHtml(value));
+  bindDiagnosticsView(document, {
+    onBack: closeDiagnosticsRoute,
+    onHome: openDiagnosticsHome,
+  });
+  if (focusTargetId) {
+    const focusGeneration = documentFocusGeneration;
+    requestAnimationFrame(() => {
+      if (!isDiagnosticsPath(location.pathname)) {
+        diagnosticsHeadingFocusPending = false;
+        return;
+      }
+      if (focusGeneration !== documentFocusGeneration) {
+        diagnosticsHeadingFocusPending = false;
+        return;
+      }
+      if (focusTargetId === "diagnostics-heading") {
+        diagnosticsHeadingFocusPending = false;
+        focusLevelOneHeading();
+        return;
+      }
+      document.getElementById(focusTargetId)?.focus({ preventScroll: true });
+    });
+  }
+}
+
+function openDiagnosticsRoute() {
+  dismissModalsForRoutedNavigation();
+  navigationSequence.begin();
+  packageQueryController.cancel();
+  state.packageQueryOpen = false;
+  state.credits = false;
+  state.home = false;
+  state.diagnosticsCapturedAtUtc = new Date().toISOString();
+  diagnosticsHeadingFocusPending = true;
+  diagnosticsDestinationFocusPending = false;
+  diagnosticsDestinationFocusGeneration = null;
+  if (state.engineRuntimeReady) {
+    state.packageCacheStatsStatus = "loading";
+    state.packageCacheStatsError = "";
+  }
+  workspaceLocation.push(
+    DIAGNOSTICS_PATH,
+    diagnosticsHistoryState(history.state));
+  render();
+  if (state.engineRuntimeReady) refreshPackageStats();
+}
+
+function closeDiagnosticsRoute() {
+  diagnosticsDestinationFocusPending = true;
+  if (isDiagnosticsHistoryEntry(history.state)) {
+    history.back();
+    return;
+  }
+  replaceDiagnosticsWithHome();
+}
+
+function openDiagnosticsHome() {
+  diagnosticsDestinationFocusPending = true;
+  goHome();
+}
+
+function replaceDiagnosticsWithHome() {
+  navigationSequence.begin();
+  state.loading = false;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  invalidateGraphMemberNavigation();
+  clearNavigationError();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
+  state.packageQueryOpen = false;
+  packageQueryController.cancel();
+  state.credits = false;
+  state.home = true;
+  spotlight.reset();
+  workspaceLocation.replace("/", history.state);
+  render();
+}
+
 function focusPackageQueryInput() {
   afterCurrentNavigationFrame(() =>
     document.querySelector<HTMLInputElement>("#package-query-prefix")?.focus());
@@ -10786,6 +10926,33 @@ function afterCurrentNavigationFrame(action: () => void) {
   const navigationSeq = navigationSequence.current();
   requestAnimationFrame(() => {
     if (navigationSequence.isCurrent(navigationSeq)) action();
+  });
+}
+
+function scheduleDiagnosticsDestinationFocus() {
+  if (!diagnosticsDestinationFocusPending
+    || diagnosticsDestinationFocusScheduled
+    || isDiagnosticsPath(location.pathname)) {
+    return;
+  }
+  const navigationSeq = navigationSequence.current();
+  const focusGeneration = documentFocusGeneration;
+  diagnosticsDestinationFocusScheduled = true;
+  requestAnimationFrame(() => {
+    diagnosticsDestinationFocusScheduled = false;
+    if (!diagnosticsDestinationFocusPending) return;
+    if (!navigationSequence.isCurrent(navigationSeq)
+      || isDiagnosticsPath(location.pathname)) {
+      diagnosticsDestinationFocusPending = false;
+      return;
+    }
+    const heading = document.querySelector<HTMLElement>("main h1");
+    if (!heading) return;
+    diagnosticsDestinationFocusPending = false;
+    if (focusGeneration !== documentFocusGeneration) return;
+    if (focusLevelOneHeading()) {
+      diagnosticsDestinationFocusGeneration = documentFocusGeneration;
+    }
   });
 }
 
@@ -11008,7 +11175,7 @@ function preparePackageQueryRequest(
   const request = state.packageQueryState.request
     ? withScopeQuery(state.packageQueryState.request, validText)
     : createQueryRequest(validText);
-  return withInputKind(request, "package");
+  return request;
 }
 
 function submitPackageQueryRequest(request: QueryRequest) {
@@ -14850,6 +15017,7 @@ function isStyleOption(value: unknown): value is StyleOption {
 function showEngineFailure(error: unknown) {
   state.loading = false;
   state.engineReady = false;
+  state.engineRuntimeReady = false;
   state.engineStartupFailed = true;
   state.engineStatus = "";
   state.error =
@@ -14858,15 +15026,44 @@ function showEngineFailure(error: unknown) {
   state.errorDetail = error instanceof Error
     ? error.stack || error.message
     : String(error);
+  if (state.buildIdentityStatus !== "ready") {
+    state.buildIdentity = null;
+    state.buildIdentityStatus = "failed";
+    state.buildIdentityError =
+      "Product build identity is unavailable because the inspection engine did not start.";
+  }
   state.retryAction = () => window.location.reload();
   if (!state.credits) render();
+}
+
+async function loadBuildIdentity() {
+  try {
+    state.buildIdentity = await engineClient.host.buildIdentity();
+    state.buildIdentityStatus = "ready";
+  } catch (error) {
+    state.buildIdentity = null;
+    state.buildIdentityStatus = "failed";
+    state.buildIdentityError =
+      `Product build identity is unavailable: ${errorMessage(error)}`;
+    console.error("Product build identity is unavailable.", error);
+  }
+  if (isDiagnosticsPath(location.pathname)) {
+    state.diagnosticsCapturedAtUtc = new Date().toISOString();
+    render();
+  } else if (state.engineReady && !state.credits) {
+    render();
+  }
 }
 
 async function bootstrap() {
   state.loading = !state.home;
   state.engineReady = false;
+  state.engineRuntimeReady = false;
   state.engineStartupFailed = false;
   state.engineStatus = "Loading browser WebAssembly…";
+  state.buildIdentity = null;
+  state.buildIdentityStatus = "loading";
+  state.buildIdentityError = "";
   state.error = "";
   state.retryAction = null;
   render();
@@ -14881,9 +15078,14 @@ async function bootstrap() {
     };
     reportEngineStatus("Loading .NET WebAssembly…");
     await startEngine(window.location.origin);
-    reportEngineStatus("Reading package assemblies…");
-    state.buildIdentity = await engineClient.host.buildIdentity();
     const tEngine = performance.now();
+    state.engineRuntimeReady = true;
+    reportEngineStatus("Reading package assemblies…");
+    void loadBuildIdentity();
+    if (isDiagnosticsPath(location.pathname)) {
+      state.loading = false;
+      refreshPackageStats();
+    }
     try {
       const vocabulary = await engineClient.catalog.listVocabulary();
       const sections = vocabulary?.sections || [];
@@ -14931,6 +15133,12 @@ async function bootstrap() {
     }
     state.engineReady = true;
     state.engineStatus = "";
+    if (isDiagnosticsPath(location.pathname)) {
+      state.loading = false;
+      state.diag = computeDiagnostics(tStart, tEngine, performance.now());
+      render();
+      return;
+    }
     if (state.home) {
       // Engine is warm and search is ready; show the intro/home page without loading a package.
       state.loading = false;
@@ -14972,7 +15180,7 @@ function computeDiagnostics(
   tStart: number,
   tEngine: number,
   tReady: number,
-): Diagnostics {
+): RuntimeStartupDiagnostics {
   const assets = performance.getEntriesByType("resource")
     .filter((entry): entry is PerformanceResourceTiming =>
       entry instanceof PerformanceResourceTiming
@@ -14989,24 +15197,39 @@ function computeDiagnostics(
   }
   const hasAssets = assets.length > 0 && Number.isFinite(firstStart);
   return {
-    downloadMs: hasAssets ? lastEnd - firstStart : 0,
+    downloadMs: hasAssets ? lastEnd - firstStart : null,
     startupMs: hasAssets ? Math.max(0, tEngine - lastEnd) : tEngine - tStart,
     precomputeMs: tReady - tEngine,
-    totalMs: tReady,
-    transfer,
-    decoded,
-    assets: assets.length
+    totalMs: tReady - tStart,
+    transfer: hasAssets ? transfer : null,
+    decoded: hasAssets ? decoded : null,
+    assets: hasAssets ? assets.length : null
   };
 }
 
 function refreshPackageStats() {
+  const request = ++packageCacheStatsRequest;
+  state.packageCacheStatsStatus = "loading";
+  state.packageCacheStatsError = "";
+  if (isDiagnosticsPath(location.pathname)) render();
   void inspectPackageCacheStats().then(
     stats => {
+      if (request !== packageCacheStatsRequest) return undefined;
       state.packageCacheStats = stats;
+      state.packageCacheStatsStatus = "ready";
+      state.diagnosticsCapturedAtUtc = new Date().toISOString();
+      if (isDiagnosticsPath(location.pathname)) render();
       return undefined;
     },
-    () => {
-      // Keep the last known counts; a stats read failure must not disrupt inspection.
+    (error: unknown) => {
+      if (request !== packageCacheStatsRequest) return undefined;
+      state.packageCacheStats = null;
+      state.packageCacheStatsStatus = "failed";
+      state.packageCacheStatsError =
+        `Package-cache statistics are unavailable: ${errorMessage(error)}`;
+      state.diagnosticsCapturedAtUtc = new Date().toISOString();
+      console.error("Package-cache statistics are unavailable.", error);
+      if (isDiagnosticsPath(location.pathname)) render();
       return undefined;
     },
   );
@@ -15136,6 +15359,10 @@ async function openFreshWorkspaceLink(
 }
 
 async function navigateInAppUrl(url: URL) {
+  if (isDiagnosticsPath(url.pathname)) {
+    openDiagnosticsRoute();
+    return;
+  }
   if (isCreditsPath(url.pathname)) {
     openCredits();
     return;
@@ -15680,6 +15907,10 @@ function dismissModalsForRoutedNavigation() {
 
 window.addEventListener("popstate", () => {
   void (async () => {
+  if (!isDiagnosticsPath(location.pathname)
+    && document.querySelector(".diagnostics-view")) {
+    diagnosticsDestinationFocusPending = true;
+  }
   const leftPackageQueryHandoff = currentPackageQueryHandoff();
   const navigationSeq = navigationSequence.begin();
   let leftPackageQueryForWorkspaceSuccessor = false;
@@ -15705,7 +15936,8 @@ window.addEventListener("popstate", () => {
   const unavailableGlobalWorkspace =
     historyWorkspaceReferenced
     && !historyWorkspaceAvailable
-    && (isPackageQueryPath(location.pathname)
+    && (isDiagnosticsPath(location.pathname)
+      || isPackageQueryPath(location.pathname)
       || isCreditsPath(location.pathname)
       || isProductHomeDemosPath(location.pathname));
   if (unavailableGlobalWorkspace) {
@@ -15713,6 +15945,25 @@ window.addEventListener("popstate", () => {
       !publishFreshEmptyWorkspaceFromHistory(location.href);
   }
   if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
+  if (isDiagnosticsPath(location.pathname)) {
+    diagnosticsDestinationFocusPending = false;
+    diagnosticsDestinationFocusGeneration = null;
+    clearNavigationError();
+    state.packageQueryOpen = false;
+    packageQueryController.cancel();
+    state.credits = false;
+    state.home = false;
+    state.loading = false;
+    state.diagnosticsCapturedAtUtc = new Date().toISOString();
+    diagnosticsHeadingFocusPending = true;
+    if (state.engineRuntimeReady) {
+      state.packageCacheStatsStatus = "loading";
+      state.packageCacheStatsError = "";
+    }
+    render();
+    if (state.engineRuntimeReady) refreshPackageStats();
+    return;
+  }
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
     applyPackageQueryHistory(history.state);

@@ -2843,7 +2843,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "vocabulary",
                 "-S",
-                "@Decompiler",
+                "C# *",
                 "--count",
                 "--tips",
                 "q");
@@ -3378,7 +3378,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task BareName_PlatformNamespacePrefix_RoutesToTypePrefixBrowse()
     {
-        var (exit, output, error) = await RunAppAsync("System.Text", "--tips", "q", "-n", "12");
+        var (exit, output, error) = await RunAppAsync("System.Text", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("Showing best-effort platform prefix matches for 'System.Text'", error);
@@ -3390,7 +3390,7 @@ public partial class CommandExecutionTests
         // claim is asserted. The claim here is about ROUTING, so it is moved to where the evidence
         // lives rather than dropped.
         var (factExit, factOutput, _) = await RunAppAsync(
-            "System.Text", "--tips", "q", "-n", "12", "-S", SectionNames.ApiInfo);
+            "System.Text", "--tips", "q", "-S", SectionNames.ApiInfo);
 
         Assert.Equal(0, factExit);
         Assert.Contains("| Source | Platform |", factOutput, StringComparison.Ordinal);
@@ -4485,8 +4485,6 @@ public partial class CommandExecutionTests
             "--where",
             "Kind=InvocationExpression",
             "--table",
-            "--rows",
-            "1",
             "--tips",
             "q"
         ];
@@ -9185,7 +9183,7 @@ public partial class CommandExecutionTests
 
         // Structured resolution reaches ParamCollectionAttribute through the
         // platform policy instead of dropping it with the sibling-only probe.
-        Assert.Contains("Types: 90", fieldsOutput, StringComparison.Ordinal);
+        Assert.Contains("Types: 91", fieldsOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Methods:", fieldsOutput, StringComparison.Ordinal);
 
         // --columns is the same surface and was the case the first fix missed: it does not filter
@@ -9202,7 +9200,7 @@ public partial class CommandExecutionTests
             "type", "--platform", "System.Text.Json", "-v:q", "-S", SectionNames.ApiInfo, "--tips", "q");
 
         Assert.Equal(0, bothExit);
-        Assert.Contains("| Types | 90 |", bothOutput, StringComparison.Ordinal);
+        Assert.Contains("| Types | 91 |", bothOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Library: System.Text.Json.dll |", bothOutput, StringComparison.Ordinal);
     }
 
@@ -10147,7 +10145,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_SourceFilesSection_RendersTypeSourceUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28");
+            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -15598,6 +15596,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_LibraryNetmoduleExactMemberPreservesExecutionAndDiscovery()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-{Guid.NewGuid():N}-Widget.dll");
+        WriteNetmodule(path);
+        try
+        {
+            var execution = await RunAppAsync(
+                "member", "N.Widget", "--library", path,
+                "Value:1", "-S", "Signature", "--tips", "q");
+            var discovery = await RunAppAsync(
+                "member", "N.Widget", "--library", path,
+                "Value:1", "-D", "Signature", "--tips", "q");
+
+            Assert.Equal(0, execution.Exit);
+            Assert.Empty(execution.Error);
+            Assert.Contains("public int Value", execution.Output);
+            Assert.Equal(0, discovery.Exit);
+            Assert.Empty(discovery.Error);
+            Assert.Contains("| Signature |", discovery.Output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Type_SourceFiles_Value_RowSelectsUrl()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -15790,7 +15817,7 @@ public partial class CommandExecutionTests
             $"dotnet-inspect-fetch-failure-{Guid.NewGuid():N}");
         try
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
@@ -15804,7 +15831,7 @@ public partial class CommandExecutionTests
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(null);
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(cacheDir))
                 Directory.Delete(cacheDir, recursive: true);
@@ -15824,7 +15851,7 @@ public partial class CommandExecutionTests
             $"dotnet-inspect-fetch-failure-json-{Guid.NewGuid():N}");
         try
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
@@ -15837,7 +15864,7 @@ public partial class CommandExecutionTests
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(null);
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(cacheDir))
                 Directory.Delete(cacheDir, recursive: true);
@@ -15855,7 +15882,7 @@ public partial class CommandExecutionTests
             $"dotnet-inspect-cross-origin-source-{Guid.NewGuid():N}");
         try
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
@@ -15868,7 +15895,7 @@ public partial class CommandExecutionTests
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(null);
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(cacheDir))
                 Directory.Delete(cacheDir, recursive: true);
@@ -15885,7 +15912,7 @@ public partial class CommandExecutionTests
             $"dotnet-inspect-source-checksum-{Guid.NewGuid():N}");
         try
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
@@ -15897,7 +15924,7 @@ public partial class CommandExecutionTests
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(null);
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(cacheDir))
                 Directory.Delete(cacheDir, recursive: true);
@@ -18120,6 +18147,24 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Member_FindingCensusDiscovery_UsesResolvedIndexerAccessor()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "Cases.Lookup",
+            "--library",
+            FixtureCatalog.CloneSearchMembers.AssemblyPath(),
+            "Item:2",
+            "-D",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("| Finding Census |", result.Output);
     }
 
     [Theory]

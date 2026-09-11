@@ -4,7 +4,7 @@ using System.IO.Compression;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Output;
 
-using CoreHttpClientFactory = DotnetInspector.Core.HttpClientFactory;
+using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
 namespace DotnetInspect.Cli.Tests;
 

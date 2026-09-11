@@ -10,7 +10,7 @@ export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" |
 
 export type BrowserPackageQueryCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
-export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "GalleryResponseComplete" | "ExactPackageComplete" | "ExplicitCandidatesComplete" | number;
+export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "ExactPackageComplete" | "ExplicitCandidatesComplete" | number;
 
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | "Assessment" | number;
 
@@ -81,29 +81,6 @@ export interface BrowserDependencyCoordinateMatch {
 export interface BrowserExceptionSurface {
   readonly type: string;
   readonly description: string;
-}
-
-export interface BrowserGalleryDiscoveryCatalog {
-  readonly packageType: BrowserGalleryPackageTypeFacet;
-  readonly orders: ReadonlyArray<BrowserGalleryDiscoveryOrder>;
-}
-
-export interface BrowserGalleryDiscoveryOrder {
-  readonly id: string;
-  readonly label: string;
-  readonly summary: string;
-}
-
-export interface BrowserGalleryPackageTypeFacet {
-  readonly id: string;
-  readonly label: string;
-  readonly summary: string;
-  readonly suggestions: ReadonlyArray<BrowserGalleryPackageTypeSuggestion>;
-}
-
-export interface BrowserGalleryPackageTypeSuggestion {
-  readonly value: string;
-  readonly label: string;
 }
 
 export interface BrowserMemberBodySelector {
@@ -228,7 +205,6 @@ export interface BrowserPackageQueryCompletion {
   readonly failures: number;
   readonly kind: BrowserPackageQueryCompletionKind;
   readonly sourceCandidates: number | null;
-  readonly estimatedTotalHits: number | null;
   readonly semanticMisses: number | null;
   readonly notApplicable: number | null;
   readonly scope: string | null;
@@ -434,7 +410,6 @@ type $ManagedExports = {
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
-            readonly "ListGalleryDiscoveryCatalog.1310674786": () => string;
             readonly "ListPackageAssemblyQueryPatterns.1310674786": () => string;
             readonly "ListPackageQueryFacets.1310674786": () => string;
             readonly "LoadRuntimePack.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
@@ -451,7 +426,7 @@ type $ManagedExports = {
             readonly "RequestPackageQueryMatches.146925470": (operationId: string, additionalMatchCredit: number) => string;
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
             readonly "RunPackageAssemblyQuery.990719355": (operationId: string, patternId: string, operand: string, packageCoordinatesJson: string, targetFramework: string, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
-            readonly "RunPackageQuery.58011863": (operationId: string, prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null, discovery: boolean) => Promise<string>;
+            readonly "RunPackageQuery.52840355": (operationId: string, prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
             readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
           };
         };
@@ -572,18 +547,6 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "GetPlatformVersions.976702342");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.GetPlatformVersions.976702342\u0027 is not callable.");
-    }
-  }
-  {
-    let value: unknown = exports;
-    value = $ownDataProperty(value, "DotnetInspect");
-    value = $ownDataProperty(value, "Web");
-    value = $ownDataProperty(value, "Interop");
-    value = $ownDataProperty(value, "Package");
-    value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "ListGalleryDiscoveryCatalog.1310674786");
-    if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListGalleryDiscoveryCatalog.1310674786\u0027 is not callable.");
     }
   }
   {
@@ -785,9 +748,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "RunPackageQuery.58011863");
+    value = $ownDataProperty(value, "RunPackageQuery.52840355");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.58011863\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.52840355\u0027 is not callable.");
     }
   }
   {
@@ -871,12 +834,6 @@ export async function getPlatformVersions(targetFramework: string): Promise<Read
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["GetPlatformVersions.976702342"](targetFramework);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<string>;
-}
-
-export function listGalleryDiscoveryCatalog(): BrowserGalleryDiscoveryCatalog {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListGalleryDiscoveryCatalog.1310674786"]();
-  const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserGalleryDiscoveryCatalog;
 }
 
 export function listPackageAssemblyQueryPatterns(): ReadonlyArray<BrowserPackageAssemblyQueryPattern> {
@@ -967,8 +924,8 @@ export async function runPackageAssemblyQuery(operationId: string, patternId: st
   return $parsed as BrowserPackageQueryResult;
 }
 
-export async function runPackageQuery(operationId: string, prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null, discovery: boolean): Promise<BrowserPackageQueryResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.58011863"](operationId, prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink, packageType, sourceOrderId, discovery);
+export async function runPackageQuery(operationId: string, prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.52840355"](operationId, prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryResult;
 }

@@ -16,78 +16,6 @@ public sealed class PackageQueryOperationCollection;
 [SupportedOSPlatform("browser")]
 public sealed class BrowserPackageQueryOperationsTests
 {
-    [Fact]
-    public void GalleryCatalog_PreservesSourceOwnedSuggestionsAndOrders()
-    {
-        BrowserGalleryDiscoveryCatalog catalog =
-            BrowserPackageQueryOperations.GalleryCatalog();
-
-        Assert.Equal(NuGetGalleryDiscoveryCatalog.PackageType.Id, catalog.PackageType.Id);
-        Assert.Equal(NuGetGalleryDiscoveryCatalog.PackageType.Label, catalog.PackageType.Label);
-        Assert.Equal(NuGetGalleryDiscoveryCatalog.PackageType.Summary, catalog.PackageType.Summary);
-        Assert.Equal(
-            NuGetGalleryDiscoveryCatalog.PackageType.Suggestions.Select(value =>
-                (value.Value.Name, value.Label)),
-            catalog.PackageType.Suggestions.Select(value =>
-                (value.Value, value.Label)));
-        Assert.Equal(
-            NuGetGalleryDiscoveryCatalog.Orders.Select(order =>
-                (order.Id, order.Label, order.Summary)),
-            catalog.Orders.Select(order =>
-                (order.Id, order.Label, order.Summary)));
-    }
-
-    [Theory]
-    [InlineData("", NuGetGalleryDiscoveryOrder.MostDownloaded)]
-    [InlineData("  ", NuGetGalleryDiscoveryOrder.MostDownloaded)]
-    [InlineData("json parser", NuGetGalleryDiscoveryOrder.Relevance)]
-    public void GalleryPlan_PreservesInputCapacityAndLocalMatchLimit(
-        string text,
-        NuGetGalleryDiscoveryOrder expectedOrder)
-    {
-        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
-            BrowserPackageQueryOperations.Plan(
-                text,
-                [],
-                maximumCandidates: 200,
-                maximumMatches: 10,
-                includePrerelease: false,
-                packageType: NuGetGalleryPackageType.DotnetTool.Name,
-                discovery: true));
-
-        Assert.NotNull(accepted.Plan.GalleryRequest);
-        Assert.Equal(200, accepted.Plan.GalleryRequest.Capacity);
-        Assert.Equal(10, accepted.Plan.MaximumMatches);
-        Assert.Equal(expectedOrder, accepted.Plan.GalleryRequest.Order);
-        Assert.Equal(NuGetGalleryPackageType.DotnetTool, accepted.Plan.GalleryRequest.PackageType);
-        Assert.Empty(accepted.Plan.Facets);
-    }
-
-    [Fact]
-    public void GalleryPlan_UsesOpaqueOrderIdentityWithoutRewritingInspectionFacets()
-    {
-        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
-            BrowserPackageQueryOperations.Plan(
-                "",
-                [PackageQuery.ToolFacetId],
-                maximumCandidates: 200,
-                maximumMatches: 10,
-                includePrerelease: true,
-                sourceOrderId: NuGetGalleryDiscoveryCatalog.Relevance.Id,
-                discovery: true));
-
-        Assert.NotNull(accepted.Plan.GalleryRequest);
-        Assert.Null(accepted.Plan.GalleryRequest.PackageType);
-        Assert.True(accepted.Plan.GalleryRequest.IncludePrerelease);
-        Assert.Equal(NuGetGalleryDiscoveryOrder.Relevance, accepted.Plan.GalleryRequest.Order);
-        Assert.Equal(PackageQuery.ToolFacetId, Assert.Single(accepted.Plan.Facets).Id);
-        Assert.Throws<ArgumentException>(() =>
-            BrowserPackageQueryOperations.Plan(
-                "", [], 200, 10, false,
-                sourceOrderId: "relevance",
-                discovery: true));
-    }
-
     [Theory]
     [InlineData("Newtonsoft.Json", false, "Newtonsoft.Json", 1)]
     [InlineData("Newtonsoft.*", true, "Newtonsoft.", 200)]
@@ -104,11 +32,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 [],
                 maximumCandidates: 200,
                 maximumMatches: 10,
-                includePrerelease: true,
-                packageType: "Ignored.PackageType",
-                sourceOrderId: "ignored.order"));
+                includePrerelease: true));
 
-        Assert.Null(accepted.Plan.GalleryRequest);
         Assert.Equal(expectedCandidates, accepted.Plan.MaximumCandidates);
         Assert.True(accepted.Plan.IncludePrerelease);
         if (prefix)
@@ -145,35 +70,6 @@ public sealed class BrowserPackageQueryOperationsTests
             rejected.Failure.Reason);
     }
 
-    [Fact]
-    public void Project_GalleryCompletionRetainsFiniteInputAndEstimatedPopulation()
-    {
-        using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(PackageSourceAssociation.Create());
-        var summary = new PackageQuerySummary(
-            new InertString(TextPolicy.Prose, ""),
-            source.Source,
-            CandidateLimit: 200,
-            MatchLimit: 100,
-            Candidates: 3,
-            Matches: 3,
-            Failures: 0,
-            PackageQueryCompletionKind.GalleryResponseComplete)
-        {
-            SourceCandidates = 3,
-            EstimatedTotalHits = 8_000,
-        };
-
-        BrowserPackageQueryCompletion completion =
-            BrowserPackageQueryOperations.Project(
-                new PackageQueryEvent.Completed(summary)).Completion!;
-
-        Assert.Equal(BrowserPackageQueryCompletionKind.GalleryResponseComplete, completion.Kind);
-        Assert.Equal(200, completion.CandidateLimit);
-        Assert.Equal(3, completion.SourceCandidates);
-        Assert.Equal(8_000, completion.EstimatedTotalHits);
-    }
-
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
@@ -205,7 +101,6 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(sourceCandidates, completion.Candidates);
         Assert.Equal(sourceCandidates, completion.Matches);
         Assert.Equal(sourceCandidates, completion.SourceCandidates);
-        Assert.Null(completion.EstimatedTotalHits);
     }
 
     [Fact]

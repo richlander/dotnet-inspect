@@ -608,8 +608,14 @@ const engineCoordinatorSource = readFileSync(
 const deploySource = readFileSync(
   new URL("../../.github/workflows/deploy-inspect-web.yml", import.meta.url),
   "utf8");
-const statusBarSource = readFileSync(
-  new URL("../src/status-bar.ts", import.meta.url),
+const dataBarSource = readFileSync(
+  new URL("../src/data-bar.ts", import.meta.url),
+  "utf8");
+const diagnosticsViewSource = readFileSync(
+  new URL("../src/diagnostics-view.ts", import.meta.url),
+  "utf8");
+const diagnosticsRouteSource = readFileSync(
+  new URL("../src/diagnostics-route.ts", import.meta.url),
   "utf8");
 const spotlightSource = readFileSync(
   new URL("../src/spotlight.ts", import.meta.url),
@@ -901,7 +907,6 @@ test("typed Spotlight owns search presentation and hosts commands", () => {
 });
 
 test("workspace data bar receives package acquisition provenance", () => {
-  assert.match(appSource, /source: pkg\.source/);
   assert.match(
     appSource,
     /createPackageAcquisition\(\{[\s\S]*queryPackage:[\s\S]*loadRuntimePack:[\s\S]*loadRuntimePackAssembly:/);
@@ -914,31 +919,24 @@ test("workspace data bar receives package acquisition provenance", () => {
     /interface RuntimeLoadResult \{[\s\S]*failureMessage: string;[\s\S]*const result = await packageAcquisition\.loadRuntimePack\([\s\S]*failureMessage: result\.error === null \? "" : errorMessage\(result\.error\)/);
   assert.match(packageAcquisitionSource, /source: \{ kind: "nuget\.org" \}/);
   assert.match(packageAcquisitionSource, /source: \{ kind: "platform" \}/);
+  assert.match(packageAcquisitionSource, /producerLabel: "NuGet\.org"/);
+  assert.match(packageAcquisitionSource, /producerLabel: "Platform"/);
   assert.doesNotMatch(appSource, /source: \{ kind: "(?:nuget\.org|platform)" \}/);
-  assert.match(statusBarSource, /Source: \$\{escapeHtml\(packageSourceLabel\(model\.source\)\)\}/);
+  assert.match(
+    appSource,
+    /producer: \{\s*kind: pkg\.source\.kind === "platform" \? "acquisition" : "package",\s*label: pkg\.producerLabel,\s*\}/);
+  assert.match(
+    dataBarSource,
+    /const producerLabel = model\.producer\?\.label\.trim\(\) \?\? ""/);
+  assert.doesNotMatch(dataBarSource, /new URL|URLSearchParams|\.split\(/);
 });
 
-test("typed status bar owns its rendered toggle binding", () => {
-  const binding =
-    appSource.match(/function bindStatusBarEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
-    ?? "";
-  assert.match(
-    binding,
-    /bindStatusBar\(document, \{\s*onToggle: \(\) => \{[\s\S]*state\.statusBarExpanded = !state\.statusBarExpanded;[\s\S]*render\(\);[\s\S]*\},\s*\}\)/);
-  assert.equal(binding.match(/\bdocument\b/g)?.length, 1);
-  assert.match(
-    statusBarSource,
-    /export function bindStatusBar\([\s\S]*\[data-status-bar-toggle-button\][\s\S]*actions\.onToggle/);
-  assert.doesNotMatch(appSource, /\[data-status-bar-toggle-button\]/);
-  assert.match(
-    appSource,
-    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);/);
-  assert.match(
-    appSource,
-    /function bindHomeEvents\(\) \{\s*bindStatusBarEvents\(\);/);
-  assert.equal(
-    appSource.match(/\bbindStatusBarEvents\(\)/g)?.length,
-    5);
+test("data bar has no expansion state or interaction binding", () => {
+  assert.doesNotMatch(appSource, /statusBarExpanded|bindStatusBarEvents/);
+  assert.doesNotMatch(
+    `${appSource}\n${dataBarSource}`,
+    /data-status-bar-toggle|status-bar-toggle|aria-expanded/);
+  assert.doesNotMatch(dataBarSource, /addEventListener|querySelector/);
 });
 
 test("typed package controls own framework and version selection bindings", () => {
@@ -1065,7 +1063,7 @@ test("typed package view owns package navigation bindings", () => {
     appSource.match(/function bindPackageViewEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindPackageDependencyListEvents)/)?.[0]
     ?? "";
   const dependencyListBinding =
-    appSource.match(/function bindPackageDependencyListEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindStatusBarEvents)/)?.[0]
+    appSource.match(/function bindPackageDependencyListEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   const dependencyPatch =
     appSource.match(/function patchDependenciesGroup\(\) \{[\s\S]*?\n}/)?.[0]
@@ -1539,27 +1537,17 @@ test("typed document inspection owns package document request coordination", () 
     /async open\(request: PackageDocumentRequest\)[\s\S]*const pending = \{[\s\S]*status: "loading",[\s\S]*state\.docViewer = pending[\s\S]*state\.docViewer !== pending/);
 });
 
-test("typed catalog requests own release and package-version coordination", () => {
-  const releaseLoader =
-    appSource.match(/async function discoverPlatformVersions\([\s\S]*?\n}/)?.[0]
-    ?? "";
+test("typed catalog requests own package-version coordination", () => {
   const versionLoader =
     appSource.match(/function ensurePackageVersions\(pkg: AppPackage \| null\)[\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     appSource,
-    /createCatalogRequests\(\{[\s\S]*queryDotnetReleases,[\s\S]*queryPackageVersions: pkg => inspectPackageVersions\(pkg\.id, pkg\.version\),[\s\S]*updatePlatformVersionSelect,[\s\S]*updatePackageVersionSelect: updateVersionSelect,/);
-  assert.match(
-    appSource,
-    /raw\.githubusercontent\.com\/dotnet\/core\/refs\/heads\/main\/release-notes\/releases-index\.json/);
-  assert.match(releaseLoader, /parsePlatformVersions[\s\S]*inspectPlatformVersions\(tfm\)/);
+    /createCatalogRequests\(\{[\s\S]*queryPackageVersions: pkg => inspectPackageVersions\(pkg\.id, pkg\.version\),[\s\S]*updatePackageVersionSelect: updateVersionSelect,/);
   assert.match(versionLoader, /return catalogRequests\.ensurePackageVersions\(pkg\)/);
   assert.doesNotMatch(
-    `${releaseLoader}\n${versionLoader}`,
-    /dotnetReleasesLoading|packageVersionsLoading|state\.packages/);
-  assert.match(
-    catalogRequestsSource,
-    /state\.dotnetReleasesLoading = true[\s\S]*dependencies\.queryDotnetReleases\(\)[\s\S]*state\.dotnetReleasesLoading = false/);
+    versionLoader,
+    /packageVersionsLoading|state\.packages/);
   assert.match(
     catalogRequestsSource,
     /inventories\.set\(pkg, pending\)[\s\S]*dependencies\.queryPackageVersions\(pkg\)[\s\S]*if \(isCurrent\(\)\)/);
@@ -1606,7 +1594,7 @@ test("typed type panel owns its rendered control bindings", () => {
     1);
   assert.match(
     appSource,
-    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);\s*packageControls\.bind\(document\);\s*bindWorkspaceSubjectEvents\(\);\s*bindTypePanelEvents\(\);/);
+    /function bindEvents\(\) \{\s*packageControls\.bind\(document\);\s*bindWorkspaceSubjectEvents\(\);\s*bindTypePanelEvents\(\);/);
   assert.match(
     typePanelSource,
     /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
@@ -1896,7 +1884,7 @@ test("typed settings panel owns its rendered control bindings", () => {
     string | null,
   ])[] = [
     [bindEvents, "workbench settings binder", "bindScopeBarEvents"],
-    [bindHomeEvents, "home settings binder", "bindStatusBarEvents"],
+    [bindHomeEvents, "home settings binder", null],
   ];
   for (const [owner, description, predecessor] of settingsBinders) {
     assert.equal(
@@ -1946,9 +1934,10 @@ test("typed settings panel owns its rendered control bindings", () => {
   assert.equal(innerSettingsCall.arguments.length, 2);
   assertIdentifierArgument(innerSettingsCall, 0, "document", "bindSettingsPanel");
   const actions = objectArgument(innerSettingsCall, 1, "bindSettingsPanel");
-  assert.equal(actions.properties.length, 5);
+  assert.equal(actions.properties.length, 6);
   const settingsActions: readonly (readonly [string, string])[] = [
     ["onClose", "closeSettings"],
+    ["onOpenDiagnostics", "openDiagnosticsRoute"],
     ["onOpen", "openSettings"],
     ["onTasteClear", "clearTaste"],
     ["onTasteToggle", "toggleTaste"],
@@ -2284,7 +2273,7 @@ test("annotated source Escape and history ownership track the mounted surface", 
     ?? "";
   assert.match(
     popstate,
-    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
+    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isDiagnosticsPath/);
   assert.match(
     appSource,
     /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
@@ -2482,23 +2471,60 @@ test("dependency graph render identity includes truncation and navigation", () =
     }));
 });
 
-test("ready status shows versioned linked build provenance", () => {
-  assert.match(appSource, /state\.buildIdentity = await engineClient\.host\.buildIdentity\(\)/);
+test("data bar shows versioned linked build provenance", () => {
   assert.match(
     appSource,
-    /<\/main>[\s\S]{0,700}\$\{statusBarHtml\(\{/);
-  assert.match(statusBarSource, /"statusbar data-bar"/);
-  assert.match(statusBarSource, /buildIdentityHtml\(model\.buildIdentity/);
+    /async function loadBuildIdentity\(\) \{[\s\S]*state\.buildIdentity = await engineClient\.host\.buildIdentity\(\);[\s\S]*state\.buildIdentityStatus = "ready";[\s\S]*state\.buildIdentityStatus = "failed"/);
+  assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 4);
   assert.match(
     appSource,
-    /variant: "home"[\s\S]{0,200}buildIdentity: state\.buildIdentity/);
+    /<\/main>[\s\S]{0,700}\$\{dataBarHtml\(\{/);
+  assert.match(dataBarSource, /<footer class="data-bar" aria-label="Product information">/);
+  assert.match(dataBarSource, /buildIdentityItems\(model\.buildIdentity/);
   assert.match(
-    statusBarSource,
+    appSource,
+    /\$\{dataBarHtml\(\{\s*buildIdentity: state\.buildIdentity,\s*}, escapeHtml\)\}/);
+  assert.match(
+    appSource,
+    /producer: \{ kind: "acquisition", label: "Platform" \}/);
+  assert.match(
+    appSource,
+    /href="\$\{CLI_TOOL_URL\}"[\s\S]*href="\$\{AGENT_SKILL_URL\}"/);
+  assert.match(
+    dataBarSource,
+    /href="\$\{CLI_TOOL_URL\}"[\s\S]*href="\$\{AGENT_SKILL_URL\}"/);
+  assert.match(
+    dataBarSource,
     /identity\.commitUrl[\s\S]*target="_blank" rel="noopener noreferrer"/);
-  assert.match(statusBarSource, /built \$\{escapeHtml\(builtAt\)\} UTC/);
+  assert.match(dataBarSource, /compactUtcDate\(identity\.builtAtUtc\)/);
+  assert.doesNotMatch(dataBarSource, /\bbuilt\b/i);
   assert.match(
     deploySource,
     /-getProperty:VersionPrefix[\s\S]*-p:VersionPrefix="\$version"[\s\S]*-p:SourceRevisionId="\$GITHUB_SHA"[\s\S]*-p:BuildTimestampUtc="\$built_at"/);
+});
+
+test("Diagnostics is a routed typed surface outside the Application menu", () => {
+  assert.match(
+    appSource,
+    /if \(isDiagnosticsPath\(location\.pathname\)\) \{\s*loadingBotSrc = null;\s*renderDiagnosticsPage\(\);\s*return;/);
+  assert.match(
+    appSource,
+    /function renderDiagnosticsPage\(\)[\s\S]*diagnosticsViewHtml\(\{[\s\S]*bindDiagnosticsView\(document/);
+  assert.doesNotMatch(appSource, /class="diagnostics-/);
+  assert.match(
+    diagnosticsViewSource,
+    /<h1 id="diagnostics-heading" tabindex="-1">Diagnostics<\/h1>/);
+  assert.match(
+    diagnosticsViewSource,
+    /runtimeCardHtml\(model\.runtime[\s\S]*buildCardHtml\(model\.build[\s\S]*cacheCardHtml\(model\.packageCache/);
+  assert.match(
+    diagnosticsRouteSource,
+    /DIAGNOSTICS_PATH = ROUTED_ENTRY_PATHS\.diagnostics[\s\S]*isRoutedEntryPath\(pathname, DIAGNOSTICS_PATH\)/);
+  const applicationMenu =
+    shellControlsSource.match(
+      /export function renderApplicationMenu\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.doesNotMatch(applicationMenu, /Diagnostics|diagnostics/);
 });
 
 test("bootstrap reconciles persisted style choices with the product catalog", () => {
@@ -2561,8 +2587,9 @@ test("bare home paints before wasm engine download", () => {
     appSource,
     /class="home-search \$\{enginePending[\s\S]*class="home-engine-status"/);
   assert.match(
-    `${appSource}\n${statusBarSource}`,
-    /state\.engineReady[\s\S]*browser wasm ready[\s\S]*browser wasm loading/);
+    appSource,
+    /state\.engineReady[\s\S]*class="home-engine-status"/);
+  assert.doesNotMatch(dataBarSource, /engineReady|browser wasm/i);
   assert.match(
     appSource,
     /state\.retryAction = \(\) => window\.location\.reload\(\)/);
@@ -2873,7 +2900,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!state\.packageQueryOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
+    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*const diagnosticsOpen = isDiagnosticsPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!diagnosticsOpen\s*&& !state\.packageQueryOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
     ?? "";
@@ -3539,7 +3566,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /try \{\s*state\.packageQueryFacets =\s*packageQueryFacets\(await engineClient\.package\.listPackageQueryFacets\(\)\);\s*\} catch \(error\) \{[\s\S]*state\.packageQueryCatalogError =[\s\S]*\}\s*try \{\s*state\.packageQueryAssemblyPatterns =\s*packageQueryAssemblyPatterns\(\s*await engineClient\.package\.listPackageAssemblyQueryPatterns\(\)\);\s*\} catch \(error\) \{\s*state\.packageQueryAssemblyPatterns = \[\];\s*console\.error\("Package-query assembly patterns are unavailable\.", error\);\s*\}/);
   assert.doesNotMatch(
     appSource,
-    /state\.packageQuerySourceCatalog|listGalleryDiscoveryCatalog\(\)/);
+    /state\.packageQuerySourceCatalog/);
   assert.match(
     appSource,
     /navigationError: \[\s*state\.packageQueryCatalogError,\s*state\.packageQueryNavigationError/);
@@ -3931,7 +3958,9 @@ test("settings keep a viewport-bounded scroll region", () => {
     /(?:^|\n)\s*overflow-y: auto;/);
 });
 
-test("home keeps a viewport-bounded scroll region and reachable footer", () => {
+test("home and workbench keep viewport-bounded content above the data bar", () => {
+  const workbenchRule =
+    stylesSource.match(/\.workbench\s*\{([^}]*)\}/s)?.[1] ?? "";
   const homeRule =
     stylesSource.match(/\.home\s*\{([^}]*)\}/s)?.[1] ?? "";
   const homeHeroRule =
@@ -3943,8 +3972,11 @@ test("home keeps a viewport-bounded scroll region and reachable footer", () => {
     homeRule,
     /(?:^|\n)\s*min-height:/);
   assert.match(
+    workbenchRule,
+    /grid-template-rows: 42px 46px auto minmax\(0, 1fr\) 30px;/);
+  assert.match(
     homeRule,
-    /(?:^|\n)\s*grid-template-rows: auto auto minmax\(0, 1fr\) auto;/);
+    /(?:^|\n)\s*grid-template-rows: auto auto minmax\(0, 1fr\) 30px;/);
   assert.match(
     homeHeroRule,
     /(?:^|\n)\s*min-height: 0;/);
@@ -3959,7 +3991,10 @@ test("home keeps a viewport-bounded scroll region and reachable footer", () => {
     /(?:^|\n)\s*grid-row: 3;/);
   assert.match(
     stylesSource,
-    /\.home-foot\s*\{[^}]*grid-row: 4;/s);
+    /\.workbench > \.notice-stack\s*\{\s*grid-row: 3;\s*\}[\s\S]*\.workbench > \.workspace\s*\{\s*grid-row: 4;\s*\}[\s\S]*\.workbench > \.data-bar\s*\{\s*grid-row: 5;\s*\}/);
+  assert.match(
+    stylesSource,
+    /\.home > \.data-bar\s*\{\s*grid-row: 4;\s*\}/);
 });
 
 test("all dependency navigation paths use one product-owned coordinate matcher", () => {
@@ -6813,6 +6848,7 @@ test("graph-first platform acquisition preserves catalog family and physical fil
     tfm: "net11.0",
     version: "11.0.0",
     rows: [row],
+    supplies: [],
   };
   assert.equal(
     platformGraphLibraryForTarget(target, "Mixed.dll", "netcore.app"),

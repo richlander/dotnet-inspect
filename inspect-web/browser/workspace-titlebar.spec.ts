@@ -119,6 +119,66 @@ test("the top shell row separates application scopes from inspection subjects", 
     "/assets/dotnet-inspect-bot.png");
 });
 
+test("the data bar occupies its fixed row when the notice stack is empty", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const workspace = await box(page, ".workbench > .workspace");
+  const dataBar = await box(page, ".workbench > .data-bar");
+  expect(dataBar.height).toBeCloseTo(30, 0);
+  expect(dataBar.y).toBeCloseTo(workspace.y + workspace.height, 0);
+  expect(dataBar.y + dataBar.height).toBeCloseTo(900, 0);
+  await expect(page.locator(".notice-stack")).toBeHidden();
+  await expect(page.locator(".data-bar")).toContainText(
+    "dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · "
+      + "Package source: NuGet.org · CLI tool · Agent skill");
+  await expect(page.locator(
+    ".data-bar button, .data-bar [aria-expanded], "
+      + ".data-bar [data-status-bar-toggle]",
+  )).toHaveCount(0);
+});
+
+test("the narrow data bar keeps every item in one horizontal scroll lane", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.goto(
+    "/browser/workspace-titlebar.html?member=1&long-data-bar=1");
+
+  const dataBar = page.locator(".data-bar");
+  const dataBarBox = await box(page, ".data-bar");
+  expect(dataBarBox.height).toBeCloseTo(30, 0);
+  expect(dataBarBox.y + dataBarBox.height).toBeCloseTo(700, 0);
+  expect(await dataBar.evaluate(element =>
+    element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await dataBar.evaluate(element =>
+    element.scrollHeight <= element.clientHeight)).toBe(true);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth
+      - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+
+  const productStart = await box(page, ".data-bar-product");
+  expect(productStart.x).toBeGreaterThanOrEqual(dataBarBox.x);
+  await dataBar.evaluate(element => {
+    element.scrollLeft = element.scrollWidth;
+  });
+  await expect.poll(() => dataBar.evaluate(element => element.scrollLeft))
+    .toBeGreaterThan(0);
+  const skillEnd = await box(page, ".data-bar-action:last-child");
+  expect(skillEnd.x + skillEnd.width)
+    .toBeLessThanOrEqual(dataBarBox.x + dataBarBox.width);
+
+  const scrollLeft = await dataBar.evaluate(element => element.scrollLeft);
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await expect(page.locator(".application-menu")).toBeVisible();
+  expect(await dataBar.evaluate(element => element.scrollLeft))
+    .toBe(scrollLeft);
+  const menu = await box(page, ".application-menu");
+  expect(menu.x + menu.width).toBeLessThanOrEqual(390);
+});
+
 test("the content frame clamps wide inventory and pushes at constrained widths", async ({
   page,
 }) => {
@@ -1416,7 +1476,8 @@ test("the Application menu owns global actions and modal focus return", async ({
     "data-drill-in",
     "true");
   await page.keyboard.press("Shift+Tab");
-  await expect(page.getByRole("button", { name: "Light" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Open Diagnostics" }))
+    .toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeHidden();
   await expect(button).toBeFocused();

@@ -1,5 +1,6 @@
 using DotnetInspector.Core;
 using InertText;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -329,7 +330,8 @@ public class UrlRedactionTests
         {
             FeedFailureTelemetry.Record(
                 $"https://feed.test/flat/sample/index.json?x={Secret}",
-                System.Net.HttpStatusCode.Unauthorized);
+                System.Net.HttpStatusCode.Unauthorized,
+                FeedFailurePhase.PackageVersionList);
 
             string described = FeedFailureTelemetry.Current!
                 .DescribeFailure("sample")!

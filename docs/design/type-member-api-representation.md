@@ -757,6 +757,7 @@ Conversions are operations with an owner, not implicit casts:
 | `ResolvedTypeDefinitionKey` | `DefinitionJoinTokenProjection` | `TypeResolutionCatalog.ProjectDefinitionJoinToken` issues a token only for a current-generation key; cross-catalog and stale keys remain typed result arms |
 | `UnresolvedBindingReference` | `UnresolvedBindingKeyProjection` | `TypeResolutionCatalog.ProjectUnresolvedBindingKey` issues a key only for a current-generation reference minted on `UnboundBinding` or genuine policy `Unavailable`; cross-catalog and stale references remain typed result arms |
 | `TypeNode` | display, canonical, XML-doc, or digest spelling | The owning projection chooses its erasure policy; no projection is recovered from another |
+| `ApiType` / `ApiMember` structural evidence | `XmlDocMemberIdentity` | Metadata emits one exact Roslyn XML-documentation ID while the decoded signature is live; `ApiMemberHandle` and `ResolvedMemberTarget` delegate to the same projection |
 | C# declaration text | `MemberSignatureShapeResult` | `CSharpText.SourceMemberSignatureShape` parses the bounded declaration header and refuses unresolved named types |
 | MethodDef signature | `MemberSignatureShapeResult` | Metadata decodes with SRM and projects positional generics, arrays, pointers, nullable/tuple shapes, and function pointers into the shared leaf model |
 | Target plus candidate signature shapes | `MemberSignatureCorrespondence<T>` | `CSharpText.MemberSignatureShapeMatcher` returns unique, ambiguous, or unavailable; one unavailable candidate prevents a false unique result |
@@ -791,6 +792,40 @@ Find your question here; the shape census below says what to use.
 | 8 | "Look a type up in XML documentation." | Projection | XML-doc id projection — *not* the identity digest |
 | 9 | "Round-trip a declaration plus its body through compile-back." | Fidelity | Metadata/CSharp typed shell and printer for the declaration; Decompiler body production for supported body/codegen shapes |
 | 10 | "Survive a JSON round-trip." | Persistence | A persisted projection key on `ApiMember` |
+
+### Exact XML-documentation projection
+
+`XmlDocMemberIdentity` is the exact Roslyn compiler ID returned by
+`ISymbol.GetDocumentationCommentId` and used as the `name` attribute in an XML
+documentation file, not an overload-search pattern. CSharpText owns that
+grammar and the secure document reader. Metadata projects the ID from
+`MetadataTypeDefinitionName`, method generic arity, and the decoded `TypeNode`
+signature; it does not recover generic positions, array rank, or declaring type
+from display text. If those structural facts are unavailable or degraded, the
+projection is unavailable rather than approximate.
+
+The projection preserves Roslyn's own documented-ID erasures rather than
+inventing a more discriminating dialect. Custom modifiers are not encoded, and
+a function-pointer parameter contributes empty type text because Roslyn's
+documentation-comment visitor has no function-pointer projection. The latter
+can produce compiler-authored IDs such as `M:Samples.C.M()` for a method that
+does have a function-pointer parameter. An XML ID is therefore exact lookup
+currency for its compiler artifact, not proof that two metadata signatures are
+identical.
+
+The same projection is reachable from `ApiType` plus `ApiMember`,
+`ApiMemberHandle`, and `ResolvedMemberTarget`. A projected extension member uses
+its retained declaring-type definition rather than the receiver type under
+which it is displayed. A transport that outlives the live `ApiMember` carries
+the issued XML ID explicitly; it does not rebuild it after `SignatureModel` is
+discarded.
+
+`XmlDocumentationReader` and `XmlDocumentationCatalog` share exact ordinal
+matching, field parsing, limits, DTD rejection, complete-document validation,
+and duplicate handling. Hosts keep companion selection, stream acquisition,
+resource policy, and presentation. CLI and Browser/Wasm adoption and retirement
+of their local parsers are tracked by
+[#6497](https://github.com/richlander/dotnet-inspect/issues/6497).
 
 Scenarios 1 through 5 are the ones most often conflated. Selection, lookup,
 resolution, correspondence, and durable location want different shapes:
@@ -1084,9 +1119,9 @@ Known instances, kept here as a live list:
 - `EcosystemIntegrationScanner` — `signature.ReturnType == "…IServiceCollection"`.
 - `OpenTelemetryScanner` — `ReturnType == "bool"`.
 - `MethodClassificationScanner` — pointer return via `ReturnType.Contains('*')`.
-- `XmlDocumentationNotation.NormalizeParameterType` — a mini type-parser
-  reconstructing structure from display text; reused by the CLI
-  `XmlDocFileParser`.
+- `XmlDocumentationNotation.NormalizeParameterType` — a legacy text
+  normalizer retained for non-XML matching callers; exact XML-documentation
+  identity instead projects from `TypeNode`.
 - `FidelityCheck.Evaluate`'s `Func<string, bool> typeFilter`
   ([#3495](https://github.com/richlander/dotnet-inspect/pull/3495)) — defensible
   as *selection* rather than identity; [#3504](https://github.com/richlander/dotnet-inspect/issues/3504)

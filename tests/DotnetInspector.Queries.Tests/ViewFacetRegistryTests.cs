@@ -6,6 +6,19 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class ViewFacetRegistryTests
 {
     [Fact]
+    public void GetRequiredDescriptor_ResolvesUniqueRoleWithinSubjectKind()
+    {
+        ViewFacetDescriptor descriptor =
+            InspectionViewFacetCatalog.Registry.GetRequiredDescriptor(
+                StructuralSubjectKind.Member,
+                ViewFacetRole.MemberOverview);
+
+        Assert.Equal("member.overview", descriptor.Id.Value);
+        Assert.Equal(StructuralSubjectKind.Member, descriptor.Kind);
+        Assert.Equal(ViewFacetRole.MemberOverview, descriptor.Role);
+    }
+
+    [Fact]
     public void Catalog_IsCompleteUniqueAndDeterministicallyOrdered()
     {
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
@@ -21,7 +34,8 @@ public sealed class ViewFacetRegistryTests
                 .ThenBy(descriptor => descriptor.Order));
         Assert.Equal(
             [
-                StructuralSubjectKind.Root,
+                StructuralSubjectKind.Workspace,
+                StructuralSubjectKind.Package,
                 StructuralSubjectKind.Library,
                 StructuralSubjectKind.Type,
                 StructuralSubjectKind.Member,
@@ -61,23 +75,23 @@ public sealed class ViewFacetRegistryTests
                 group.Select(descriptor => descriptor.Role).Distinct().Count()));
 
         string maximum =
-            $"root.a{new string('a', ViewFacetId.MaximumLength - 6)}";
+            $"workspace.a{new string('a', ViewFacetId.MaximumLength - 11)}";
         Assert.Equal(
             ViewFacetId.MaximumLength,
             new ViewFacetId(maximum).Value.Length);
         Assert.Throws<ArgumentException>(
             () => new ViewFacetId($"{maximum}a"));
         Assert.Throws<ArgumentException>(
-            () => new ViewFacetId("root.overview\n"));
+            () => new ViewFacetId("workspace.overview\n"));
         Assert.Throws<ArgumentException>(
-            () => new ViewFacetId("Root.overview"));
+            () => new ViewFacetId("Workspace.overview"));
         Assert.Throws<ArgumentException>(
-            () => new ViewFacetId("root.overview "));
+            () => new ViewFacetId("workspace.overview "));
         Assert.Throws<ArgumentException>(
-            () => new ViewFacetId("root.-overview"));
+            () => new ViewFacetId("workspace.-overview"));
     }
 
-    [Fact]
+        [Fact]
     public void RegistrationsAndBindingsAgree()
     {
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
@@ -116,14 +130,14 @@ public sealed class ViewFacetRegistryTests
 
         ViewFacetRegistration.Tombstone synthetic = Tombstone(
             Descriptor(
-                "root.retired",
-                StructuralSubjectKind.Root,
+                "type.retired",
+                StructuralSubjectKind.Type,
                 100),
-            AppliesToPackageRoot);
+            AppliesToType);
         ViewFacetRegistry syntheticRegistry = Registry([synthetic]);
         ViewFacetOption option = Assert.Single(
             syntheticRegistry.Discover(
-                RootTarget(ViewFacetRootKind.PackageCapable),
+                TypeTarget(),
                 ThrowingFacts.Instance));
         ViewFacetAvailability.Unavailable unavailable =
             Assert.IsType<ViewFacetAvailability.Unavailable>(
@@ -137,22 +151,22 @@ public sealed class ViewFacetRegistryTests
             () => new ViewFacetRegistry(
                 [Active(
                     Descriptor(
-                        "root.active",
-                        StructuralSubjectKind.Root,
+                        "type.active",
+                        StructuralSubjectKind.Type,
                         100),
-                    AppliesToPackageRoot)],
+                    AppliesToType)],
                 []));
         ViewFacetDescriptor invalidActive =
             Descriptor(
-                "root.invalid-active",
-                StructuralSubjectKind.Root,
+                "type.invalid-active",
+                StructuralSubjectKind.Type,
                 200);
         ViewFacetRegistry invalidActiveRegistry = Registry(
         [
             new ViewFacetRegistration.Active(
                 invalidActive,
                 invalidActive.Summary,
-                AppliesToPackageRoot,
+                AppliesToType,
                 new ViewFacetExecutionBinding(
                     invalidActive.Id,
                     new TestExecutionTarget(invalidActive.Id)),
@@ -161,7 +175,7 @@ public sealed class ViewFacetRegistryTests
         ]);
         Assert.Throws<InvalidOperationException>(
             () => invalidActiveRegistry.Discover(
-                RootTarget(ViewFacetRootKind.PackageCapable),
+                TypeTarget(),
                 ThrowingFacts.Instance));
     }
 
@@ -170,15 +184,15 @@ public sealed class ViewFacetRegistryTests
     {
         ViewFacetRegistration.Tombstone tombstone = Tombstone(
             Descriptor(
-                "root.retired",
-                StructuralSubjectKind.Root,
+                "type.retired",
+                StructuralSubjectKind.Type,
                 100),
-            AppliesToPackageRoot);
+            AppliesToType);
         ViewFacetRegistry registry = Registry([tombstone]);
 
         ViewFacetOption option = Assert.Single(
             registry.Discover(
-                RootTarget(ViewFacetRootKind.PackageCapable),
+                TypeTarget(),
                 ThrowingFacts.Instance));
         ViewFacetAvailability.Unavailable unavailable =
             Assert.IsType<ViewFacetAvailability.Unavailable>(
@@ -188,12 +202,12 @@ public sealed class ViewFacetRegistryTests
             unavailable.Reason.Kind);
         Assert.Empty(
             registry.Discover(
-                RootTarget(ViewFacetRootKind.NonPackage),
+                MemberTarget(),
                 ThrowingFacts.Instance));
         Assert.IsType<ViewFacetResolution.Inapplicable>(
             registry.Resolve(
-                "root.retired",
-                RootTarget(ViewFacetRootKind.NonPackage),
+                "type.retired",
+                MemberTarget(),
                 ThrowingFacts.Instance));
     }
 
@@ -245,12 +259,15 @@ public sealed class ViewFacetRegistryTests
         ViewFacetDescriptor failed =
             Descriptor("library.failed", StructuralSubjectKind.Library, 500);
         ViewFacetDescriptor inapplicable =
-            Descriptor("root.inapplicable", StructuralSubjectKind.Root, 100);
+            Descriptor(
+                "workspace.inapplicable",
+                StructuralSubjectKind.Workspace,
+                100);
         var sentinels = new NoWorkSentinels();
         var inapplicableRegistration = new ViewFacetRegistration.Active(
             inapplicable,
             inapplicable.Summary,
-            AppliesToPackageRoot,
+            AppliesToWorkspace,
             new ViewFacetExecutionBinding(
                 inapplicable.Id,
                 new TestExecutionTarget(inapplicable.Id)),
@@ -329,12 +346,15 @@ public sealed class ViewFacetRegistryTests
         ViewFacetDescriptor failed =
             Descriptor("library.failed", StructuralSubjectKind.Library, 300);
         ViewFacetDescriptor wrongSubject =
-            Descriptor("root.wrong-subject", StructuralSubjectKind.Root, 100);
+            Descriptor(
+                "workspace.wrong-subject",
+                StructuralSubjectKind.Workspace,
+                100);
         var sentinels = new NoWorkSentinels();
         var wrongSubjectRegistration = new ViewFacetRegistration.Active(
             wrongSubject,
             wrongSubject.Summary,
-            AppliesToPackageRoot,
+            AppliesToWorkspace,
             new ViewFacetExecutionBinding(
                 wrongSubject.Id,
                 new TestExecutionTarget(wrongSubject.Id)),
@@ -391,7 +411,7 @@ public sealed class ViewFacetRegistryTests
         Assert.Same(evidence, failedResult.Evidence);
         Assert.IsType<ViewFacetResolution.Inapplicable>(
             registry.Resolve(
-                "root.wrong-subject",
+                "workspace.wrong-subject",
                 target,
                 ThrowingFacts.Instance));
         Assert.IsType<ViewFacetResolution.Unknown>(
@@ -408,55 +428,118 @@ public sealed class ViewFacetRegistryTests
     }
 
     [Fact]
-    public void RootApplicability_PartitionsPackageAndNonPackageFacets()
+    public void WorkspacePackageApplicability_PartitionsFacets()
     {
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
-        ViewFacetTarget package =
-            RootTarget(ViewFacetRootKind.PackageCapable);
-        ViewFacetTarget nonPackage =
-            RootTarget(ViewFacetRootKind.NonPackage);
+        ViewFacetTarget workspace = WorkspaceTarget();
+        ViewFacetTarget package = PackageTarget();
         ViewFacetAvailabilitySnapshot facts = AllAvailable(registry);
 
         Assert.Equal(
-            [
-                "root.package-overview",
-                "root.package-dependencies",
-            ],
-            registry.Discover(package, facts)
+            ["workspace.overview"],
+            registry.Discover(workspace, facts)
                 .Select(option => option.Descriptor.Id.Value));
         Assert.Equal(
-            ["root.overview"],
-            registry.Discover(nonPackage, facts)
+            ["package.overview", "package.dependencies"],
+            registry.Discover(package, facts)
                 .Select(option => option.Descriptor.Id.Value));
         Assert.IsType<ViewFacetResolution.Inapplicable>(
-            registry.Resolve("root.overview", package, ThrowingFacts.Instance));
-        Assert.IsType<ViewFacetResolution.Inapplicable>(
             registry.Resolve(
-                "root.package-overview",
-                nonPackage,
+                "workspace.overview",
+                package,
                 ThrowingFacts.Instance));
         Assert.IsType<ViewFacetResolution.Inapplicable>(
             registry.Resolve(
-                "root.package-dependencies",
-                nonPackage,
+                "package.overview",
+                workspace,
+                ThrowingFacts.Instance));
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "package.dependencies",
+                workspace,
                 ThrowingFacts.Instance));
     }
 
     [Fact]
-    public void InitialInspectionLensInventory_MatchesContract()
+    public void WorkspacePackageCutover_PreservesExactLookupOutcomes()
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        ViewFacetTarget workspace = WorkspaceTarget();
+        ViewFacetTarget package = PackageTarget();
+        var evidence = new TestDiagnosticEvidence("Workspace projection failed.");
+        ViewFacetUnavailableReason absent =
+            ViewFacetUnavailableReason.CapabilityAbsent(
+                "Package dependency facts are absent.");
+        var packageFacts = new ViewFacetAvailabilitySnapshot(
+        [
+            new(
+                new ViewFacetId("package.overview"),
+                ViewFacetAvailability.Available.Instance),
+            new(
+                new ViewFacetId("package.dependencies"),
+                new ViewFacetAvailability.Unavailable(absent)),
+        ]);
+        var workspaceFacts = new ViewFacetAvailabilitySnapshot(
+        [
+            new(
+                new ViewFacetId("workspace.overview"),
+                new ViewFacetAvailability.Failed(
+                    "The Workspace could not be projected.",
+                    evidence)),
+        ]);
+
+        Assert.IsType<ViewFacetResolution.Available>(
+            registry.Resolve("package.overview", package, packageFacts));
+        Assert.Same(
+            absent,
+            Assert.IsType<ViewFacetResolution.Unavailable>(
+                registry.Resolve(
+                    "package.dependencies",
+                    package,
+                    packageFacts)).Reason);
+        Assert.Same(
+            evidence,
+            Assert.IsType<ViewFacetResolution.Failed>(
+                registry.Resolve(
+                    "workspace.overview",
+                    workspace,
+                    workspaceFacts)).Evidence);
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "package.overview",
+                workspace,
+                ThrowingFacts.Instance));
+        foreach (string removed in new[]
+        {
+            "root.package-overview",
+            "root.package-dependencies",
+            "root.overview",
+            "package.summary",
+        })
+        {
+            Assert.IsType<ViewFacetResolution.Unknown>(
+                registry.Resolve(
+                    removed,
+                    package,
+                    ThrowingFacts.Instance));
+        }
+    }
+
+    [Fact]
+    public void WorkspacePackageInventory_MatchesContract()
     {
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
         ExpectedFacet[] expected =
         [
-            new("root.package-overview", StructuralSubjectKind.Root, "Overview",
+            new("workspace.overview", StructuralSubjectKind.Workspace, "Overview",
+                "Current Workspace scope, ordered packages, and realization status.",
+                100, ViewFacetRole.WorkspaceOverview),
+            new("package.overview", StructuralSubjectKind.Package, "Overview",
                 "Package identity, selected target, assets, and summary facts.",
-                100, ViewFacetRole.PackageOverview, ViewFacetRootKind.PackageCapable),
-            new("root.package-dependencies", StructuralSubjectKind.Root, "Dependencies",
+                100, ViewFacetRole.PackageOverview),
+            new("package.dependencies", StructuralSubjectKind.Package, "Dependencies",
                 "Declared package dependencies for the selected target framework.",
-                200, null, ViewFacetRootKind.PackageCapable),
-            new("root.overview", StructuralSubjectKind.Root, "Overview",
-                "Coordinate identity, selected target, and available structural subjects.",
-                300, ViewFacetRole.RootOverview, ViewFacetRootKind.NonPackage),
+                200),
             new("library.references", StructuralSubjectKind.Library, "References",
                 "Direct assembly references for the active Library.",
                 100, ViewFacetRole.LibraryReferences),
@@ -472,6 +555,9 @@ public sealed class ViewFacetRegistryTests
             new("library.metadata", StructuralSubjectKind.Library, "Metadata",
                 "Physical ECMA-335 metadata and PE structure for the active Library.",
                 500),
+            new("library.compare", StructuralSubjectKind.Library, "Compare",
+                "Diff and clone results organized by Type for the active Library.",
+                600),
             new("type.api", StructuralSubjectKind.Type, "API",
                 "API shape and member inventory for the active Type.",
                 100, ViewFacetRole.TypeApi),
@@ -481,6 +567,9 @@ public sealed class ViewFacetRegistryTests
             new("type.source", StructuralSubjectKind.Type, "Source",
                 "Source or decompiled code for the active Type.",
                 300),
+            new("type.compare", StructuralSubjectKind.Type, "Compare",
+                "Diff and clone results organized by Member for the active Type.",
+                400),
             new("member.overview", StructuralSubjectKind.Member, "Overview",
                 "Signature, documentation, and overload context for the active Member.",
                 100, ViewFacetRole.MemberOverview),
@@ -496,6 +585,9 @@ public sealed class ViewFacetRegistryTests
             new("member.annotated-source", StructuralSubjectKind.Member, "Annotated source",
                 "Source for the active Member with product analysis annotations.",
                 500),
+            new("member.compare", StructuralSubjectKind.Member, "Compare",
+                "Detailed diff and clone results for the active Member.",
+                600),
         ];
 
         Assert.Equal(
@@ -510,12 +602,12 @@ public sealed class ViewFacetRegistryTests
         Assert.Equal(
             new (string Id, InspectionViewFacetExecution Target)[]
             {
-                ("root.package-overview",
+                ("workspace.overview",
+                    InspectionViewFacetExecution.WorkspaceOverview),
+                ("package.overview",
                     InspectionViewFacetExecution.PackageOverview),
-                ("root.package-dependencies",
+                ("package.dependencies",
                     InspectionViewFacetExecution.PackageDependencies),
-                ("root.overview",
-                    InspectionViewFacetExecution.RootOverview),
                 ("library.references",
                     InspectionViewFacetExecution.LibraryReferences),
                 ("library.integrations",
@@ -526,12 +618,16 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.LibraryAnalysis),
                 ("library.metadata",
                     InspectionViewFacetExecution.LibraryMetadata),
+                ("library.compare",
+                    InspectionViewFacetExecution.LibraryCompare),
                 ("type.api",
                     InspectionViewFacetExecution.TypeApi),
                 ("type.metadata",
                     InspectionViewFacetExecution.TypeMetadata),
                 ("type.source",
                     InspectionViewFacetExecution.TypeSource),
+                ("type.compare",
+                    InspectionViewFacetExecution.TypeCompare),
                 ("member.overview",
                     InspectionViewFacetExecution.MemberOverview),
                 ("member.call-graph",
@@ -542,6 +638,8 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.MemberSource),
                 ("member.annotated-source",
                     InspectionViewFacetExecution.MemberAnnotatedSource),
+                ("member.compare",
+                    InspectionViewFacetExecution.MemberCompare),
             },
             registry.ActiveBindings.Select(binding => (
                 binding.Id.Value,
@@ -558,9 +656,7 @@ public sealed class ViewFacetRegistryTests
             foreach (ViewFacetTarget target in Targets())
             {
                 bool expectedApplicability =
-                    target.Subject.Kind == item.Kind
-                    && (item.Kind != StructuralSubjectKind.Root
-                        || target.RootKind == item.RootKind);
+                    target.Subject.Kind == item.Kind;
                 Assert.Equal(expectedApplicability, registration.Applies(target));
                 ViewFacetResolution resolution = registry.Resolve(
                     item.Id,
@@ -574,6 +670,137 @@ public sealed class ViewFacetRegistryTests
                     Assert.IsType<ViewFacetResolution.Inapplicable>(resolution);
                 }
             }
+        }
+    }
+
+[Fact]
+    public void CompareInventory_MatchesContract()
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        ViewFacetDescriptor[] compare =
+        [
+            .. registry.Descriptors.Where(descriptor =>
+                descriptor.Title == "Compare"),
+        ];
+
+        Assert.Equal(
+            new[]
+            {
+                new DescriptorShape(
+                    "library.compare",
+                    StructuralSubjectKind.Library,
+                    "Compare",
+                    "Diff and clone results organized by Type for the active Library.",
+                    600,
+                    null),
+                new DescriptorShape(
+                    "type.compare",
+                    StructuralSubjectKind.Type,
+                    "Compare",
+                    "Diff and clone results organized by Member for the active Type.",
+                    400,
+                    null),
+                new DescriptorShape(
+                    "member.compare",
+                    StructuralSubjectKind.Member,
+                    "Compare",
+                    "Detailed diff and clone results for the active Member.",
+                    600,
+                    null),
+            },
+            compare.Select(descriptor => new DescriptorShape(
+                descriptor.Id.Value,
+                descriptor.Kind,
+                descriptor.Title,
+                descriptor.Summary,
+                descriptor.Order,
+                descriptor.Role)));
+        Assert.Equal(
+            new[]
+            {
+                InspectionViewFacetExecution.LibraryCompare,
+                InspectionViewFacetExecution.TypeCompare,
+                InspectionViewFacetExecution.MemberCompare,
+            },
+            compare.Select(descriptor =>
+                Assert.IsType<InspectionViewFacetExecution>(
+                    Assert.Single(
+                        registry.ActiveBindings,
+                        binding => binding.Id == descriptor.Id).Target)));
+
+        ViewFacetAvailabilitySnapshot facts = AllAvailable(registry);
+        foreach (ViewFacetDescriptor descriptor in compare)
+        {
+            foreach (ViewFacetTarget target in Targets())
+            {
+                bool applies = target.Subject.Kind == descriptor.Kind;
+                Assert.Equal(
+                    applies,
+                    registry.Resolve(
+                        descriptor.Id.Value,
+                        target,
+                        applies ? facts : ThrowingFacts.Instance)
+                        is ViewFacetResolution.Available);
+            }
+        }
+    }
+
+    [Fact]
+    public void CompareLookup_PreservesFacetAndModeBoundaries()
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        ViewFacetAvailabilitySnapshot facts = AllAvailable(registry);
+        ViewFacetTarget library = LibraryTarget();
+        ViewFacetTarget type = TypeTarget();
+        ViewFacetTarget member = MemberTarget();
+
+        Assert.Equal(
+            "library.compare",
+            Assert.IsType<ViewFacetResolution.Available>(
+                registry.Resolve("library.compare", library, facts))
+                .Descriptor.Id.Value);
+        Assert.Equal(
+            "type.compare",
+            Assert.IsType<ViewFacetResolution.Available>(
+                registry.Resolve("type.compare", type, facts))
+                .Descriptor.Id.Value);
+        Assert.Equal(
+            "member.compare",
+            Assert.IsType<ViewFacetResolution.Available>(
+                registry.Resolve("member.compare", member, facts))
+                .Descriptor.Id.Value);
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "library.compare",
+                type,
+                ThrowingFacts.Instance));
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "type.compare",
+                member,
+                ThrowingFacts.Instance));
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "member.compare",
+                library,
+                ThrowingFacts.Instance));
+
+        foreach (string unknown in new[]
+        {
+            "compare",
+            "library.diff",
+            "library.clone",
+            "type.diff",
+            "type.clone",
+            "member.diff",
+            "member.clone",
+        })
+        {
+            Assert.IsType<ViewFacetResolution.Unknown>(
+                registry.Resolve(
+                    unknown,
+                    type,
+                    ThrowingFacts.Instance));
         }
     }
 
@@ -631,37 +858,52 @@ public sealed class ViewFacetRegistryTests
 
     static string Id(ViewFacetId id) => id.Value;
 
-    static bool AppliesToPackageRoot(ViewFacetTarget target) =>
-        target.Subject.Kind == StructuralSubjectKind.Root
-        && target.RootKind == ViewFacetRootKind.PackageCapable;
+    static bool AppliesToWorkspace(ViewFacetTarget target) =>
+        target.Subject.Kind == StructuralSubjectKind.Workspace;
+
+    static bool AppliesToType(ViewFacetTarget target) =>
+        target.Subject.Kind == StructuralSubjectKind.Type;
 
     static bool AppliesToLibrary(ViewFacetTarget target) =>
         target.Subject.Kind == StructuralSubjectKind.Library;
 
-    static ViewFacetTarget RootTarget(ViewFacetRootKind rootKind) =>
-        ViewFacetTarget.ForRoot(
-            StructuralSubjectIdentity.ForRoot(
-                rootKind == ViewFacetRootKind.PackageCapable
-                    ? Coordinate()
-                    : PlatformCoordinate()));
+    static ViewFacetTarget WorkspaceTarget() =>
+        ViewFacetTarget.ForSubject(
+            StructuralSubjectIdentity.ForWorkspace(
+                new InspectionWorkspaceIdentity()));
+
+    static ViewFacetTarget PackageTarget() =>
+        ViewFacetTarget.ForSubject(
+            StructuralSubjectTestData.Package(Coordinate()).Subject);
 
     static ViewFacetTarget LibraryTarget() =>
         ViewFacetTarget.ForSubject(
-            StructuralSubjectIdentity.ForAllLibraries(Coordinate()));
+            StructuralSubjectIdentity.ForAllLibraries(
+                StructuralSubjectTestData.Package(Coordinate()).Subject));
+
+    static ViewFacetTarget TypeTarget() =>
+        Targets().Single(
+            target => target.Subject.Kind == StructuralSubjectKind.Type);
+
+    static ViewFacetTarget MemberTarget() =>
+        Targets().Single(
+            target => target.Subject.Kind == StructuralSubjectKind.Member);
 
     static IEnumerable<ViewFacetTarget> Targets()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate();
+        StructuralSubjectTestData.PackageContext context =
+            StructuralSubjectTestData.Package(coordinate);
         StructuralSubjectIdentity.LibrarySubject library =
-            StructuralSubjectIdentity.ForLibrary(Library(coordinate));
+            StructuralSubjectIdentity.ForLibrary(
+                context.Subject,
+                Library(coordinate));
         StructuralSubjectIdentity.TypeSubject type =
             StructuralSubjectIdentity.ForType(
                 library,
                 TypeName("Sample", "Widget"));
-        yield return ViewFacetTarget.ForRoot(
-            StructuralSubjectIdentity.ForRoot(coordinate));
-        yield return ViewFacetTarget.ForRoot(
-            StructuralSubjectIdentity.ForRoot(PlatformCoordinate()));
+        yield return ViewFacetTarget.ForSubject(context.Workspace);
+        yield return ViewFacetTarget.ForSubject(context.Subject);
         yield return ViewFacetTarget.ForSubject(library);
         yield return ViewFacetTarget.ForSubject(type);
         yield return ViewFacetTarget.ForSubject(
@@ -682,14 +924,6 @@ public sealed class ViewFacetRegistryTests
             "nuget-org",
             "net11.0",
             runtimeIdentifier: null);
-
-    static RealizedMemberCoordinate.Platform PlatformCoordinate() =>
-        new(
-            "runtime",
-            "11.0.0",
-            "fixture",
-            "net11.0",
-            assembly: null);
 
     static WorkspaceContextMember Library(
         RealizedMemberCoordinate.Package coordinate)
@@ -788,8 +1022,7 @@ public sealed class ViewFacetRegistryTests
         string Title,
         string Summary,
         int Order,
-        ViewFacetRole? Role = null,
-        ViewFacetRootKind? RootKind = null)
+        ViewFacetRole? Role = null)
     {
         public DescriptorShape Descriptor =>
             new(Id, Kind, Title, Summary, Order, Role);

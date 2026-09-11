@@ -36,51 +36,17 @@ const selectorSource = stripTypeScriptTypes(source.slice(selector.start, selecto
 function harness(overrides: Partial<CatalogRequestDependencies> = {}) {
   const current = pkg();
   const state: CatalogRequestState = {
-    package: current,
     packages: [current],
-    dotnetReleases: null,
-    dotnetReleasesLoading: false,
   };
   const updated: CatalogPackage[] = [];
-  let platformUpdates = 0;
   const requests = createCatalogRequests({
     state,
-    queryDotnetReleases: async () => [{ major: 10, tfm: "net10.0", version: "10.0.0" }],
     queryPackageVersions: async () => inventory(),
-    updatePlatformVersionSelect: () => { platformUpdates++; },
     updatePackageVersionSelect: item => updated.push(item),
     ...overrides,
   });
-  return { requests, state, current, updated, platformUpdates: () => platformUpdates };
+  return { requests, state, current, updated };
 }
-
-test("release requests cache rows and refresh only a selected Platform", async () => {
-  const h = harness();
-  h.current.isRuntimePack = true;
-  await h.requests.ensureDotnetReleases();
-  await h.requests.ensureDotnetReleases();
-  assert.deepEqual(h.state.dotnetReleases, [{ major: 10, tfm: "net10.0", version: "10.0.0" }]);
-  assert.equal(h.platformUpdates(), 1);
-  assert.equal(h.state.dotnetReleasesLoading, false);
-  const other = harness();
-  await other.requests.ensureDotnetReleases();
-  assert.equal(other.platformUpdates(), 0);
-});
-
-test("release requests deduplicate pending work and preserve retry on failure", async () => {
-  const pending = deferred<never>();
-  let calls = 0;
-  const h = harness({ queryDotnetReleases: () => { calls++; return pending.promise; } });
-  const first = h.requests.ensureDotnetReleases();
-  await h.requests.ensureDotnetReleases();
-  assert.equal(calls, 1);
-  pending.reject(new Error("offline"));
-  await first;
-  assert.equal(h.state.dotnetReleasesLoading, false);
-  assert.equal(h.state.dotnetReleases, null);
-  await h.requests.ensureDotnetReleases();
-  assert.equal(calls, 2);
-});
 
 test("version requests retain native order and default for the exact resident model", async () => {
   const h = harness();

@@ -113,6 +113,7 @@ function platformRow(assembly: string, kind: PlatformAssemblyRow["kind"], inRefe
 }
 const platformTarget: PlatformCatalogTarget = {
   tfm: "net11.0", version: platformVersion,
+  supplies: [],
   rows: [
     platformRow("System.Text.Json", "impl"),
     platformRow("System.Facade", "facade"),
@@ -122,6 +123,7 @@ const platformTarget: PlatformCatalogTarget = {
 };
 const historicalPlatformTarget: PlatformCatalogTarget = {
   tfm: "netstandard2.1", version: "2.1.0",
+  supplies: [],
   rows: [{
     ...platformRow("netstandard", "ref", true, false),
     tfm: "netstandard2.1", pack: "netstandard", packVersion: "2.1.0", version: "2.1.0.0",
@@ -146,6 +148,13 @@ interface HomeDemoFixture {
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
 }
 
+interface DiagnosticsFixture {
+  runtimeFailure?: boolean;
+  buildIdentity?: "ready" | "pending" | "failed";
+  cacheFailure?: boolean;
+  cachePending?: boolean;
+}
+
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
 async function installFacades(
@@ -158,6 +167,7 @@ async function installFacades(
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   homeDemos?: HomeDemoFixture,
+  diagnostics: DiagnosticsFixture = {},
 ) {
   const catalogTarget: PlatformCatalogTarget = {
     ...platformTarget,
@@ -224,19 +234,45 @@ async function installFacades(
     }`;
   const modules: Record<string, string> = {
     host: `
-      export async function createRuntime() { return {}; }
+      const diagnosticsOptions = ${JSON.stringify(diagnostics)};
+      export async function createRuntime() {
+        if (diagnosticsOptions.runtimeFailure) {
+          throw new Error("Runtime unavailable");
+        }
+        return {};
+      }
       export function configureHost() {}
       export async function runEntryPoint() { return 0; }
       export function registerEpochWorkReporter() {}
       export async function drainEpochWorkReporter() {}
       export function unregisterEpochWorkReporter() {}
-      export function buildIdentity() {
-        return { version: "fixture", commit: null, builtAtUtc: null, commitUrl: null };
+      export async function asyncLoweringCanary() {
+        if (diagnosticsOptions.runtimeFailure) {
+          throw new Error("Runtime unavailable");
+        }
+        return "inspect-web-async-lowering-ok";
+      }
+      export async function buildIdentity() {
+        if (diagnosticsOptions.buildIdentity === "pending") {
+          document.documentElement.dataset.buildIdentityPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-build-identity", resolve, { once: true }));
+        }
+        if (diagnosticsOptions.buildIdentity === "failed") {
+          throw new Error("Build identity unavailable");
+        }
+        return {
+          version: "fixture",
+          commit: "0123456789abcdef0123456789abcdef01234567",
+          builtAtUtc: "2026-01-23T15:41:12Z",
+          commitUrl: "https://github.com/richlander/dotnet-inspect/commit/0123456789abcdef0123456789abcdef01234567",
+        };
       }`,
     package: `
       ${surfaceLookup}
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
+      const diagnosticsOptions = ${JSON.stringify(diagnostics)};
       let warmupAttempts = 0;
       export async function getPlatformVersions(tfm) {
         document.documentElement.dataset.platformVersionsRequest = tfm;
@@ -335,7 +371,13 @@ async function installFacades(
         return { activated: true, superseded: false,
           package: await queryPackage(coordinate.package, coordinate.version, coordinate.framework) };
       }
-      export function packageCacheStats() {
+      export async function packageCacheStats() {
+        if (diagnosticsOptions.cachePending) {
+          document.documentElement.dataset.packageCacheStatsPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-package-cache-stats", resolve, { once: true }));
+        }
+        if (diagnosticsOptions.cacheFailure) throw new Error("Cache storage offline");
         return { packages: 1, resident: 1, workspaces: 1, residentBytes: 0 };
       }
       export function listPackageQueryFacets() { return { facets: [] }; }
@@ -687,7 +729,7 @@ async function installFacades(
   await page.route("**/assets/platform-index.json", route =>
     route.fulfill(platform ? {
       contentType: "application/json",
-      body: JSON.stringify({ schemaVersion: 1, defaultFramework: "net11.0", targets: [catalogTarget, historicalPlatformTarget] }),
+      body: JSON.stringify({ schemaVersion: 2, defaultFramework: "net11.0", targets: [catalogTarget, historicalPlatformTarget] }),
     } : { status: 404, body: "Platform catalog is not part of this fixture." }));
   await page.route("**/*", route =>
     route.request().resourceType() === "document"
@@ -715,6 +757,293 @@ async function releaseFacade(page: Page, name: string): Promise<void> {
 }
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
+
+async function installDiagnosticsFacades(
+  page: Page,
+  diagnostics: DiagnosticsFixture = {},
+): Promise<void> {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    diagnostics);
+}
+
+test("Diagnostics opens from Settings and Spotlight without entering the Application menu", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installDiagnosticsFacades(page);
+  await page.goto(root);
+  await expect(page.locator("#inspector-panel h1"))
+    .toHaveText("Example.Package");
+
+  await page.locator("#application-menu-button").click();
+  await expect(page.locator("#application-menu"))
+    .not.toContainText("Diagnostics");
+  await page.locator('[data-application-action="settings"]').click();
+  await page.locator("#settings-diagnostics-open").click();
+
+  await expect(page).toHaveURL(/\/diagnostics$/);
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await expect(page.locator("#diagnostics-runtime-heading"))
+    .toHaveText("Runtime startup");
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  await expect(page.locator("#diagnostics-build-heading")).toHaveText("Build");
+  await expect(page.locator("#diagnostics-cache-heading"))
+    .toHaveText("Package cache");
+  await expect(page.locator(".data-bar")).toHaveCount(0);
+  await page.screenshot({
+    path: testInfo.outputPath("diagnostics-wide.png"),
+    fullPage: true,
+  });
+
+  await page.locator("#diagnostics-product").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/diagnostics$/);
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL(/package=Example\.Package/);
+  await expect(page.locator("#inspector-panel h1")).toBeFocused();
+
+  await page.keyboard.press("Control+k");
+  await expect(page.locator("#spotlight-input")).toBeFocused();
+  await page.locator("#spotlight-input").fill("diagnostics");
+  await page.getByRole("option").filter({ hasText: "diagnostics" }).click();
+
+  await expect(page).toHaveURL(/\/diagnostics$/);
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await page.locator("#diagnostics-back").click();
+  await expect(page.locator("#inspector-panel h1")).toBeFocused();
+});
+
+test("Diagnostics retains its route geometry while Build evidence loads on a narrow viewport", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 720 });
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("#diagnostics-heading")).toHaveText("Diagnostics");
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  await expect(page.locator(".diagnostics-card")).toHaveCount(3);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    && document.body.scrollWidth <= document.body.clientWidth))
+    .toBe(true);
+
+  const cardTops = await page.locator(".diagnostics-card").evaluateAll(cards =>
+    cards.map(card => card.getBoundingClientRect().top));
+  expect(cardTops[0]).toBeLessThan(cardTops[1]!);
+  expect(cardTops[1]).toBeLessThan(cardTops[2]!);
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-build-heading") }))
+    .toContainText("fixture");
+  await page.screenshot({
+    path: testInfo.outputPath("diagnostics-narrow-top.png"),
+    fullPage: false,
+  });
+  await page.locator(".diagnostics-main").evaluate(element => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(page.locator("#diagnostics-cache-heading")).toBeInViewport();
+  await expect(page.locator("#diagnostics-back")).toBeInViewport();
+  await page.screenshot({
+    path: testInfo.outputPath("diagnostics-narrow-end.png"),
+    fullPage: false,
+  });
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    && document.body.scrollWidth <= document.body.clientWidth))
+    .toBe(true);
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+});
+
+test("Diagnostics Back keeps Home heading focus through a later Build rerender", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(page.locator("main h1")).toBeFocused();
+});
+
+test("Diagnostics starts runtime and cache evidence while Build identity is pending", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, {
+    buildIdentity: "pending",
+    cachePending: true,
+  });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+
+  await releaseFacade(page, "finish-build-identity");
+  await releaseFacade(page, "finish-package-cache-stats");
+  await expect(page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-build-heading") }))
+    .toContainText("fixture");
+  await expect(page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-cache-heading") }))
+    .toContainText("Packages");
+});
+
+test("Diagnostics cache refresh does not reclaim relinquished heading focus", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cachePending: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+  await page.evaluate(() => {
+    const app = document.querySelector("#app");
+    if (!app) throw new Error("Missing application root");
+    const observer = new MutationObserver(() => {
+      const back = document.querySelector<HTMLButtonElement>(
+        "#diagnostics-back");
+      if (!back) return;
+      observer.disconnect();
+      back.focus();
+    });
+    observer.observe(app, { childList: true, subtree: true });
+  });
+
+  await releaseFacade(page, "finish-package-cache-stats");
+  await expect(page.locator("#diagnostics-back")).toBeFocused();
+  await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
+});
+
+test("Diagnostics treats a refreshed history entry as direct", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page);
+  await page.goto(root);
+  await page.locator("#application-menu-button").click();
+  await page.locator('[data-application-action="settings"]').click();
+  await page.locator("#settings-diagnostics-open").click();
+  await expect(page).toHaveURL(/\/diagnostics$/);
+
+  await page.reload();
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await page.goForward();
+  await expect(page).toHaveURL("/");
+});
+
+test("Diagnostics renders absent framework timing as unavailable", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page);
+  await page.goto("/diagnostics");
+  await expect(page.locator(".diagnostics-runtime-state-ready")).toBeVisible();
+
+  const runtimeCard = page.locator(".diagnostics-runtime-card");
+  const factValue = (label: string) =>
+    runtimeCard.getByText(label, { exact: true }).locator("..").locator("dd");
+  await expect(factValue("Download")).toHaveText("Unavailable");
+  await expect(factValue("Framework assets")).toHaveText("Unavailable");
+  await expect(factValue("Transferred")).toHaveText("Unavailable");
+  await expect(factValue("Decoded")).toHaveText("Unavailable");
+});
+
+test("Diagnostics preserves commit-link focus through cache refresh", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cachePending: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+  const commitLink = page.locator("#diagnostics-commit");
+  await commitLink.focus();
+  await expect(commitLink).toBeFocused();
+
+  await releaseFacade(page, "finish-package-cache-stats");
+  await expect(commitLink).toBeFocused();
+  await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
+});
+
+test("Diagnostics keeps startup and package-cache failures visible in place", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { runtimeFailure: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator(".diagnostics-runtime-state-failed"))
+    .toContainText("did not start");
+  await expect(page.locator(".diagnostics-failure-detail"))
+    .not.toBeEmpty();
+  const cacheCard = page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-cache-heading") });
+  await expect(cacheCard.locator(".diagnostics-inline-failed"))
+    .toContainText("inspection engine did not start");
+  await expect(page).toHaveURL(/\/diagnostics$/);
+});
+
+test("Diagnostics isolates a build-identity failure from runtime and cache", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "failed" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  const buildCard = page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-build-heading") });
+  await expect(buildCard.locator(".diagnostics-inline-failed"))
+    .toContainText("Product build identity is unavailable");
+  const cacheCard = page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-cache-heading") });
+  await expect(cacheCard).toContainText("Packages");
+  await expect(cacheCard.locator(".diagnostics-inline-failed")).toHaveCount(0);
+});
+
+test("Diagnostics discloses a package-cache statistics failure", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cacheFailure: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  await expect(page.locator(".diagnostics-inline-failed"))
+    .toContainText("Cache storage offline");
+});
 
 const peerSurface: BrowserPackageSurface = {
   ...surface,
@@ -1123,8 +1452,9 @@ test("Spotlight offers separate NuGet and Platform System.Text.Json destinations
     contentType: "application/json", body: JSON.stringify({ data: [{ id: "System.Text.Json", version: "11.0.0-preview.7" }] }),
   }));
   await page.goto("/");
-  await expect(page.getByRole("contentinfo")).toContainText("browser wasm ready");
-  await page.getByRole("combobox").fill("System.Text.Json");
+  const search = page.getByRole("combobox");
+  await expect(search).toBeEnabled();
+  await search.fill("System.Text.Json");
   await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toBeVisible();
   await expect(page.locator('[data-sl-platform-lib="System.Text.Json"]')).toContainText("Platform");
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");

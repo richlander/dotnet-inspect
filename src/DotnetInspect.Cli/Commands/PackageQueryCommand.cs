@@ -19,7 +19,7 @@ internal static class PackageQueryCommand
             NuGetFetchOptions.FromRequestTimeout(context.HttpClient.Timeout);
         using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
             PackageSourceAssociation.Create(),
-            DotnetInspector.Core.HttpClientFactory.CreateCredentialFreeHandler(),
+            DotnetInspector.Networking.HttpClientFactory.CreateCredentialFreeHandler(),
             fetchOptions);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(fetchOptions.OperationTimeout);
@@ -65,7 +65,7 @@ internal static class PackageQueryCommand
                 $"Package Query completion: {view.Summary.Completion}; "
                 + $"{view.Summary.Candidates}/{view.Summary.CandidateLimit} candidates, "
                 + $"{view.Summary.Matches}/{view.Summary.MatchLimit} matches. "
-                + "These results are not an exhaustive Gallery total.");
+                + "These results do not exhaust the requested package-ID scope.");
         }
         return ExitCode(view.Summary);
     }

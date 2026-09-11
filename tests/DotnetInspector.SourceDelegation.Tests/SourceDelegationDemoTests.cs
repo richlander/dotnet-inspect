@@ -1,6 +1,6 @@
 namespace DotnetInspector.SourceDelegation.Tests;
 
-// A runnable walkthrough of the whole protocol on one Gallery-shaped scenario:
+// A runnable walkthrough of the whole protocol on one ordered-source scenario:
 // two ordered members, a source that can only acquire cheaply for one of them,
 // a decline that leaves the reference path available, and one accepted
 // acquisition-only handoff whose usable rows flow into the caller's residual
@@ -11,10 +11,10 @@ public sealed class SourceDelegationDemoTests
     private static readonly ToyMember Toolkit = ToyDelegation.Member("prefix:CommunityToolkit.");
 
     [Fact]
-    public async Task AcquisitionOnlyGalleryDiscoveryWalkthrough()
+    public async Task AcquisitionOnlyOrderedSourceWalkthrough()
     {
         var log = new List<string>();
-        var requirement = new ToyRequirement("gallery.discovery-rows");
+        var requirement = new ToyRequirement("source.ordered-rows");
         ToyGroup group = ToyDelegation.Group(Aspire, Toolkit);
 
         // The caller's complete plan per member, and the partition it proved.
@@ -25,7 +25,7 @@ public sealed class SourceDelegationDemoTests
         var countFirst = ToyDelegation.CountCandidate(group, requirement, capability: ToyDelegation.Unsupported);
         var acquisitionOnly = ToyDelegation.RowHandoff(group, requirement);
 
-        var gallery = new ToySource(
+        var source = new ToySource(
             candidate => candidate.Capability == ToyDelegation.RowPrefix,
             (accepted, _) => ToyExecution.Handoff(
                 accepted,
@@ -42,10 +42,10 @@ public sealed class SourceDelegationDemoTests
                         ToyDisposition.ProviderCapped,
                         Evidence.Stop())));
 
-        var outcome = await ToyDelegation.RunAsync(gallery, countFirst, acquisitionOnly);
+        var outcome = await ToyDelegation.RunAsync(source, countFirst, acquisitionOnly);
         var handoff = Assert.IsType<ToyHandoff>(outcome.Result);
 
-        log.Add($"planned {gallery.Planned.Count} candidates in declaration order, executed {gallery.ExecuteCount}");
+        log.Add($"planned {source.Planned.Count} candidates in declaration order, executed {source.ExecuteCount}");
         foreach (ToyRowOutcome entry in handoff.Outcomes)
         {
             string shape = entry is ToyRowValues rows

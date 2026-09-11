@@ -76,6 +76,7 @@ import {
   restoreMemberFocus,
   type MemberFocusSnapshot,
 } from "../src/member-focus.ts";
+import { dataBarHtml } from "../src/data-bar.ts";
 
 declare global {
   interface Window {
@@ -105,6 +106,7 @@ let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
+const longDataBarMode = params.has("long-data-bar");
 const workspaceMode = params.has("workspace");
 const packageOverviewMode = params.has("package-overview");
 const libraryOverviewMode = params.has("library-overview");
@@ -859,6 +861,20 @@ app.innerHTML = `
         </article>
       </section>
     </main>
+    ${dataBarHtml({
+      buildIdentity: {
+        version: "0.35.2",
+        commit: "abc1234def5678",
+        commitUrl: "https://github.com/richlander/dotnet-inspect/commit/abc1234def5678",
+        builtAtUtc: "2026-08-27T14:00:00Z",
+      },
+      producer: {
+        kind: "package",
+        label: longDataBarMode
+          ? "Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json)"
+          : "NuGet.org",
+      },
+    }, escapeHtml)}
   </div>
   ${renderApplicationMenu(true)}
   ${renderSettingsView({
@@ -953,6 +969,10 @@ workbenchShellBinding =
   bindWorkbenchShell(document, workbenchShellActions);
 bindSettingsPanel(document, {
   onClose: () => setApplicationDialog(null),
+  onOpenDiagnostics: () => {
+    document.body.dataset.diagnosticsOpened = "true";
+    setApplicationDialog(null);
+  },
   onOpen: () => setApplicationDialog("settings"),
   onTasteClear() {},
   onTasteToggle() {},

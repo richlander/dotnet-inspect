@@ -1038,8 +1038,8 @@ the main thread.
 
 That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
 the Worker-only adoption host. Its facade-grouped `client` provides Promise
-results for build identity, vocabulary, home demos, Package Query facets, and
-Gallery discovery. Concurrent reads share one bootstrap without replacing one
+results for build identity, vocabulary, home demos, and Package Query facets.
+Concurrent reads share one bootstrap without replacing one
 another, and disposal rejects outstanding reads. Generated JSON-shaped results
 use a bounded transport string (1,048,576 UTF-16 code units per result) and
 generated-typed decoding; failures remain visible. The production application
@@ -2024,34 +2024,50 @@ escaping; `test/spotlight-package-search.test.ts` gates debounce, scope and
 query eligibility, cancellation, stale suppression, failure settlement, and
 mounted-result refresh.
 
-`src/catalog-requests.ts` owns .NET release and package-version catalog
-lifecycles: cache and loading state, request deduplication, version ordering,
-package-residency guards, and selector-update dispatch. `dotnet-inspect.ts`
-retains the .NET release endpoint, engine version query, option rendering, DOM
-repainting, and version switching. `test/catalog-requests.test.ts` gates cache
-reuse, in-flight deduplication, sorting, current Platform refresh, package
-removal, and both silent transient-failure paths; the composition-root gate
-checks that network and DOM authority remain outside the coordinator.
+`src/catalog-requests.ts` owns package-version catalog lifecycles: cache and
+loading state, request deduplication, version ordering, package-residency
+guards, and selector-update dispatch. `dotnet-inspect.ts` retains the engine
+version query, option rendering, DOM repainting, and version switching.
+`test/catalog-requests.test.ts` gates cache reuse, in-flight deduplication,
+sorting, package removal, and visible failure; the composition-root gate checks
+that engine and DOM authority remain outside the coordinator. Platform version
+selection instead consumes exact catalog targets as documented by
+`docs/design/version-resolution.md#browser-platform-catalog-targets`.
 
-The typed `src/status-bar.ts` component renders both the full-width workspace
-data bar and the home readiness bar and owns their rendered toggle binding.
-The workspace bar occupies the bottom row formerly used by the persistent
-command prompt, giving the bar the full viewport width. By default the bar
-shows a compact, single-line summary in
-priority order: app version/commit, package provenance, build date, and a
-one-line performance summary. A dedicated toggle button at the end of the bar
-(so it never overlaps the commit link) expands and collapses the view,
-adding the full diagnostics breakdown (download/startup/precompute/total),
-package cache stats, active assembly, framework, and the "public API
-surface" label. Expansion state lives in `state.statusBarExpanded` and
-applies to both the workspace and home bars.
-Package source, assembly, and framework are shown only in a workspace.
-Current browser acquisition distinguishes NuGet.org from the .NET platform;
-the typed model also reserves local-file and custom-feed provenance for
-future acquisition paths. Missing or malformed provenance is shown as
-`Unknown` rather than omitted so acquisition failures stay diagnosable.
-Symbol/PDB acquisition status is not yet surfaced here — no backend contract
-reports it today — and is a tracked fast-follow.
+The typed `src/data-bar.ts` component renders the same fixed product-information
+line on Home and every workbench surface. Its 30-pixel bottom row remains
+allocated when the notice stack is empty. The line never wraps or expands; on
+narrow viewports it scrolls horizontally without widening the document or
+obscuring the Application menu.
+
+The line presents app version, linked short commit, concise UTC build date,
+applicable acquisition producer, and the same CLI-tool and agent-skill links
+used on Home. Package acquisition supplies a compact producer label; the data
+bar renders that display text without parsing an endpoint. Runtime/Wasm state,
+timings, cache evidence, assembly/framework duplication, and management actions
+belong to the separate full-bleed Diagnostics surface rather than the
+persistent row.
+
+The routed `/diagnostics` surface is available from Settings and the Spotlight
+Commands scope. `src/diagnostics-view.ts` owns its typed pure rendering and
+Back/product bindings; `src/diagnostics-route.ts` owns route recognition and
+the in-app history marker. The first snapshot presents current Browser/Wasm
+loading, ready, or failed state; startup phase measurements and framework-byte
+totals; exact build provenance; and the aggregate package-cache statistics
+issued by the engine. Missing build data and runtime or cache failures remain
+visible rather than becoming zeroes or retained successful counts. The route
+does not appear in the Application menu and does not repeat the data bar.
+
+`test/diagnostics-view.test.ts`, `test/diagnostics-route.test.ts`,
+`test/settings-panel.test.ts`, `test/command-bar.test.ts`, and
+`test/entry-routes.test.ts` gate the typed snapshot, escaping, entry controls,
+history marker, and static hosting inventory. The Diagnostics cases in
+`browser/library-hierarchy.spec.ts` exercise Settings and Spotlight routing,
+destination focus, Back restoration, loading and failure states, package-cache
+failure disclosure, and the 390-pixel vertical layout against the built app.
+Network history, package-source health, cache-entry inventory and limits,
+support-report generation, eviction state, and cache-management actions remain
+future owner-adoption work.
 
 The workbench subject hierarchy is **Package → Library → Type → Member**.
 Package owns coordinate-wide inventory, documents, and NuGet dependencies.
@@ -2324,29 +2340,28 @@ provenance before publication.
 That cohort's browser workload still targets `net11.0`; the runtime is .NET 12
 CoreCLR even though the application graph retains its current target framework.
 The workflow enables `runtime-async=on` across this application graph and
-applies the `UseMonoRuntime=false`, `PublishReadyToRun=true`,
-`PublishReadyToRunComposite=false`, `WasmBuildNative=false`,
-`WasmNestedPublishAppDependsOn=`, and `WasmEnableExceptionHandling=true`
+applies the `UseMonoRuntime=false`, `PublishReadyToRun=false`,
+`WasmBuildNative=false`, `WasmNestedPublishAppDependsOn=`, and
+`WasmEnableExceptionHandling=true`
 overrides. This exercises runtime async only in the CoreCLR comparison
 deployment; Mono staging and ordinary non-AOT builds retain classic async
-lowering. Crossgen2 emits non-composite per-assembly Wasm images into `R2R/`.
-`verify-coreclr-r2r-publication.ts` requires each emitted image to be a
-WebAssembly module and byte-identical to the corresponding fingerprinted
-published asset. It requires all eight `DotnetInspect.Web*` assets and
-`System.Private.CoreLib` to be ReadyToRun, rejects orphaned outputs, and records
-the three framework facades without Crossgen2 output as IL-only. The artifact
-carries that complete per-assembly manifest, its digest, exact `dotnet --info`,
-the installed workload list, uncompressed and compressed `/_framework/` sizes,
-and a machine-readable SDK/runtime/workload receipt. That receipt also
-identifies the exact CoreCLR browser runtime asset bytes, which must match the
-published native JavaScript and Wasm. The workflow regenerates and verifies the
-ReadyToRun evidence, receipt, and CoreCLR-specific `GetDotNetRuntimeHeap` hook
-before artifact upload and again before deployment. Before the CoreCLR artifact
-crosses the upload boundary, the workflow compares its schema-5 runtime receipt
-with the triggering Mono run's schema-5 compiler receipt. This comparison is
-intentionally cross-toolchain: generated facade contracts and async-lowering
-evidence must remain equivalent between the .NET 11 Mono build and .NET 12
-CoreCLR build.
+lowering. The non-composite ReadyToRun trial is rejected because the first real
+package operation fatally entered a mismatched CoreCLR-Wasm R2R thunk even
+though build identity and the async-lowering canary succeeded. The deployment
+therefore runs a focused package-adoption test through the published production
+Worker before upload; it opens a deterministic local package through
+`QueryPackage`, so a runtime that initializes but cannot execute product work
+never reaches Azure deployment.
+
+The artifact carries exact `dotnet --info`, the installed workload list, and a
+machine-readable SDK/runtime/workload receipt. That receipt identifies the
+CoreCLR browser runtime asset bytes, which must match the published native
+JavaScript and Wasm, and records `PublishReadyToRun=false`. Before the CoreCLR
+artifact crosses the upload boundary, the workflow compares its schema-5
+runtime receipt with the triggering Mono run's schema-5 compiler receipt. This
+comparison is intentionally cross-toolchain: generated facade contracts and
+async-lowering evidence must remain equivalent between the .NET 11 Mono build
+and .NET 12 CoreCLR build.
 
 Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
 project that reaches `CoreCompile` fails unless its exact `Features` property
@@ -2435,10 +2450,10 @@ browser boot graph after its fingerprinted Wasm assets rotate.
 `BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
 gates the header contract and publish wiring. The staging publish step embeds
 the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
-timestamp. The home and workspace status bars show that version, link the
-short commit to GitHub, and disclose the binary build time.
+timestamp. The shared Home and workbench data bar shows that version, links the
+short commit to GitHub, and discloses the concise UTC build date.
 `BuildIdentity_UsesVersionedRepositoryProvenance` and
-`ready status shows versioned linked build provenance` gate the engine and UI
+`data bar shows versioned linked build provenance` gate the engine and UI
 halves.
 
 The Azure resources, custom-domain assignments, GitHub environments, branch

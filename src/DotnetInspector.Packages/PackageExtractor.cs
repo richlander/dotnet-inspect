@@ -2054,7 +2054,7 @@ public static class PackageExtractor
             {
                 log?.Invoke(
                     $"Invalid service index from '{PackageSourceDisplay.ForDiagnostics(source)}': missing resources array.");
-                FeedFailureTelemetry.Record(
+                FeedFailureRecorder.Record(
                     indexUrl,
                     HttpStatusCode.OK);
                 return new(null, HasMalformedCriticalResource: false);
@@ -2140,7 +2140,7 @@ public static class PackageExtractor
                             // A malformed PackageBaseAddress is a failed source
                             // answer, not a quiet absence. Complete-source
                             // floating resolution depends on that distinction.
-                            FeedFailureTelemetry.Record(
+                            FeedFailureRecorder.Record(
                                 indexUrl,
                                 HttpStatusCode.OK);
                             hasMalformedCriticalResource = true;
@@ -2156,7 +2156,7 @@ public static class PackageExtractor
             log?.Invoke(
                 $"Invalid service index from '{PackageSourceDisplay.ForDiagnostics(source)}': "
                 + "the document could not be read.");
-            FeedFailureTelemetry.Record(
+            FeedFailureRecorder.Record(
                 indexUrl,
                 HttpStatusCode.OK);
             return new(null, HasMalformedCriticalResource: false);
@@ -2897,7 +2897,7 @@ public static class PackageExtractor
                 || versions.ValueKind
                     != System.Text.Json.JsonValueKind.Array)
             {
-                FeedFailureTelemetry.Record(
+                FeedFailureRecorder.Record(
                     indexUrl,
                     HttpStatusCode.OK);
                 return SourceVersionList.Failure;
@@ -2911,7 +2911,7 @@ public static class PackageExtractor
                     || NormalizeCandidateVersion(
                         element.GetString()) is not string candidate)
                 {
-                    FeedFailureTelemetry.Record(
+                    FeedFailureRecorder.Record(
                         indexUrl,
                         HttpStatusCode.OK);
                     return SourceVersionList.Failure;
@@ -2929,7 +2929,7 @@ public static class PackageExtractor
             or InvalidOperationException)
         {
             // Ignore parse errors
-            FeedFailureTelemetry.Record(
+            FeedFailureRecorder.Record(
                 indexUrl,
                 HttpStatusCode.OK);
         }
@@ -3000,7 +3000,7 @@ public static class PackageExtractor
                 SourceMissing: false);
         if (!RegistrationCovers(versions, registration.AllVersions))
         {
-            FeedFailureTelemetry.Record(
+            FeedFailureRecorder.Record(
                 $"{NuGetOrgRegistrationBase}/{packageName}/index.json",
                 HttpStatusCode.OK);
             return (
@@ -3075,7 +3075,7 @@ public static class PackageExtractor
             using var doc = System.Text.Json.JsonDocument.Parse(json);
             if (!doc.RootElement.TryGetProperty("items", out var pages))
             {
-                FeedFailureTelemetry.Record(
+                FeedFailureRecorder.Record(
                     indexUrl,
                     HttpStatusCode.OK);
                 return null;
@@ -3121,7 +3121,7 @@ public static class PackageExtractor
             // (JsonException = invalid JSON; InvalidOperationException = valid JSON whose
             // shape defies the accessors, e.g. `items` not an array or `version` not a string).
             log?.Invoke($"Could not parse listing status: {ex.Message}");
-            FeedFailureTelemetry.Record(
+            FeedFailureRecorder.Record(
                 indexUrl,
                 HttpStatusCode.OK);
             return null;
@@ -3379,7 +3379,7 @@ public static class PackageExtractor
             if (!doc.RootElement.TryGetProperty("data", out var data)
                 || data.ValueKind != JsonValueKind.Array)
             {
-                FeedFailureTelemetry.Record(
+                FeedFailureRecorder.Record(
                     searchUrl,
                     HttpStatusCode.OK);
                 return null;
@@ -3396,7 +3396,7 @@ public static class PackageExtractor
                 return candidate;
             }
 
-            FeedFailureTelemetry.Record(
+            FeedFailureRecorder.Record(
                 searchUrl,
                 HttpStatusCode.OK);
         }
@@ -3407,7 +3407,7 @@ public static class PackageExtractor
         catch (Exception ex)
         {
             log?.Invoke($"Search API failed: {ex.Message}");
-            FeedFailureTelemetry.Record(
+            FeedFailureRecorder.Record(
                 searchUrl,
                 HttpStatusCode.OK);
         }
@@ -3464,7 +3464,7 @@ public static class PackageExtractor
                 || versions.ValueKind
                     != System.Text.Json.JsonValueKind.Array)
             {
-                FeedFailureTelemetry.Record(
+                FeedFailureRecorder.Record(
                     indexUrl,
                     HttpStatusCode.OK);
                 return SourceLatestVersion.Failure;
@@ -3481,7 +3481,7 @@ public static class PackageExtractor
                     || NormalizeCandidateVersion(
                         element.GetString()) is not string candidate)
                 {
-                    FeedFailureTelemetry.Record(
+                    FeedFailureRecorder.Record(
                         indexUrl,
                         HttpStatusCode.OK);
                     return SourceLatestVersion.Failure;
@@ -3500,7 +3500,7 @@ public static class PackageExtractor
             System.Text.Json.JsonException
             or InvalidOperationException)
         {
-            FeedFailureTelemetry.Record(
+            FeedFailureRecorder.Record(
                 indexUrl,
                 HttpStatusCode.OK);
             return SourceLatestVersion.Failure;

@@ -19,6 +19,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\InertText\InertText.csproj" />
-    <ProjectReference Include="..\NetworkAccess\NetworkAccess.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
   </ItemGroup>
 </Project>

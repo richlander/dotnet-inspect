@@ -1305,7 +1305,8 @@ navigation band. It never scrolls or obscures the Application menu.
 
 ## Data bar and Diagnostics
 
-The bottom data bar is one compact product-information line. It does not wrap,
+The bottom data bar is one compact 30 CSS-pixel product-information line. Its
+grid row remains allocated when the notice stack is empty. It does not wrap,
 expand, or host runtime diagnostics:
 
 <!-- markdownlint-disable MD013 -->
@@ -1326,6 +1327,10 @@ The data bar includes:
 On a narrow viewport, the line remains non-wrapping and horizontally scrollable.
 It does not discard the source or promotional actions to fit.
 
+The acquisition owner supplies the compact producer label as display text. The
+data bar renders that label verbatim and does not parse or reconstruct it from
+an endpoint.
+
 The data bar does not contain:
 
 - Wasm-ready prose;
@@ -1335,15 +1340,38 @@ The data bar does not contain:
 - an API-surface label; or
 - an expansion toggle.
 
-Diagnostics opens as a full-bleed surface and may include:
+Diagnostics opens at `/diagnostics` as a routed full-bleed surface. Settings
+and Spotlight Commands expose the route; the Application menu does not. The
+destination receives focus on its single `Diagnostics` level-one heading, and
+Back restores the preceding routed surface without discarding its retained
+Workspace. A direct entry falls back to Home.
 
-- runtime and Wasm state;
+The first implemented Diagnostics snapshot contains only evidence already
+issued for the current browser session:
+
+- loading, ready, or failed Browser/Wasm runtime state;
+- download, startup, precompute, and total startup measurements;
+- framework asset count, transferred bytes, and decoded bytes;
+- exact product version, full linked commit, UTC build timestamp, and
+  Browser/Wasm host; and
+- aggregate package, resident-payload, Workspace, and resident-byte cache
+  statistics.
+
+Runtime, build, and package-cache absence or failure remain visible in the same
+route geometry. A cache-statistics failure does not preserve prior counts as an
+undisclosed successful snapshot. Runtime spans the wide layout, with Build and
+Package cache in equal columns below it. The same content becomes one vertical
+scroller on a narrow viewport without page-level horizontal overflow. The
+full-bleed route does not repeat the persistent data bar.
+
+Later owner-adoption work may add:
+
 - network operations and typed failures;
-- exact build provenance;
 - package-source health;
-- candidate and payload cache contents;
+- candidate and payload cache-entry inventory;
 - coordinate, producer, size, and persistence for each cache entry;
-- cache limits and eviction state; and
+- cache limits and eviction state;
+- a support-report copy action; and
 - owner-authorized cache-management actions.
 
 Diagnostics consumes owner-issued data and actions. It does not infer package
