@@ -52,8 +52,6 @@ import {
   type ParsedWorkspaceLocation,
   type WorkspaceUrlState,
 } from "../src/workspace-navigation.ts";
-import { createMethodBodyDiffState } from "../src/method-body-comparison.ts";
-import { createSourceDiffState } from "../src/source-comparison.ts";
 import {
   documentViewerIsOpen,
   normalizeDocumentViewerSnapshot,
@@ -266,8 +264,6 @@ function harness() {
     dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
-    methodBodyDiff: createMethodBodyDiffState(),
-    sourceDiff: createSourceDiffState(),
     platformStack: [] as object[], platformRecent: [], recentPackages: [],
     spotlightPackageSearch: {
       status: "idle",
@@ -531,8 +527,6 @@ function harness() {
       clearGraphSource: () => {},
     },
     cancelFindingCensusRequest: () => {},
-    methodBodyComparison: { dispose: () => {} },
-    sourceComparison: { dispose: () => {} },
     memberDetailInspection: { invalidate: () => {} },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
@@ -769,34 +763,6 @@ test("canonical package Dependencies restoration clears a resident group overrid
   assert.equal(h.state.dependenciesGroupIndex, null);
   assert.equal(h.state.atPackageRoot, true);
   assert.equal(h.state.packageLens, "dependencies");
-});
-
-test("canonical restoration preserves coordinator-owned comparison state identities", () => {
-  const h = harness();
-  const methodBodyDiff = h.state.methodBodyDiff;
-  const sourceDiff = h.state.sourceDiff;
-  const snapshot: unknown = runInNewContext(
-    "cloneCanonicalWorkspaceSnapshotForRetention(captureCanonicalWorkspaceRestoreSnapshot())",
-    h.context);
-
-  methodBodyDiff.open = true;
-  sourceDiff.open = true;
-  h.state.sourceRequestGeneration = 7;
-  h.state.typeMetadataGeneration = 8;
-  h.state.memberCallGraphSeq = 9;
-  h.state.graphMemberNavigationSeq = 10;
-  void runInNewContext(
-    "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
-    { ...h.context, snapshot });
-
-  assert.equal(h.state.methodBodyDiff, methodBodyDiff);
-  assert.equal(h.state.sourceDiff, sourceDiff);
-  assert.equal(methodBodyDiff.open, false);
-  assert.equal(sourceDiff.open, false);
-  assert.equal(h.state.sourceRequestGeneration, 8);
-  assert.equal(h.state.typeMetadataGeneration, 9);
-  assert.equal(h.state.memberCallGraphSeq, 10);
-  assert.equal(h.state.graphMemberNavigationSeq, 11);
 });
 
 test("capture settles a loading document viewer without claiming ready content", () => {
