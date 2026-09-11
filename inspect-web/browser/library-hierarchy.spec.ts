@@ -151,6 +151,7 @@ interface HomeDemoFixture {
 interface DiagnosticsFixture {
   buildIdentity?: "ready" | "pending" | "failed";
   cacheFailure?: boolean;
+  cachePending?: boolean;
 }
 
 // Exercise the production composition root and bindings with deterministic facade
@@ -358,7 +359,12 @@ async function installFacades(
         return { activated: true, superseded: false,
           package: await queryPackage(coordinate.package, coordinate.version, coordinate.framework) };
       }
-      export function packageCacheStats() {
+      export async function packageCacheStats() {
+        if (diagnosticsOptions.cachePending) {
+          document.documentElement.dataset.packageCacheStatsPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-package-cache-stats", resolve, { once: true }));
+        }
         if (diagnosticsOptions.cacheFailure) throw new Error("Cache storage offline");
         return { packages: 1, resident: 1, workspaces: 1, residentBytes: 0 };
       }
@@ -787,10 +793,16 @@ test("Diagnostics opens from Settings and Spotlight without entering the Applica
     fullPage: true,
   });
 
+  await page.locator("#diagnostics-product").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/diagnostics$/);
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
   await page.locator("#diagnostics-back").click();
   await expect(page).toHaveURL(/package=Example\.Package/);
-  await expect(page.locator("#inspector-panel h1"))
-    .toHaveText("Example.Package");
+  await expect(page.locator("#inspector-panel h1")).toBeFocused();
 
   await page.keyboard.press("Control+k");
   await expect(page.locator("#spotlight-input")).toBeFocused();
@@ -800,8 +812,7 @@ test("Diagnostics opens from Settings and Spotlight without entering the Applica
   await expect(page).toHaveURL(/\/diagnostics$/);
   await expect(page.locator("#diagnostics-heading")).toBeFocused();
   await page.locator("#diagnostics-back").click();
-  await expect(page.locator("#inspector-panel h1"))
-    .toHaveText("Example.Package");
+  await expect(page.locator("#inspector-panel h1")).toBeFocused();
 });
 
 test("Diagnostics retains its route geometry while runtime evidence loads on a narrow viewport", async ({
@@ -852,6 +863,34 @@ test("Diagnostics retains its route geometry while runtime evidence loads on a n
     .toBe(true);
   await page.locator("#diagnostics-back").click();
   await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+});
+
+test("Diagnostics cache refresh does not reclaim relinquished heading focus", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cachePending: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+  await page.evaluate(() => {
+    const app = document.querySelector("#app");
+    if (!app) throw new Error("Missing application root");
+    const observer = new MutationObserver(() => {
+      const back = document.querySelector<HTMLButtonElement>(
+        "#diagnostics-back");
+      if (!back) return;
+      observer.disconnect();
+      back.focus();
+    });
+    observer.observe(app, { childList: true, subtree: true });
+  });
+
+  await releaseFacade(page, "finish-package-cache-stats");
+  await expect(page.locator("#diagnostics-back")).toBeFocused();
+  await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
 });
 
 test("Diagnostics keeps startup and package-cache failures visible in place", async ({

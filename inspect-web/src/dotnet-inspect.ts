@@ -1116,6 +1116,8 @@ let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 let packageQueryHandoffNavigationSeq: number | null = null;
 let packageCacheStatsRequest = 0;
 let diagnosticsHeadingFocusPending = false;
+let diagnosticsDestinationFocusPending = false;
+let diagnosticsDestinationFocusScheduled = false;
 let platformLibraryRetry: RetryAction = null;
 let platformCatalogRetry: RetryAction = null;
 
@@ -4345,6 +4347,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
 
+  if (diagnosticsDestinationFocusPending
+    && !isDiagnosticsPath(location.pathname)) {
+    queueMicrotask(scheduleDiagnosticsDestinationFocus);
+  }
   if (isDiagnosticsPath(location.pathname)) {
     loadingBotSrc = null;
     renderDiagnosticsPage();
@@ -10231,6 +10237,7 @@ function bindHomeEvents() {
   bindSettingsPanelEvents();
   bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
+  if (diagnosticsDestinationFocusPending) return;
   afterCurrentNavigationFrame(() => {
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
@@ -10777,8 +10784,13 @@ function diagnosticsPackageCacheState(): DiagnosticsPackageCacheState {
 }
 
 function renderDiagnosticsPage() {
-  const restoreHeadingFocus = diagnosticsHeadingFocusPending
-    || document.activeElement?.id === "diagnostics-heading";
+  const activeId = document.activeElement?.id;
+  const focusTargetId = diagnosticsHeadingFocusPending
+    || activeId === "diagnostics-heading"
+    ? "diagnostics-heading"
+    : activeId === "diagnostics-product" || activeId === "diagnostics-back"
+      ? activeId
+      : null;
   state.diagnosticsCapturedAtUtc ??= new Date().toISOString();
   document.title = "Diagnostics · dotnet-inspect";
   app.innerHTML = diagnosticsViewHtml({
@@ -10789,12 +10801,25 @@ function renderDiagnosticsPage() {
   }, value => escapeHtml(value));
   bindDiagnosticsView(document, {
     onBack: closeDiagnosticsRoute,
+    onHome: openDiagnosticsHome,
   });
-  if (restoreHeadingFocus) {
+  if (focusTargetId) {
+    const focusGeneration = documentFocusGeneration;
     requestAnimationFrame(() => {
-      if (!isDiagnosticsPath(location.pathname)) return;
-      diagnosticsHeadingFocusPending = false;
-      focusLevelOneHeading();
+      if (!isDiagnosticsPath(location.pathname)) {
+        diagnosticsHeadingFocusPending = false;
+        return;
+      }
+      if (focusGeneration !== documentFocusGeneration) {
+        diagnosticsHeadingFocusPending = false;
+        return;
+      }
+      if (focusTargetId === "diagnostics-heading") {
+        diagnosticsHeadingFocusPending = false;
+        focusLevelOneHeading();
+        return;
+      }
+      document.getElementById(focusTargetId)?.focus({ preventScroll: true });
     });
   }
 }
@@ -10808,6 +10833,7 @@ function openDiagnosticsRoute() {
   state.home = false;
   state.diagnosticsCapturedAtUtc = new Date().toISOString();
   diagnosticsHeadingFocusPending = true;
+  diagnosticsDestinationFocusPending = false;
   if (state.engineReady) {
     state.packageCacheStatsStatus = "loading";
     state.packageCacheStatsError = "";
@@ -10820,11 +10846,17 @@ function openDiagnosticsRoute() {
 }
 
 function closeDiagnosticsRoute() {
+  diagnosticsDestinationFocusPending = true;
   if (isDiagnosticsHistoryEntry(history.state)) {
     history.back();
     return;
   }
   replaceDiagnosticsWithHome();
+}
+
+function openDiagnosticsHome() {
+  diagnosticsDestinationFocusPending = true;
+  goHome();
 }
 
 function replaceDiagnosticsWithHome() {
@@ -10856,6 +10888,31 @@ function afterCurrentNavigationFrame(action: () => void) {
   const navigationSeq = navigationSequence.current();
   requestAnimationFrame(() => {
     if (navigationSequence.isCurrent(navigationSeq)) action();
+  });
+}
+
+function scheduleDiagnosticsDestinationFocus() {
+  if (!diagnosticsDestinationFocusPending
+    || diagnosticsDestinationFocusScheduled
+    || isDiagnosticsPath(location.pathname)) {
+    return;
+  }
+  const navigationSeq = navigationSequence.current();
+  const focusGeneration = documentFocusGeneration;
+  diagnosticsDestinationFocusScheduled = true;
+  requestAnimationFrame(() => {
+    diagnosticsDestinationFocusScheduled = false;
+    if (!diagnosticsDestinationFocusPending) return;
+    if (!navigationSequence.isCurrent(navigationSeq)
+      || isDiagnosticsPath(location.pathname)) {
+      diagnosticsDestinationFocusPending = false;
+      return;
+    }
+    const heading = document.querySelector<HTMLElement>("main h1");
+    if (!heading) return;
+    diagnosticsDestinationFocusPending = false;
+    if (focusGeneration !== documentFocusGeneration) return;
+    focusLevelOneHeading();
   });
 }
 
@@ -15776,6 +15833,10 @@ function dismissModalsForRoutedNavigation() {
 
 window.addEventListener("popstate", () => {
   void (async () => {
+  if (!isDiagnosticsPath(location.pathname)
+    && document.querySelector(".diagnostics-view")) {
+    diagnosticsDestinationFocusPending = true;
+  }
   const leftPackageQueryHandoff = currentPackageQueryHandoff();
   const navigationSeq = navigationSequence.begin();
   let leftPackageQueryForWorkspaceSuccessor = false;
@@ -15811,6 +15872,7 @@ window.addEventListener("popstate", () => {
   }
   if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
   if (isDiagnosticsPath(location.pathname)) {
+    diagnosticsDestinationFocusPending = false;
     clearNavigationError();
     state.packageQueryOpen = false;
     packageQueryController.cancel();

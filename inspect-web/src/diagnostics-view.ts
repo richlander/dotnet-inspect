@@ -51,6 +51,7 @@ export interface DiagnosticsViewModel {
 
 export interface DiagnosticsViewActions {
   onBack: () => void;
+  onHome: () => void;
 }
 
 function formatDuration(milliseconds: number): string {
@@ -289,12 +290,12 @@ export function bindDiagnosticsView(
   root: ParentNode,
   actions: DiagnosticsViewActions,
 ): void {
-  const activateBack = (event: Event) => {
+  const activate = (action: () => void) => (event: Event) => {
     event.preventDefault();
-    actions.onBack();
+    action();
   };
   root.querySelector<HTMLElement>("#diagnostics-product")
-    ?.addEventListener("click", activateBack);
+    ?.addEventListener("click", activate(actions.onHome));
   root.querySelector<HTMLButtonElement>("#diagnostics-back")
-    ?.addEventListener("click", activateBack);
+    ?.addEventListener("click", activate(actions.onBack));
 }
