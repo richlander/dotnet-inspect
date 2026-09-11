@@ -108,7 +108,8 @@ reusable owners produce the facts.
 The first production adoption in
 [#6170](https://github.com/richlander/dotnet-inspect/issues/6170) routes the
 existing `find`, member-find, `implements`, `extensions`, and reachable
-extension implementations through one invocation-owned asynchronous
+extension implementations, plus type-mode `depends`, through one
+invocation-owned asynchronous
 `InspectionWorkspace` for a deliberately bounded source shape:
 
 - normalized source intent contains exactly one explicitly versioned package
@@ -121,19 +122,22 @@ extension implementations through one invocation-owned asynchronous
 The host acquires one package Root, commits it with `ReplaceScopeAsync`, retains
 the committed correspondence and generation, and executes the existing typed
 group queries through `ExecutePackageRootQueryAsync`. Type search reuses that
-same committed Root for its direct and fallback census passes. Package results
-project library and source provenance from `PackageRootIdentity` and
-`PackageCompileAsset`; the CLI does not manufacture host filesystem paths for
-package-relative assets.
+same committed Root for its direct and fallback census passes. Type-mode
+`depends` runs one group-scoped dependency query over the committed surface
+population; `--rows` windows only the emitted edges and does not limit
+acquisition. Package results project library and source provenance from
+`PackageRootIdentity` and `PackageCompileAsset`; the CLI does not manufacture
+host filesystem paths for package-relative assets.
 
 Floating, `@latest`, and wildcard package versions; package archives, package
 groups and prefixes; multiple or mixed sources; implicit and `all` target
 frameworks; and limited searches retain the `AssemblySetResolver` and
 `AssemblySetInspectionWorkspace` path. That boundary preserves the CLI's
 existing version-selection and streaming-limit behavior rather than making
-Workspace acquisition redefine either contract. Type-mode `depends` remains
-outside this slice: its group-scoped dependency query and production caller
-land together rather than adding another caller-free query surface.
+Workspace acquisition redefine either contract. Type-mode `depends` preserves
+the same legacy route for those ineligible source shapes, while exact-pinned
+package scans carry participant rejection beside any partial graph or miss so
+the command never presents an incomplete result as certified.
 
 This cutover consumes the package Root's reference-preferred compile surface.
 An explicit empty compile group therefore remains an empty configured Root and

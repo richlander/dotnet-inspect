@@ -452,12 +452,13 @@ gates;
 `ResearchTargetDomains_BlockOnlyTheirOwnCensus`,
 `ResearchTargetAttempt_AddressEvidenceMismatchBlocksBeforeCensus`,
 `ResearchTargetAbsence_FailedExtensionContainerBlocksProjectedMember`,
-`ResearchTargetAbsence_UnscopedForwarderFailureBlocksOnlyAbsence`,
+`ResearchTargetDeclaration_UnscopedForwarderFailureRemainsVisible`,
 `ResearchTargetDeclaringType_DistinguishesAbsentFromForwarded`,
 `ResearchTargetDeclaringType_DoesNotInferAbsenceUnderForwarder`,
 `ResearchTargetDeclaringType_DoesNotInferAbsenceFromMalformedExport`,
+`ResearchTargetDeclaringType_UsesMetadataSemanticsForEquivalentForwarders`,
 `ResearchTargetDeclaringType_RejectsFailedExactDuplicate`,
-`ResearchTargetForwarder_RetainedEvidencePrecedesUnscopedFailure`,
+`ResearchTargetForwarder_UnscopedFailureRemainsVisible`,
 `ResearchTargetReferenceOnlyInput_TerminatesWithoutOpening`,
 `ResearchTargetInputValidation_RejectsMismatchedModuleEvidence`,
 `ResearchTargetResolution_StagesEachAdmittedInputOnce`,
@@ -528,7 +529,8 @@ request retains:
 
 - its operation, question, scope, domain, side-local admitted-input identity,
   and side;
-- the exact typed `MemberTargetSelector` and declaring-type intent;
+- the exact typed `MemberTargetSelector` and
+  `MetadataTypeDefinitionName` declaring-type intent;
 - the pinned Metadata API-surface scope it evaluates: public and non-public
   members, Metadata-supported compiler-generated types and fields, Metadata's
   exclusion of synthesized methods, and no member-kind filter;
@@ -586,20 +588,39 @@ Resolution may borrow an implementation input only for the duration of the
 call, and must evaluate all requests for that input from one staged read. Live
 assembly and module identity must agree with the acquisition descriptor and
 Analysis-issued module identity, including the descriptor-bound MVID when one
-is present. Member selection remains Metadata-owned, uses its existing API
-surface including its synthesized-method exclusions, and matches the exact
-declaring-type metadata full name. A potentially covering Metadata inspection
-failure, including an unscoped forwarder failure, prevents Research from
-asserting absence but does not suppress otherwise established local or
-forwarding evidence. Because Metadata projects local extension methods onto
-their receiver types, an owner-scoped failed TypeDef may cover member absence
-on another retained type even though it does not cover that type's declaration
-absence. Retained TypeDefs, exact forwarders, and exact owner-scoped failed
-TypeDefs participate in the declaration census; duplicate exact declarations
-fail as ambiguous. An exact type forwarder, or an intent nested beneath a
-retained root forwarder, makes the target unavailable rather than absent. A
-durable address requires an in-range `MethodDefinition` handle of the validated
-module.
+is present.
+
+Research retains the caller's structured declaring-type intent unchanged and
+asks `MetadataTypeDeclarationProbe` for the local declaration disposition
+before member selection. It does not reconstruct namespace or nested-type
+boundaries from a flattened name and does not reinterpret raw TypeDef or
+ExportedType rows. The final construction validator consumes a second
+Metadata-issued declaration result produced from the same staged reader, so it
+does not trust the resolver's classification and does not reopen the input.
+`Defined` selects the exact Metadata-issued TypeDef token and permits
+`MemberTargetResolver` to inspect that type. `Forwarded` terminates the
+input-local attempt as `Unavailable/DeclaringTypeForwarded`; this includes
+nested forwarding and multiple equivalent same-target forwarder rows that
+Metadata coalesces into one declaration. `Missing` permits
+`DeclaringTypeAbsent` only when no potentially covering Metadata inspection
+failure exists. `Ambiguous` preserves declaration ambiguity, including
+competing targets and definition/forwarder conflicts. `Rejected` and module
+exports remain visible as incomplete Metadata evidence rather than
+success-shaped absence.
+
+After a definition is established, member selection remains Metadata-owned and
+uses its existing API surface, including its synthesized-method exclusions.
+A potentially covering Metadata inspection failure prevents Research from
+asserting member absence. Because Metadata projects local extension methods
+onto their receiver types, an owner-scoped failed TypeDef may cover member
+absence on another retained type even though it does not cover that type's
+declaration absence. A durable address requires an in-range
+`MethodDefinition` handle of the validated module.
+
+`Microsoft.Extensions.DependencyInjection` 10.0.0 is the real-package witness:
+its `net10.0` facade forwards `ServiceCollection` to
+`Microsoft.Extensions.DependencyInjection.Abstractions`. Equivalent duplicate
+rows are a Metadata-supported stress extension of that production shape.
 
 `DeclaringTypeForwarded` is terminal only for this exact input-local attempt.
 It does not decide whether a later workspace-composition step treats the
@@ -607,7 +628,8 @@ forwarder as the compared endpoint or follows it to a terminal implementation
 participant already admitted, or explicitly authorized for supplemental
 admission, by the workspace. That later composition owns the effective
 endpoint choice and retains the Metadata-issued forwarding path as
-supplementary query evidence; it is not implemented or verified by this slice.
+supplementary query evidence. Research does not resolve assembly references,
+select workspace participants, acquire packages, or add admitted inputs.
 
 `Resolved` is terminal only after Research validates that the selected target
 and durable address belong to the same admitted assembly and module. A

@@ -29,6 +29,7 @@
     <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
     <ProjectReference Include="..\Inspector.Artifacts\Inspector.Artifacts.csproj" />
     <ProjectReference Include="..\Inspector.Findings\Inspector.Findings.csproj" />
+    <ProjectReference Include="..\Inspector.Resources\Inspector.Resources.csproj" />
     <ProjectReference Include="..\InertText\InertText.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
   </ItemGroup>

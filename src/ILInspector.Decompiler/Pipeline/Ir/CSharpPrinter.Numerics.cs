@@ -305,8 +305,10 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool IsEnumLikeInteger(TypeRef? type)
         => type is { Kind: TypeRefKind.Definition }
-            && TypeFamilies.Of(type) is null
-            && _function.TypeShapes.GetValueOrDefault(type) is not (TypeShape.Reference or TypeShape.ValueType);
+                && TypeFamilies.Of(type) is null
+                && _function.TypeShapes.GetValueOrDefault(type) is not (TypeShape.Reference or TypeShape.ValueType)
+            || type is { Kind: TypeRefKind.GenericInstance }
+                && CoercionRendering.IsEnum(type, _function.TypeShapes);
 
     /// <summary>
     /// Wraps a synthesized same-width integer reinterpret cast — <c>(uint)x</c>,
@@ -839,7 +841,7 @@ public sealed partial class CSharpPrinter
         // A cross-assembly enum: the width is genuinely unknown and framework enums
         // are often byte/sbyte-backed [Flags], so conservatively assume the narrowest
         // (sbyte) backing and wrap a negative or a value above sbyte's max.
-        if (_function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Unknown)
+        if (_function.TypeShapes.GetValueOrDefault(NamedDefinition(enumType)) == TypeShape.Unknown)
             return literal < 0 || literal > sbyte.MaxValue;
         // A same-assembly enum shape whose underlying is not in the map (e.g. no
         // `value__` field): assume C#'s default `int` backing, so an int-range value
@@ -1475,7 +1477,7 @@ public sealed partial class CSharpPrinter
 
     bool NeedsIntShiftCast(TypeRef? type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "UInt32" }
-            || (type is not null && _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum);
+            || (type is not null && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Enum);
 
     static int? ShiftWidthMask(TypeRef? leftOperand) => TypeFamilies.Of(leftOperand) switch
     {
@@ -2942,7 +2944,7 @@ public sealed partial class CSharpPrinter
     }
 
     TypeRef? EnumUnderlyingType(TypeRef? type)
-        => type is not null && _function.EnumUnderlyingTypes.TryGetValue(type, out var underlying)
+        => type is not null && _function.EnumUnderlyingTypes.TryGetValue(NamedDefinition(type), out var underlying)
             ? underlying
             : null;
 

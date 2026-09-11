@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 using DotnetInspector.Services;
 
-using CoreHttpClientFactory = DotnetInspector.Core.HttpClientFactory;
+using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -125,6 +125,138 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 result.Output,
                 StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public async Task Depends_QueryCommittedPackageRoot()
+    {
+        string id = $"Workspace.Depends.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "selected dependency package",
+            library: assembly,
+            libraryName: "Workspace.Depends.dll");
+        var requests = new ConcurrentQueue<string>();
+        ConfigureCommandFeed(id, package, requests);
+
+        var result = await RunCommandAsync(
+            [
+                "depends",
+                typeof(WorkspaceImplementation).FullName!,
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--rows", "1",
+                "--verbose",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "Using committed package Root for search:",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("README.md", "NoCompileAssets")]
+    [InlineData("ref/net11.0/_._", "EmptyCompileGroup")]
+    public async Task Depends_PackageWithoutSurfaceIsCertifiedMiss(
+        string packageEntry,
+        string expectedStatus)
+    {
+        string id =
+            $"Workspace.Depends.Empty.{Guid.NewGuid():N}";
+        byte[] package;
+        if (expectedStatus == "EmptyCompileGroup")
+        {
+            byte[] fallbackAssembly = await File.ReadAllBytesAsync(
+                typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+                TestContext.Current.CancellationToken);
+            package = SnupkgPdbReaderTests.MakeSnupkg(
+                ($"{id}.nuspec", "<package />"u8.ToArray()),
+                (packageEntry, []),
+                ("lib/net8.0/Fallback.dll", fallbackAssembly));
+        }
+        else
+        {
+            package = SnupkgPdbReaderTests.MakeSnupkg(
+                ($"{id}.nuspec", "<package />"u8.ToArray()),
+                (packageEntry, []));
+        }
+        ConfigureCommandFeed(id, package);
+
+        var result = await RunCommandAsync(
+            [
+                "depends", "No.Such.Type",
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--verbose",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            "Using committed package Root for search:",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            expectedStatus,
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Type 'No.Such.Type' not found in the specified scope.",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Equal("", result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Depends_PackageRootPreparationFailureIsVisible()
+    {
+        string id =
+            $"Workspace.Depends.Invalid.{Guid.NewGuid():N}";
+        byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+            ($"{id}.nuspec", "<package />"u8.ToArray()),
+            ("lib/net11.0/Invalid.dll", [1, 2, 3]));
+        ConfigureCommandFeed(id, package);
+
+        var result = await RunCommandAsync(
+            [
+                "depends", "No.Such.Type",
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--verbose",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            $"Could not commit package Root '{id}@{Version}'",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Type 'No.Such.Type' not found",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Equal("", result.Output.Trim());
     }
 
     [Theory]

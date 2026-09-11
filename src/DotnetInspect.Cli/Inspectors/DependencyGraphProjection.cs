@@ -361,7 +361,7 @@ internal static class DependencyGraphProjection
                         $"library\0assembly\0"
                         + $"{assembly.Identity.Name.ToUpperInvariant()}\0"
                         + $"{assembly.Identity.Version}\0"
-                        + $"{(assembly.Identity.Culture ?? "").ToUpperInvariant()}\0"
+                        + $"{CanonicalCulture(assembly.Identity.Culture)}\0"
                         + $"{(assembly.Identity.PublicKeyToken ?? "").ToUpperInvariant()}"),
                 ManagedMetadataIdentity.Module module =>
                     string.Create(
@@ -372,6 +372,14 @@ internal static class DependencyGraphProjection
                 _ => throw new InvalidOperationException(
                     "Unknown managed metadata identity."),
             };
+
+        private static string CanonicalCulture(string? culture) =>
+            string.IsNullOrEmpty(culture)
+                || culture.Equals(
+                    "neutral",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? ""
+                    : culture.ToUpperInvariant();
 
         private sealed record PendingEdge(
             int SourceNodeId,

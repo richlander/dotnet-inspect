@@ -90,7 +90,7 @@ public partial class SymbolPackageDownloader
                 if (httpResult.Status
                     == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
                 {
-                    FeedFailureTelemetry.Record(
+                    FeedFailureRecorder.Record(
                         url,
                         HttpStatusCode.OK);
                     log?.Invoke(
@@ -168,7 +168,7 @@ public partial class SymbolPackageDownloader
             }
             else
             {
-                FeedFailureTelemetry.Record(url, HttpStatusCode.OK);
+                FeedFailureRecorder.Record(url, HttpStatusCode.OK);
                 log?.Invoke("MSDL returned an invalid or mismatched Portable PDB");
             }
         }
@@ -178,7 +178,7 @@ public partial class SymbolPackageDownloader
         }
         catch (Exception ex) when (!storeOperation)
         {
-            FeedFailureTelemetry.Record(url, status: null);
+            FeedFailureRecorder.Record(url, status: null);
             log?.Invoke($"MSDL error: {ex.Message}");
         }
 
@@ -282,7 +282,7 @@ public partial class SymbolPackageDownloader
                     if (httpResult.Status
                         == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
                     {
-                        FeedFailureTelemetry.Record(
+                        FeedFailureRecorder.Record(
                             url,
                             HttpStatusCode.OK);
                         log?.Invoke(
@@ -354,7 +354,7 @@ public partial class SymbolPackageDownloader
                 }
                 else
                 {
-                    FeedFailureTelemetry.Record(url, HttpStatusCode.OK);
+                    FeedFailureRecorder.Record(url, HttpStatusCode.OK);
                     log?.Invoke(
                         "Symbol server returned an invalid or mismatched Portable PDB");
                 }
@@ -365,7 +365,7 @@ public partial class SymbolPackageDownloader
             }
             catch (Exception ex) when (!storeOperation)
             {
-                FeedFailureTelemetry.Record(url, status: null);
+                FeedFailureRecorder.Record(url, status: null);
                 log?.Invoke($"Symbol server error: {ex.Message}");
             }
         }

@@ -544,13 +544,26 @@ public sealed partial class AssemblyDependencyResolver :
                 && identity.MatchesCandidate(
                     assembly.Identity,
                     _options.AllowPlatformAssemblyVersionRollForward,
-                    _options.IgnoreAssemblyVersion)
-                && selection
-                    is AssemblyBindingSelection.Selected selected)
+                    _options.IgnoreAssemblyVersion))
             {
-                selection = AssemblyBindingSelection.Found(
-                    selected.Assembly,
-                    selected.ShadowedAssemblies.Add(assembly));
+                ImmutableArray<ResolvedAssemblyReference> active =
+                    ActiveCandidates(selection);
+                ImmutableArray<ResolvedAssemblyReference> inactive =
+                    ShadowedCandidates(selection);
+                if (!active.IsEmpty
+                    && !active.Concat(inactive).Any(candidate =>
+                        ReferenceEquals(
+                            candidate.Registration,
+                            assembly.Registration)))
+                {
+                    AssemblyBindingCandidateDomain domain =
+                        AssemblyBindingCandidateDomain.Create(
+                            [.. active, .. inactive, assembly]);
+                    selection = selection
+                            is AssemblyBindingSelection.Selected selected
+                        ? domain.Finalize(selected.Occurrence)
+                        : domain.Finalize(active);
+                }
             }
         }
 
@@ -565,10 +578,34 @@ public sealed partial class AssemblyDependencyResolver :
                 new AssemblyResolutionAttempt(
                     Assembly: null,
                     CandidateFailure: null,
-                    AmbiguousAssemblies: ambiguous.Assemblies),
+                    AmbiguousAssemblies: ambiguous.Assemblies,
+                    AmbiguousShadowedAssemblies:
+                        ambiguous.ShadowedAssemblies),
             _ => null,
         };
     }
+
+    static ImmutableArray<ResolvedAssemblyReference> ActiveCandidates(
+        AssemblyBindingSelection selection) =>
+        selection switch
+        {
+            AssemblyBindingSelection.Selected selected =>
+                [selected.Assembly],
+            AssemblyBindingSelection.Ambiguous ambiguous =>
+                ambiguous.Assemblies,
+            _ => [],
+        };
+
+    static ImmutableArray<ResolvedAssemblyReference> ShadowedCandidates(
+        AssemblyBindingSelection selection) =>
+        selection switch
+        {
+            AssemblyBindingSelection.Selected selected =>
+                selected.ShadowedAssemblies,
+            AssemblyBindingSelection.Ambiguous ambiguous =>
+                ambiguous.ShadowedAssemblies,
+            _ => [],
+        };
 
     AssemblyDescriptorResolution? InstalledPlatformDescriptor(
         AssemblyReferenceIdentity identity)
@@ -663,13 +700,23 @@ public sealed partial class AssemblyDependencyResolver :
     {
         AssemblyResolutionAttempt attempt = ResolveCore(identity, scope);
         if (!attempt.AmbiguousAssemblies.IsDefaultOrEmpty)
-            return AssemblyBindingSelection.Multiple(
-                attempt.AmbiguousAssemblies);
+        {
+            return attempt.AmbiguousShadowedAssemblies.IsDefaultOrEmpty
+                ? AssemblyBindingSelection.Multiple(
+                    attempt.AmbiguousAssemblies)
+                : AssemblyBindingCandidateDomain.Create(
+                    [
+                        .. attempt.AmbiguousAssemblies,
+                        .. attempt.AmbiguousShadowedAssemblies,
+                    ]).Finalize(attempt.AmbiguousAssemblies);
+        }
         if (attempt.Assembly is { } assembly)
         {
-            return AssemblyBindingSelection.Found(
-                assembly,
-                attempt.ShadowedAssemblies);
+            return attempt.ShadowedAssemblies.IsDefaultOrEmpty
+                ? AssemblyBindingSelection.Found(assembly)
+                : AssemblyBindingCandidateDomain.Create(
+                    [assembly, .. attempt.ShadowedAssemblies])
+                    .Finalize([assembly]);
         }
         return attempt.CandidateFailure is { } candidateFailure
             ? AssemblyBindingSelection.CannotSelect(
@@ -948,6 +995,8 @@ public sealed partial class AssemblyDependencyResolver :
         CandidateOpenFailureKind? CandidateFailure,
         ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies = default,
         ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default,
+        ImmutableArray<ResolvedAssemblyReference>
+            AmbiguousShadowedAssemblies = default,
         AssemblyBindingMissDisposition? MissDisposition = null);
 
     readonly record struct AssemblyDescriptorKey(

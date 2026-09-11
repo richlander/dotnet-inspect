@@ -2273,7 +2273,7 @@ public class ApiCommand
             }
             else if (methodInfo.SourceUrl != null)
             {
-                var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+                var fetcher = new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch);
                 var fetch = await PdbSourceHouse.FetchVerifiedSourceTextAsync(
                     fetcher,
                     methodInfo.SourceUrl,
@@ -3305,7 +3305,7 @@ public class ApiCommand
 
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
-        var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch);
         var fetch = await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
             fetcher,
             selectedSource.FilePath,

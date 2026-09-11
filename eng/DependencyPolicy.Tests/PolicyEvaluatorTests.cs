@@ -630,8 +630,11 @@ public sealed class PolicyEvaluatorTests
             exception.Message);
     }
 
-    [Fact]
-    public void CheckedInPolicyTreatsTsJsExportContractsAsDependencyFree()
+    [Theory]
+    [InlineData("Inspector.Resources")]
+    [InlineData("TsJsExport.Contracts")]
+    public void CheckedInPolicyTreatsContractFloorAsDependencyFree(
+        string contractFloor)
     {
         string repository = FindRepositoryRoot();
         DependencyPolicyDocument policy = PolicyLoader.Load(
@@ -639,11 +642,11 @@ public sealed class PolicyEvaluatorTests
         DependencyRule rule = Assert.Single(
             policy.Rules,
             candidate => candidate.Id == "dependency-free-contract-floors");
-        Assert.Contains("TsJsExport.Contracts", rule.Targets);
+        Assert.Contains(contractFloor, rule.Targets);
         RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
             [
                 Node(
-                    "TsJsExport.Contracts",
+                    contractFloor,
                     projectReferences: ["Repository.Dependency"],
                     assemblyReferences: ["Repository.Dependency"]),
                 Node("Repository.Dependency"),
@@ -663,7 +666,7 @@ public sealed class PolicyEvaluatorTests
                             Id = rule.Id,
                             Source = rule.Source,
                             Graphs = rule.Graphs,
-                            Targets = ["TsJsExport.Contracts"],
+                            Targets = [contractFloor],
                             AllowOnly = rule.AllowOnly,
                         },
                     ],
@@ -717,6 +720,24 @@ public sealed class PolicyEvaluatorTests
         Assert.Contains(
             violations,
             violation => violation.Graph == DependencyGraphKind.Assembly);
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsNetworkingBelowCoreAndHosts()
+    {
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "networking-stays-below-core-and-hosts",
+            "DotnetInspector.Networking",
+            "DotnetInspector.Core");
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsNuGetFetchIndependent()
+    {
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "nuget-fetch-stays-independent",
+            "NuGetFetch",
+            "DotnetInspector.Packages");
     }
 
     [Fact]
@@ -859,6 +880,47 @@ public sealed class PolicyEvaluatorTests
             Configuration = "Release",
             Rules = rules,
         };
+
+    private static void AssertCheckedInRuleRejectsRepositoryDependency(
+        string ruleId,
+        string target,
+        string dependency)
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == ruleId);
+        RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
+            [
+                Node(
+                    target,
+                    projectReferences: [dependency],
+                    assemblyReferences: [dependency]),
+                Node(dependency),
+            ]);
+
+        DependencyViolation[] violations = PolicyEvaluator
+            .Evaluate(
+                new DependencyPolicyDocument
+                {
+                    SchemaVersion = policy.SchemaVersion,
+                    Solution = policy.Solution,
+                    Configuration = policy.Configuration,
+                    Rules = [rule],
+                },
+                graph)
+            .ToArray();
+
+        Assert.Equal(2, violations.Length);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Project);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Assembly);
+    }
 
     private static string FindRepositoryRoot()
     {

@@ -67,7 +67,7 @@ later observation to one runtime.
 | Measurement | Boundary | Interpretation |
 | --- | --- | --- |
 | Startup latency | Navigation start through callable managed build identity | User-visible cold site startup, including asset transfer and runtime initialization |
-| Framework bytes | Browser resource timing for `/_framework/` through readiness | Transfer evidence associated with startup; zero transfer sizes make the observation unsuitable for byte comparison |
+| Framework bytes | Playwright network accounting for page- and Worker-initiated `/_framework/` requests through readiness | Encoded response-body and response-header transfer evidence associated with startup |
 | Cold package inspection | First exact package query in the fresh context | Network-sensitive end-to-end user latency |
 | Warm package inspection | Immediate repeat of the exact query | Process-local package reuse plus repeated managed projection |
 | Package-performance latency | First and second whole-package performance scans | Expensive first-use and warm managed analysis |
@@ -98,8 +98,28 @@ other failure is retained in the report with its stage and message, makes the
 report non-comparable, and causes a nonzero exit.
 
 The harness does not repair product output, bypass product acquisition, or
-construct managed evidence. It invokes the published product facades exactly
-as the site does.
+construct managed evidence. It opts into a narrow browser benchmark bridge
+over the site's existing production `EngineClient`, so startup and every
+measured operation use the same long-lived Worker runtime and generated
+product-operation path as the deployed application. The pinned comparison
+operation remains part of this matched workload even when it has no current UI
+affordance. Ordinary site loads do not install the bridge.
+
+Window Resource Timing does not include the dedicated Worker's framework
+requests in Firefox. The harness therefore records framework transfers from
+Playwright's page-level network events, which include requests initiated by
+the page and its Worker. It reports encoded response bytes; decoded response
+bytes are unavailable at that boundary and remain `null` in the raw report.
+Observation starts before navigation. At managed readiness, the harness stops
+accepting new framework requests and waits within the same startup deadline for
+every request already observed to finish or fail; a failed or stalled request
+rejects the sample visibly instead of producing partial byte accounting.
+
+Promoted run `34545510641` established the migration failure that this boundary
+replaces: all ten samples timed out waiting for uninitialized main-thread
+generated facades, before build identity or timing evidence. The retained host
+load was modest, so the run was rejected as a deterministic harness defect and
+produced no trend point.
 
 ## Running the harness
 
@@ -195,9 +215,9 @@ commits. They justify the harness shape only.
 
 ## Runtime migration evidence
 
-The .NET 12 non-ReadyToRun and ReadyToRun deployments must use one exact,
-coherent SDK and workload cohort. A floating daily or a stable SDK combined
-with separately overridden runtime packages is not comparable evidence.
+Each .NET 12 deployment must use one exact, coherent SDK and workload cohort.
+A floating daily or a stable SDK combined with separately overridden runtime
+packages is not comparable evidence.
 
 The non-ReadyToRun CoreCLR deployment pins the runtime-main cohort:
 
@@ -232,9 +252,39 @@ ReadyToRun publication must additionally record:
 - the same runtime-async deployment and browser correctness gates used by the
   non-ReadyToRun CoreCLR deployment.
 
-The current runtime-main daily has a Linux path-casing defect: Crossgen2 writes
-`R2R/` while the browser packaging target probes `r2r/`.
+The ReadyToRun CoreCLR deployment pins the later runtime-main cohort:
+
+- SDK `12.0.100-alpha.1.26459.112`;
+- runtime and browser workload packs `12.0.0-alpha.1.26459.112`;
+- dotnet/dotnet VMR source commit
+  `7792b064d8573a30d8527944de8184b7e108837e`; and
+- the same `dotnet12` workload feed used by the non-ReadyToRun cohort.
+
+This cohort follows the same `net11.0` workload and .NET 12 CoreCLR composition
+as the non-ReadyToRun deployment, but sets `PublishReadyToRun=true` and
+`PublishReadyToRunComposite=false`. Its Crossgen2 output uses per-assembly Wasm
+containers in the canonical `R2R/` directory. The publication gate parses the
+SDK-owned runtime asset inventory and requires every emitted Crossgen2 file to
+have the WebAssembly magic number and to be byte-identical to its fingerprinted
+published asset. It also requires every `DotnetInspect.Web*` application asset
+and `System.Private.CoreLib` to be in that ReadyToRun set, rejects orphaned
+Crossgen2 outputs, and records the remaining IL-only managed assets explicitly.
+For the initial candidate, Crossgen2 emits 71 of 74 managed assets, including
+all eight application assets; `System.ComponentModel`, `System`, and
+`System.Xml.Linq` are the three recorded framework facades without Crossgen2
+outputs.
+
+The artifact carries the complete per-assembly manifest and its digest in the
+runtime cohort receipt. The same gate replays before artifact upload and before
+deployment. The receipt also records uncompressed, Brotli, gzip, and total
+`/_framework/` file counts and byte sizes. The replacement-head current-source
+publication measured 77,180,680 uncompressed bytes, 16,593,730 Brotli bytes,
+and 22,981,185 gzip bytes; deployed artifacts remain authoritative because
+fingerprints and compression can change with application code.
+
+The earlier runtime-main cohort had a Linux path-casing defect: Crossgen2 wrote
+`R2R/` while the browser packaging target probed `r2r/`.
 [dotnet/runtime#133203](https://github.com/dotnet/runtime/pull/133203) carries
-the fix. The deployment should select a daily containing that fix rather than
-commit a dependency on the private `_WasmPublishR2RDir` workaround used during
-the investigation.
+the fix. The pinned ReadyToRun cohort contains the synchronized fix and does
+not depend on the private `_WasmPublishR2RDir` workaround used during the
+investigation.

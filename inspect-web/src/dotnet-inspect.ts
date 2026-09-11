@@ -63,6 +63,10 @@ import {
   workspaceCoordinatesMatch
 } from "./data.ts";
 import type { EngineClient } from "./engine-client.ts";
+import {
+  createPublishedRuntimeBenchmarkBridge,
+  installPublishedRuntimeBenchmarkBridge,
+} from "./published-runtime-benchmark-bridge.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -170,9 +174,10 @@ import {
 import {
   homeDemosEntryHtml,
   isProductHomeDemosPath,
+  prepareProductHomeDemoSource,
   productHomeDemoCatalog,
-  productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
+  type PreparedProductHomeDemoSource,
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
 import { createSavedWorkspaces, type SavedWorkspace } from "./saved-workspaces.ts";
@@ -191,38 +196,6 @@ import {
   renderMemberFacts,
 } from "./member-facts.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
-import {
-  createMethodBodyComparisonCoordinator,
-  createMethodBodyDiffState,
-  isMethodBodyToken,
-  methodBodyComparisonPackageId,
-  type MethodBodyComparisonContext,
-  type MethodBodyDiffState,
-} from "./method-body-comparison.ts";
-import {
-  bindMethodBodyDiff,
-  METHOD_BODY_DIFF_ACTION_SELECTOR,
-  METHOD_BODY_DIFF_CHOOSER_SELECTOR,
-  METHOD_BODY_DIFF_FILTER_SELECTOR,
-  renderMethodBodyComparisonAction,
-  renderMethodBodyDiffModal,
-  type MethodBodyComparisonAvailability,
-  type MethodBodyDiffAction,
-} from "./method-body-diff-view.ts";
-import {
-  createSourceComparisonCoordinator,
-  createSourceDiffState,
-  type SourceDiffState,
-} from "./source-comparison.ts";
-import {
-  bindSourceDiff,
-  renderSourceComparisonAction,
-  renderSourceDiffModal,
-  SOURCE_DIFF_ACTION_SELECTOR,
-  SOURCE_DIFF_VERSION_SELECTOR,
-  type SourceComparisonAvailability,
-  type SourceDiffAction,
-} from "./source-comparison-view.ts";
 import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
@@ -265,13 +238,19 @@ import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
+  styleCallGraphMermaid,
 } from "./graph-mermaid.ts";
 import {
   bindGraphBack,
   bindGraphPanZoom,
+  graphControlsHtml,
   type GraphNodeBinding,
   type GraphBackBindingActions,
 } from "./graph-interactions.ts";
+import {
+  callGraphLegendHtml,
+  dependencyGraphLegendHtml,
+} from "./graph-legends.ts";
 import { bindGraphExplore, createGraphExplorer } from "./graph-explorer.ts";
 import {
   validateAnnotatedSourceDocument,
@@ -331,6 +310,7 @@ import {
   deleteRetainedWorkspace as deleteRetainedWorkspaceState,
   MAX_RETAINED_WORKSPACES,
   publishRetainedWorkspace,
+  type RetainedWorkspaceCollection,
 } from "./retained-workspaces.ts";
 import {
   bindDocViewer,
@@ -454,7 +434,12 @@ import {
   createPackageComparisonTargets,
   renderPackageComparisonTargets,
 } from "./package-comparison-targets.ts";
-import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
+import {
+  AGENT_SKILL_URL,
+  CLI_TOOL_URL,
+  dataBarHtml,
+  fmtBytes,
+} from "./data-bar.ts";
 import {
   bindCreditsPanel,
   isCreditsPath,
@@ -525,7 +510,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
 import type {
-  BrowserHomeDemoResolveResult,
+  BrowserHomeDemoRunActivation,
   BrowserHomeDemoRunResult,
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
@@ -598,18 +583,8 @@ let inspectPlatformPerformance:
 let cancelSourceInspection: EngineClient["source"]["cancelSourceQuery"];
 let cancelTypeSourceInspection:
   EngineClient["source"]["cancelTypeSourceQuery"];
-let cancelMethodBodyComparisonQuery:
-  EngineClient["source"]["cancelMethodBodyComparison"];
-let inspectMethodBodyComparison:
-  EngineClient["source"]["queryMethodBodyComparison"];
-let inspectMethodBodyComparisonTargets:
-  EngineClient["source"]["queryMethodBodyComparisonTargets"];
 let inspectMemberFindingCensus:
   EngineClient["source"]["queryMemberFindingCensus"];
-let inspectMemberSourceComparison:
-  EngineClient["source"]["queryMemberSourceComparison"];
-let cancelMemberSourceComparisonQuery:
-  EngineClient["source"]["cancelMemberSourceComparison"];
 let inspectMemberSource: EngineClient["source"]["queryMemberSource"];
 let inspectTypeMemberSource:
   EngineClient["source"]["queryTypeMemberSource"];
@@ -658,6 +633,11 @@ async function loadEngineModule() {
       },
     });
     engineClient = worker.client;
+    installPublishedRuntimeBenchmarkBridge(
+      window,
+      window.location.search,
+      createPublishedRuntimeBenchmarkBridge(engineClient),
+    );
     cancelPackageQuery = (...args) =>
       engineClient.package.cancelPackageQuery(...args);
     inspectRequestPackageQueryMatches = (...args) =>
@@ -709,12 +689,7 @@ async function loadEngineModule() {
     } = engineClient.analysis);
     ({
       cancelSourceQuery: cancelSourceInspection,
-      cancelMethodBodyComparison: cancelMethodBodyComparisonQuery,
-      queryMethodBodyComparison: inspectMethodBodyComparison,
-      queryMethodBodyComparisonTargets: inspectMethodBodyComparisonTargets,
       queryMemberFindingCensus: inspectMemberFindingCensus,
-      queryMemberSourceComparison: inspectMemberSourceComparison,
-      cancelMemberSourceComparison: cancelMemberSourceComparisonQuery,
       queryMemberSource: inspectMemberSource,
       queryTypeMemberSource: inspectTypeMemberSource,
       queryTypeSource: inspectTypeSource,
@@ -894,7 +869,6 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
-  statusBarExpanded: false,
   memberFiltersExpanded: false,
   typeFiltersExpanded: false,
   packages: [],
@@ -947,8 +921,6 @@ const initialState = {
   memberAnnotatedModal: null,
   memberFindingInteraction: null,
   memberFindingSelectionError: "",
-  methodBodyDiff: createMethodBodyDiffState(),
-  sourceDiff: createSourceDiffState(),
   typeSource: null,
   typeSourceLoading: false,
   typeSourceError: "",
@@ -1073,8 +1045,6 @@ interface StateOverrides {
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
   memberFindingInteraction: MemberFindingInteraction | null;
-  methodBodyDiff: MethodBodyDiffState;
-  sourceDiff: SourceDiffState;
   typeSource: BrowserSource | null;
   typeMetadata: BrowserTypeMetadata | null;
   packageDependencies: BrowserPackageDependencies | null;
@@ -1180,8 +1150,6 @@ function captureCanonicalWorkspaceRestoreSnapshot():
 CanonicalWorkspaceRestoreSnapshot {
   sourceInspection.cancelCurrentRequest();
   cancelFindingCensusRequest(state);
-  methodBodyComparison.dispose();
-  sourceComparison.dispose();
   const packages = structuredClone(state.packages);
   const copies = new Map<AppPackage, AppPackage>();
   for (const [index, original] of state.packages.entries()) {
@@ -1334,8 +1302,6 @@ function settleInterruptedPlatformStatus(targetState: AppState): void {
 function restoreCanonicalWorkspaceRestoreSnapshot(
   snapshot: CanonicalWorkspaceRestoreSnapshot,
 ) {
-  const methodBodyDiff = state.methodBodyDiff;
-  const sourceDiff = state.sourceDiff;
   const sourceRequestGeneration = state.sourceRequestGeneration;
   const typeMetadataGeneration = state.typeMetadataGeneration;
   const memberCallGraphSeq = state.memberCallGraphSeq;
@@ -1344,10 +1310,6 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   clearWorkspaceOccurrenceView();
   clearWorkspacePackages();
   Object.assign(state, snapshot.state);
-  Object.assign(methodBodyDiff, snapshot.state.methodBodyDiff);
-  Object.assign(sourceDiff, snapshot.state.sourceDiff);
-  state.methodBodyDiff = methodBodyDiff;
-  state.sourceDiff = sourceDiff;
   state.sourceRequestGeneration =
     Math.max(sourceRequestGeneration, snapshot.state.sourceRequestGeneration) + 1;
   state.typeMetadataGeneration =
@@ -1431,7 +1393,6 @@ function invalidateWorkspaceAsyncOwners(): void {
 function captureRetainedHostState() {
   return {
     theme: state.theme,
-    statusBarExpanded: state.statusBarExpanded,
     home: state.home,
     credits: state.credits,
     packageQueryOpen: state.packageQueryOpen,
@@ -1612,6 +1573,32 @@ function publishInitialLoadedWorkspace(
     },
   );
   return true;
+}
+
+interface StagedWorkspacePublication {
+  collection: RetainedWorkspaceCollection<CanonicalWorkspaceRestoreSnapshot>;
+  url: string;
+}
+
+function stageCurrentWorkspacePublication(
+  previousSnapshot: CanonicalWorkspaceRestoreSnapshot | null,
+  url: string,
+): StagedWorkspacePublication {
+  return {
+    collection: publishRetainedWorkspace(
+      retainedWorkspaces,
+      previousSnapshot),
+    url,
+  };
+}
+
+function commitCurrentWorkspacePublication(
+  publication: StagedWorkspacePublication,
+): void {
+  retainedWorkspaces = publication.collection;
+  activeWorkspaceUrl = publication.url;
+  pendingWorkspaceConstruction = null;
+  setWorkspaceConstructionPending(false);
 }
 
 function publishCurrentWorkspace(
@@ -1831,50 +1818,6 @@ const sourceInspection = createSourceInspectionCoordinator({
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
-});
-const methodBodyComparison = createMethodBodyComparisonCoordinator({
-  state: state.methodBodyDiff,
-  operationAuthority,
-  queryTargets: (operationId, context) => inspectMethodBodyComparisonTargets(
-    operationId,
-    context.packageId,
-    context.version,
-    context.framework,
-    context.assembly,
-    context.typeIdentity,
-    context.memberName,
-    context.selectorKey,
-    context.metadataToken),
-  queryComparison: (operationId, requestJson) =>
-    inspectMethodBodyComparison(operationId, requestJson),
-  cancelMethodBodyComparison: (operationId, reason) => {
-    observeAsync(
-      cancelMethodBodyComparisonQuery(operationId, reason),
-      "Cancelling the Method Body comparison");
-  },
-  reportOperationDiagnostic: diagnostic => {
-    console.error("Method Body Diff operation authority failure.", diagnostic);
-    return undefined;
-  },
-  describeError: errorMessage,
-  render,
-});
-const sourceComparison = createSourceComparisonCoordinator({
-  state: state.sourceDiff,
-  operationAuthority,
-  queryComparison: (operationId, requestJson) =>
-    inspectMemberSourceComparison(operationId, requestJson),
-  cancelComparison: (operationId, reason) => {
-    observeAsync(
-      cancelMemberSourceComparisonQuery(operationId, reason),
-      "Cancelling the Source comparison");
-  },
-  reportOperationDiagnostic: diagnostic => {
-    console.error("Source Diff operation authority failure.", diagnostic);
-    return undefined;
-  },
-  describeError: errorMessage,
-  render,
 });
 const packageQueryController = createPackageQueryController(
   state.packageQueryState,
@@ -2521,8 +2464,22 @@ function stageDemoNavigation(
 function commitDemoNavigation(navigationSeq: number): boolean {
   if (!navigationSequence.isCurrent(navigationSeq)
     || pendingDemoNavigation?.navigationSeq !== navigationSeq) return false;
-  workspaceLocation.push(pendingDemoNavigation.destination);
+  if (!workspaceLocation.push(pendingDemoNavigation.destination)) return false;
   pendingDemoNavigation = null;
+  return true;
+}
+
+function commitStagedWorkspaceNavigation(
+  navigationSeq: number,
+  publication: StagedWorkspacePublication,
+): boolean {
+  const previousCollection = retainedWorkspaces;
+  retainedWorkspaces = publication.collection;
+  if (!commitDemoNavigation(navigationSeq)) {
+    retainedWorkspaces = previousCollection;
+    return false;
+  }
+  commitCurrentWorkspacePublication(publication);
   return true;
 }
 
@@ -3979,10 +3936,6 @@ function currentSourceReloadKind() {
 }
 
 function clearMemberContentCache() {
-  // A member navigation replaces the launching context, so its dialog operations are
-  // released rather than left to publish into a different member.
-  methodBodyComparison.dispose();
-  sourceComparison.dispose();
   invalidateMemberDestinationWork(state);
   state.memberSource = null;
   state.memberSourceError = "";
@@ -4509,7 +4462,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
   const activeScope = scope();
-  const methodBodyPageContext = activeScope === "member";
   const sourcePageKind =
     activeScope === "type" && state.lens === "source"
       ? "type"
@@ -4602,22 +4554,14 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     app.focus({ preventScroll: true });
   }
   const applicationModalOpen = state.settings || state.keyboardHelp;
-  const methodBodyFocusedId = document.activeElement instanceof HTMLElement
-    && document.activeElement.closest("#method-body-diff-modal")
-    ? document.activeElement.id
-    : "";
-  const sourceDiffFocusedId = document.activeElement instanceof HTMLElement
-    && document.activeElement.closest("#source-diff-modal")
-    ? document.activeElement.id
-    : "";
   app.innerHTML = `
-    <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen || state.methodBodyDiff.open || state.sourceDiff.open ? " inert" : ""}>
+    <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
         applicationScopeHtml: renderApplicationScopeBar(
           activeScope === "workspace" ? "workspace" : null,
           true,
           escapeHtml),
-        contextualActionsHtml: methodBodyPageContext || annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface
+        contextualActionsHtml: annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface
           ? `<div class="working-surface-actions" role="group" aria-label="${metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${metadataWorkingSurface
                 ? `<button type="button" id="type-graph-explore" data-graph-explore${typeGraphAvailable() ? "" : " disabled"}>Explore</button>`
@@ -4639,16 +4583,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
                       : "copy-type-source",
                     escapeHtml,
                   })
-                : ""}
-              ${methodBodyPageContext
-                ? renderMethodBodyComparisonAction(
-                    methodBodyComparisonAvailability(),
-                    escapeHtml)
-                : ""}
-              ${methodBodyPageContext
-                ? renderSourceComparisonAction(
-                    sourceComparisonAvailability(),
-                    escapeHtml)
                 : ""}
             </div>`
           : "",
@@ -4695,16 +4629,12 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         </section>
       </main>
 
-      ${statusBarHtml({
+      ${dataBarHtml({
         buildIdentity: state.buildIdentity,
-        diagnostics: state.diag,
-        packageCache: state.packageCacheStats,
-        source: pkg.source,
-        assembly: activeScope === "library"
-          ? selectedLibraryName()
-          : current?.assembly ?? pkg.assembly,
-        framework: pkg.activeFramework,
-        expanded: state.statusBarExpanded,
+        producer: {
+          kind: pkg.source.kind === "platform" ? "acquisition" : "package",
+          label: pkg.producerLabel,
+        },
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
       ${graphSourceIsOpen(state.graphSource) ? renderGraphSource() : ""}
@@ -4715,16 +4645,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ${state.keyboardHelp
       ? renderKeyboardHelpDialog(keyboardHelpBindings)
       : ""}
-    ${renderAnnotatedSourceModal()}
-    ${renderMethodBodyDiffModal({
-      state: state.methodBodyDiff,
-      escapeHtml,
-      highlightCSharp,
-    })}
-    ${renderSourceDiffModal({
-      state: state.sourceDiff,
-      escapeHtml,
-    })}`;
+    ${renderAnnotatedSourceModal()}`;
 
   for (const packageIcon of document.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
     packageIcon.onerror = () => {
@@ -4764,8 +4685,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
-  restoreMethodBodyDiffFocus(methodBodyFocusedId);
-  restoreSourceDiffFocus(sourceDiffFocusedId);
   graphExplorer.afterRender(graphExplorerTarget());
   recordNav();
   const productDemosRouteVisible =
@@ -4827,11 +4746,8 @@ function renderWorkspaceCatalogView() {
           </article>
         </section>
       </main>
-      ${statusBarHtml({
+      ${dataBarHtml({
         buildIdentity: state.buildIdentity,
-        diagnostics: state.diag,
-        packageCache: state.packageCacheStats,
-        expanded: state.statusBarExpanded,
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>
@@ -4840,7 +4756,6 @@ function renderWorkspaceCatalogView() {
     ${state.keyboardHelp
       ? renderKeyboardHelpDialog(keyboardHelpBindings)
       : ""}`;
-  bindStatusBarEvents();
   bindScopeBarEvents();
   bindWorkspaceSubjectEvents();
   bindSettingsPanelEvents();
@@ -5422,6 +5337,7 @@ function renderPackageDependencies() {
       <div class="section-title"><h2>Dependency graph</h2><span>${DEPENDENCY_GRAPH_SUMMARY}</span></div>
       ${workspaceDependencyErrorHtml()}
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+      ${dependencyGraphLegendHtml()}
     </section>`;
 
   return renderPackageDependenciesSurface(
@@ -6686,15 +6602,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             ${incompleteGraph}
             ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
-            <div class="graph-legend" aria-label="Graph legend">
-              <span><i class="legend-swatch target"></i>target member</span>
-              <span><i class="legend-swatch same-type"></i>same declaring type</span>
-              <span><i class="legend-swatch different-type"></i>different type, same assembly</span>
-              <span><i class="legend-swatch different-assembly"></i>different assembly</span>
-              <span><i class="legend-swatch loaded-node"></i>solid border: no platform lookup</span>
-              <span><i class="legend-swatch platform-node"></i>dashed border: external assembly (platform lookup on click)</span>
-            </div>
-            <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
+            ${callGraphLegendHtml()}
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
@@ -7050,15 +6958,6 @@ function bindPackageViewEvents() {
 
 function bindPackageDependencyListEvents() {
   bindPackageDependencyList(document, packageViewActions);
-}
-
-function bindStatusBarEvents() {
-  bindStatusBar(document, {
-    onToggle: () => {
-      state.statusBarExpanded = !state.statusBarExpanded;
-      render();
-    },
-  });
 }
 
 function bindLibraryControlsEvents() {
@@ -7637,191 +7536,6 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
   }
 }
 
-// Method Body Diff is a session-local dialog over the current member: it names why it is
-// unavailable instead of hiding, never picks an accessor on the person's behalf, and never
-// rewrites the canonical location or member navigation.
-function methodBodyComparisonAvailability(): MethodBodyComparisonAvailability {
-  if (!state.package || state.atPackageRoot || scope() !== "member") {
-    return {
-      available: false,
-      reason: "Select a member before comparing method bodies.",
-    };
-  }
-  const type = selectedType();
-  const member = selectedMember(type);
-  if (!type || !member) {
-    return {
-      available: false,
-      reason: "Select a member before comparing method bodies.",
-    };
-  }
-  const overload =
-    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
-  if (!overload) {
-    return {
-      available: false,
-      reason: "Select one overload before comparing method bodies.",
-    };
-  }
-  const implementationBody = graphOnlyImplementationBody(overload);
-  const bodyTarget = state.selectedBodyTarget;
-  if (overload.bodySelectors.length > 1 && !implementationBody && !bodyTarget) {
-    return {
-      available: false,
-      reason:
-        "Select one accessor or body of this member before comparing method bodies.",
-    };
-  }
-  const metadataToken = implementationBody?.token
-    ?? bodyTarget?.metadataToken
-    ?? overload.metadataToken
-    ?? 0;
-  if (!isMethodBodyToken(metadataToken)) {
-    return {
-      available: false,
-      reason:
-        "This selection has no implementation method body to compare.",
-    };
-  }
-  return { available: true, reason: "" };
-}
-
-function methodBodyComparisonContext(): MethodBodyComparisonContext | null {
-  const type = selectedType();
-  const member = selectedMember(type);
-  if (!type || !member) return null;
-  const overload =
-    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
-  if (!overload) return null;
-  const implementationBody = graphOnlyImplementationBody(overload);
-  const bodyTarget = state.selectedBodyTarget;
-  const metadataToken = implementationBody?.token
-    ?? bodyTarget?.metadataToken
-    ?? overload.metadataToken
-    ?? 0;
-  if (!isMethodBodyToken(metadataToken)) return null;
-  const pkg = currentPackage();
-  return {
-    packageId: methodBodyComparisonPackageId(pkg),
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
-    typeIdentity: type.definitionId ?? type.id,
-    memberName: implementationBody?.memberName
-      ?? bodyTarget?.memberName
-      ?? overload.name,
-    selectorKey: implementationBody?.selectorKey
-      ?? bodyTarget?.selectorKey
-      ?? overload.graphSelectorKey,
-    metadataToken,
-    label: overload.signature || overload.name,
-  };
-}
-
-let methodBodyDiffFocusIntent: "chooser" | "none" = "none";
-let methodBodyDiffFilterCaret: number | null = null;
-
-function restoreMethodBodyDiffFocus(previousId = "") {
-  if (!state.methodBodyDiff.open) {
-    methodBodyDiffFocusIntent = "none";
-    methodBodyDiffFilterCaret = null;
-    return;
-  }
-  if (methodBodyDiffFilterCaret !== null) {
-    const filter = document.querySelector<HTMLInputElement>(
-      METHOD_BODY_DIFF_FILTER_SELECTOR);
-    if (filter) {
-      const caret = Math.min(methodBodyDiffFilterCaret, filter.value.length);
-      filter.focus({ preventScroll: true });
-      filter.setSelectionRange(caret, caret);
-    }
-    methodBodyDiffFilterCaret = null;
-    return;
-  }
-  if (methodBodyDiffFocusIntent !== "chooser") {
-    const previous = document.getElementById(previousId);
-    const target = previous?.matches(":disabled")
-      ? document.getElementById("method-body-diff-title")
-      : previous;
-    target?.focus({ preventScroll: true });
-    return;
-  }
-  const chooser = document.querySelector<HTMLElement>(
-    METHOD_BODY_DIFF_CHOOSER_SELECTOR);
-  if (chooser) {
-    methodBodyDiffFocusIntent = "none";
-    chooser.focus({ preventScroll: true });
-    return;
-  }
-  document.querySelector<HTMLElement>("#method-body-diff-title")
-    ?.focus({ preventScroll: true });
-}
-
-function openMethodBodyDiff() {
-  const availability = methodBodyComparisonAvailability();
-  const context = availability.available
-    ? methodBodyComparisonContext()
-    : null;
-  methodBodyDiffFocusIntent = "chooser";
-  methodBodyDiffFilterCaret = null;
-  if (!context) {
-    methodBodyComparison.openUnavailable(
-      availability.reason
-        || "This selection has no implementation method body to compare.",
-      METHOD_BODY_DIFF_ACTION_SELECTOR);
-    return;
-  }
-  observeAsync(
-    methodBodyComparison.open(context, METHOD_BODY_DIFF_ACTION_SELECTOR),
-    "Preparing the method body comparison");
-  render();
-}
-
-function closeMethodBodyDiff(restoreLaunchFocus: boolean) {
-  if (!methodBodyComparison.isOpen()) return false;
-  const dismissal = methodBodyComparison.close();
-  methodBodyDiffFocusIntent = "none";
-  methodBodyDiffFilterCaret = null;
-  render();
-  if (restoreLaunchFocus && dismissal.returnFocusSelector) {
-    const selector = dismissal.returnFocusSelector;
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>(selector)
-        ?.focus({ preventScroll: true });
-    });
-  }
-  return dismissal.handled;
-}
-
-function applyMethodBodyDiffAction(action: MethodBodyDiffAction) {
-  switch (action.kind) {
-    case "open":
-      openMethodBodyDiff();
-      return;
-    case "close":
-      closeMethodBodyDiff(true);
-      return;
-    case "select":
-      methodBodyComparison.selectCandidate(action.key);
-      return;
-    case "filter":
-      methodBodyDiffFilterCaret = action.caret;
-      methodBodyComparison.setFilter(action.value);
-      return;
-    case "compare":
-      observeAsync(
-        methodBodyComparison.compare(),
-        "Comparing the selected method bodies");
-      return;
-    default:
-      assertNever(action, "method body diff action");
-  }
-}
-
-function bindMethodBodyDiffEvents() {
-  bindMethodBodyDiff(document, { onAction: applyMethodBodyDiffAction });
-}
-
 function openFindingInstanceFromFacts(receipt: string, instanceKey: number) {
   const interaction = state.memberFindingInteraction;
   if (!interaction || !state.memberAnnotated) {
@@ -7862,96 +7576,6 @@ function bindMemberFactsEvents() {
   bindMemberFacts(document, {
     onSelectFinding: openFindingInstanceFromFacts,
   });
-}
-
-function sourceComparisonAvailability(): SourceComparisonAvailability {
-  if (!state.package || state.atPackageRoot || scope() !== "member")
-    return { available: false, reason: "Select a package method before comparing authored source." };
-  if (state.package.isRuntimePack)
-    return { available: false, reason: "Authored Source comparison requires package versions; runtime and platform selections are unavailable." };
-  const member = selectedMember(selectedType());
-  const overload = member
-    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
-    : null;
-  if (!overload)
-    return { available: false, reason: "Select one method overload before comparing authored source." };
-  const kind = overload.kind.toLowerCase();
-  if (!["method", "constructor", "operator"].includes(kind))
-    return { available: false, reason: "Authored Source comparison supports methods, not properties, events, fields, or their accessors." };
-  const body = graphOnlyImplementationBody(overload) ?? state.selectedBodyTarget;
-  const bodyToken = body && ("token" in body ? body.token : body.metadataToken);
-  if (bodyToken && bodyToken !== overload.metadataToken)
-    return { available: false, reason: "This accessor or nested body is not the selected authored method declaration." };
-  if (!isMethodBodyToken(overload.metadataToken ?? 0))
-    return { available: false, reason: "This selection has no implementation MethodDef to compare." };
-  return { available: true, reason: "" };
-}
-
-let sourceDiffFocusIntent = false;
-let sourceDiffVersionCaret: number | null = null;
-
-function restoreSourceDiffFocus(previousId = "") {
-  if (!state.sourceDiff.open) {
-    sourceDiffFocusIntent = false;
-    sourceDiffVersionCaret = null;
-    return;
-  }
-  const input = document.querySelector<HTMLInputElement>(SOURCE_DIFF_VERSION_SELECTOR);
-  if (sourceDiffVersionCaret !== null && input) {
-    const caret = Math.min(sourceDiffVersionCaret, input.value.length);
-    input.focus({ preventScroll: true });
-    input.setSelectionRange(caret, caret);
-    sourceDiffVersionCaret = null;
-    return;
-  }
-  const previous = document.getElementById(previousId);
-  const target = sourceDiffFocusIntent && input ? input
-    : previous && !previous.matches(":disabled") ? previous
-      : document.getElementById("source-diff-title");
-  sourceDiffFocusIntent = false;
-  target?.focus({ preventScroll: true });
-}
-
-function closeSourceDiff(restoreLaunchFocus: boolean) {
-  if (!sourceComparison.isOpen()) return false;
-  const dismissal = sourceComparison.close();
-  sourceDiffFocusIntent = false;
-  sourceDiffVersionCaret = null;
-  render();
-  if (restoreLaunchFocus && dismissal.returnFocusSelector) {
-    requestAnimationFrame(() =>
-      document.querySelector<HTMLElement>(dismissal.returnFocusSelector)
-        ?.focus({ preventScroll: true }));
-  }
-  return dismissal.handled;
-}
-
-function applySourceDiffAction(action: SourceDiffAction) {
-  switch (action.kind) {
-    case "open": {
-      const availability = sourceComparisonAvailability();
-      const context = availability.available ? methodBodyComparisonContext() : null;
-      sourceDiffFocusIntent = true;
-      sourceDiffVersionCaret = null;
-      if (context)
-        sourceComparison.open(context, SOURCE_DIFF_ACTION_SELECTOR);
-      else
-        sourceComparison.openUnavailable(
-          availability.reason || "This selection has no authored method declaration.",
-          SOURCE_DIFF_ACTION_SELECTOR);
-      return;
-    }
-    case "close":
-      closeSourceDiff(true);
-      return;
-    case "version":
-      sourceDiffVersionCaret = action.caret;
-      sourceComparison.setAfterVersion(action.value);
-      return;
-    case "compare":
-      observeAsync(sourceComparison.compare(), "Comparing authored source");
-      return;
-  }
 }
 
 function bindAnnotatedSourceEvents() {
@@ -8006,7 +7630,6 @@ function bindWorkspaceSubjectEvents() {
 }
 
 function bindEvents() {
-  bindStatusBarEvents();
   packageControls.bind(document);
   bindWorkspaceSubjectEvents();
   bindTypePanelEvents();
@@ -8018,8 +7641,6 @@ function bindEvents() {
   bindDocViewerEvents();
   bindMemberFactsEvents();
   bindAnnotatedSourceEvents();
-  bindMethodBodyDiffEvents();
-  bindSourceDiff(document, { onAction: applySourceDiffAction });
   bindPackageViewEvents();
   bindPackageComparisonControls();
   bindLibraryControlsEvents();
@@ -8609,12 +8230,14 @@ function renderPlatformView() {
         })}
       </article></section>
     </main>
-    ${statusBarHtml({ buildIdentity: state.buildIdentity, diagnostics: state.diag, packageCache: state.packageCacheStats, framework: target?.tfm ?? "", expanded: state.statusBarExpanded }, escapeHtml)}
+    ${dataBarHtml({
+      buildIdentity: state.buildIdentity,
+      producer: { kind: "acquisition", label: "Platform" },
+    }, escapeHtml)}
     ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>${renderApplicationMenu(true)}
     ${state.settings ? renderSettingsViewHtml() : ""}
     ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}`;
-  bindStatusBarEvents();
   bindScopeBarEvents();
   bindSettingsPanelEvents();
   workbenchShellBinding = bindWorkbenchShell(document, workbenchShellActions);
@@ -9683,8 +9306,6 @@ function workbenchModalOwnsFocus() {
     || graphSourceIsOpen(state.graphSource)
     || documentViewerIsOpen(state.docViewer)
     || state.memberAnnotatedModal !== null
-    || state.methodBodyDiff.open
-    || state.sourceDiff.open
     || graphExplorer.isOpen;
 }
 
@@ -10604,7 +10225,7 @@ function renderHomeView() {
                 </div>`
               : ""}
           </div>
-          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
+          <p class="home-availability">Also available as a <a href="${CLI_TOOL_URL}" target="_blank" rel="noopener noreferrer">CLI tool</a> and <a href="${AGENT_SKILL_URL}" target="_blank" rel="noopener noreferrer">agent skill</a>.</p>
           <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
             <span class="home-demos-label">Explore product demos</span>
@@ -10618,13 +10239,8 @@ function renderHomeView() {
         </div>
         <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">${homeArtSvg()}</aside>
       </main>
-      ${statusBarHtml({
-        variant: "home",
-        ready: state.engineReady,
+      ${dataBarHtml({
         buildIdentity: state.buildIdentity,
-        diagnostics: state.diag,
-        compactDiagnostics: true,
-        expanded: state.statusBarExpanded,
       }, escapeHtml)}
     </div>
     ${state.settings ? renderSettingsViewHtml() : ""}`;
@@ -10650,7 +10266,6 @@ const homeShellActions: HomeShellBindingActions = {
 };
 
 function bindHomeEvents() {
-  bindStatusBarEvents();
   bindSettingsPanelEvents();
   bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
@@ -10704,10 +10319,8 @@ function openProductDemos(): void {
 }
 
 // Workspace demo actions use product ids from engine `listHomeDemos` /
-// `resolveHomeDemo` (`EcosystemPackCatalog` / CLI `demo <id>`). Type views
-// restore via share deep links built from the resolved projection;
-// member-bound Call Graph demos execute through one generated engine operation
-// over the product-resolved workspace and view.
+// `RunHomeDemo` (`EcosystemPackCatalog` / CLI `demo <id>`). Every demo executes
+// through the product-resolved workspace and typed activation result.
 function openDefaultWorkspace(): void {
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
@@ -10733,88 +10346,26 @@ async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
   const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
   try {
     state.loading = true;
-    state.loadingMessage = "Resolving product demo…";
-    state.loadingSubtitle = "Reading the product workspace and view…";
+    state.loadingMessage = "Loading product demo…";
+    state.loadingSubtitle = "Resolving the product workspace and view…";
     render();
-    let resolveResult: BrowserHomeDemoResolveResult;
-    try {
-      resolveResult = await engineClient.catalog.resolveHomeDemo(kind);
-    } catch (error) {
-      if (!navigationSequence.isCurrent(navigationSeq)) return;
-      failDemoWorkspaceOpen(
-        kind,
-        errorMessage(error),
-        snapshot,
-        true);
-      return;
-    }
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
-    const resolved = resolveResult.found ? resolveResult.demo : null;
-    if (!resolved) {
-      failDemoWorkspaceOpen(
-        kind,
-        `Unknown product home demo '${kind}'.`,
-        snapshot,
-        false);
-      return;
-    }
-    let link: string | null;
-    try {
-      link = await productHomeDemoLocationHref(
-        resolved,
-        inspectEncodeWorkspaceShareState);
-    } catch (error) {
-      if (!navigationSequence.isCurrent(navigationSeq)) return;
-      failDemoWorkspaceOpen(
-        kind,
-        errorMessage(error),
-        snapshot,
-        false);
-      return;
-    }
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
-    if (!link) {
-      const construction =
-        captureWorkspaceConstructionSnapshots(navigationSeq);
-      state.home = false;
-      prepareUnpublishedWorkspace();
-      await runCallGraphDemo(
-        kind,
-        construction.rollbackSnapshot ?? snapshot,
-        construction.retainedSnapshot,
-        navigationSeq);
-      return;
-    }
-    let destination: string;
-    let loc: ParsedLocation;
-    try {
-      destination = new URL(link, location.href).toString();
-      loc = await parseWorkspaceHref(destination);
-    } catch (error) {
-      if (!navigationSequence.isCurrent(navigationSeq)) return;
-      failDemoWorkspaceOpen(
-        kind,
-        errorMessage(error),
-        snapshot,
-        false);
-      return;
-    }
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
-    stageDemoNavigation(navigationSeq, destination);
     const construction =
       captureWorkspaceConstructionSnapshots(navigationSeq);
     state.home = false;
     prepareUnpublishedWorkspace();
-    await restoreWorkspaceCatalogEntry(
-      loc,
-      navigationSeq,
+    await runEngineHomeDemo(
+      kind,
       construction.rollbackSnapshot ?? snapshot,
       construction.retainedSnapshot,
-      message => failDemoWorkspaceOpen(
-        kind,
-        message,
-        construction.rollbackSnapshot ?? snapshot,
-        true));
+      navigationSeq,
+    );
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    failDemoWorkspaceOpen(
+      kind,
+      errorMessage(error),
+      snapshot,
+      true);
   } finally {
     cancelDemoNavigation(navigationSeq);
   }
@@ -11000,10 +10551,15 @@ async function restoreWorkspaceCatalogEntry(
     if (!failed
       && navigationSequence.isCurrent(navigationSeq)
       && (state.package || state.platformSelection)) {
-      await buildStateUrl();
+      const destination = (await buildStateUrl()).toString();
       if (!navigationSequence.isCurrent(navigationSeq)) return;
-      publishCurrentWorkspace(previousSnapshot);
-      if (!commitDemoNavigation(navigationSeq)) return;
+      const publication = stageCurrentWorkspacePublication(
+        previousSnapshot,
+        destination);
+      if (!commitStagedWorkspaceNavigation(navigationSeq, publication)) {
+        fail("The saved Workspace could not commit its destination.");
+        return;
+      }
       syncUrl();
       render({ synchronizeUrl: false });
       focusInspectionResult(navigationSeq);
@@ -12003,11 +11559,7 @@ async function renderTypeGraph() {
     if (document.querySelector("#type-graph-diagram") !== container) return;
     container.innerHTML =
       '<div class="graph-viewport"></div>'
-      + '<div class="graph-controls">'
-      + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
-      + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
-      + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
-      + '</div>';
+      + graphControlsHtml();
     const viewport =
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
@@ -12166,11 +11718,8 @@ async function renderDependencyGraph() {
     if (document.querySelector("#dependency-graph-diagram") !== container) return;
     container.innerHTML =
       '<div class="dependency-graph-stage"><div class="graph-viewport"></div>'
-      + '<div class="graph-controls">'
-      + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
-      + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
-      + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
-      + '</div></div>'
+      + graphControlsHtml()
+      + '</div>'
       + (built.truncated
         ? `<div class="graph-drill-error graph-diagnostics" role="status">Dependency graph truncated at ${built.nodeLimit} nodes.</div>`
         : "");
@@ -12379,8 +11928,6 @@ function patchCallGraphSection(previousMermaid: string | undefined) {
     scopeEl.innerHTML =
       `<strong>Workspace callers</strong><span>${graphScope.packages} loaded packages · ${graphScope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span>`;
   }
-  const sourceCode = section.querySelector(".graph-mermaid pre code");
-  if (sourceCode) sourceCode.textContent = graph?.mermaid ?? "";
   if (graph?.mermaid && graph.mermaid !== previousMermaid)
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
 }
@@ -12446,7 +11993,8 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
       const id = `call-graph-${Date.now().toString(36)}-${seq}`;
       const rootStyle = getComputedStyle(document.documentElement);
       const renderDefinition = resolveMermaidCssVariables(
-        definition, name => rootStyle.getPropertyValue(name));
+        styleCallGraphMermaid(definition, active.targets),
+        name => rootStyle.getPropertyValue(name));
       const { svg } = await mermaid.render(id, renderDefinition);
       if (seq !== callGraphRenderSeq) {
         return { status: "superseded" };
@@ -12460,11 +12008,7 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
       }
       targetContainer.innerHTML =
         '<div class="graph-viewport"></div>'
-        + '<div class="graph-controls">'
-        + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
-        + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
-        + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
-        + '</div>';
+        + graphControlsHtml();
       const viewport =
         targetContainer.querySelector<HTMLElement>(".graph-viewport");
       if (!viewport) {
@@ -14440,7 +13984,220 @@ async function loadRuntimeGraphAssembly(
   }
 }
 
-async function runCallGraphDemo(
+interface ProductHomeDemoSelection {
+  type: AppTypeSurface;
+  member: AppMemberGroup | null;
+  overloadIndex: number | null;
+  overload: AppMemberSurface | null;
+}
+
+function selectProductHomeDemoTarget(
+  packageModel: AppPackage,
+  activation: BrowserHomeDemoRunActivation,
+  focusAssembly: string | null,
+  focusPack: PlatformPack | null,
+): ProductHomeDemoSelection {
+  const types = packageModel.types.filter(item =>
+    item.id === activation.typeId
+    && (!focusAssembly
+      || (item.assemblyName.toLowerCase() === focusAssembly.toLowerCase()
+        && item.platformPack === focusPack)));
+  if (types.length !== 1) {
+    throw new Error(
+      `The engine-run demo type '${activation.typeId}' matched ${types.length} returned rows.`);
+  }
+  const type = types[0]!;
+  if (activation.memberSection === null) {
+    if (activation.memberName !== null
+      || activation.memberKind !== null
+      || activation.memberAnchorDigest !== null) {
+      throw new Error(
+        "The engine-run Methods demo returned an unexpected member selection.");
+    }
+    return {
+      type,
+      member: null,
+      overloadIndex: null,
+      overload: null,
+    };
+  }
+
+  if (!activation.memberName
+    || !activation.memberKind
+    || !activation.memberAnchorDigest) {
+    throw new Error(
+      "The engine-run Call Graph demo returned an incomplete member selection.");
+  }
+  const members = memberGroups(type).filter(item =>
+    item.name === activation.memberName
+    && item.kind === activation.memberKind);
+  if (members.length !== 1) {
+    throw new Error(
+      "The engine-run demo member was not uniquely present in its returned surface.");
+  }
+  const member = members[0]!;
+  const overloads = member.overloads
+    .map((overload, index) => ({ overload, index }))
+    .filter(item =>
+      item.overload.anchorDigest === activation.memberAnchorDigest);
+  if (overloads.length !== 1) {
+    throw new Error(
+      "The engine-run demo overload was not uniquely present in its returned surface.");
+  }
+  return {
+    type,
+    member,
+    overloadIndex: overloads[0]!.index,
+    overload: overloads[0]!.overload,
+  };
+}
+
+function installPackageHomeDemoSource(
+  source: Extract<PreparedProductHomeDemoSource, { kind: "package" }>,
+) {
+  clearWorkspacePackages();
+  for (const packageModel of source.packages) {
+    retainPackageModel(packageModel);
+    recordRecentPackage(
+      packageModel.id,
+      packageModel.version,
+      packageModel.activeFramework);
+  }
+  if (state.packages.length !== source.packages.length
+    || !state.packages.every((packageModel, index) =>
+      packageIdentityEquals(packageModel, source.packages[index]))) {
+    throw new Error(
+      "The product demo package workspace did not retain its exact returned coordinates.");
+  }
+  refreshPackageStats();
+  activatePackage(source.focusPackage, { resetAccessibility: true });
+}
+
+async function installPlatformHomeDemoSource(
+  source: Extract<PreparedProductHomeDemoSource, { kind: "platform" }>,
+  activation: BrowserHomeDemoRunActivation,
+  demoId: ProductHomeDemoId,
+  navigationSeq: number,
+) {
+  const target = await ensurePlatformCatalog(
+    activation.focusFramework,
+    activation.focusVersion);
+  if (!navigationSequence.isCurrent(navigationSeq)) return false;
+  const row = platformGraphLibraryForTarget(
+    target,
+    source.focusAssembly,
+    source.focusPack);
+  if (!row) {
+    throw new Error(
+      "The exact Platform catalog did not retain the engine-run demo focus.");
+  }
+  const descriptors = source.package.assemblies.filter(item =>
+    platformLibraryMatchesDescriptor(row, item));
+  if (descriptors.length !== 1) {
+    throw new Error(
+      "The engine-run Platform demo focus did not match one exact catalog Library.");
+  }
+
+  clearWorkspacePackages();
+  retainPackageModel(source.package);
+  const opened = await openPlatformLibrary(
+    source.focusAssembly,
+    source.focusPack,
+    {
+      scopeOnly: true,
+      navigationSeq,
+      tfm: target.tfm,
+      version: target.version,
+      retryAction: () => runHomeDemo(demoId),
+    });
+  if (!navigationSequence.isCurrent(navigationSeq)) return false;
+  if (!opened || opened !== source.package) {
+    throw new Error(
+      "The native Platform Library path did not retain the engine-run demo surface.");
+  }
+  return true;
+}
+
+function applyProductHomeDemoSelection(
+  selection: ProductHomeDemoSelection,
+  result: BrowserHomeDemoRunResult,
+) {
+  const { type, member, overloadIndex, overload } = selection;
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = new Set([libraryKey(type)]);
+  revealTypeInFilters(type);
+  state.selectedTypeId = type.id;
+  state.typeCursor = Math.max(
+    0,
+    filteredTypes().findIndex(item => item === type));
+  state.atPackageRoot = false;
+  state.atLibraryRoot = false;
+  state.workspaceSubjectOpen = false;
+  state.lens = "api";
+  state.packageLens = "overview";
+  resetMemberFilters();
+  resetMemberSectionState();
+  state.platformStack = [];
+  state.memberBrowseTypeId = member ? type.id : "";
+  state.selectedMemberKey = member?.key ?? "";
+  state.selectedOverloadIndex = overloadIndex;
+
+  if (!member || !overload) return;
+  state.memberSection = "call-graph";
+  state.memberCallGraph = result.callGraph;
+  state.memberCallGraphError = "";
+  state.memberCallGraphLoading = false;
+  state.memberCallGraphExpanding = false;
+  state.memberCallGraphKey = memberRequestSignature(
+    type,
+    overload,
+    true);
+}
+
+function retainPackageHomeDemoShareBasis(
+  source: Extract<PreparedProductHomeDemoSource, { kind: "package" }>,
+  selection: ProductHomeDemoSelection,
+) {
+  const captured = capturedShareTabs();
+  const activeIndex = state.packages.indexOf(source.focusPackage);
+  const participantTabIds = source.packages.map(packageModel => {
+    const index = state.packages.findIndex(candidate =>
+      packageIdentityEquals(candidate, packageModel));
+    const tab = captured.tabs[index];
+    if (!tab) {
+      throw new Error(
+        "The product demo package is no longer part of the Browser workspace.");
+    }
+    return tab.id;
+  });
+  const topology = callGraphCaptureTopology(
+    captured.tabs,
+    activeIndex,
+    participantTabIds);
+  const activeTab = captured.tabs[activeIndex];
+  if (!activeTab) {
+    throw new Error(
+      "The product demo focus is no longer part of the Browser workspace.");
+  }
+  state.workspaceShareBasis = {
+    tabs: captured.tabs,
+    contexts: topology.contexts,
+    activeTabId: activeTab.id,
+    selectedContextId: topology.selectedContextId,
+    view: {
+      lens: "api",
+      type: selection.type.id,
+      memberAnchor: selection.overload?.anchorDigest ?? null,
+      memberSignature: null,
+      section: selection.member ? "call-graph" : null,
+      libraries: [],
+    },
+  };
+}
+
+async function runEngineHomeDemo(
   demoId: ProductHomeDemoId,
   snapshot: CanonicalWorkspaceRestoreSnapshot,
   previousSnapshot: CanonicalWorkspaceRestoreSnapshot | null,
@@ -14450,9 +14207,9 @@ async function runCallGraphDemo(
   state.error = "";
   state.errorDetail = "";
   state.retryAction = null;
-  state.loadingMessage = "Loading call graph demo…";
+  state.loadingMessage = "Loading product demo…";
   state.loadingSubtitle =
-    "Resolving the product workspace and anchored member…";
+    "Resolving the product workspace and selected view…";
   render();
 
   const fail = (error: unknown) => {
@@ -14479,136 +14236,87 @@ async function runCallGraphDemo(
       false);
     return;
   }
-  if (!result.activation || !result.callGraph) {
+  if (!result.activation) {
     fail("The engine returned an incomplete product home demo result.");
     return;
   }
-  if (result.activation.memberSection !== "call-graph") {
+  const activation = result.activation;
+  const isMethods = activation.section === "Methods";
+  const isCallGraph = activation.section === "Call Graph";
+  if (!isMethods && !isCallGraph) {
     fail(
-      `The engine returned unsupported demo section '${result.activation.memberSection}'.`,
+      `The engine returned unsupported demo section '${activation.section}'.`,
     );
     return;
   }
+  if (isMethods
+    && (activation.memberSection !== null || result.callGraph !== null)) {
+    fail("The engine returned member or graph state for a Methods demo.");
+    return;
+  }
+  if (isCallGraph
+    && (activation.memberSection !== "call-graph" || !result.callGraph)) {
+    fail("The engine returned an incomplete Call Graph demo result.");
+    return;
+  }
   try {
-    const activation = result.activation;
-    if (activation.focusKind !== "package") {
-      fail(
-        `Product home demo Platform activation '${activation.focusId}' is not yet wired to Browser navigation.`);
-      return;
+    const source = prepareProductHomeDemoSource(result);
+    let selection: ProductHomeDemoSelection;
+    if (source.kind === "package") {
+      selection = selectProductHomeDemoTarget(
+        source.focusPackage,
+        activation,
+        null,
+        null);
+      installPackageHomeDemoSource(source);
+    } else {
+      selection = selectProductHomeDemoTarget(
+        source.package,
+        activation,
+        source.focusAssembly,
+        source.focusPack);
+      if (!await installPlatformHomeDemoSource(
+        source,
+        activation,
+        demoId,
+        navigationSeq)) return;
     }
-    const packages = result.packages.map(createNuGetPackageModel);
-    const targetPackage = packages.find(item =>
-      item.id === activation.focusId
-      && item.version === activation.focusVersion
-      && item.activeFramework === activation.focusFramework);
-    const type = targetPackage?.types.find(item =>
-      item.id === activation.typeId);
-    const member = type && memberGroups(type).find(item =>
-      item.name === activation.memberName
-      && item.kind === activation.memberKind);
-    const overloadIndex = member?.overloads.findIndex(item =>
-      item.anchorDigest === activation.memberAnchorDigest) ?? -1;
-    const overload = member?.overloads[overloadIndex];
-    if (!targetPackage || !type || !member || !overload) {
-      throw new Error(
-        "The engine-run demo selection was not present in its returned package surfaces.");
-    }
-
-    clearWorkspacePackages();
-    for (const packageModel of packages) {
-      retainPackageModel(packageModel);
-      recordRecentPackage(
-        packageModel.id,
-        packageModel.version,
-        packageModel.activeFramework);
-    }
-    refreshPackageStats();
-
-    activatePackage(targetPackage, { resetAccessibility: true });
-    state.typeFilter = "";
-    state.namespaceFilter = "";
-    state.kindFilter = "";
-    state.libraryScope = new Set([libraryKey(type)]);
-    state.selectedTypeId = type.id;
-    state.atPackageRoot = false;
-    state.atLibraryRoot = false;
-    state.lens = "api";
-    state.packageLens = "overview";
-    resetMemberFilters();
-    resetMemberSectionState();
-    state.platformStack = [];
-    state.memberBrowseTypeId = type.id;
-    state.selectedMemberKey = member.key;
-    state.selectedOverloadIndex = overloadIndex;
-    state.memberSection = "call-graph";
-    const captured = capturedShareTabs();
-    const activeIndex = state.packages.indexOf(targetPackage);
-    const participantTabIds = packages.map(packageModel => {
-      const index = state.packages.findIndex(candidate =>
-        packageIdentityEquals(candidate, packageModel));
-      const tab = captured.tabs[index];
-      if (!tab) {
-        throw new Error(
-          "The product demo package is no longer part of the Browser workspace.");
-      }
-      return tab.id;
-    });
-    const topology = callGraphCaptureTopology(
-      captured.tabs,
-      activeIndex,
-      participantTabIds);
-    const activeTab = captured.tabs[activeIndex]!;
-    state.workspaceShareBasis = {
-      tabs: captured.tabs,
-      contexts: topology.contexts,
-      activeTabId: activeTab.id,
-      selectedContextId: topology.selectedContextId,
-      view: {
-        lens: "api",
-        type: type.id,
-        memberAnchor: overload.anchorDigest,
-        memberSignature: null,
-        section: "call-graph",
-        libraries: [],
-      },
-    };
-    // This graph is scoped to the product-defined demo workspace, not any
-    // unrelated tabs the user may already have open.
-    state.memberCallGraph = result.callGraph;
-    state.memberCallGraphError = "";
-    state.memberCallGraphLoading = false;
-    state.memberCallGraphExpanding = false;
-    state.memberCallGraphKey = memberRequestSignature(
-      type,
-      overload,
-      true);
+    applyProductHomeDemoSelection(selection, result);
+    if (source.kind === "package")
+      retainPackageHomeDemoShareBasis(source, selection);
+    else
+      state.workspaceShareBasis = null;
     state.loading = false;
     const destination = (await buildStateUrl()).toString();
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     stageDemoNavigation(navigationSeq, destination);
     render();
-    let renderResult = await renderMermaidCallGraph();
-    while (renderResult.status === "superseded"
-      && navigationSequence.isCurrent(navigationSeq)
-      && currentCallGraph()?.mermaid === result.callGraph.mermaid
-      && document.querySelector("#call-graph-diagram")) {
-      renderResult = await renderMermaidCallGraph();
+    if (isCallGraph && result.callGraph) {
+      let renderResult = await renderMermaidCallGraph();
+      while (renderResult.status === "superseded"
+        && navigationSequence.isCurrent(navigationSeq)
+        && currentCallGraph()?.mermaid === result.callGraph.mermaid
+        && document.querySelector("#call-graph-diagram")) {
+        renderResult = await renderMermaidCallGraph();
+      }
+      if (!navigationSequence.isCurrent(navigationSeq)) {
+        cancelDemoNavigation(navigationSeq);
+        return;
+      }
+      if (renderResult.status === "superseded") {
+        fail("The call graph demo was superseded before publication.");
+        return;
+      }
+      if (renderResult.status === "failed") {
+        throw new Error(renderResult.message);
+      }
     }
-    if (!navigationSequence.isCurrent(navigationSeq)) {
-      cancelDemoNavigation(navigationSeq);
-      return;
-    }
-    if (renderResult.status === "superseded") {
-      fail("The call graph demo was superseded before publication.");
-      return;
-    }
-    if (renderResult.status === "failed") {
-      throw new Error(renderResult.message);
-    }
-    publishCurrentWorkspace(previousSnapshot);
-    if (!commitDemoNavigation(navigationSeq)) {
+    const publication = stageCurrentWorkspacePublication(
+      previousSnapshot,
+      destination);
+    if (!commitStagedWorkspaceNavigation(navigationSeq, publication)) {
       if (navigationSequence.isCurrent(navigationSeq)) {
-        fail("The call graph demo could not commit its destination.");
+        fail("The product demo could not commit its destination.");
       }
       return;
     }
@@ -14624,7 +14332,7 @@ async function runCallGraphDemo(
 
 // Loads the full open-tab set described by a parsed location (opaque workspace bucket, or a
 // lone target), then restores the active tab's platform library scope and deep-link
-// selection. Shared by boot restore, refreshed/shared links, and the in-app demo buttons.
+// selection. Shared by boot restore and refreshed/shared links.
 async function restoreWorkspaceFromLocation(
   loc: ParsedLocation,
   deep: DeepLink,
@@ -15519,8 +15227,6 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !graphSourceIsOpen(state.graphSource)
     && !documentViewerIsOpen(state.docViewer)
     && state.memberAnnotatedModal === null
-    && !state.methodBodyDiff.open
-    && !state.sourceDiff.open
     && !state.spotlightOpen;
 }
 
@@ -15687,37 +15393,6 @@ registerContainedShortcuts(
   "annotated-source.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.annotatedSource,
   annotatedSourceContextIsActive,
-);
-
-const methodBodyDiffContextIsActive = () =>
-  workspaceModalContextIsAvailable() && state.methodBodyDiff.open;
-keybindings.register({
-  id: "method-body-diff.dismiss",
-  key: "Escape",
-  allowExtraModifiers: true,
-  priority: WORKBENCH_KEYBINDING_PRIORITY.methodBodyDiff,
-  when: methodBodyDiffContextIsActive,
-  run: () => closeMethodBodyDiff(true),
-});
-registerContainedShortcuts(
-  "method-body-diff.contain-browser-shortcut",
-  WORKBENCH_KEYBINDING_PRIORITY.methodBodyDiff,
-  methodBodyDiffContextIsActive,
-);
-const sourceDiffContextIsActive = () =>
-  workspaceModalContextIsAvailable() && state.sourceDiff.open;
-keybindings.register({
-  id: "source-diff.dismiss",
-  key: "Escape",
-  allowExtraModifiers: true,
-  priority: WORKBENCH_KEYBINDING_PRIORITY.methodBodyDiff,
-  when: sourceDiffContextIsActive,
-  run: () => closeSourceDiff(true),
-});
-registerContainedShortcuts(
-  "source-diff.contain-browser-shortcut",
-  WORKBENCH_KEYBINDING_PRIORITY.methodBodyDiff,
-  sourceDiffContextIsActive,
 );
 
 keybindings.register({
@@ -15983,8 +15658,6 @@ function clearNavigationError() {
 
 function dismissModalsForRoutedNavigation() {
   closeGraphExplorerForNavigation();
-  methodBodyComparison.dispose();
-  sourceComparison.dispose();
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.keyboardHelp = false;
