@@ -6,10 +6,19 @@ using DotnetInspect.Cli.Output;
 
 namespace DotnetInspect.Cli.Tests;
 
+[Collection("Console")]
 public class FindOptionsParserTests
 {
     private static IEnumerable<string> FindTipArgs(IEnumerable<Tip> tips)
         => tips.Where(t => t.Subcommand == FindCommand.Name).Select(t => t.Args);
+
+    private static Task<(int ExitCode, string Output, string Error)> Run(params string[] args)
+        => ConsoleCapture.RunAsync(() =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            string[] processed = CommandLineBuilder.PreprocessArgs(args, root);
+            return CommandLineBuilder.InvokeAsync(root.Parse(processed), processed);
+        });
 
     [Fact]
     public void PackagePrefixWithoutPattern_SelectsManifestProfile()
@@ -58,15 +67,17 @@ public class FindOptionsParserTests
     [InlineData("--members", null)]
     [InlineData("--all", null)]
     [InlineData("--type", "*Json*")]
-    public void Literal_RejectsOtherSearchModesBeforeAcquisition(string option, string? value)
+    public async Task Literal_RejectsOtherSearchModesBeforeAcquisition(
+        string option,
+        string? value)
     {
         string[] extra = value is null ? [option] : [option, value];
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["find", "--literal", "literal",
-             "--package", "Example@1.0.0", "--tfm", "net10.0", .. extra]);
+        var result = await Run([
+            "find", "--literal", "literal",
+            "--package", "Example@1.0.0", "--tfm", "net10.0", .. extra]);
 
-        Assert.Contains(result.Errors,
-            error => error.Message.Contains("cannot be combined", StringComparison.Ordinal));
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("cannot be combined", result.Error, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -89,55 +100,56 @@ public class FindOptionsParserTests
     [InlineData("Example")]
     [InlineData("Example@latest")]
     [InlineData("Example@[1.0,2.0)")]
-    public void Literal_RequiresAnExactPackageVersion(string coordinate)
+    public async Task Literal_RequiresAnExactPackageVersion(string coordinate)
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["find", "--literal", "literal", "--package", coordinate, "--tfm", "net10.0"]);
+        var result = await Run(
+            "find", "--literal", "literal", "--package", coordinate, "--tfm", "net10.0");
 
-        // The planner's product-authored sentence only: the framework appends a parameter-name
-        // line that names an internal parameter and renders as a raw resource key when resources
-        // are trimmed.
-        var error = Assert.Single(result.Errors);
-        Assert.DoesNotContain("packageCoordinates", error.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("Arg_ParamName_Name", error.Message, StringComparison.Ordinal);
+        Assert.Equal(1, result.ExitCode);
+        Assert.NotEmpty(result.Error);
+        Assert.DoesNotContain("packageCoordinates", result.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Arg_ParamName_Name", result.Error, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Literal_RejectsNormalizedDuplicatesBeforeScopeDeduplication()
+    public async Task Literal_RejectsNormalizedDuplicatesBeforeScopeDeduplication()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["find", "--literal", "literal",
-             "--package", "Example@1.0.0", "--package", "example@1.0",
-             "--tfm", "net10.0"]);
+        var result = await Run(
+            "find", "--literal", "literal",
+            "--package", "Example@1.0.0", "--package", "example@1.0",
+            "--tfm", "net10.0");
 
-        var error = Assert.Single(result.Errors);
-        Assert.Equal(
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
             "An assembly query cannot contain duplicate package coordinates.",
-            error.Message);
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Literal_RequiresAnExplicitTargetFramework()
+    public async Task Literal_RequiresAnExplicitTargetFramework()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["find", "--literal", "literal", "--package", "Example@1.0.0"]);
+        var result = await Run(
+            "find", "--literal", "literal", "--package", "Example@1.0.0");
 
-        var error = Assert.Single(result.Errors);
-        Assert.Equal(
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
             "--literal requires an explicit --tfm (for example --tfm net10.0).",
-            error.Message);
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Literal_DoesNotAcquireAnImplicitPlatformScope()
+    public async Task Literal_DoesNotAcquireAnImplicitPlatformScope()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["find", "--literal", "literal", "--tfm", "net10.0"]);
+        var result = await Run(
+            "find", "--literal", "literal", "--tfm", "net10.0");
 
-        var error = Assert.Single(result.Errors);
-        Assert.Equal(
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
             "An assembly query requires between 1 and 5 explicit ID@VERSION packages.",
-            error.Message);
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
