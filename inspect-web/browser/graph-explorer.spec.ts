@@ -7,6 +7,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("Explore relocates the live graph without remounting or losing zoom", async ({ page }) => {
+  await expect(page.locator(".graph-mermaid")).toHaveCount(0);
   await page.getByRole("button", { name: "Zoom in", exact: true }).click();
   const transform = await page.locator("#diagram svg").getAttribute("style");
   await page.evaluate(() => window.graphExploreProbe.rememberSvg());
@@ -32,6 +33,7 @@ test("Explore relocates the live graph without remounting or losing zoom", async
   await expect(legend).toContainText("solid border: no platform lookup");
   await expect(legend).toContainText("dashed border: platform lookup on click");
   await expect(legend.locator(".legend-swatch")).toHaveCount(6);
+  await expect(dialog.locator(".graph-mermaid")).toHaveCount(0);
   await expect(page.locator("#graph-explorer-title")).toBeFocused();
   expect(await page.evaluate(() => window.graphExploreProbe.sameSvg())).toBe(true);
   expect(await page.locator("#diagram svg").getAttribute("style")).toBe(transform);
@@ -157,7 +159,7 @@ for (const interaction of ["wheel", "keyboard", "pointer"] as const) {
 test("modal contains keyboard focus and makes the background unavailable", async ({ page }) => {
   await page.getByRole("button", { name: "Explore", exact: true }).click();
   await page.keyboard.press("Shift+Tab");
-  await expect(page.getByText("Mermaid source", { exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Fit", exact: true })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Close", exact: true })).toBeFocused();
   await page.evaluate(() => document.getElementById("background")!.focus());
@@ -228,8 +230,7 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     expect(scope!.y + scope!.height).toBeLessThanOrEqual(legend!.y);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(size.width);
     await page.getByRole("button", { name: "Fit", exact: true }).click();
-    await page.getByText("Mermaid source", { exact: true }).click();
-    await expect(page.getByRole("dialog").locator("pre")).toBeVisible();
+    await expect(page.getByRole("dialog").locator(".graph-mermaid")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
     await expect(page.getByRole("button", { name: "Fit", exact: true })).toBeInViewport();
   });

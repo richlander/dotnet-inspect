@@ -128,7 +128,6 @@ async function render() {
               <div class="graph-scope"><strong>Workspace callers</strong><span>2 loaded packages</span><strong>Callees</strong><span>depth 2</span></div>
               <div id="diagram" class="call-graph-diagram"><p>Rendering graph…</p></div>
               ${callGraphLegendHtml()}
-              <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>graph LR</code></pre></details>
             </section>`}
       </div>
     </main>`;
