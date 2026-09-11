@@ -131,7 +131,7 @@ internal static class LibraryMetadataService
                 service,
                 FindingSubjectFor(path),
                 httpClient,
-                DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch,
+                DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch,
                 packageName,
                 packageVersion,
                 isPlatformAssembly,

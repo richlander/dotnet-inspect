@@ -483,7 +483,7 @@ internal static class DependencyGraphService
         CancellationTokenSource? latestTimeout = null;
         if (!forceLatest
             && floatingSelector
-            && !DotnetInspector.Core.HttpClientFactory.IsOffline
+            && !DotnetInspector.Networking.HttpClientFactory.IsOffline
             && cachedVersions.Count > 0)
         {
             latestTimeout = new CancellationTokenSource(
@@ -532,7 +532,7 @@ internal static class DependencyGraphService
         if (coordinateResolution
             is not PackageCoordinateResolution.Resolved resolved)
         {
-            if (floatingSelector && DotnetInspector.Core.HttpClientFactory.IsOffline)
+            if (floatingSelector && DotnetInspector.Networking.HttpClientFactory.IsOffline)
             {
                 string offlineMessage = cachedVersions.Count > 0
                     ? DescribeCachedVersionFallback(
@@ -681,7 +681,7 @@ internal static class DependencyGraphService
         bool versionExistenceKnown,
         NuGetSourceOptions sourceOptions)
     {
-        if (DotnetInspector.Core.HttpClientFactory.IsOffline)
+        if (DotnetInspector.Networking.HttpClientFactory.IsOffline)
         {
             return InertString.Format(
                 TextPolicy.Field,

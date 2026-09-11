@@ -1,8 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Ecosystems;
+using DotnetInspect.Cli.Inspectors;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
@@ -119,7 +122,7 @@ public static class DemoCommand
         return 0;
     }
 
-    public static Task<int> ExecuteScenarioAsync(
+    public static async Task<int> ExecuteScenarioAsync(
         string scenarioId,
         OutputFormat format = OutputFormat.Markdown,
         bool noHeader = false,
@@ -128,7 +131,7 @@ public static class DemoCommand
         ArgumentException.ThrowIfNullOrWhiteSpace(scenarioId);
 
         if (string.Equals(scenarioId, "list", StringComparison.OrdinalIgnoreCase))
-            return Task.FromResult(ExecuteList(format, noHeader, mermaidRequested: embeddedMermaid));
+            return ExecuteList(format, noHeader, mermaidRequested: embeddedMermaid);
 
         EcosystemDemoSelectionResult result =
             EcosystemPackCatalog.SelectDemo(scenarioId);
@@ -141,7 +144,7 @@ public static class DemoCommand
                 CommandError.WriteLine($"  {entry.ScenarioId}");
             CommandError.WriteBlankLine();
             CommandError.WriteLine("Run 'dotnet-inspect demo list' for titles and summaries.");
-            return Task.FromResult(1);
+            return 1;
         }
 
         ResolvedScenario resolved =
@@ -150,16 +153,145 @@ public static class DemoCommand
                 resolved, format, noHeader, embeddedMermaid, out var options, out var error))
         {
             CommandError.Write(error ?? "Could not lower home demo to a section run.");
-            return Task.FromResult(1);
+            return 1;
         }
 
-        return options switch
+        if (options.PlatformAssembly is not null)
+            return await ExecutePlatformScenarioAsync(resolved, options);
+
+        return await (options switch
         {
             MemberOptions member => MemberCommand.ExecuteAsync(member),
             TypeOptions type => TypeCommand.ExecuteAsync(type),
             _ => throw new InvalidOperationException(
                 $"Unexpected demo options type '{options.GetType().Name}'."),
-        };
+        });
+    }
+
+    static async Task<int> ExecutePlatformScenarioAsync(
+        ResolvedScenario resolved,
+        ApiOptions options)
+    {
+        ProductDemoRunPlan plan = ProductDemoRunPlan.Create(resolved);
+        WorkspaceMemberCoordinate.PlatformMember? platform = plan.Context.Members
+            .OfType<WorkspaceMemberCoordinate.PlatformMember>()
+            .FirstOrDefault(member => string.Equals(
+                member.Assembly,
+                options.PlatformAssembly,
+                StringComparison.OrdinalIgnoreCase));
+        if (platform is null)
+        {
+            CommandError.Write(
+                $"Home demo '{resolved.ScenarioId}' has no matching Platform member to run.");
+            return 1;
+        }
+
+        using var workspace = new InspectionWorkspace();
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = options.Tfm ?? plan.Context.Framework,
+                    Members = [platform],
+                },
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = HttpClientFactory.Shared,
+                    SourceAuthorization =
+                        new SourcePolicyPackageSourceAuthorization(
+                            options.SourceOptions),
+                    PackageStore = new FileSystemPackageStore(),
+                    UseVersionCache = true,
+                    Log = options.Verbose
+                        ? CommandError.WriteLine
+                        : null,
+                });
+        if (outcome is WorkspaceContextLoadOutcome.Failed failed)
+        {
+            CommandError.Write(
+                $"Home demo '{resolved.ScenarioId}' could not load its exact Platform implementation.",
+                [
+                    .. failed.Failures.Select(static failure =>
+                        $"{failure.Kind}: {failure.Message}"),
+                ]);
+            return 1;
+        }
+
+        WorkspaceContextLoadOutcome.Loaded loaded =
+            (WorkspaceContextLoadOutcome.Loaded)outcome;
+        var implementation = loaded.Members
+            .Select(static member => member.Participant.Assembly)
+            .Single();
+        string tempDirectory =
+            Directory.CreateTempSubdirectory("inspect-demo-platform").FullName;
+        try
+        {
+            string assemblyPath = Path.Combine(
+                tempDirectory,
+                $"{platform.Assembly}.dll");
+            await using (Stream sourceStream = implementation.OpenRead())
+            await using (FileStream destination = File.Create(assemblyPath))
+            {
+                await sourceStream.CopyToAsync(destination);
+            }
+
+            var context = new CommandContext(options.Verbose);
+            var source = new ApiSourceResult(
+                assemblyPath,
+                assemblyPath,
+                PackageName: null,
+                PackageVersion: null,
+                ResolvedPackagePath: null,
+                PackageExtractPath: tempDirectory,
+                SourceKind.Platform,
+                platform.Version,
+                platform.Family,
+                options.Tfm ?? plan.Context.Framework,
+                ProjectAssetsPath: null,
+                TempDir: null,
+                options.TypeName,
+                PackageReplaySourceUrls: null,
+                PackageReplayUsesOriginalSources: false,
+                context);
+            ApiServices.LoadedApiSurface? surface =
+                ApiServices.LoadTypeApi(source, options);
+            if (surface is null)
+            {
+                CommandError.Write(
+                    $"Home demo '{resolved.ScenarioId}' could not inspect its exact Platform implementation.");
+                return 1;
+            }
+
+            return await (options switch
+            {
+                MemberOptions member =>
+                    MemberCommand.ExecuteResolvedAsync(member, source, surface),
+                TypeOptions type =>
+                    TypeCommand.ExecuteResolvedAsync(type, source, surface),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected demo options type '{options.GetType().Name}'."),
+            });
+        }
+        finally
+        {
+            TryDeleteTempDirectory(tempDirectory);
+        }
+    }
+
+    static void TryDeleteTempDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     private static void WriteListView(DemoListView view, OutputFormat format, bool noHeader)
@@ -194,8 +326,8 @@ public static class DemoCommand
 /// <see cref="MemberOptions"/> so run uses the existing section pipeline.
 /// Multi-package workspaces map extra package members to
 /// <see cref="MemberOptions.CallerScopePackages"/> (CLI encoding of the same
-/// closed preset); full <see cref="WorkspaceContextLoader"/> group identity is
-/// residual host work for the engine surface.
+/// closed preset). Platform demos retain their typed coordinate for exact
+/// implementation-pack activation before entering the same section pipeline.
 /// </summary>
 public static class DemoScenarioRunner
 {
@@ -451,38 +583,64 @@ public static class DemoScenarioRunner
             var platformMember = context.Members
                 .OfType<WorkspaceMemberCoordinate.PlatformMember>()
                 .FirstOrDefault();
-            var family = platformMember?.Family ?? "runtime";
-            var platformVersion = platformMember?.Version;
-            var platformFramework = platformVersion is { Length: > 0 }
-                ? $"{family}@{platformVersion}"
-                : family;
+            source = PlatformSource(library, platformMember, context);
+            return true;
+        }
 
-            source = new DemoSource(
-                PackagePath: null,
-                PlatformAssembly: library,
-                PlatformFramework: platformFramework,
-                Tfm: context.Framework ?? platformMember?.Framework);
+        var focusedPlatform = ResolveFocusedPlatform(resolved);
+        if (focusedPlatform?.Assembly is { Length: > 0 } focusedAssembly)
+        {
+            source = PlatformSource(
+                focusedAssembly,
+                focusedPlatform,
+                context);
             return true;
         }
 
         var primary = ResolvePrimaryPackage(resolved, context);
-        if (primary is null)
+        if (primary is not null)
         {
-            error = $"Home demo '{resolved.ScenarioId}' has no package or platform source to run.";
-            return false;
+            var packageVersion = primary.Version;
+            var packagePath = packageVersion is { Length: > 0 }
+                ? $"{primary.PackageId}@{packageVersion}"
+                : primary.PackageId;
+
+            source = new DemoSource(
+                PackagePath: packagePath,
+                PlatformAssembly: null,
+                PlatformFramework: null,
+                Tfm: primary.Framework ?? context.Framework);
+            return true;
         }
 
-        var packageVersion = primary.Version;
-        var packagePath = packageVersion is { Length: > 0 }
-            ? $"{primary.PackageId}@{packageVersion}"
-            : primary.PackageId;
+        var primaryPlatform = context.Members
+            .OfType<WorkspaceMemberCoordinate.PlatformMember>()
+            .FirstOrDefault();
+        if (primaryPlatform?.Assembly is { Length: > 0 } assembly)
+        {
+            source = PlatformSource(assembly, primaryPlatform, context);
+            return true;
+        }
 
-        source = new DemoSource(
-            PackagePath: packagePath,
-            PlatformAssembly: null,
-            PlatformFramework: null,
-            Tfm: primary.Framework ?? context.Framework);
-        return true;
+        error = $"Home demo '{resolved.ScenarioId}' has no package or platform source to run.";
+        return false;
+    }
+
+    private static DemoSource PlatformSource(
+        string assembly,
+        WorkspaceMemberCoordinate.PlatformMember? platform,
+        ResolvedWorkspaceContext context)
+    {
+        var family = platform?.Family ?? "runtime";
+        var version = platform?.Version;
+        var framework = version is { Length: > 0 }
+            ? $"{family}@{version}"
+            : family;
+        return new DemoSource(
+            PackagePath: null,
+            PlatformAssembly: assembly,
+            PlatformFramework: framework,
+            Tfm: context.Framework ?? platform?.Framework);
     }
 
     private static WorkspaceMemberCoordinate.PackageMember? ResolvePrimaryPackage(
@@ -496,6 +654,19 @@ public static class DemoScenarioRunner
         }
 
         return context.Members.OfType<WorkspaceMemberCoordinate.PackageMember>().FirstOrDefault();
+    }
+
+    private static WorkspaceMemberCoordinate.PlatformMember?
+        ResolveFocusedPlatform(ResolvedScenario resolved)
+    {
+        if (resolved.Navigation is { } nav
+            && nav.FocusTab.Coordinate
+                is WorkspaceMemberCoordinate.PlatformMember focusPlatform)
+        {
+            return focusPlatform;
+        }
+
+        return null;
     }
 
     private static bool TryCollectCallerPackages(

@@ -25,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="DotnetInspector.Networking" />
     <Using Include="Xunit" />
     <Using Include="ILInspector.Instructions" />
     <Using Include="ILInspector.SourceLink" />
@@ -32,6 +33,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspect.Cli\DotnetInspect.Cli.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
+    <ProjectReference Include="..\..\src\NuGetFetch\NuGetFetch.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />

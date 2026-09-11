@@ -222,7 +222,7 @@ public sealed class PackageIntegrationsWorkspaceTests
         const string source = "https://artifact-command.invalid/v3/index.json";
         string directory = Directory.CreateTempSubdirectory(
             "package-artifact-command-").FullName;
-        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
         try
         {
             string staged = Path.Combine(directory, "content");
@@ -260,9 +260,9 @@ public sealed class PackageIntegrationsWorkspaceTests
             NuGetCache.CommitPackage(
                 staged, archive, packageName, "1.0.0",
                 NuGetCache.GetSourceKey(source));
-            Core.HttpClientFactory.Initialize(
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
                 new HttpClientFactoryOptions { Offline = true });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
 
             string[] arguments =
             [
@@ -321,9 +321,9 @@ public sealed class PackageIntegrationsWorkspaceTests
         }
         finally
         {
-            Core.HttpClientFactory.Initialize(
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
                 new HttpClientFactoryOptions { Offline = wasOffline });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize("dotnet-inspect");
             Directory.Delete(directory, recursive: true);
         }

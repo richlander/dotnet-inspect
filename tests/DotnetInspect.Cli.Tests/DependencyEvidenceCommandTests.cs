@@ -2549,13 +2549,13 @@ public sealed class DependencyEvidenceCommandTests
             port,
             () => Interlocked.Increment(ref requests),
             serverCancellation.Token);
-        bool wasOffline = DotnetInspector.Core.HttpClientFactory.IsOffline;
-        DotnetInspector.Core.HttpClientFactory.Initialize(
-            new DotnetInspector.Core.HttpClientFactoryOptions
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
+            new DotnetInspector.Networking.HttpClientFactoryOptions
             {
                 Offline = true,
             });
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
 
         DependencyEvidenceProjection projection;
         try
@@ -2588,12 +2588,12 @@ public sealed class DependencyEvidenceCommandTests
             {
             }
 
-            DotnetInspector.Core.HttpClientFactory.Initialize(
-                new DotnetInspector.Core.HttpClientFactoryOptions
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
                 {
                     Offline = wasOffline,
                 });
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
 
         Assert.Equal(0, requests);

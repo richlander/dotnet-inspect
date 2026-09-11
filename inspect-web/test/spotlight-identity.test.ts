@@ -6825,6 +6825,7 @@ test("graph-first platform acquisition preserves catalog family and physical fil
     tfm: "net11.0",
     version: "11.0.0",
     rows: [row],
+    supplies: [],
   };
   assert.equal(
     platformGraphLibraryForTarget(target, "Mixed.dll", "netcore.app"),
