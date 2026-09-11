@@ -100,6 +100,117 @@ public class CacheCommandTests : IDisposable
             "Expected cache info or empty cache message");
     }
 
+    [Theory]
+    [InlineData("--head", "| Field | Value |")]
+    [InlineData("--tail", "Run 'dotnet-inspect cache clear' to clear the cache.")]
+    public async Task Cli_LineLimitSelectsRenderedCacheLines(
+        string direction,
+        string expectedLine)
+    {
+        var categoryPath = Path.Combine(_cacheBasePath, "versions");
+        Directory.CreateDirectory(categoryPath);
+        File.WriteAllText(Path.Combine(categoryPath, "versions.json"), "{}");
+
+        string[] args = ["cache", "-n", "1", direction];
+        var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (result, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
+
+        Assert.Equal(0, result);
+        Assert.Empty(error);
+        Assert.Equal(
+            [expectedLine],
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task Cli_ClearRejectsAncestorDirectionWithoutLineLimitBeforeAction(
+        string direction)
+    {
+        string[] args =
+        [
+            "cache",
+            direction,
+            "clear",
+            "--session",
+            "cache-command-missing-probe"
+        ];
+        var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (result, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
+
+        Assert.Equal(1, result);
+        Assert.Empty(output);
+        Assert.Contains($"{direction} requires -n.", error);
+    }
+
+    [Theory]
+    [InlineData("--head=false", false)]
+    [InlineData("--tail=false", false)]
+    [InlineData("--head=false", true)]
+    [InlineData("--tail=false", true)]
+    public async Task Cli_RejectsAttachedDirectionValueBeforeAction(
+        string direction,
+        bool clear)
+    {
+        string[] args = clear
+            ?
+            [
+                "cache",
+                direction,
+                "clear",
+                "--session",
+                "cache-command-missing-probe"
+            ]
+            : ["cache", direction];
+        var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (result, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
+
+        string option = direction[..direction.IndexOf('=')];
+        Assert.Equal(1, result);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: {option} does not accept a value.{Environment.NewLine}",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--head", false)]
+    [InlineData("--tail", false)]
+    [InlineData("--head", true)]
+    [InlineData("--tail", true)]
+    public async Task Cli_ParsesSeparateDirectionValueIndependently(
+        string direction,
+        bool clear)
+    {
+        string[] args = clear
+            ?
+            [
+                "cache",
+                direction,
+                "false",
+                "clear",
+                "--session",
+                "cache-command-missing-probe"
+            ]
+            : ["cache", direction, "false"];
+        var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (result, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
+
+        Assert.Equal(1, result);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: {direction} does not accept a value.{Environment.NewLine}",
+            error);
+    }
+
     [Fact]
     public async Task ExecuteAsync_WithClean_OnEmptyCache_ReturnsZero()
     {

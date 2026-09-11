@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -6,7 +7,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
-namespace ILInspector.Decompiler.Tests;
+namespace ILInspector.DecompilerHarness.Tests;
 
 [Trait("Area", "RoundTrip")]
 public sealed class ReturnToSenderCompilationClosureTests
@@ -243,7 +244,7 @@ public sealed class ReturnToSenderCompilationClosureTests
     {
         string path = Path.Combine(directory, $"{assemblyName}.dll");
         IEnumerable<MetadataReference> references =
-            RoslynTestReferences.TrustedPlatform
+            s_trustedPlatformReferences.Value
                 .Where(reference =>
                     reference is not PortableExecutableReference portable
                     || portable.FilePath is null
@@ -264,6 +265,30 @@ public sealed class ReturnToSenderCompilationClosureTests
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return path;
     }
+
+    static readonly Lazy<ImmutableArray<MetadataReference>>
+        s_trustedPlatformReferences = new(() =>
+        {
+            var builder = ImmutableArray.CreateBuilder<MetadataReference>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string path in
+                (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+                    .Split(
+                        Path.PathSeparator,
+                        StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                    || !seen.Add(path)
+                    || !ManagedReferenceFilter.IsManagedAssembly(path))
+                {
+                    continue;
+                }
+
+                builder.Add(MetadataReference.CreateFromFile(path));
+            }
+
+            return builder.ToImmutable();
+        });
 
     static AssemblyReferenceIdentity Identity(string path)
     {

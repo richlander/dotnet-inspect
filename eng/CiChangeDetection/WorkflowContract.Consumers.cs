@@ -51,6 +51,10 @@ internal static partial class WorkflowContract
             jobs,
             "Run DotnetInspector.Networking tests",
             "dotnet run --project tests/DotnetInspector.Networking.Tests -c Release");
+        ValidateRequiredTestStep(
+            jobs,
+            "Run DecompilerHarness tests",
+            "dotnet run --project tests/DecompilerHarness.Tests -c Release");
     }
 
     private static void ValidateRepositoryGuardsJob(YamlMappingNode jobs)
@@ -323,6 +327,7 @@ internal static partial class WorkflowContract
             "test/Restore vendored ILAssembler",
             "test/Run IL round-trip tests (fast)",
             "test/Run decompiler unit tests (fast)",
+            "test/Run DecompilerHarness tests",
         };
         var allowedContinueOnError = new HashSet<string>(
             StringComparer.Ordinal)
