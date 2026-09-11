@@ -181,7 +181,7 @@ memory clause outright. What is near-linear is everything the decoder does
 *besides* emitting its result — which is where every amplification found so far
 has lived, and the only part a gate can meaningfully hold to a linear standard.
 
-The transient clause is a target, and gaps 7 and 8
+The transient clause is a target. Former gaps 7 and 8
 ([#5757](https://github.com/richlander/dotnet-inspect/issues/5757),
 [#5758](https://github.com/richlander/dotnet-inspect/issues/5758)) are two
 instances of the same class: `Θ(rows × name length)` work from
@@ -189,8 +189,9 @@ instances of the same class: `Θ(rows × name length)` work from
 implementation symptom:
 **no per-row operation on the resolution path may cost more than `O(1)` in the
 length of a name that is invariant across the loop.** Rendering violates it;
-so do content comparison and per-row hashing. The linked issues own the measured
-evidence and repair analysis.
+so do content comparison and per-row hashing. The
+[enum-resolution name-work gate](#enum-resolution-name-work-gate) now contains
+both products through one cumulative per-decode budget.
 
 D1 is deliberately stated over aggregate cost rather than per-element
 repetition. "Perform this work once per distinct input" is the right *fix* for
@@ -201,7 +202,10 @@ image holding `T` type definitions, costs `Θ(P × T)` on metadata of size
 `Θ(P + T)` — because `EnumUnderlyingPrimitive.TryFindDefinition` scans every
 definition, and each comparison is itself a recursive structural match. Every
 handle is resolved exactly once. No count is repeated. The walk is still
-quadratic. Tracked as issue #5091.
+quadratic. Issue #5091 is contained by the
+[enum-resolution work gate](#enum-resolution-work-gate): candidate visits and
+recursive structural-match frames share one 65,536-operation budget across the
+whole attribute decode, and exhaustion refuses the attribute.
 
 **The allocation clause** — no allocation sized from a declared count exceeding
 the remaining bytes — is the reason this component exists at all, and it is
@@ -835,12 +839,12 @@ encoding.
 
 ## Enforcement gates
 
-**Current state: the defaulted-width signal is gated; full D1, D2, and D3
-remain `unverified`.**
+**Current state: focused D1 and D2 properties and the defaulted-width signal
+are gated; full D1, D2, and D3 remain `unverified`.**
 
 | Invariant | Gate | State |
 | --- | --- | --- |
-| **D1** | #5733 varies attacker-controlled dimensions jointly, measures work rather than allocation, samples capped dimensions past their cap, and must be shown red against the pre-repair head. | Does not exist; five open defects violate it. |
+| **D1** | `CustomAttributeGenericContextTests` measures generic-prefix traversal (#5098). `CustomAttributeBoundedCostTests` jointly varies unresolved references, definitions, and invariant name bytes; its product-owned counters enforce candidate/frame and name-work budgets (#5091, #5757, #5758). Broad scaling matrices are `Speed=Slow`; small controls and budget boundaries remain in PR CI. | Partial: #5098 reuse and the per-decode enum-resolution work products are gated. The cross-row #5132 gap remains, so full D1 is unverified. |
 | **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. Slice 4 exercises those fixtures through `AttributeDecoder` directly. The [resource-failure propagation gate](#resource-failure-propagation-gate) covers raw `OutOfMemoryException` propagation from SRM string materialization. | Focused refusal, callback, width-signal, and injected resource-failure cases are gated; exhaustive D2 coverage remains unverified. |
 | **D3** | `CustomAttributeFidelityTests.CompilerProducedValues_EqualIndependentSrm` and `RetainedCrossAssemblyEnums_EqualProducerTruth` enforce the fixture subset. `CustomAttributeCorpusTests.PinnedPackages_AllAttributeRowsEqualIndependentOracle` covers the two named package snapshots and records their producer, oracle, and companion-fixture identities. | Bounded fixture and package coverage; broader producer coverage remains unverified. |
 | **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. `DetailedDecode_ReportsDefaultedAndResolvedWidths` and `DetailedDecode_LegacyFuncIsAuthoritative_ButUnresolvedDefaults` gate it. | Gated, landed in #5815. |
@@ -1093,6 +1097,72 @@ three. Values and charges already matched, and the unused-tail case passed.
 This gate establishes the local reuse regression, **not full D1**; #5733 still
 owns the generative joint-dimension cost gate.
 
+### Enum-resolution work gate
+
+Within one attribute decode, local enum resolution shares one aggregate
+65,536-operation budget across TypeDef candidate visits and recursive
+structural-match frames (#5091). Exhaustion raises the decoder's existing
+malformed-input signal internally, so `AttributeDecoder` returns `null`; a
+partially decoded value is never returned. The budget applies to the
+handle-derived `TypeRef` path. Blob-authored serialized enum names use
+`Classifier.TypeDefinitionsByName` in the current decoder and do not call this
+scan.
+
+`CustomAttributeBoundedCostTests` generates `P` distinct unresolved enum
+TypeRefs and `T` local TypeDefs and exercises the real `AttributeDecoder` path.
+An optional internal counter records the actual candidate visits and match
+frames; ordinary and measured calls must have the same outcome. Small
+one-dimension controls and the refusal boundary run in PR CI. A broader joint
+matrix is tagged `Speed=Slow` and runs with the full metadata suite in Deep
+Inspect.
+
+At instrumentation head
+`8f2a14eb0f95cbe1a1f88223674feaa230223afe`, based on pre-repair head
+`8901a11e7636a7cc9fd19960a0cca506e8174723`, the 192-reference,
+194-definition case completed 37,248 candidate visits and 37,248 match frames
+(74,496 operations) and returned a value. The boundary test therefore failed
+on the missing refusal. The repair stops at exactly 65,536 operations and
+refuses that same input.
+
+This gate establishes one aggregate cross-product bound, **not full D1**. It
+does not cover work shared across attribute rows (#5132).
+
+### Enum-resolution name-work gate
+
+Within one attribute decode, enum resolution shares one cumulative 4 MiB
+metadata-name budget across TypeDef-index rendering and TypeRef candidate
+matching (#5757, #5758). The budget charges encoded metadata string bytes
+before each render or comparison. Encoded byte length is a conservative upper
+bound on decoded character comparisons and is available without first
+materializing the string. Exhaustion uses a decode-local refusal signal, so
+`AttributeDecoder` returns `null` without caching the event as intrinsic
+type-index corruption across later attribute rows.
+
+`CustomAttributeBoundedCostTests` contains two generated shapes:
+
+- `P` TypeDefs sharing one `L`-byte namespace, followed by one blob-authored
+  enum lookup that builds the local index; and
+- `T` TypeDefs sharing one `L`-byte name, followed by one handle-derived enum
+  lookup whose matching definition is last.
+
+Each gate compares ordinary and measured decode outcomes. Small one-dimensional
+neighbors and the exact 4 MiB refusal boundaries run in PR CI. The broader
+joint `(rows, name length)` matrices are `Speed=Slow` and run with the full
+metadata suite in Deep Inspect.
+
+At instrumentation head
+`d7e2b52ae530a85b8e3eeed606672a266c01c932`, based on pre-repair head
+`6027c6a2690c531dbca3cb472fa565148ce8d32f`, the shared-namespace index case
+completed 4,202,435 name-byte units and returned a value; the invariant
+TypeRef-name case completed 4,203,520 and returned a value. Both boundary tests
+therefore failed on the missing refusal. The repair stops either path at
+exactly 4,194,304 charged bytes.
+
+This gate establishes the per-decode name-work bound, **not full D1**.
+The unused standalone `EnumUnderlyingPrimitive.TryFromSerializedName` scan is
+not a current decoder path and is not claimed by this gate. Work multiplied
+across attribute rows remains #5132.
+
 ## Known gaps
 
 Each row is a **verified** divergence between the contract above and the
@@ -1102,18 +1172,9 @@ component.
 
 | Legacy gap | Gap | Invariant | Issue |
 | --- | --- | --- | --- |
-| 1 | A failed resolution scans every type definition, so `P` distinct unresolvable arguments cost `Θ(P × T)`. Applies to **both** the handle path and the serialized-name path (`TryFindDefinition`). | D1 | #5091 |
 | 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` from `Θ(A + B)` metadata. | D1 | #5132 |
-| 7 | Building the type-definition index costs `Θ(P × L)` for `P` definitions sharing an `L`-character namespace. | D1 | #5757 |
-| 8 | A definition scan performs `O(L)` work per row on a loop-invariant name, costing `Θ(T × L)`. | D1 | #5758 |
 
-Gap 4 is deliberately excluded from that grouping: it is cross-row, so no per-walk
-memo can address it.
-
-Gaps 7 and 8 are a second class: a per-row operation on the resolution path
-costs `O(L)` in a name length that does not vary across the loop. The rule is
-**`O(1)` per row in any loop-invariant name length**. It applies to rendering,
-comparison, hashing, and any future operation with the same cost shape.
+Gap 4 is cross-row, so no per-decode budget can address it.
 
 ### Gaps changed by the inversion
 
@@ -1122,6 +1183,9 @@ place it.
 
 | Former gap | Was | Disposition |
 | --- | --- | --- |
+| Building the type-definition index cost `Θ(P × L)` for `P` definitions sharing an `L`-character namespace. | D1 gap 7 (#5757) | **Contained.** TypeDef-index metadata name bytes share one cumulative 4 MiB per-decode budget, covered by the [enum-resolution name-work gate](#enum-resolution-name-work-gate). |
+| A definition scan performed `O(L)` work per row on one loop-invariant TypeRef name, costing `Θ(T × L)`. | D1 gap 8 (#5758) | **Contained on the active handle path.** TypeRef match name bytes share the same 4 MiB budget and gate. The unused standalone serialized-name scan is not claimed as a product path. |
+| A failed handle-derived enum resolution scanned every type definition, so `P` distinct unresolvable arguments cost `Θ(P × T)`. | D1 gap 1 (#5091) | **Repaired.** Candidate visits and structural-match frames share one aggregate 65,536-operation budget per decode, covered by the [enum-resolution work gate](#enum-resolution-work-gate). Blob-authored names use the existing type-definition index rather than this scan. |
 | SRM re-derived each fixed argument's type from the generic context, costing `Θ(P × G)`; the owned decoder initially retained that prefix-rescan cost. | I2 → D1 (#5098) | **Repaired.** Operation-local lazy prefix reuse is covered by the [generic-context lookup gate](#generic-context-lookup-gate), including alternating and increasing indices. |
 | `SZARRAY` replay re-parsed one element type per value. | D1 gap 2 (#5047) | **Repaired.** The owned decoder resolves one `ArgumentType` before the array value loop and reuses it for every element. |
 | Four single-slot memos admitted alternating-input amplification. | D1 gap 3 (#5130) | **Repaired.** Those memos were deleted with the paired walker. The generic-context cost transferred to #5098 is also repaired. |
@@ -1169,17 +1233,17 @@ slice 2. Both are now settled.
 | #5098 | Repaired: operation-local generic-prefix reuse; the focused Release gate measures skipped bytes, not full D1. |
 | #5065 | D3 fidelity and producer certification; the fixture subset landed in #5148 and the package gate covers two explicit producer points. It is not D1's gate. |
 | #5085 | Repaired in #5815: observer-exception provenance is preserved. |
-| #5091 | Quadratic work across declared parameter count and type-definition count. Gap 1. |
+| #5091 | Repaired: candidate visits and structural-match frames share one aggregate per-decode budget; the focused fast boundary and slow joint-dimension matrix measure product operations. |
 | #5130 | #5815 retired the paired walk's single-slot memos; #5098 repairs the transferred generic-context cost. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
 | #5148 | Merged: fixtures-first D3 value equality and retained-image producer truth. Broader package certification remains outstanding in #5065. |
 | #5304 | Stage 2 exhaustive per-position enumeration. |
 | #5397 | Gated: a one-shot SRM string-materialization fault propagates unchanged through all three public decode surfaces. This is fault-injection evidence, not actual memory-pressure testing or exhaustive D2 coverage. |
-| #5733 | The D1 generative bounded-cost gate; #5065 does not measure cost. |
+| #5733 | Partial: #5098, #5091, #5757, and the active #5758 path have product-work gates; cross-row #5132 remains. #5065 measures fidelity, not cost. |
 | #5742 | Implemented in #5815: the opt-in defaulted-width signal mitigates D3's row-three carve-out. |
 | #5755 | Retained-name evidence and the representation-bound revisit point if the output-shape hold is lifted. |
-| #5757 | Type-definition index construction costs `Θ(P × L)`. Gap 7. |
-| #5758 | Definition scanning costs `Θ(T × L)` on a loop-invariant name. Gap 8. |
+| #5757 | Contained by the cumulative per-decode enum-resolution name-work budget and gate. |
+| #5758 | Active handle path contained by the same name-work budget and gate; the unused standalone serialized-name scan is not claimed. |
 | #5759 | Repaired in #5815: resolver-exception provenance is preserved. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |

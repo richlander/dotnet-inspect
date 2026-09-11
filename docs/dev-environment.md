@@ -45,7 +45,7 @@ change. It is off for ordinary local, PR, and release builds. The separate
 reruns. It audits direct and transitive dependencies at every severity; findings
 fail that workflow rather than `ci-required`.
 
-The audit restores the solution and the separately hosted inspect-web engine
+The audit restores the solution and the separately hosted Inspect Web
 tests, MSDL proxy tests, and IL round-trip tests, including each root's project
 references. It audits the tooling's restored dependencies, not the package
 contents acquired as inspection or corpus inputs. Standalone projects outside
@@ -99,6 +99,36 @@ This is a Microsoft Testing Platform executable. Use `--filter-class` and
 sample types and self-host tests remain with the executable under `tests/`;
 independently compiled inspected inputs remain under `fixtures/`. See
 [repository layout](fixture-governance.md#repository-layout).
+
+### Inspect Web host tests
+
+Run the managed Browser/Wasm host suite and the frontend suite from their
+respective repository roots:
+
+```bash
+dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
+cd inspect-web
+npm test
+npm run lint
+```
+
+The managed suite is an xUnit in-process executable. It covers the
+`DotnetInspect.Web` host, Core implementation, and domain-specific
+`DotnetInspect.Web.Interop.*` export assemblies. The frontend gates cover the
+generated public facade contracts and browser application without renaming the
+published `inspect-web-*` modules.
+
+### Network-destination admission tests
+
+Run the owner suite from the repository root:
+
+```bash
+dotnet run --project tests/NetworkAccess.Tests -c Release
+```
+
+The suite pins the shared IPv4 and IPv6 destination classification used by
+desktop HTTP transports. Core and NuGetFetch retain their transport-specific
+wiring tests.
 
 ### Text-library tests
 

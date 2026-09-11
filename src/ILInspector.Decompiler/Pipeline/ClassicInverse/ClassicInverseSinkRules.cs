@@ -61,10 +61,11 @@ internal static partial class ClassicInverseExpressionRules
         IrFunction? planningFunction = FunctionOf(planning, budget);
         if (rawFunction is null || planningFunction is null
             || !CoercionRendering.CanSpellIntegerToEnum(raw.ResultType, target, rawFunction.TypeShapes)
-            || planningFunction.TypeShapes.GetValueOrDefault(target) != TypeShape.Enum)
+            || !CoercionRendering.IsEnum(target, planningFunction.TypeShapes))
             return false;
-        rawFunction.EnumUnderlyingTypes.TryGetValue(target, out TypeRef? underlying);
-        planningFunction.EnumUnderlyingTypes.TryGetValue(target, out TypeRef? otherUnderlying);
+        var definition = CoercionRendering.NamedDefinition(target);
+        rawFunction.EnumUnderlyingTypes.TryGetValue(definition, out TypeRef? underlying);
+        planningFunction.EnumUnderlyingTypes.TryGetValue(definition, out TypeRef? otherUnderlying);
         if (underlying is not null && otherUnderlying is not null && !underlying.Equals(otherUnderlying))
             return false;
         underlying ??= otherUnderlying;

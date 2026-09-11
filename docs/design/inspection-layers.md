@@ -455,10 +455,11 @@ consumer's convenience.
 projection, with the named Release gates in
 [Migration and gates](#migration-and-gates). The implementation profile is
 consumed by `DirectMemberComparisonQuery`, CLI `match --body` (#5967), and
-Browser Method Body Diff (#5990). Whole-assembly and body-signal query execution
-remain separate step-7 migrations in #4706. The unconsumed Queries body-signal
-population profile is retired in #6044; its target-evidence migration still
-requires #4777 and an actual execution adopter.
+the retained Browser method-body comparison facade projection from #5990.
+Whole-assembly and body-signal query execution remain separate step-7
+migrations in #4706. The unconsumed Queries body-signal population profile is
+retired in #6044; its target-evidence migration still requires #4777 and an
+actual execution adopter.
 
 This boundary is owned by the L1 `DotnetInspector.Queries` component and this
 document. The component spans the core query assembly and the optional
@@ -1183,7 +1184,7 @@ a workspace-local admission hit reachable. Implementing this contract before a
 retained multi-call product workspace adopts it would add unreachable
 infrastructure rather than product value. The workspace owner records the
 [retained-caller decision](../inspection-space.md#retained-package-realization-caller):
-the current prototype registry answers repeated exact requests before its
+the current Inspect Web registry answers repeated exact requests before its
 workspace sees them, while replacing that registry with a session-wide
 projection-backed workspace would be a separately approved product-topology
 migration rather than a narrow admission caller.
@@ -1581,6 +1582,11 @@ canaries:
   from an empty dependency set.
   Browser-Wasm composes those two typed results without parsing XML or opening
   an assembly session.
+- `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
+  binding-consistent group and invokes the Metadata-owned population scan once
+  over the committed participant order. It returns resource-free subjects,
+  graph facts, and typed per-participant failures; the CLI `depends` host
+  projects package diagnostics without inventing filesystem paths.
 - `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`
   and `Extension Methods`. The CLI adds path-based Finding provenance and
   compatibility projections after query execution.

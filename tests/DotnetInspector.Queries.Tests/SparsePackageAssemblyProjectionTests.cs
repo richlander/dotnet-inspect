@@ -518,6 +518,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         Assert.Equal("tests", request.Coordinate.Producer);
         Assert.Equal("1.0.0", request.Coordinate.Version);
         Assert.Equal(Framework, request.Coordinate.Framework);
+        Assert.Equal(Framework, request.CompileTargetFramework);
         Assert.Equal(Framework, request.SelectionTargetFramework);
         Assert.Equal("linux-x64", request.SelectionRuntimeIdentifier);
 
@@ -535,6 +536,7 @@ public sealed class SparsePackageAssemblyProjectionTests
             .CreateReacquisitionRequest();
         Assert.Null(neutral.Coordinate.Framework);
         Assert.Null(neutral.Coordinate.RuntimeIdentifier);
+        Assert.Equal("netstandard2.0", neutral.CompileTargetFramework);
         Assert.Equal("netstandard2.0", neutral.SelectionTargetFramework);
         Assert.NotEqual(request, neutral);
         AssertResourceFree(neutral);

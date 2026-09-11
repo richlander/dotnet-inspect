@@ -1007,6 +1007,32 @@ on any `rts-parity` run to enforce the gate; a row present in the manifest but n
 longer failing is reported as `resolved` so the manifest can be trimmed on the
 next regeneration.
 
+Use `--corpus-fidelity-oracle rts-cutover` (`return-to-sender-cutover` and
+`native-rts` are aliases) for independently selected cutover evidence. Unlike
+`rts-parity`, this mode hash-selects exactly the requested cap from the corpus
+method inventory before either compiler oracle runs. Native RTS runs first with
+its compile-back floor disabled; legacy compile-back then evaluates the same
+stable member identities only as reference evidence. A cutover run accepts at
+most one distinct positive `--corpus-fidelity-cap`; run separate invocations
+for cap comparisons so each snapshot retains its complete member ledger.
+
+The snapshot records every selected native status, the matching legacy status,
+module MVIDs, repository revision and source state captured when the harness was
+built, Roslyn compiler identity, runtime and platform. Cutover metrics separate
+exact losses from availability losses and report the corresponding gains,
+same-status rows, and any compile-back floor applications. Missing native or
+legacy target output remains an explicit `ContextFail`; legacy success cannot
+admit a target or replace the native result. Expected native assembly-context
+failures are retained as `ContextFail` for every selected member in that
+assembly, so the corpus run continues and exposes the matching legacy
+outcomes. The run fails when an assembly cannot supply the exact requested
+eligible-method cap or an unexpected native failure occurs.
+
+The on-demand Deep Inspect `census` lane retains
+`rts-cutover-snapshot.json` and the bounded text report. This is evidence for
+[#6472](https://github.com/richlander/dotnet-inspect/issues/6472) and #6199
+step 4, not the primary corpus baseline or a default-oracle change.
+
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode and operand diffs include canonical opcode streams,
 unavailable comparisons include their failure detail, and recompile and context
@@ -1303,20 +1329,24 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 
 **Render A/B** (`--emit-render-ab` / `--render-ab`): the before/after text
 oracle for raise and printer changes. The first run writes a versioned,
-method-keyed JSON baseline containing each rendered body and its typed async,
-unsafe, and await-syntax declaration context; the second run compares the
+method-keyed JSON baseline containing each rendered body, its typed async,
+unsafe, and await-syntax declaration context, and the product-issued structural
+C# projection with physical method provenance; the second run compares the
 current render against that baseline and reports changed, added, and removed
-methods. Raised renders carry the same sibling-body import and metadata
-type-disjointness capabilities as product rendering;
+methods. The projection omits the source document's interleaved IL and unrelated
+facts while retaining the C# nodes and IL-origin correspondence required by
+`CSharpStructuralDiffDocument`. Raised renders carry the same sibling-body
+import and metadata type-disjointness capabilities as product rendering;
 `RenderAbMatchesMetadataBackedProductProjection` gates both the
-disjointness-proving and non-proving compiler fixtures. Body-only baselines
-predate the semantic-context contract and are
+disjointness-proving and non-proving compiler fixtures. Baselines predating
+either the semantic declaration context or product structural documents are
 rejected with a regeneration instruction rather than measured with current-head
-facts. Changed methods are classified on two axes:
+facts. Changed methods are classified on three axes:
 
 - spelling: `structural`, `paren-equivalent`, or `unparsed`;
 - semantic validity over the changed set only: `valid->valid`,
-  `invalid->valid`, `valid->invalid`, or `invalid->invalid`.
+  `invalid->valid`, `valid->invalid`, or `invalid->invalid`;
+- product structural correspondence: `complete`, `partial`, or `unavailable`.
 
 The semantic lane wraps each changed body with its own recorded declaration
 context while sharing the matched method's signature and binding closure, then
@@ -1325,6 +1355,33 @@ parse, such as `1++`, without paying a corpus-wide compile cost. A
 `valid->invalid` transition is a semantic regression; expression-moving PRs
 should report the semantic line explicitly, e.g. `A/B: 55 changed (40
 paren-equivalent, 15 structural; semantic: 0 valid->invalid)`.
+
+For every changed body, Render A/B passes the stored A document and freshly
+issued B document to `CSharpStructuralDiffDocument`. Selected examples render
+through the same `StructuralReview` Markdown path as standalone
+`--structural-review`; unsupported or ambiguous correspondence stays visibly
+partial. Replay acquires B documents only for methods whose rendered body
+changed. Both runs must inspect the same immutable assembly bytes: structural
+correspondence deliberately rejects a rebuilt input with a different MVID or
+method-body fingerprint. Add `--emit-render-ab-structural-diffs <directory>` to
+retain every changed method as one strict, replayable structural-diff JSON
+document plus a deterministic manifest. The directory must be absent or empty,
+preventing stale artifacts from being mistaken for current evidence:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  path/to/input.dll \
+  --render-ab artifacts/render-ab-base.json \
+  --emit-render-ab-structural-diffs artifacts/render-ab-structural
+
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --structural-review \
+  artifacts/render-ab-structural/0001.structural-diff.json
+```
+
+Structural review explains which product nodes were added, removed, changed, or
+moved; it does not decide that B is correct or better. Semantic validity,
+compile-back fidelity, and adversarial review remain independent evidence.
 
 Add `--emit-corpus-delta <file>` with `--diff-corpus-baseline` to write the
 changed per-method rows as JSON. The quality card stays compact and names the

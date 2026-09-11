@@ -41,6 +41,14 @@ public class HardenedJsonTests
     }
 
     [Fact]
+    public void Parse_ReportsMalformedEscapedPropertyNameAsJsonException()
+    {
+        byte[] utf8 = """{"\uD800":1}"""u8.ToArray();
+
+        Assert.Throws<JsonException>(() => HardenedJson.Parse(utf8.AsMemory()));
+    }
+
+    [Fact]
     public void Parse_AcceptsDistinctPropertiesThatDifferOnlyByCase()
     {
         // Duplicate detection is ordinal. Case-distinct names are distinct JSON members and must

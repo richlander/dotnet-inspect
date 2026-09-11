@@ -1,0 +1,24 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "test/**/*.test.ts",
+    "scripts/*.ts"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "scripts/*.ts"
+  ],
+  "ignore": [
+    "DotnetInspect.Web/wwwroot/inspect-web-host.js",
+    "DotnetInspect.Web/wwwroot/inspect-web-package.js",
+    "DotnetInspect.Web/wwwroot/inspect-web-metadata.js",
+    "DotnetInspect.Web/wwwroot/inspect-web-analysis.js",
+    "DotnetInspect.Web/wwwroot/inspect-web-source.js",
+    "DotnetInspect.Web/wwwroot/inspect-web-call-graph.js",
+    "DotnetInspect.Web/wwwroot/inspect-web-catalog.js"
+  ],
+  "ignoreDependencies": [
+    "type-fest"
+  ]
+}

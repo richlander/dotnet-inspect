@@ -338,7 +338,7 @@ public static class SearchCommandDefinitions
                 SourceOptions = sourceOptions
             };
 
-            return await ImplementsCommand.ExecuteAsync(options);
+            return await ImplementsCommand.ExecuteAsync(options, ct);
         });
 
         return implCommand;
@@ -478,7 +478,7 @@ public static class SearchCommandDefinitions
                 SourceOptions = sourceOptions
             };
 
-            return await ExtensionsCommand.ExecuteAsync(options);
+            return await ExtensionsCommand.ExecuteAsync(options, ct);
         });
 
         return extCommand;
@@ -523,6 +523,8 @@ public static class SearchCommandDefinitions
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var shareOption = WorkspaceShareOption.Create(
+            "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
 
         dependsCommand.Arguments.Add(targetTypeArg);
         dependsCommand.Options.Add(packageOption);
@@ -533,6 +535,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(aspnetcoreOption);
         dependsCommand.Options.Add(projectOption);
         dependsCommand.Options.Add(tfmOption);
+        dependsCommand.Options.Add(shareOption);
         dependsCommand.Options.Add(opts.Json);
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
@@ -575,6 +578,24 @@ public static class SearchCommandDefinitions
             var projects = parseResult.GetValue(projectOption) ?? [];
             OutputFormat outputFormat = opts.ResolveFormat(parseResult);
             RowWindow? rows = ParseDependsRows(parseResult, opts);
+            WorkspaceShareFormat? shareFormat =
+                WorkspaceShareOption.Parse(parseResult, shareOption);
+            bool hasNonPackageShareInput =
+                !string.IsNullOrEmpty(targetType)
+                || packages.Length != 1
+                || assemblies.Length > 0
+                || projects.Length > 0
+                || parseResult.GetValue(platformOption)
+                || (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) > 0
+                || parseResult.GetValue(extensionsOption)
+                || parseResult.GetValue(aspnetcoreOption);
+            if (shareFormat is not null && hasNonPackageShareInput)
+            {
+                CommandError.Write(
+                    "--share requires exactly one --package input and "
+                    + "cannot be used with type, library, project, or platform dependency modes.");
+                return 1;
+            }
 
             // Mode detection: no type arg → library or package dependency mode
             if (string.IsNullOrEmpty(targetType))
@@ -582,6 +603,7 @@ public static class SearchCommandDefinitions
                 var commonOptions = new DependsOptions
                 {
                     Tfm = parseResult.GetValue(tfmOption),
+                    ShareFormat = shareFormat,
                     Format = outputFormat,
                     JsonOutput = outputFormat == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
@@ -592,14 +614,22 @@ public static class SearchCommandDefinitions
                     Count = parseResult.GetValue(opts.Count),
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
-                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+                    LineWindowExplicitlySet =
+                        parseResult.GetResult(opts.Limit) is { Implicit: false }
+                        || parseResult.GetResult(opts.Head) is { Implicit: false }
+                        || parseResult.GetResult(opts.Tail) is { Implicit: false },
+                    OutputFormatExplicitlySet =
+                        opts.IsFormatFlagExplicitlySet(parseResult),
                 };
 
                 if (assemblies.Length == 1 && packages.Length == 0 && projects.Length == 0)
                     return await DependsCommand.ExecuteLibraryDependsAsync(commonOptions with { LibraryName = assemblies[0] });
 
                 if (packages.Length == 1 && assemblies.Length == 0 && projects.Length == 0)
-                    return await DependsCommand.ExecutePackageDependsAsync(commonOptions with { PackageName = packages[0] });
+                    return await DependsCommand.ExecutePackageDependsAsync(
+                        commonOptions with { PackageName = packages[0] },
+                        ct);
 
                 return TipWriter.MissingArgumentWithTips(dependsCommand,
                     "Type, package, or library required.",
@@ -638,7 +668,9 @@ public static class SearchCommandDefinitions
                 SourceOptions = sourceOptions
             };
 
-            var outcome = await DependsCommand.ExecuteTypeDependsAsync(options);
+            var outcome = await DependsCommand.ExecuteTypeDependsAsync(
+                options,
+                ct);
 
             // Type not found — fall back to library mode if the name could be a
             // library. A source option makes the positional argument

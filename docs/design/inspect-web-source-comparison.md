@@ -2,8 +2,12 @@
 
 ## Owner and claim
 
-Inspect Web Source Comparison owns the explicit version-pair interaction, its
-managed feature projection, and the Source Diff view.
+Inspect Web Source Comparison owns the managed version-pair projection and
+its structured evidence. The former contextual action, manual version field,
+coordinator state, and Source Diff dialog are retired under
+[#6491](https://github.com/richlander/dotnet-inspect/issues/6491); their
+interaction clauses below are historical delivery context rather than current
+UI requirements.
 The focused delivery is
 [#6076](https://github.com/richlander/dotnet-inspect/issues/6076).
 
@@ -126,12 +130,10 @@ evidence; the UI does not manufacture a successful comparison.
 `BrowserSourceComparisonOperationTests` exercises the public export for
 independently resolved endpoints, visible non-success, and cancellation/release.
 Its positive query/projection cases use the production Source fetch policy
-with supplied transport. `source-comparison.test.ts` and
-`source-comparison-view.test.ts` cover explicit submission, immutable labels,
-replacement and late completion, non-success, and context disposal.
+with supplied transport.
 
 `eng/test-inspect-web-source-comparison-gate.sh` exercises the public generated
-facade and actual dialog in Firefox against the Release-published engine.
+facade directly in Firefox against the Release-published engine.
 It supplies cataloged compiler-produced packages and their exact SourceLink
 bytes at network acquisition, not source endpoints or comparison results.
 The embedded PDB and allowed SourceLink host preserve real production
@@ -142,16 +144,13 @@ Firefox installation; its local browser execution took about seven seconds.
 No test-only source-context factory or new corpus lane is needed.
 
 ```bash
-dotnet run --project prototypes/inspect-web/engine.Tests -c Release -- \
+dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release -- \
   -class '*BrowserSourceComparisonOperationTests'
-cd prototypes/inspect-web
-node --test test/source-comparison.test.ts test/source-comparison-view.test.ts
-cd ../..
 eng/test-inspect-web-source-comparison-gate.sh
 ```
 
 The last command requires the already-published site at
 `artifacts/inspect-web-publish/wwwroot`, or `INSPECT_WEB_SOURCE_DIFF_SITE`.
-The same browser spec has opt-in live-package facade/dialog cases using
+The same browser spec has an opt-in live-package facade case using
 `INSPECT_WEB_SOURCE_DIFF_URL`; live symbol unavailability remains valid
 non-success evidence, not a positive Source comparison.

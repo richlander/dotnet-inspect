@@ -1,5 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -238,7 +239,8 @@ public class RenderAbSensorTests
                 typeof(RenderAbSensorTests).Assembly.Location,
                 "fixture.dll",
                 "return;",
-                shellContext),
+                shellContext,
+                SourceDocument: StructuralDocument("return;")),
         };
         string path = Path.GetTempFileName();
 
@@ -252,11 +254,375 @@ public class RenderAbSensorTests
             Assert.NotNull(loaded);
             Assert.Equal(shellContext, loaded.Methods[key].ShellContext);
             Assert.Equal("return;", loaded.Methods[key].Body);
+            Assert.Equal(
+                renders[key].SourceDocument,
+                loaded.Methods[key].SourceDocument);
         }
         finally
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void RenderAbBaseline_CarriesProductStructuralProjections()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"render-ab-baseline-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            int exitCode = RenderAbSensor.Run(
+                [typeof(RenderAbSensorTests).Assembly.Location],
+                diffPath: null,
+                emitPath: path,
+                maxExamples: 5,
+                methodCap: 10,
+                workers: null,
+                sequential: true);
+
+            Assert.Equal(0, exitCode);
+            var baseline = RenderAbSensor.LoadBaseline(path);
+            Assert.NotNull(baseline);
+            Assert.NotEmpty(baseline.Methods);
+            Assert.All(
+                baseline.Methods.Values,
+                static method =>
+                {
+                    var document = Assert.IsType<AnnotatedSourceDocument>(
+                        method.SourceDocument);
+                    Assert.NotNull(document.Source);
+                    Assert.All(
+                        document.Nodes,
+                        static node => Assert.Equal(
+                            SourceLineKind.CSharp,
+                            node.Medium));
+                    Assert.Empty(document.Facts);
+                    Assert.Empty(document.Targets);
+                    Assert.Equal(
+                        method.Body,
+                        CSharpStructuralDiffDocument
+                            .Create(document, document)
+                            .Before
+                            .Text
+                            .Trim());
+                });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RenderAbBaseline_AcceptsTriviaOnlyProjectionDifference()
+    {
+        const string key = "fixture.dll!T::M()";
+        var renders = new Dictionary<string, RenderAbSensor.RenderedMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "T",
+                "M",
+                "()",
+                typeof(RenderAbSensorTests).Assembly.Location,
+                "fixture.dll",
+                "int value = 1;\n    \nreturn value;",
+                ValidityCheck.MethodShellContext.Create(
+                    SyntheticFunction(),
+                    requiresUnsafeContext: false),
+                SourceDocument: StructuralDocument(
+                    "int value = 1;\n\nreturn value;")),
+        };
+
+        var baseline = RenderAbSensor.CreateBaseline(renders);
+
+        Assert.Equal(
+            "int value = 1;\n    \nreturn value;",
+            baseline.Methods[key].Body);
+    }
+
+    [Fact]
+    public void RenderAbChangedMethod_EmitsReplayableProductStructuralDiff()
+    {
+        const string key = "fixture.dll!T::M()";
+        var function = SyntheticFunction();
+        var shellContext = ValidityCheck.MethodShellContext.Create(
+            function,
+            requiresUnsafeContext: false);
+        var baseline = new Dictionary<string, RenderAbSensor.BaselineMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "return 1;",
+                shellContext,
+                StructuralDocument("return 1;")),
+        };
+        var current = new Dictionary<string, RenderAbSensor.RenderedMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "T",
+                "M",
+                "()",
+                typeof(RenderAbSensorTests).Assembly.Location,
+                "fixture.dll",
+                "return 2;",
+                shellContext,
+                new RenderAbSensor.SemanticContext(
+                    "T",
+                    "M",
+                    function,
+                    new Dictionary<string, Dictionary<string, string>>(
+                        StringComparer.Ordinal),
+                    ProductParameterList: null),
+                StructuralDocument("return 2;")),
+        };
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"render-ab-structural-{Guid.NewGuid():N}");
+
+        try
+        {
+            string output = CaptureConsole(
+                () => RenderAbSensor.Compare(
+                    baseline,
+                    current,
+                    maxExamples: 5,
+                    structuralDiffDirectory: directory),
+                expectedExitCode: 1);
+
+            Assert.Contains(
+                "A: stored baseline; B: current product render.",
+                output);
+            Assert.Contains(
+                "Structural review: complete: 1, partial: 0, unavailable: 0",
+                output);
+            Assert.Contains("# Structural review", output);
+            string artifactPath = Assert.Single(
+                Directory.GetFiles(
+                    directory,
+                    "*.structural-diff.json"));
+            var artifact = AnnotatedSourceJson.DeserializeStructuralDiff(
+                File.ReadAllText(artifactPath));
+            Assert.Contains(
+                artifact.Rows,
+                static row => row.Change == CSharpStructuralChangeKind.Changed);
+            Assert.True(artifact.ToComparison().IsCorrespondenceComplete);
+            Assert.True(File.Exists(Path.Combine(directory, "manifest.json")));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RenderAbChangedCompilerMethod_UsesExactProductDocuments()
+    {
+        var type = typeof(AuthoredCorpusRatchetTests);
+        string methodName =
+            nameof(AuthoredCorpusRatchetTests
+                .DeepInspect_RunsAuthoredCorpusDailyAndKeepsPackageDiscoveryWeekly);
+        int methodToken = type.GetMethod(methodName)!.MetadataToken;
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, methodToken);
+        Assert.NotNull(function);
+        var baselineDocument = ProductStructuralDocument(
+            source,
+            type,
+            methodName,
+            methodToken,
+            PrinterOptions.Default);
+        var currentDocument = ProductStructuralDocument(
+            source,
+            type,
+            methodName,
+            methodToken,
+            PrinterOptions.Default with { ReadableLocalNames = true });
+        Assert.NotEqual(baselineDocument.Text, currentDocument.Text);
+
+        string signature = CorpusMethodIdentity.SignatureText(
+            function!.Signature);
+        string portablePath = CorpusSensor.PortablePath(type.Assembly.Location);
+        string key =
+            $"{portablePath}!{type.FullName}::{methodName}{signature}";
+        var shellContext = ValidityCheck.MethodShellContext.Create(
+            function,
+            requiresUnsafeContext: false);
+        var baseline = new Dictionary<string, RenderAbSensor.BaselineMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                baselineDocument.Text.Trim(),
+                shellContext,
+                baselineDocument),
+        };
+        var current = new Dictionary<string, RenderAbSensor.RenderedMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                type.FullName!,
+                methodName,
+                signature,
+                type.Assembly.Location,
+                portablePath,
+                currentDocument.Text.Trim(),
+                shellContext,
+                new RenderAbSensor.SemanticContext(
+                    type.FullName!,
+                    methodName,
+                    function,
+                    new Dictionary<string, Dictionary<string, string>>(
+                        StringComparer.Ordinal),
+                    ProductParameterList: null),
+                currentDocument),
+        };
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"render-ab-structural-{Guid.NewGuid():N}");
+
+        try
+        {
+            string output = CaptureConsole(
+                () => RenderAbSensor.Compare(
+                    baseline,
+                    current,
+                    maxExamples: 5,
+                    structuralDiffDirectory: directory),
+                expectedExitCode: 1);
+
+            Assert.Contains(
+                "Structural review: ",
+                output);
+            Assert.Contains(
+                "unavailable: 0",
+                output);
+            string artifactPath = Assert.Single(
+                Directory.GetFiles(
+                    directory,
+                    "*.structural-diff.json"));
+            var artifact = AnnotatedSourceJson.DeserializeStructuralDiff(
+                File.ReadAllText(artifactPath));
+            Assert.Equal(baselineDocument, artifact.Correspondence.Before);
+            Assert.Equal(currentDocument, artifact.Correspondence.After);
+            Assert.Contains(
+                artifact.Rows,
+                static row => row.Change == CSharpStructuralChangeKind.Changed);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RenderAbUnchangedMethod_EmitsNoStructuralDiff()
+    {
+        const string key = "fixture.dll!T::M()";
+        var shellContext = ValidityCheck.MethodShellContext.Create(
+            SyntheticFunction(),
+            requiresUnsafeContext: false);
+        var document = StructuralDocument("return 1;");
+        var baseline = new Dictionary<string, RenderAbSensor.BaselineMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new("return 1;", shellContext, document),
+        };
+        var current = new Dictionary<string, RenderAbSensor.RenderedMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "T",
+                "M",
+                "()",
+                typeof(RenderAbSensorTests).Assembly.Location,
+                "fixture.dll",
+                "return 1;",
+                shellContext,
+                SourceDocument: document),
+        };
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"render-ab-structural-{Guid.NewGuid():N}");
+
+        try
+        {
+            string output = CaptureConsole(
+                () => RenderAbSensor.Compare(
+                    baseline,
+                    current,
+                    maxExamples: 5,
+                    structuralDiffDirectory: directory),
+                expectedExitCode: 0);
+
+            Assert.Contains("Changed: 0", output);
+            Assert.Empty(Directory.GetFiles(
+                directory,
+                "*.structural-diff.json"));
+            Assert.True(File.Exists(Path.Combine(directory, "manifest.json")));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RenderAbChangedMethod_RejectsMismatchedPhysicalProvenance()
+    {
+        const string key = "fixture.dll!T::M()";
+        var function = SyntheticFunction();
+        var shellContext = ValidityCheck.MethodShellContext.Create(
+            function,
+            requiresUnsafeContext: false);
+        var baseline = new Dictionary<string, RenderAbSensor.BaselineMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "return 1;",
+                shellContext,
+                StructuralDocument("return 1;")),
+        };
+        var current = new Dictionary<string, RenderAbSensor.RenderedMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "T",
+                "M",
+                "()",
+                typeof(RenderAbSensorTests).Assembly.Location,
+                "fixture.dll",
+                "return 2;",
+                shellContext,
+                new RenderAbSensor.SemanticContext(
+                    "T",
+                    "M",
+                    function,
+                    new Dictionary<string, Dictionary<string, string>>(
+                        StringComparer.Ordinal),
+                    ProductParameterList: null),
+                StructuralDocument(
+                    "return 2;",
+                    moduleVersionId: Guid.Parse(
+                        "22222222-2222-2222-2222-222222222222"))),
+        };
+
+        string output = CaptureConsole(
+            () => RenderAbSensor.Compare(
+                baseline,
+                current,
+                maxExamples: 5),
+            expectedExitCode: 2);
+
+        Assert.Contains(
+            "Structural review: complete: 0, partial: 0, unavailable: 1",
+            output);
+        Assert.Contains("Structural review unavailable:", output);
     }
 
     [Fact]
@@ -277,6 +643,54 @@ public class RenderAbSensorTests
                     Console.SetError(writer);
                     Assert.Null(RenderAbSensor.LoadBaseline(path));
                     Assert.Contains("Regenerate it with --emit-render-ab", writer.ToString());
+                }
+                finally
+                {
+                    Console.SetError(originalError);
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RenderAbBaseline_RejectsVersionTwoMethodWithoutProductDocument()
+    {
+        const string key = "fixture.dll!T::M()";
+        string path = Path.GetTempFileName();
+        var artifact = new RenderAbSensor.BaselineArtifact(
+            2,
+            new Dictionary<string, RenderAbSensor.BaselineMethod>(
+                StringComparer.Ordinal)
+            {
+                [key] = new(
+                    "return;",
+                    new ValidityCheck.MethodShellContext(
+                        RequiresAsyncContext: false,
+                        RequiresUnsafeContext: false,
+                        HasAwaitSyntax: false)),
+            });
+
+        try
+        {
+            File.WriteAllText(
+                path,
+                System.Text.Json.JsonSerializer.Serialize(artifact));
+
+            lock (ConsoleGate)
+            {
+                var originalError = Console.Error;
+                using var writer = new StringWriter();
+                try
+                {
+                    Console.SetError(writer);
+                    Assert.Null(RenderAbSensor.LoadBaseline(path));
+                    Assert.Contains(
+                        "must carry matching product structural documents",
+                        writer.ToString());
                 }
                 finally
                 {
@@ -316,6 +730,53 @@ public class RenderAbSensorTests
         {
             RequiresAsyncBodyModifier = true,
         };
+
+    static AnnotatedSourceDocument StructuralDocument(
+        string text,
+        Guid? moduleVersionId = null)
+        => new(
+            text,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "ReturnStatement",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, text.Length)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0]))
+            ],
+            [],
+            [],
+            [],
+            new AnnotatedSourceDocumentSource(
+                "Fixture",
+                moduleVersionId
+                    ?? Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                0x06000001,
+                new string('A', 64),
+                "T.M (0x06000001)"));
+
+    static AnnotatedSourceDocument ProductStructuralDocument(
+        MetadataSource source,
+        Type type,
+        string methodName,
+        int methodToken,
+        PrinterOptions options)
+    {
+        var projection = ResearchViews.ProjectMember(
+            new ResearchViews.MemberProjectionRequest(
+                source,
+                type.FullName!,
+                methodName,
+                Registry: new ResearchFactRegistry(),
+                MethodToken: methodToken,
+                PrinterOptions: options,
+                SourceDocument: true));
+        var document = Assert.IsType<AnnotatedSourceDocument>(
+            projection.SourceDocument);
+        return CSharpStructuralDiffDocument
+            .Create(document, document)
+            .Before;
+    }
 
     static string CaptureConsole(Func<int> action, int expectedExitCode)
     {

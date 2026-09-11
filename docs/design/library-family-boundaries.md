@@ -123,6 +123,8 @@ ecosystem:
 - `Inspector.Artifacts` owns source-neutral artifact identity, acquisition,
   authorization, and lifetime contracts.
 - `Inspector.Findings` owns the domain-neutral Finding algebra.
+- `Inspector.Resources` owns host-neutral resource lifecycle declarations and
+  synchronous borrowing contracts.
 - `Inspector.Text` owns generic text Findings and deterministic text
   construction used by inspection producers.
 
@@ -142,7 +144,7 @@ both inspection families and the shorter name is established by the subject:
   transport outcomes.
 - `CSharpText` owns model-free C# and XML-documentation text grammars.
 - `InertText` owns construction-time containment of untrusted text.
-- Target `NetworkAccess` owns network-destination admission shared by
+- `NetworkAccess` owns network-destination admission shared by
   otherwise independent transport owners.
 - Target `UntrustedDocuments` owns hardened JSON and XML parsing entry points.
 
@@ -174,12 +176,12 @@ be peers of reusable `DotnetInspector.Queries`, `DotnetInspector.Packages`,
 and `DotnetInspector.Presentation`. The migration does not rename the
 executable, tool package, tool command, or reusable libraries.
 
-The web host currently uses `InspectWeb.Engine` and facet-specific
-`InspectWeb.Engine.*Facade` namespaces. `DotnetInspect.Web` names the product
+The web host uses `DotnetInspect.Web` and domain-specific
+`DotnetInspect.Web.Interop.*` namespaces. `DotnetInspect.Web` names the product
 host rather than its current Wasm runtime or managed-engine implementation.
 `DotnetInspect.Web.Interop` is its one architectural child: it owns JavaScript
 export contracts, wire projections, and exported entry points. Domain suffixes
-such as Source or Packages may organize those exports beneath `Interop` without
+such as Source or Package organize those exports beneath `Interop` without
 becoming new architectural layers.
 
 The CLI's current suffixes, including Commands, Options, Output, Views,
@@ -204,11 +206,15 @@ not IL semantics:
    with type, member, and IL-offset source evidence.
 4. Target `SourceFetch` retrieves source bytes over authorized network
    transports without owning SourceLink or PDB semantics.
-5. `PdbSourceHouse` composes local, repository, and remote candidate ordering,
-   invokes the source fetcher, verifies PDB checksums, decodes source, and
-   settles visible PDB-source outcomes.
-6. `AssemblyContextSourceQuery` composes verified PDB source with the distinct
-   decompiler fallback.
+5. `PdbSourceHouse` currently composes local, repository, and remote candidate
+   ordering, invokes the source fetcher, verifies PDB checksums, decodes
+   source, and settles visible PDB-source outcomes.
+6. `AssemblyContextSourceQuery` currently composes verified PDB source with the
+   distinct decompiler fallback.
+7. The target [SourceHouse](source-house.md) transfers those product
+   composition responsibilities into one `DotnetInspector` owner that invokes
+   `SourceLinkService`, `CSharpDecompilerService`, and authorized transport
+   capabilities without moving network policy into `ILInspector.SourceLink`.
 
 `ILInspector.SourceLink` therefore remains in the IL inspection family
 because its primary contract is PDB document, type, member, and IL-offset
@@ -271,7 +277,7 @@ implementation belongs to separately tracked owner-scoped work.
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
 | Subject-neutral inspection substrate | `Inspector.Artifacts`, `Inspector.Artifacts.Local`, `Inspector.Artifacts.Workspaces`, `Inspector.Findings`, `Inspector.Text` |
-| Independent domain roots | `NuGetFetch`, `CSharpText`, `InertText`; target `SourceFetch`, `NetworkAccess`, and `UntrustedDocuments` |
+| Independent domain roots | `NuGetFetch`, `NetworkAccess`, `CSharpText`, `InertText`; target `SourceFetch` and `UntrustedDocuments` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
 The following dispositions close the existing ambiguous names:
@@ -289,8 +295,8 @@ The following dispositions close the existing ambiguous names:
 `DotnetInspector.Core` decomposes by subject: shared cache behavior targets
 `DotnetInspector.Cache`; HTTP composition and product network telemetry target
 `DotnetInspector.Networking`; the destination-admission primitive shared with
-`NuGetFetch` targets the independent `NetworkAccess` root; hardened JSON and
-XML entry points target the independent `UntrustedDocuments` root; CLI
+`NuGetFetch` now lives in the independent `NetworkAccess` root; hardened JSON
+and XML entry points target the independent `UntrustedDocuments` root; CLI
 measurement moves to `DotnetInspect.Cli`; and single-consumer helpers move
 beside their consumers.
 
@@ -300,7 +306,8 @@ components move to the
 [`PlatformHouse`](platform-house-reference-processing.md) owner above the lower
 [Platform Target Currency](platform-target-currency.md), source-byte transport
 to the independent `SourceFetch` root, PDB-specific source composition to the
-`PdbSourceHouse` owner, and
+current `PdbSourceHouse` owner and then the target
+[SourceHouse](source-house.md) composition under #6512, and
 assembly-set or dependency-resolution components to their workspace or
 assembly-resolution owner. `House` remains reserved for the accepted
 clearing-house scenarios and does not become an assembly bucket.

@@ -55,6 +55,59 @@ package-level acquisition composition remains
 package-profile projection remains owned by
 [#4806](https://github.com/richlander/dotnet-inspect/issues/4806).
 
+## Source-settlement lease
+
+The package source model owns package-source settlement. Its
+`PackageSourceSettlementService` issues a
+`PackageSourceSettlementLease` over caller-supplied configured-authority
+client access and operation-context creation. The lease is named for that
+resource, not for PackageHouse or another consumer.
+
+The lease carries the live authority to:
+
+- authorize and settle one caller-pinned package coordinate;
+- discover dependency versions across one explicit source authorization; and
+- acquire one exact manifest through a candidate issued by the same lease; and
+- acquire one admitted retained payload through a candidate issued by the same
+  lease and caller-supplied authority-scoped package stores.
+
+One lease owns one candidate-issuer identity. It accepts only source results
+whose association and client identity match the exact configured authority
+being settled. PackageHouse, desktop composition, and host-neutral query
+adapters may hold and use the owner-issued lease, but they do not mint, rename,
+or reinterpret it.
+
+Retiring the lease rejects new settlement and candidate use. It does not
+dispose caller-owned source clients, operation contexts, payload streams,
+package stores, artifact content, or Workspace participants. Completed result
+values retain their existing evidence semantics after retirement; no
+PackageHouse receipt stores the live source-settlement lease.
+
+Candidate payload acquisition consults every authorized cache before cold
+acquisition, then tries the same stable local-before-HTTP authority order used
+for candidate manifests. The result preserves the serving configured authority,
+producer identity, retained-content generation, cache/download origin,
+not-found authorities, and attributed failures. The lease does not create or
+select stores: the caller supplies one store per configured authority and
+producer, preserving host choice between filesystem, in-memory Browser/Wasm,
+or another package-owned storage implementation.
+
+This ownership correction preserves the existing `IDisposable` lifetime and
+async operation shapes. It does not define borrowing or transfer across an
+`await` boundary; [#6544](https://github.com/richlander/dotnet-inspect/issues/6544)
+owns that contract. Repository-wide absence of another issuer or the retired
+House-named API remains unverified by user choice.
+
+`PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient`
+and `PackageSourceSettlementLeaseAcquiresPayloadAndRetiresWithoutDisposingClient`
+are the Release gates for lease retirement, caller-owned resources, retained
+generation, producer, and origin. Together with
+`PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation`
+they gate candidate identity and exact source association. Existing
+`ConfiguredPayloadAcquisitionTests` remain the Release gates for cache/source
+ordering, failover, not-found evidence, and typed payload failures through the
+shared candidate-payload implementation.
+
 ## Identity roles
 
 The following roles are intentionally separate:
@@ -671,9 +724,8 @@ Authority-safe candidate caching remains deferred; local payload caching and
 HTTP temporary ownership reuse the caller-pinned path unchanged.
 
 The same six-step plan and recorded CLI-only approval apply. Multi-package
-inspection, floating API selection, other consumers, offline behavior, and
-corresponding legacy retirement remain in step 6. Existing Markout-backed
-package views and
+inspection, other consumers, offline behavior, and corresponding legacy
+retirement remain in step 6. Existing Markout-backed package views and
 file/content projection remain the rendering boundary; no new default output
 section is introduced.
 
@@ -692,6 +744,14 @@ Existing caller-pinned acquisition and authority-store gates remain applicable
 to their shared implementation.
 
 ### API and timeline range consumers
+
+Online API inspection with an omitted version, `@latest`, or a wildcard uses
+the same complete current selection and reporting-authority handoff as ordinary
+package inspection. Omitted and `@latest` requests select the highest stable
+listed version; wildcard requests retain the package owner's existing
+case-insensitive prefix and prerelease semantics. Exact caller pins and ranges
+retain their separate acquisition paths. Local archives and offline API
+inspection remain on the legacy extractor.
 
 Online API range inspection (`type`, `member`, and `match` with `--at`) and
 `timeline` retain one complete configured-authority discovery together with
@@ -733,10 +793,12 @@ credential-bearing command.
 
 The observable rendering remains the existing Markout-backed API, match, and
 timeline views. This slice introduces no output section and does not migrate
-API floating/wildcard selection, offline behavior, dependency acquisition,
-multi-package commands, symbols, or workspace acquisition.
+offline behavior, dependency acquisition, multi-package commands, symbols, or
+workspace acquisition.
 
 Release gates in `ConfiguredPayloadAcquisitionTests` are
+`ApiSelection_LocalFeedUsesConfiguredAuthority`,
+`ApiSelection_UnreadablePeerFailsBeforePayload`,
 `OpenRange_OneMetadataDiscoveryServesMultipleAddressesAndReporters`,
 `Range_NonReportingWarmLocalCacheCannotAnswer`,
 `OpenRange_GalleryUnlistedEndpointNeedsIndependentReporter`,
@@ -813,8 +875,17 @@ The Release gates
 enforce this seam.
 
 Typed route composition, exact result adoption, and version discovery are live
-for the online desktop consumer described above. Payload and cache
-authorization plus the remaining consumer migrations remain later slices of
+for the online desktop consumers described above. Remaining consumer
+migrations continue in later slices of
 [#5400](https://github.com/richlander/dotnet-inspect/issues/5400). The legacy
 `Sources` projection remains available during those migrations; it is not an
 alternative authority identity.
+
+Every `PackageVersionDiscoveryResult` produced after package-ID validation
+retains the canonical package ID whose configured-authority operation produced
+it, including authoritative empty, filtered-empty, partial, and failed
+results. A failure produced before a valid package ID exists retains no
+package ID. Candidate evidence is validated against the retained ID during
+construction. Consumers use this owner-issued identity for request
+correspondence rather than inferring the package from candidate presence, feed
+labels, or failure text.

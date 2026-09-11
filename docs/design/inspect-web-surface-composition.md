@@ -13,8 +13,8 @@ remain with their existing focused owners; this document places them.
 
 This owner defines:
 
-- which working surfaces exist (Type API, Member API, Type Metadata, Source,
-  Annotated Source, Member Diff, Package query, Diagnostics) and their
+- which working surfaces exist (Type API, Member API, Type Metadata, Compare,
+  Source, Annotated Source, Member Diff, Package query, Diagnostics) and their
   page-level placement relative to Type/Member navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
@@ -42,6 +42,9 @@ It does not own:
 - the Annotated Source viewer's internal disclosure, actions, selection,
   annotation, media, and Escape/focus behavior (owned by
   [Annotated Source viewer interaction](annotated-source-viewer-interaction.md));
+- Compare mode, drill-down rows, evidence disclosure, identity joins, and
+  Explore return state (owned by
+  [Inspect Web Compare Experience](inspect-web-compare-experience.md));
 - Member Diff endpoint acquisition, canonical text, correspondence,
   statistics, payload admission, row rendering, selection, change navigation,
   mode semantics, or action availability (owned by
@@ -74,6 +77,9 @@ This document consumes, without redefining:
   facet catalog from [`package-query-cli.md`](package-query-cli.md);
 - the Annotated Source document model and viewer-local interaction owned by
   [Annotated Source viewer interaction](annotated-source-viewer-interaction.md);
+- the Library, Type, and Member Compare frame, mode, drill-down, detail, and
+  Explore-availability contract owned by
+  [Inspect Web Compare Experience](inspect-web-compare-experience.md);
 - the complete typed Member Diff outcome and optional authorized endpoint
   destinations supplied by
   [Inspect Web source-diff transport](inspect-web-source-diff-transport.md),
@@ -253,9 +259,10 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 ## Working surfaces
 
 Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
-Library Metadata, Source, Annotated Source, Member Diff, and Diagnostics are
-working surfaces rather than documents inset inside a general page. The
-Metadata Explorer retains its separately owned full-bleed composition.
+Library Metadata, Compare, Source, Annotated Source, Member Diff, and
+Diagnostics are working surfaces rather than documents inset inside a general
+page. The Metadata Explorer retains its separately owned full-bleed
+composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -498,11 +505,43 @@ outcomes remain owned by
 
 Member Call graph retains its inline default and exposes `Explore` in the
 working-surface action row when a graph result is available. Explore places
-the existing interactive result in a full-viewport dialog: a quiet heading,
-selected-member context, and Close above the graph, with scope, legend, and
-Mermaid source remaining accessible as secondary information. The diagram
-takes the remaining space rather than retaining the inline fixed-height card.
-At narrow widths context may elide, but Close and graph controls stay available
+the existing interactive result in a full-viewport dialog. Its shared header
+centers the active subject: graph kind and result summary are quiet metadata,
+the selected overload signature is the primary heading, its package and
+declaring-type path is secondary context, and Close remains a stable action.
+These are structured values supplied by the graph consumer, not strings parsed
+from rendered content. The duplicate inline graph heading and summary do not
+appear in Explore.
+
+The diagram takes the remaining space rather than retaining the inline
+fixed-height card. An untouched graph automatically reframes when its viewport
+changes, including relocation into Explore. Automatic framing uses a 92% inset,
+may enlarge a sparse graph to at most 1.5x, and retains a 0.2x legibility floor.
+Explicit Fit may scale as far as 0.05x to reveal more of the complete bounded
+graph; when that floor still exceeds a narrow viewport, the remaining extent
+stays pannable. Wheel, button, keyboard, or pointer pan/zoom makes the view
+user-adjusted; that exact transform survives later relocation and viewport
+changes until Fit restores automatic framing.
+
+The inspected subject uses the shell-purple family in dark and light themes.
+Other graph roles retain their existing distinct fills, strokes, and availability
+or platform border treatments. Connectors remain subordinate and meet 3:1
+contrast against the canvas in both themes so direction remains readable. Zoom
+in, Zoom out, and Fit remain
+bottom-right canvas actions and form one grouped control rail.
+
+Call graph scope remains below the canvas so secondary interpretation detail
+does not precede the primary spatial content. Every graph then supplies a
+consumer-owned bottom legend outside the transformed viewport, so zoom and pan
+cannot move, crop, or shrink its explanation. Call graph names its member and
+assembly roles plus platform lookup; Type relationships names inspected, base,
+interface, derived, and unavailable types; Package Dependencies names inspected,
+open, and load-on-selection packages. Legend rows wrap at narrow widths and form
+the final interpretation row. Browser-specific Mermaid source remains internal
+to rendering rather than appearing as Call-graph-only inspection evidence. Any
+future source copy or graph export experience requires one deliberate contract
+across Call, Type, and Dependency graphs. Subject and context wrap completely
+rather than truncating or disappearing. Close and graph controls stay available
 without page-level horizontal overflow.
 
 This document owns that placement contract. The existing
@@ -513,8 +552,9 @@ shell focus helper rather than adding a second custom inert-background system.
 Annotated Source's explicit Explore action is the local interaction precedent;
 its separate source-viewer sessions are not needed for a graph placement change.
 
-Opening and closing relocate one live graph, without another query, Mermaid
-mount, or loss of pan/zoom. Fit remains explicit for the larger viewport.
+Opening and closing relocate one live graph without another query or Mermaid
+mount. A pristine view reframes for its new viewport; a user-adjusted view does
+not lose or reset its pan/zoom. Fit remains explicit for full-extent framing.
 Ordinary dismissal returns focus to Explore and keeps the selected member and
 platform descent. Existing result replacement, including theme changes, may
 remount the graph as it does inline. Workspace expansion, platform drill/back,
@@ -532,6 +572,10 @@ notice, graph, and workspace/diagram diagnostics. Package coordinate controls,
 dependency lists, assembly references, and the coordinate footer remain on the
 underlying page. The viewer identifies the inspected package; group buttons
 identify the selected manifest framework independently of the active coordinate.
+The shared header uses the package coordinate as its subject, the active target
+framework as context, and the existing graph-reading guidance as its summary.
+Its bottom legend distinguishes the inspected package, packages already open in
+the Workspace, and packages that load on selection.
 Selecting a group stays in Explore and updates the existing list and graph.
 Closing retains that selection. Pending graph rendering can complete in either
 placement; opening or closing does not restart it.
@@ -553,6 +597,10 @@ Browsable nodes use the shared keyboard activation and drag suppression;
 unavailable types remain non-interactive with an accessible explanation. Type
 activation closes Explore before the existing typed navigation path runs. It
 does not acquire another assembly or reinterpret a display label as identity.
+The shared header uses the selected type as its subject, its package coordinate
+as context, and the existing relationship guidance as its summary.
+Its bottom legend distinguishes the inspected, base, interface, and derived
+roles plus the dashed unavailable state.
 Leaving the selected type, package, framework, assembly, or Metadata inspector
 closes Explore. Same-owner projection loading and failure remain visible in an
 already-open viewer. A replacement without a relationship graph returns to inline
@@ -576,7 +624,12 @@ acquisition, or layout algorithms.
 
 The browser gate covers live DOM and interaction retention across placement
 changes, result replacement, pending completion, no-body/failure visibility,
-dialog focus and dismissal, and narrow geometry. Published Wasm evidence covers
+dialog focus and dismissal, structured header content, pristine and
+user-adjusted resize behavior across wheel, button, keyboard, and pointer
+inputs, bounded sparse-graph enlargement, explicit lower-floor Fit, connector
+contrast, graph-specific legends outside the transform, complete
+narrow-width wrapping, content-first scope placement, and narrow geometry.
+Published Wasm evidence covers
 the production action row and destination navigation. Dependency coverage also
 exercises group changes, empty groups, pending completion, truncation geometry,
 and package navigation/failure. Live platform drill/back evidence is reported
@@ -999,6 +1052,41 @@ result is committed by
 success leaves `/query` for the inspection destination, and failure keeps the
 query route, rows, and request intact.
 
+### Compare
+
+Compare uses one full-area working surface at Library, Type, and Member. The
+quiet surface header contains its Diff/Clone mode control; the row-two
+inspected-target area contains no mode control or duplicated target selector.
+The effective Package-owned target or scope and **Change target** remain inside
+the surface immediately below the header.
+
+At Library and Type, summary metrics and one drill-down inventory consume the
+remaining area. No selected-row detail pane, summary card, or second
+inventory/detail switch is present:
+
+```text
+Library:  metrics | Type rows
+Type:     metrics | [Whole type diff] | Member rows
+```
+
+The bracketed row exists only in Type Diff and only when its immersive
+destination is available. Type Clone has no whole-Type action. Library has no
+Explore action. Activating a Type or Member row changes structural subject
+through the owner-issued Compare transition and leaves the current Diff or
+Clone mode active, as specified by
+[Inspect Web Compare Experience](inspect-web-compare-experience.md).
+
+Member is the detailed-result boundary. Member Diff uses the complete remaining
+area for its summary and optional Explore destination. Member Clone may use a
+candidate inventory plus selected-candidate evidence because both belong to
+one exact Member query; this is not the higher-level Type/Member navigation
+split removed above.
+
+At narrow widths Library and Type keep the same single-list topology and do not
+enter the generic inventory/detail pane swap. The persistent subject and
+inspector groups may independently adapt to Choosers. Member retains the
+existing narrow navigation/detail composition, and Explore remains full-bleed.
+
 ### Source and Annotated Source
 
 Source and Annotated Source use the full area to the right of Type or Member
@@ -1093,8 +1181,10 @@ This browser-only placement is milestone 5 of the six-step adoption path in
 It has one consumer, the Member Diff working surface, and one focused tracker,
 [#5685](https://github.com/richlander/dotnet-inspect/issues/5685). It adds no
 comparison, transport, navigation, or viewer architecture. The existing
-cross-version `Compare authored source` dialog and Method Body Diff remain
-separate experiences; this placement does not retire or redefine either.
+cross-version `Compare authored source` and Method Body Diff contextual
+dialogs are retired under #6491. Their structured managed evidence remains
+available to an owner-issued immersive destination; this placement does not
+redefine that evidence.
 
 [VS Code](https://code.visualstudio.com/docs/sourcecontrol/overview) uses a
 dedicated side-by-side diff editor rather than embedding changed text in its
@@ -1433,6 +1523,27 @@ with the absence of a synthesized `Default feed` control.
    compact action group, the existing `Members` control swaps inventory and
    detail without changing comparison state, and a viewer-owned responsive
    unified fallback does not overwrite the selected mode.
+
+### Compare working surface
+
+1. Open Library Compare in Diff and Clone. Confirm that the same frame presents
+   summary metrics and Type rows without a selected-Type detail pane or
+   Library-level Explore action, and that removed Diff Types remain visible
+   without an invalid descendant action.
+2. Activate a Library row and confirm that one transition opens the exact Type
+   in Compare with the current mode retained and without briefly rendering the
+   recommended Type lens.
+3. Open Type Compare Diff and confirm that Whole type diff precedes the
+   changed-Member rows only when its destination is available. Confirm that
+   Type Clone contains Member rows and no whole-Type action.
+4. Activate a Type row and confirm that Member Compare opens with the current
+   mode retained. Confirm that detailed evidence begins only at Member.
+5. Repeat Library and Type at a narrow viewport. Confirm that the drill-down
+   inventory remains the only Compare pane, fills the available working area,
+   and creates no page-level horizontal overflow.
+6. Open and close a Member or whole-Type Explore destination. Confirm that the
+   immersive viewer is full-bleed and returns to the originating Compare mode,
+   row, scroll position, and useful focus.
 
 ### Narrow viewport
 
