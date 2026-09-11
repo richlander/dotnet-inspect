@@ -1592,10 +1592,14 @@ canaries:
   same-participant match when the selected participant contributed no public
   dependency root. Published outcomes retain committed participant order. The
   query returns resource-free subjects, graph facts, and typed per-participant
-  failures. The CLI `depends` host projects package diagnostics without
-  inventing filesystem paths; Inspect Web's Type Relationships metadata surface
-  composes the participant-qualified facts over its retained active package
-  Workspace while keeping selected-participant shape and derived types separate.
+  failures. The L2 `TypeDependencySectionPlan` binds the exact target and
+  semantic relationship-row intent, then applies the shared row contract after
+  complete query execution. The CLI `depends` host and Inspect Web Type
+  Relationships both consume that plan. The CLI projects package diagnostics
+  without inventing filesystem paths; Inspect Web executes over its retained
+  active package Workspace while keeping selected-participant shape and derived
+  types separate. [Inspection operation composition](inspection-operation-composition.md)
+  owns the cross-host sequencing and explicit host divergences.
 
 The motivating real asset is
 `Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`. Its

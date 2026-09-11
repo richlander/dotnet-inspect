@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 
 using DotnetInspector.SourceSelection;
 
@@ -85,6 +86,15 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// Limit data rows per rendered table.
     /// </summary>
     public RowWindow? Rows { get; init; }
+
+    /// <summary>
+    /// Host-neutral semantic selection over type-dependency relationship rows.
+    /// </summary>
+    public RowSelectionIntent<TypeDependencyRowOrder>? TypeDependencyRows
+    {
+        get;
+        init;
+    }
 
     /// <summary>
     /// Output the number of selected logical dependency edges.

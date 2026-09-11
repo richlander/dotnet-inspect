@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Services;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
 using Markout;
@@ -90,12 +91,44 @@ public class DependsCommand
                 return new TypeDependsOutcome(TypeNotFoundExitCode, uncertified);
             }
 
+            if (result.RowSelectionFailure is { } rowFailure)
+            {
+                CommandError.Write(
+                    $"Type dependency row selection stage "
+                    + $"{rowFailure.Failure.StageNumber} requires row "
+                    + $"{rowFailure.Failure.RequiredPosition}, but "
+                    + $"{rowFailure.Identity} has "
+                    + $"{rowFailure.Failure.AvailableCount} rows.");
+                return new TypeDependsOutcome(1, uncertified);
+            }
+
             DependencyGraphDocument document =
                 DependencyGraphProjection.Type(result.Dependency);
+            HashSet<int> selectedRelationshipOrdinals =
+                [
+                    .. result.Relationships.Select(
+                        static relationship => relationship.Ordinal),
+                ];
+            TypeDependencyRelationship[] orderedRelationships =
+            [
+                .. result.Dependency.Relationships.OrderBy(
+                    static relationship => relationship.Ordinal),
+            ];
+            List<DependencyGraphEdgeRow> allRows =
+                DependencyGraphOutputAdapter.EdgeRows(document);
+            if (allRows.Count != orderedRelationships.Length)
+            {
+                throw new InvalidOperationException(
+                    "The type dependency graph projection did not preserve "
+                        + "the query relationship count.");
+            }
             IReadOnlyList<DependencyGraphEdgeRow> rows =
-                RowWindow.Apply(
-                    options.Rows,
-                    DependencyGraphOutputAdapter.EdgeRows(document));
+            [
+                .. allRows.Where(
+                    (_, index) =>
+                        selectedRelationshipOrdinals.Contains(
+                            orderedRelationships[index].Ordinal)),
+            ];
             if (options.Count)
             {
                 CountOutput.WriteCount(rows.Count);

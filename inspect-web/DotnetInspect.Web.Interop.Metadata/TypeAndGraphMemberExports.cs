@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Analysis = ILInspector.Analysis;
@@ -40,20 +41,24 @@ public static partial class MetadataExports
             targetFramework,
             assemblyName,
             typeId,
-            workspaceJson);
+            workspaceJson,
+            RowSelectionIntent<TypeDependencyRowOrder>.Empty);
         return JsonSerializer.Serialize(
             type,
             BrowserMetadataJsonContext.Default.BrowserTypeMetadata);
     }
 
-    static async Task<BrowserTypeMetadata> TypeProjectionAsync(
+    internal static async Task<BrowserTypeMetadata> TypeProjectionAsync(
         string packageId,
         string version,
         string targetFramework,
         string assemblyName,
         string typeId,
-        string workspaceJson)
+        string workspaceJson,
+        RowSelectionIntent<TypeDependencyRowOrder>
+            typeDependencyRows)
     {
+        ArgumentNullException.ThrowIfNull(typeDependencyRows);
         (BrowserPackageRequest[] requests, int rootIndex) =
             TypeProjectionRequests(
                 packageId,
@@ -72,7 +77,7 @@ public static partial class MetadataExports
                 root.CompileAsset(assemblyName));
 
         (ResearchViews.TypeProjectionResult Projection,
-            AssemblyContextTypeDependencyResult Dependencies) result =
+            TypeDependencySectionResult Dependencies) result =
             scope.UseSurfaceParticipant(
                 participant,
                 (group, member) =>
@@ -86,10 +91,12 @@ public static partial class MetadataExports
                             $"Type projection for '{typeId}'");
                     return (
                         projection,
-                        AssemblyContextTypeDependencyQuery.ExecuteParticipant(
+                        TypeDependencySectionExecutor.ExecuteParticipant(
                             group,
                             member,
-                            projection.Identity.FullName));
+                            new TypeDependencySectionPlan(
+                                projection.Identity.FullName,
+                                typeDependencyRows)));
                 });
         ResearchViews.TypeProjectionResult projection = result.Projection;
         (BrowserTypeGraphNode[] graphNodes,
@@ -199,7 +206,7 @@ public static partial class MetadataExports
     static (BrowserTypeGraphNode[] Nodes, BrowserTypeGraphEdge[] Edges)
         TypeRelationshipGraph(
             ResearchViews.TypeProjectionResult projection,
-            AssemblyContextTypeDependencyResult dependencies)
+            TypeDependencySectionResult dependencies)
     {
         var nodes = new List<BrowserTypeGraphNode>();
         var nodeIndexes = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -231,6 +238,12 @@ public static partial class MetadataExports
         foreach (ResearchViews.TypeRelationshipNode node
                  in projection.Graph?.Nodes ?? [])
         {
+            if (node.Role is not (
+                    ResearchViews.TypeRelationshipRole.Self
+                    or ResearchViews.TypeRelationshipRole.Derived))
+            {
+                continue;
+            }
             AddNode(
                 node.Id,
                 node.DisplayName,
@@ -239,20 +252,26 @@ public static partial class MetadataExports
         foreach (ResearchViews.TypeRelationshipEdge edge
                  in projection.Graph?.Edges ?? [])
         {
+            if (edge.Kind
+                is not ResearchViews.TypeRelationshipKind.DerivedFrom)
+            {
+                continue;
+            }
             AddEdge(
                 edge.FromId,
                 edge.ToId,
                 edge.Kind.ToString().ToLowerInvariant());
         }
 
-        string? matchedType = dependencies.Dependency.MatchedType;
+        string? matchedType =
+            dependencies.QueryResult.Dependency.MatchedType;
         if (matchedType is null)
             return ([.. nodes], [.. edges]);
 
         var dependencyRoles = new Dictionary<string, string>(
             StringComparer.Ordinal);
         foreach (TypeDependencyRelationship relationship
-                 in dependencies.Dependency.Relationships)
+                 in dependencies.RowSelection.Relationships)
         {
             dependencyRoles.TryAdd(
                 relationship.TargetTypeName,
@@ -268,7 +287,7 @@ public static partial class MetadataExports
                 : typeName;
 
         foreach (TypeDependencyRelationship relationship
-                 in dependencies.Dependency.Relationships.OrderBy(
+                 in dependencies.RowSelection.Relationships.OrderBy(
                      static relationship => relationship.Ordinal))
         {
             string sourceId = GraphId(relationship.SourceTypeName);
@@ -301,10 +320,10 @@ public static partial class MetadataExports
 
     static IEnumerable<string> TypeDependencyFailures(
         BrowserInspectionScope scope,
-        AssemblyContextTypeDependencyResult dependencies)
+        TypeDependencySectionResult dependencies)
     {
         foreach (AssemblyContextTypeDependencyEntry.Rejected rejected
-                 in dependencies.Participants.OfType<
+                 in dependencies.QueryResult.Participants.OfType<
                      AssemblyContextTypeDependencyEntry.Rejected>())
         {
             BrowserWorkspaceParticipant? participant =
@@ -322,17 +341,27 @@ public static partial class MetadataExports
                 + $"({rejected.Failure.Kind}).";
         }
 
-        if (!dependencies.HasSurvivingParticipant)
+        if (!dependencies.QueryResult.HasSurvivingParticipant)
         {
             yield return
                 "Workspace type dependencies are unavailable because every "
                 + "participant was rejected.";
         }
-        else if (!dependencies.Dependency.Found)
+        if (dependencies.RowSelection.Failure is { } rowFailure)
+        {
+            yield return
+                $"Type dependency row selection stage "
+                + $"{rowFailure.Failure.StageNumber} requires row "
+                + $"{rowFailure.Failure.RequiredPosition}, but "
+                + $"{rowFailure.Identity} has "
+                + $"{rowFailure.Failure.AvailableCount} rows.";
+        }
+        else if (!dependencies.QueryResult.Dependency.Found)
         {
             yield return
                 "Workspace type dependencies could not certify the selected "
-                + "type; direct participant relationships are shown only.";
+                + "type; participant-local derived relationships are shown "
+                + "only.";
         }
     }
 

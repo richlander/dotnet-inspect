@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -19,19 +20,30 @@ internal sealed record TypeDependencyScanDiagnostic(
 
 internal sealed record TypeDependencyExecutionResult(
     TypeDependencyResult Dependency,
+    IReadOnlyList<TypeDependencyRelationship> Relationships,
     IReadOnlyList<TypeDependencyScanDiagnostic> Diagnostics,
-    bool IsAvailable)
+    bool IsAvailable,
+    RowsCohortSemanticFailure<TypeDependencyRowSet>? RowSelectionFailure)
 {
     internal static TypeDependencyExecutionResult Unavailable() =>
         new(
             new TypeDependencyResult(null, []),
             [],
-            IsAvailable: false);
+            [],
+            IsAvailable: false,
+            RowSelectionFailure: null);
 
     internal static TypeDependencyExecutionResult FromLegacy(
-        TypeDependencyResult dependency) =>
-        new(
+        TypeDependencyResult dependency,
+        TypeDependencySectionPlan plan)
+    {
+        TypeDependencyRowSelectionResult selection =
+            TypeDependencySectionExecutor.Select(
+                dependency,
+                plan);
+        return new(
             dependency,
+            selection.Relationships,
             dependency.Rejections.Select(
                 static rejection =>
                     new TypeDependencyScanDiagnostic(
@@ -58,7 +70,9 @@ internal sealed record TypeDependencyExecutionResult(
                                 rejection.MetadataRootReason,
                         }))
                 .ToArray(),
-            IsAvailable: true);
+            IsAvailable: true,
+            RowSelectionFailure: selection.Failure);
+    }
 }
 
 /// <summary>
@@ -78,6 +92,12 @@ internal static class DependencyGraphService
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        TypeDependencySectionPlan plan =
+            new(
+                options.TargetType,
+                options.TypeDependencyRows
+                    ?? RowSelectionIntent<
+                        TypeDependencyRowOrder>.Empty);
         AssemblySetRequest request =
             options.ToAssemblySetRequest(TempDirPrefix);
         if (ConfiguredPackageSearchWorkspace.IsEligible(
@@ -96,12 +116,12 @@ internal static class DependencyGraphService
                 return TypeDependencyExecutionResult.Unavailable();
 
             ConfiguredPackageSearchQueryResult<
-                AssemblyContextTypeDependencyResult>? execution =
+                TypeDependencySectionResult>? execution =
                     await workspace.QuerySurfaceAsync(
                         context =>
-                            AssemblyContextTypeDependencyQuery.Execute(
+                            TypeDependencySectionExecutor.Execute(
                                 context.Group,
-                                options.TargetType),
+                                plan),
                         cancellationToken).ConfigureAwait(false);
             if (execution is null)
                 return TypeDependencyExecutionResult.Unavailable();
@@ -110,7 +130,9 @@ internal static class DependencyGraphService
                 return new TypeDependencyExecutionResult(
                     new TypeDependencyResult(null, []),
                     [],
-                    IsAvailable: true);
+                    [],
+                    IsAvailable: true,
+                    RowSelectionFailure: null);
             }
 
             PackageSearchQuerySources sources =
@@ -118,7 +140,7 @@ internal static class DependencyGraphService
                 ?? throw new InvalidOperationException(
                     "A package Root dependency result requires source correspondence.");
             IReadOnlyList<TypeDependencyScanDiagnostic> diagnostics =
-                execution.Result.Participants
+                execution.Result.QueryResult.Participants
                     .OfType<
                         AssemblyContextTypeDependencyEntry.Rejected>()
                     .Select(
@@ -130,9 +152,11 @@ internal static class DependencyGraphService
                                 rejected.Failure))
                     .ToArray();
             return new TypeDependencyExecutionResult(
-                execution.Result.Dependency,
+                execution.Result.QueryResult.Dependency,
+                execution.Result.RowSelection.Relationships,
                 diagnostics,
-                execution.Result.HasSurvivingParticipant);
+                execution.Result.QueryResult.HasSurvivingParticipant,
+                execution.Result.RowSelection.Failure);
         }
 
         return await WithAssemblySetAsync(
@@ -150,7 +174,8 @@ internal static class DependencyGraphService
                         assemblyPaths);
                 cancellationToken.ThrowIfCancellationRequested();
                 return TypeDependencyExecutionResult.FromLegacy(
-                    dependency);
+                    dependency,
+                    plan);
             }).ConfigureAwait(false);
     }
 

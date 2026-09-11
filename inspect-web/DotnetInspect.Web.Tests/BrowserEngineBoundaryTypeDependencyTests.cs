@@ -3,6 +3,7 @@ using System.Reflection.Emit;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 
 using BrowserMetadataJsonContext =
     DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonContext;
@@ -33,7 +34,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 BuildTypeDependencyImage(
                     rootAssemblyName,
                     typeName,
-                    dependency),
+                    dependency,
+                    typeof(ICloneable)),
                 $"lib/net11.0/{rootAssemblyName}.dll"));
         _ = await Coordinate(
             dependencyPackageId,
@@ -89,6 +91,96 @@ public sealed partial class BrowserEngineBoundaryTests
                 && edge.ToId == typeof(IDisposable).FullName
                 && edge.Kind == "implements");
         Assert.Empty(workspace.InspectionFailures);
+    }
+
+    [Fact]
+    public async Task TypeProjection_RetainsTypedRelationshipRowSelection()
+    {
+        const string rootPackageId =
+            "Browser.TypeDependencies.Rows.Root";
+        const string dependencyPackageId =
+            "Browser.TypeDependencies.Rows.Dependency";
+        const string rootAssemblyName =
+            "Browser.TypeDependencies.Rows.Root";
+        const string typeName =
+            "Browser.TypeDependencies.Rows.Consumer";
+        Type dependency = typeof(IPackagePayloadReservation);
+
+        _ = await Coordinate(
+            rootPackageId,
+            Package(
+                BuildTypeDependencyImage(
+                    rootAssemblyName,
+                    typeName,
+                    dependency),
+                $"lib/net11.0/{rootAssemblyName}.dll"));
+        _ = await Coordinate(
+            dependencyPackageId,
+            Package(
+                File.ReadAllBytes(dependency.Assembly.Location),
+                $"lib/net11.0/{dependency.Assembly.GetName().Name}.dll"));
+
+        const string WorkspaceJson =
+            """
+            [
+              {
+                "package": "Browser.TypeDependencies.Rows.Root",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              },
+              {
+                "package": "Browser.TypeDependencies.Rows.Dependency",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """;
+        BrowserTypeMetadata complete =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .TypeProjectionAsync(
+                    rootPackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{rootAssemblyName}.dll",
+                    typeName,
+                    WorkspaceJson,
+                    RowSelectionIntent<
+                        TypeDependencyRowOrder>.Empty);
+        BrowserTypeMetadata bounded =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .TypeProjectionAsync(
+                    rootPackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{rootAssemblyName}.dll",
+                    typeName,
+                    WorkspaceJson,
+                    RowSelectionIntent<
+                        TypeDependencyRowOrder>.Create(
+                            [
+                                RowSelectionIntentOperation<
+                                    TypeDependencyRowOrder>.Head(1),
+                            ]));
+
+        string dependencyName = dependency.FullName!;
+        Assert.Contains(
+            complete.GraphEdges,
+            edge => edge.FromId == dependencyName
+                && edge.ToId == typeof(IDisposable).FullName);
+        Assert.DoesNotContain(
+            bounded.GraphEdges,
+            edge => edge.FromId == dependencyName
+                && edge.ToId == typeof(IDisposable).FullName);
+        Assert.Equal(
+            2,
+            complete.GraphEdges.Count(edge =>
+                edge.FromId == typeName
+                && edge.Kind == "implements"));
+        Assert.Single(
+            bounded.GraphEdges.Where(edge =>
+                edge.FromId == typeName
+                && edge.Kind == "implements"));
+        Assert.Empty(bounded.InspectionFailures);
     }
 
     [Fact]
@@ -309,7 +401,7 @@ public sealed partial class BrowserEngineBoundaryTests
     static byte[] BuildTypeDependencyImage(
         string assemblyName,
         string typeName,
-        Type dependency)
+        params Type[] dependencies)
     {
         var assembly = new PersistedAssemblyBuilder(
             new AssemblyName(assemblyName),
@@ -320,7 +412,8 @@ public sealed partial class BrowserEngineBoundaryTests
             TypeAttributes.Public
                 | TypeAttributes.Abstract
                 | TypeAttributes.Class);
-        type.AddInterfaceImplementation(dependency);
+        foreach (Type dependency in dependencies)
+            type.AddInterfaceImplementation(dependency);
         type.CreateType();
 
         using var stream = new MemoryStream();

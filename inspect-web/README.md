@@ -557,7 +557,7 @@ archive responses. Run the gate after building the frontend and publishing
 | Operation | Workspace | Query that owns the session |
 | --- | --- | --- |
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
-| `QueryTypeProjection` | complete active package Workspace; one selected compile participant | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` and `AssemblyContextTypeDependencyQuery.ExecuteParticipant(...)` |
+| `QueryTypeProjection` | complete active package Workspace; one selected compile participant | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` and the L2 `TypeDependencySectionPlan` over `AssemblyContextTypeDependencyQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberFindingCensus` | one package/version/framework | one `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` carrying Facts and Annotated Source identity |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
@@ -612,13 +612,18 @@ into its query notice.
 by the active Browser Workspace. Under one protected scope lease, it projects
 type shape and known derived types from the selected compile participant, then
 runs the shared participant-qualified type-dependency query over the complete
-surface group. The exact selected participant remains the dependency root even
-when another package defines the same full type name; if that participant does
-not contribute the exact normalized dependency-scanner root, the query reports
-the type as uncertified rather than borrowing another definition or a fuzzy
-same-participant match. The Type Relationships graph therefore retains
+surface group. Base and interface graph edges come only from the selected L2
+dependency rows; Research contributes the separately owned participant-local
+derived-type edges. The exact selected participant remains the dependency root
+even when another package defines the same full type name; if that participant
+does not contribute the exact normalized dependency-scanner root, the query
+reports the type as uncertified rather than borrowing another definition or a
+fuzzy same-participant match. The Type Relationships graph therefore retains
 participant-local derived types while expanding base-class and interface chains
-through other loaded package participants.
+through other loaded package participants. The managed operation constructs
+the same L2 type-dependency plan as the CLI. The current browser gesture
+supplies an empty relationship-row intent, while the managed boundary retains
+typed Head, Tail, and Window capability for future view policy or controls.
 Rejected participants remain visible as relationship incompleteness, and the
 frontend request identity includes the complete package coordinate set so
 another retained Workspace cannot reuse those facts. A graph node or
