@@ -819,6 +819,8 @@ public abstract record ResourceEffect
     {
         public ResourceKindReference Kind { get; } =
             Kind ?? throw new ArgumentNullException(nameof(Kind));
+        public ResourceDeclaredValueKind? Value { get; } = Value;
+        public ResourceEffectLocalIdentity? Selector { get; } = Selector;
     }
 
     public sealed record Authority(
@@ -849,6 +851,8 @@ public abstract record ResourceEffect
             Target ?? throw new ArgumentNullException(nameof(Target));
         public ResourceEffectCompletion When { get; } =
             When ?? throw new ArgumentNullException(nameof(When));
+        public ResourceEffectLocation? Correspondence { get; } = Correspondence;
+        public ResourceEffectLocation? Lender { get; } = Lender;
     }
 
     public sealed record Move(
@@ -864,6 +868,7 @@ public abstract record ResourceEffect
             Target ?? throw new ArgumentNullException(nameof(Target));
         public ResourceEffectCompletion When { get; } =
             When ?? throw new ArgumentNullException(nameof(When));
+        public ResourceKindReference? Kind { get; } = Kind;
     }
 
     public sealed record Consume(
@@ -876,6 +881,7 @@ public abstract record ResourceEffect
             Source ?? throw new ArgumentNullException(nameof(Source));
         public ResourceEffectLocation.Operation Target { get; } =
             Target ?? throw new ArgumentNullException(nameof(Target));
+        public ResourceKindReference? Kind { get; } = Kind;
     }
 
     public sealed record Release(
@@ -890,6 +896,9 @@ public abstract record ResourceEffect
             Source ?? throw new ArgumentNullException(nameof(Source));
         public ResourceEffectCompletion When { get; } =
             When ?? throw new ArgumentNullException(nameof(When));
+        public ResourceKindReference? Kind { get; } = Kind;
+        public ResourceEffectLocation? Correspondence { get; } = Correspondence;
+        public ResourceEffectLocation? Observation { get; } = Observation;
     }
 
     public sealed record Borrow(
@@ -906,8 +915,12 @@ public abstract record ResourceEffect
             Source ?? throw new ArgumentNullException(nameof(Source));
         public ResourceEffectLocation Target { get; } =
             Target ?? throw new ArgumentNullException(nameof(Target));
+        public ResourceBorrowAccess Access { get; } = Access;
         public ResourceBorrowScope Scope { get; } =
             Scope ?? throw new ArgumentNullException(nameof(Scope));
+        public ResourceKindReference? Kind { get; } = Kind;
+        public ResourceEffectLocation? Lender { get; } = Lender;
+        public ResourceBorrowMaterialization? Materialization { get; } = Materialization;
     }
 
     public sealed record Derive(
@@ -921,6 +934,8 @@ public abstract record ResourceEffect
             Source ?? throw new ArgumentNullException(nameof(Source));
         public ResourceEffectLocation Target { get; } =
             Target ?? throw new ArgumentNullException(nameof(Target));
+        public ResourceDerivationRelation Relation { get; } = Relation;
+        public ResourceEffectGuard? Guard { get; } = Guard;
     }
 
     public sealed record Pass(
@@ -933,6 +948,7 @@ public abstract record ResourceEffect
             Source ?? throw new ArgumentNullException(nameof(Source));
         public ResourceEffectLocation Target { get; } =
             Target ?? throw new ArgumentNullException(nameof(Target));
+        public ResourcePassIdentity? Identity { get; } = Identity;
     }
 
     public sealed record Independent(
@@ -957,6 +973,8 @@ public abstract record ResourceEffect
             Delegate ?? throw new ArgumentNullException(nameof(Delegate));
         public ResourceBorrowScope.Callback Scope { get; } =
             Scope ?? throw new ArgumentNullException(nameof(Scope));
+        public ResourceCallbackExecution Execution { get; } = Execution;
+        public ResourceCallbackCardinality Cardinality { get; } = Cardinality;
     }
 
     public sealed record Accept(
@@ -973,6 +991,8 @@ public abstract record ResourceEffect
             Target ?? throw new ArgumentNullException(nameof(Target));
         public ResourceEffectCompletion When { get; } =
             When ?? throw new ArgumentNullException(nameof(When));
+        public ResourceKindReference? Kind { get; } = Kind;
+        public ResourceEffectLocalIdentity? Order { get; } = Order;
     }
 
     public sealed record Operation(
@@ -987,6 +1007,7 @@ public abstract record ResourceEffect
         ResourceEffectOutcomeTest Test)
         : ResourceEffect
     {
+        public ResourceEffectLocalIdentity Identity { get; } = Identity;
         public ResourceEffectLocation Source { get; } =
             Source ?? throw new ArgumentNullException(nameof(Source));
         public ResourceEffectOutcomeTest Test { get; } =
