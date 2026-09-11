@@ -103,6 +103,9 @@ Browser consumer retires #6076's **Compare authored source** action and Source
 Diff modal under a zero-compatibility plan rather than adding a second Diff
 experience. Its paired Source evidence may feed the new on-demand annotated
 comparison, but the manual version field and old result view do not remain.
+The same Browser adoption retires the contextual **Compare method bodies**
+action and Method Body Diff dialog under #6491 while preserving their managed
+exact-pair evidence for an immersive Omni destination.
 Type/Member narrowing and Clone execution remain follow-on work in #5083.
 
 The Library API Diff delivery path is the selected-library query (#6128),

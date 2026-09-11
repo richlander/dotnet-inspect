@@ -249,6 +249,20 @@ pinned outcome-level host gate without changing the suite's instruction
 decoding, block graph, typed-stack, metadata resolution, fidelity, comparison,
 analysis-diff, Finding value-equality, or review-fix evidence.
 
+`ILInspector.ILDiff.Tests` is the seventeenth migrated adopter. Its required PR
+and developer commands remain unfiltered, while process-isolated signature and
+metadata-graph safety workers select their child methods through MTP filters.
+These paths reuse the pinned outcome-level host gate without changing the
+suite's IL body and assembly comparison, normalization, member alignment,
+Finding census and matching, compiler-generated ordinal, metadata-graph
+safety, or diff presentation evidence.
+
+`DotnetInspector.FixtureInfrastructure.Tests` is the eighteenth migrated
+adopter. Its required PR command remains unfiltered. This path reuses the
+pinned outcome-level host gate without changing the suite's fixture identity,
+registration, grouping, artifact resolution, source and sidecar paths,
+boundary-axis, or cross-assembly relationship evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

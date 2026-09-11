@@ -141,7 +141,9 @@ tests/ILInspector.Research.Tests
 tests/InertText.Tests
 tests/Inspector.Artifacts.Local.PlatformProbe
 tests/Inspector.Artifacts.Tests
+tests/Inspector.Resources.Tests
 tests/Inspector.Text.Tests
+tests/NetworkAccess.Tests
 tests/NuGetFetch.Tests
 tests/TestExtensions
 tests/nuget/NuGetFetch.CustomClientFixture

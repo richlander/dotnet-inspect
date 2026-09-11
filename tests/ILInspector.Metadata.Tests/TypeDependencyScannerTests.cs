@@ -361,6 +361,251 @@ public class TypeDependencyScannerTests
         Assert.DoesNotContain(allNames, n => n == "System.Enum");
     }
 
+    [Fact]
+    public void DescriptorPopulation_FoundAndAllHealthyIsComplete()
+    {
+        const string root =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.Root";
+        ResolvedAssemblyReference consumer =
+            Descriptor(
+                FixtureCatalog.MetadataTypeDependencyConsumer
+                    .AssemblyPath());
+        ResolvedAssemblyReference reference =
+            Descriptor(
+                FixtureCatalog.MetadataTypeDependencyReference
+                    .AssemblyPath());
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                root,
+                [consumer, reference]);
+        TypeDependencyResult pathResult =
+            TypeDependencyScanner.BuildDependencyTree(
+                root,
+                [
+                    FixtureCatalog.MetadataTypeDependencyConsumer
+                        .AssemblyPath(),
+                    FixtureCatalog.MetadataTypeDependencyReference
+                        .AssemblyPath(),
+                ]);
+
+        Assert.True(result.HasSurvivingParticipant);
+        Assert.True(result.IsComplete);
+        Assert.True(result.Dependency.Found);
+        Assert.Equal(pathResult.MatchedType, result.Dependency.MatchedType);
+        Assert.Equal(
+            TreeShape(pathResult.Tree),
+            TreeShape(result.Dependency.Tree));
+        Assert.Equal(
+            pathResult.Relationships,
+            result.Dependency.Relationships);
+        Assert.Equal(
+            [consumer.Registration, reference.Registration],
+            result.Candidates.Select(
+                static candidate => candidate.Registration));
+        Assert.All(
+            result.Candidates,
+            static candidate =>
+                Assert.IsType<
+                    TypeDependencyCandidateOutcome.Completed>(
+                        candidate));
+    }
+
+    [Fact]
+    public void DescriptorPopulation_NotFoundAndAllHealthyIsCertified()
+    {
+        ResolvedAssemblyReference assembly =
+            Descriptor(
+                typeof(TypeDependencyScannerTests)
+                    .Assembly.Location);
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                "No.Such.Type",
+                [assembly]);
+
+        Assert.True(result.HasSurvivingParticipant);
+        Assert.True(result.IsComplete);
+        Assert.False(result.Dependency.Found);
+        Assert.Empty(result.Dependency.Tree);
+        Assert.Empty(result.Dependency.Relationships);
+    }
+
+    [Fact]
+    public void DescriptorPopulation_RejectionMakesSurvivingGraphIncomplete()
+    {
+        const string root =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.Root";
+        ResolvedAssemblyReference rejected =
+            Descriptor(
+                FixtureCatalog.MetadataTypeDependencyConsumer
+                    .AssemblyPath(),
+                selectedName: "WrongIdentity");
+        ResolvedAssemblyReference healthy =
+            Descriptor(
+                FixtureCatalog.MetadataTypeDependencyConsumer
+                    .AssemblyPath());
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                root,
+                [rejected, healthy]);
+
+        Assert.True(result.HasSurvivingParticipant);
+        Assert.True(result.Dependency.Found);
+        Assert.False(result.IsComplete);
+        var failure =
+            Assert.IsType<TypeDependencyCandidateOutcome.Rejected>(
+                result.Candidates[0]);
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            failure.Failure.Kind);
+        Assert.Same(rejected.Registration, failure.Registration);
+        Assert.IsType<TypeDependencyCandidateOutcome.Completed>(
+            result.Candidates[1]);
+        Assert.Same(
+            healthy.Registration,
+            result.Candidates[1].Registration);
+    }
+
+    [Fact]
+    public void DescriptorPopulation_RejectionCleanupCannotAbortHealthyNeighbor()
+    {
+        const string root =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.Root";
+        string path =
+            FixtureCatalog.MetadataTypeDependencyConsumer
+                .AssemblyPath();
+        ResolvedAssemblyReference rejected =
+            Descriptor(
+                path,
+                selectedName: "WrongIdentity",
+                openRead: () =>
+                    new ThrowingDisposeStream(
+                        File.ReadAllBytes(path)));
+        ResolvedAssemblyReference healthy =
+            Descriptor(path);
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                root,
+                [rejected, healthy]);
+
+        Assert.True(result.Dependency.Found);
+        Assert.False(result.IsComplete);
+        Assert.IsType<TypeDependencyCandidateOutcome.Rejected>(
+            result.Candidates[0]);
+        Assert.IsType<TypeDependencyCandidateOutcome.Completed>(
+            result.Candidates[1]);
+    }
+
+    [Fact]
+    public void DescriptorPopulation_ReleaseAttemptsEveryCompletedImage()
+    {
+        string path =
+            FixtureCatalog.MetadataTypeDependencyConsumer
+                .AssemblyPath();
+        byte[] bytes = File.ReadAllBytes(path);
+        int disposeCount = 0;
+        ResolvedAssemblyReference first =
+            Descriptor(
+                path,
+                openRead: () =>
+                    new ThrowingDisposeStream(
+                        bytes,
+                        () => disposeCount++));
+        ResolvedAssemblyReference second =
+            Descriptor(
+                path,
+                openRead: () =>
+                    new ThrowingDisposeStream(
+                        bytes,
+                        () => disposeCount++));
+
+        AggregateException failure =
+            Assert.Throws<AggregateException>(() =>
+                TypeDependencyScanner.BuildDependencyPopulation(
+                    "No.Such.Type",
+                    [first, second]));
+
+        Assert.Equal(2, failure.InnerExceptions.Count);
+        Assert.Equal(2, disposeCount);
+    }
+
+    [Fact]
+    public void DescriptorPopulation_AllRejectedIsUnavailableInInputOrder()
+    {
+        string path =
+            typeof(TypeDependencyScannerTests).Assembly.Location;
+        ResolvedAssemblyReference first =
+            Descriptor(path, selectedName: "WrongFirst");
+        ResolvedAssemblyReference second =
+            Descriptor(path, selectedName: "WrongSecond");
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                "No.Such.Type",
+                [first, second]);
+
+        Assert.False(result.HasSurvivingParticipant);
+        Assert.False(result.IsComplete);
+        Assert.False(result.Dependency.Found);
+        Assert.Equal(
+            [first.Registration, second.Registration],
+            result.Candidates.Select(
+                static candidate => candidate.Registration));
+        Assert.All(
+            result.Candidates,
+            static candidate =>
+            {
+                var rejected =
+                    Assert.IsType<
+                        TypeDependencyCandidateOutcome.Rejected>(
+                            candidate);
+                Assert.Equal(
+                    CandidateOpenFailureKind.InvalidImage,
+                    rejected.Failure.Kind);
+            });
+    }
+
+    private static ResolvedAssemblyReference Descriptor(
+        string path,
+        string? selectedName = null,
+        Func<Stream>? openRead = null)
+    {
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "type dependency scanner tests"));
+        return ResolvedAssemblyReference.Create(
+            source.Identity with
+            {
+                Name = selectedName ?? source.Identity.Name,
+            },
+            path: null,
+            openRead ?? (() => File.OpenRead(path)),
+            source.Provenance,
+            source.LastWriteTimeUtc);
+    }
+
+    private sealed class ThrowingDisposeStream(
+        byte[] bytes,
+        Action? onDispose = null)
+        : MemoryStream(bytes, writable: false)
+    {
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                onDispose?.Invoke();
+                throw new IOException(
+                    "Synthetic dependency-scan cleanup failure.");
+            }
+        }
+    }
+
     private static void CollectNames(List<TypeDependencyNode> nodes, List<string> result)
     {
         foreach (var node in nodes)
@@ -385,4 +630,20 @@ public class TypeDependencyScannerTests
     private static int CountNodes(IReadOnlyList<TypeDependencyNode> nodes) =>
         nodes.Count
         + nodes.Sum(static node => CountNodes(node.Children));
+
+    private static IEnumerable<string> TreeShape(
+        IReadOnlyList<TypeDependencyNode> nodes,
+        string prefix = "")
+    {
+        foreach (TypeDependencyNode node in nodes)
+        {
+            yield return prefix + node.TypeName;
+            foreach (string child in TreeShape(
+                node.Children,
+                prefix + "  "))
+            {
+                yield return child;
+            }
+        }
+    }
 }

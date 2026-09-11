@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { expectGraphNodeInteractionFeedback } from "./graph-interaction-assertions.ts";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/browser/dependency-graph-explorer.html");
@@ -21,6 +22,11 @@ test("Dependencies relocates the live graph and group controls, not the lists", 
     .toHaveText("callers above · dependencies below · click a package to open");
   await expect(dialog.locator(".dependency-graph-section > .section-title")).toBeHidden();
   await expect(dialog.locator("#dep-tfm-chips")).toBeVisible();
+  const legend = dialog.locator(".graph-legend");
+  await expect(legend).toContainText("inspected package");
+  await expect(legend).toContainText("open in workspace");
+  await expect(legend).toContainText("load on selection");
+  await expect(legend.locator(".legend-swatch")).toHaveCount(3);
   await expect(dialog.locator("#dep-list-section, #assembly-references, #coordinates")).toHaveCount(0);
   await expect(page.locator("#graph-explorer-title")).toBeFocused();
   expect(await page.evaluate(() => window.dependencyExploreProbe.sameSvg())).toBe(true);
@@ -64,6 +70,12 @@ test("a pending diagram completes in the viewer without another mount", async ({
   await page.evaluate(() => window.dependencyExploreProbe.finishPending());
   await expect(page.getByRole("dialog").locator("svg")).toBeVisible();
   expect(await page.evaluate(() => window.dependencyExploreProbe.counts())).toEqual(before);
+});
+
+test("Dependency graph nodes show hover and keyboard-focus feedback", async ({ page }) => {
+  await page.getByRole("button", { name: "Explore", exact: true }).click();
+  const node = page.getByRole("button", { name: "Open Loaded.Dependency", exact: true });
+  await expectGraphNodeInteractionFeedback(page, node);
 });
 
 test("dependency nodes are keyboard navigable and dragging does not activate them", async ({ page }) => {
@@ -134,9 +146,31 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     await expect(page.getByRole("status")).toBeInViewport();
     const warning = await page.getByRole("status").boundingBox();
     const controls = await page.locator(".graph-controls").boundingBox();
+    const legend = await page.locator(".graph-legend").boundingBox();
     expect(controls!.y + controls!.height).toBeLessThanOrEqual(warning!.y);
+    expect(warning!.y + warning!.height).toBeLessThanOrEqual(legend!.y);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(size.width);
     await page.getByRole("button", { name: "Fit", exact: true }).click();
+    const extent = await page.evaluate(() => {
+      const graphViewport =
+        document.querySelector(".graph-explorer .graph-viewport")!;
+      const svg = graphViewport.querySelector("svg")!;
+      const viewportRect = graphViewport.getBoundingClientRect();
+      const svgRect = svg.getBoundingClientRect();
+      return {
+        bottom: svgRect.bottom - viewportRect.bottom,
+        left: viewportRect.left - svgRect.left,
+        right: svgRect.right - viewportRect.right,
+        top: viewportRect.top - svgRect.top,
+      };
+    });
+    if (size.width === 1440) {
+      expect(Math.max(extent.bottom, extent.left, extent.right, extent.top))
+        .toBeLessThanOrEqual(1);
+    } else {
+      await expect(page.locator(".graph-viewport svg"))
+        .toHaveAttribute("style", /scale\(0\.05\)/);
+    }
     await expect(page.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
     await page.getByRole("button", { name: "Close", exact: true }).click();
     expect((await page.locator(".graph-viewport").boundingBox())!.height).toBeCloseTo(540, 2);

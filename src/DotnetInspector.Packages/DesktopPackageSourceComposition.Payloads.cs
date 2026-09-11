@@ -92,7 +92,7 @@ public sealed partial class DesktopPackageSourceComposition
             failures).ConfigureAwait(false);
     }
 
-    private async Task<ConfiguredPackagePayloadResult> AcquireCandidateAsync(
+    private Task<ConfiguredPackagePayloadResult> AcquireCandidateAsync(
         PackageAcquisitionCandidate candidate,
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
         Action<string>? log,
@@ -101,18 +101,15 @@ public sealed partial class DesktopPackageSourceComposition
         IPackagePayloadTransferPolicy? transferPolicy,
         List<PackageAuthorityFailure> failures,
         bool selectionUsesOriginalSources = false)
-    {
-        return await _sourceLease.AcquireCandidatePayloadAsync(
+        => _sourceLease.AcquireCandidatePayloadAsync(
             candidate,
             createStore,
-            operationContext: operation,
-            log: log,
-            limits: limits,
-            transferPolicy: transferPolicy,
-            priorFailures: failures,
-            selectionUsesOriginalSources:
-                selectionUsesOriginalSources).ConfigureAwait(false);
-    }
+            log,
+            operation,
+            limits,
+            transferPolicy,
+            failures,
+            selectionUsesOriginalSources);
 
     private static PackageAuthorityFailure RequiredProducerUnavailable() =>
         new(
@@ -125,20 +122,17 @@ public sealed partial class DesktopPackageSourceComposition
 
     private static ConfiguredPackagePayloadResult PayloadOperationTimedOut(
         NuGetOperationContext operation,
-        List<PackageAuthorityFailure> failures,
-        IReadOnlyList<ConfiguredPackageAuthority>? notFoundAuthorities = null)
+        List<PackageAuthorityFailure> failures)
     {
         failures.Add(new PackageAuthorityFailure(
-            InertString.Empty, PackageAuthorityFailureKind.Timeout,
+            InertString.Empty,
+            PackageAuthorityFailureKind.Timeout,
             "The package payload operation deadline expired before acquisition completed.")
         {
-            Timeout = new(PackageSourceTimeoutKind.Operation, operation.OperationTimeout),
+            Timeout = new(
+                PackageSourceTimeoutKind.Operation,
+                operation.OperationTimeout),
         });
-        return new(
-            null,
-            null,
-            null,
-            failures,
-            notFoundAuthorities);
+        return new(null, null, null, failures);
     }
 }

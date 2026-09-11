@@ -299,9 +299,10 @@ its public cancellation operations belong beside the work they cancel.
 Annotated source stays with source because the returned document and its
 viewer contract are the capability being requested; Analysis facts embedded in
 that product document do not transfer ownership to this adapter.
-Method Body Diff likewise projects native C#/IL comparison evidence through
-the shared query; its target inventory and keyed cancellation stay with that
-feature in the same facade.
+Method-body comparison likewise projects native C#/IL evidence through the
+shared query; its target inventory and keyed cancellation stay with that
+managed feature in the same facade even though its contextual dialog is
+retired.
 
 ### Call-graph facade: 2 exports
 

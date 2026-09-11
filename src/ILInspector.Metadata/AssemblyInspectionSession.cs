@@ -1,4 +1,5 @@
 using System.Reflection.PortableExecutable;
+using Inspector.Resources;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -13,7 +14,16 @@ namespace ILInspector.Metadata;
 /// per-facet producers, not a god-object. The method-body seam is a sibling session opened over
 /// the same image.
 /// </summary>
-public sealed class AssemblyInspectionSession : IDisposable
+/// <remarks>
+/// Every session carries one synchronous terminal obligation. A session
+/// created by <c>Open</c> owns its image; a session created by
+/// <see cref="Borrow(PdbContext)"/> owns only its session borrow and leaves the
+/// lender's image open.
+/// </remarks>
+[ResourceOwnership]
+public sealed class AssemblyInspectionSession :
+    IDisposable,
+    IResourceSnapshotSource<AssemblyInspectionSession>
 {
     readonly AssemblyImage _image;
     readonly Lazy<MetadataTypeDeclarationProbe.Index>
@@ -75,6 +85,25 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// </summary>
     public static AssemblyInspectionSession Borrow(PdbContext context)
         => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The callback begins only while this session and any lender backing it
+    /// remain alive.
+    /// </remarks>
+    public TResult Snapshot<TState, TResult>(
+        TState state,
+        ResourceSnapshotCallback<
+            AssemblyInspectionSession,
+            TState,
+            TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        _image.EnsureAlive();
+        return callback(
+            new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(this),
+            state);
+    }
 
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata

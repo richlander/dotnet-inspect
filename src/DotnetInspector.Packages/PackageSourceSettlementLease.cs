@@ -47,6 +47,8 @@ public sealed class PackageSourceSettlementLease : IDisposable
         new();
     private readonly PackageAcquisitionCandidateManifestAcquirer
         _manifestAcquirer;
+    private readonly PackageAcquisitionCandidatePayloadAcquirer
+        _payloadAcquirer;
     private int _retired;
 
     internal PackageSourceSettlementLease(
@@ -57,6 +59,9 @@ public sealed class PackageSourceSettlementLease : IDisposable
         _getClient = getClient;
         _createOperationContext = createOperationContext;
         _manifestAcquirer = new(
+            _candidateIssuer,
+            GetClient);
+        _payloadAcquirer = new(
             _candidateIssuer,
             GetClient);
     }
@@ -369,7 +374,8 @@ public sealed class PackageSourceSettlementLease : IDisposable
     }
 
     /// <summary>
-    /// Acquires one exact payload through a candidate issued by this lease.
+    /// Acquires one exact admitted retained payload through a candidate issued
+    /// by this lease.
     /// The store factory returns caller-owned stores scoped to each candidate
     /// authority.
     /// </summary>
@@ -380,248 +386,52 @@ public sealed class PackageSourceSettlementLease : IDisposable
             ConfiguredPackageAuthority,
             PackageProducerIdentity,
             IPackageStore> createStore,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null,
         Action<string>? log = null,
         PackagePayloadLimits? limits = null,
+        CancellationToken cancellationToken = default,
         IPackagePayloadTransferPolicy? transferPolicy = null,
-        IReadOnlyList<PackageAuthorityFailure>? priorFailures = null,
-        bool selectionUsesOriginalSources = false)
+        NuGetOperationContext? operationContext = null)
     {
         ThrowIfRetired();
-        ArgumentNullException.ThrowIfNull(candidate);
-        ArgumentNullException.ThrowIfNull(createStore);
-        if (!_candidateIssuer.OwnsCandidate(candidate))
-        {
-            throw new InvalidOperationException(
-                "The package acquisition candidate belongs to another source-settlement lease.");
-        }
-
         using NuGetOperationContext? ownedOperation =
             operationContext is null
                 ? CreateOperationContext(cancellationToken)
                 : null;
-        NuGetOperationContext operation =
-            operationContext ?? ownedOperation!;
-        cancellationToken = operation.ResolveInvocationToken(
-            cancellationToken);
-        var failures = new List<PackageAuthorityFailure>(
-            priorFailures ?? []);
-        var notFoundAuthorities =
-            new List<ConfiguredPackageAuthority>();
-        try
-        {
-            operation.ThrowIfExpired();
-            var entries = new List<(
-                ConfiguredPackageAuthority Authority,
-                IPackageSourceClient Client,
-                IPackageStore Store)>();
-            foreach (PackageAcquisitionAuthorityEvidence evidence
-                in candidate.Authorities
-                    .OrderBy(item =>
-                        item.Authority.Kind
-                            == ConfiguredPackageAuthorityKind.LocalFolder
-                            ? 0
-                            : 1)
-                    .ThenBy(
-                        item => item.Authority.Source.Url,
-                        StringComparer.Ordinal))
-            {
-                operation.ThrowIfExpired();
-                ConfiguredPackageAuthority authority =
-                    evidence.Authority;
-                IPackageSourceClient client = GetClient(authority);
-                RequireAuthority(
-                    client.Source,
-                    authority);
-                IPackageStore store = createStore(
-                    authority,
-                    client.Source.Producer)
-                    ?? throw new InvalidOperationException(
-                        "The package store capability returned null.");
-                entries.Add((authority, client, store));
-            }
+        return await _payloadAcquirer.AcquireAsync(
+            candidate,
+            createStore,
+            log,
+            limits,
+            cancellationToken,
+            transferPolicy,
+            operationContext ?? ownedOperation).ConfigureAwait(false);
+    }
 
-            ConfiguredPackageAuthority[]? reportingAuthorities =
-                candidate.Kind
-                    == PackageAcquisitionCandidateKind.Discovered
-                    ? [.. entries.Select(item => item.Authority)]
-                    : null;
-
-            foreach (var entry in entries)
-            {
-                operation.ThrowIfExpired();
-                AcquiredPackageSourcePayload? cached =
-                    await PackagePayloadAcquisition.TryGetCachedAsync(
-                        candidate.Coordinate,
-                        entry.Client.Source.Producer.Key,
-                        entry.Store,
-                        limits,
-                        log,
-                        operation.OperationToken).ConfigureAwait(false);
-                operation.ThrowIfExpired();
-                if (cached is not null)
-                {
-                    return new(
-                        entry.Authority,
-                        entry.Client.Source,
-                        cached,
-                        failures,
-                        reportingAuthorities:
-                            reportingAuthorities,
-                        selectionUsesOriginalSources:
-                            selectionUsesOriginalSources);
-                }
-            }
-
-            foreach (var entry in entries)
-            {
-                operation.ThrowIfExpired();
-                log?.Invoke(
-                    $"Acquiring {candidate.Coordinate.PackageId} {candidate.Coordinate.Version} from "
-                    + $"{PackageSourceDisplay.ForDiagnostics(entry.Authority.Source)}.");
-                try
-                {
-                    PackageSourcePayloadResult result =
-                        await PackagePayloadAcquisition
-                            .AcquireAuthorizedAsync(
-                                entry.Client,
-                                candidate.Coordinate,
-                                entry.Store,
-                                operation,
-                                log,
-                                limits,
-                                transferPolicy).ConfigureAwait(false);
-                    operation.ThrowIfExpired();
-                    RequireAuthority(
-                        entry.Client.Source,
-                        entry.Authority);
-                    if (result
-                        is PackageSourcePayloadResult.Acquired acquired)
-                    {
-                        return new(
-                            entry.Authority,
-                            entry.Client.Source,
-                            acquired.Payload,
-                            failures,
-                            notFoundAuthorities,
-                            reportingAuthorities,
-                            selectionUsesOriginalSources);
-                    }
-                    if (result
-                        is PackageSourcePayloadResult.Failed failed)
-                    {
-                        RequireAuthority(
-                            failed.Failure.Source,
-                            entry.Authority,
-                            entry.Client.Source);
-                        failures.Add(DescribePayloadFailure(
-                            entry.Authority.Source,
-                            failed.Failure));
-                    }
-                    else if (result
-                        is PackageSourcePayloadResult.Unavailable unavailable)
-                    {
-                        if (unavailable.IsNotFound)
-                        {
-                            notFoundAuthorities.Add(
-                                entry.Authority);
-                        }
-                        else
-                        {
-                            failures.Add(
-                                new PackageAuthorityFailure(
-                                    PackageSourceDisplay.ForDiagnostics(
-                                        entry.Authority.Source),
-                                    PackageAuthorityFailureKind
-                                        .ResponseRejected,
-                                    "The selected source did not supply a payload satisfying the package policy.")
-                                {
-                                    ResultSource =
-                                        entry.Client.Source,
-                                });
-                        }
-                    }
-                }
-                catch (PackageSourceStreamException exception)
-                {
-                    RequireAuthority(
-                        exception.ResultSource,
-                        entry.Authority,
-                        entry.Client.Source);
-                    failures.Add(new PackageAuthorityFailure(
-                        PackageSourceDisplay.ForDiagnostics(
-                            entry.Authority.Source),
-                        ClassifySourceFailure(exception.Kind),
-                        exception.Message)
-                    {
-                        ResultSource = exception.ResultSource,
-                        Timeout = exception.Timeout,
-                    });
-                    if (exception.Timeout?.Kind
-                        == PackageSourceTimeoutKind.Operation)
-                    {
-                        return new(
-                            authority: null,
-                            source: null,
-                            payload: null,
-                            failures,
-                            notFoundAuthorities);
-                    }
-                }
-            }
-
-            operation.ThrowIfExpired();
-            return new(
-                authority: null,
-                source: null,
-                payload: null,
-                failures,
-                notFoundAuthorities);
-        }
-        catch (NuGetOperationTimeoutException)
-        {
-            failures.Add(new PackageAuthorityFailure(
-                InertString.Empty,
-                PackageAuthorityFailureKind.Timeout,
-                "The package payload operation deadline expired before acquisition completed.")
-            {
-                Timeout = new(
-                    PackageSourceTimeoutKind.Operation,
-                    operation.OperationTimeout),
-            });
-            return new(
-                authority: null,
-                source: null,
-                payload: null,
-                failures,
-                notFoundAuthorities);
-        }
-        catch (OperationCanceledException)
-            when (operation.CancellationToken.IsCancellationRequested)
-        {
-            throw new OperationCanceledException(
-                operation.CancellationToken);
-        }
-        catch (OperationCanceledException)
-            when (operation.OperationToken.IsCancellationRequested)
-        {
-            failures.Add(new PackageAuthorityFailure(
-                InertString.Empty,
-                PackageAuthorityFailureKind.Timeout,
-                "The package payload operation deadline expired before acquisition completed.")
-            {
-                Timeout = new(
-                    PackageSourceTimeoutKind.Operation,
-                    operation.OperationTimeout),
-            });
-            return new(
-                authority: null,
-                source: null,
-                payload: null,
-                failures,
-                notFoundAuthorities);
-        }
+    internal Task<ConfiguredPackagePayloadResult>
+        AcquireCandidatePayloadAsync(
+        PackageAcquisitionCandidate candidate,
+        Func<
+            ConfiguredPackageAuthority,
+            PackageProducerIdentity,
+            IPackageStore> createStore,
+        Action<string>? log,
+        NuGetOperationContext operationContext,
+        PackagePayloadLimits? limits,
+        IPackagePayloadTransferPolicy? transferPolicy,
+        List<PackageAuthorityFailure> failures,
+        bool selectionUsesOriginalSources)
+    {
+        ThrowIfRetired();
+        return _payloadAcquirer.AcquireAsync(
+            candidate,
+            createStore,
+            log,
+            limits,
+            operationContext.CancellationToken,
+            transferPolicy,
+            operationContext,
+            failures,
+            selectionUsesOriginalSources);
     }
 
     public void Dispose() =>

@@ -1,12 +1,31 @@
 import mermaid from "mermaid";
 import { bindGraphExplore, createGraphExplorer } from "../src/graph-explorer.ts";
-import { bindGraphPanZoom } from "../src/graph-interactions.ts";
+import { bindGraphPanZoom, graphControlsHtml } from "../src/graph-interactions.ts";
+import { callGraphLegendHtml } from "../src/graph-legends.ts";
+import {
+  resolveMermaidCssVariables,
+  styleCallGraphMermaid,
+} from "../src/graph-mermaid.ts";
 import { createWorkbenchKeybindings } from "../src/workbench-keybindings.ts";
 
 const app = document.querySelector<HTMLElement>("#app")!;
 const explorer = createGraphExplorer(document);
 const keybindings = createWorkbenchKeybindings();
 keybindings.attach(document);
+const graphTargets = [
+  {
+    id: "n0", assembly: "Example", assemblyVersion: "1.0.0.0",
+    typeDefinitionId: "Example.Worker", kind: "focus",
+  },
+  {
+    id: "n1", assembly: "System.Private.CoreLib", assemblyVersion: "11.0.0.0",
+    typeDefinitionId: "System.Console", kind: "external",
+  },
+  {
+    id: "n2", assembly: "Example", assemblyVersion: "1.0.0.0",
+    typeDefinitionId: "Example.Worker", kind: "normal",
+  },
+] as const;
 let key = "member-one";
 let state: "ready" | "pending" | "failure" | "no-body" = "ready";
 let depth = 0;
@@ -55,16 +74,19 @@ async function mountGraph() {
     securityLevel: "strict",
     flowchart: { htmlLabels: false },
   });
-  const { svg } = await mermaid.render(`browser-graph-${++mounts}`,
-    "graph LR\nn0[Process] --> n1[Platform method]\nn0 --> n2[Open member]");
+  const style = getComputedStyle(document.documentElement);
+  const definition = resolveMermaidCssVariables(
+    styleCallGraphMermaid(
+      `graph LR
+        n0[Process]:::focus --> n1[Platform method]:::external
+        n0 --> n2[Open member]:::normal`,
+      graphTargets),
+    name => style.getPropertyValue(name));
+  const { svg } = await mermaid.render(`browser-graph-${++mounts}`, definition);
   if (!diagram.isConnected) return;
   diagram.innerHTML = `
     <div class="graph-viewport">${svg}</div>
-    <div class="graph-controls">
-      <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
-      <button type="button" data-zoom="out" aria-label="Zoom out">-</button>
-      <button type="button" data-zoom="reset" aria-label="Fit">fit</button>
-    </div>`;
+    ${graphControlsHtml()}`;
   bindGraphPanZoom(diagram, diagram.querySelector<HTMLElement>(".graph-viewport")!, {
     keybindings,
     resolveCallGraphNode: id => id === "n1"
@@ -105,8 +127,7 @@ async function render() {
               ${state === "pending" ? '<div class="graph-expanding">Scanning callers…</div>' : ""}
               <div class="graph-scope"><strong>Workspace callers</strong><span>2 loaded packages</span><strong>Callees</strong><span>depth 2</span></div>
               <div id="diagram" class="call-graph-diagram"><p>Rendering graph…</p></div>
-              <div class="graph-legend"><span>target member</span><span>same type</span><span>external assembly (platform lookup on click)</span></div>
-              <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>graph LR</code></pre></details>
+              ${callGraphLegendHtml()}
             </section>`}
       </div>
     </main>`;
