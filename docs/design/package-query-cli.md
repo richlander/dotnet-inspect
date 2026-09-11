@@ -165,8 +165,8 @@ semantic Package Query. `--take`, `-n`, `--count`, output options, and
 `-S Packages` are mode-neutral; without a query-specific gesture, a
 patternless `--package-prefix` remains ordinary package-profile mode.
 Query-only gestures require a patternless `--package-prefix` and reject API
-scopes and source overrides before acquisition. `-t` is rejected in
-semantic-query mode until command-wide adoption retires its numeric form.
+scopes and source overrides before acquisition. Numeric and short-form `-t`
+are retired command-wide; long-form `--type` is rejected in Package Query mode.
 
 One semantic result row is one matched package, carrying its exact version,
 source, and product-authored nonempty evidence. `-n` and `--rows` select those
@@ -201,8 +201,7 @@ is authored. Its semantic row intent remains separate and reaches L2 only after
 candidate execution. This optional state is required rather than a sentinel:
 with `--take 1000`, all 1,000 candidates may match, so no larger valid integer
 exists under the owner's 1,000 match-budget maximum. README examples, shipped
-skills, help, completion, and Release gates change with product adoption rather
-than this docs-only reconciliation.
+skills, help, completion, and Release gates reflect this adoption.
 
 The currently shipped binding is gated by `PackageQueryCliTests`:
 `DiscoveryValues_LowerToExactlyTheProductFacets`,
@@ -225,8 +224,9 @@ discovery and profile contracts.
 `find --package-prefix` (#4551, merged) is the right CLI verb: it streams
 typed manifests over a corpus, with an explicit bound and honest truncation
 and partial-source failure, rendered through the shared Sections registry
-just as `library`/`member`/`package` are. Its corpus-limit spelling is still
-`-t`; the historical #4677 target proposed `-n` instead — see
+just as `library`/`member`/`package` are. Its corpus-limit spelling is now
+`--take`; before #6489 it was numeric `-t`, while the historical #4677 target
+proposed semantic `-n` instead — see
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
 The L1 facet engine now provides a host-neutral way to ask "and does each
 package satisfy *this*" over facts available from the source, exact manifest,
@@ -342,15 +342,16 @@ and category maps), and the JSON/TSV/JSONL/projected-JSON output formats all
 route through the shared pipeline, the same infrastructure `library`/`member`/
 `package` use.
 
-**What did not land alongside it:** the flag-numbering half of this
+**What did not land alongside it before #6489:** the flag-numbering half of this
 recommendation. This document's own "one deliberate, called-out behavior
 change" for this migration step was retiring `-t`-as-package-limit in favor of
-the historical #4677 `-n` proposal — but `find --package-prefix`'s corpus limit is
-still spelled `-t` on `main` (`FindOptions.Limit`, validated as "`-t` must be
-between 1 and..."). #6107 adds `-S Packages` and the finite `--where` facet
-binding without replacing that ordinary profile mode.
+the historical #4677 `-n` proposal — but before #6489,
+`find --package-prefix`'s corpus limit remained `-t` (`FindOptions.Limit`,
+validated as "`-t` must be between 1 and..."). #6107 added `-S Packages` and
+the finite `--where` facet binding without replacing that ordinary profile
+mode.
 
-While that legacy spelling remains, numeric `-t` clamps the package candidates
+Under that legacy spelling, numeric `-t` clamps the package candidates
 the source is asked to return and is mutually exclusive with `--count`.
 Accepting both would present a count over an intentionally shortened
 acquisition as though no package clamp applied. This package-source rule does
@@ -450,7 +451,7 @@ boundary took about 284 seconds, so neither that boundary nor the requested
 5,000 and host-neutral 10,000 ceilings are behavior-safe CLI limits under the
 default timeout policy.
 
-**Resolved interaction for the next CLI slice:** the Sections migration and
+**Resolved interaction for #6489:** the Sections migration and
 the `-t` retirement were assumed to be one atomic step; in practice they
 decoupled, and the migration landed first. The focused
 [CLI row-selection](cli-row-selection.md) and

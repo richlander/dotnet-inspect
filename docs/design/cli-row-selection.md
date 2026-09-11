@@ -27,8 +27,10 @@ issue #6327 constructs candidates from the real package, library, type, and
 member commands and each selected lens declaration, then runs the envelope
 before the commandless router enters target acquisition. #6379 adopts the
 finite product-demo catalog for explicit `demo list` and equivalent bare
-`demo` listing. Remaining command adoptions and shared universal guidance
-remain unimplemented.
+`demo` listing. #6489 adopts `find` across API search, package profile,
+Package Query, and literal Package Query modes, including shared semantic
+selection and Count evidence. Remaining command adoptions and shared universal
+guidance remain unimplemented.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains

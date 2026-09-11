@@ -29,6 +29,9 @@ The end-to-end tracker has four steps:
 4. retire plain `package search --take`, using semantic `-n` plus proven source
    delegation only where the full multi-source result remains equivalent.
 
+Steps 1 through 3 are implemented: #6489 reconciles Package Query and adopts
+the command-wide `find` surface. Step 4 remains separate future work.
+
 Other command-owned bounds are evidence for the family, not implicit
 participants in that adoption path.
 
