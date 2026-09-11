@@ -46,10 +46,14 @@ public static class HttpRetryHelper
         RejectedPayload,
     }
 
+    /// <summary>
+    /// Result of a bounded body read, including bytes consumed across all attempts.
+    /// </summary>
     public readonly record struct HttpBodyFetchResult(
         byte[]? Bytes,
         HttpBodyFetchStatus Status,
-        HttpStatusCode? StatusCode = null);
+        HttpStatusCode? StatusCode = null,
+        long BodyBytesRead = 0);
 
     public readonly record struct HttpRetryResult(HttpResponseMessage? Response, HttpStatusCode? StatusCode)
     {
@@ -385,6 +389,7 @@ public static class HttpRetryHelper
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDownloadSize);
 
         int attempts = 0;
+        long bodyBytesRead = 0;
 
         while (true)
         {
@@ -421,18 +426,21 @@ public static class HttpRetryHelper
                             return new HttpBodyFetchResult(
                                 null,
                                 HttpBodyFetchStatus.ResponseRejected,
-                                response.StatusCode);
+                                response.StatusCode,
+                                bodyBytesRead);
                         }
 
                         readingBody = true;
                         byte[] bytes = await ReadBoundedBodyAsync(
                             response.Content,
                             maxDownloadSize,
-                            timeout.Token).ConfigureAwait(false);
+                            timeout.Token,
+                            read => bodyBytesRead += read).ConfigureAwait(false);
                         return new HttpBodyFetchResult(
                             bytes,
                             HttpBodyFetchStatus.Success,
-                            response.StatusCode);
+                            response.StatusCode,
+                            bodyBytesRead);
                     }
 
                     HttpStatusCode statusCode = response.StatusCode;
@@ -441,7 +449,8 @@ public static class HttpRetryHelper
                         return new HttpBodyFetchResult(
                             null,
                             HttpBodyFetchStatus.Unavailable,
-                            statusCode);
+                            statusCode,
+                            bodyBytesRead);
                     }
 
                     if (!IsRetryableStatus(statusCode))
@@ -451,7 +460,8 @@ public static class HttpRetryHelper
                         return new HttpBodyFetchResult(
                             null,
                             HttpBodyFetchStatus.Unavailable,
-                            statusCode);
+                            statusCode,
+                            bodyBytesRead);
                     }
 
                     log?.Invoke($"HTTP GET {(int)statusCode} (retryable).");
@@ -460,7 +470,8 @@ public static class HttpRetryHelper
                 {
                     return new HttpBodyFetchResult(
                         null,
-                        HttpBodyFetchStatus.TooLarge);
+                        HttpBodyFetchStatus.TooLarge,
+                        BodyBytesRead: bodyBytesRead);
                 }
                 catch (HttpRequestException ex)
                 {
@@ -474,7 +485,8 @@ public static class HttpRetryHelper
                         FeedFailureTelemetry.Record(url, null);
                         return new HttpBodyFetchResult(
                             null,
-                            HttpBodyFetchStatus.Unavailable);
+                            HttpBodyFetchStatus.Unavailable,
+                            BodyBytesRead: bodyBytesRead);
                     }
 
                     log?.Invoke(readingBody
@@ -490,14 +502,16 @@ public static class HttpRetryHelper
                     log?.Invoke("HTTP GET unsupported URL (not retryable).");
                     return new HttpBodyFetchResult(
                         null,
-                        HttpBodyFetchStatus.Unavailable);
+                        HttpBodyFetchStatus.Unavailable,
+                        BodyBytesRead: bodyBytesRead);
                 }
                 catch (OfflineException)
                 {
                     log?.Invoke("Network access is disabled (--offline mode).");
                     return new HttpBodyFetchResult(
                         null,
-                        HttpBodyFetchStatus.Unavailable);
+                        HttpBodyFetchStatus.Unavailable,
+                        BodyBytesRead: bodyBytesRead);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -514,7 +528,8 @@ public static class HttpRetryHelper
                     FeedFailureTelemetry.Record(url, null);
                     return new HttpBodyFetchResult(
                         null,
-                        HttpBodyFetchStatus.Unavailable);
+                        HttpBodyFetchStatus.Unavailable,
+                        BodyBytesRead: bodyBytesRead);
                 }
             }
 
@@ -527,7 +542,8 @@ public static class HttpRetryHelper
     private static async Task<byte[]> ReadBoundedBodyAsync(
         HttpContent content,
         long maxDownloadSize,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<int>? bytesRead = null)
     {
         if (content.Headers.ContentLength is > 0
             && content.Headers.ContentLength > maxDownloadSize)
@@ -544,12 +560,17 @@ public static class HttpRetryHelper
         {
             while (true)
             {
+                long remaining = maxDownloadSize - total;
+                int readSize = remaining >= buffer.Length
+                    ? buffer.Length
+                    : (int)remaining + 1;
                 int read = await source.ReadAsync(
-                    buffer.AsMemory(0, buffer.Length),
+                    buffer.AsMemory(0, readSize),
                     cancellationToken).ConfigureAwait(false);
                 if (read == 0)
                     break;
 
+                bytesRead?.Invoke(read);
                 total += read;
                 if (total > maxDownloadSize)
                     throw new ResponseBodyTooLargeException();
