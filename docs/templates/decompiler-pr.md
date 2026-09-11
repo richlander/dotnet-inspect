@@ -116,11 +116,15 @@ or explicit non-actions, and each reviewer's final verdict.
 List every evidence lens before its raw output. Scope names the exact method,
 fixture, corpus, source build, or manifest. Compared names the two sides. Held
 constant names the shared artifact, product, harness, or source identity that
-makes the comparison meaningful.
+makes the comparison meaningful. Use the same Lens value in the Shared
+judgment table below so scope and direction have a one-to-one association.
 -->
 
-| Evidence | Scope | Compared | Held constant | Answers |
+| Lens | Scope | Compared | Held constant | Answers |
 | --- | --- | --- | --- | --- |
+| Method validity | **One method**: `{Type::Method}` | Base product → head product | One pinned assembly | Did the rendered C# become more or less legal? |
+| Method correctness | **The same method**: `{Type::Method}` | Base product → head product | The method's observable behavior contract | Did behavior preservation improve or regress? |
+| Method IL fidelity | **The same method**: `{Type::Method}` | Base product → head product | The original opcode contract | Did compile-back fidelity improve or regress? |
 | Structural review | **One method**: `{Type::Method}` | Base product → head product | One pinned assembly | What structure changed? |
 | PDB Source → After | **The same logical source method**, through a separate PDB-bearing build | Authored source → head product | Source document and checksum | How does the head render differ from source? |
 | Render A/B | **One fixture or corpus**: {count and identity} | Base product → head product | Input bytes, working directory, paths, and sampling policy | Which rendered methods changed? |
@@ -135,18 +139,21 @@ Use only Better, Same, Worse, or Not directional. "Better" and "Worse" apply
 to the named evidence kind, not automatically to overall product quality.
 Structural coverage may improve when more nodes have supported correspondence,
 but Unsupported and Ambiguous must never be ordered against each other.
-Population changes are Not directional.
+Population changes are Not directional. Include one row for every Lens in the
+Evidence map above, using the same Lens value and scope.
 -->
 
-| Lens | Evidence kind | Direction | Comparison | What decides the judgment |
-| --- | --- | --- | --- | --- |
-| Validity | Product quality | **Better/Same/Worse** | Baseline {result} → Head {result} | {legality rule} |
-| Correctness | Product quality | **Better/Same/Worse** | Baseline {result} → Head {result} | {observable-behavior rule} |
-| IL fidelity | Product quality | **Better/Same/Worse** | Baseline {result} → Head {result} | {compile-back rule} |
-| Structural correspondence | Evidence coverage | **Better/Same/Worse** | {supported and gap counts} → {supported and gap counts} | More supported correspondence is better; gap reasons are unordered. |
-| PDB source similarity | Product quality | **Not directional** | Source {result} → After {result} | Textual similarity alone does not decide validity, correctness, or fidelity. |
-| Fixture activation | Product quality | **Better/Same/Worse** | Base-built {result} → Head-built {result} | The explicit feature-activation contract, not aggregate population size. |
-| Fixture population | Population accounting | **Not directional** | {count} → {count} | Coverage movement is reported separately from fixed-population quality. |
+| Lens | Scope | Evidence kind | Direction | Comparison | What decides the judgment |
+| --- | --- | --- | --- | --- | --- |
+| Method validity | **One method**: `{Type::Method}` | Product quality | **Better/Same/Worse** | Baseline {result} → Head {result} | {legality rule} |
+| Method correctness | **The same method**: `{Type::Method}` | Product quality | **Better/Same/Worse** | Baseline {result} → Head {result} | {observable-behavior rule} |
+| Method IL fidelity | **The same method**: `{Type::Method}` | Product quality | **Better/Same/Worse** | Baseline {result} → Head {result} | {compile-back rule} |
+| Structural review | **The same method**: `{Type::Method}` | Evidence coverage | **Better/Same/Worse** | {supported and gap counts} → {supported and gap counts} | More supported correspondence is better; gap reasons are unordered. |
+| PDB Source → After | **The same logical source method**, through a separate PDB-bearing build | Product quality | **Not directional** | Source {result} → After {result} | Textual similarity alone does not decide validity, correctness, or fidelity. |
+| Render A/B | **One fixture or corpus**: {count and identity} | Product quality | **Better/Same/Worse** | {changed-method classifications} | Classify every changed method; net gains do not offset validity, correctness, or fidelity losses. |
+| Same-population quality | **Fixed corpus**: {assemblies and method count} | Product quality | **Better/Same/Worse** | {fixed-population metrics} | Apply each metric's explicit higher-is-better or lower-is-better goal. |
+| Fixture activation | **One or more fixture builds**: {count and identity} | Evidence coverage | **Better/Same/Worse** | Base-built {result} → Head-built {result} | Direction applies only to fulfillment of the explicit feature-activation contract. |
+| Population accounting | **Fixture manifests**: {baseline and head identities} | Population accounting | **Not directional** | {count} → {count} | Coverage movement is reported separately from fixed-population quality. |
 
 ### Raise contract
 
