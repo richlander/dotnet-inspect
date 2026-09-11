@@ -188,9 +188,10 @@ public sealed class PackageSourceSettlementLease : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         PackageSourceAuthorization authorization =
             sourceAuthorization.AuthorizeSourcesFor(packageId);
-        return await DiscoverDependencyVersionsCoreAsync(
+        return await DiscoverVersionsCoreAsync(
             packageId,
             authorization,
+            PackageVersionDiscoveryContract.DependencyRangeResolution,
             cancellationToken,
             operation).ConfigureAwait(false);
     }
@@ -217,17 +218,47 @@ public sealed class PackageSourceSettlementLease : IDisposable
             operationContext ?? ownedOperation!;
         cancellationToken = operation.ResolveInvocationToken(
             cancellationToken);
-        return await DiscoverDependencyVersionsCoreAsync(
+        return await DiscoverVersionsCoreAsync(
             packageId,
             authorization,
+            PackageVersionDiscoveryContract.DependencyRangeResolution,
+            cancellationToken,
+            operation).ConfigureAwait(false);
+    }
+
+    internal async Task<PackageVersionDiscoveryResult>
+        DiscoverVersionsAsync(
+        string packageId,
+        PackageSourceAuthorization authorization,
+        PackageVersionDiscoveryContract contract,
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
+    {
+        ThrowIfRetired();
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(authorization);
+        ArgumentNullException.ThrowIfNull(contract);
+        using NuGetOperationContext? ownedOperation =
+            operationContext is null
+                ? CreateOperationContext(cancellationToken)
+                : null;
+        NuGetOperationContext operation =
+            operationContext ?? ownedOperation!;
+        cancellationToken = operation.ResolveInvocationToken(
+            cancellationToken);
+        return await DiscoverVersionsCoreAsync(
+            packageId,
+            authorization,
+            contract,
             cancellationToken,
             operation).ConfigureAwait(false);
     }
 
     private async Task<PackageVersionDiscoveryResult>
-        DiscoverDependencyVersionsCoreAsync(
+        DiscoverVersionsCoreAsync(
         string packageId,
         PackageSourceAuthorization authorization,
+        PackageVersionDiscoveryContract contract,
         CancellationToken cancellationToken,
         NuGetOperationContext operation)
     {
@@ -249,10 +280,11 @@ public sealed class PackageSourceSettlementLease : IDisposable
             catch (NuGetOperationTimeoutException)
             {
                 return _candidateIssuer
-                    .CreateIncompleteDependencyVersionDiscovery(
+                    .CreateIncompleteVersionDiscovery(
                         packageId,
                         authorization,
                         outcomes,
+                        contract,
                         OperationTimeoutFailures(
                             authorization,
                             index,
@@ -275,10 +307,11 @@ public sealed class PackageSourceSettlementLease : IDisposable
             catch (NuGetOperationTimeoutException)
             {
                 return _candidateIssuer
-                    .CreateIncompleteDependencyVersionDiscovery(
+                    .CreateIncompleteVersionDiscovery(
                         packageId,
                         authorization,
                         outcomes,
+                        contract,
                         OperationTimeoutFailures(
                             authorization,
                             index,
@@ -296,36 +329,19 @@ public sealed class PackageSourceSettlementLease : IDisposable
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        try
-        {
-            operation.ThrowIfExpired();
-        }
-        catch (NuGetOperationTimeoutException)
-        {
-            return _candidateIssuer.CreateIncompleteDependencyVersionDiscovery(
+        PackageVersionDiscoveryResult discovery =
+            _candidateIssuer.CreateVersionDiscovery(
                 packageId,
                 authorization,
                 outcomes,
-                [
-                    OperationTimeoutFailure(
-                        authority: null,
-                        operation),
-                ]);
-        }
-
-        PackageVersionDiscoveryResult discovery =
-            _candidateIssuer.CreateDependencyVersionDiscovery(
-                packageId,
-                authorization,
-                outcomes);
-        cancellationToken.ThrowIfCancellationRequested();
+                contract);
         try
         {
             operation.ThrowIfExpired();
         }
         catch (NuGetOperationTimeoutException)
         {
-            return _candidateIssuer.CreateIncompleteDependencyVersionDiscovery(
+            return _candidateIssuer.CreateIncompleteVersionDiscovery(
                 discovery,
                 [
                     OperationTimeoutFailure(
@@ -360,6 +376,8 @@ public sealed class PackageSourceSettlementLease : IDisposable
     /// <summary>
     /// Acquires one exact admitted retained payload through a candidate issued
     /// by this lease.
+    /// The store factory returns caller-owned stores scoped to each candidate
+    /// authority.
     /// </summary>
     public async Task<ConfiguredPackagePayloadResult>
         AcquireCandidatePayloadAsync(
@@ -491,5 +509,36 @@ public sealed class PackageSourceSettlementLease : IDisposable
             Timeout = new(
                 PackageSourceTimeoutKind.Operation,
                 operation.OperationTimeout),
+        };
+
+    private static PackageAuthorityFailure DescribePayloadFailure(
+        PackageSource source,
+        PackageSourceFailure failure) =>
+        new(
+            PackageSourceDisplay.ForDiagnostics(source),
+            ClassifySourceFailure(failure.Kind),
+            failure.Message)
+        {
+            SourceFailure = failure,
+            ResultSource = failure.Source,
+        };
+
+    private static PackageAuthorityFailureKind ClassifySourceFailure(
+        PackageSourceFailureKind kind) =>
+        kind switch
+        {
+            PackageSourceFailureKind.AuthenticationRequired =>
+                PackageAuthorityFailureKind.AuthenticationRequired,
+            PackageSourceFailureKind.Timeout =>
+                PackageAuthorityFailureKind.Timeout,
+            PackageSourceFailureKind.Unsupported =>
+                PackageAuthorityFailureKind.Unsupported,
+            PackageSourceFailureKind.InvalidResponse =>
+                PackageAuthorityFailureKind.InvalidResponse,
+            PackageSourceFailureKind.ResponseRejected =>
+                PackageAuthorityFailureKind.ResponseRejected,
+            PackageSourceFailureKind.Transport =>
+                PackageAuthorityFailureKind.Transport,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 }
