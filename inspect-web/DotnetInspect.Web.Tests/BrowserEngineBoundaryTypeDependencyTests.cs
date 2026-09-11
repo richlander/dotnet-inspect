@@ -34,8 +34,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 BuildTypeDependencyImage(
                     rootAssemblyName,
                     typeName,
-                    dependency,
-                    typeof(ICloneable)),
+                    dependency),
                 $"lib/net11.0/{rootAssemblyName}.dll"));
         _ = await Coordinate(
             dependencyPackageId,
@@ -112,7 +111,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 BuildTypeDependencyImage(
                     rootAssemblyName,
                     typeName,
-                    dependency),
+                    dependency,
+                    typeof(ICloneable)),
                 $"lib/net11.0/{rootAssemblyName}.dll"));
         _ = await Coordinate(
             dependencyPackageId,
@@ -176,11 +176,11 @@ public sealed partial class BrowserEngineBoundaryTests
             complete.GraphEdges.Count(edge =>
                 edge.FromId == typeName
                 && edge.Kind == "implements"));
-        Assert.Single(
-            bounded.GraphEdges,
-            edge =>
-                edge.FromId == typeName
-                && edge.Kind == "implements");
+        var selectedEdge = Assert.Single(bounded.GraphEdges);
+        Assert.Equal(typeName, selectedEdge.FromId);
+        Assert.Equal(dependencyName, selectedEdge.ToId);
+        Assert.Equal("implements", selectedEdge.Kind);
+        Assert.Empty(complete.InspectionFailures);
         Assert.Empty(bounded.InspectionFailures);
     }
 
@@ -338,14 +338,12 @@ public sealed partial class BrowserEngineBoundaryTests
             ]
             """);
 
-        Assert.Contains(
-            metadata.GraphEdges,
-            edge => edge.FromId == typeName
-                && edge.ToId == typeof(IDisposable).FullName);
+        Assert.Equal(typeName, metadata.FullName);
+        Assert.Contains(typeof(IDisposable).FullName!, metadata.Interfaces);
         Assert.DoesNotContain(
-            metadata.GraphEdges,
-            edge => edge.FromId == typeName
-                && edge.ToId == typeof(IAsyncDisposable).FullName);
+            typeof(IAsyncDisposable).FullName!,
+            metadata.Interfaces);
+        Assert.Empty(metadata.GraphEdges);
         Assert.Contains(
             metadata.InspectionFailures,
             failure => failure.Contains(
