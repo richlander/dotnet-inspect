@@ -6,6 +6,7 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class WorkspaceResearchTargetDemoTests
 {
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task WorkspaceResearchTarget_DemoCoversForwardedAndMissingParticipant()
     {
         string repository = FindRepositoryRoot();
