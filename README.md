@@ -212,7 +212,14 @@ dotnet-inspect ecosystem
 dotnet-inspect ecosystem aspire
 dotnet-inspect ecosystem aspire -S Integrations
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
+dotnet-inspect ecosystem platform -S Pruning
 ```
+
+`ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
+the reference pack installed on this machine to list the package identities the
+platform target supplies, so a reference to one resolves to the platform rather
+than to the package. `Kind` separates a version that moves with the framework
+(`live`) from one pinned to a release the framework has passed (`frozen`).
 
 All integrations are enabled by default. Discover the supported ecosystem
 predicate with `library -Q Integrations`, then narrow the ordinary result:
