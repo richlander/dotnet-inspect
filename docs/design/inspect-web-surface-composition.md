@@ -536,10 +536,13 @@ consumer-owned bottom legend outside the transformed viewport, so zoom and pan
 cannot move, crop, or shrink its explanation. Call graph names its member and
 assembly roles plus platform lookup; Type relationships names inspected, base,
 interface, derived, and unavailable types; Package Dependencies names inspected,
-open, and load-on-selection packages. Legend rows wrap at narrow widths. Mermaid
-source follows the Call graph legend. Subject and context wrap completely rather
-than truncating or disappearing. Close and graph controls stay available without
-page-level horizontal overflow.
+open, and load-on-selection packages. Legend rows wrap at narrow widths and form
+the final interpretation row. Browser-specific Mermaid source remains internal
+to rendering rather than appearing as Call-graph-only inspection evidence. Any
+future source copy or graph export experience requires one deliberate contract
+across Call, Type, and Dependency graphs. Subject and context wrap completely
+rather than truncating or disappearing. Close and graph controls stay available
+without page-level horizontal overflow.
 
 This document owns that placement contract. The existing
 [shared modal semantics](inspect-web-shell-interaction.md#shared-menu-and-modal-semantics)
