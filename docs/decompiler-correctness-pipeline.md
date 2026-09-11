@@ -170,6 +170,7 @@ entry gate invalidates every later result, so run it first and report it.
 
    ```bash
    dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
+   dotnet run --project tests/DecompilerHarness.Tests -c Release
    dotnet run --project tests/ILInspector.Analysis.Tests -c Release
    dotnet run --project tests/ILInspector.Metadata.Tests -c Release
    ```

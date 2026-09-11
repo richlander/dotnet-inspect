@@ -1077,6 +1077,10 @@ jobs:
         if: fromJSON(needs.changes.outputs.plan).validations.decompilerGates
         run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
+      - name: Run DecompilerHarness tests
+        if: fromJSON(needs.changes.outputs.plan).validations.decompilerGates
+        run: dotnet run --project tests/DecompilerHarness.Tests -c Release
+
       - name: Run analysis tests (fast)
         run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
 

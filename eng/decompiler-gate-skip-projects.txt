@@ -106,6 +106,7 @@ src/runfaster
 src/ts-jsexport
 tests/CSharpText.MemberSlicing.Tests
 tests/CSharpText.Tests
+tests/DecompilerHarness.Tests
 tests/DotnetInspect.Cli.Tests
 tests/DotnetInspector.AssemblyOnlyHost.Fixture
 tests/DotnetInspector.Ecosystems.Consumer.Tests

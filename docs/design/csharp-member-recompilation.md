@@ -853,10 +853,11 @@ rather than receiving implicit compatibility authority. Distinct equivalent
 registrations without platform authority remain a typed ambiguity rather than
 regaining first-wins behavior.
 
-`ReturnToSenderCompilationClosureTests` gates these consumer boundaries in
-the ordinary Release suite. One case places an ordinary application dependency
-in the harness process TPA set and requires RTS to retain the target-local
-identity rather than granting the host copy platform authority. Another
+`ReturnToSenderCompilationClosureTests` gates these consumer boundaries in the
+ordinary Release `DecompilerHarness.Tests` suite. One case places an ordinary
+application dependency in the harness process TPA set and requires RTS to
+retain the target-local identity rather than granting the host copy platform
+authority. Another
 requires a selected platform assembly's ordinary reference closure to join the
 compiler set. A renamed extra occurrence with the selected platform identity
 must remain ambiguous because it is outside the binding's agreement evidence.

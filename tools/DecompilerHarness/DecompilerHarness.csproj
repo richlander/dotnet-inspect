@@ -13,6 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="DecompilerHarness.Tests" />
     <Using Include="CSharpText" />
     <Using Include="DotnetInspector.Networking" />
     <Using Include="ILInspector.SourceLink" />
