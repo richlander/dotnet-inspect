@@ -788,10 +788,14 @@ public static class LibraryCallUseCommand
         ];
     }
 
-    static string FormatAssembly(AssemblyContextSubject subject) =>
-        subject.Identity.Version is { } version
-            ? $"{subject.Identity.Name}@{version}"
-            : subject.Identity.Name;
+    static string FormatAssembly(AssemblyContextSubject subject)
+    {
+        string name =
+            LibraryCallUseViewText.Contain(subject.Identity.Name);
+        return subject.Identity.Version is { } version
+            ? $"{name}@{version}"
+            : name;
+    }
 
     static string FormatPair(AssemblyPairCallUseResult result) =>
         $"{FormatAssembly(result.Subjects[0])} "

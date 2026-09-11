@@ -669,6 +669,69 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task LibrariesCommand_ContainsAssemblyNamesBeforeComposingDescriptions()
+    {
+        const string injectedHeading = "# INJECTED HEADING";
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-graph-libraries-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string hostilePath = Path.Combine(directory, "Hostile.dll");
+            string safePath = Path.Combine(directory, "Safe.dll");
+            WriteNamedAssembly(
+                hostilePath,
+                $"Hostile\n{injectedHeading}");
+            WriteNamedAssembly(safePath, "Safe");
+
+            async Task<(int ExitCode, string Output, string Error)> Execute(
+                params string[] selection) =>
+                await ConsoleCapture.RunAsync(
+                    () => CommandLineBuilder.CreateRootCommand()
+                        .Parse(
+                            [
+                                "graph",
+                                "libraries",
+                                "--library",
+                                hostilePath,
+                                "--library",
+                                safePath,
+                                .. selection,
+                            ])
+                        .InvokeAsync());
+
+            var defaultView = await Execute();
+            var selectedView = await Execute("-S");
+
+            Assert.Equal(0, defaultView.ExitCode);
+            Assert.Equal(0, selectedView.ExitCode);
+            Assert.DoesNotContain(
+                $"\n{injectedHeading}",
+                defaultView.Output.ReplaceLineEndings("\n"),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                $"\n{injectedHeading}",
+                selectedView.Output.ReplaceLineEndings("\n"),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Hostile # INJECTED HEADING@",
+                defaultView.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Hostile # INJECTED HEADING@",
+                selectedView.Output,
+                StringComparison.Ordinal);
+            Assert.Empty(defaultView.Error);
+            Assert.Empty(selectedView.Error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibrariesCommand_ReportsPairRelevantVersionSkew()
     {
         var captured = await ConsoleCapture.RunAsync(
@@ -1756,6 +1819,26 @@ public sealed class InspectionGraphCommandTests
                 producer,
                 Framework,
                 runtimeIdentifier: null));
+
+    static void WriteNamedAssembly(
+        string path,
+        string name)
+    {
+        var assemblyName = new System.Reflection.AssemblyName(name)
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("GraphLibraries");
+        module.DefineType(
+                "GraphLibraries.Sample",
+                System.Reflection.TypeAttributes.Public
+                    | System.Reflection.TypeAttributes.Class)
+            .CreateType();
+        assembly.Save(path);
+    }
 
     sealed class FailingHandler : HttpMessageHandler
     {
