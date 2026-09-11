@@ -374,6 +374,11 @@ public partial class CommandExecutionTests
     [InlineData("--head")]
     [InlineData("--tail")]
     [InlineData("--tail", "-n", "0")]
+    [InlineData("--depth", "1")]
+    [InlineData("--preview")]
+    [InlineData("--max-packages", "1")]
+    [InlineData("--discover")]
+    [InlineData("-S")]
     public async Task DependsShare_RejectsConflictingOutput(
         params string[] conflicting)
     {
