@@ -144,18 +144,28 @@ public sealed record ResolvedInspectionSource
         AssemblyResolutionProvenance provenance,
         AssemblyReferenceIdentity? assembly,
         string libraryKey,
-        string? framework)
+        string? framework,
+        AssemblyResolutionProvenance.PackageAsset? package = null)
     {
         ArgumentNullException.ThrowIfNull(provenance);
         ArgumentException.ThrowIfNullOrWhiteSpace(libraryKey);
 
         Provenance = provenance;
+        Package = package
+            ?? provenance as AssemblyResolutionProvenance.PackageAsset;
         Assembly = assembly;
         LibraryKey = libraryKey;
         Framework = framework;
     }
 
+    /// <summary>How the implementing assembly candidate was selected.</summary>
     public AssemblyResolutionProvenance Provenance { get; }
+
+    /// <summary>
+    /// The authorized exact package coordinate, when package acquisition
+    /// supplied the inspection source.
+    /// </summary>
+    public AssemblyResolutionProvenance.PackageAsset? Package { get; }
 
     /// <summary>
     /// The ECMA assembly identity, or null when the selected source is a

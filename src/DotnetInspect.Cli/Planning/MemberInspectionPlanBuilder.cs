@@ -15,7 +15,8 @@ internal static class MemberInspectionPlanBuilder
         MetadataTypeDefinitionName? typeDefinition,
         MemberAnchor member,
         ResolvedMemberInspectionPlan structuralPlan,
-        MemberOptions options)
+        MemberOptions options,
+        AssemblyResolutionProvenance.PackageAsset? package = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(typeName);
@@ -30,7 +31,8 @@ internal static class MemberInspectionPlanBuilder
                 sourceAssembly?.Identity,
                 Path.GetFileNameWithoutExtension(
                     sourceAssembly?.Path ?? sourcePath),
-                selectedFramework),
+                selectedFramework,
+                package),
             new ResolvedInspectionMemberTarget(
                 typeName,
                 typeDefinition,

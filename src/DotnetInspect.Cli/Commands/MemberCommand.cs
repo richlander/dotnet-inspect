@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
+using DotnetInspect.Cli.Models;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -583,7 +584,11 @@ public static class MemberCommand
                     apiType.DefinitionName,
                     ApiMemberIdentity.GetMemberAnchor(apiType, selected),
                     executionPlan,
-                    effectiveOptions);
+                    effectiveOptions,
+                    ResolvedPackageSource(
+                        source,
+                        sourceAssembly,
+                        selectedTfm));
                 effectiveOptions =
                     MemberInspectionPlanBuilder.ApplySemanticDemand(
                         effectiveOptions,
@@ -1131,6 +1136,34 @@ public static class MemberCommand
                     resolvedTypeName)),
             StringComparer.OrdinalIgnoreCase);
         return options with { MemberFilter = memberFilter };
+    }
+
+    private static AssemblyResolutionProvenance.PackageAsset?
+        ResolvedPackageSource(
+            ApiSourceResult source,
+            ResolvedAssemblyReference? sourceAssembly,
+            string? selectedTfm)
+    {
+        if (sourceAssembly?.Provenance
+            is AssemblyResolutionProvenance.PackageAsset package)
+        {
+            return package;
+        }
+        if (!string.Equals(
+                source.ApiSource,
+                SourceKind.NuGet,
+                StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(source.PackageName)
+            || string.IsNullOrWhiteSpace(source.PackageVersion))
+        {
+            return null;
+        }
+
+        return new AssemblyResolutionProvenance.PackageAsset(
+            source.PackageName,
+            source.PackageVersion,
+            selectedTfm,
+            rid: null);
     }
 
     private static async Task<int> ExecuteDeferredTypeAsync(

@@ -1,4 +1,7 @@
+using System.IO.Compression;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -181,6 +184,87 @@ public partial class CommandExecutionTests
         Assert.Equal(
             "System.Text.Encoding.CodePages",
             Assert.Single(packet.Libraries));
+    }
+
+    [Fact]
+    public async Task MemberShare_PreservesPackageAcrossForwardedImplementation()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"member-share-forwarder-{Guid.NewGuid():N}");
+        string extracted = Path.Combine(root, "extracted");
+        string cache = Path.Combine(root, "cache");
+        string archive = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "cli",
+            "package-archives",
+            "avalonia.12.1.2.nupkg");
+        bool wasOffline =
+            DotnetInspector.Networking.HttpClientFactory.IsOffline;
+        try
+        {
+            ZipFile.ExtractToDirectory(archive, extracted);
+            NuGetCache.Initialize(
+                "dotnet-inspect",
+                basePath: cache,
+                skipNuGetCache: true);
+            NuGetCache.CommitPackage(
+                extracted,
+                archive,
+                "Avalonia",
+                "12.1.2",
+                NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url));
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
+                {
+                    Offline = true,
+                });
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+
+            var result = await RunAppAsync(
+                "member",
+                "MultiBinding",
+                "--package",
+                "Avalonia@12.1.2",
+                "--library",
+                "Avalonia.Markup",
+                ".ctor:1",
+                "--tfm",
+                "net8.0",
+                "--share",
+                "packet",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+                result.Output.Trim(),
+                TestContext.Current.CancellationToken);
+            WorkspaceShareTab tab = Assert.Single(packet.Tabs);
+            Assert.Equal("Avalonia", tab.Source);
+            Assert.Equal("12.1.2", tab.Version);
+            Assert.Equal("net8.0", tab.Framework);
+            Assert.Equal("Avalonia.Data.MultiBinding", packet.Type);
+            Assert.Equal(
+                "Avalonia.Base",
+                Assert.Single(packet.Libraries));
+        }
+        finally
+        {
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
+                {
+                    Offline = wasOffline,
+                });
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

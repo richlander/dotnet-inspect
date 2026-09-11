@@ -598,8 +598,7 @@ public static class WorkspaceSharePacketTransposer
                 "plan.facet",
                 $"Packet v1 cannot project member facet '{plan.Facet.Value}'.");
         }
-        if (plan.Basis.Source.Provenance
-            is not AssemblyResolutionProvenance.PackageAsset package)
+        if (plan.Basis.Source.Package is not { } package)
         {
             return NonProjectable(
                 "plan.basis.source",

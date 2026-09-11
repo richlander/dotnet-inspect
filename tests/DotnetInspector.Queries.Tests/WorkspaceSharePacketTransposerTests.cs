@@ -42,6 +42,29 @@ public sealed class WorkspaceSharePacketTransposerTests
     }
 
     [Fact]
+    public void ToPacket_ShareProjectionPlan_RetainsPackageForLocalImplementation()
+    {
+        ShareProjectionPlan plan = CreateSharePlan(
+            packageName: "Avalonia",
+            libraryKey: "Avalonia.Base",
+            localImplementation: true);
+
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                plan,
+                TestContext.Current.CancellationToken);
+
+        Assert.True(projection.Succeeded);
+        WorkspaceSharePacket packet = Assert.IsType<WorkspaceSharePacket>(
+            projection.Packet);
+        Assert.Equal("Avalonia", Assert.Single(packet.Tabs).Source);
+        Assert.Equal("Avalonia.Base", Assert.Single(packet.Libraries));
+        Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
+            plan.Basis.Source.Provenance);
+        Assert.NotNull(plan.Basis.Source.Package);
+    }
+
+    [Fact]
     public void ToPacket_ShareProjectionPlan_RejectsNonOverviewFacet()
     {
         Assert.True(
@@ -1325,8 +1348,10 @@ public sealed class WorkspaceSharePacketTransposerTests
 
     private static ShareProjectionPlan CreateSharePlan(
         ViewFacetId? facet = null,
+        string packageName = "System.Text.Json",
         string libraryKey = "System.Text.Json",
-        SharePlanOmission omission = SharePlanOmission.None)
+        SharePlanOmission omission = SharePlanOmission.None,
+        bool localImplementation = false)
     {
         MetadataTypeDefinitionName metadataType = Assert.IsType<
             MetadataTypeDefinitionNameResult.Valid>(
@@ -1343,9 +1368,10 @@ public sealed class WorkspaceSharePacketTransposerTests
         var basis = new ResolvedMemberInspectionBasis(
             new ResolvedInspectionSource(
                 omission == SharePlanOmission.NonPackageSource
+                    || localImplementation
                     ? AssemblyResolutionProvenance.Local("test")
                     : AssemblyResolutionProvenance.Package(
-                        "System.Text.Json",
+                        packageName,
                         "9.0.4",
                         "net9.0",
                         rid: null),
@@ -1357,7 +1383,14 @@ public sealed class WorkspaceSharePacketTransposerTests
                 libraryKey,
                 omission == SharePlanOmission.Framework
                     ? null
-                    : "net9.0"),
+                    : "net9.0",
+                localImplementation
+                    ? new AssemblyResolutionProvenance.PackageAsset(
+                        packageName,
+                        "9.0.4",
+                        "net9.0",
+                        rid: null)
+                    : null),
             new ResolvedInspectionMemberTarget(
                 member.TypeFullName,
                 omission == SharePlanOmission.MetadataType
