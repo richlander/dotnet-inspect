@@ -255,21 +255,6 @@ internal partial class ImplementsJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(List<ImplementerJsonResult>))]
 internal partial class ImplementsCompactJsonContext : JsonSerializerContext { }
 
-// Depends command JSON contexts
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<TypeDependencyNode>))]
-internal partial class DependsJsonContext : JsonSerializerContext { }
-
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<TypeDependencyNode>))]
-internal partial class DependsCompactJsonContext : JsonSerializerContext { }
-
 // Package search JSONL context (one compact object per line)
 [JsonSourceGenerationOptions(
     WriteIndented = false,

@@ -505,6 +505,69 @@ remain with `InspectionQueryCatalog<TContext>`. It does not derive section
 demand by inspecting rendered rows; those declarations remain with the
 section pipeline.
 
+### Targeted package implementation comparison
+
+`diff --package` is the first CLI consumer of workspace implementation
+comparison. The focused route applies only when Implementation Diff is
+selected with one explicit `--type`, one explicit `--member`, no PDB Source
+request, and exactly one package-root assembly on each side. The CLI removes
+the legacy path-based `ImplementationComparisonQuery` demand for that route;
+all broader, library, platform, PDB Source, and untargeted comparisons retain
+their existing behavior.
+
+The host precomposes each selected package root before invoking
+`WorkspaceImplementationComparisonQuery`. A direct definition needs no
+additional package. When root metadata identifies one forwarded assembly and
+the root package's selected TFM dependency group declares exactly one
+same-named dependency minimum, the host acquires that exact package coordinate
+through the existing configured-authority composition and selects its matching
+package asset. This is target-specific realization of an already observed
+forwarding edge, not generalized package-role inference: an absent, ambiguous,
+or differently named dependency is not searched or guessed. The declared
+coordinate remains authoritative when ordinary resolution has already found a
+same-identity terminal through a sibling or cache: the host replays the
+observed forwarding reference through a closed policy exposing only the exact
+acquired asset.
+
+The host then retains only the observed root-to-terminal occurrences and
+replays them through an acquisition-free closed-world policy. The query owns
+composition, correspondence, and C#/IL producer execution. The CLI lowers its
+native Type Forwarder Findings, exact effective assembly/MVID/token endpoints,
+and producer evidence into the existing Implementation Diff view. A
+composition or producer non-success remains typed, is rendered as a Query or
+producer row, and causes a nonzero command result; the host neither falls back
+to the legacy comparison nor turns it into an empty success.
+
+The selected type's structured metadata definition name remains authoritative
+through workspace execution, including nested definitions; display spelling is
+not reparsed as identity. Type-qualified member lowering applies the existing
+generic- and nested-aware type selector semantics to that selected identity, so
+canonical, short, C# generic, and innermost nested qualifiers select the same
+member. When a composed Changes or Analysis Diff section cannot apply its
+legacy member selection to a forwarded facade, the CLI renders that peer
+section as incomplete while preserving the workspace section and returns
+nonzero. This isolates peer failure without migrating either peer section to
+workspace execution. Allocation-focused output consumes that separately
+computed Analysis result rather than requesting the legacy comparison that the
+adopted plan removed.
+
+The Release `WorkspaceImplementationComparisonRunnerTests` gate covers
+forwarded and direct local-package targets, exact terminal versions and MVIDs,
+native forwarder rows, C#/IL evidence, configured local-authority acquisition,
+typed missing-terminal failure, a pre-resolved same-identity terminal that must
+not override the declared package coordinate, and allocation-focused
+single-section rendering without a removed-query lookup.
+`SectionPipelineTests.DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges`
+proves that the adopted plan omits the legacy comparison query. The Queries
+owner's Release `WorkspaceImplementationComparisonQueryTests` gate enforces
+root-to-terminal identity, closed-world execution, correspondence, and typed
+composition and producer outcomes. Facade-shaped command cases in
+`WorkspaceImplementationComparisonRunnerTests` additionally gate short
+forwarded and direct nested type selection, type-qualified member lowering,
+and preservation of workspace evidence beside incomplete composed sections in
+JSON output. Selector cases additionally gate C# generic and innermost nested
+member qualifiers; real-package probes cover both spellings.
+
 ### Integration ecosystem queries
 
 `library --where "ecosystem=ecosystem.aspire"` narrows ordinary Integration

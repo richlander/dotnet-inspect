@@ -253,8 +253,13 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
     // The Metadata tests' SRM fixture pattern, extended with a real MethodDef and IL body.
     internal static byte[] BuildAssembly(
         string name, bool definesType = true, AssemblyReferenceIdentity? forwardsTo = null,
-        Guid? mvid = null, bool leadingType = false, string methodName = "Value", Version? version = null)
+        Guid? mvid = null, bool leadingType = false, string methodName = "Value",
+        Version? version = null, int methodResult = 42, int typeGenericArity = 0,
+        bool nestedType = false, int forwarderCount = 1)
     {
+        string typeName = typeGenericArity == 0
+            ? "Type"
+            : $"Type`{typeGenericArity}";
         var metadata = new MetadataBuilder();
         metadata.AddModule(0, metadata.GetOrAddString(name + ".dll"),
             metadata.GetOrAddGuid(mvid ?? Guid.NewGuid()), default, default);
@@ -269,15 +274,37 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
         var bodies = new BlobBuilder();
         if (definesType)
         {
-            metadata.AddTypeDefinition(TypeAttributes.Public, metadata.GetOrAddString("N"),
-                metadata.GetOrAddString("Type"), default,
+            TypeDefinitionHandle outerType = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(typeName),
+                default,
                 MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+            for (int index = 0; index < typeGenericArity; index++)
+            {
+                metadata.AddGenericParameter(
+                    outerType,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString($"T{index}"),
+                    index);
+            }
+            if (nestedType)
+            {
+                TypeDefinitionHandle innerType = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("Inner"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                metadata.AddNestedType(innerType, outerType);
+            }
             var signature = new BlobBuilder();
             new BlobEncoder(signature).MethodSignature().Parameters(0,
                 result => result.Type().Int32(), _ => { });
             var instructions = new BlobBuilder();
             var encoder = new InstructionEncoder(instructions);
-            encoder.LoadConstantI4(42);
+            encoder.LoadConstantI4(methodResult);
             encoder.OpCode(ILOpCode.Ret);
             int body = new MethodBodyStreamEncoder(bodies).AddMethodBody(encoder);
             metadata.AddMethodDefinition(MethodAttributes.Public | MethodAttributes.Static,
@@ -288,8 +315,21 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
         {
             AssemblyReferenceHandle reference = metadata.AddAssemblyReference(
                 metadata.GetOrAddString(forwardsTo.Name), forwardsTo.Version!, default, default, default, default);
-            metadata.AddExportedType(TypeAttributes.Public | (TypeAttributes)0x00200000,
-                metadata.GetOrAddString("N"), metadata.GetOrAddString("Type"), reference, 0);
+            for (int index = 0; index < forwarderCount; index++)
+            {
+                ExportedTypeHandle outerType = metadata.AddExportedType(
+                    TypeAttributes.Public | (TypeAttributes)0x00200000,
+                    metadata.GetOrAddString("N"), metadata.GetOrAddString(typeName), reference, 0);
+                if (nestedType)
+                {
+                    metadata.AddExportedType(
+                        TypeAttributes.NestedPublic,
+                        default,
+                        metadata.GetOrAddString("Inner"),
+                        outerType,
+                        0);
+                }
+            }
         }
         var builder = new ManagedPEBuilder(PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata), bodies, flags: CorFlags.ILOnly);

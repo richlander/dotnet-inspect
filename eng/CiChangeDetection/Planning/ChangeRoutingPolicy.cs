@@ -492,6 +492,12 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Decompiler = true;
         }
+        else if (BytePattern.Matches(
+            path,
+            "tests/DecompilerHarness.Tests/*"))
+        {
+            state.Decompiler = true;
+        }
         else if (BytePattern.MatchesAny(
                 path,
                 "fixtures/*",

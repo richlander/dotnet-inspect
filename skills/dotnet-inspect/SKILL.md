@@ -27,7 +27,7 @@ Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, a
 | Inspect packages | `package Foo`; use `-D` to discover sections and `-S "Signals,Audit: Findings"` to audit text-bearing files and SourceLink mappings. Load `skill private-feeds` for custom/authenticated sources. |
 | Inspect a Workspace | `workspace --package Foo@version --tfm net10.0`; repeat `--package` to compose ordered Package occurrences. Exact duplicates coalesce; packages without compile assemblies remain members. Add `--active-package N` for structural hierarchy, Library asset IDs, Type/Member inventory, lenses, and diagnostics. Use `--root-request TOKEN` instead to reopen the exact Root a `find --literal` result names; it is refused rather than approximated by package id and version. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections and `-S "Unsafe Members"` for standalone unsafe evidence. Load `skill metadata` for raw ECMA-335 tables/heaps. |
-| Dependencies and relationships | `dependency-evidence --package Foo --tfm net10.0` for direct declarations; `depends Type`, `extensions Type`, or `implements Interface` for traversed relationships. Load `skill relationships` for scopes and semantics. |
+| Dependencies and relationships | `depends --package Foo@version --tfm net10.0` for a package graph plus declaration evidence; add `-S Dependencies` for evidence only. `dependency-evidence` remains supported for its direct-evidence-only contract. Use `depends Type`, `extensions Type`, or `implements Interface` for type relationships. Load `skill relationships` for scopes and semantics. |
 
 ## Member lookup
 

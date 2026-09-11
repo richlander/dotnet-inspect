@@ -154,8 +154,8 @@ stderr rather than mixed into structured output.
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
-| Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, package dependencies, reference graphs, extension methods/properties, implementors, and subclasses. |
-| Direct dependency evidence | `dependency-evidence` | One normalized snapshot of the direct dependencies declared by named package, nuspec, restored-project, or package-prefix roots, with framework scopes, version constraints, restored resolution evidence, and root-set completion. Unlike `depends`, it does not walk the transitive tree. |
+| Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
+| Direct dependency evidence | `depends -S Dependencies`, `dependency-evidence` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. `dependency-evidence` remains supported for its direct-evidence-only contract. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
@@ -179,8 +179,8 @@ stderr rather than mixed into structured output.
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
 | `graph libraries` | Show exact resolved cross-library call sites or summarize the consumer methods and provider API types they connect. |
-| `depends X` | Walk type, package, or library dependency graphs with lossless shared edges; emit tree, Mermaid, table, TSV, JSONL, JSON, or edge-count output. |
-| `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
+| `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
+| `dependency-evidence` | Report declarations and restored resolution evidence for explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots only; use `depends` to traverse. It remains supported until the planned retirement slice. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
@@ -597,6 +597,19 @@ inspect each side on its own.
 ```bash
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
+dotnet-inspect depends \
+  --project ./src/App/App.csproj \
+  --depth 2 \
+  -S "Dependency Graph,Dependencies"
+dotnet-inspect depends \
+  --package Microsoft.Extensions.Hosting@10.0.0 \
+  --nuspec ./artifacts/local.nuspec \
+  -v:n
+dotnet-inspect depends \
+  --package-prefix Microsoft.Extensions \
+  --max-packages 100 \
+  -S @Dependencies
+dotnet-inspect depends --nuspec ./artifacts/local.nuspec -D --effective
 dotnet-inspect dependency-evidence --package Newtonsoft.Json --tfm net8.0
 dotnet-inspect dependency-evidence \
   --project ./src/DotnetInspect.Cli \

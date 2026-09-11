@@ -210,6 +210,63 @@ These commands are named consumers, not contracts redefined here. Search Scope
 Resolution, Dependency Inspection, and Platform/package Pruning retain their
 request, evidence, comparison, and result semantics.
 
+### End-to-end product scenario
+
+The primary product scenario begins with one subject and grows into a
+cross-library question without making product curation an ambient Workspace
+default:
+
+1. A discovery-oriented CLI or Inspect Web operation selects a package or
+   Library. The host explicitly asks Ecosystems for a fresh curated Workspace;
+   raw callers do not take this path.
+2. Ecosystems passes the complete Platform, ASP.NET Core, and
+   Microsoft.Extensions registration sequence through Workspace's neutral
+   explicit-initialization API. Construction performs no source work.
+3. The selected package becomes explicit Workspace membership and its selected
+   Library, type, or member becomes the inspection subject. Membership,
+   registration, and focus remain independent.
+4. A call-graph request defaults to `Everything`. It may therefore use all
+   registered and already admitted populations available through that
+   Workspace, while the request still supplies finite discovery, acquisition,
+   traversal, and result bounds.
+5. Resolution retains the exact route and evidence selected for each edge.
+   Platform registration makes target-applicable Platform candidates and
+   pruning available; it does not convert package-authored evidence into
+   Platform evidence or require every consumer to prefer Platform.
+6. Saving or sharing the resulting configuration records the exact expanded
+   membership and registration intent selected for that Workspace. Restoration
+   uses raw construction and never re-evaluates the product's later curated
+   manifest.
+
+For example, a user may discover `System.Memory.Data`, focus a member whose
+dependency path reaches `System.Text.Json`, and ask for a graph that continues
+through relevant Platform or ecosystem Libraries. Curated construction supplies
+the population context that makes that broader question useful. Package-mode
+`depends` asks a different question and therefore starts raw, preserving the
+package-authored `System.Text.Json` route as its high-fidelity evidence.
+
+The shared evidence can therefore support two explicit policies:
+
+```text
+System.Memory.Data (package membership)
+└─ System.Text.Json
+   ├─ dependency definition: retain the package-authored route
+   └─ curated traversal: an exact target-applicable Platform route may prune
+      the package edge when ecosystem.platform is registered
+      └─ continuation remains available to System.Text.Encodings.Web
+```
+
+The declaration and resolution layers preserve both possible routes and their
+source identities. `depends` and graph traversal select policy from the
+question being answered; neither reconstructs source intent from assembly
+display names.
+
+This scenario is the reason construction choice belongs to the caller,
+registration belongs to Workspace configuration, and focal length belongs to
+the operation. Combining any two would either hide product policy inside
+Workspace, make registration a traversal permission, or make saved Workspaces
+drift when product curation changes.
+
 ## Call-graph focal lengths
 
 Call Graph owns one typed request axis with three values. The axis composes
