@@ -59,9 +59,10 @@ public class AssemblyInspectionSessionTests
     }
 
     [Fact]
-    public void Snapshot_MetadataTableProjectionRemainsUsableAfterSessionDisposal()
+    public void Snapshot_UsesLiveSessionAndReturnsDetachedProjectionWithoutCopyingIt()
     {
         MetadataTableProjection projection;
+        MetadataTableProjection? callbackProjection = null;
         using (var session = AssemblyInspectionSession.Open(SelfPath))
         {
             projection = session.Snapshot(
@@ -69,10 +70,16 @@ public class AssemblyInspectionSessionTests
                 {
                     Tables = [TableIndex.Assembly],
                 },
-                static (snapshot, options) =>
-                    snapshot.Value.MetadataTables(options));
+                (snapshot, options) =>
+                {
+                    Assert.Same(session, snapshot.Value);
+                    callbackProjection =
+                        snapshot.Value.MetadataTables(options);
+                    return callbackProjection;
+                });
         }
 
+        Assert.Same(callbackProjection, projection);
         MetadataTableView table = Assert.Single(projection.Tables);
         Assert.Equal(TableIndex.Assembly, table.Index);
         Assert.Equal("Assembly", table.Name);
