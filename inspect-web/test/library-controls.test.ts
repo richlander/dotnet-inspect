@@ -108,8 +108,7 @@ test("library controls decode every rendered selector without eager work", () =>
   const metadata = new FakeElement();
   metadata.value = "System.Console";
   metadata.selectedOptions = [new FakeElement({ pack: "windowsdesktop.app" })];
-  root.addAll("[data-platform-integrations-library]", integrations);
-  root.addAll("[data-platform-opportunities-library]", opportunities);
+  root.addAll("[data-platform-integrations-library]", integrations, opportunities);
   root.addAll("[data-platform-analysis-library]", analysis, emptyAnalysis);
   root.addAll("[data-platform-metadata-library]", metadata);
   const calls: string[] = [];
@@ -145,7 +144,7 @@ test("library controls decode every rendered selector without eager work", () =>
     "platform:System.Private.CoreLib:netcore.app",
     "platform:System.Runtime:netcore.app",
     "platform-lens:integrations:System.Net.Http:netcore.app",
-    "platform-lens:opportunities:System.Text.Json:undefined",
+    "platform-lens:integrations:System.Text.Json:undefined",
     "platform-lens:analysis:System.Linq:undefined",
     "platform-lens:metadata:System.Console:windowsdesktop.app",
   ]);

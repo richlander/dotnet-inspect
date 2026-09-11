@@ -120,6 +120,7 @@ public sealed class WorkspaceResearchTargetPlan
     public ResearchTargetResolution Resolution { get; }
     public ResearchTargetScope Scope { get; }
     public MetadataTypeDefinitionName DeclaringType { get; }
+    internal ProjectedQueryPopulation Projected => _projected;
 
     /// <summary>
     /// Composes one side using the caller-selected domain and census from this session.
@@ -139,6 +140,25 @@ public sealed class WorkspaceResearchTargetPlan
         var request = new WorkspaceResearchTargetCompositionRequest(
             group, root, group.BindingPolicyVersion, Population, _projected, Resolution,
             Question, side, Scope, DeclaringType, domain, census, resolutionScope);
+        return WorkspaceResearchTargetCompositionQuery.Execute(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// Resolves the root first, then derives its exact owner-issued terminal
+    /// domain and side census from this plan.
+    /// </summary>
+    public WorkspaceResearchTargetCompositionResult Compose(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant root,
+        QueryComparisonSide side,
+        AssemblyResolutionScope resolutionScope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        cancellationToken.ThrowIfCancellationRequested();
+        var request = new WorkspaceResearchTargetCompositionRequest(
+            group, root, group.BindingPolicyVersion, Population, _projected, Resolution,
+            Question, side, Scope, DeclaringType, resolutionScope);
         return WorkspaceResearchTargetCompositionQuery.Execute(request, cancellationToken);
     }
 }

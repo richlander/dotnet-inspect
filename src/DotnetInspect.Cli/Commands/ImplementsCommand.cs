@@ -6,6 +6,7 @@ using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
@@ -130,10 +131,50 @@ public class ImplementsCommand
                 .Select(g => g.First())
                 .ToList();
 
+            bool hasSemanticRowSelection =
+                options.RowSelection?.Operations.Count > 0;
+            if (hasSemanticRowSelection)
+            {
+                results = results
+                    .OrderBy(r => r.TypeName, StringComparer.Ordinal)
+                    .ThenBy(r => r.Source, StringComparer.Ordinal)
+                    .ThenBy(r => r.SourceVersion, StringComparer.Ordinal)
+                    .ToList();
+            }
+
             // Apply limit
             if (options.Limit.HasValue && results.Count > options.Limit.Value)
             {
                 results = results.Take(options.Limit.Value).ToList();
+            }
+
+            RowWindow? outputRows =
+                hasSemanticRowSelection ? null : options.Rows;
+            if (hasSemanticRowSelection
+                && options.RowSelection is { } rowSelection)
+            {
+                RowsCohortResult<string, ImplementerResult> selected =
+                    RowsCohortExecutor.ApplyUnordered(
+                        [
+                            RowsCohortSequence<string, ImplementerResult>.Create(
+                                "Implementers",
+                                results)
+                        ],
+                        rowSelection);
+                if (!selected.IsSuccess)
+                {
+                    RowsCohortSemanticFailure<string> failure =
+                        selected.Failure!;
+                    CommandError.Write(
+                        $"Implementers row selection stage "
+                        + $"{failure.Failure.StageNumber} requires row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} implementer rows "
+                        + "are available.");
+                    return 1;
+                }
+
+                results = selected.RowSets[0].Values.ToList();
             }
 
             if (results.Count == 0)
@@ -145,7 +186,7 @@ public class ImplementsCommand
             // with the full unprojected result set.
             if (options.Count)
             {
-                if (!WriteCount(targetType, results, options))
+                if (!WriteCount(targetType, results, options, outputRows))
                     return 1;
             }
             else if (options.JsonOutput)
@@ -157,7 +198,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.Tabular, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, options.Rows);
+                WriteMarkoutOutput(targetType, results, options.Tabular, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, outputRows);
             }
 
             return 0;
@@ -220,7 +261,8 @@ public class ImplementsCommand
     private static bool WriteCount(
         string targetType,
         List<ImplementerResult> results,
-        ImplementsOptions options)
+        ImplementsOptions options,
+        RowWindow? rows)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
         return CountOutput.TryWriteProjected(
@@ -229,7 +271,7 @@ public class ImplementsCommand
             "Implementers",
             options.Columns,
             options.Fields,
-            options.Rows);
+            rows);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows)
