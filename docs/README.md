@@ -139,6 +139,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Member Body Substrate](design/member-body-substrate.md) | One base for skeleton/full/merged/diff body rendering: `ApiType` shape, `MemberAnchor` address, one scope, and `MemberBody`'s scalar (whole-body) and vector (offset-keyed) shapes. |
 | [NuGet API Selection](design/nuget.md) | Scenario-to-API decisions, endpoint roles, first/last-result performance evidence, and current versus proposed adoption. |
 | [NuGet Catalog Acquisition](design/nuget-catalog-acquisition.md) | Bounded incremental acquisition of advertised Catalog event windows with source identity, horizon, completion, and typed failure. |
+| [NuGet Catalog Package Receipt](design/nuget-catalog-package-receipt.md) | Exact Package Details leaf enrichment for source-issued first-receipt time with event correspondence and typed failure. |
 | [GitHub NuGet Advisory Evidence](design/github-nuget-advisory-evidence.md) | Bounded reviewed-advisory acquisition and exact-coordinate current-affected and explicitly-fixed evidence with honest category availability. |
 | [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID and explicit-prefix selection shared by Package Query consumers, with blank input remaining idle. |
 | [Package Query Inspection Evidence](design/package-query-inspection-evidence.md) | Inspection-produced item counts and bounded previews, distinct from query-wide context. |
