@@ -29,10 +29,10 @@ changed.
 ## What does the root declare directly?
 
 `depends -S Dependencies` reports normalized direct declarations without
-requesting transitive traversal. Add `Roots`, `Restored Edges`, `Failures`,
-`Dependency Groups`, or `Restored Packages` as needed. The
-`dependency-evidence` command remains supported with its existing
-direct-evidence-only contract.
+requesting transitive traversal. Select `Dependencies,Failures` when a mixed
+root request should retain usable declaration rows while also reporting roots
+that could not be inspected. The `dependency-evidence` command remains
+supported with its existing direct-evidence-only contract.
 
 ```bash
 dnx dotnet-inspect -y -- depends \
@@ -40,7 +40,7 @@ dnx dotnet-inspect -y -- depends \
 dnx dotnet-inspect -y -- depends \
   --project ./src/App/App.csproj \
   --nuspec ./artifacts/App.nuspec \
-  -S "Roots,Dependencies,Restored Edges"
+  -S "Dependencies,Failures"
 dnx dotnet-inspect -y -- dependency-evidence \
   --package-prefix Microsoft.Extensions --tfm net10.0 -v:n
 ```

@@ -201,6 +201,7 @@ public sealed class DependsAssetCommandTests
             StringComparison.Ordinal);
     }
 
+#if DEBUG
     [Fact]
     public async Task ExplicitRoots_PreserveHeterogeneousOccurrenceOrder()
     {
@@ -280,6 +281,7 @@ public sealed class DependsAssetCommandTests
             Directory.Delete(parent, recursive: true);
         }
     }
+#endif
 
     [Fact]
     public async Task RestoredTraversal_DepthIsRootRelative()
@@ -635,6 +637,7 @@ public sealed class DependsAssetCommandTests
                 out _));
     }
 
+#if DEBUG
     [Fact]
     public async Task RootsOnly_DoesNotPublishUnrequestedDeclarationFailure()
     {
@@ -716,6 +719,7 @@ public sealed class DependsAssetCommandTests
         Assert.Empty(error);
         Assert.Contains("| Root | column |", output, StringComparison.Ordinal);
     }
+#endif
 
     [Fact]
     public async Task RestoredDependencies_ExposeResolvedVersionInEveryTableShape()
@@ -778,6 +782,7 @@ public sealed class DependsAssetCommandTests
         Assert.Equal(single * 2, repeated);
     }
 
+#if DEBUG
     [Fact]
     public async Task RootsJson_RetainsOwnerIssuedRestoredProvenance()
     {
@@ -959,6 +964,7 @@ public sealed class DependsAssetCommandTests
             "ExpectedCoordinate",
             root.GetProperty("identity_provenance").GetString());
     }
+#endif
 
     [Fact]
     public async Task PackageDepthBoundary_RetainsAllAffectedRootOccurrences()
@@ -1016,6 +1022,7 @@ public sealed class DependsAssetCommandTests
                 .GetInt32());
     }
 
+#if DEBUG
     [Fact]
     public async Task GraphOnly_RetainsFrameworkSelectionState()
     {
@@ -1095,6 +1102,7 @@ public sealed class DependsAssetCommandTests
             "Requested",
             selectedRoot.GetProperty("target_selection").GetString());
     }
+#endif
 
     [Fact]
     public async Task TraversalFailureJson_RetainsAllAffectedRootsAndTypedSourceDetail()
@@ -1235,6 +1243,7 @@ public sealed class DependsAssetCommandTests
             StringComparison.Ordinal);
     }
 
+#if DEBUG
     [Fact]
     public async Task FailedExplicitRootStillHasAnExactRootCount()
     {
@@ -1252,6 +1261,7 @@ public sealed class DependsAssetCommandTests
         Assert.Equal("1", output.Trim());
         Assert.Contains("typed failure", error, StringComparison.Ordinal);
     }
+#endif
 
     [Fact]
     public async Task EffectiveDiscovery_UsesActualDirectNuspecApplicability()
@@ -1279,9 +1289,13 @@ public sealed class DependsAssetCommandTests
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
         Assert.Contains("Dependency Graph", output, StringComparison.Ordinal);
-        Assert.Contains("Roots", output, StringComparison.Ordinal);
         Assert.Contains("Dependencies", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Roots", output, StringComparison.Ordinal);
         Assert.DoesNotContain("Restored Edges", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Dependency Groups",
+            output,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Restored Packages",
             output,
@@ -1301,8 +1315,8 @@ public sealed class DependsAssetCommandTests
         ]);
 
         Assert.Equal(1, exitCode);
-        Assert.Contains("Roots", output, StringComparison.Ordinal);
         Assert.Contains("Failures", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Roots", output, StringComparison.Ordinal);
         Assert.Contains("typed failure", error, StringComparison.Ordinal);
     }
 
@@ -1381,7 +1395,7 @@ public sealed class DependsAssetCommandTests
             "--nuspec",
             "/missing/sibling.nuspec",
             "-S",
-            "Roots,Failures",
+            "Dependencies,Failures",
             "--json",
             "--compact",
         ]);
@@ -1392,9 +1406,9 @@ public sealed class DependsAssetCommandTests
         JsonElement summary = document.RootElement.GetProperty("summary");
         Assert.Equal(1, summary.GetProperty("admitted_roots").GetInt32());
         Assert.Equal(1, summary.GetProperty("failed_roots").GetInt32());
-        Assert.Equal(
-            2,
-            document.RootElement.GetProperty("roots").GetArrayLength());
+        Assert.True(
+            document.RootElement.GetProperty("dependencies")
+                .GetArrayLength() > 0);
         Assert.Equal(
             1,
             document.RootElement.GetProperty("failures").GetArrayLength());
@@ -1414,7 +1428,7 @@ public sealed class DependsAssetCommandTests
             "--project",
             AssetsFixture,
             "-S",
-            "Roots,Failures",
+            "Dependencies,Failures",
             "--json",
             "--compact",
         ]);
@@ -1422,17 +1436,9 @@ public sealed class DependsAssetCommandTests
         Assert.Equal(1, exitCode);
         Assert.Contains("typed failure", error, StringComparison.Ordinal);
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement[] roots =
-        [
-            .. document.RootElement.GetProperty("roots").EnumerateArray(),
-        ];
-        Assert.Equal(2, roots.Length);
-        Assert.Contains(
-            roots,
-            root => root.GetProperty("state").GetString() == "Admitted");
-        Assert.Contains(
-            roots,
-            root => root.GetProperty("state").GetString() == "Failed");
+        Assert.True(
+            document.RootElement.GetProperty("dependencies")
+                .GetArrayLength() > 0);
         Assert.Single(
             document.RootElement.GetProperty("failures").EnumerateArray());
     }
@@ -1450,7 +1456,7 @@ public sealed class DependsAssetCommandTests
             "--tfm",
             "net48",
             "-S",
-            "Roots,Failures",
+            "Dependencies,Failures",
             "--json",
             "--compact",
         ]);
@@ -1458,21 +1464,9 @@ public sealed class DependsAssetCommandTests
         Assert.Equal(1, exitCode);
         Assert.Contains("typed failure", error, StringComparison.Ordinal);
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement[] roots =
-        [
-            .. document.RootElement.GetProperty("roots").EnumerateArray(),
-        ];
-        Assert.Equal(2, roots.Length);
-        Assert.Contains(
-            roots,
-            root =>
-                root.GetProperty("kind").GetString() == "Nuspec"
-                && root.GetProperty("state").GetString() == "Admitted");
-        Assert.Contains(
-            roots,
-            root =>
-                root.GetProperty("kind").GetString() == "Library"
-                && root.GetProperty("state").GetString() == "Failed");
+        Assert.True(
+            document.RootElement.GetProperty("dependencies")
+                .GetArrayLength() > 0);
         Assert.Single(
             document.RootElement.GetProperty("failures").EnumerateArray());
     }
@@ -1518,17 +1512,196 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task DiscoveryAndCategoryExposeTheSevenSectionContract()
+    public async Task DiscoveryAndCategoryExposeOnlyConsumerSections()
     {
         (int exitCode, string output, string error) =
             await RunCapturedAsync(["depends", "-D"]);
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        foreach (string section in DependsAssetSections.SectionOrder)
+        foreach (string section in new[]
+        {
+            DependsAssetSections.DependencyGraph,
+            DependsAssetSections.Dependencies,
+            DependsAssetSections.Failures,
+        })
             Assert.Contains(section, output, StringComparison.Ordinal);
+        foreach (string section in new[]
+        {
+            DependsAssetSections.Roots,
+            DependsAssetSections.RestoredEdges,
+            DependsAssetSections.DependencyGroups,
+            DependsAssetSections.RestoredPackages,
+        })
+            Assert.DoesNotContain(section, output, StringComparison.Ordinal);
         Assert.Contains("@Dependencies", output, StringComparison.Ordinal);
     }
+
+#if !DEBUG
+    [Fact]
+    public async Task RetailCatalogSchemaAndCategoryOmitDiagnosticSections()
+    {
+        Assert.Equal(
+            [
+                DependsAssetSections.DependencyGraph,
+                DependsAssetSections.Dependencies,
+                DependsAssetSections.Failures,
+            ],
+            DependsAssetSections.SectionOrder);
+        var expectedSections = new HashSet<string>(
+            [
+                DependsAssetSections.DependencyGraph,
+                DependsAssetSections.Dependencies,
+                DependsAssetSections.Failures,
+            ],
+            StringComparer.OrdinalIgnoreCase);
+        Assert.True(
+            expectedSections.SetEquals(
+                DependsAssetSections.Catalog.SelectableSectionNames));
+        Assert.Equal(
+            DependsAssetSections.SectionOrder,
+            DependsAssetSections.Catalog.SelectionCategoryMap[
+                SectionCategoryNames.Dependencies]);
+
+        (int exitCode, string output, string error) =
+            await RunCapturedAsync(["depends", "-D", "--schema"]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        foreach (string section in new[]
+        {
+            DependsAssetSections.Roots,
+            DependsAssetSections.RestoredEdges,
+            DependsAssetSections.DependencyGroups,
+            DependsAssetSections.RestoredPackages,
+        })
+            Assert.DoesNotContain(section, output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Roots")]
+    [InlineData("Restored Edges")]
+    [InlineData("Dependency Groups")]
+    [InlineData("Restored Packages")]
+    [InlineData("Restored*")]
+    public async Task RetailSelectionCannotReachDiagnosticSections(
+        string selector)
+    {
+        (int exitCode, string output, string error) =
+            await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "-S",
+            selector,
+        ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.True(
+            error.Contains("not found", StringComparison.Ordinal)
+            || error.Contains("No sections match", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("-v:m")]
+    [InlineData("-v:n")]
+    [InlineData("-v:d")]
+    public async Task RetailVerbosityNeverEmitsDiagnosticSections(
+        string verbosity)
+    {
+        (int exitCode, string output, string error) =
+            await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            verbosity,
+            "--json",
+            "--compact",
+        ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        foreach (string property in new[]
+        {
+            "roots",
+            "restored_edges",
+            "dependency_groups",
+            "restored_packages",
+        })
+            Assert.False(document.RootElement.TryGetProperty(property, out _));
+
+        (exitCode, output, error) =
+            await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            verbosity,
+        ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        foreach (string heading in new[]
+        {
+            "## Roots",
+            "## Restored Edges",
+            "## Dependency Groups",
+            "## Restored Packages",
+        })
+            Assert.DoesNotContain(heading, output, StringComparison.Ordinal);
+    }
+#else
+    [Fact]
+    public async Task DiagnosticSectionsRemainExactlySelectableInDebugBuild()
+    {
+        var scenarios =
+            new (string Section, string Property, string[] Arguments)[]
+            {
+                (
+                    DependsAssetSections.Roots,
+                    "roots",
+                    ["--nuspec", NuspecFixture]),
+                (
+                    DependsAssetSections.RestoredEdges,
+                    "restored_edges",
+                    ["--project", AssetsFixture]),
+                (
+                    DependsAssetSections.DependencyGroups,
+                    "dependency_groups",
+                    ["--nuspec", NuspecFixture]),
+                (
+                    DependsAssetSections.RestoredPackages,
+                    "restored_packages",
+                    ["--project", AssetsFixture]),
+            };
+
+        foreach ((string section, string property, string[] arguments)
+            in scenarios)
+        {
+            (int exitCode, string output, string error) =
+                await RunCapturedAsync(
+            [
+                "depends",
+                .. arguments,
+                "-S",
+                section,
+                "--json",
+                "--compact",
+            ]);
+
+            Assert.Equal(0, exitCode);
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.True(
+                document.RootElement.GetProperty(property)
+                    .GetArrayLength() > 0);
+        }
+    }
+#endif
 
     [Fact]
     public async Task TypeModeDiscoveryExposesOnlyTheGraphSection()
@@ -1558,7 +1731,7 @@ public sealed class DependsAssetCommandTests
             "--depth",
             "100",
             "-S",
-            "Dependency Graph,Roots",
+            "Dependency Graph",
             "--json",
             "--compact",
         ]);
@@ -1568,8 +1741,8 @@ public sealed class DependsAssetCommandTests
         using JsonDocument document = JsonDocument.Parse(output);
         Assert.Equal(
             "Complete",
-            document.RootElement.GetProperty("roots")[0]
-                .GetProperty("traversal")
+            document.RootElement.GetProperty("summary")
+                .GetProperty("traversal_completion")
                 .GetString());
     }
 
@@ -1593,7 +1766,7 @@ public sealed class DependsAssetCommandTests
                 "--library",
                 library,
                 "-S",
-                "Dependency Graph,Roots,Failures",
+                "Dependency Graph,Failures",
                 "--json",
                 "--compact",
             ]);
@@ -1611,11 +1784,6 @@ public sealed class DependsAssetCommandTests
             Assert.Equal(
                 "Partial",
                 summary.GetProperty("traversal_completion").GetString());
-            Assert.Equal(
-                "Partial",
-                document.RootElement.GetProperty("roots")[0]
-                    .GetProperty("traversal")
-                    .GetString());
 
             const string missingAssembly =
                 "ILInspector.Metadata.TypeDependencyReference";
@@ -1703,7 +1871,7 @@ public sealed class DependsAssetCommandTests
             "--source",
             "https://example.invalid/v3/index.json",
             "-S",
-            "Roots",
+            "Dependencies",
         ]);
 
         Assert.Equal(1, exitCode);
@@ -1713,6 +1881,7 @@ public sealed class DependsAssetCommandTests
             StringComparison.Ordinal);
     }
 
+#if DEBUG
     [Fact]
     public async Task LibraryRoot_RetainsAssemblySourceKind()
     {
@@ -1737,6 +1906,7 @@ public sealed class DependsAssetCommandTests
                 .GetProperty("source")
                 .GetString());
     }
+#endif
 
     [Fact]
     public async Task PositionalLibraryFallbackHonorsDepth()
@@ -1788,7 +1958,7 @@ public sealed class DependsAssetCommandTests
                     DependsAssetRootKind.Nuspec,
                     "/missing/cancelled.nuspec"),
             ],
-            Select = ["Roots"],
+            Select = ["Dependencies"],
         };
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -1963,6 +2133,7 @@ public sealed class DependsAssetCommandTests
         Assert.Contains(@"net8.0\u202Ehostile", tsv, StringComparison.Ordinal);
     }
 
+#if DEBUG
     private static async Task<JsonElement> RootAsync(string path)
     {
         (int exitCode, string output, _) = await RunCapturedAsync(
@@ -1985,6 +2156,7 @@ public sealed class DependsAssetCommandTests
             .GetProperty("restored_root")
             .GetProperty("facts_digest")
             .GetString()!;
+#endif
 
     private static async Task<int> GraphCountAsync(string[] arguments)
     {

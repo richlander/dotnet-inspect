@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using DotnetInspect.Cli.Views;
 using Markout;
 
@@ -17,19 +18,18 @@ internal static class DependsAssetSections
     public const string RestoredPackages =
         DependencyEvidenceSections.RestoredPackages;
 
-    public static string[] SectionOrder { get; } =
+    private static string[] ConsumerSectionOrder { get; } =
     [
         DependencyGraph,
-        Roots,
         Dependencies,
-        RestoredEdges,
         Failures,
-        DependencyGroups,
-        RestoredPackages,
     ];
 
     public static SectionCatalog<DependsAssetProjection> Catalog { get; } =
         CreatePipeline().Compile();
+
+    public static string[] SectionOrder { get; } =
+        Catalog.Pipeline.AllSectionNames;
 
     public static SectionCatalog<DependsAssetProjection> GraphCatalog
         { get; } = new SectionPipeline<DependsAssetProjection>()
@@ -45,9 +45,11 @@ internal static class DependsAssetSections
         CreateTableSchema();
 
     public static DocumentSchema CreateTableSchema() =>
-        DependsAssetViewContext.Default
-            .GetSchemaInfo<DependsAssetTableView>()!
-            .ToDocumentSchema();
+        FilterSchema(
+            DependsAssetViewContext.Default
+                .GetSchemaInfo<DependsAssetTableView>()!
+                .ToDocumentSchema(),
+            Catalog.SelectableSectionNames);
 
     public static DocumentSchema CreateGraphSchema() =>
         DependsAssetViewContext.Default
@@ -69,20 +71,60 @@ internal static class DependsAssetSections
             _ => 0,
         };
 
-    private static SectionPipeline<DependsAssetProjection> CreatePipeline() =>
-        new SectionPipeline<DependsAssetProjection>()
+    private static SectionPipeline<DependsAssetProjection> CreatePipeline()
+    {
+        var pipeline = new SectionPipeline<DependsAssetProjection>()
             .UseCuratedCatalog()
             .WithoutComputedPoles()
             .Add<GraphSection>()
-            .Add<RootSection>()
             .Add<DependencySection>()
-            .Add<RestoredEdgeSection>()
             .Add<FailureSection>()
-            .Add<DependencyGroupSection>()
-            .Add<RestoredPackageSection>()
             .AddBaseCategory(
                 SectionCategoryNames.Dependencies,
-                SectionOrder);
+                ConsumerSectionOrder);
+        RegisterDiagnosticSections(pipeline);
+        return pipeline;
+    }
+
+    [Conditional("DEBUG")]
+    private static void RegisterDiagnosticSections(
+        SectionPipeline<DependsAssetProjection> pipeline)
+    {
+        pipeline
+            .Add<RootSection>()
+            .Add<RestoredEdgeSection>()
+            .Add<DependencyGroupSection>()
+            .Add<RestoredPackageSection>();
+    }
+
+    private static DocumentSchema FilterSchema(
+        DocumentSchema schema,
+        IEnumerable<string> registeredSections)
+    {
+        HashSet<string> registered = registeredSections.ToHashSet(
+            StringComparer.OrdinalIgnoreCase);
+        var result = new DocumentSchema();
+        foreach (string name in schema.SectionNames)
+        {
+            if (!registered.Contains(name))
+                continue;
+
+            var section = schema.GetSection(name);
+            if (section is { Items.Length: > 0 })
+            {
+                result.Add(
+                    name,
+                    section.ItemKind,
+                    section.Items.Select(item => item.Name).ToArray());
+            }
+            else
+            {
+                result.AddSection(name);
+            }
+        }
+
+        return result;
+    }
 
     public sealed class GraphSection :
         ISectionDescriptor<DependsAssetProjection>
@@ -101,6 +143,7 @@ internal static class DependsAssetSections
     {
         public static string Name => Roots;
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass =>
             SectionSizeClass.Informative;
         public static SectionCost Cost => SectionCost.NetworkFree;
@@ -125,6 +168,7 @@ internal static class DependsAssetSections
     {
         public static string Name => RestoredEdges;
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass =>
             SectionSizeClass.Informative;
         public static SectionCost Cost => SectionCost.NetworkFree;
@@ -149,6 +193,7 @@ internal static class DependsAssetSections
     {
         public static string Name => DependencyGroups;
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(DependsAssetProjection model) =>
@@ -160,6 +205,7 @@ internal static class DependsAssetSections
     {
         public static string Name => RestoredPackages;
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(DependsAssetProjection model) =>
