@@ -146,6 +146,7 @@ interface PlatformFixture {
 interface HomeDemoFixture {
   catalog: readonly BrowserHomeDemoCatalogEntry[];
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
+  catalogPending?: boolean;
 }
 
 interface DiagnosticsFixture {
@@ -665,8 +666,16 @@ async function installFacades(
     catalog: `
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
+      const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
       export function listVocabulary() { return { schema_version: 1, sections: [] }; }
-      export function listHomeDemos() { return { demos: homeDemos }; }
+      export async function listHomeDemos() {
+        if (homeDemoCatalogPending) {
+          document.documentElement.dataset.homeDemoCatalogPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-home-demo-catalog", resolve, { once: true }));
+        }
+        return { demos: homeDemos };
+      }
       export async function runHomeDemo(id) {
         document.documentElement.dataset.homeDemoRun = id;
         return homeDemoResults[id] ?? {
@@ -875,6 +884,79 @@ test("Home preserves focused controls through delayed Build identity", async ({
   await releaseFacade(page, "finish-build-identity");
   await expect(page.locator(".data-bar-product"))
     .toContainText("dotnet-inspect vfixture");
+  await expect(credits).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Home preserves focus across adjacent startup rerenders", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    {
+      catalog: [{
+        id: "system-text-json-api",
+        title: "System.Text.Json API",
+        summary: "Browse a real package API",
+      }],
+      results: {},
+      catalogPending: true,
+    },
+    { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-catalog-pending", "true");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    fixtureWindow.homeFocusFrames = [];
+    fixtureWindow.homeFocusRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => {
+      fixtureWindow.homeFocusFrames!.push(callback);
+      return fixtureWindow.homeFocusFrames!.length;
+    };
+  });
+
+  await Promise.all([
+    releaseFacade(page, "finish-home-demo-catalog"),
+    releaseFacade(page, "finish-build-identity"),
+  ]);
+  await expect(page.locator("#home-demos")).toContainText("1 available");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    const frames = fixtureWindow.homeFocusFrames ?? [];
+    if (fixtureWindow.homeFocusRequestAnimationFrame) {
+      window.requestAnimationFrame =
+        fixtureWindow.homeFocusRequestAnimationFrame;
+    }
+    delete fixtureWindow.homeFocusFrames;
+    delete fixtureWindow.homeFocusRequestAnimationFrame;
+    const timestamp = performance.now();
+    for (const frame of frames) frame(timestamp);
+  });
+
   await expect(credits).toBeFocused();
   await expect(page.locator("#spotlight-input")).not.toBeFocused();
 });

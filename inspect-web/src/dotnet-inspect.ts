@@ -870,6 +870,7 @@ const HOME_BOT_ANIMATION_DURATION_MS = 5500;
 const DEFAULT_REQUESTED_FRAMEWORK = "net10.0";
 let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
+let homeFocusRenderGeneration = 0;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
@@ -10349,6 +10350,7 @@ const homeShellActions: HomeShellBindingActions = {
 };
 
 function bindHomeEvents(preservedFocus: HomeFocusTarget | null) {
+  const focusRenderGeneration = ++homeFocusRenderGeneration;
   bindSettingsPanelEvents();
   bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
@@ -10369,8 +10371,9 @@ function bindHomeEvents(preservedFocus: HomeFocusTarget | null) {
     });
     return;
   }
+  if (preservedFocus && restoreHomeFocus(preservedFocus)) return;
   afterCurrentNavigationFrame(() => {
-    if (preservedFocus && restoreHomeFocus(preservedFocus)) return;
+    if (focusRenderGeneration !== homeFocusRenderGeneration) return;
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
     if (input
