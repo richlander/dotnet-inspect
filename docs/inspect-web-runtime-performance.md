@@ -219,10 +219,12 @@ Each .NET 12 deployment must use one exact, coherent SDK and workload cohort.
 A floating daily or a stable SDK combined with separately overridden runtime
 packages is not comparable evidence.
 
-The non-ReadyToRun CoreCLR deployment pins the runtime-main cohort:
+The CoreCLR deployment pins the runtime-main cohort:
 
-- SDK `12.0.100-alpha.1.26454.116`;
-- runtime and browser workload packs `12.0.0-alpha.1.26454.116`; and
+- SDK `12.0.100-alpha.1.26459.112`;
+- runtime and browser workload packs `12.0.0-alpha.1.26459.112`;
+- dotnet/dotnet VMR source commit
+  `7792b064d8573a30d8527944de8184b7e108837e`; and
 - workload feed
   `https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json`.
 
@@ -240,47 +242,59 @@ receipt that binds the SDK, runtime, workload manifest and packs, feeds, target
 framework, runtime-async lowering, and non-ReadyToRun configuration. It also
 records the pinned CoreCLR pack's native JavaScript and Wasm hashes, which must
 equal the published runtime assets. The same receipt is verified before
-artifact upload and again before deployment.
+artifact upload and again before deployment. Before upload, the focused
+package-adoption canary opens a deterministic local package through the
+published production Worker and `QueryPackage` operation. Build identity and
+the async-lowering canary are not sufficient deployment evidence by
+themselves.
 
-ReadyToRun publication must additionally record:
+The earlier `12.0.100-alpha.1.26454.116` non-ReadyToRun cohort produced the
+accepted baseline run `34439612493`. The later cohort remains pinned after the
+ReadyToRun trial so the rejected optimization is the only configuration
+removed.
 
-- `PublishReadyToRun=true`;
-- non-composite per-assembly output;
-- proof that published application and framework assets are the Crossgen2 Wasm
-  images;
-- compressed and uncompressed `/_framework/` size; and
-- the same runtime-async deployment and browser correctness gates used by the
-  non-ReadyToRun CoreCLR deployment.
+### Rejected ReadyToRun trial
 
-The ReadyToRun CoreCLR deployment pins the later runtime-main cohort:
+Promotion run `34559349236` deployed product commit
+`e7572e46d66a8dd064131c6fa66d4230a8405b98` with non-composite application
+ReadyToRun. Crossgen2 produced 71 of 74 managed assets, including all eight
+application assets and `System.Private.CoreLib`. The artifact passed build
+identity, runtime-async, asset-identity, and publication-shape checks.
 
-- SDK `12.0.100-alpha.1.26459.112`;
-- runtime and browser workload packs `12.0.0-alpha.1.26459.112`;
-- dotnet/dotnet VMR source commit
-  `7792b064d8573a30d8527944de8184b7e108837e`; and
-- the same `dotnet12` workload feed used by the non-ReadyToRun cohort.
+The first one-sample production preflight rejected that configuration before
+the five-sample budget was spent. Mono completed the pinned workload, while
+CoreCLR reached Worker readiness and then failed the first package query with:
 
-This cohort follows the same `net11.0` workload and .NET 12 CoreCLR composition
-as the non-ReadyToRun deployment, but sets `PublishReadyToRun=true` and
-`PublishReadyToRunComposite=false`. Its Crossgen2 output uses per-assembly Wasm
-containers in the canonical `R2R/` directory. The publication gate parses the
-SDK-owned runtime asset inventory and requires every emitted Crossgen2 file to
-have the WebAssembly magic number and to be byte-identical to its fingerprinted
-published asset. It also requires every `DotnetInspect.Web*` application asset
-and `System.Private.CoreLib` to be in that ReadyToRun set, rejects orphaned
-Crossgen2 outputs, and records the remaining IL-only managed assets explicitly.
-For the initial candidate, Crossgen2 emits 71 of 74 managed assets, including
-all eight application assets; `System.ComponentModel`, `System`, and
-`System.Xml.Linq` are the three recorded framework facades without Crossgen2
-outputs.
+```text
+Fatal error.
+Invalid Program: attempted to call a UnmanagedCallersOnly method from managed code.
+```
 
-The artifact carries the complete per-assembly manifest and its digest in the
-runtime cohort receipt. The same gate replays before artifact upload and before
-deployment. The receipt also records uncompressed, Brotli, gzip, and total
-`/_framework/` file counts and byte sizes. The replacement-head current-source
-publication measured 77,180,680 uncompressed bytes, 16,593,730 Brotli bytes,
-and 22,981,185 gzip bytes; deployed artifacts remain authoritative because
-fingerprints and compression can change with application code.
+The same commit and cohort succeeded locally with
+`PublishReadyToRun=false` and reproduced the fatal error with
+`PublishReadyToRun=true`. Making only
+`DotnetInspect.Web.Interop.Package` IL-only did not change the failure. A direct
+generated-facade invocation exposed mismatched
+`WasmDelayLoadHelper`/`WasmR2RToInterpreterThunk` dispatch beginning in
+`NuGetFetch.PackageSourceOperation.CaptureAsync<T>`; interpreting `NuGetFetch`
+revealed another failing generic async dispatch in
+`BrowserPackageWorkspace.RunPackageOperationAsync<T>`. Selective exclusions
+therefore do not provide a viable application configuration.
+
+This is the same CoreCLR-Wasm R2R thunk/signature-mismatch family tracked by
+[dotnet/runtime#129622](https://github.com/dotnet/runtime/issues/129622) and
+[dotnet/runtime#129857](https://github.com/dotnet/runtime/issues/129857), but
+the pinned later cohort still reproduces the product failure. The public
+CoreCLR comparison consequently uses the later .NET 12 cohort without
+ReadyToRun. No R2R performance trend point exists because correctness is a
+precondition for measurement.
+
+Any future ReadyToRun publication must additionally record non-composite
+per-assembly output, prove that published assets are the Crossgen2 Wasm images,
+record compressed and uncompressed `/_framework/` size, and pass the same
+focused production-Worker package operation before deployment. The retained
+publication verifier can produce that evidence, but it does not make R2R a
+supported deployment configuration.
 
 The earlier runtime-main cohort had a Linux path-casing defect: Crossgen2 wrote
 `R2R/` while the browser packaging target probed `r2r/`.
