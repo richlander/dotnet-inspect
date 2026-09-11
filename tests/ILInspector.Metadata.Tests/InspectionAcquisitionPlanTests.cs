@@ -426,8 +426,13 @@ public class InspectionAcquisitionPlanTests
             Assert.IsType<AssemblyDescriptorSelectionResult.Ready>(
                 ResolvedAssemblyReference.SelectFromStream(
                     () => new MemoryStream(valid, writable: false),
-                    provenance));
+                    provenance,
+                    lastWriteTimeUtc: null,
+                    assetFileName: "PhysicalPayload.dll"));
         Assert.Equal("Selected", ready.Reference.Identity.Name);
+        Assert.Equal(
+            "PhysicalPayload.dll",
+            ready.Reference.AssetFileName);
         Assert.Null(ready.Reference.Registration.ModuleVersionId);
         Assert.Same(provenance, ready.Reference.Provenance);
         Assert.IsType<AssemblyDescriptorSelectionResult.Descriptorless>(
