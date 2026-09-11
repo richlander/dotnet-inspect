@@ -1207,6 +1207,22 @@ internal static class PackageHouseContractValidation
                 }
                 return;
 
+            case PackageHouseDemand.Candidate candidateDemand:
+                if (versionResolution is not null
+                    || coordinate is not null
+                        && candidateDemand.Value.Coordinate != coordinate
+                    || (decision == PackageHouseDecision.Stop
+                        ? candidate is not null
+                        : !ReferenceEquals(
+                            candidateDemand.Value,
+                            candidate)))
+                {
+                    throw new ArgumentException(
+                        "A candidate package demand accepts only its exact candidate and coordinate with no version-selection receipt.",
+                        nameof(candidate));
+                }
+                return;
+
             case PackageHouseDemand.Selecting selecting:
                 if (versionResolution is null
                     || !ReferenceEquals(

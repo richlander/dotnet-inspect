@@ -141,6 +141,13 @@ public sealed class PackageHouse
                         sourceLease,
                         cancellationToken,
                         operation).ConfigureAwait(false),
+                PackageHouseDemand.Candidate candidate =>
+                    await ExecuteCandidateAsync(
+                        request,
+                        candidate,
+                        sourceLease,
+                        cancellationToken,
+                        operation).ConfigureAwait(false),
                 PackageHouseDemand.Selecting selecting =>
                     await ExecuteSelectingAsync(
                         request,
@@ -235,6 +242,65 @@ public sealed class PackageHouse
             failures).ConfigureAwait(false);
     }
 
+    private async Task<PackageHouseSettlement> ExecuteCandidateAsync(
+        PackageHouseRequest request,
+        PackageHouseDemand.Candidate candidateDemand,
+        PackageSourceSettlementLease sourceLease,
+        CancellationToken cancellationToken,
+        NuGetOperationContext operation)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        operation.ThrowIfExpired();
+        PackageAcquisitionCandidate candidate = candidateDemand.Value;
+        if (!sourceLease.OwnsCandidate(candidate))
+        {
+            throw new InvalidOperationException(
+                "The package acquisition candidate belongs to another source settlement lease.");
+        }
+
+        PackageSourceAuthorization authorization =
+            _sourceAuthorization.AuthorizeSourcesFor(
+                candidate.Coordinate.PackageId);
+        cancellationToken.ThrowIfCancellationRequested();
+        operation.ThrowIfExpired();
+        if (!CandidateRemainsAuthorized(candidate, authorization))
+        {
+            PackageHouseDecisionReceipt stopped =
+                PackageHouseDecisionReceipt.Stop(
+                    request,
+                    candidate.Coordinate);
+            return ResourceFree(
+                new PackageHouseResult.Rejected(
+                    new PackageHouseEvidence(request, stopped),
+                    Reason(
+                        "The resolved package candidate is not authorized by this PackageHouse.")));
+        }
+
+        PackageHouseDecisionReceipt retained =
+            PackageHouseDecisionReceipt.RetainPackage(
+                request,
+                candidate.Coordinate,
+                candidate);
+        if (request.Operation.Profile
+            == PackageHouseOperationProfile.Settle)
+        {
+            return ResourceFree(
+                new PackageHouseResult.Settled(
+                    new PackageHouseEvidence(
+                        request,
+                        retained)));
+        }
+
+        return await AcquireAsync(
+            request,
+            retained,
+            candidate,
+            sourceLease,
+            cancellationToken,
+            operation,
+            []).ConfigureAwait(false);
+    }
+
     private async Task<PackageHouseSettlement>
         ExecuteSelectingAsync(
         PackageHouseRequest request,
@@ -325,6 +391,15 @@ public sealed class PackageHouse
             operation,
             failures).ConfigureAwait(false);
     }
+
+    private static bool CandidateRemainsAuthorized(
+        PackageAcquisitionCandidate candidate,
+        PackageSourceAuthorization authorization) =>
+        candidate.Authorities.All(
+            evidence =>
+                authorization.TryGetAuthority(
+                    evidence.Authority.Association,
+                    out _));
 
     private async Task<PackageHouseSettlement> AcquireAsync(
         PackageHouseRequest request,

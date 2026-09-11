@@ -122,6 +122,18 @@ public abstract class PackageHouseDemand
         public PackageSourceCoordinate Coordinate { get; }
     }
 
+    /// <summary>One exact candidate already authorized by the supplied source lease.</summary>
+    public sealed class Candidate : PackageHouseDemand
+    {
+        public Candidate(PackageAcquisitionCandidate value)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            Value = value;
+        }
+
+        public PackageAcquisitionCandidate Value { get; }
+    }
+
     /// <summary>One unresolved package version-selection request.</summary>
     public sealed class Selecting : PackageHouseDemand
     {
