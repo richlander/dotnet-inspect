@@ -30,6 +30,9 @@ public static class InspectionViewFacetCatalog
             "library.metadata",
             InspectionViewFacetExecution.LibraryMetadata),
         Binding(
+            "library.compare",
+            InspectionViewFacetExecution.LibraryCompare),
+        Binding(
             "type.api",
             InspectionViewFacetExecution.TypeApi),
         Binding(
@@ -38,6 +41,9 @@ public static class InspectionViewFacetCatalog
         Binding(
             "type.source",
             InspectionViewFacetExecution.TypeSource),
+        Binding(
+            "type.compare",
+            InspectionViewFacetExecution.TypeCompare),
         Binding(
             "member.overview",
             InspectionViewFacetExecution.MemberOverview),
@@ -53,6 +59,9 @@ public static class InspectionViewFacetCatalog
         Binding(
             "member.annotated-source",
             InspectionViewFacetExecution.MemberAnnotatedSource),
+        Binding(
+            "member.compare",
+            InspectionViewFacetExecution.MemberCompare),
     ];
 
     static readonly ViewFacetRegistration[] Registrations =
@@ -134,6 +143,15 @@ public static class InspectionViewFacetCatalog
             AppliesToLibrary),
         Active(
             Descriptor(
+                "library.compare",
+                StructuralSubjectKind.Library,
+                "Compare",
+                "Diff and clone results organized by Type for the active Library.",
+                600),
+            "Diff and clone results organized by Type for the active Library.",
+            AppliesToLibrary),
+        Active(
+            Descriptor(
                 "type.api",
                 StructuralSubjectKind.Type,
                 "API",
@@ -159,6 +177,15 @@ public static class InspectionViewFacetCatalog
                 "Source or decompiled code for the active Type.",
                 300),
             "Source or decompiled code for the active Type.",
+            AppliesToType),
+        Active(
+            Descriptor(
+                "type.compare",
+                StructuralSubjectKind.Type,
+                "Compare",
+                "Diff and clone results organized by Member for the active Type.",
+                400),
+            "Diff and clone results organized by Member for the active Type.",
             AppliesToType),
         Active(
             Descriptor(
@@ -205,6 +232,15 @@ public static class InspectionViewFacetCatalog
                 "Source for the active Member with product analysis annotations.",
                 500),
             "Source for the active Member with product analysis annotations.",
+            AppliesToMember),
+        Active(
+            Descriptor(
+                "member.compare",
+                StructuralSubjectKind.Member,
+                "Compare",
+                "Detailed diff and clone results for the active Member.",
+                600),
+            "Detailed diff and clone results for the active Member.",
             AppliesToMember),
     ];
 
@@ -266,12 +302,15 @@ internal enum InspectionViewFacetExecution
     LibraryOpportunities,
     LibraryAnalysis,
     LibraryMetadata,
+    LibraryCompare,
     TypeApi,
     TypeMetadata,
     TypeSource,
+    TypeCompare,
     MemberOverview,
     MemberCallGraph,
     MemberFacts,
     MemberSource,
     MemberAnnotatedSource,
+    MemberCompare,
 }
