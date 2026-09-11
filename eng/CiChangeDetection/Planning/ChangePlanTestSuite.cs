@@ -105,6 +105,8 @@ internal static class ChangePlanTestSuite
                 + "ts-jsexport-runtime/R.ts", "code,web"),
             ("tests/DotnetInspector.ILRoundtrip.Tests/T.cs",
                 "code,ilroundtrip"),
+            ("tests/DecompilerHarness.Tests/Closure.cs",
+                "code,decompiler"),
             ("tests/Other/T.cs", "code,decompiler"),
             ("tools/DecompilerHarness/Notes.md", "docs"),
             ("tools/DecompilerHarness/Baseline.txt", "decompiler,docs"),
