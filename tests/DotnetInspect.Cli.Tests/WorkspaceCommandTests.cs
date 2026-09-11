@@ -23,6 +23,27 @@ public sealed class WorkspaceCommandTests
     static readonly PackageSource Source =
         new("fixture", "https://fixture.invalid/v3/index.json");
 
+    [Theory]
+    [InlineData("Ordinary")]
+    [InlineData("Namespace.Type\\+Nested")]
+    [InlineData("A\nB")]
+    [InlineData("A\r\nB")]
+    [InlineData("A\u202EB")]
+    [InlineData("A\\u000AB")]
+    public void PortableSelectors_RoundTripThroughDisplayContainment(
+        string selector)
+    {
+        string encoded =
+            WorkspaceNavigationPortableSelector.Encode(selector);
+
+        Assert.Equal(
+            encoded,
+            CSharpText.CSharpIdentifier.ContainRenderedText(encoded));
+        Assert.Equal(
+            selector,
+            WorkspaceNavigationPortableSelector.Decode(encoded));
+    }
+
     [Fact]
     public void WorkspaceCommand_IsReservedFromImplicitPackageRouting()
     {

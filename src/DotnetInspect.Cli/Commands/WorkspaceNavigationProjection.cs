@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text;
+
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -77,7 +80,7 @@ internal static class WorkspaceNavigationProjection
                 .. snapshot.Libraries.Select(library =>
                     new WorkspaceNavigationLibraryRow(
                         Text(Subject(snapshot, library.Subject)),
-                        Text(library.Asset?.Id ?? ""),
+                        Portable(library.Asset?.Id ?? ""),
                         Text(library.Asset?.Path ?? ""),
                         library.State.ToString(),
                         library.IsPrimary,
@@ -88,13 +91,13 @@ internal static class WorkspaceNavigationProjection
             [
                 .. snapshot.Types.Select(type =>
                     new WorkspaceNavigationTypeRow(
-                        Text(
+                        Portable(
                             type.Row.Subject.Identity.Type
                                 .ToEscapedFullName()),
                         Text(Subject(
                             snapshot,
                             type.Row.Subject.Library)),
-                        Text(AssetId(
+                        Portable(AssetId(
                             snapshot,
                             type.Row.Subject.Library)),
                         Text(type.Row.Accessibility.Label),
@@ -107,16 +110,16 @@ internal static class WorkspaceNavigationProjection
                 .. snapshot.Members.Select(member =>
                     new WorkspaceNavigationMemberRow(
                         Text(member.Row.Subject.Identity.Member.MemberName),
-                        Text(
+                        Portable(
                             member.Row.ContainingType.Identity.Type
                                 .ToEscapedFullName()),
-                        Text(
+                        Portable(
                             member.Row.Subject.DeclaringType.Identity.Type
                                 .ToEscapedFullName()),
-                        Text(AssetId(
+                        Portable(AssetId(
                             snapshot,
                             member.Row.Subject.DeclaringType.Library)),
-                        Text(
+                        Portable(
                             member.Row.Subject.Identity.Member
                                 .StableSelector),
                         Text(
@@ -491,4 +494,98 @@ internal static class WorkspaceNavigationProjection
 
     static string Text(string value) =>
         LibraryViewText.Contain(value) ?? "";
+
+    static string Portable(string value) =>
+        WorkspaceNavigationPortableSelector.Encode(value);
+}
+
+/// <summary>
+/// Reversible CLI transport spelling for portable Navigation selectors.
+/// </summary>
+internal static class WorkspaceNavigationPortableSelector
+{
+    internal static string Encode(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        StringBuilder? builder = null;
+        for (int index = 0; index < value.Length; index++)
+        {
+            char character = value[index];
+            string? replacement = character switch
+            {
+                '\\' => "\\\\",
+                '\r' => "\\r",
+                '\n' => "\\n",
+                _ when CSharpText.CSharpIdentifier.IsRenderingHazard(
+                    character) =>
+                    "\\u" + ((int)character).ToString(
+                        "X4",
+                        CultureInfo.InvariantCulture),
+                _ => null,
+            };
+            if (replacement is null)
+            {
+                builder?.Append(character);
+                continue;
+            }
+
+            builder ??= new StringBuilder(value.Length + 8)
+                .Append(value, 0, index);
+            builder.Append(replacement);
+        }
+        return builder?.ToString() ?? value;
+    }
+
+    internal static string Decode(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        int escape = value.IndexOf('\\');
+        if (escape < 0)
+            return value;
+
+        var builder = new StringBuilder(value.Length);
+        builder.Append(value, 0, escape);
+        for (int index = escape; index < value.Length; index++)
+        {
+            char character = value[index];
+            if (character != '\\' || index + 1 >= value.Length)
+            {
+                builder.Append(character);
+                continue;
+            }
+
+            char code = value[index + 1];
+            if (code == '\\')
+            {
+                builder.Append('\\');
+                index++;
+            }
+            else if (code == 'r')
+            {
+                builder.Append('\r');
+                index++;
+            }
+            else if (code == 'n')
+            {
+                builder.Append('\n');
+                index++;
+            }
+            else if (code == 'u'
+                && index + 5 < value.Length
+                && ushort.TryParse(
+                    value.AsSpan(index + 2, 4),
+                    NumberStyles.AllowHexSpecifier,
+                    CultureInfo.InvariantCulture,
+                    out ushort codeUnit))
+            {
+                builder.Append((char)codeUnit);
+                index += 5;
+            }
+            else
+            {
+                builder.Append(character);
+            }
+        }
+        return builder.ToString();
+    }
 }

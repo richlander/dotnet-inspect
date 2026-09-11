@@ -524,7 +524,8 @@ public static class WorkspaceCommand
         {
             sourceSelection = NavigationSnapshotSelector.ResolveLibrary(
                 initial,
-                options.Library);
+                WorkspaceNavigationPortableSelector.Decode(
+                    options.Library));
             if (sourceSelection
                 is not NavigationSnapshotSelectorResolution.Selected one)
             {
@@ -564,9 +565,10 @@ public static class WorkspaceCommand
         NavigationSnapshotSelectorResolution librarySelection =
             NavigationSnapshotSelector.ResolveLibrary(
                 source,
-                options.Library
-                    ?? throw new InvalidOperationException(
-                        "An exact Type destination requires a defining Library selector."));
+                WorkspaceNavigationPortableSelector.Decode(
+                    options.Library
+                        ?? throw new InvalidOperationException(
+                            "An exact Type destination requires a defining Library selector.")));
         if (librarySelection
             is not NavigationSnapshotSelectorResolution.Selected
             {
@@ -580,7 +582,7 @@ public static class WorkspaceCommand
             NavigationSnapshotSelector.ResolveType(
                 source,
                 definingLibrary,
-                options.Type);
+                WorkspaceNavigationPortableSelector.Decode(options.Type));
         if (typeSelection
             is not NavigationSnapshotSelectorResolution.Selected
             {
@@ -620,7 +622,7 @@ public static class WorkspaceCommand
             NavigationSnapshotSelector.ResolveMember(
                 typeSource,
                 selectedType,
-                options.Member);
+                WorkspaceNavigationPortableSelector.Decode(options.Member));
         if (memberSelection
             is not NavigationSnapshotSelectorResolution.Selected
             {

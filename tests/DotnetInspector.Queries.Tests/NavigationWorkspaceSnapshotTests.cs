@@ -239,6 +239,114 @@ public sealed class NavigationWorkspaceSnapshotTests
     }
 
     [Fact]
+    public async Task SubjectlessRetainedContext_IsRejectedBeforeRecommendation()
+    {
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        PackageRootBinding binding =
+            NavigationSnapshotTestData.Binding("Navigation.Context");
+        WorkspaceScopeSnapshot scope =
+            await NavigationSnapshotTestData.ReplaceAsync(
+                workspace,
+                binding);
+        NavigationPackageEvaluation package =
+            NavigationSnapshotTestData.PackageEvaluation(
+                scope.Packages[0],
+                binding,
+                NavigationSnapshotTestData.Surface(
+                    "Navigation.Library",
+                    NavigationSnapshotTestData.Type("Widget")));
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        NavigationWorkspaceSnapshot initial =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = scope,
+                    Package = package,
+                },
+                registry,
+                NavigationSnapshotTestData.AllAvailable(registry));
+
+        Assert.Throws<ArgumentException>(() =>
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = scope,
+                    Package = package,
+                    RetainedContext =
+                        new NavigationRetainedSubjectContext(
+                            initial.Inventory!.Package),
+                },
+                registry,
+                NavigationSnapshotTestData.AllAvailable(registry)));
+    }
+
+    [Fact]
+    public async Task MemberHierarchy_UnresolvedEvidenceIsFailed()
+    {
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        PackageRootBinding binding =
+            NavigationSnapshotTestData.Binding("Navigation.MemberEvidence");
+        WorkspaceScopeSnapshot scope =
+            await NavigationSnapshotTestData.ReplaceAsync(
+                workspace,
+                binding);
+        ApiType type = NavigationSnapshotTestData.Type("Widget");
+        var failure = new ApiSurfaceInspectionFailure(
+            "decode member",
+            SubjectToken: 1,
+            MetadataTypeNameFailureMechanism.Metadata,
+            Kind: "MethodDef",
+            Detail: "invalid");
+        NavigationPackageEvaluation package =
+            NavigationSnapshotTestData.PackageEvaluation(
+                scope.Packages[0],
+                binding,
+                new NavigationSnapshotTestData.LibrarySurface(
+                    "Navigation.Library",
+                    [type],
+                    [failure],
+                    Error: null));
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        ViewFacetAvailabilitySnapshot facts =
+            NavigationSnapshotTestData.AllAvailable(registry);
+        NavigationWorkspaceSnapshot initial =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = scope,
+                    Package = package,
+                },
+                registry,
+                facts);
+        NavigationTypeDescriptor selected = Assert.Single(initial.Types);
+        var context = new NavigationRetainedSubjectContext(
+            initial.Inventory!.Package,
+            selected.Row.Subject.Library,
+            selected.Row.Subject);
+
+        NavigationWorkspaceSnapshot snapshot =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = scope,
+                    Package = package,
+                    ActiveSubject = selected.Row.Subject,
+                    RetainedContext = context,
+                },
+                registry,
+                facts);
+
+        NavigationHierarchyDescriptor member =
+            Assert.Single(
+                snapshot.Hierarchy,
+                slot => slot.Kind == StructuralSubjectKind.Member);
+        Assert.Equal(NavigationDescriptorState.Failed, member.State);
+        Assert.Null(member.Subject);
+    }
+
+    [Fact]
     public async Task PackageDescriptors_RetainPendingAndFailedPreparationEvidence()
     {
         await using InspectionWorkspace workspace =

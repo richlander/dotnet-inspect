@@ -79,7 +79,9 @@ install one requested half after a non-applied result.
 Markdown, plain text, table, and TSV are Markout lowerings; JSON and JSONL omit
 process-local Workspace, occurrence, generation, action, and authority
 identity while retaining portable Library asset, containing-Type, and
-declaring-Type joins.
+declaring-Type joins. Portable Library, Type, and Member selector fields use a
+reversible backslash transport spelling before display containment; copied
+values are decoded before exact ordinal selector resolution.
 
 ## Runtime identity
 

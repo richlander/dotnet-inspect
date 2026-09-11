@@ -437,6 +437,14 @@ public static class NavigationWorkspaceSnapshotEvaluation
                 activeSubject: null,
                 retainedContext: null);
 
+        if (request.ActiveSubject is null
+            && request.RetainedContext is not null)
+        {
+            throw new ArgumentException(
+                "A retained Navigation context requires an explicit active subject.",
+                nameof(request));
+        }
+
         StructuralSubjectIdentity activeSubject;
         NavigationRetainedSubjectContext retainedContext;
         if (request.ActiveSubject is null)
@@ -962,11 +970,10 @@ public static class NavigationWorkspaceSnapshotEvaluation
                 ? NavigationDescriptorState.Available
                 : retainedContext?.Type is null
                     ? NavigationDescriptorState.Unavailable
-                    : types.FirstOrDefault(
-                            type => type.Row.Subject == retainedContext.Type)
-                        ?.Row.Members.IsEmpty == false
-                            ? NavigationDescriptorState.SelectionRequired
-                            : NavigationDescriptorState.Unavailable;
+                    : MemberState(
+                        retainedContext.Type,
+                        types,
+                        inventory);
         NavigationHierarchyDescriptor memberSlot =
             new(
                 StructuralSubjectKind.Member,
@@ -981,5 +988,25 @@ public static class NavigationWorkspaceSnapshotEvaluation
             typeSlot,
             memberSlot,
         ];
+    }
+
+    static NavigationDescriptorState MemberState(
+        StructuralSubjectIdentity.TypeSubject type,
+        ImmutableArray<NavigationTypeDescriptor> types,
+        NavigationSubjectInventory? inventory)
+    {
+        NavigationTypeDescriptor descriptor =
+            types.Single(candidate => candidate.Row.Subject == type);
+        if (!descriptor.Row.Members.IsEmpty)
+            return NavigationDescriptorState.SelectionRequired;
+
+        NavigationLibraryInventory library =
+            inventory?.Libraries.Single(candidate =>
+                candidate.Subject == type.Library)
+            ?? throw new InvalidOperationException(
+                "A retained Type requires its exact Library inventory.");
+        return library.Types.Evidence.IsEmpty
+            ? NavigationDescriptorState.Unavailable
+            : NavigationDescriptorState.Failed;
     }
 }
