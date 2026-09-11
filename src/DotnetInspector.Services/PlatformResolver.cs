@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Collections.Immutable;
+using System.Globalization;
 using CSharpText;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
@@ -87,6 +88,83 @@ public static class PlatformResolver
         FrameworkMappings.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Adapts a target framework to the resolver's exact platform
+    /// family/version hints.
+    /// </summary>
+    public static bool TryGetFrameworkSpecsForTargetFramework(
+        string? targetFramework,
+        out IReadOnlyList<string> frameworkSpecs)
+    {
+        frameworkSpecs = [];
+        if (string.IsNullOrEmpty(targetFramework)
+            || targetFramework.AsSpan().Trim().Length
+                != targetFramework.Length)
+        {
+            return false;
+        }
+
+        string normalized = TfmSelector.NormalizeTfm(targetFramework);
+        string[] families;
+        ReadOnlySpan<char> version;
+        if (normalized.StartsWith(
+                "netstandard",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            families = ["netstandard"];
+            version = normalized.AsSpan("netstandard".Length);
+        }
+        else if (normalized.StartsWith(
+                     "netcoreapp",
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            families = ["runtime", "aspnetcore"];
+            version = normalized.AsSpan("netcoreapp".Length);
+        }
+        else if (normalized.StartsWith(
+                     "net",
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            families = ["runtime", "aspnetcore"];
+            version = normalized.AsSpan("net".Length);
+        }
+        else
+        {
+            return false;
+        }
+
+        int separator = version.IndexOf('.');
+        if (separator <= 0
+            || separator == version.Length - 1
+            || version[(separator + 1)..].Contains('.')
+            || !TryParseCanonicalFrameworkNumber(
+                version[..separator],
+                out int major)
+            || !TryParseCanonicalFrameworkNumber(
+                version[(separator + 1)..],
+                out int minor)
+            || families.Length > 1
+                && normalized.StartsWith(
+                    "net",
+                    StringComparison.OrdinalIgnoreCase)
+                && !normalized.StartsWith(
+                    "netcoreapp",
+                    StringComparison.OrdinalIgnoreCase)
+                && major < 5)
+        {
+            return false;
+        }
+
+        string releaseBand =
+            $"{major.ToString(CultureInfo.InvariantCulture)}."
+            + minor.ToString(CultureInfo.InvariantCulture);
+        frameworkSpecs =
+        [
+            .. families.Select(family => $"{family}@{releaseBand}"),
+        ];
+        return true;
+    }
+
+    /// <summary>
     /// Discovers the highest-priority existing packs directory: the app cache packs
     /// category when populated, otherwise an SDK-installed <c>packs</c> directory.
     /// Returns null when no candidate directory exists.
@@ -112,6 +190,28 @@ public static class PlatformResolver
             }
         }
         return result;
+    }
+
+    private static bool TryParseCanonicalFrameworkNumber(
+        ReadOnlySpan<char> value,
+        out int number)
+    {
+        number = 0;
+        if (value.IsEmpty
+            || value.Length > 1 && value[0] == '0')
+        {
+            return false;
+        }
+
+        foreach (char character in value)
+            if (!char.IsAsciiDigit(character))
+                return false;
+
+        return int.TryParse(
+            value,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out number);
     }
 
     /// <summary>

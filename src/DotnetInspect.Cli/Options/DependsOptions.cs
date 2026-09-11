@@ -1,9 +1,24 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
-
 using DotnetInspector.SourceSelection;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
+
+/// <summary>The explicit root families admitted by asset-mode <c>depends</c>.</summary>
+public enum DependsAssetRootKind
+{
+    Package,
+    Nuspec,
+    Library,
+    Project,
+}
+
+/// <summary>One explicit asset root in command-line occurrence order.</summary>
+public sealed record DependsAssetRoot(
+    int OccurrenceIndex,
+    DependsAssetRootKind Kind,
+    string Value);
 
 /// <summary>
 /// Configuration options for the depends command.
@@ -24,6 +39,21 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// Package mode: show NuGet package dependencies.
     /// </summary>
     public string? PackageName { get; init; }
+
+    /// <summary>Asset-mode roots in heterogeneous command-line occurrence order.</summary>
+    public DependsAssetRoot[] AssetRoots { get; init; } = [];
+
+    /// <summary>The exclusive bounded package-prefix root set.</summary>
+    public string? PackagePrefix { get; init; }
+
+    /// <summary>Whether latest remote package roots may select prerelease versions.</summary>
+    public bool IncludePrerelease { get; init; }
+
+    /// <summary>The package-prefix root bound, or null for the default.</summary>
+    public int? MaxPackages { get; init; }
+
+    /// <summary>The positive dependency traversal depth, or null for complete traversal.</summary>
+    public int? Depth { get; init; }
 
     /// <summary>
     /// Packages to search for type resolution. Can specify multiple.
@@ -60,6 +90,8 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public bool JsonOutput { get; init; }
 
+    public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
+
     /// <summary>The selected output format for the graph projection.</summary>
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
 
@@ -91,8 +123,28 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public bool Count { get; init; }
 
+    public bool Tabular { get; init; }
+
+    public bool Tsv { get; init; }
+
+    public bool Jsonl { get; init; }
+
     /// <summary>Suppress table and TSV headers.</summary>
     public bool NoHeader { get; init; }
+
+    public string[]? Discover { get; init; }
+
+    public bool Effective { get; init; }
+
+    public bool Schema { get; init; }
+
+    public string[]? Select { get; init; }
+
+    public bool SelectDefault { get; init; }
+
+    public string[]? Columns { get; init; }
+
+    public string[]? Fields { get; init; }
 
     /// <summary>
     /// Show progress messages on stderr.
@@ -126,6 +178,9 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
         PlatformFrameworks.Length > 0 ||
         Projects.Length > 0;
 
+    public bool HasAssetRoots =>
+        AssetRoots.Length > 0 || PackagePrefix is not null;
+
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
@@ -142,7 +197,10 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// <summary>
     /// True when in type dependency mode (default when no --library/--package).
     /// </summary>
-    public bool IsTypeMode => LibraryName == null && PackageName == null;
+    public bool IsTypeMode =>
+        !string.IsNullOrEmpty(TargetType)
+        && LibraryName is null
+        && PackageName is null;
 
     /// <summary>
     /// True when in library dependency mode.

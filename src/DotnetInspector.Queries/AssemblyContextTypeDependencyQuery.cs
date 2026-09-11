@@ -57,7 +57,8 @@ public static class AssemblyContextTypeDependencyQuery
 
     public static AssemblyContextTypeDependencyResult Execute(
         AssemblyContextGroup group,
-        string targetType)
+        string targetType,
+        int? maximumDepth = null)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetType);
@@ -105,7 +106,8 @@ public static class AssemblyContextTypeDependencyQuery
         TypeDependencyPopulationResult population =
             TypeDependencyScanner.BuildDependencyPopulation(
                 targetType,
-                retained.ToImmutable());
+                retained.ToImmutable(),
+                maximumDepth);
         var metadataOutcomes =
             new Dictionary<
                 AssemblyAcquisitionRegistration,

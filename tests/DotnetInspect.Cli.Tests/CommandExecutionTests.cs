@@ -12267,6 +12267,7 @@ public partial class CommandExecutionTests
             new[]
             {
                 "dependency-evidence",
+                "depends",
                 "ecosystem",
                 "extensions",
                 "find",
@@ -15366,9 +15367,18 @@ public partial class CommandExecutionTests
         var table = await RunAppAsync([.. window, "--table"]);
         var tsv = await RunAppAsync([.. window, "--tsv"]);
         var jsonl = await RunAppAsync([.. window, "--jsonl"]);
+        var json = await RunAppAsync([.. window, "--json"]);
         var mermaid = await RunAppAsync([.. window, "--mermaid"]);
 
-        foreach (var result in new[] { count, table, tsv, jsonl, mermaid })
+        foreach (var result in new[]
+                 {
+                     count,
+                     table,
+                     tsv,
+                     jsonl,
+                     json,
+                     mermaid,
+                 })
         {
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);
@@ -15378,6 +15388,13 @@ public partial class CommandExecutionTests
         Assert.Equal(3, NonEmptyLineCount(table.Output));
         Assert.Equal(3, NonEmptyLineCount(tsv.Output));
         Assert.Equal(2, NonEmptyLineCount(jsonl.Output));
+        using (JsonDocument document = JsonDocument.Parse(json.Output))
+        {
+            Assert.Equal(
+                2,
+                document.RootElement.GetProperty("edges")
+                    .GetArrayLength());
+        }
         Assert.Equal(
             2,
             mermaid.Output.Split('\n').Count(static line =>
@@ -15425,7 +15442,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Depends_TypeJsonRetainsCompatibilityTreeShape()
+    public async Task Depends_TypeJsonUsesTypedGraphDocument()
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.Int128",
@@ -15434,8 +15451,45 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
-        Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        Assert.Single(
+            document.RootElement.GetProperty("edges")
+                .EnumerateArray());
+        Assert.Equal(
+            2,
+            document.RootElement.GetProperty("nodes")
+                .GetArrayLength());
+        Assert.Empty(
+            document.RootElement.GetProperty("package_projections")
+                .EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Depends_RootOnlyTypeJsonRetainsTheSelectedNode()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends", "System.IDisposable",
+            "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement node = Assert.Single(
+            document.RootElement.GetProperty("nodes")
+                .EnumerateArray());
+        Assert.Equal(
+            "System.IDisposable",
+            node.GetProperty("identity")
+                .GetProperty("type")
+                .GetString());
+        Assert.Equal(
+            [1],
+            node.GetProperty("root_occurrences")
+                .EnumerateArray()
+                .Select(static occurrence => occurrence.GetInt32()));
+        Assert.Empty(
+            document.RootElement.GetProperty("edges")
+                .EnumerateArray());
     }
 
     [Fact]
@@ -15491,12 +15545,14 @@ public partial class CommandExecutionTests
                 StringSplitOptions.RemoveEmptyEntries));
         using JsonDocument document =
             JsonDocument.Parse(compact.Output);
+        JsonElement graph = document.RootElement.GetProperty(
+            "dependency_graph");
         Assert.Equal(
             JsonValueKind.Object,
             document.RootElement.ValueKind);
         Assert.True(
-            document.RootElement.GetProperty("edges").GetArrayLength() > 0);
-        JsonElement evidence = document.RootElement
+            graph.GetProperty("edges").GetArrayLength() > 0);
+        JsonElement evidence = graph
             .GetProperty("edges")[0]
             .GetProperty("evidence_identity");
         Assert.Equal(
@@ -15533,7 +15589,8 @@ public partial class CommandExecutionTests
             using JsonDocument document =
                 JsonDocument.Parse(graph.Output);
             JsonElement root = Assert.Single(
-                document.RootElement.GetProperty("nodes")
+                document.RootElement.GetProperty("dependency_graph")
+                    .GetProperty("nodes")
                     .EnumerateArray());
             JsonElement library = root.GetProperty("identity")
                 .GetProperty("library");
@@ -15548,7 +15605,8 @@ public partial class CommandExecutionTests
                 library.GetProperty("module_version_id")
                     .GetGuid());
             Assert.Empty(
-                document.RootElement.GetProperty("edges")
+                document.RootElement.GetProperty("dependency_graph")
+                    .GetProperty("edges")
                     .EnumerateArray());
         }
         finally
@@ -15574,7 +15632,8 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             using JsonDocument document = JsonDocument.Parse(output);
             JsonElement edge =
-                document.RootElement.GetProperty("edges")
+                document.RootElement.GetProperty("dependency_graph")
+                    .GetProperty("edges")
                     .EnumerateArray()
                     .First();
             Assert.Equal(
