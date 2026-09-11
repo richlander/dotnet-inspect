@@ -17,6 +17,9 @@ content into coordinated surface and implementation roles for Browser package
 workspaces. Browser home demos execute every selected preset through
 `RunHomeDemo`, apply its typed package or Platform activation, and publish the
 ordinary canonical Browser workspace only after the selected result is ready.
+CLI Platform demos use the same `WorkspaceContextLoader` implementation-pack
+realization before lowering the selected image into the ordinary type/member
+section pipeline.
 Schema version 2, packet format 2, complete view binding, and the restoration
 coordinator defined here are not yet implemented.
 The definition-record loader, registry, scenario resolution, product home
@@ -820,7 +823,11 @@ their exact canonical facet IDs before Registry resolution.
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
-package members as `--caller-package` for the call-graph demo. **inspect-web** loads home-demo metadata and exact scenario IDs from the
+package members as `--caller-package` for the call-graph demo. A Platform demo
+retains its exact family, version, framework, and assembly through
+`WorkspaceContextLoader`, then materializes the selected implementation image
+for the existing CLI section renderers; it does not inspect the reference-pack
+stub as the implementation body. **inspect-web** loads home-demo metadata and exact scenario IDs from the
 ecosystem catalog through the browser engine (`ListHomeDemos` /
 `RunHomeDemo`; `ResolveHomeDemo` remains a tooling/debug projection).
 Every selected home demo executes through `RunHomeDemo`; the host does not

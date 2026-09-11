@@ -23,7 +23,7 @@ export interface PlatformAssemblyRow {
   readonly packVersion: string;
 }
 
-export interface PlatformPackageSupply {
+interface PlatformPackageSupply {
   readonly pack: "netcore.app" | "aspnetcore.app";
   readonly family: "Microsoft.NETCore.App" | "Microsoft.AspNetCore.App";
   readonly package: string;
