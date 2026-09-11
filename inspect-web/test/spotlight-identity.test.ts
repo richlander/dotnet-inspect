@@ -611,6 +611,12 @@ const deploySource = readFileSync(
 const dataBarSource = readFileSync(
   new URL("../src/data-bar.ts", import.meta.url),
   "utf8");
+const diagnosticsViewSource = readFileSync(
+  new URL("../src/diagnostics-view.ts", import.meta.url),
+  "utf8");
+const diagnosticsRouteSource = readFileSync(
+  new URL("../src/diagnostics-route.ts", import.meta.url),
+  "utf8");
 const spotlightSource = readFileSync(
   new URL("../src/spotlight.ts", import.meta.url),
   "utf8");
@@ -1928,9 +1934,10 @@ test("typed settings panel owns its rendered control bindings", () => {
   assert.equal(innerSettingsCall.arguments.length, 2);
   assertIdentifierArgument(innerSettingsCall, 0, "document", "bindSettingsPanel");
   const actions = objectArgument(innerSettingsCall, 1, "bindSettingsPanel");
-  assert.equal(actions.properties.length, 5);
+  assert.equal(actions.properties.length, 6);
   const settingsActions: readonly (readonly [string, string])[] = [
     ["onClose", "closeSettings"],
+    ["onOpenDiagnostics", "openDiagnosticsRoute"],
     ["onOpen", "openSettings"],
     ["onTasteClear", "clearTaste"],
     ["onTasteToggle", "toggleTaste"],
@@ -2266,7 +2273,7 @@ test("annotated source Escape and history ownership track the mounted surface", 
     ?? "";
   assert.match(
     popstate,
-    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
+    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isDiagnosticsPath/);
   assert.match(
     appSource,
     /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
@@ -2465,7 +2472,9 @@ test("dependency graph render identity includes truncation and navigation", () =
 });
 
 test("data bar shows versioned linked build provenance", () => {
-  assert.match(appSource, /state\.buildIdentity = await engineClient\.host\.buildIdentity\(\)/);
+  assert.match(
+    appSource,
+    /async function loadBuildIdentity\(\) \{[\s\S]*state\.buildIdentity = await engineClient\.host\.buildIdentity\(\);[\s\S]*state\.buildIdentityStatus = "ready";[\s\S]*state\.buildIdentityStatus = "failed"/);
   assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 4);
   assert.match(
     appSource,
@@ -2492,6 +2501,30 @@ test("data bar shows versioned linked build provenance", () => {
   assert.match(
     deploySource,
     /-getProperty:VersionPrefix[\s\S]*-p:VersionPrefix="\$version"[\s\S]*-p:SourceRevisionId="\$GITHUB_SHA"[\s\S]*-p:BuildTimestampUtc="\$built_at"/);
+});
+
+test("Diagnostics is a routed typed surface outside the Application menu", () => {
+  assert.match(
+    appSource,
+    /if \(isDiagnosticsPath\(location\.pathname\)\) \{\s*loadingBotSrc = null;\s*renderDiagnosticsPage\(\);\s*return;/);
+  assert.match(
+    appSource,
+    /function renderDiagnosticsPage\(\)[\s\S]*diagnosticsViewHtml\(\{[\s\S]*bindDiagnosticsView\(document/);
+  assert.doesNotMatch(appSource, /class="diagnostics-/);
+  assert.match(
+    diagnosticsViewSource,
+    /<h1 id="diagnostics-heading" tabindex="-1">Diagnostics<\/h1>/);
+  assert.match(
+    diagnosticsViewSource,
+    /runtimeCardHtml\(model\.runtime[\s\S]*buildCardHtml\(model\.build[\s\S]*cacheCardHtml\(model\.packageCache/);
+  assert.match(
+    diagnosticsRouteSource,
+    /DIAGNOSTICS_PATH = ROUTED_ENTRY_PATHS\.diagnostics[\s\S]*isRoutedEntryPath\(pathname, DIAGNOSTICS_PATH\)/);
+  const applicationMenu =
+    shellControlsSource.match(
+      /export function renderApplicationMenu\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.doesNotMatch(applicationMenu, /Diagnostics|diagnostics/);
 });
 
 test("bootstrap reconciles persisted style choices with the product catalog", () => {
@@ -2867,7 +2900,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!state\.packageQueryOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
+    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*const diagnosticsOpen = isDiagnosticsPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!diagnosticsOpen\s*&& !state\.packageQueryOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
     ?? "";
@@ -3533,7 +3566,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /try \{\s*state\.packageQueryFacets =\s*packageQueryFacets\(await engineClient\.package\.listPackageQueryFacets\(\)\);\s*\} catch \(error\) \{[\s\S]*state\.packageQueryCatalogError =[\s\S]*\}\s*try \{\s*state\.packageQueryAssemblyPatterns =\s*packageQueryAssemblyPatterns\(\s*await engineClient\.package\.listPackageAssemblyQueryPatterns\(\)\);\s*\} catch \(error\) \{\s*state\.packageQueryAssemblyPatterns = \[\];\s*console\.error\("Package-query assembly patterns are unavailable\.", error\);\s*\}/);
   assert.doesNotMatch(
     appSource,
-    /state\.packageQuerySourceCatalog|listGalleryDiscoveryCatalog\(\)/);
+    /state\.packageQuerySourceCatalog/);
   assert.match(
     appSource,
     /navigationError: \[\s*state\.packageQueryCatalogError,\s*state\.packageQueryNavigationError/);

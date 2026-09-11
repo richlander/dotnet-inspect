@@ -16,7 +16,6 @@ import {
   withCompletion,
   withEditorDraft,
   withFacet,
-  withInputKind,
   withSourceSelection,
   withScopeQuery,
   withoutFacet,
@@ -116,22 +115,17 @@ test("createQueryRequest gives candidate and match limits independent defaults",
 
   assert.equal(defaults.requestedLimit, 200);
   assert.equal(defaults.requestedMatchLimit, 100);
-  assert.equal(defaults.inputKind, "package");
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
-  assert.equal(defaults.packageType, null);
-  assert.equal(defaults.sourceOrderId, null);
   assert.equal(defaults.includePrerelease, false);
 });
 
 test("package requests preserve editor spelling without resolving source defaults", () => {
   for (const text of ["", "  hosting dependency injection  ", "System.*"]) {
     assert.equal(createQueryRequest(text).scopeQuery, text);
-    assert.equal(createQueryRequest(text).inputKind, "package");
-    assert.equal(createQueryRequest(text).sourceOrderId, null);
   }
 });
 
-test("assembly requests preserve the literal operand and exclude Gallery semantics", () => {
+test("assembly requests preserve the literal operand and exclude package-search semantics", () => {
   const operand = "  Exact Literal * [value]  ";
   const coordinates = ["Contoso.One@1.2.3", "Contoso.Two@4.5.6"];
   const request = createAssemblyQueryRequest(
@@ -141,8 +135,6 @@ test("assembly requests preserve the literal operand and exclude Gallery semanti
     "net10.0");
 
   assert.equal(request.scopeQuery, "");
-  assert.equal(request.packageType, null);
-  assert.equal(request.sourceOrderId, null);
   assert.equal(request.includePrerelease, false);
   assert.deepEqual(request.facets, []);
   assert.deepEqual(request.assemblyPattern, {
@@ -158,29 +150,27 @@ test("assembly requests preserve the literal operand and exclude Gallery semanti
   ]);
 });
 
-test("Gallery query transformations clear assembly mode instead of mixing semantics", () => {
+test("package query transformations clear assembly mode instead of mixing semantics", () => {
   const assembly = createAssemblyQueryRequest(
     "package.query.assembly.ldstr-contains",
     "literal",
     ["Contoso.Library@1.2.3"],
     "net10.0");
 
-  for (const gallery of [
+  for (const query of [
     withScopeQuery(assembly, "Contoso"),
     withFacet(assembly, TFM_FACET),
     withFacet({ ...assembly, facets: [TFM_FACET] }, TFM_FACET),
     toggleFacet(assembly, TFM_FACET),
     withoutFacet({ ...assembly, facets: [TFM_FACET] }, TFM_FACET.key),
   ]) {
-    assert.equal(gallery.assemblyPattern, undefined);
+    assert.equal(query.assemblyPattern, undefined);
   }
 });
 
-test("inspection changes retain opaque source selections and independent match limits", () => {
+test("inspection changes retain prerelease selection and independent match limits", () => {
   const request = {
-    ...createQueryRequest(" hosting libraries ", "gallery"),
-    packageType: "Producer.CustomType",
-    sourceOrderId: "producer.order.custom",
+    ...createQueryRequest(" hosting libraries "),
     includePrerelease: true,
     requestedMatchLimit: 7,
   };
@@ -191,11 +181,8 @@ test("inspection changes retain opaque source selections and independent match l
   assert.equal(content.requestedLimit, 20);
   assert.equal(manifest.requestedLimit, 200);
   for (const changed of [content, manifest, browse]) {
-    assert.equal(changed.packageType, request.packageType);
-    assert.equal(changed.sourceOrderId, request.sourceOrderId);
     assert.equal(changed.includePrerelease, true);
     assert.equal(changed.requestedMatchLimit, 7);
-    assert.equal(changed.inputKind, "gallery");
   }
   assert.deepEqual(browse.facets, [TFM_FACET]);
   assert.equal(browse.scopeQuery, "");
@@ -230,41 +217,6 @@ test("withScopeQuery preserves facets and bounds while changing search text", ()
   });
 });
 
-test("controller runs explicit blank Gallery discovery with source selection and nullable metadata", async () => {
-  const state = initialQueryState();
-  const request = {
-    ...createQueryRequest("", "gallery"),
-    packageType: "Producer.Type",
-    sourceOrderId: "producer.order",
-    includePrerelease: true,
-  };
-  const source: PackageQueryDataSource = {
-    async run(received, onPage) {
-      assert.deepEqual(received, request);
-      onPage([{
-        ...row("Browse.Result"),
-        tier: "search-metadata",
-        evidence: [{
-          id: "producer.source-selection",
-          text: "Producer source selection and order",
-          scope: "query",
-          summary: null,
-        }],
-        totalDownloads: null,
-      }]);
-      return { kind: "bounded", reason: "one finite Gallery response" };
-    },
-  };
-  const controller = createPackageQueryController(state, source, () => {});
-
-  await controller.run(request);
-
-  assert.equal(state.request?.scopeQuery, "");
-  assert.equal(state.outcome.rows[0]?.tier, "search-metadata");
-  assert.equal(state.outcome.rows[0]?.totalDownloads, null);
-  assert.equal(state.outcome.completion.kind, "bounded");
-});
-
 test("controller configures blank package input as idle while retaining facets", () => {
   const state = initialQueryState();
   let runs = 0;
@@ -283,45 +235,26 @@ test("controller configures blank package input as idle while retaining facets",
   controller.configure(configured);
 
   assert.equal(runs, 0);
-  assert.equal(state.request?.inputKind, "package");
   assert.deepEqual(state.request?.facets, [TFM_FACET]);
   assert.equal(state.outcome.completion.kind, "idle");
 });
 
-test("input-kind changes preserve selected facets and source configuration", () => {
-  const configured = {
-    ...withFacet(createQueryRequest("Newtonsoft.Json"), TFM_FACET),
-    packageType: "Producer.Type",
-    sourceOrderId: "producer.order",
-    includePrerelease: true,
-  };
-
-  assert.deepEqual(withInputKind(configured, "gallery"), {
-    ...configured,
-    inputKind: "gallery",
-  });
-});
-
-test("blank package input stays idle while explicit discovery and later controls retain mode", () => {
+test("blank package input stays idle while editor and prerelease controls retain facets", () => {
   const configuredPackage = withFacet(createQueryRequest(""), TFM_FACET);
   assert.equal(shouldExecuteQuery(configuredPackage), false);
 
-  const discovery = withInputKind(configuredPackage, "gallery");
-  assert.equal(shouldExecuteQuery(discovery), true);
-  assert.equal(withEditorDraft(discovery, "Newtonsoft.Json").scopeQuery, "");
-  assert.equal(toggleFacet(discovery, SKILL_FACET).inputKind, "gallery");
-  assert.equal(withSourceSelection(discovery, {
-    packageType: "Producer.Type",
-    sourceOrderId: "producer.order",
+  const drafted = withEditorDraft(configuredPackage, "Newtonsoft.Json");
+  assert.equal(drafted.scopeQuery, "Newtonsoft.Json");
+  assert.equal(shouldExecuteQuery(drafted), true);
+  assert.deepEqual(toggleFacet(drafted, SKILL_FACET).facets, [
+    TFM_FACET,
+    SKILL_FACET,
+  ]);
+  const prerelease = withSourceSelection(drafted, {
     includePrerelease: true,
-  }).inputKind, "gallery");
-
-  const packageAgain = withInputKind(discovery, "package");
-  assert.equal(
-    withEditorDraft(packageAgain, "Newtonsoft.Json").scopeQuery,
-    "Newtonsoft.Json");
-  assert.equal(shouldExecuteQuery(packageAgain), false);
-  assert.deepEqual(packageAgain.facets, [TFM_FACET]);
+  });
+  assert.equal(prerelease.includePrerelease, true);
+  assert.deepEqual(prerelease.facets, [TFM_FACET]);
 });
 
 test("toggleFacet replaces an active facet in the same producer-owned selection group", () => {
@@ -683,15 +616,15 @@ test("a superseded run's late pages never land in the newer outcome", async () =
   assert.equal(state.outcome.completion.kind, "exhausted");
 });
 
-test("changing only source selection supersedes browse work without changing search text", async () => {
+test("changing only prerelease selection supersedes work without changing search text", async () => {
   const state = initialQueryState();
   let firstSignal: AbortSignal | undefined;
   let releaseFirst!: () => void;
   const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
   const source: PackageQueryDataSource = {
     async run(request, onPage, onFailure, onProgress, signal) {
-      assert.equal(request.scopeQuery, "");
-      if (request.sourceOrderId === null) {
+      assert.equal(request.scopeQuery, "Contoso.");
+      if (!request.includePrerelease) {
         firstSignal = signal;
         await firstGate;
         onPage([row("Stale")]);
@@ -700,14 +633,14 @@ test("changing only source selection supersedes browse work without changing sea
         return { kind: "exhausted" };
       }
       onPage([row("Current")]);
-      return { kind: "bounded", reason: "one finite Gallery response" };
+      return { kind: "exhausted" };
     },
   };
   const controller = createPackageQueryController(state, source, () => {});
-  const first = controller.run(createQueryRequest("", "gallery"));
+  const first = controller.run(createQueryRequest("Contoso."));
   await controller.run({
-    ...createQueryRequest("", "gallery"),
-    sourceOrderId: "producer.order.custom",
+    ...createQueryRequest("Contoso."),
+    includePrerelease: true,
   });
   assert.equal(firstSignal?.aborted, true);
   releaseFirst();
@@ -717,8 +650,7 @@ test("changing only source selection supersedes browse work without changing sea
   assert.deepEqual(state.outcome.failures, []);
   assert.deepEqual(state.outcome.progress, []);
   assert.deepEqual(state.outcome.completion, {
-    kind: "bounded",
-    reason: "one finite Gallery response",
+    kind: "exhausted",
   });
 });
 

@@ -99,6 +99,39 @@ public partial class SearchService
         bool prerelease,
         AuthenticationHeaderValue? auth,
         NuGetOperationDeadline operation)
+        => await SearchPageAsync(
+            query,
+            skip,
+            take,
+            prerelease,
+            auth,
+            NuGetApi.DeserializeSearchResponseAsync,
+            operation).ConfigureAwait(false);
+
+    private async Task<IReadOnlyList<SearchResult>> SearchPrefixCandidatePageAsync(
+        string query,
+        int skip,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        NuGetOperationDeadline operation)
+        => await SearchPageAsync(
+            query,
+            skip,
+            take,
+            prerelease,
+            auth,
+            NuGetApi.DeserializePrefixSearchResponseAsync,
+            operation).ConfigureAwait(false);
+
+    private async Task<IReadOnlyList<SearchResult>> SearchPageAsync(
+        string query,
+        int skip,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        Func<Stream, CancellationToken, ValueTask<SearchResponse?>> deserialize,
+        NuGetOperationDeadline operation)
     {
         string pre = prerelease ? "true" : "false";
         if (!SearchRequestUri.TryCompose(
@@ -137,7 +170,7 @@ public partial class SearchService
 
             return await NuGetMetadataReader.ReadResponseAsync(
                 response,
-                NuGetApi.DeserializeSearchResponseAsync,
+                deserialize,
                 _options,
                 operation.RequestTimeout,
                 requestToken).ConfigureAwait(false);
@@ -282,13 +315,48 @@ public partial class SearchService
         int take,
         bool prerelease,
         AuthenticationHeaderValue? auth,
-        int? maximumSkip)
+        int? maximumSkip) =>
+        CreatePrefixSearchCursor(
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            includeVersionHistory: true);
+
+    internal PrefixSearchCursor CreatePrefixCandidateCursor(
+        string prefix,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        int? maximumSkip) =>
+        CreatePrefixSearchCursor(
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            includeVersionHistory: false);
+
+    private PrefixSearchCursor CreatePrefixSearchCursor(
+        string prefix,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        int? maximumSkip,
+        bool includeVersionHistory)
     {
         if (maximumSkip < 0)
             throw new ArgumentOutOfRangeException(nameof(maximumSkip));
 
         return new PrefixSearchCursor(
-            this, prefix, take, prerelease, auth, maximumSkip);
+            this,
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            includeVersionHistory);
     }
 
     internal sealed record PrefixSearchPage(
@@ -301,7 +369,8 @@ public partial class SearchService
         int take,
         bool prerelease,
         AuthenticationHeaderValue? auth,
-        int? maximumSkip)
+        int? maximumSkip,
+        bool includeVersionHistory)
     {
         private readonly HashSet<string> _matchedIds =
             new(StringComparer.OrdinalIgnoreCase);
@@ -323,8 +392,15 @@ public partial class SearchService
                 return new([], Completion);
             }
 
-            IReadOnlyList<SearchResult> page =
-                await service.SearchPageAsync(
+            IReadOnlyList<SearchResult> page = includeVersionHistory
+                ? await service.SearchPageAsync(
+                    prefix,
+                    _skip,
+                    PrefixSearchPageSize,
+                    prerelease,
+                    auth,
+                    operation).ConfigureAwait(false)
+                : await service.SearchPrefixCandidatePageAsync(
                     prefix,
                     _skip,
                     PrefixSearchPageSize,

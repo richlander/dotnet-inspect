@@ -3,10 +3,9 @@
 ## Owner and consumer
 
 Shared Package Query owns the selection of its candidate input. Its claim is
-that an exact package ID, an explicit package-ID prefix, and an explicitly
-selected Gallery response remain different inputs throughout inspection.
-An absent result, blank editor, or local match limit must not silently replace
-one input with another.
+that an exact package ID and an explicit package-ID prefix remain different
+inputs throughout inspection. An absent result, blank editor, or local match
+limit must not silently replace one input with another.
 
 This focused owner is introduced by
 [#6070](https://github.com/richlander/dotnet-inspect/issues/6070), under the
@@ -26,9 +25,6 @@ Supporting owners retain their contracts:
   eligibility, listing evidence, and version normalization.
 - [Prefix candidate production](package-prefix-candidate-stream.md) owns
   incremental prefix pages, their bounds, ordering, and source-work budget.
-- [Gallery discovery](nuget-gallery-discovery.md) owns its finite request and
-  admitted response. [Gallery source input](package-query-cli.md#gallery-source-input)
-  continues to own local selection over that response.
 - Existing Package Query facets, Browser stream credit, and host rendering
   retain evaluation, lifetime, delivery, and presentation ownership.
 
@@ -65,10 +61,9 @@ keyword discovery.
 
 The Inspect Web Package Query host exposes only this exact-ID and prefix
 selection. Open-text package discovery belongs to Spotlight, which may seed the
-query editor only when its text is a valid package-ID prefix. The shared Query
-model may still accept explicit Gallery input from another consumer, but the
-Browser `/query` surface does not expose Gallery search, termless browse,
-package-type selection, or source-order selection.
+query editor only when its text is a valid package-ID prefix. Package Query
+does not expose Gallery search, termless browse, package-type selection, or
+source-order selection.
 
 ## Acquisition and evidence boundary
 
@@ -88,11 +83,6 @@ matching behavior. Later source pages remain driven by consumption. Provider
 and client bounds remain visible; a large requested result count is not proof
 of exhaustive enumeration.
 
-Explicit discovery retains its original Gallery capacity and incoming order.
-The local match limit and Browser credit do not shorten or replace that source
-input. Finishing it means bounded-response completion, not population
-exhaustion.
-
 All inputs preserve owner-issued source and package/version associations into
 inspection. Candidate metadata can produce a basic row without a manifest or
 archive. Requested facets authorize their existing evidence tier; unavailable
@@ -100,31 +90,30 @@ optional metadata remains unavailable rather than causing an unrelated
 enrichment request. The manifest-profile API remains a manifest-producing
 operation for its existing consumers.
 
-Completion must distinguish a completed exact-ID selection, observed prefix
-completion/truncation, and a completed finite discovery response. Failures and
-cancellation retain the existing visible query-event behavior. Operation
-feedback remains available independently of match delivery.
+Completion must distinguish a completed exact-ID selection from observed
+prefix completion or truncation. Failures and cancellation retain the existing
+visible query-event behavior. Operation feedback remains available
+independently of match delivery.
 
 ## Adoption and retirement
 
 The production path has three steps:
 
 1. Shared Package Query interprets the editor spelling into existing typed
-   package/prefix intent and acquires the corresponding candidates. Its
-   explicit Gallery input remains available to other consumers.
+   package/prefix intent and acquires the corresponding candidates.
 2. The Browser Query consumer lowers only package/prefix intent. Blank input
    remains idle; Spotlight owns open-text package discovery. The existing
    operation feedback and demand-credit adapter are retained.
 3. CLI package/prefix consumers and the planned CLI query binding use the same
    source distinction. An explicitly named `--package-prefix` remains prefix
    intent; the new editor convention does not turn that option into exact-ID
-   selection. Remaining general query execution adoption stays tracked by
-   #5919 rather than being advertised by a discovery listing alone.
+   selection.
 
-This retires both the website's implicit replacement of package-ID intent with
-arbitrary Gallery text and its later explicit Gallery browse gesture. It does
-not remove Gallery discovery from shared Query or other consumers. The prefix
-producer in PR #5954 remains the Browser surface's candidate source.
+The earlier Gallery discovery substrate and browse/order gesture are retired
+from NuGetFetch, shared Query, and Browser/Wasm interop. The supported Gallery
+source identity and its V3 Search, Registration, manifest, package, and symbol
+operations remain unchanged. The prefix producer in PR #5954 remains the
+Browser surface's candidate source.
 
 Typed package rows and query events remain the rendering input. The existing
 Browser facade lowers them to its typed controls/cards; CLI presentation uses
@@ -148,8 +137,7 @@ behavior is described as supported:
   evidence, distinguishing no eligible candidate from failed acquisition.
 - Basic rows avoid unnecessary manifest/content work; selected inspection
   facets still require their owned evidence.
-- Prefix consumption stops later work, and discovery preserves its original
-  capacity/order and bounded completion.
+- Prefix consumption stops later work and preserves source truncation.
 
 `PackageQueryInputTests` gates the shared input spelling, exact version/listing
 selection, missing-ID non-fallback, metadata-only rows, explicit manifest work,
@@ -161,7 +149,7 @@ The neighboring explicit prefix can legitimately return those packages.
 `BrowserPackageQueryOperationsTests` gates input dispatch, exact completion
 projection, and the existing delivery adapter in Release. The frontend
 `package-query`, `package-query-source`, `package-query-route`, and
-`package-query-view` suites gate idle drafts, explicit discovery, retained
+`package-query-view` suites gate idle drafts, exact/prefix requests, retained
 facets, failure disclosure, and typed facade handoff. The existing facade
 generation check gates the changed interop signature and declarations.
 

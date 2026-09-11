@@ -70,11 +70,16 @@ public void SomeExpensiveTheory(string assemblyName)
 
 ## Existing consumers (no workflow changes needed to add a tag)
 
-- `ci.yml`'s PR-blocking fast leg runs
-  `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- --filter-not-trait "Speed=Slow"`
-  — a newly tagged test is automatically excluded.
-- `deep-inspect.yml`'s nightly `DotnetInspect.Cli.Tests` step runs fully
-  unfiltered — a newly tagged test automatically keeps running nightly.
+- `ci.yml`'s PR-blocking fast leg filters `Speed=Slow` from the CLI and
+  Analysis suites. `deep-inspect.yml` runs both suites fully unfiltered, so a
+  newly tagged test automatically keeps running daily.
+- The CSharp text and inspection-query suites use the same PR filter. Deep
+  Inspect's daily platform lane runs both suites fully unfiltered.
+- The offline NuGet suite excludes both `Network=Live` and `Speed=Slow` in PR
+  CI. The daily platform lane retains the offline boundary but does not exclude
+  `Speed=Slow`. The focused repository guard selects the legacy
+  source-identity method directly, so that method remains a pre-merge gate for
+  changed C# paths even though ordinary Linux test runs exclude it.
 - The metadata suite uses the same MTP `--filter-not-trait "Speed=Slow"`
   selection in PR CI and the optional Windows PR workflow. Deep Inspect runs
   its full suite, including the pinned custom-attribute package gate, and
