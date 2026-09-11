@@ -100,14 +100,20 @@ report non-comparable, and causes a nonzero exit.
 The harness does not repair product output, bypass product acquisition, or
 construct managed evidence. It opts into a narrow browser benchmark bridge
 over the site's existing production `EngineClient`, so startup and every
-measured operation use the same long-lived Worker runtime and product
-operations as the UI. Ordinary site loads do not install the bridge.
+measured operation use the same long-lived Worker runtime and generated
+product-operation path as the deployed application. The pinned comparison
+operation remains part of this matched workload even when it has no current UI
+affordance. Ordinary site loads do not install the bridge.
 
 Window Resource Timing does not include the dedicated Worker's framework
 requests in Firefox. The harness therefore records framework transfers from
 Playwright's page-level network events, which include requests initiated by
 the page and its Worker. It reports encoded response bytes; decoded response
 bytes are unavailable at that boundary and remain `null` in the raw report.
+Observation starts before navigation. At managed readiness, the harness stops
+accepting new framework requests and waits within the same startup deadline for
+every request already observed to finish or fail; a failed or stalled request
+rejects the sample visibly instead of producing partial byte accounting.
 
 Promoted run `34545510641` established the migration failure that this boundary
 replaces: all ten samples timed out waiting for uninitialized main-thread

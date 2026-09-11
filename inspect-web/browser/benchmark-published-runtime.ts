@@ -28,6 +28,9 @@ import {
   type BenchmarkSite,
   type DistributionSummary,
 } from "../scripts/published-runtime-benchmark-model.ts";
+import {
+  createFrameworkRequestTracker,
+} from "../scripts/published-runtime-framework-transfer.ts";
 
 const scenario = {
   packageId: "Microsoft.Extensions.Primitives",
@@ -37,6 +40,7 @@ const scenario = {
   comparisonBefore: "Trim",
   comparisonAfter: "TrimStart",
 } as const;
+const startupTimeoutMilliseconds = 180_000;
 
 interface BuildIdentity {
   readonly version: string;
@@ -295,63 +299,64 @@ function gitValue(arguments_: readonly string[]): string | null {
 }
 
 function observeFrameworkTransfer(page: Page): {
-  finish(): Promise<FrameworkTransfer>;
+  finish(timeoutMilliseconds: number): Promise<FrameworkTransfer>;
   dispose(): void;
 } {
-  const requests: Request[] = [];
-  let observing = true;
+  const tracker = createFrameworkRequestTracker<Request>();
   const onRequest = (request: Request) => {
     if (new URL(request.url()).pathname.includes("/_framework/")) {
-      requests.push(request);
+      tracker.observe(request, request.url());
     }
   };
+  const onRequestFinished = (request: Request) => tracker.finish(request);
+  const onRequestFailed = (request: Request) => {
+    tracker.fail(
+      request,
+      request.failure()?.errorText ?? "unknown network failure",
+    );
+  };
   page.on("request", onRequest);
+  page.on("requestfinished", onRequestFinished);
+  page.on("requestfailed", onRequestFailed);
 
   function dispose(): void {
-    if (!observing) return;
-    observing = false;
     page.off("request", onRequest);
+    page.off("requestfinished", onRequestFinished);
+    page.off("requestfailed", onRequestFailed);
+    tracker.dispose();
   }
 
   return {
     dispose,
-    async finish() {
-      dispose();
-      if (requests.length === 0) {
-        throw new Error(
-          "Managed readiness completed without framework network requests.",
-        );
+    async finish(timeoutMilliseconds) {
+      try {
+        const requests = await tracker.complete(timeoutMilliseconds);
+        const sizes = await Promise.all(requests.map(async request => {
+          const response = await request.response();
+          if (response === null) {
+            throw new Error(
+              `Framework request completed without a response: ${request.url()}`,
+            );
+          }
+          return request.sizes();
+        }));
+        return {
+          source: "playwright-network",
+          resources: requests.length,
+          transferBytes: sizes.reduce(
+            (total, size) =>
+              total + size.responseHeadersSize + size.responseBodySize,
+            0,
+          ),
+          encodedBodyBytes: sizes.reduce(
+            (total, size) => total + size.responseBodySize,
+            0,
+          ),
+          decodedBodyBytes: null,
+        };
+      } finally {
+        dispose();
       }
-      const sizes = await Promise.all(requests.map(async request => {
-        const response = await request.response();
-        if (response === null) {
-          throw new Error(
-            `Framework request completed without a response: ${request.url()}`,
-          );
-        }
-        const failure = await response.finished();
-        if (failure !== null) {
-          throw new Error(
-            `Framework response failed: ${request.url()}`,
-            { cause: failure },
-          );
-        }
-        return request.sizes();
-      }));
-      return {
-        source: "playwright-network",
-        resources: requests.length,
-        transferBytes: sizes.reduce(
-          (total, size) =>
-            total + size.responseHeadersSize + size.responseBodySize,
-          0,
-        ),
-        encodedBodyBytes: sizes.reduce(
-          (total, size) => total + size.responseBodySize,
-          0,
-        ),
-        decodedBodyBytes: null,
-      };
     },
   };
 }
@@ -360,17 +365,18 @@ async function openSite(
   page: Page,
   url: string,
 ): Promise<{ identity: BuildIdentity; startup: StartupMeasurement }> {
+  const startupDeadline = Date.now() + startupTimeoutMilliseconds;
   const frameworkTransfer = observeFrameworkTransfer(page);
   const benchmarkUrl = new URL(url);
   benchmarkUrl.searchParams.set(publishedRuntimeBenchmarkParameter, "1");
   try {
     await page.goto(benchmarkUrl.href, {
       waitUntil: "commit",
-      timeout: 180_000,
+      timeout: startupTimeoutMilliseconds,
     });
 
-    const opened = await page.evaluate(async () => {
-      const deadline = performance.now() + 180_000;
+    const opened = await page.evaluate(async timeoutMilliseconds => {
+      const deadline = performance.now() + timeoutMilliseconds;
       let bridge: PublishedRuntimeBenchmarkBridge | undefined;
       while (bridge === undefined) {
         bridge = window.__inspectWebRuntimeBenchmark;
@@ -402,12 +408,14 @@ async function openSite(
         }
       }
       return { identity, readyMilliseconds: performance.now() };
-    });
+    }, Math.max(0, startupDeadline - Date.now()));
     return {
       identity: opened.identity,
       startup: {
         readyMilliseconds: opened.readyMilliseconds,
-        frameworkTransfer: await frameworkTransfer.finish(),
+        frameworkTransfer: await frameworkTransfer.finish(
+          Math.max(0, startupDeadline - Date.now()),
+        ),
       },
     };
   } catch (error: unknown) {
