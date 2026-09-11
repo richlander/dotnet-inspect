@@ -9,7 +9,7 @@ using ILInspector.CSharp;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Decompiler;
 
@@ -123,12 +123,27 @@ public static class MemberBodyProducer
         MetadataMethodAddress address)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if (!address.BelongsTo(source.Reader))
+        try
+        {
+            if (!address.BelongsTo(source.Reader))
+            {
+                return Failed(
+                    DiagnosticIds.ContextUnavailable,
+                    "method address belongs to a different metadata module");
+            }
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException
+                or OverflowException)
         {
             return Failed(
                 DiagnosticIds.ContextUnavailable,
-                "method address belongs to a different metadata module");
+                "method address cannot be validated against this metadata "
+                    + $"source: {ex.Message}");
         }
+
         var methodHandle = address.Handle;
         if (methodHandle.IsNil)
         {
@@ -191,6 +206,7 @@ public static class MemberBodyProducer
             {
                 RequiresAsyncModifier = projection.RequiresAsyncBodyModifier,
                 RequiresUnsafeModifier = projection.RequiresUnsafeBodyModifier,
+                ParameterNames = projection.ParameterNames,
                 // Member-agnostic destructor gate: suppress '~Type()' whenever the
                 // body was not recovered as a canonical destructor (issue #3157).
                 // Harmless for non-finalizers (the writer only consults this when
@@ -269,6 +285,44 @@ public static class MemberBodyProducer
         IAssemblyBindingPolicy bindingPolicy,
         Pipeline.MetadataContext? context = null,
         Pipeline.PrinterOptions? printerOptions = null)
+        => ProjectDescriptor(
+            type,
+            assembly,
+            externalPdbPath: null,
+            bindingPolicy,
+            context,
+            printerOptions,
+            reportCandidateOpenFailure: false);
+
+    /// <summary>
+    /// Projects a whole type from a descriptor-backed assembly and an optional
+    /// externally acquired portable PDB under the binding-consistent policy
+    /// supplied by its inspection context.
+    /// </summary>
+    public static DecompilerResult Project(
+        ApiType type,
+        ResolvedAssemblyReference assembly,
+        string? externalPdbPath,
+        IAssemblyBindingPolicy bindingPolicy,
+        Pipeline.MetadataContext? context = null,
+        Pipeline.PrinterOptions? printerOptions = null)
+        => ProjectDescriptor(
+            type,
+            assembly,
+            externalPdbPath,
+            bindingPolicy,
+            context,
+            printerOptions,
+            reportCandidateOpenFailure: true);
+
+    static DecompilerResult ProjectDescriptor(
+        ApiType type,
+        ResolvedAssemblyReference assembly,
+        string? externalPdbPath,
+        IAssemblyBindingPolicy bindingPolicy,
+        Pipeline.MetadataContext? context,
+        Pipeline.PrinterOptions? printerOptions,
+        bool reportCandidateOpenFailure)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -280,10 +334,11 @@ public static class MemberBodyProducer
                 assembly,
                 type,
                 bindingPolicy,
-                context),
+                context,
+                reportCandidateOpenFailure),
             (definition, ctx) => Pipeline.MetadataSource.Open(
                 definition.Assembly.Assembly,
-                externalPdbPath: null,
+                externalPdbPath,
                 bindingPolicy,
                 ctx),
             context,
@@ -526,7 +581,8 @@ public static class MemberBodyProducer
         ResolvedAssemblyReference start,
         ApiType type,
         IAssemblyBindingPolicy bindingPolicy,
-        Pipeline.MetadataContext? context)
+        Pipeline.MetadataContext? context,
+        bool reportCandidateOpenFailure = false)
     {
         MetadataTypeDefinitionName? name = GetDefinitionName(type);
         if (name is null)
@@ -552,9 +608,18 @@ public static class MemberBodyProducer
             outcome = resolutionContext.Resolve(request);
         }
 
-        return outcome is TypeResolutionOutcome.Resolved resolved
-            ? resolved.Definition
-            : null;
+        return outcome switch
+        {
+            TypeResolutionOutcome.Resolved resolved =>
+                resolved.Definition,
+            TypeResolutionOutcome.Rejected
+            {
+                Failure:
+                    TypeResolutionFailure.CandidateOpenFailed failed,
+            } when reportCandidateOpenFailure => throw new InvalidOperationException(
+                $"{failed.Failure.Kind}: {failed.Failure.Detail}"),
+            _ => null,
+        };
     }
 
     static MetadataTypeDefinitionName? GetDefinitionName(ApiType type)
@@ -1167,30 +1232,69 @@ public static class MemberBodyProducer
                     bool requiresUnsafeContext = false;
                     bool bodyIsSingleExpressionBody = false;
                     bool bodyIsDestructor = false;
+                    IReadOnlyList<string>? bodyParameterNames = null;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic: only is not null);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out bodyParameterNames, printerOptions, failOnDiagnostic: only is not null);
 
                     // An explicit interface property implementation surfaces
-                    // as its accessor method (Iface.get_X). Render the
-                    // property form the source writes: 'bool Iface.X => ...;'.
+                    // as its accessor method. Derive the property identity from
+                    // the MethodSemantics-owned PropertyDef rather than parsing
+                    // get_/set_ markers from the qualified MethodDef name.
+                    bool isExplicitSetter = false;
+                    string? explicitPropertyPath =
+                        member.Kind == "explicit-interface-implementation"
+                            && memberHandle is { } explicitAccessorHandle
+                            ? ExplicitPropertyName(
+                                reader,
+                                typeHandle,
+                                explicitAccessorHandle,
+                                out isExplicitSetter)
+                            : null;
                     if (member.Kind == "explicit-interface-implementation"
-                        && ExplicitPropertyName(member.Name) is { } propertyPath
+                        && explicitPropertyPath is { } propertyPath
+                        && memberHandle is { } propertyAccessorHandle
                         && body is not null)
                     {
-                        // The signature's leading token is the accessor's
-                        // return type ('bool Iface.get_X()').
-                        string accessorReturn = member.ReturnType
-                            ?? (member.Signature is { } sig && sig.IndexOf(' ') is var sp and > 0
-                                ? sig[..sp]
-                                : "object");
-                        string unsafeModifier = (member.IsUnsafe || requiresUnsafeContext) ? "unsafe " : "";
-                        string head = $"{unsafeModifier}{EscapeKnownIdentifiers(accessorReturn, type.TypeParameters.Select(p => p.Name))} {propertyPath}";
-                        if (member.Name.Contains(".set_", StringComparison.Ordinal))
+                        ThrowIfAccessorParameterNamesChanged(
+                            member.Name,
+                            isExplicitSetter
+                                ? AccessorRole.Setter
+                                : AccessorRole.Getter,
+                            function: null,
+                            bodyParameterNames,
+                            DeclarationParameterNames(member));
+                        string? accessorPropertyType = isExplicitSetter
+                            ? member.SignatureModel?.Parameters.LastOrDefault()?.Type
+                            : member.SignatureModel?.ReturnType
+                                ?? member.ReturnType;
+                        if (string.IsNullOrEmpty(accessorPropertyType))
                         {
+                            throw new InvalidOperationException(
+                                "The explicit property accessor does not provide its property type.");
+                        }
+                        string staticModifier = member.IsStatic ? "static " : "";
+                        string readonlyModifier = member.IsReadOnly ? "readonly " : "";
+                        string unsafeModifier =
+                            (member.IsUnsafe || requiresUnsafeContext)
+                                ? "unsafe "
+                                : "";
+                        string propertyType = EscapeKnownIdentifiers(
+                            accessorPropertyType,
+                            type.TypeParameters.Select(p => p.Name));
+                        string head =
+                            $"{staticModifier}{readonlyModifier}{unsafeModifier}{propertyType} {propertyPath}";
+                        if (isExplicitSetter)
+                        {
+                            string accessorKind = MetadataDeclarationQuery.IsInitOnlySetter(
+                                reader,
+                                reader.GetTypeDefinition(typeHandle),
+                                reader.GetMethodDefinition(propertyAccessorHandle))
+                                    ? "init"
+                                    : "set";
                             sb.AppendLf($"    {head}");
                             sb.AppendLf("    {");
-                            CSharpMemberLayout.Append(sb, "set", body, 8, WrapExpressionBodyArrow(printerOptions));
+                            CSharpMemberLayout.Append(sb, accessorKind, body, 8, WrapExpressionBodyArrow(printerOptions));
                             sb.AppendLf("    }");
                         }
                         else if (bodyIsSingleExpressionBody || CSharpExpressionBody.FromSingleStatement(body) is not null)
@@ -1214,6 +1318,7 @@ public static class MemberBodyProducer
                             RequiresAsyncModifier = memberHandle is { } asyncHandle
                                 && TypeShellProducer.RequiresAsyncBodyModifier(reader, asyncHandle),
                             RequiresUnsafeModifier = requiresUnsafeContext,
+                            ParameterNames = bodyParameterNames,
                             // Only spell '~Type()' when the destructor pass actually
                             // recovered the canonical try/finally { base.Finalize(); }
                             // scaffold. A Finalize override whose body did not match
@@ -1394,21 +1499,15 @@ public static class MemberBodyProducer
         MethodSignature<string> signature)
     {
         var parameterHandles = method.GetParameters();
+        string[] parameterNames = MetadataParameterNames.Resolve(
+            reader,
+            parameterHandles,
+            signature.ParameterTypes.Length);
         var parameters = new List<string>();
         for (int i = 0; i < signature.ParameterTypes.Length; i++)
         {
-            string? name = null;
-            foreach (var parameterHandle in parameterHandles)
-            {
-                var parameter = reader.GetParameter(parameterHandle);
-                if (parameter.SequenceNumber == i + 1)
-                {
-                    name = reader.GetString(parameter.Name);
-                    break;
-                }
-            }
-
-            parameters.Add($"{signature.ParameterTypes[i]} {ContainedIdentifier(string.IsNullOrEmpty(name) ? $"arg{i}" : name)}");
+            parameters.Add(
+                $"{signature.ParameterTypes[i]} {ContainedIdentifier(parameterNames[i])}");
         }
 
         return $"{signature.ReturnType} .ctor({string.Join(", ", parameters)})";
@@ -1459,20 +1558,40 @@ public static class MemberBodyProducer
     }
 
     /// <summary>
-    /// 'Iface.get_X' / 'Iface.set_X' → 'Iface.X'; null for non-accessor
-    /// names (including indexer accessors, which keep the method form).
+    /// Returns the explicit property name owned by the accessor's
+    /// MethodSemantics relationship. Indexer accessors keep method form.
     /// </summary>
-    static string? ExplicitPropertyName(string name)
+    static string? ExplicitPropertyName(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        out bool isSetter)
     {
-        foreach (var marker in (string[])[".get_", ".set_"])
+        isSetter = false;
+        var type = reader.GetTypeDefinition(typeHandle);
+        foreach (var propertyHandle in type.GetProperties())
         {
-            int at = name.IndexOf(marker, StringComparison.Ordinal);
-            if (at < 0)
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            var accessors = property.GetAccessors();
+            bool isGetter = accessors.Getter == methodHandle;
+            if (!isGetter && accessors.Setter != methodHandle)
                 continue;
-            string propName = name[(at + marker.Length)..];
-            if (propName.Length == 0 || propName is "Item" or "Chars")
+
+            isSetter = !isGetter;
+            string name = reader.GetString(property.Name);
+            int separator = name.LastIndexOf('.');
+            if (separator <= 0)
                 return null;
-            return $"{EscapeQualifiedName(name[..at])}.{ContainedIdentifier(propName)}";
+            string propName = name[(separator + 1)..];
+            if (propName.Length == 0)
+                return null;
+            var signature = GuardedSignatureText.PropertyText(
+                reader,
+                property,
+                GenericContext.ForType(reader, type));
+            if (!signature.ParameterTypes.IsEmpty)
+                return null;
+            return $"{EscapeQualifiedName(name[..separator])}.{ContainedIdentifier(propName)}";
         }
         return null;
     }
@@ -1729,17 +1848,20 @@ public static class MemberBodyProducer
         try
         {
             var reader = source.Reader;
+            var declarationParameterNames = DeclarationParameterNames(member);
             var typeHandle = reader.GetMethodDefinition(accessorHandle).GetDeclaringType();
             var getterHandle = ResolveAccessorHandle(
                 reader,
                 typeHandle,
                 member.GetterToken,
-                $"get_{member.Name}");
+                member.Name,
+                AccessorRole.Getter);
             var setterHandle = ResolveAccessorHandle(
                 reader,
                 typeHandle,
                 member.SetterToken,
-                $"set_{member.Name}");
+                member.Name,
+                AccessorRole.Setter);
             if (accessorHandle != getterHandle && accessorHandle != setterHandle
                 || !IsCompilerGeneratedAutoProperty(
                     source,
@@ -1760,6 +1882,8 @@ public static class MemberBodyProducer
                     getter,
                     "",
                     "",
+                    AccessorRole.Getter,
+                    declarationParameterNames,
                     bodyNamespaces,
                     out _,
                     out bool requiresAsync,
@@ -1784,6 +1908,8 @@ public static class MemberBodyProducer
                     setter,
                     "",
                     "",
+                    AccessorRole.Setter,
+                    declarationParameterNames,
                     bodyNamespaces,
                     out _,
                     out bool requiresAsync,
@@ -1820,10 +1946,21 @@ public static class MemberBodyProducer
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
 
-        var getterHandle = ResolveAccessorHandle(reader, typeHandle, member.GetterToken, $"get_{member.Name}");
-        var setterHandle = ResolveAccessorHandle(reader, typeHandle, member.SetterToken, $"set_{member.Name}");
+        var getterHandle = ResolveAccessorHandle(
+            reader,
+            typeHandle,
+            member.GetterToken,
+            member.Name,
+            AccessorRole.Getter);
+        var setterHandle = ResolveAccessorHandle(
+            reader,
+            typeHandle,
+            member.SetterToken,
+            member.Name,
+            AccessorRole.Setter);
 
         var accessors = new List<(string Keyword, string Head, string? Body, bool RequiresUnsafeContext, bool RequiresAsyncContext, bool SingleReturnExpression)>();
+        var declarationParameterNames = DeclarationParameterNames(member);
         if (accessorList >= 0)
         {
             string list = signature[accessorList..];
@@ -1831,7 +1968,7 @@ public static class MemberBodyProducer
                 accessors.Add((
                     "get",
                     declarationFormatter.FormatAccessorHead(type, member, "get"),
-                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", AccessorRole.Getter, declarationParameterNames, bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, printerOptions, failOnDiagnostic),
                     getRequiresUnsafe,
                     getRequiresAsync,
                     getSingleReturn));
@@ -1839,7 +1976,7 @@ public static class MemberBodyProducer
                 accessors.Add((
                     "set",
                     declarationFormatter.FormatAccessorHead(type, member, "set"),
-                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", AccessorRole.Setter, declarationParameterNames, bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, printerOptions, failOnDiagnostic),
                     setRequiresUnsafe,
                     setRequiresAsync,
                     setSingleReturn));
@@ -1847,7 +1984,7 @@ public static class MemberBodyProducer
                 accessors.Add((
                     "init",
                     declarationFormatter.FormatAccessorHead(type, member, "init"),
-                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", AccessorRole.Setter, declarationParameterNames, bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, printerOptions, failOnDiagnostic),
                     initRequiresUnsafe,
                     initRequiresAsync,
                     initSingleReturn));
@@ -1934,21 +2071,41 @@ public static class MemberBodyProducer
             reader,
             typeHandle,
             member.AdderToken,
-            $"add_{member.Name}");
+            member.Name,
+            AccessorRole.Adder);
         var removerHandle = ResolveAccessorHandle(
             reader,
             typeHandle,
             member.RemoverToken,
-            $"remove_{member.Name}");
+            member.Name,
+            AccessorRole.Remover);
 
         if (member.IsAbstract
             || adderHandle is not { } adder
             || removerHandle is not { } remover
             || reader.GetMethodDefinition(adder).RelativeVirtualAddress == 0
-            || reader.GetMethodDefinition(remover).RelativeVirtualAddress == 0
-            || HasMethodImplementationAccessor(reader, typeHandle, adder, remover)
+            || reader.GetMethodDefinition(remover).RelativeVirtualAddress == 0)
+        {
+            sb.AppendLf($"    {terminatedDeclarationFormatter.FormatMember(type, member)}");
+            return;
+        }
+
+        var declarationParameterNames = DeclarationParameterNames(member);
+        if (HasMethodImplementationAccessor(reader, typeHandle, adder, remover)
             || HasSameNamedEventField(reader, typeHandle, member))
         {
+            ValidateAccessorParameterNames(
+                pipelineSource,
+                adder,
+                $"add_{member.Name}",
+                AccessorRole.Adder,
+                declarationParameterNames);
+            ValidateAccessorParameterNames(
+                pipelineSource,
+                remover,
+                $"remove_{member.Name}",
+                AccessorRole.Remover,
+                declarationParameterNames);
             sb.AppendLf($"    {terminatedDeclarationFormatter.FormatMember(type, member)}");
             return;
         }
@@ -1958,6 +2115,8 @@ public static class MemberBodyProducer
             adder,
             type.FullName,
             $"add_{member.Name}",
+            AccessorRole.Adder,
+            declarationParameterNames,
             bodyNamespaces,
             out bool adderRequiresUnsafe,
             out bool adderRequiresAsync,
@@ -1969,6 +2128,8 @@ public static class MemberBodyProducer
             remover,
             type.FullName,
             $"remove_{member.Name}",
+            AccessorRole.Remover,
+            declarationParameterNames,
             bodyNamespaces,
             out bool removerRequiresUnsafe,
             out bool removerRequiresAsync,
@@ -2098,7 +2259,9 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor,
+        out IReadOnlyList<string>? parameterNames,
+        Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
@@ -2110,7 +2273,7 @@ public static class MemberBodyProducer
         if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -2119,7 +2282,7 @@ public static class MemberBodyProducer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic);
     }
 
     /// <summary>
@@ -2168,27 +2331,74 @@ public static class MemberBodyProducer
     }
 
     /// <summary>
-    /// Resolves a property accessor token to its <see cref="MethodDefinitionHandle"/>,
-    /// applying the same rigor as <see cref="ResolveMemberHandle"/>: the token must
-    /// resolve to a method of <paramref name="typeHandle"/> whose name equals the
-    /// expected accessor name (e.g. <c>get_Item</c>). A stale token carried over
-    /// from a type-forwarded or round-tripped surface that lands on a different
-    /// method of the same type — a private helper or a sibling property's accessor —
-    /// is rejected, asking the caller to fall back to name+ordinal addressing rather
-    /// than decompiling an unrelated body as the accessor.
+    /// Resolves an accessor token to a <see cref="MethodDefinitionHandle"/>.
+    /// The current assembly's MethodSemantics relationship is authoritative even
+    /// when a rewriter changed the MethodDef name. A conventional name remains the
+    /// compatibility fallback for a surface whose declaration token was not retained.
     /// </summary>
-    static MethodDefinitionHandle? ResolveAccessorHandle(MetadataReader reader, TypeDefinitionHandle typeHandle, int? token, string accessorName)
+    static MethodDefinitionHandle? ResolveAccessorHandle(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        int? token,
+        string memberName,
+        AccessorRole role)
     {
         if (ResolveMethodHandle(reader, typeHandle, token) is not { } handle)
             return null;
-        if (reader.GetString(reader.GetMethodDefinition(handle).Name) != accessorName)
-            return null;
-        return handle;
+        if (HasAccessorSemantics(reader, typeHandle, handle, memberName, role))
+            return handle;
+
+        string accessorName = $"{role.Prefix()}_{memberName}";
+        return reader.GetString(reader.GetMethodDefinition(handle).Name) == accessorName
+            ? handle
+            : null;
+    }
+
+    static bool HasAccessorSemantics(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        string memberName,
+        AccessorRole role)
+    {
+        var type = reader.GetTypeDefinition(typeHandle);
+        if (role is AccessorRole.Getter or AccessorRole.Setter)
+        {
+            foreach (var propertyHandle in type.GetProperties())
+            {
+                var property = reader.GetPropertyDefinition(propertyHandle);
+                if (reader.GetString(property.Name) != memberName)
+                    continue;
+                var accessors = property.GetAccessors();
+                if (role == AccessorRole.Getter && accessors.Getter == methodHandle
+                    || role == AccessorRole.Setter && accessors.Setter == methodHandle)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        foreach (var eventHandle in type.GetEvents())
+        {
+            var @event = reader.GetEventDefinition(eventHandle);
+            if (reader.GetString(@event.Name) != memberName)
+                continue;
+            var accessors = @event.GetAccessors();
+            if (role == AccessorRole.Adder && accessors.Adder == methodHandle
+                || role == AccessorRole.Remover && accessors.Remover == methodHandle)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static string? DecompileAccessor(
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? accessorHandle,
         string typeFullName, string accessorName,
+        AccessorRole role,
+        IReadOnlyList<string> declarationParameterNames,
         SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext,
         out bool requiresAsyncContext, out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
@@ -2214,13 +2424,145 @@ public static class MemberBodyProducer
             out requiresUnsafeContext,
             out bodyIsSingleExpressionBody,
             out _,
+            out var parameterNames,
             printerOptions,
             failOnDiagnostic);
+        ThrowIfAccessorParameterNamesChanged(
+            function?.Name ?? accessorName,
+            role,
+            function,
+            parameterNames,
+            declarationParameterNames);
         requiresAsyncContext = function is not null
-            && (function.RequiresAsyncBodyModifier
-                || function.IsRuntimeAsync == Pipeline.MetadataFactState.Yes);
+            && function.RequiresAsyncMethodContext;
         return body;
     }
+
+    static void ThrowIfAccessorParameterNamesChanged(
+        string accessorName,
+        AccessorRole role,
+        Pipeline.IrFunction? function,
+        IReadOnlyList<string>? parameterNames,
+        IReadOnlyList<string> declarationParameterNames)
+    {
+        var bodyParameters = function?.Signature.Parameters ?? [];
+        int implicitParameterCount = role.HasImplicitValueBinder() ? 1 : 0;
+        bool incompatibleImplicitValueBinder = function is not null
+            && role.HasImplicitValueBinder()
+            && (bodyParameters.IsEmpty
+                || bodyParameters[^1].DisplayName != "value");
+        int explicitParameterCount = Math.Max(
+            0,
+            bodyParameters.Length - implicitParameterCount);
+        bool incompatibleDeclarationParameters = function is not null
+            && (explicitParameterCount != declarationParameterNames.Count
+                || !bodyParameters
+                    .Take(explicitParameterCount)
+                    .Select(parameter => parameter.DisplayName)
+                    .SequenceEqual(
+                        declarationParameterNames,
+                        StringComparer.Ordinal));
+        if (!incompatibleImplicitValueBinder
+            && !incompatibleDeclarationParameters
+            && parameterNames is not { Count: > 0 })
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Accessor '{accessorName}' requires incompatible body-owned parameter names, "
+                + "which accessor declaration composition cannot yet coordinate (issue #5778).");
+    }
+
+    static void ValidateAccessorParameterNames(
+        Pipeline.MetadataSource pipelineSource,
+        MethodDefinitionHandle accessorHandle,
+        string accessorName,
+        AccessorRole role,
+        IReadOnlyList<string> declarationParameterNames)
+    {
+        var reader = pipelineSource.Reader;
+        var method = reader.GetMethodDefinition(accessorHandle);
+        var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
+        var methodGenericParameterNames =
+            Pipeline.MethodDefinitionFacts.GenericParameterNames(
+                reader,
+                method.GetGenericParameters());
+        var scope = new Pipeline.GenericScope(
+            Pipeline.MethodDefinitionFacts.GenericParameterNames(
+                reader,
+                declaringType.GetGenericParameters()),
+            methodGenericParameterNames);
+        if (!SignatureBlobGuard.IsSafeToDecode(
+            reader,
+            method.Signature,
+            SignatureBlobGuard.Kind.Method))
+        {
+            throw new InvalidOperationException(
+                $"Accessor '{accessorName}' signature cannot be decoded.");
+        }
+        var signature = Pipeline.GuardedDecode.MethodSignature(
+            reader,
+            method,
+            scope);
+
+        MetadataParameterNames.ResolvedName[] parameters =
+            MetadataParameterNames.ResolveWithProvenance(
+                reader,
+                method.GetParameters(),
+                signature.ParameterTypes.Length,
+                methodGenericParameterNames);
+        int implicitParameterCount = role.HasImplicitValueBinder() ? 1 : 0;
+        bool incompatibleImplicitValueBinder = role.HasImplicitValueBinder()
+            && (parameters.Length == 0
+                || parameters[^1].IsSynthesized
+                || parameters[^1].Name != "value");
+        int explicitParameterCount = Math.Max(
+            0,
+            parameters.Length - implicitParameterCount);
+        bool incompatibleDeclarationParameters =
+            explicitParameterCount != declarationParameterNames.Count
+            || !parameters
+                .Take(explicitParameterCount)
+                .Select(parameter => parameter.Name)
+                .SequenceEqual(
+                    declarationParameterNames,
+                    StringComparer.Ordinal);
+        if (incompatibleImplicitValueBinder
+            || incompatibleDeclarationParameters)
+        {
+            throw new InvalidOperationException(
+                $"Accessor '{accessorName}' requires incompatible body-owned parameter names, "
+                    + "which accessor declaration composition cannot yet coordinate (issue #5778).");
+        }
+    }
+
+    static IReadOnlyList<string> DeclarationParameterNames(ApiMember member)
+        => member.SignatureModel?.Parameters
+            .Select(parameter => parameter.Name)
+            .ToArray()
+            ?? [];
+
+    enum AccessorRole
+    {
+        Getter,
+        Setter,
+        Adder,
+        Remover,
+    }
+
+    static bool HasImplicitValueBinder(this AccessorRole role)
+        => role is AccessorRole.Setter or AccessorRole.Adder or AccessorRole.Remover;
+
+    static string Prefix(this AccessorRole role)
+        => role switch
+        {
+            AccessorRole.Getter => "get",
+            AccessorRole.Setter => "set",
+            AccessorRole.Adder => "add",
+            AccessorRole.Remover => "remove",
+            _ => throw new ArgumentOutOfRangeException(nameof(role)),
+        };
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
@@ -2232,11 +2574,13 @@ public static class MemberBodyProducer
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
         bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor,
+        out IReadOnlyList<string>? parameterNames,
+        Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
         => DecompileFunction(pipelineSource,
             Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic);
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
@@ -2248,13 +2592,16 @@ public static class MemberBodyProducer
     static string? DecompileFunction(
         Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor,
+        out IReadOnlyList<string>? parameterNames,
+        Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
     {
         constructorChain = null;
         requiresUnsafeContext = false;
         bodyIsSingleExpressionBody = false;
         bodyIsDestructor = false;
+        parameterNames = null;
         if (function is null)
             return null;
         CollectNamespaces(function, bodyNamespaces);
@@ -2272,6 +2619,7 @@ public static class MemberBodyProducer
         requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
         bodyIsSingleExpressionBody = result.BodyIsSingleExpressionBody;
         bodyIsDestructor = result.BodyIsDestructor;
+        parameterNames = result.ParameterNames;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
 

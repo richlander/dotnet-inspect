@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using ILInspector.Analysis;
+using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -35,6 +36,7 @@ public sealed record AssemblyContextMemberProjectionRequest(
     bool AnnotatedSource = false,
     bool SourceDocument = false,
     bool FactRows = false,
+    bool InvocationDestinations = false,
     AnnotationStage AnnotatedStage = AnnotationStage.Raised,
     PrinterOptions? PrinterOptions = null,
     LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default);
@@ -59,10 +61,18 @@ public sealed record MemberProjectionContextLimitation(
     MemberProjectionContextLimitationKind Kind,
     string Detail);
 
+/// <summary>
+/// One Decompiler-issued invocation node joined to one CallGraph-owned typed callee.
+/// </summary>
+public sealed record AssemblyMemberInvocationDestination(
+    int NodeId,
+    CallGraphNode Target);
+
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
     ResearchViews.MemberProjectionResult Projection,
-    MemberProjectionContextLimitation? ContextLimitation);
+    MemberProjectionContextLimitation? ContextLimitation,
+    IReadOnlyList<AssemblyMemberInvocationDestination> InvocationDestinations);
 
 /// <summary>
 /// Projects the Research type view from participants of one binding-consistent assembly context
@@ -111,15 +121,23 @@ public static class AssemblyContextTypeProjectionQuery
         AssemblyImageSnapshot snapshot,
         AssemblyContextTypeProjectionRequest request)
     {
+        AssemblyContextAnalysisSource.BindingPolicyResolver resolver =
+            AssemblyContextResearchSource.Resolver(group, subject);
         using MetadataSource source =
-            AssemblyContextResearchSource.Open(group, subject, snapshot);
-        return ResearchViews.ProjectType(
+            AssemblyContextResearchSource.Open(
+                group,
+                subject,
+                snapshot,
+                resolver);
+        ResearchViews.TypeProjectionResult result = ResearchViews.ProjectType(
             new ResearchViews.TypeProjectionRequest(
                 source,
                 request.Type,
                 request.PublicOnly,
                 request.Composition,
                 request.RelationshipGraph));
+        resolver.ValidateForPublication();
+        return result;
     }
 }
 
@@ -170,6 +188,12 @@ public static class AssemblyContextMemberProjectionQuery
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Type);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Member);
         ArgumentOutOfRangeException.ThrowIfNegative(request.OverloadIndex);
+        if (request.InvocationDestinations && !request.SourceDocument)
+        {
+            throw new ArgumentException(
+                "Invocation destinations require a source document.",
+                nameof(request));
+        }
     }
 
     static AssemblyMemberProjection Project(
@@ -178,6 +202,8 @@ public static class AssemblyContextMemberProjectionQuery
         AssemblyImageSnapshot snapshot,
         AssemblyContextMemberProjectionRequest request)
     {
+        AssemblyContextAnalysisSource.BindingPolicyResolver resolver =
+            AssemblyContextResearchSource.Resolver(group, subject);
         LibraryBodyIndex? index = null;
         MemberProjectionContextLimitation? limitation = null;
         try
@@ -186,7 +212,7 @@ public static class AssemblyContextMemberProjectionQuery
                 AssemblyContextResearchSource.Name(subject),
                 snapshot.Content,
                 request.AnalysisFeatures,
-                AssemblyContextResearchSource.Resolver(group, subject));
+                resolver);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -202,7 +228,11 @@ public static class AssemblyContextMemberProjectionQuery
         try
         {
             using MetadataSource source =
-                AssemblyContextResearchSource.Open(group, subject, snapshot);
+                AssemblyContextResearchSource.Open(
+                    group,
+                    subject,
+                    snapshot,
+                    resolver);
             ResearchViews.MemberProjectionResult projection =
                 ResearchViews.ProjectMember(
                     new ResearchViews.MemberProjectionRequest(
@@ -222,7 +252,19 @@ public static class AssemblyContextMemberProjectionQuery
                         CaretFocus: null,
                         request.SourceDocument,
                         index is null ? null : ResearchAssemblyContext.Create(index)));
-            return new AssemblyMemberProjection(projection, limitation);
+            IReadOnlyList<AssemblyMemberInvocationDestination> destinations =
+                request.InvocationDestinations
+                    && index is not null
+                    && projection.SourceDocument is { } document
+                    && projection.SelectedMethodToken is { } methodToken
+                    ? ProjectInvocationDestinations(index, methodToken, document)
+                    : [];
+            var result = new AssemblyMemberProjection(
+                projection,
+                limitation,
+                destinations);
+            resolver.ValidateForPublication();
+            return result;
         }
         finally
         {
@@ -232,6 +274,125 @@ public static class AssemblyContextMemberProjectionQuery
             index?.ReleaseCallGraphCaches();
         }
     }
+
+    static IReadOnlyList<AssemblyMemberInvocationDestination> ProjectInvocationDestinations(
+        LibraryBodyIndex index,
+        int callerToken,
+        AnnotatedSourceDocument document)
+    {
+        index.GetDirectCallsByEvidenceMethod()
+            .TryGetValue(callerToken, out ImmutableArray<DirectCall> callArray);
+        DirectCall[] calls = callArray.IsDefault ? [] : [.. callArray];
+        if (calls.Length == 0)
+            return [];
+
+        CallTreeNode? calleeRoot = index.BuildCallTree(
+            callerToken,
+            maxDepth: 1,
+            maxNodes: calls.Length == int.MaxValue
+                ? int.MaxValue
+                : calls.Length + 1);
+        if (calleeRoot is null)
+            return [];
+
+        CallGraphProjection graph = CallGraphProjection.FromCallees(calleeRoot);
+        return
+        [
+            .. calls
+                .Select(call => (
+                    Node: InnermostInvocationNodeAtOffset(document, call.ILOffset),
+                    Target: FindCallee(graph, call)))
+                .Where(pair => pair.Node is not null && pair.Target is not null)
+                .Select(pair => (Node: pair.Node!, Target: pair.Target!))
+                .GroupBy(pair => pair.Node.Id)
+                .Select(group => new
+                {
+                    NodeId = group.Key,
+                    Targets = DistinctInvocationTargets(
+                        group.Select(pair => pair.Target)),
+                })
+                .Where(group => group.Targets.Length == 1)
+                .Select(group => new AssemblyMemberInvocationDestination(
+                    group.NodeId,
+                    group.Targets[0])),
+        ];
+    }
+
+    static CallGraphNode? FindCallee(
+        CallGraphProjection graph,
+        DirectCall call) =>
+        graph.FindFocusCalleeTarget(call, out CallGraphNode target)
+            == CallGraphRowMatch.Found
+            ? target
+            : null;
+
+    static CallGraphNode[] DistinctInvocationTargets(
+        IEnumerable<CallGraphNode> targets)
+    {
+        var distinct = new List<CallGraphNode>();
+        foreach (CallGraphNode target in targets)
+        {
+            if (!distinct.Any(candidate =>
+                    SameInvocationTarget(candidate, target)))
+            {
+                distinct.Add(target);
+            }
+        }
+        return [.. distinct];
+    }
+
+    static bool SameInvocationTarget(
+        CallGraphNode first,
+        CallGraphNode second) =>
+        first.Identity == second.Identity
+        && Equivalent(
+            first.DefinitionAssemblyIdentity,
+            second.DefinitionAssemblyIdentity)
+        && Equivalent(
+            first.ResolutionAssemblyIdentity,
+            second.ResolutionAssemblyIdentity)
+        && Equivalent(
+            first.OccurrenceAssemblyIdentity,
+            second.OccurrenceAssemblyIdentity);
+
+    static bool Equivalent(
+        AssemblyReferenceIdentity? first,
+        AssemblyReferenceIdentity? second) =>
+        first is null
+            ? second is null
+            : second is not null && first.IsEquivalentTo(second);
+
+    static AnnotatedSourceNode? InnermostInvocationNodeAtOffset(
+        AnnotatedSourceDocument document,
+        int ilOffset)
+    {
+        AnnotatedSourceNode[] containing =
+        [
+            .. document.Nodes.Where(node =>
+                node.Medium == SourceLineKind.CSharp
+                && node.Provenance?.IlOffsets.Contains(ilOffset) == true),
+        ];
+        AnnotatedSourceNode[] innermost =
+        [
+            .. containing.Where(candidate =>
+                !containing.Any(other =>
+                    other.Id != candidate.Id
+                    && SpansContain(candidate.Spans, other.Spans))),
+        ];
+        return innermost.Length == 1
+            && innermost[0].Kind == "InvocationExpression"
+            ? innermost[0]
+            : null;
+    }
+
+    static bool SpansContain(
+        IReadOnlyList<AnnotatedSourceSpan> outer,
+        IReadOnlyList<AnnotatedSourceSpan> inner) =>
+        inner.All(innerSpan =>
+            outer.Any(outerSpan =>
+                innerSpan.Start >= outerSpan.Start
+                && (long)innerSpan.Start + innerSpan.Length
+                    <= (long)outerSpan.Start + outerSpan.Length));
 }
 
 /// <summary>
@@ -244,22 +405,23 @@ internal static class AssemblyContextResearchSource
     internal static MetadataSource Open(
         AssemblyContextGroup group,
         AssemblyContextSubject subject,
-        AssemblyImageSnapshot snapshot)
+        AssemblyImageSnapshot snapshot,
+        AssemblyContextAnalysisSource.BindingPolicyResolver resolver)
         => MetadataSource.OpenWithoutSymbols(
             snapshot.RetainAssemblyReference(Participant(group, subject).Assembly),
-            Resolver(group, subject));
+            (IAssemblyReferenceResolver)resolver);
 
     /// <summary>
     /// The name Analysis and the decompiler label this assembly by. It is a label, not a file:
     /// a participant acquired from content has no path.
     /// </summary>
     internal static string Name(AssemblyContextSubject subject)
-        => subject.Identity.Name;
+        => AssemblyContextAnalysisSource.Name(subject);
 
-    internal static IAssemblyReferenceResolver Resolver(
+    internal static AssemblyContextAnalysisSource.BindingPolicyResolver Resolver(
         AssemblyContextGroup group,
         AssemblyContextSubject subject)
-        => new BindingPolicyResolver(group, Participant(group, subject));
+        => AssemblyContextAnalysisSource.Resolver(group, subject);
 
     static AssemblyContextParticipant Participant(
         AssemblyContextGroup group,
@@ -268,43 +430,4 @@ internal static class AssemblyContextResearchSource
             candidate => ReferenceEquals(
                 candidate.Assembly.Registration,
                 subject.Registration));
-
-    /// <summary>
-    /// Answers reference resolution from the participant's binding policy — the same
-    /// source-relative snapshot the group is consistent with — rather than by matching simple
-    /// names. Only a selected sibling participant is returned, as a snapshot-backed descriptor,
-    /// so resolution cannot acquire content outside the group's ownership and byte budget.
-    /// </summary>
-    sealed class BindingPolicyResolver(
-        AssemblyContextGroup group,
-        AssemblyContextParticipant participant)
-        : IAssemblyReferenceResolver
-    {
-        public ResolvedAssemblyReference? Resolve(
-            AssemblyReferenceIdentity identity,
-            AssemblyResolutionScope scope)
-        {
-            ArgumentNullException.ThrowIfNull(identity);
-            AssemblyBindingSelection selection = participant.BindingPolicy.Select(
-                new AssemblyBindingRequest(
-                    AssemblyBindingTarget.Reference(identity),
-                    AssemblyBindingOrigin.FromAssembly(participant.Assembly),
-                    scope));
-            if (selection is not AssemblyBindingSelection.Selected selected)
-                return null;
-
-            ImmutableArray<AssemblyContextParticipant> participants = group.Participants;
-            bool isParticipant = participants.Any(
-                candidate => ReferenceEquals(
-                    candidate.Assembly.Registration,
-                    selected.Assembly.Registration));
-            if (!isParticipant)
-                return null;
-
-            return group.RetainAssemblyReference(selected.Assembly)
-                is AssemblyImageAccessResult<ResolvedAssemblyReference>.Available retained
-                ? retained.Value
-                : null;
-        }
-    }
 }

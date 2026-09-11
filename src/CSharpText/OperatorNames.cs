@@ -5,6 +5,65 @@ namespace CSharpText;
 /// </summary>
 public static class OperatorNames
 {
+    private static readonly HashSet<string> KnownMetadataNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "op_Implicit",
+            "op_Explicit",
+            "op_CheckedImplicit",
+            "op_CheckedExplicit",
+            "op_Addition",
+            "op_Subtraction",
+            "op_Multiply",
+            "op_Division",
+            "op_Modulus",
+            "op_UnaryPlus",
+            "op_UnaryNegation",
+            "op_Increment",
+            "op_Decrement",
+            "op_BitwiseAnd",
+            "op_BitwiseOr",
+            "op_ExclusiveOr",
+            "op_OnesComplement",
+            "op_LeftShift",
+            "op_RightShift",
+            "op_UnsignedRightShift",
+            "op_Equality",
+            "op_Inequality",
+            "op_LessThan",
+            "op_GreaterThan",
+            "op_LessThanOrEqual",
+            "op_GreaterThanOrEqual",
+            "op_True",
+            "op_False",
+            "op_LogicalNot",
+        };
+
+    private static readonly HashSet<string> CheckedOperatorSuffixes =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Addition",
+            "Subtraction",
+            "Multiply",
+            "Division",
+            "Increment",
+            "Decrement",
+            "UnaryNegation",
+        };
+
+    public static bool IsMetadataOperatorName(string name)
+    {
+        if (KnownMetadataNames.Contains(name))
+            return true;
+
+        const string checkedPrefix = "op_Checked";
+        return name.StartsWith(
+                checkedPrefix,
+                StringComparison.OrdinalIgnoreCase)
+            && CheckedOperatorSuffixes.Contains(
+                name[checkedPrefix.Length..]);
+    }
+
     /// <summary>
     /// Converts an IL operator method name to its C# display form.
     /// Non-operator names are returned unchanged.

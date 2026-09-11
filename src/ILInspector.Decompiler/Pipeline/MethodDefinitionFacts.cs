@@ -9,8 +9,78 @@ internal readonly record struct ParameterRefKindResult(
     ParameterRefKindFacts State,
     bool HasRefReadOnlyParameters = false);
 
+internal readonly record struct RequiresUnsafeContractResult(
+    MetadataFactState State,
+    bool IsExplicit,
+    bool HasNormalizedContract,
+    MemorySafetyRulesState? RulesState,
+    bool RulesUnavailable,
+    bool ContractUnavailable);
+
 internal static class MethodDefinitionFacts
 {
+    internal static RequiresUnsafeContractResult RequiresUnsafeContract(
+        MemorySafetyMetadataIndex? index,
+        EntityHandle member)
+    {
+        if (index is null)
+            return new(
+                MetadataFactState.Unknown,
+                IsExplicit: false,
+                HasNormalizedContract: false,
+                RulesState: null,
+                RulesUnavailable: false,
+                ContractUnavailable: false);
+
+        MemorySafetyRulesState? rulesState = index.Rules switch
+        {
+            MemorySafetyRulesResult.Available available => available.State,
+            _ => null,
+        };
+        bool rulesUnavailable = index.Rules is MemorySafetyRulesResult.Unavailable;
+        MemorySafetyMemberContractResult contract =
+            index.GetMemberContract(member);
+
+        return contract switch
+        {
+            MemorySafetyMemberContractResult.None
+                when index.Rules is MemorySafetyRulesResult.Available
+                {
+                    State: MemorySafetyRulesState.Updated,
+                } => new(
+                    MetadataFactState.No,
+                    IsExplicit: false,
+                    HasNormalizedContract: true,
+                    rulesState,
+                    rulesUnavailable,
+                    ContractUnavailable: false),
+            MemorySafetyMemberContractResult.Implicit =>
+                new(
+                    MetadataFactState.Yes,
+                    IsExplicit: false,
+                    HasNormalizedContract: true,
+                    rulesState,
+                    rulesUnavailable,
+                    ContractUnavailable: false),
+            MemorySafetyMemberContractResult.Explicit =>
+                new(
+                    MetadataFactState.Yes,
+                    IsExplicit: true,
+                    HasNormalizedContract: true,
+                    rulesState,
+                    rulesUnavailable,
+                    ContractUnavailable: false),
+            _ => new(
+                MetadataFactState.Unknown,
+                IsExplicit: false,
+                HasNormalizedContract: true,
+                rulesState,
+                rulesUnavailable,
+                ContractUnavailable:
+                    contract is MemorySafetyMemberContractResult.Unavailable),
+        };
+    }
+
     internal static ParameterRefKindResult ReadParameterRefKinds(
         MetadataReader reader,
         MethodDefinition method,
@@ -53,10 +123,16 @@ internal static class MethodDefinitionFacts
     }
 
     internal static bool HasRequiresUnsafeAttribute(MetadataReader reader, MethodDefinition method)
-        => HasAttribute(reader, method.GetCustomAttributes(), "System.Diagnostics.CodeAnalysis", "RequiresUnsafeAttribute");
-
-    internal static bool HasRequiresUnsafeAttribute(MetadataReader reader, TypeDefinition type)
-        => HasAttribute(reader, type.GetCustomAttributes(), "System.Diagnostics.CodeAnalysis", "RequiresUnsafeAttribute");
+        => HasAttribute(
+                reader,
+                method.GetCustomAttributes(),
+                "System.Diagnostics.CodeAnalysis",
+                "RequiresUnsafeAttribute")
+            || HasAttribute(
+                reader,
+                method.GetCustomAttributes(),
+                "System.Runtime.CompilerServices",
+                "RequiresUnsafeAttribute");
 
     internal static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => HasAttribute(reader, attributes, "System.Runtime.CompilerServices", "CompilerGeneratedAttribute");

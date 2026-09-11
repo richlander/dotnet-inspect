@@ -10,12 +10,16 @@ internal sealed class SynchronousConcurrencyGate
 
     readonly object _gate = new();
     readonly int _capacity;
+    readonly Action? _waitStarted;
     int _available;
 
-    internal SynchronousConcurrencyGate(int capacity)
+    internal SynchronousConcurrencyGate(
+        int capacity,
+        Action? waitStarted = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacity);
         _capacity = capacity;
+        _waitStarted = waitStarted;
         _available = capacity;
     }
 
@@ -24,8 +28,15 @@ internal sealed class SynchronousConcurrencyGate
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            bool waitStarted = false;
             while (_available == 0)
             {
+                if (!waitStarted)
+                {
+                    waitStarted = true;
+                    _waitStarted?.Invoke();
+                }
+
                 // SemaphoreSlim.Wait throws on single-threaded Browser/Wasm
                 // even when entry is uncontended. A single-threaded host cannot
                 // reach this contention-only monitor wait.

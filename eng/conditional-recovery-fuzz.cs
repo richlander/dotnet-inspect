@@ -1,6 +1,6 @@
 #:project ../tests/CSharpText.Tests/CSharpText.Tests.csproj
 #:property EnablePreviewFeatures=true
-#:property NoWarn=CA2252
+#:property NoWarn=CA2252;CS7022
 
 // Deep-run driver for the conditional-recovery differential fuzzer.
 //

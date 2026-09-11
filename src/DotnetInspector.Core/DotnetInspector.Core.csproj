@@ -14,14 +14,11 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
-    <InternalsVisibleTo Include="dotnet-inspect.Tests" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Include="..\NetworkDestinationPolicy.cs" Link="NetworkDestinationPolicy.cs" />
+    <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\InertText\InertText.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+canary="$repo_root/inspect-web/multi-facade-canary"
+host="$canary/Host/TsJsExport.MultiFacade.BrowserCanary.csproj"
+verifier="$repo_root/inspect-web/scripts/verify-multi-facade-canary.ts"
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
+dotnet=${DOTNET:-dotnet}
+node=${NODE:-node}
+tsc=${TSC:-"$repo_root/inspect-web/node_modules/.bin/tsc"}
+
+mode=comprehensive
+case "${1:-}" in
+  "")
+    ;;
+  --fast)
+    if [[ "$#" != 1 ]]; then
+      echo "Usage: $0 [--fast]" >&2
+      exit 1
+    fi
+    mode=fast
+    ;;
+  *)
+    echo "Usage: $0 [--fast]" >&2
+    exit 1
+    ;;
+esac
+
+expect_failure() {
+  local name=$1
+  local expected=$2
+  shift 2
+  if "$@" >"$scratch/$name.stdout" 2>"$scratch/$name.stderr"; then
+    echo "$name mutation unexpectedly passed." >&2
+    exit 1
+  fi
+  if ! grep -Fq \
+      "$expected" \
+      "$scratch/$name.stdout" \
+      "$scratch/$name.stderr"; then
+    echo "$name mutation failed for an unexpected reason." >&2
+    cat "$scratch/$name.stdout" "$scratch/$name.stderr" >&2
+    exit 1
+  fi
+}
+
+DOTNET="$dotnet" NODE="$node" TSC="$tsc" \
+  "$repo_root/eng/generate-inspect-web-multi-facade-canary.sh" --check
+
+if [[ "$mode" == comprehensive ]]; then
+  mkdir -p "$scratch/stale-facades" "$scratch/missing-facade"
+  cp "$canary/facades/"*.ts "$scratch/stale-facades/"
+  printf '\n// stale\n' >> "$scratch/stale-facades/alpha.ts"
+  expect_failure \
+    stale-alpha-facade \
+    "alpha.ts is stale" \
+    env \
+    CANARY_FACADE_OUTPUT_DIR="$scratch/stale-facades" \
+    DOTNET="$dotnet" \
+    NODE="$node" \
+    TSC="$tsc" \
+    "$repo_root/eng/generate-inspect-web-multi-facade-canary.sh" \
+    --check
+  cp "$canary/facades/alpha.ts" "$scratch/missing-facade/"
+  expect_failure \
+    missing-beta-facade \
+    "beta.ts is stale" \
+    env \
+    CANARY_FACADE_OUTPUT_DIR="$scratch/missing-facade" \
+    DOTNET="$dotnet" \
+    NODE="$node" \
+    TSC="$tsc" \
+    "$repo_root/eng/generate-inspect-web-multi-facade-canary.sh" \
+    --check
+
+  echo "Independent Alpha-stale and Beta-missing facade drift mutations were rejected."
+fi
+
+runtime_pack_directory=$(
+  "$dotnet" msbuild \
+    "$host" \
+    -nologo \
+    -target:ProcessFrameworkReferences \
+    -getItem:RuntimePack \
+  | "$node" -e '
+const data = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const matches = (data.Items?.RuntimePack ?? []).filter(
+  pack => pack.Identity === "Microsoft.NETCore.App.Runtime.Mono.browser-wasm");
+if (matches.length !== 1 || !matches[0].PackageDirectory) {
+  console.error(
+    `Expected one resolved browser-wasm runtime pack; found ${matches.length}.`);
+  process.exit(1);
+}
+process.stdout.write(matches[0].PackageDirectory);
+'
+)
+
+mkdir -p "$scratch/source/facades" "$scratch/source/_framework"
+cp "$canary/facades/"*.ts "$scratch/source/facades/"
+cp "$canary/coordinator.ts" "$canary/exercise.ts" "$scratch/source/"
+cp \
+  "$runtime_pack_directory/runtimes/browser-wasm/native/dotnet.d.ts" \
+  "$scratch/source/_framework/"
+cat > "$scratch/source/tsconfig.json" <<'JSON'
+{
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": true,
+    "lib": ["DOM", "ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "newLine": "lf",
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
+    "outDir": "../modules",
+    "strict": true,
+    "target": "ES2022",
+    "types": [],
+    "verbatimModuleSyntax": true
+  },
+  "include": ["facades/*.ts", "coordinator.ts", "exercise.ts"]
+}
+JSON
+"$tsc" -p "$scratch/source/tsconfig.json"
+
+clear_canary_build_outputs() {
+  rm -rf \
+    "$canary/Alpha/bin/Release/net11.0" \
+    "$canary/Alpha/obj/Release/net11.0" \
+    "$canary/Beta/bin/Release/net11.0" \
+    "$canary/Beta/obj/Release/net11.0" \
+    "$canary/Host/bin/Release/net11.0" \
+    "$canary/Host/obj/Release/net11.0"
+}
+
+publish_canary() {
+  local runtime_name=$1
+  local use_mono_runtime=$2
+  local output="$scratch/publish-$runtime_name"
+  local dotnet_module
+  local runtime_properties=()
+
+  if [[ "$use_mono_runtime" == false ]]; then
+    runtime_properties=(
+      -p:WasmBuildNative=false
+      -p:WasmNestedPublishAppDependsOn=
+      -p:WasmEnableExceptionHandling=true
+    )
+  fi
+
+  clear_canary_build_outputs
+  "$dotnet" publish \
+    "$host" \
+    -c Release \
+    --output "$output" \
+    -p:CanaryModulesDir="$scratch/modules" \
+    -p:UseMonoRuntime="$use_mono_runtime" \
+    ${runtime_properties[@]+"${runtime_properties[@]}"} \
+    --nologo
+  published_site="$output/wwwroot"
+  dotnet_module=$(
+    find "$published_site/_framework" \
+      -maxdepth 1 \
+      -type f \
+      -name 'dotnet.*.js' \
+      ! -name 'dotnet.native.*' \
+      ! -name 'dotnet.runtime.*' \
+      -print -quit
+  )
+  if [[ -z "$dotnet_module" ]]; then
+    echo "Published $runtime_name Browser/Wasm runtime module was not found." >&2
+    exit 1
+  fi
+  ln -s \
+    "$(basename "$dotnet_module")" \
+    "$published_site/_framework/dotnet.js"
+  test -f "$published_site/coordinator.js"
+  test -f "$published_site/exercise.js"
+  test -f "$published_site/facades/alpha.js"
+  test -f "$published_site/facades/beta.js"
+  printf '{ "type": "module" }\n' > "$published_site/package.json"
+
+  "$node" "$verifier" "$published_site" baseline
+  echo "ts-jsexport multi-facade $runtime_name Browser/Wasm startup passed."
+}
+
+published_site=
+publish_canary mono true
+mono_site=$published_site
+if [[ "$mode" == fast ]]; then
+  echo "ts-jsexport multi-facade fast Browser/Wasm gate passed."
+  exit 0
+fi
+
+publish_canary coreclr false
+site=$mono_site
+
+cp "$scratch/modules/facades/alpha.js" "$site/facades/alpha.js"
+sed -i.bak \
+  's/](operationId, eventCallback)/](operationId, (_kind, _value) => undefined)/' \
+  "$site/facades/alpha.js"
+rm "$site/facades/alpha.js.bak"
+if ! grep -Fq \
+    '](operationId, (_kind, _value) => undefined)' \
+    "$site/facades/alpha.js"; then
+  echo "Managed callback-drop mutation did not apply." >&2
+  exit 1
+fi
+expect_failure \
+  dropped-managed-events \
+  "Managed nonterminal event order" \
+  "$node" "$verifier" "$site" baseline
+
+cp "$scratch/modules/facades/alpha.js" "$site/facades/alpha.js"
+sed -i.bak \
+  's/TsJsExport\.MultiFacade\.Alpha/TsJsExport.MultiFacade.Beta/' \
+  "$site/facades/alpha.js"
+rm "$site/facades/alpha.js.bak"
+expect_failure \
+  wrong-assembly-root \
+  "Alpha primary identity returned beta:primary" \
+  "$node" "$verifier" "$site" baseline
+
+cp "$scratch/modules/facades/alpha.js" "$site/facades/alpha.js"
+cp "$scratch/modules/facades/beta.js" "$site/facades/beta.js"
+sed -i.bak \
+  's#../_framework/dotnet\.js#../_framework/dotnet.js?duplicate-runtime#' \
+  "$site/facades/beta.js"
+rm "$site/facades/beta.js.bak"
+sed -i.bak \
+  's/await initializeBeta(runtime);/await initializeBeta();/' \
+  "$site/coordinator.js"
+rm "$site/coordinator.js.bak"
+expect_failure \
+  duplicate-runtime-module \
+  "Expected exactly one live SDK runtime" \
+  "$node" "$verifier" "$site" baseline
+
+cp "$scratch/modules/coordinator.js" "$site/coordinator.js"
+cp "$scratch/modules/facades/beta.js" "$site/facades/beta.js"
+sed -i.bak \
+  's#import \* as beta from "./facades/beta\.js"#import * as beta from "./facades/alpha.js"#' \
+  "$site/exercise.js"
+rm "$site/exercise.js.bak"
+expect_failure \
+  cross-root-routing \
+  "Beta primary identity returned alpha:primary" \
+  "$node" "$verifier" "$site" baseline
+
+cp "$scratch/modules/exercise.js" "$site/exercise.js"
+expect_failure \
+  skipped-beta-initialization \
+  "The .NET runtime facade is not initialized." \
+  "$node" "$verifier" "$site" skip-beta-initialization
+expect_failure \
+  skipped-beta-operation \
+  "Beta facade did not invoke every canary operation exactly once." \
+  "$node" "$verifier" "$site" skip-beta-operation
+
+echo "ts-jsexport multi-facade Browser/Wasm mutations were rejected."

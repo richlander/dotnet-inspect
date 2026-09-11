@@ -1,0 +1,82 @@
+[
+  {
+    "id": "root.package-overview",
+    "kind": "Root",
+    "purpose": "Package identity, selected target, assets, and summary facts."
+  },
+  {
+    "id": "root.package-dependencies",
+    "kind": "Root",
+    "purpose": "Declared package dependencies for the selected target framework."
+  },
+  {
+    "id": "root.overview",
+    "kind": "Root",
+    "purpose": "Coordinate identity, selected target, and available structural subjects."
+  },
+  {
+    "id": "library.references",
+    "kind": "Library",
+    "purpose": "Direct assembly references for the active Library."
+  },
+  {
+    "id": "library.integrations",
+    "kind": "Library",
+    "purpose": "Framework and ecosystem integrations found in the active Library."
+  },
+  {
+    "id": "library.opportunities",
+    "kind": "Library",
+    "purpose": "Framework and ecosystem integrations the active Library could adopt."
+  },
+  {
+    "id": "library.analysis",
+    "kind": "Library",
+    "purpose": "Static analysis findings and code characteristics for the active Library."
+  },
+  {
+    "id": "library.metadata",
+    "kind": "Library",
+    "purpose": "Physical ECMA-335 metadata and PE structure for the active Library."
+  },
+  {
+    "id": "type.api",
+    "kind": "Type",
+    "purpose": "API shape and member inventory for the active Type."
+  },
+  {
+    "id": "type.metadata",
+    "kind": "Type",
+    "purpose": "Metadata records and attributes for the active Type."
+  },
+  {
+    "id": "type.source",
+    "kind": "Type",
+    "purpose": "Source or decompiled code for the active Type."
+  },
+  {
+    "id": "member.overview",
+    "kind": "Member",
+    "purpose": "Signature, documentation, and overload context for the active Member."
+  },
+  {
+    "id": "member.call-graph",
+    "kind": "Member",
+    "purpose": "Incoming and outgoing calls for the active Member."
+  },
+  {
+    "id": "member.facts",
+    "kind": "Member",
+    "purpose": "Metadata, IL, safety, and analysis facts for the active Member."
+  },
+  {
+    "id": "member.source",
+    "kind": "Member",
+    "purpose": "Source or decompiled code for the active Member."
+  },
+  {
+    "id": "member.annotated-source",
+    "kind": "Member",
+    "purpose": "Source for the active Member with product analysis annotations."
+  }
+]

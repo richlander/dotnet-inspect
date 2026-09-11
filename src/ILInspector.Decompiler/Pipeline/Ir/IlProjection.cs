@@ -4,7 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -254,7 +254,7 @@ public static class IlProjection
 
     static string Method(MetadataReader reader, GenericScope scope, EntityHandle handle)
     {
-        var m = IrImporter.ResolveMethod(reader, handle, scope);
+        var m = IrImporter.ResolveMethod(reader, handle, scope, memorySafety: null);
         return $"{m.DeclaringType.ToDisplayString()}::{m.Name}({string.Join(", ", m.ParameterTypes.Select(p => p.ToDisplayString()))})";
     }
 

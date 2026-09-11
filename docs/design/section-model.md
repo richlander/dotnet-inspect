@@ -182,21 +182,31 @@ The `@Files` category owns the curated subsets. The unfiltered `Package files`
 superset belongs to `@Package` instead because selecting `@Files` must not
 duplicate every matching path.
 
-Renamed sections keep their prior spellings in
-`SelectResolver.LegacySectionAliases` when compatibility is practical.
+`SelectResolver.LegacySectionAliases` currently lowers former spellings to
+canonical sections. [Development
+practices](../development-practices.md#prefer-current-agent-guidance-over-cli-compatibility)
+owns whether an entry has independent current utility or remains
+compatibility-only debt. [CLI change classification and obsolete
+inputs](cli-change-classification.md) owns the removal mechanics when a former
+spelling can bind or route differently; a section rename does not itself
+justify retention.
 
 Alternate projections do not create synonymous sections. `References` renders
 direct references as a flat table by default. `-S References --tree` renders
 the resolved transitive reference graph; `--depth N` limits that graph, with
 depth 1 containing direct references only. Omitting `--depth` traverses the
-complete resolvable graph. The former `Dependencies` spelling remains a
-compatibility alias for the tree projection.
+complete resolvable graph. The current implementation also lowers the former
+`Dependencies` spelling to `References` and requests its tree projection; its
+retention follows development practices, while any removal mechanics follow
+the CLI change-classification design rather than this projection contract.
 
 Package `Dependencies` follows the same projection model: the section is a flat
 table of declared dependencies by target framework by default, while
 `-S Dependencies --tree` resolves the transitive graph for the selected or
-highest target framework. The former package `--dependencies` flag remains a
-compatibility alias for that tree projection.
+highest target framework. The current implementation also accepts the former
+package `--dependencies` flag as `-S Dependencies --tree`; its retention
+follows development practices, while any removal mechanics follow the CLI
+change-classification design rather than this projection contract.
 
 ## Section axes
 
@@ -348,22 +358,32 @@ creating a second authorization currency.
 #### Existing library effective catalog
 
 The shipped bare `library -D --effective` path predates typed type/member
-planning. It retains its library-only, cross-process `effective-v*` compatibility
-cache of successful section catalogs and schemas. At the slice-5 cutover its
-key includes the resolved path, the digest of an acquisition-owned immutable
-artifact-content snapshot, and typed network-free local-symbol discovery
-evidence, plus typed `LibraryCatalogRouteEvidence`. Scoped discovery does not
-populate the bare catalog, failures are not stored, and a category-version
-change invalidates older semantics.
+planning. It currently uses a library-only, cross-process `effective-v*`
+compatibility cache of successful section catalogs and schemas for platform,
+package, and direct-file routes. The target retains that persistent cache only
+for platform and package routes. A direct local-file route captures a fresh
+image, derives its catalog inside the current tool run, and bypasses both
+persistent lookup and publication. This target is unverified pending
+`LocalAssemblyFacts_DoNotEnterACrossRunCache` in the
+[assembly image lifetime](assembly-image-lifetime.md) contract.
+
+At the slice-5 cutover a persistent platform or package key includes the
+resolved path, the digest of an acquisition-owned immutable artifact-content
+snapshot, and typed network-free local-symbol discovery evidence, plus typed
+`LibraryCatalogRouteEvidence`. Scoped discovery does not populate the bare
+catalog, failures are not stored, and a category-version change invalidates
+older semantics.
 
 `LibraryCatalogRouteEvidence` is an owner-issued identity for the root subject
 route and every stable route fact consumed by effective discovery, including
-platform, package, and direct-file distinctions. It is not reconstructed from
-the resolved path and carries no authorization. A declaration-derived closure
-covers every route-dependent section and field predicate. For example, platform
-surface classification can make the `Library Info` `Facade` field effective for
-the exact bytes whose direct-file route leaves that field absent; those
-catalogs require different keys unless the producer is deliberately made
+platform, package, and direct-file distinctions. Direct-file discovery still
+consumes that evidence even though it does not persist its catalog. The
+evidence is not reconstructed from the resolved path and carries no
+authorization. A declaration-derived closure covers every route-dependent
+section and field predicate. For example, platform surface classification can
+make the `Library Info` `Facade` field effective for exact bytes whose package
+route leaves that field absent; persistent catalogs for those two routes
+require different keys unless the producer is deliberately made
 route-independent.
 
 `LocalSymbolDiscoveryEvidence` is either `None` or an owner-minted identity for
@@ -393,15 +413,15 @@ route and local-symbol evidence. A new route/PDB-derived predicate cannot
 remain behind an under-scoped key. The pre-cutover `sl0`/`sl1` shape is
 predecessor compatibility evidence only and is not the successor key contract.
 
-That payload is neither a `PreflightedInspectionPlan` outcome nor reusable
+That package/platform payload is neither a `PreflightedInspectionPlan` outcome nor reusable
 producer evidence for the planned type/member executor. The new executor must
-not read it. This proposal retains the existing library behavior and its
-current invalidation gates; it does not generalize the compatibility cache into
-an authorization mechanism. If library discovery later adopts variable host
-preflight, that migration must either cache authorization-independent producer
-evidence from which every operation derives a fresh outcome or remove the
-persistent completed catalog. It must not key on a reconstructed host-policy
-hash.
+not read it. This proposal retains existing package/platform cache behavior and
+its current invalidation gates, intentionally removes direct-file persistence,
+and does not generalize the compatibility cache into an authorization
+mechanism. If library discovery later adopts variable host preflight, that
+migration must either cache authorization-independent producer evidence from
+which every operation derives a fresh outcome or remove the persistent
+completed catalog. It must not key on a reconstructed host-policy hash.
 
 Changing the existing library catalog's category scope or effectiveness
 semantics still requires an `effective-v*` cache-version bump.
@@ -469,8 +489,11 @@ explicitly.
 
 ## Counts and empty sections
 
-`--count` reports the selected candidate set, including zero-row sections. This
-makes category membership and applicability visible without conflating them.
+A successful Count reports the participating request-complete row sets defined
+by [Section-row shaping](section-row-shaping.md#multiple-row-sets).
+Request-complete empty sets contribute zero; projection-inapplicable sets
+contribute no entry; and a failed, `Absent`, or request-incomplete participating
+set produces the typed Count failure rather than zero.
 
 Ordinary rendering omits ineffective sections. When an exact section was
 selected and has no data, the command exits non-zero, emits no document, and
@@ -569,7 +592,9 @@ During migration:
 
 - Do not infer category membership from prefixes.
 - Do not add computed `@All`, `@Default`, or `@Hidden` categories.
-- Preserve legacy section aliases where useful.
+- Apply development practices to every proposed or existing legacy section
+  alias, and use the CLI change-classification design for removal mechanics;
+  section migration does not itself justify retention.
 - Keep network and source-content work explicit.
 - Add close negative tests for every new applicability predicate.
 - Update Markdown and structured-output tests together.

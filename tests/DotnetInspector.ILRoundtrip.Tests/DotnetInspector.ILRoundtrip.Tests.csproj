@@ -9,6 +9,7 @@
     <IsTestProject>true</IsTestProject>
     <IsAotCompatible>false</IsAotCompatible>
     <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
 
     <!-- IlasmScaffold captures the IL assembler's in-process stderr with
          Console.SetError so a parse failure becomes a test diagnostic rather

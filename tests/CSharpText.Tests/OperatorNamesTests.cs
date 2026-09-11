@@ -74,6 +74,18 @@ public class OperatorNamesTests
     public void Unknown_op_prefix_passes_through()
         => Assert.Equal("op_SomeFutureOp", OperatorNames.FormatDisplayName("op_SomeFutureOp"));
 
+    [Theory]
+    [InlineData("op_Addition", true)]
+    [InlineData("OP_ADDITION", true)]
+    [InlineData("op_CheckedAddition", true)]
+    [InlineData("op_CheckedExplicit", true)]
+    [InlineData("Op_Helpers", false)]
+    [InlineData("op_SomeFutureOp", false)]
+    public void Metadata_operator_recognition_uses_the_closed_supported_grammar(
+        string input,
+        bool expected)
+        => Assert.Equal(expected, OperatorNames.IsMetadataOperatorName(input));
+
     [Fact]
     public void Untreated_display_preserves_input_for_typed_presentation_boundary()
     {

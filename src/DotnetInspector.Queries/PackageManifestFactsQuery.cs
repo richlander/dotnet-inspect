@@ -7,6 +7,16 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries;
 
+/// <summary>Identifies the evidence used to establish a manifest coordinate.</summary>
+public enum PackageManifestIdentityProvenance
+{
+    /// <summary>The manifest identity matched an independently supplied coordinate.</summary>
+    ExpectedCoordinate,
+
+    /// <summary>The coordinate was validated and normalized from the manifest itself.</summary>
+    SelfAttested,
+}
+
 /// <summary>
 /// Immutable facts declared by one validated package manifest.
 /// </summary>
@@ -23,7 +33,83 @@ public sealed record PackageManifestFacts(
     ImmutableArray<string> PackageTypes,
     bool IsToolPackage,
     string? ReadmeFile,
-    ImmutableArray<DeclaredPackageDependencyGroup> DependencyGroups);
+    ImmutableArray<DeclaredPackageDependencyGroup> DependencyGroups)
+{
+    public string? IconFile { get; init; }
+
+    public string? IconUrl { get; init; }
+
+    public PackageManifestIdentityProvenance IdentityProvenance { get; init; } =
+        PackageManifestIdentityProvenance.ExpectedCoordinate;
+}
+
+/// <summary>
+/// The stable reason one package manifest could not be projected.
+/// </summary>
+public enum PackageManifestFailureReason
+{
+    MalformedXml,
+    UnsupportedDocumentShape,
+    IdentityMismatch,
+    InvalidDependencyContract,
+    ConfiguredLimitExceeded,
+    InvalidIdentityContract,
+}
+
+/// <summary>
+/// A content-free package-manifest projection failure.
+/// </summary>
+/// <remarks>
+/// <c>FailureMessage_IsStableForEveryReason</c>,
+/// <c>FailureMessage_IsSafeForUnknownFutureReason</c>, and the hostile-input
+/// execution tests gate this diagnostic contract.
+/// </remarks>
+public sealed record PackageManifestFailure
+{
+    public PackageManifestFailure(
+        PackageManifestFailureReason reason,
+        int lineNumber = 0,
+        int linePosition = 0)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(lineNumber);
+        ArgumentOutOfRangeException.ThrowIfNegative(linePosition);
+        Reason = reason;
+        LineNumber = lineNumber;
+        LinePosition = linePosition;
+    }
+
+    public PackageManifestFailureReason Reason { get; }
+
+    /// <summary>
+    /// The one-based XML line where parsing failed, or zero when unavailable.
+    /// </summary>
+    public int LineNumber { get; }
+
+    /// <summary>
+    /// The one-based XML position where parsing failed, or zero when unavailable.
+    /// </summary>
+    public int LinePosition { get; }
+
+    public string Message => Reason switch
+    {
+        PackageManifestFailureReason.MalformedXml
+            when LineNumber > 0 && LinePosition > 0 =>
+            $"Package manifest is not well-formed XML at line {LineNumber}, position {LinePosition}.",
+        PackageManifestFailureReason.MalformedXml =>
+            "Package manifest is not well-formed XML.",
+        PackageManifestFailureReason.UnsupportedDocumentShape =>
+            "The package manifest has an unsupported document shape or namespace.",
+        PackageManifestFailureReason.IdentityMismatch =>
+            "The package manifest identity does not match the requested package.",
+        PackageManifestFailureReason.InvalidIdentityContract =>
+            "The package manifest contains an invalid package identity.",
+        PackageManifestFailureReason.InvalidDependencyContract =>
+            "The package manifest contains an invalid dependency declaration.",
+        PackageManifestFailureReason.ConfiguredLimitExceeded =>
+            "The package manifest exceeds a configured resource limit.",
+        _ => "The package manifest could not be projected.",
+    };
+}
 
 /// <summary>
 /// The typed outcome of projecting facts from one exact package manifest.
@@ -38,7 +124,7 @@ public abstract record PackageManifestFactsResult
         PackageManifestFacts Value) : PackageManifestFactsResult;
 
     public sealed record Failed(
-        Exception Error) : PackageManifestFactsResult;
+        PackageManifestFailure Failure) : PackageManifestFactsResult;
 }
 
 /// <summary>
@@ -46,9 +132,11 @@ public abstract record PackageManifestFactsResult
 /// </summary>
 /// <remarks>
 /// The query owns manifest identity and dependency-contract validation, but
-/// not acquisition. Callers supply the expected coordinate and exact manifest
-/// bytes so Browser/Wasm and CLI hosts share one projection without granting
-/// this query network or package-payload capabilities.
+/// not acquisition. Package/source callers supply an expected coordinate;
+/// direct-content callers explicitly request self-attested identity. Both
+/// paths supply exact manifest bytes so Browser/Wasm and CLI hosts share one
+/// projection without granting this query network or package-payload
+/// capabilities.
 /// </remarks>
 public static class PackageManifestFactsQuery
 {
@@ -68,13 +156,27 @@ public static class PackageManifestFactsQuery
         PackageSourceCoordinate expectedCoordinate)
     {
         ArgumentNullException.ThrowIfNull(expectedCoordinate);
+        return ExecuteCore(manifestBytes, expectedCoordinate);
+    }
 
+    /// <summary>
+    /// Projects manifest facts using a validated coordinate declared by the
+    /// manifest itself.
+    /// </summary>
+    public static PackageManifestFactsResult ExecuteSelfAttested(
+        ReadOnlyMemory<byte> manifestBytes) =>
+        ExecuteCore(manifestBytes, expectedCoordinate: null);
+
+    private static PackageManifestFactsResult ExecuteCore(
+        ReadOnlyMemory<byte> manifestBytes,
+        PackageSourceCoordinate? expectedCoordinate)
+    {
         try
         {
             if (manifestBytes.Length > MaxManifestBytes)
             {
-                throw new InvalidDataException(
-                    "The package manifest exceeds the configured size limit.");
+                throw Failure(
+                    PackageManifestFailureReason.ConfiguredLimitExceeded);
             }
 
             using var buffer = new MemoryStream(
@@ -83,14 +185,29 @@ public static class PackageManifestFactsQuery
             NuspecData nuspec = NuspecParser.Parse(
                 buffer,
                 MaxManifestCharacters);
-            ValidateIdentity(nuspec, expectedCoordinate);
+            PackageSourceCoordinate coordinate;
+            PackageManifestIdentityProvenance identityProvenance;
+            if (expectedCoordinate is null)
+            {
+                coordinate = CreateSelfAttestedCoordinate(nuspec);
+                identityProvenance =
+                    PackageManifestIdentityProvenance.SelfAttested;
+            }
+            else
+            {
+                ValidateIdentity(nuspec, expectedCoordinate);
+                coordinate = expectedCoordinate;
+                identityProvenance =
+                    PackageManifestIdentityProvenance.ExpectedCoordinate;
+            }
+
             ValidateScalarFacts(nuspec);
 
             ImmutableArray<DeclaredPackageDependencyGroup> dependencyGroups =
                 ProjectDependencyGroups(nuspec.DependencyGroups);
             return new PackageManifestFactsResult.Available(
                 new PackageManifestFacts(
-                    expectedCoordinate,
+                    coordinate,
                     nuspec.ManifestVersion ?? "nuspec",
                     nuspec.Description,
                     nuspec.Authors,
@@ -102,13 +219,54 @@ public static class PackageManifestFactsQuery
                     [.. nuspec.PackageTypes ?? []],
                     nuspec.IsToolPackage,
                     nuspec.ReadmeFile,
-                    dependencyGroups));
+                    dependencyGroups)
+                {
+                    IconFile = nuspec.IconFile,
+                    IconUrl = nuspec.IconUrl,
+                    IdentityProvenance = identityProvenance,
+                });
         }
-        catch (Exception exception) when (
-            exception is InvalidDataException
-                or NuspecParseException)
+        catch (ManifestValidationException exception)
         {
-            return new PackageManifestFactsResult.Failed(exception);
+            return Failed(exception.Reason);
+        }
+        catch (NuspecParseException exception)
+        {
+            return Failed(
+                PackageManifestFailureReason.MalformedXml,
+                exception.LineNumber,
+                exception.LinePosition);
+        }
+        catch (InvalidDataException)
+        {
+            return Failed(
+                PackageManifestFailureReason.UnsupportedDocumentShape);
+        }
+    }
+
+    private static PackageSourceCoordinate CreateSelfAttestedCoordinate(
+        NuspecData nuspec)
+    {
+        if (string.IsNullOrWhiteSpace(nuspec.PackageName)
+            || string.IsNullOrWhiteSpace(nuspec.Version))
+        {
+            throw Failure(
+                PackageManifestFailureReason.UnsupportedDocumentShape);
+        }
+
+        ValidateScalar(nuspec.PackageName);
+        ValidateScalar(nuspec.Version);
+
+        try
+        {
+            return PackageSourceCoordinate.Create(
+                nuspec.PackageName,
+                nuspec.Version.Trim());
+        }
+        catch (ArgumentException)
+        {
+            throw Failure(
+                PackageManifestFailureReason.InvalidIdentityContract);
         }
     }
 
@@ -117,15 +275,21 @@ public static class PackageManifestFactsQuery
         PackageSourceCoordinate expectedCoordinate)
     {
         if (string.IsNullOrWhiteSpace(nuspec.PackageName)
-            || !nuspec.PackageName.Equals(
+            || string.IsNullOrWhiteSpace(nuspec.Version))
+        {
+            throw Failure(
+                PackageManifestFailureReason.UnsupportedDocumentShape);
+        }
+
+        if (!nuspec.PackageName.Equals(
                 expectedCoordinate.PackageId,
                 StringComparison.OrdinalIgnoreCase)
             || !VersionsEqual(
                 nuspec.Version,
                 expectedCoordinate.Version))
         {
-            throw new InvalidDataException(
-                "The package manifest identity does not match the requested package.");
+            throw Failure(
+                PackageManifestFailureReason.IdentityMismatch);
         }
     }
 
@@ -136,8 +300,8 @@ public static class PackageManifestFactsQuery
             return [];
         if (groups.Count > MaxDependencyGroups)
         {
-            throw new InvalidDataException(
-                "The package manifest contains too many dependency groups.");
+            throw Failure(
+                PackageManifestFailureReason.ConfiguredLimitExceeded);
         }
 
         var builder =
@@ -155,20 +319,29 @@ public static class PackageManifestFactsQuery
                 dependencyCount++;
                 if (dependencyCount > MaxDependencies)
                 {
-                    throw new InvalidDataException(
-                        "The package manifest contains too many dependencies.");
-                }
-
-                if (!PackageCoordinateResolver.IsCanonicalPackageId(
-                        dependency.Id))
-                {
-                    throw new InvalidDataException(
-                        "The package manifest contains an invalid dependency id.");
+                    throw Failure(
+                        PackageManifestFailureReason.ConfiguredLimitExceeded);
                 }
 
                 ValidateScalar(dependency.Id);
                 ValidateScalar(dependency.Version);
-                PackageDependencyVersionRange.Validate(dependency.Version);
+                if (!PackageCoordinateResolver.IsCanonicalPackageId(
+                        dependency.Id))
+                {
+                    throw Failure(
+                        PackageManifestFailureReason.InvalidDependencyContract);
+                }
+
+                try
+                {
+                    PackageDependencyVersionRange.Validate(dependency.Version);
+                }
+                catch (InvalidDataException)
+                {
+                    throw Failure(
+                        PackageManifestFailureReason
+                            .InvalidDependencyContract);
+                }
                 dependencies.Add(
                     new DeclaredPackageDependency(
                         dependency.Id,
@@ -194,13 +367,15 @@ public static class PackageManifestFactsQuery
         ValidateScalar(nuspec.RepositoryCommit);
         ValidateScalar(nuspec.License);
         ValidateScalar(nuspec.LicenseUrl);
+        ValidateScalar(nuspec.IconFile);
+        ValidateScalar(nuspec.IconUrl);
         ValidateScalar(nuspec.ReadmeFile);
         ValidateScalar(nuspec.Description?.ToString());
 
         if (nuspec.PackageTypes is { Count: > MaxPackageTypes })
         {
-            throw new InvalidDataException(
-                "The package manifest contains too many package types.");
+            throw Failure(
+                PackageManifestFailureReason.ConfiguredLimitExceeded);
         }
 
         foreach (string packageType in nuspec.PackageTypes ?? [])
@@ -211,10 +386,23 @@ public static class PackageManifestFactsQuery
     {
         if (value is { Length: > MaxScalarCharacters })
         {
-            throw new InvalidDataException(
-                "The package manifest contains a scalar value that exceeds the configured limit.");
+            throw Failure(
+                PackageManifestFailureReason.ConfiguredLimitExceeded);
         }
     }
+
+    private static PackageManifestFactsResult.Failed Failed(
+        PackageManifestFailureReason reason,
+        int lineNumber = 0,
+        int linePosition = 0) =>
+        new(new PackageManifestFailure(
+            reason,
+            lineNumber,
+            linePosition));
+
+    private static ManifestValidationException Failure(
+        PackageManifestFailureReason reason) =>
+        new(reason);
 
     private static bool VersionsEqual(
         string? declaredVersion,
@@ -228,4 +416,10 @@ public static class PackageManifestFactsQuery
         && declared.ToNormalizedString().Equals(
             requested.ToNormalizedString(),
             StringComparison.OrdinalIgnoreCase);
+
+    private sealed class ManifestValidationException(
+        PackageManifestFailureReason reason) : Exception
+    {
+        public PackageManifestFailureReason Reason { get; } = reason;
+    }
 }

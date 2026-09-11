@@ -41,6 +41,107 @@ Version discovery combines all eligible sources and chooses the highest
 semantic version; source order is not precedence. Pin `Package@Version` when
 the exact coordinate matters.
 
+### Query versions from a folder feed
+
+Online version queries support NuGet V2/V3 folder feeds, specified as a
+path, a `file://` URI, or a mapped source in `NuGet.Config`:
+
+```bash
+dnx dotnet-inspect -y -- package MyCompany.Widget --versions --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget --versions -n 5 --preview \
+  --source ./feed --jsonl
+dnx dotnet-inspect -y -- package MyCompany.Widget --latest-version --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --version --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget@1.0.0..2.0.0 --versions \
+  --source ./feed --include-unlisted
+dnx dotnet-inspect -y -- package MyCompany.Widget --versions-with-feed \
+  --source ./feed --add-source https://api.nuget.org/v3/index.json
+```
+
+Local and HTTP versions are combined and sorted before the result limit.
+Missing folders or invalid archives are source failures, not package absence;
+usable peer results carry an explicit partial warning on stderr. Local reads
+use bounded enumeration rather than treating filenames as version evidence.
+Latest, single-version discovery, and range selection require complete
+evidence: an unreadable peer makes them fail instead of choosing from a
+healthy subset. A pinned verification may report a coordinate observed on a
+readable feed, with peer failures disclosed. `--include-unlisted` and
+`--versions-with-feed` retain their listing and feed columns; local versions
+use the non-Gallery `listed` convention.
+
+These version queries are metadata-only and do not use `--offline`.
+
+### Inspect a package from a folder feed
+
+Pin one coordinate to inspect its payload through the configured folder source:
+
+```bash
+dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed \
+  --path @readme --content --bare
+dnx dotnet-inspect -y -- package MyCompany.Widget --source ./feed
+dnx dotnet-inspect -y -- package 'MyCompany.Widget@1.*' --source ./feed \
+  --path @readme --content --bare
+```
+
+Online single-package inspection also supports latest, `--preview`, and
+wildcard payload selection. It freshly queries every eligible source and
+requires complete evidence before choosing a version; a failed peer blocks
+automatic selection even when another source has a warm payload cache.
+Only sources that reported the selected version may supply its payload.
+Wildcards use a case-insensitive version prefix and may match prereleases.
+
+Caller-pinned acquisition tries local sources before HTTP sources.
+Declaration order is not precedence within a tier. One eligible source can
+supply the exact package even when an earlier peer fails; `--verbose` retains
+those diagnostics. Tool-wrapper redirects independently reapply mapping.
+
+Local payload caches are scoped to the canonical configured folder, not just
+package ID/version or producer identity. HTTP payloads currently use temporary
+authority-scoped materialization and do not reuse persistent payload caches.
+Automatic selection does not reuse legacy candidate caches. `package --versions`
+can enumerate a range, but ordinary `package` payload inspection does not
+accept a range or `--at`.
+
+### Inspect APIs and timelines from a folder feed
+
+Online API commands support omitted/latest and wildcard selection, exact pins,
+and explicitly addressed ranges:
+
+```bash
+dnx dotnet-inspect -y -- type MyCompany.Widget --package MyCompany.Widget \
+  --source ./feed
+dnx dotnet-inspect -y -- type MyCompany.Widget \
+  --package 'MyCompany.Widget@1.*' --source ./feed
+dnx dotnet-inspect -y -- type MyCompany.Widget --package MyCompany.Widget@1.2.3 \
+  --source ./feed
+dnx dotnet-inspect -y -- type MyCompany.Widget \
+  --package MyCompany.Widget@1.0.0..2.0.0 --at last --source ./feed
+dnx dotnet-inspect -y -- timeline --package MyCompany.Widget@1.0.0..2.0.0 \
+  --type MyCompany.Widget --type-presence --at first --at last --source ./feed
+```
+
+Omitted and `@latest` API selection chooses the highest stable listed version.
+Wildcards use the package selection contract's case-insensitive prefix
+semantics and may select a prerelease.
+
+Ranges require complete fresh discovery and acquire only from sources that
+reported each selected coordinate. A timeline retains one vector for all its
+probes. Omit `--at` for a metadata-only view; `--at all` explicitly acquires
+every address. An unreadable peer prevents selection.
+
+API/timeline vectors exclude unlisted observations, including endpoints.
+An exact pin can still inspect an unlisted coordinate. Do not copy ordinals
+from a `--include-unlisted` metadata listing into a listed-only vector.
+Timeline probe recommendations retain source/configuration and selection
+options. `match --similar` retains the reporting configured sources in its
+exact-package replay, without depending on temporary extraction paths.
+
+Exact API pins and range probes use the same local authority caches and HTTP
+temporary storage as package inspection. HTTP payloads are downloaded anew in
+each invocation. Multi-package and dependency commands, and offline extraction
+remain on their existing paths.
+
 ### Restrict package ids to feeds
 
 dotnet-inspect honors `<packageSourceMapping>` from the selected NuGet
@@ -121,10 +222,14 @@ coordinate only when `.nupkg.metadata.source` names an authorized producer.
 Missing or mismatched provenance is a cache miss, and installed payloads do not
 introduce version candidates. Use `--no-nuget-cache` to exclude that layer.
 `--offline` forbids network access and does not start credential plugins, so it
-succeeds only from producer-authorized caches. Configured non-HTTP sources,
-including folder feeds, are skipped in every mode; `--verbose` reports the
-skip. Pass a local `.nupkg` path directly when the package is available as a
-file.
+succeeds only from producer-authorized caches. Online version queries bypass
+these legacy caches. Online single-package extraction, exact API pins, and
+API/timeline range probes use authority-scoped
+payload storage instead: old producer-keyed entries cannot authorize it, and HTTP
+global-packages entries are not reused. A local global-packages entry must
+name the same canonical configured folder in `.nupkg.metadata.source`.
+Other unmigrated paths still skip configured folder feeds; `--verbose`
+reports the skip. Passing a local `.nupkg` file remains supported separately.
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 \

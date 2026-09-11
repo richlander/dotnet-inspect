@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPublishable>true</IsPublishable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference
+      Include="../Bridge/InspectWeb.ManagedOperationBridge.BrowserCanary.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CanaryModulesDir)' != ''">
+    <Content
+      Include="$(CanaryModulesDir)/initialize.js"
+      Link="wwwroot/initialize.js"
+      CopyToPublishDirectory="PreserveNewest" />
+    <Content
+      Include="$(CanaryModulesDir)/exercise.js"
+      Link="wwwroot/exercise.js"
+      CopyToPublishDirectory="PreserveNewest" />
+    <Content
+      Include="$(CanaryModulesDir)/facades/*.js"
+      Link="wwwroot/facades/%(Filename)%(Extension)"
+      CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

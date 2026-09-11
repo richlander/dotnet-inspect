@@ -23,9 +23,9 @@ public sealed class DefaultValueRenderingTests
         Surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
     }
 
-    static string Signature(string method) => Surface.Types
+    static string Signature(string method) => Assert.IsType<string>(Surface.Types
         .First(t => t.Name == nameof(DefaultValueFixtures))
-        .Members.First(m => m.Name == method).Signature;
+        .Members.First(m => m.Name == method).Signature);
 
     static ApiParameter Parameter(string method, int index = 0) => Surface.Types
         .First(t => t.Name == nameof(DefaultValueFixtures))

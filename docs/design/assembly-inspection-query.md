@@ -3,12 +3,11 @@
 > Design north-star for the CLI-thinning work tracked in
 > [#2122](https://github.com/richlander/dotnet-inspect/issues/2122). Describes the target
 > boundary between the CLI and the metadata/service layers for *acquiring and inspecting an
-> assembly*: the CLI forms a query, the service resolves, opens, and returns the finished shape.
+> assembly*: the CLI forms a query, the service resolves, opens, and returns the finished typed result.
 > It defines the **assembly** seam concretely and its **method-body / coordinate** sibling seam
-> (see [below](#the-sibling-seam-method-body--coordinate-inspection)). This is the
-> acquisition-seam counterpart to
-> [`service-model-refactoring.md`](service-model-refactoring.md), which covers the
-> output-shape seam.
+> (see [below](#the-sibling-seam-method-body--coordinate-inspection)). The
+> [Find type-search service](find-search-service.md) is a separate CLI-scoped
+> composition boundary, not a general output-shape counterpart to this seam.
 
 ## The question that started this
 
@@ -109,7 +108,7 @@ on-disk assembly) and **inspection** (read that assembly and produce a result) i
 re-do both by hand: open the PE image itself, and re-derive or manually forward the identity
 the resolver already computed.
 
-## Target: the CLI forms a query, a service returns the final shape
+## Target: the CLI forms a query, a service returns the complete typed result
 
 The CLI should express *what it wants* and receive *the finished result*. It should never
 hold a `PEReader` and never re-derive provenance.
@@ -203,6 +202,472 @@ original value-equal record to a registration-backed, non-equatable descriptor:
 > content access guarded by an owner-issued admission or current-query
 > authorization lease; a descriptor path is not read authority. Do not add
 > another source variant to Metadata as the target integration seam.
+
+The current artifact bridge is
+`ResolvedAssemblyReference.CreateFromArtifactIfManaged`. It consumes the exact
+artifact acquisition registration and a guarded stream callback supplied by
+the artifact owner, decodes the assembly identity, and binds the registration
+to the image's non-empty MVID. Artifact-backed opens revalidate both assembly
+identity and MVID. `AssemblyImage`, retained snapshots, metadata-only
+`PdbContext` assembly-image opens, and the remaining descriptor-based Metadata
+readers all use that same check. Compatibility path and stream factories remain
+available while their callers migrate; they do not manufacture an artifact
+registration.
+
+Compatibility selection classifies metadata once a path or readable stream is
+opened. `ResolvedAssemblyReference.SelectFromPath` and `SelectFromStream`
+return an `AssemblyDescriptorSelectionResult`: `Ready` carries the selected
+descriptor, `Descriptorless` identifies an image with no usable managed
+assembly identity because it is an unrecognized non-PE image, including a
+DOS-signature image whose DOS header does not resolve to a PE signature, a
+structurally valid native image, or a managed netmodule. Once the DOS header
+resolves to a PE signature, `Rejected` carries an `InvalidImage` failure for
+invalid subsequent PE or CLR structure, or when managed metadata cannot yield
+a usable assembly identity. I/O, authorization, and opener-contract failures
+remain visible exceptions. Consumers must not decode PE metadata or inspect
+exception text to recreate the three-way classification.
+
+The existing nullable factories are shims over this result while preserving
+their exact compatibility behavior: they return the descriptor, return `null`
+for images with no managed metadata, retain the prior non-assembly exception
+for managed netmodules, and retain `null` for a recognized assembly with no
+usable identity or a structural PE/CLR rejection that has no original decode
+exception. Other `Rejected` results rethrow the original metadata-decode
+exception. Typed consumers receive `Descriptorless` for managed netmodules and
+`Rejected` for structural PE/CLR failures and unusable managed-assembly
+metadata or identity.
+Artifact-backed factories intentionally retain their existing nullable
+classification as well as their separate registration and MVID semantics;
+this compatibility correction does not change artifact selection.
+
+`LibraryCommand` in #5594 is the named direct consumer. Existing production
+path and stream callers consume the corrected classification through the
+nullable shims while they migrate. The stream entry point remains
+browser/Wasm-compatible; browser layering prohibits host code from calling
+these descriptor-selection entry points directly, gated by
+`BrowserEngineLayeringTests.BanListForbidsEverySessionAndImageDoor`. The
+selection contract is gated by
+`SelectFromPath_ReturnsDescriptorWithSelectedProvenance`,
+`DescriptorSelection_ClassifiesDescriptorlessImages`,
+`PathFactories_BlankAssemblyName_IsRejected`,
+`DescriptorSelection_RejectsMalformedManagedMetadata`,
+`DescriptorSelection_RejectsMalformedMetadataSection`,
+`DescriptorSelection_RejectsUnmappableCorHeader`,
+`DescriptorSelection_PreservesLegacyMetadataExceptionType`,
+`SelectFromStream_UsesTheSameTypedClassification`, and
+`SelectFromStream_InvalidOpenerRemainsVisible`,
+`SelectFromPath_UnreadableInputRemainsVisible`.
+
+The compatibility package-role path continues to use
+`CreateFromStreamWithFallbackIdentity`.
+`CreateFromArtifactWithFallbackIdentity` is its artifact-backed peer for a
+later migration that must preserve a selected malformed, native, module, or
+empty-MVID asset as a visible rejection carrier. An image with a decodable
+assembly identity retains that identity, and a non-empty MVID is bound when
+available. A fallback descriptor retains the exact artifact registration, but
+the fallback identity is not assembly evidence: every later artifact-backed
+open revalidates the image and rejects it. This is gated by
+`ArtifactFallbackDescriptor_PreservesExactRegistrationAndValidIdentity` and
+`ArtifactFallbackDescriptor_RetainsRejectedSelectedImages`. The content-free
+admission contract below remains stricter and does not publish these
+compatibility rejection carriers.
+
+This bridge does not consume workspace roles or source-specific provenance.
+Those remain owner-issued evidence for workspace admission and trust policy.
+PDB artifact acquisition, symbol stores, and SourceLink policy are separate
+contracts; only validation of the assembly PE opened by an existing
+descriptor-based PDB entry point belongs here.
+
+#### Admission-scoped artifact projection
+
+Issue [#5143](https://github.com/richlander/dotnet-inspect/issues/5143)
+defines the replacement for using
+`ResolvedAssemblyReference.CreateFromArtifactIfManaged` while a workspace is
+constructing an assembly context. This is an assembly-inspection-query
+contract. Artifact acquisition still owns admission and query authorization,
+retained bytes, source provenance, and publication. Metadata still owns PE
+classification, assembly identity, and MVID decoding.
+
+The operation has two distinct phases:
+
+1. During admission, the artifact owner validates the current admission
+   authority, derives an owner-attested view from the exact selected
+   acquisition registration, and invokes the assembly projector with only that
+   view and callback-scoped immutable bytes. The full acquisition registration
+   does not cross the boundary. The projector classifies those bytes and
+   returns content-free assembly facts.
+2. During a later query, the artifact owner validates the current query
+   authority and lends the retained immutable bytes for one operation. The
+   assembly consumer validates those bytes against the published facts before
+   inspection. Validation never rebinds or replaces the published facts.
+
+The artifact owner performs lease and generation checks before invoking either
+callback. The assembly projector does not receive an admission or query lease,
+does not retain the callback input, and does not mint artifact authority. This
+is the immediate typed boundary the assembly query consumes:
+
+```csharp
+public readonly ref struct ArtifactAdmissionContentView
+{
+    internal ArtifactAdmissionContentView(
+        ArtifactIdentity artifact,
+        ReadOnlySpan<byte> content)
+    {
+        Artifact = artifact;
+        Content = content;
+    }
+
+    public ArtifactGenerationIdentity Generation => Artifact.Generation;
+    public ArtifactIdentity Artifact { get; }
+    public ReadOnlySpan<byte> Content { get; }
+}
+
+public readonly ref struct ArtifactQueryContentView
+{
+    internal ArtifactQueryContentView(
+        ArtifactIdentity artifact,
+        ReadOnlySpan<byte> content)
+    {
+        Artifact = artifact;
+        Content = content;
+    }
+
+    public ArtifactGenerationIdentity Generation => Artifact.Generation;
+    public ArtifactIdentity Artifact { get; }
+    public ReadOnlySpan<byte> Content { get; }
+}
+
+public abstract record ArtifactAssemblyProjectionOutcome
+{
+    public sealed record Projected(
+        ArtifactAssemblyProjection Value)
+        : ArtifactAssemblyProjectionOutcome;
+
+    public sealed record NotAssembly(
+        ArtifactNonAssemblyKind Kind)
+        : ArtifactAssemblyProjectionOutcome;
+
+    public sealed record Rejected(
+        ArtifactAssemblyProjectionFailure Failure)
+        : ArtifactAssemblyProjectionOutcome;
+}
+
+public sealed record ArtifactAssemblyProjection(
+    AssemblyProjectionRegistration Registration,
+    AssemblyReferenceIdentity Identity);
+
+public sealed record AssemblyProjectionRegistration(
+    ArtifactGenerationIdentity Generation,
+    ArtifactIdentity Artifact,
+    Guid ModuleVersionId);
+
+public enum ArtifactNonAssemblyKind
+{
+    NativeImage,
+    ManagedModule,
+}
+
+public sealed record ArtifactAssemblyProjectionFailure(
+    ArtifactAssemblyProjectionFailureKind Kind);
+
+public enum ArtifactAssemblyProjectionFailureKind
+{
+    AdmissionUnauthorized,
+    UnsupportedWindowsMetadata,
+    MalformedMetadata,
+    EmptyModuleVersionId,
+}
+
+public abstract record ArtifactAssemblyQueryOutcome<TResult>
+{
+    public sealed record Validated(TResult Value)
+        : ArtifactAssemblyQueryOutcome<TResult>;
+
+    public sealed record NotAssembly(ArtifactNonAssemblyKind Kind)
+        : ArtifactAssemblyQueryOutcome<TResult>;
+
+    public sealed record Rejected(ArtifactAssemblyQueryFailure Failure)
+        : ArtifactAssemblyQueryOutcome<TResult>;
+}
+
+public sealed record ArtifactAssemblyQueryFailure(
+    ArtifactAssemblyQueryFailureKind Kind);
+
+public enum ArtifactAssemblyQueryFailureKind
+{
+    QueryUnauthorized,
+    GenerationMismatch,
+    ArtifactIdentityMismatch,
+    UnsupportedWindowsMetadata,
+    MalformedMetadata,
+    EmptyModuleVersionId,
+    AssemblyIdentityMismatch,
+    ModuleVersionIdMismatch,
+}
+```
+
+These declarations describe the value shape and typed outcomes; they do not
+assign the artifact owner's callback API or authorization implementation to
+Metadata. `Inspector.Artifacts` owns the two `ref struct` views and their
+construction, implemented by #5906. Their distinct types and scoped callbacks
+provide the phase distinction and non-retention boundary.
+
+`ArtifactAssemblyInspection.Project` consumes `ArtifactAdmissionContentView`.
+`ArtifactAssemblyInspection.Execute<TResult>` consumes
+`ArtifactQueryContentView`, the published projection, and a synchronous
+producer over `AssemblyInspectionSession`. Each operation pins the borrowed
+span only for its reader lifetime; query session disposal also occurs inside
+that pin. This adapts the owner's retained image without another full-image
+copy or a source reopen. The producer must return materialized results rather
+than deferred work or session-bound objects.
+
+The outer composition calls
+`ArtifactAssemblyProjectionOutcome.FromAccess` or
+`ArtifactAssemblyQueryOutcome<TResult>.FromAccess` on the artifact owner's
+`ArtifactContentAccessOutcome<T>`: an accessed value passes through, while
+`Unauthorized` becomes the phase-specific Metadata rejection. These mapping
+operations receive neither leases nor content handles. Owner callback
+exceptions and cancellation propagate rather than entering that mapping.
+
+`ArtifactAssemblyProjection` is immutable, content-free, and bound to one
+in-process artifact generation. It is not a durable or serializable identity.
+`Registration.Generation` must be the same owner-issued object exposed by
+`Registration.Artifact.Generation`. `Registration.Artifact` must be the exact
+`ArtifactIdentity` from the selected
+`ArtifactAcquisitionRegistration.Artifact`, compared by reference identity.
+The artifact owner retains the complete acquisition registration and its
+provenance; neither crosses this boundary.
+
+`AssemblyProjectionRegistration` is the content-free assembly registration for
+this path. Its non-empty MVID is bound when the admission outcome is returned.
+The existing `AssemblyAcquisitionRegistration`, including its public
+`ArtifactRegistration` compatibility property and mutable internal bind
+operation, does not appear inside the projection. Later query validation
+compares identity and MVID; it does not mutate or replace the projection
+registration.
+
+The successful output exposes none of the following, directly or through a
+nested public value:
+
+- a filesystem path;
+- `Stream`, `Func<Stream>`, or another content opener;
+- immutable or mutable content bytes;
+- `ArtifactContentReference` or retained-content handle;
+- `ArtifactAcquisitionRegistration` or source provenance;
+- `ArtifactAdmissionLease` or `ArtifactQueryLease`; or
+- an operation that can reacquire, reopen, or reconstruct any of those values.
+
+The exact artifact identity is correspondence evidence minted with the full
+artifact acquisition registration, not a source interpretation performed by
+Metadata. Consumers may retain that opaque identity and generation to join
+owner-issued workspace facts, but only the artifact owner retains the mapping
+to acquisition provenance or can turn current authorization into another
+content callback.
+
+##### Admission classification
+
+The admission callback must observe one immutable byte sequence. Metadata
+first applies the MetadataPrimitives-owned
+`MetadataImageFormatClassifier`. Unsupported Windows Metadata is rejected
+before constructing a `MetadataReader` or performing other managed metadata
+work. Supported input is then classified without loading the inspected
+assembly:
+
+| Input | Outcome | Participant consequence |
+| --- | --- | --- |
+| Managed assembly with a non-empty MVID | `Projected` | The context realizer may use the returned facts when forming its atomic publication. |
+| Native PE image with no managed metadata | `NotAssembly(NativeImage)` | No assembly registration or participant is manufactured. |
+| Managed netmodule | `NotAssembly(ManagedModule)` | No assembly registration or participant is manufactured. |
+| Windows Metadata (`WindowsMetadata` or `ManagedWindowsMetadata`) | `Rejected(UnsupportedWindowsMetadata)` | Required context admission fails visibly before managed metadata work. |
+| Malformed PE or metadata | `Rejected(MalformedMetadata)` | Required context admission fails visibly. |
+| Managed assembly with an empty MVID | `Rejected(EmptyModuleVersionId)` | Required context admission fails visibly. |
+| Foreign, revoked, disposed, or ended admission authority | `Rejected(AdmissionUnauthorized)` | The callback is not invoked and no assembly facts are minted. |
+
+Structural arithmetic failures during reader construction are malformed
+metadata. Arithmetic failures from a query producer remain exceptional rather
+than becoming a Metadata rejection. An image that declares a CLR header but
+has no readable managed metadata is malformed, not a native image.
+
+Dedicated Release coverage of these two artifact rejection cases is
+`unverified`: structural arithmetic failures and a declared CLR header without
+readable managed metadata. Current evidence is source inspection. Descriptor
+gates cover legacy behavior and the shared predicate, not these artifact
+outcome mappings.
+
+`NotAssembly` is a positive classification, not successful assembly
+projection. Whether a non-assembly artifact is allowed to remain in a broader
+artifact catalog belongs to that catalog's owner. It cannot enter an
+`AssemblyContextGroup` through this contract.
+
+The projector receives an artifact-owner-attested admission view. The
+`Artifact` value is the exact identity carried by the selected acquisition
+registration; it is not caller-reconstructed from ordinal, generation, path,
+provenance, or display data. The context realizer owns the frozen map from
+selected artifact identities to successful projections and the atomic decision
+to publish a complete group; this component neither assigns workspace roles
+nor constructs the group.
+
+##### Query-time revalidation
+
+The later query path starts from a published
+`ArtifactAssemblyProjection`. Under current query authorization, the artifact
+owner locates the exact retained acquisition registration and supplies an
+owner-attested `ArtifactQueryContentView` for one operation. Registration and
+generation are not decoded from PE bytes: they come from this scoped owner
+view. Before any producer observes assembly evidence, the assembly query
+validates all of:
+
+1. the view's generation is the projection registration's exact generation;
+2. its artifact identity is the projection registration's exact artifact;
+3. `MetadataImageFormatClassifier` still classifies the retained image as
+   supported ECMA-335 before any `MetadataReader` construction or managed
+   metadata work;
+4. the retained image is still a managed assembly;
+5. its assembly identity is equivalent to the projected identity under
+   `AssemblyReferenceIdentity.IsEquivalentTo`; and
+6. its non-empty MVID equals the projection registration's MVID.
+
+Because an `ArtifactIdentity` is scoped to its owner-issued generation, exact
+artifact identity already entails generation equality. The explicit generation
+comparison runs first to classify a foreign-generation owner view as
+`GenerationMismatch`; it is not a second way to authenticate the artifact.
+
+A generation, artifact identity, assembly identity, or MVID mismatch is a
+typed `Rejected` outcome. Native and module replacements produce the query
+outcome's typed `NotAssembly` arm; unsupported Windows Metadata, malformed
+metadata, and empty-MVID replacements use their dedicated query failure kinds.
+None is retried through a path, source adapter, descriptor opener, or new
+acquisition.
+
+The `Validated<TResult>` value is produced inside the query view's callback.
+The assembly query opens an internal `AssemblyImage` or
+`AssemblyInspectionSession`, invokes the selected producer, and disposes all
+image-local state before returning `TResult` to the artifact owner. A validated
+marker cannot escape first and authorize a later unguarded open.
+
+The artifact owner remains responsible for rejecting a missing, foreign,
+revoked, disposed, or ended query authorization before lending content. The
+outer query operation maps that rejection to `QueryUnauthorized`. The assembly
+query consumes the owner-attested generation and artifact identity and performs
+the content-derived checks; it does not infer owner state from PE bytes,
+ordinal equality, or display values.
+
+The interaction model treats current admission and query authority as external
+inputs. It proves that projection or validation cannot proceed after
+revocation, but it does not model the artifact owner's outer
+`AdmissionUnauthorized` or `QueryUnauthorized` result mapping. The named
+Release gates below own those exact mappings and prove that the callback and
+producer are not invoked.
+
+##### Relationship to compatibility descriptors
+
+`ResolvedAssemblyReference` remains a compatibility descriptor for current
+path- and stream-based consumers. Implementing this design must not put an
+admission callback, query callback, retained-content handle, or lease into that
+descriptor. The existing artifact-backed
+`AssemblyAcquisitionRegistration.ArtifactRegistration` property also remains a
+compatibility path and is intentionally absent from
+`AssemblyProjectionRegistration`. A query may adapt currently authorized bytes
+to an internal `AssemblyImage` or `AssemblyInspectionSession` for the duration
+of one operation, but the adapter cannot escape the artifact callback or
+recreate a parameterless opener.
+
+`ResolvedAssemblyReference.CreateFromArtifactProjection` adapts successful
+projection facts for existing compatibility consumers without opening content
+again to decode identity or MVID. It requires the exact artifact and generation
+identities, binds the projected MVID, and preserves the caller's independently
+supplied guarded opener and provenance. Neither capability comes from the
+projection. As with existing descriptor factories, the compatibility identity
+must have a nonblank name.
+
+The first production adopter is shared package-role realization:
+`InspectionWorkspace.RealizePackageAssemblyContextRolesAsync`, already used by
+Browser package inspection and the CLI artifact-backed package Integrations
+path. It consumes successful admission facts only after artifact publication.
+Non-projectable images and identities unsuitable for compatibility descriptors
+retain the existing rejection-carrier route, including any partially decoded
+identity. This adoption does not migrate group queries to
+`ArtifactAssemblyInspection.Execute` or enable assembly-pattern Package Query.
+
+General removal of `ResolvedAssemblyReference.Path` and
+`ResolvedAssemblyReference.OpenRead` waits for their existing consumers to
+migrate. This slice adds the content-free route required by context
+publication; it does not silently change compatibility behavior.
+
+##### Interaction model
+
+The
+[admission assembly projection model](models/admission-assembly-projection/README.md)
+checks the bounded interaction among current admission authority, projection,
+publication, authority expiry, and later query revalidation. It verifies that
+successful projection requires current admission authority, published facts
+retain the exact opaque artifact identity but no content authority or
+provenance, and query validation requires current query authority plus exact
+generation, artifact identity, assembly identity, and MVID agreement. Mutation
+configurations independently show that stale admission, leaked authority,
+dropped artifact identity, relaxed artifact, assembly-identity, MVID, or
+revoked-query checks violate those properties. Separate mutations show that
+unsupported Windows Metadata cannot project or validate as supported
+ECMA-335. The positive model separately requires a foreign-generation view to
+produce `GenerationMismatch`. The model does not establish implementation
+conformance or the outer authorization-result mapping.
+
+##### Required gates
+
+`ArtifactAssemblyInspectionTests` implements these Release gates:
+
+- `AdmissionProjection_BindsExactArtifactIdentityAssemblyRegistrationIdentityAndMvid`
+- `AdmissionProjection_MapsUnauthorizedAuthorityWithoutInvokingCallback`
+- `AdmissionProjection_PublicSurfaceCarriesNoProvenanceContentOrLeaseCapability`
+- `AdmissionProjection_RejectsUnsupportedWindowsMetadataBeforeMetadataWork`
+- `AdmissionProjection_ClassifiesNativeModuleMalformedAndEmptyMvid`
+- `QueryValidation_MapsUnauthorizedAuthorityWithoutInvokingCallback`
+- `QueryValidation_ConsumesOwnerAttestedArtifactIdentityAndGeneration`
+- `QueryValidation_AcceptsExactRetainedImageInsideCallbackWithoutRebinding`
+- `QueryValidation_RejectsUnsupportedWindowsMetadataBeforeMetadataWork`
+- `QueryValidation_ClassifiesNativeModuleMalformedAndEmptyMvid`
+- `QueryValidation_RejectsArtifactGenerationAssemblyIdentityAndMvidMismatch`
+- `AdmissionProjection_ExactArtifactIdentityIsNonVacuous`
+- `CompatibilityDescriptor_UsesProjectedFactsWithoutOpeningContent`
+- `CompatibilityDescriptor_RejectsAnotherArtifactBeforeOpeningContent`
+- `CompatibilityDescriptor_RequiresANonblankIdentity`
+
+The first gate uses the existing artifact-backed fixture from #4954/#4957 and
+requires the same `ArtifactAcquisitionRegistration.Artifact` object, assembly
+identity, and non-empty MVID while proving the full acquisition registration
+remains artifact-owner-private.
+The public-surface gate recursively inspects nested public types for paths,
+source provenance, content, openers, content references, and leases. The
+non-vacuity gate substitutes a different owner-issued artifact identity from
+the same generation in an otherwise valid query view and must fail before
+producer execution. The two authorization-mapping gates cover every listed
+missing, foreign, revoked, disposed, and ended state, require the exact typed
+failure, and prove that no callback or producer runs. The two unsupported-input
+gates use both Windows Metadata kinds and require the
+MetadataPrimitives-owned classifier to reject before `MetadataReader`
+construction or other managed metadata work; `MDP017` continues to own the
+classifier's format detection and bounded-work guarantees.
+
+The compatibility gates use real admission projections to require descriptor
+construction without an open, exact artifact/generation correspondence,
+projected identity and MVID, and the unchanged caller-supplied opener. They
+also require rejection of a blank compatibility identity. The package owner's
+`ArtifactBackedPackageRealization_ReusesAdmissionFactsAcrossRoles` gate checks
+that one retained artifact selected into two distinct production role groups
+supplies the same materialized identity facts to both.
+
+##### Non-goals
+
+This contract does not:
+
+- acquire artifacts or define local-path and installed-platform membership;
+- assign workspace roles or construct and publish an
+  `AssemblyContextGroup`;
+- define binding precedence, member or call-target correspondence, CLI
+  sections, or rendering;
+- acquire PDBs or source;
+- make assembly projection portable across processes; or
+- remove compatibility descriptor APIs before their consumers migrate.
 
 ```csharp
 public abstract record AssemblyResolutionProvenance
@@ -451,6 +916,19 @@ one or more forwarding hops retains the
 terminal assembly identity rather than being attributed to the initial facade
 (`ForwardedUnboundDependencyPreservesTerminalAssemblyIdentity` and
 `ForwardedModuleExportRejectionPreservesTerminalAssemblyIdentity`). An
+AssemblyRef-terminated exported root that lacks the Forwarder flag is retained
+as a bounded type-forwarder inspection failure rather than disappearing from
+the API surface
+(`ExtractApiSurface_AssemblyRefExportWithoutForwarderPreservesFailure` and
+`BoundedApiSurface_AssemblyRefExportWithoutForwarderUsesFailureBudget`).
+Legitimate module exports and nested rows beneath a marked forwarding root
+remain outside that failure
+(`ExtractApiSurface_ModuleExportWithoutForwarderRemainsValid` and
+`ExtractApiSurface_NestedForwarderWithoutFlagRemainsValid`). Resolution-aware
+composition does not add a duplicate inventory failure when that exact cause is
+already retained by the API surface
+(`ExtractApiSurface_MalformedRootAdjacencyIsNotDuplicated` and
+`MalformedRootAdjacency_KeepsHealthySelectedTypeAndIsFatal`). An
 API surface that copies a resolved forwarded type also carries that target surface's bounded,
 deduplicated generic-constraint failure instead of presenting `Undetermined` without its
 cause. The failure retains its owning assembly identity, so its metadata token remains scoped
@@ -532,7 +1010,10 @@ separate image lifetimes and budgets.
 
 Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReader`, opens once,
 and exposes each scan as a method. Crucially it must be the **single** PE-lifetime owner, not a
-new parallel one.
+new parallel one. This document owns service composition at that seam; the
+focused [assembly image lifetime](assembly-image-lifetime.md) document owns
+which bytes the session retains, what an MVID proves, and which outer lifetime
+scopes cache owners may use.
 
 The library Analysis path now uses `PdbContext` as its target-file owner. Full body-index analysis
 prefetches the complete image and consumes immutable content so its parallel readers never seek a
@@ -543,6 +1024,30 @@ ownership, its contract forbids retention after the call, and it avoids a produc
 remains the public
 body-local Metadata capability, and high-level Metadata facets own drill projection. These paths
 remove target reopens without exposing the raw reader to the CLI.
+
+Every image-backed `LibraryBodyIndex` publishes one immutable
+`LibraryBodyModuleIdentity` derived from the same `MetadataReader` before
+feature selection or method filtering. It retains the exact assembly-definition
+identity and non-empty MVID; a standalone managed module has no assembly
+identity. The caller-supplied `Path` remains a display/acquisition input and
+method rows remain body evidence, so neither can substitute for module
+identity. `CatalogCallGraphScope` validates and keys participants with the
+issued identity even when an index has no declared methods. The internal
+`FromEvidence` test seam is not image-backed: non-empty synthetic method
+evidence is validated against its synthetic identity, and an empty synthetic
+index must receive identity explicitly rather than acquiring a success-shaped
+default. `ModuleIdentity_IsImageDerivedAcrossFeaturesAndScopes`,
+`ModuleIdentity_MethodlessPrefetchedImageRetainsExactIdentity`,
+`ModuleIdentity_DistinguishesAssemblyAndModuleGeneration`,
+`ModuleIdentity_StandaloneModuleHasNoAssemblyIdentity`,
+`ModuleIdentity_RejectsEmptyModuleVersionIdentifier`, and
+`EmptyIndexCatalogBindingUsesIssuedModuleIdentity` gate the image-backed and
+catalog properties.
+`SyntheticModuleIdentity_EmptyEvidenceRequiresExplicitIdentity`,
+`SyntheticModuleIdentity_ValidatesMethodsAgainstExplicitIdentity`, and
+`SyntheticModuleIdentity_NonEmptyEvidenceDerivesFixtureIdentity` gate the
+synthetic seam.
+
 The broader model still has a prerequisite. `MetadataSource` owns a separate reader, and
 `ResolvedAssemblyReference` carries only an `OpenRead` opener. Completing the session across
 member/decompiler and descriptor-based paths requires a **low-level PE-owner primitive** opened
@@ -587,24 +1092,246 @@ public sealed class AssemblyInspectionSession : IDisposable
 }
 ```
 
-The CLI collapses to *selection and rendering* — it chooses the source and sections (the
-query) and renders the returned shape, but it does not construct facts, hold PE types, or
-re-derive provenance:
+The CLI collapses to *selection and rendering* — it chooses the source and
+sections (the query), projects the returned typed result through L2, and
+renders it, but it does not construct facts, hold PE types, or re-derive
+provenance:
 
 ```csharp
 foreach (var resolved in await resolver.ResolveAsync(query.Target.Location))  // rich descriptors, nothing discarded
 {
     using var asm = AssemblyInspectionSession.Open(resolved);
-    inspections.Add(InspectionAssembler.Build(query, resolved, asm)); // final, section-shaped result
+    inspections.Add(InspectionAssembler.Build(query, resolved, asm)); // complete typed inspection result
 }
 ```
 
-The boundary is deliberate: per [`service-model-refactoring.md`](service-model-refactoring.md)
-the returned shape should already be *view-compatible* (section-shaped), so the CLI selects
-facets and renders (Markout / writers) rather than transforming service data into view models.
-"Mapping" that constructs inspection facts or section shapes belongs **below** the CLI; only
-facet selection and rendering stay above it. This is what keeps the "service returns the final
-shape" promise from quietly regressing into today's formatter/service leakage.
+The boundary is deliberate: the query returns the complete typed inspection
+result required by the selected facets. Per
+[Inspection layers](inspection-layers.md), L2 owns section-shaped projection
+and the CLI selects facets and renders through Markout or another writer.
+Mapping that constructs inspection facts belongs below the CLI; mapping typed
+facts into a presentation view does not move into the query merely to reduce
+adapter code. This keeps the assembly owner from regressing into formatter
+logic without making view types the currency of the service boundary.
+
+### 4. `MemorySafetyMetadataIndex` — shared module and member meaning
+
+Memory-safety rule selection and member caller contracts are Metadata facts.
+`MemorySafetyMetadataIndex` derives them once from one `MetadataReader`, preserving
+the physical evidence and typed non-success states. Analysis may combine those
+facts with IL-body evidence, while the Decompiler may use them to reconstruct C#;
+neither subsystem re-decodes the marker or depends on the other. This is the same
+layering used by
+[`StateMachineRelationshipIndex`](state-machine-relationship-index.md): Metadata
+authenticates shared structure, then each higher layer owns its distinct policy.
+
+#### Derivation rules
+
+Every clause below instantiates four rules. They are stated once because each
+was otherwise rediscovered a clause at a time, and because a new clause is
+correct only if it names the rule it follows.
+
+**R1 — Authenticate a carrier by structured identity, at the strength its
+provenance permits.** A carrier is identified by the structured top-level name
+of its constructor's *declaring type* — never by flattened display text, by the
+constructor token's kind, or by one component of an assembly identity. The
+required strength depends on whether the compiler can emit the construct
+locally. A marker the compiler synthesizes whenever the framework lacks it, as
+with the rules markers, can be authenticated only by name, because a locally
+defined unsigned TypeDef is legitimate output and demanding more would reject
+real assemblies. A construct the compiler never synthesizes, as with
+`FixedBufferAttribute`, must additionally arrive through the shape real
+compiler output uses: a core contract carrying a platform key. Neither test is
+a trust anchor, because single-file inspection can verify neither a name nor a
+key; both are fidelity filters that stop a lookalike from being read as the
+construct it resembles.
+
+**R2 — Derive an answer only from rows proven observable.** SRM's owner-range
+lookups and accessor projections can silently omit physical rows: a false
+sorted claim hides `CustomAttribute` rows from every range lookup, and
+`PropertyAccessors`/`EventAccessors` expose one slot per semantic role while
+counting a single owner's rows in a `ushort`. Any table an answer depends on is
+therefore proven whole before it is read — by verifying physical ordering, or
+by accounting projected rows against the physical row count.
+
+**R3 — Validate a relationship before inheriting through it.** A projected edge
+is not a validated edge. Inheriting a contract requires the relationship itself
+to satisfy its spec constraints, and an ambiguous edge inherits nothing.
+
+**R4 — Never render a refusal as a negative answer, and scope a failure to what
+it actually invalidates.** Budget exhaustion, an undecodable signature, and a
+malformed row are refusals: none may present as absence, and none may suppress
+evidence that was already definitely observed. A defect confined to one
+identifiable row drops that row and records the failure while the rest of the
+map survives; a defect that makes a whole projection untrustworthy makes every
+dependent answer `Unavailable`. Never the reverse.
+
+These rules are candidates for the shared substrate pattern tracked by
+[#5273](https://github.com/richlander/dotnet-inspect/issues/5273); this section
+binds only `MemorySafetyMetadataIndex`.
+
+R2 and R3 are discharged by construction rather than one site at a time, because
+each was otherwise satisfied only where a reviewer had already found an instance.
+Every projection an answer reads through is proven before any answer is derived:
+attribute owner ranges by verifying `CustomAttribute` parent ordering, and
+declaring-type resolution by pairing each enumeration that reads physical rows
+against the search that must agree with it — `NestedClass` against
+`GetDeclaringType`, the TypeDef method ranges against a method's declaring type,
+and `PropertyMap`/`EventMap` against their owners — then accounting the reachable
+rows against the physical row counts. A projection that cannot observe every row
+makes the module result `Unavailable`, because the defect invalidates the whole
+map rather than one identifiable row.
+
+Accessor relationships are validated for their ECMA-335 II.22.28 role shape
+before a contract inherits through them. The validation is limited to properties
+real compiler output always satisfies — accessors are `specialname`, an adder or
+remover takes exactly one argument, and a getter or setter takes exactly the
+property's index arity, or one more for a setter — so a legitimate accessor is
+never dropped, and an undecodable signature is treated as a refusal rather than a
+violation. This validates shape, not full signature-type identity: the
+unvalidated residue can only make a member over-report as requiring unsafe,
+which an assembly author gains nothing by forging, whereas rejecting a
+legitimate accessor would under-report and hide real unsafety.
+
+A refusal carries the evidence it already gathered. When the module scan
+exhausts its budget or cannot read a row, the markers decoded from earlier rows
+travel with the failure instead of being replaced by an empty observation set,
+so the refusal never erases evidence the artifact definitely supplied (R4).
+
+The module result is based only on
+`System.Runtime.CompilerServices.MemorySafetyRulesAttribute` rows attached to the
+ModuleDef. AssemblyDef, TypeDef, and member rows with the same attribute name do
+not select the module model. Carrier identity is the structured top-level metadata
+type name; a nested TypeDef or TypeRef whose flattened display text is identical
+does not authenticate either the module marker or a member contract. Identity is
+judged from the constructor's declaring type, not from the constructor token's
+kind: a locally defined carrier authenticates through a MethodDef constructor or
+through a MemberRef naming that same TypeDef, because ECMA-335 permits both
+spellings and the compiler synthesizes these markers locally whenever the target
+framework does not supply them.
+
+| State | Module evidence | Compatibility contract |
+| --- | --- | --- |
+| Legacy | No ModuleDef marker | Version 1 pointer-signature inference |
+| Updated | Every decoded marker has value `2` | Version 2 attribute contracts |
+| Unsupported | Every decoded marker has the same value other than `2` | Preserve the integer; use version 1 compatibility inference |
+| Malformed | Any authentic ModuleDef marker cannot be decoded as exactly one `int` argument | Preserve every observation; use version 1 compatibility inference |
+| Conflicting | Decoded ModuleDef markers carry different integers | Member contracts are unavailable |
+
+Repeated identical decoded markers do not create semantic ambiguity. The result
+retains every row and its value, while normalization selects the one unique model
+they all claim. A malformed row prevents that proof regardless of other valid
+rows. This intentionally differs from Roslyn's first-marker-wins import behavior:
+inspection reports conflicting artifact evidence rather than making row order
+authoritative. `MemorySafetyMetadataIndex_DuplicateIdenticalMarkersRetainEvidence`
+and `MemorySafetyMetadataIndex_ConflictingMarkersMakeContractsUnavailable` gate
+the distinction.
+
+Member queries accept MethodDef (including constructors), FieldDef, PropertyDef,
+and EventDef handles and return `None`, `Implicit`, `Explicit`, or `Unavailable`
+with the evidence used. Nil, out-of-range, and unsupported handle kinds return a
+typed unavailable result rather than absence or an exception.
+
+- Under Legacy, Unsupported, and Malformed module states, pointer or function
+  pointer shape in the callable signature produces `Implicit`. A compiler fixed
+  buffer source FieldDef is excluded from pointer-based propagation only after
+  its platform `FixedBufferAttribute(Type, int)` carrier and complete value are
+  authenticated within the member attribute and name-work budgets. Both the
+  carrier's declaring assembly and any assembly qualification on the serialized
+  element type must be a core contract — `System.Private.CoreLib`,
+  `System.Runtime`, `mscorlib`, or `netstandard` — carrying a platform key.
+  That pairing is a fidelity filter, not a trust anchor: a single-file
+  inspection can verify neither the name nor the key, but it can require the
+  shape the compiler actually emits, so a lookalike reached through an
+  unrelated library is not read as the compiler construct it resembles. A
+  malformed or unavailable fixed-buffer carrier cannot become a fixed-buffer
+  exemption.
+  The exemption applies only to a definite pointer, so it never substitutes for
+  a signature the index did not decode: a signature that cannot be decoded is
+  `Unavailable` unless a definite pointer was already observed, whatever the
+  fixed-buffer evidence says. Legacy, Unsupported, and Malformed results still
+  retain
+  direct and associated `RequiresUnsafeAttribute` evidence without using it to
+  change the compatibility contract.
+- Under Updated rules, one or more well-formed
+  `System.Diagnostics.CodeAnalysis.RequiresUnsafeAttribute` rows on the member
+  produce `Explicit`; the historical
+  `System.Runtime.CompilerServices.RequiresUnsafeAttribute` spelling is also
+  recognized. A same-named row whose constructor or value cannot be honored makes
+  that carrier unavailable. Pointer shape alone does not propagate an Updated
+  contract.
+- A MethodDef accessor first uses its own attribute rows. A valid direct carrier
+  is decisive. Only when the direct carrier is absent does it inherit a
+  PropertyDef or EventDef contract through MethodSemantics. PropertyDef and
+  EventDef queries do not infer a contract in the reverse direction from
+  attributed accessors.
+- An inherited contract requires the accessor and its associated PropertyDef or
+  EventDef to be declared by the same TypeDef, as ECMA-335 II.22.28 requires.
+  SRM projects a `MethodSemantics` row without that check, so a crafted
+  cross-type row would otherwise carry one type's declaration onto an unrelated
+  method. Such a row is rejected like any other invalid row: the association is
+  dropped and the malformed-row failure is recorded, while the rest of the map
+  survives.
+- Under Conflicting module rules, every otherwise supported member query is
+  `Unavailable`; raw marker and member evidence remain available for diagnosis.
+
+Construction is bounded and fail-closed. Every attribute-derived answer depends
+on SRM's owner-range lookups, which binary-search physical rows whenever the
+tables stream claims the `CustomAttribute` table is sorted. Construction
+therefore walks that table once and proves its `HasCustomAttribute` parent coded
+indices are non-decreasing, as ECMA-335 II.22 requires. An image that asserts the
+sorted claim over unsorted rows can otherwise hide module markers and member
+carriers from every range lookup, so an unordered table makes the whole index
+unavailable instead of reporting a contract derived from rows it cannot observe.
+This conservatively rejects any image whose `CustomAttribute` table is not
+physically sorted by parent, including indirection-table images.
+
+Module-marker failure is represented by
+an unavailable rules result. Accessor-association failure is exposed separately:
+a valid direct member carrier remains decisive, while a method that needs an
+incomplete fallback scan is unavailable. `PropertyAccessors` and `EventAccessors`
+expose one slot per semantic role and SRM counts a single owner's rows in a
+`ushort`, so duplicate rows, rows whose owner is unreachable, and a 65,536-row
+wrap all vanish from the projection without an error. Association construction
+therefore accounts for projected accessor rows against the physical
+`MethodSemantics` row count and, on any shortfall, discards every association and
+makes association-dependent queries unavailable.
+
+Per-member attribute and signature
+failures remain scoped to that member. Fixed-buffer evidence distinguishes
+present, absent, unavailable, and not examined, and its serialized
+`System.Type` argument is parsed as a whole assembly-qualified identity rather
+than truncated at the first comma: a qualified element type must name a core
+contract signed with a platform key, so an attacker-qualified `System.Int32`
+cannot claim the fixed-buffer exemption for a definite pointer field. Dedicated row and name-work budgets bound custom-attribute identity and
+association scans, including every PropertyDef, EventDef, and MethodSemantics
+row that contributes accessor relationships.
+`MemorySafetyMetadataIndex_RecognizesCompilerProducedModels`,
+`MemorySafetyMetadataIndex_UsesVersionSpecificMemberContracts`,
+`AccessorFallsBackToAssociatedDefinitionCarrier`,
+`DirectAccessorCarrierWinsBeforeAssociatedFallback`,
+`UnsortedCustomAttributeRowsFailClosed`,
+`UnobservedMethodSemanticsRowsMakeAssociationsUnavailable`,
+`FixedBufferCarrierCannotSuppressAnUndecodableSignature`,
+`FixedBufferExemptionRequiresPlatformElementTypeIdentity`,
+`FixedBufferExemptionRequiresACoreContractCarrier`,
+`LocalRulesCarrierAuthenticatesThroughEitherConstructorSpelling`,
+`NestedLocalRulesCarrierStaysRejectedThroughAMemberReference`,
+`CrossTypeAccessorSemanticsDoesNotCarryAnAssociatedCarrier`,
+`UnorderedNestedClassRowsFailClosed`,
+`OrderedNestedClassRowsRejectASpoofedNestedCarrier`,
+`OrdinaryMethodNamedAsEventAdderInheritsNoCarrier`,
+`OrphanedMethodDefRowsFailClosed`,
+`PropertySetterWithGetterArityInheritsNoCarrier`,
+`BudgetRefusalKeepsMarkersAlreadyDecoded`, and
+`MemorySafetyMetadataIndex_InvalidHandlesAreUnavailable` gate the shared
+contract.
+
+The index does not inspect method bodies, classify inner `unsafe` use or safe
+boundaries, reconstruct source syntax, read project policy, infer
+project-to-binary provenance, or choose presentation. The vocabulary and
+cross-layer composition of those later answers remain owned by
+[`memory-safety-models.md`](memory-safety-models.md).
 
 ## The sibling seam: method-body / coordinate inspection
 
@@ -625,7 +1352,7 @@ out, over the *same* shared PE-owner (so the body path does not re-open the imag
    MemberQuery / ILCoordinateQuery                 MethodBodyInspection
  CLI  ─────────────────────────────►  Service  ──────────────────────────►  CLI
       (assembly + member or IL coord;        (select member → import body →
-       which body sections)                   source / IL / facts → final shape)
+       which body sections)                   source / IL / facts → typed result)
 ```
 
 `ILOffsetProjectionProducer` is the first concrete body seam: top-level Research request/result
@@ -641,6 +1368,63 @@ the method-body *composition* (which joins Metadata + Analysis + Decompiler + Re
 sit **above** those libraries — it cannot live in `ILInspector.Metadata` and must not live in
 `DotnetInspector.Services`. The *shared PE-owner* below is what both seams reuse; the
 cross-library composition is a higher layer.
+
+### Bounded reads for a consumer that charges before it works
+
+The named consumer is Analysis's decoded-`ldstr` producer under
+[#5795](https://github.com/richlander/dotnet-inspect/issues/5795). Its CLI and Browser
+adoption is part of [#6030](https://github.com/richlander/dotnet-inspect/issues/6030),
+within [#5766](https://github.com/richlander/dotnet-inspect/issues/5766)'s 12-milestone
+delivery path, not a separate consumer deferred until after that delivery.
+
+A producer that must charge a budget *before* it does work needs three things the facets above
+do not provide, and the session provides them without handing out a `PEReader` or a
+`MetadataReader`:
+
+- **A scalar row scan.** `MethodBodySource.MethodDefinitionCount` plus
+  `TryDescribeMethod(rowNumber, out MethodRowDescription)` report each `MethodDef` row's token
+  and whether it declares a body, decoding no name and allocating nothing per row.
+  `EnumerateMethods()` remains what it is — a whole-image inventory whose display names and list
+  entries are already allocated by the time a caller could decide it was too expensive.
+- **A bounded body read.** `ReadBounded(methodToken, maxILBytes)` returns a closed
+  `BoundedMethodBodyRead`: `Available(IL)`, `NoBody`, `ByteLimitExceeded`, or
+  `Unreadable(MethodBodyReadFailure)`. The IL code size comes from the method's tiny/fat header
+  in the mapped image, so an over-limit body is refused — with its true size — before any IL is
+  copied. Beyond the session's already-retained image, an admitted read materializes one IL
+  array of at most `maxILBytes` plus constant-size bookkeeping. Exception regions and local
+  signatures are not materialized. A consumer that needs those whole-body facts uses `TryRead`,
+  which has no caller-supplied byte limit; the bounded path reads only the header and IL extent,
+  not the rest of the body block. A nonzero-RVA method with a non-IL implementation is refused as
+  `UnsupportedImplementation`, not interpreted as an IL byte stream.
+- **A bounded literal read.** `ReadBoundedUserString(token, maxCharacters)` validates the `#US`
+  token kind, heap offset, odd encoded length, and terminal 0/1 flag before decoding, so
+  an over-budget literal is refused rather than allocated. The value is the exact raw ordinal
+  content — no escaping, normalization, or case folding, because it is operation input for its
+  consumer, not durable evidence. `ResolveUserString` keeps its existing behavior, including the
+  null it returns for a rejected token, an absent entry, and a malformed entry alike; that
+  conflation is what the bounded path replaces with a typed `UserStringReadFailure`.
+  The new path follows ECMA-335's entry framing rather than accepting a malformed entry merely
+  because SRM can decode a truncated character sequence; the legacy path is unchanged.
+
+`AssemblyInspectionSession.ModuleVersionId()` is a public fact for the same reason: a bounded
+read is only joinable against the module it came from, so the consumer needs the module identity
+without inferring it from a path or a display name.
+
+The bounds are the caller's, not the session's: this seam sets no policy about what a literal or
+a body is *worth*, and it stays out of what its consumers decide with the bytes. Gates:
+`MethodRows_CountAndDescribeMatchTheEnumeratedInventory`,
+`BoundedBody_ReturnsExactILWithinTheLimit`,
+`BoundedBody_MaterializesILWithoutExceptionRegions`,
+`BoundedBody_RefusesAnOverLimitBodyWithItsTrueSize`,
+`BoundedBody_DistinguishesNoBodyFromAMissingRow`,
+`BoundedUserString_ReturnsRawContentWithinTheLimit`,
+`BoundedUserString_RefusesAnOverLimitEntryWithItsTrueLength`,
+`BoundedUserString_ReportsTokenAndRangeFailuresDistinctly`,
+`ModuleVersionId_MatchesTheInspectedModule`, `BoundedReads_RejectUseAfterSessionDisposal`, and
+`BoundedReads_RejectUseAfterTheLenderIsDisposed`. The malformed-image arms
+(`MethodBodyReadFailure.MalformedBody`, `UserStringReadFailure.MalformedEntry`) are reachable
+error handling but are `unverified`: no gate manufactures a hostile binary to exercise them.
+The non-IL implementation refusal is also `unverified` by the ordinary compiler fixtures.
 
 ## Worked example: `JsonSerializer.Serialize:1`
 
@@ -675,11 +1459,13 @@ Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --pl
    `1`, runs the requested facets (source, IL, calls, allocation/safety/cost, decompiled/annotated
    source, …), and returns a section-ready `MethodBodyInspection`. See
    [Method Body Inspection](method-body-inspection.md).
-5. **Render (CLI).** The CLI maps requested sections onto facets and renders the returned shape
-   (Markout / writers). It never opened a `PEReader`, never classified an opcode, never
-   re-derived the assembly's identity. Because the selector narrowed resolution to the one
-   defining assembly (the fan-out rule above), this `InspectionQuery` returns a single
-   `MethodBodyInspection` — not a multi-assembly `InspectionReport`.
+5. **Render (CLI).** The CLI maps requested sections onto facets, projects the
+   returned typed result through L2, and renders the selected shape through
+   Markout or another writer. It never opened a `PEReader`, never classified an
+   opcode, and never re-derived the assembly's identity. Because the selector
+   narrowed resolution to the one defining assembly (the fan-out rule above),
+   this `InspectionQuery` returns a single `MethodBodyInspection` — not a
+   multi-assembly `InspectionReport`.
 
 The positional argument's whole journey: a string the CLI parses once into a typed **selector**
 (`:1` → `MemberQuery.OverloadIndex`), paired with an assembly **location** that resolves to a
@@ -762,14 +1548,19 @@ architecture seen from two ends. "Why does the CLI open assemblies?" resolves to
 resolution → inspection seam is a string instead of a descriptor, so both the *opening* and
 the *provenance* have to be redone in the CLI."
 
-## Relationship to `service-model-refactoring.md`
+## Relationship to the Find type-search service
 
-`service-model-refactoring.md` covers the *output* seam: services should return
-view-compatible shapes so commands stop transforming. This doc covers the *input/acquisition*
-seam: services should accept a query and own resolution + PE lifetime so commands stop opening
-files and forwarding loose provenance. Together they realize the same principle —
-**the command forms a query; the service returns the final shape** — at both ends of the
-pipeline.
+[Find type-search service](find-search-service.md) owns a different,
+CLI-scoped composition seam. It consumes host-authorized candidate inventories,
+classifies type patterns, and returns typed `TypeFindResult` rows; output owners
+then project those rows for rendering. It does not establish that every service
+returns a view-compatible or section-shaped model.
+
+This document's assembly seam ends at typed inspection results over
+service-owned resolution and PE lifetime. L2 and the host compose those results
+into selected sections and formats. The shared principle is narrower: commands
+must not open metadata or reconstruct producer facts, while typed operation
+results remain separate from presentation views.
 
 ## Prior art: the Research producer registry
 
@@ -836,10 +1627,11 @@ alignment above.
 
 ## What legitimately stays in the CLI / elsewhere
 
-- **Selection and rendering:** building the query from options (source + sections/facets) and
-  rendering the returned section-shaped result (Markout / writers) is CLI work. Constructing
-  the inspection facts / section shapes is **not** — that lives in the service (see the
-  boundary note above).
+- **Selection and rendering:** building the query from options (source +
+  sections/facets), projecting typed results through L2, and rendering the
+  selected shape through Markout or another writer are host composition.
+  Constructing inspection facts is **not** CLI work; that remains with the
+  service/query owner (see the boundary note above).
 
 Two things are often *called* "already correct" but really need to be **unified by the
 session**, not left parallel (they are the source of [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times)):

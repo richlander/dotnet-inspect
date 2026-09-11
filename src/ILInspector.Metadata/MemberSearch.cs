@@ -73,6 +73,12 @@ public static class MemberSearch
     /// containing <c>*</c> or <c>?</c> are treated as globs.</param>
     /// <param name="includeAll">When true, non-public members are included; otherwise public only.</param>
     /// <param name="limit">Optional cap on the number of results collected across the whole set.</param>
+    /// <remarks>
+    /// An assembly with no managed metadata is recorded in
+    /// <see cref="MemberSearchOutcome.SkippedAssemblies"/>. A file the admission contract refuses
+    /// is not skipped: the typed mechanism propagates, because a rejected input is not the same
+    /// answer as one that simply has no matching members.
+    /// </remarks>
     public static MemberSearchOutcome Search(
         IEnumerable<string> assemblyPaths,
         IReadOnlyList<string> patterns,
@@ -112,10 +118,11 @@ public static class MemberSearch
     }
 
     /// <summary>
-    /// Searches a single assembly's members. Returns an empty list when the assembly cannot be read
-    /// or has no metadata; callers that need to distinguish that case should use
-    /// <see cref="Search(IEnumerable{string}, IReadOnlyList{string}, bool, int?)"/> and inspect
-    /// <see cref="MemberSearchOutcome.SkippedAssemblies"/>.
+    /// Searches a single assembly's members. Returns an empty list when the assembly has no managed
+    /// metadata, which is not a failure. A file the admission contract refuses is a different case:
+    /// <see cref="UnsupportedMetadataFormatException"/> and
+    /// <see cref="MalformedMetadataRootException"/> propagate rather than being reported as an
+    /// empty result, so a rejected input cannot be mistaken for one with no matches.
     /// </summary>
     public static List<MemberSearchResult> SearchAssembly(
         string assemblyPath,

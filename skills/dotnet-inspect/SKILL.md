@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.22.0
+version: 0.25.0
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, and version-to-version API changes.
 ---
 
@@ -8,39 +8,31 @@ description: Find evidence instead of guessing for .NET packages, platform libra
 
 Use dotnet-inspect for evidence about .NET packages, platform libraries, assemblies, APIs, dependencies, or API version diffs.
 
-```bash
-dnx dotnet-inspect -y -- <command>
-```
-
-`-y` skips interactive confirmation, including after package updates; `--` sends remaining options to dotnet-inspect, so `--help` does not show `dnx` help.
+Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, and `--` sends remaining options to dotnet-inspect rather than `dnx`.
 
 ## Common starts
 
 | Goal | Command |
 | ---- | ------- |
-| Find an API | `find Pattern` includes platform/BCL types; add `--project path/to/project` when project references should be in scope. |
+| Find an API | `find Pattern` includes platform/BCL types; add `--project path/to/project` when project references should be in scope. Use `find --literal "TEXT" --package Foo@version --tfm net10.0` instead to query 1-5 named packages' selected primary implementation assemblies; add `-v:n` for decoded `ldstr` use rows. `TEXT` is a case-sensitive ordinal substring, not a pattern. |
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
+| Correlate one member's Findings | `member Type Method:1 --package Foo -S "Finding Census" --json` returns one receipt-scoped Facts and annotated-source envelope. Load `skill query` for selection and format constraints. |
 | Discover legal query values or demos | `vocabulary -D`; select values with `vocabulary -S Accessibility`, `-S "C# Style Choices" --json`, or `-S "C# Body Kinds"`; use `demo list` for product-home scenarios. |
+| Discover query facets and operators | `library -Q` lists query-capable sections; `type -Q "Body Shapes"` or `library -Q "Performance: Arrays" --json` describes accepted keys and operators without inspection. |
 | Find rendered body syntax | `library path/to.dll --where "Kind=ObjectCreationExpression"`, `type Type --library path/to.dll --where "Kind=InvocationExpression"`, or `member Type Method:1 --library path/to.dll --where "Kind=InvocationExpression"`; load `skill decompiler` for stable kinds and coordinates. |
-| Compare APIs or implementations | `diff --package Foo@old..new --breaking` (`--additive` new APIs; `--alloc-regressions` for allocation regressions); `match Type.MethodA Type.MethodB --package Foo --implementation` compares two unambiguously named methods with C#/IL. |
+| Compare APIs or method bodies | `diff --package Foo@old..new --breaking` (`--additive` new APIs; `--alloc-regressions` for allocation regressions); `match Type.MethodA Type.MethodB --package Foo --body` adds C#/IL body differences to the structural result; `match Type.Method --similar --package Foo` ranks structural candidates for discovery. |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
 | Inspect packages | `package Foo`; use `-D` to discover sections and `-S "Signals,Audit: Findings"` to audit text-bearing files and SourceLink mappings. Load `skill private-feeds` for custom/authenticated sources. |
+| Inspect a Workspace | `workspace --package Foo@version --tfm net10.0`; repeat `--package` to compose ordered package Roots. Exact duplicates coalesce; packages without compile assemblies remain members. Use `--root-request TOKEN` instead to reopen the exact Root a `find --literal` result names; it is refused rather than approximated by package id and version. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections and `-S "Unsafe Members"` for standalone unsafe evidence. Load `skill metadata` for raw ECMA-335 tables/heaps. |
-| Relationships | `depends Type`, `extensions Type`, `implements Interface`. |
+| Dependencies and relationships | `dependency-evidence --package Foo --tfm net10.0` for direct declarations; `depends Type`, `extensions Type`, or `implements Interface` for traversed relationships. Load `skill relationships` for scopes and semantics. |
 
 ## Member lookup
 
 Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
 defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scope.
-
-```bash
-dnx dotnet-inspect -y -- find JsonSerializer
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index"
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S Signature
-dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer.Serialize -S "Member Index"
-```
 
 ## Tips
 
@@ -48,3 +40,11 @@ dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer.Serialize -S "Me
 - Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
 - Unpinned packages use latest stable; add `--preview` for prerelease APIs.
+
+## Interpret fixed text
+
+- `[Text omitted: required containment]`: a complete value or document was not shared because it carried a text concern; this does not imply malicious intent.
+- `REDACTED`: a URL query or credential-bearing path segment was removed.
+- `<unparsable-url>`: no original locator was shown because an authority-like value could not be parsed into URL components.
+- `<absent>` or `(absent)`: a requested package document was not present; this is not containment or redaction.
+- `\u202E`, `\U0001F600`, `\^[`, and similar backslash forms preserve source text as reversible visual spellings. They are not replacements; do not decode them into live control or format characters before display or persistence.

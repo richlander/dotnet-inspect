@@ -10,7 +10,8 @@ namespace DotnetInspector.Packages;
 /// </summary>
 public sealed class InMemoryPackageStore : IPackageStore
 {
-    private readonly ConcurrentDictionary<string, byte[]> _packages = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, InMemoryPackageContent> _packages =
+        new(StringComparer.Ordinal);
 
     private static string Key(string packageName, string version, string sourceKey)
         => $"{packageName.ToLowerInvariant()}@{version.ToLowerInvariant()}@{sourceKey}";
@@ -43,11 +44,11 @@ public sealed class InMemoryPackageStore : IPackageStore
     {
         foreach (var sourceKey in allowedSourceKeys ?? [])
         {
-            if (!_packages.TryGetValue(Key(packageName, version, sourceKey), out var bytes))
+            if (!_packages.TryGetValue(Key(packageName, version, sourceKey), out var content))
                 continue;
 
             log?.Invoke($"Using cached package: {packageName} {version}");
-            yield return new InMemoryPackageContent(bytes, fromCache: true, sourceKey);
+            yield return content.AsCacheHit();
         }
     }
 
@@ -68,8 +69,12 @@ public sealed class InMemoryPackageStore : IPackageStore
         await nupkg.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
         var bytes = buffer.ToArray();
 
-        _packages[Key(packageName, version, sourceKey)] = bytes;
-        return new InMemoryPackageContent(bytes, fromCache: true, sourceKey);
+        var content = InMemoryPackageContent.CreateOwned(
+            bytes,
+            fromCache: true,
+            sourceKey);
+        _packages[Key(packageName, version, sourceKey)] = content;
+        return content;
     }
 
 }

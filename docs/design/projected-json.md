@@ -28,19 +28,24 @@ below.
 
 Implementation is partial. `find` type/member search and `vocabulary` have
 lowered JSON paths; the main `type` and `member` document paths still reject
-column projection under `--json`. Other projection-capable paths, including
-current `library` and `package` routes, can still accept the flags and return
-the full typed document instead. New command families adopt this contract
-individually rather than treating the existing formatter as evidence that every
-section or route is correct.
+column projection under `--json`. `project` also rejects projection, while
+`library`, `package`, `timeline`, `implements`, and `extensions` reject
+otherwise-unclaimed `--json --fields/--columns` requests at the typed-document
+serializer boundary. Discovery owns projected JSON for its `Name`/`Kind` row
+schema under the lens contract; unadopted lens and nested routes such as
+`library --il-offsets` and `package search` reject. New command families adopt
+this contract individually rather than treating the existing formatter as
+evidence that every section or route is correct.
 
 The pilots do not yet satisfy the full contract. In particular, the current
 global rendered-line limiter can truncate their lowered JSON, section and field
 keys are still derived from display headings, and section-scoped projection has
-not been proven over broad multi-section documents. Issue #4677 owns the
-in-progress redesign of semantic item limits versus explicit rendered-line
-limits; this contract does not pre-empt that decision. These are hardening work,
-not accepted compatibility behavior.
+not been proven over broad multi-section documents.
+The historical #4677 target proposed that semantic item/range windows happen
+before encoding and that line windows modify each printable content value
+rather than truncating serialized JSON. These remain hardening proposals
+pending the focused owners indexed by [Item and line
+limits](item-and-line-limits.md), not accepted compatibility behavior.
 
 Related docs:
 
@@ -90,46 +95,46 @@ display columns from JSON property names.
 | --- | --- | --- |
 | `--json` | Typed | Preserve the established typed contract. |
 | `--json -S ...` | Typed | Do not lower; the command's typed section-selection contract applies. |
-| `--json --rows ...` | Typed | Do not lower; the command's typed row-window contract applies. |
+| `--json --rows ...` | Typed | Do not lower; the command's typed absolute-range contract applies. |
 | `--json --compact` | Typed | Do not lower; change whitespace where the typed contract supports it. |
 | `--json -D ... --fields/--columns ...` | Lens contract | Let discovery own its JSON and projection; do not enter document routing. |
 | `--json --fields/--columns ... --value/--print/...` | Payload contract | Resolve the accepted payload projection first; the field/column request selects its source where supported. |
 | `--json --fields ...` | Lowered | Apply the selected section's declared field/annotation projection. |
 | `--json --columns ...` | Lowered | Apply table-column projection through the section model. |
 | Lowered JSON plus `-S` | Lowered | Select sections before applying per-section projection. |
-| Lowered JSON plus `--rows` | Lowered | Window data rows before JSON serialization. |
+| Lowered JSON plus `-n`/`--rows` | Lowered | Select semantic items/ranges before JSON serialization. |
 | Lowered JSON plus `--compact` | Lowered | Change whitespace only. |
-| JSON plus `-n`/bare `-N`, `--tail`, or a future `--lines` | Unchanged | Follow the final #4677 limit contract without truncating serialized JSON. |
+| Printable JSON plus `-n N --lines` | Payload contract | Clip each selected content value before serialization; never truncate encoded JSON. |
 
-`-S`, `--rows`, and `--compact` do not opt into lowering. They modify whichever
-dialect the request already selected. Every adopted lowered path must honor or
-reject these modifiers rather than ignore them. Typed modifier conformance is
-separate work: this routing decision neither promises that every command
-accepts those combinations nor legitimizes an existing silently dropped
-modifier.
+`-S`, `-n`, `--rows`, and `--compact` do not opt into lowering. They modify
+whichever dialect the request already selected. Every adopted lowered path must
+honor or reject these modifiers rather than ignore them. Typed modifier
+conformance is separate work: this routing decision neither promises that every
+command accepts those combinations nor legitimizes an existing silently
+dropped modifier.
 
 Payload projections such as `--count`, `--value`, `--print`, `--urls`, and
 `--paths` keep the contracts in [Output shapes](output-shapes.md). An accepted
 payload projection claims the request before the JSON dialect is chosen.
-`--fields`/`--columns` may then select which source feeds that payload; they do
-not opt the enclosing request into lowered document JSON.
+`--fields`/`--columns` then select which source feeds that payload where
+supported; applicability and source selection are validated before `--count`
+reduces the rows, and an unsupported request rejects. They do not opt the
+enclosing request into lowered document JSON.
 
 Lens modes keep the same precedence. Discovery, package-content, version,
 layout, and other lens-owned output either honors its own accepted projection
 or rejects it under the lens contract; a central JSON router may not pull that
 request into the normal lowered-document path.
 
-Issue #4677 decides the item domain, pipeline order, migration, and exact
-relationship among `-n`/bare `-N`, `--tail`, `--rows`, and a future explicit
-rendered-line mode. Projected JSON imposes only two format requirements:
+The historical #4677 item-and-line proposal listed three format requirements:
 
-- those flags do not choose the typed or lowered dialect; and
-- a semantic item/row window is applied before JSON encoding, while any
-  rendered-line mode must preserve one complete JSON value or reject the
-  combination before stdout.
+- limit flags do not choose the typed or lowered dialect;
+- semantic item/range windows apply before JSON encoding; and
+- printable line windows clip each content string before encoding, preserving
+  one complete structured success/failure object per selected row.
 
-This work neither aliases `-n` to `--rows` nor mandates a rejection that would
-pre-empt #4677.
+Non-print document JSON has no textual payload to line-window and rejects
+`--lines` before stdout.
 
 ## Ownership and pipeline
 
@@ -526,12 +531,15 @@ Replacing a genuinely fail-closed `--json --fields/--columns` combination with
 this output is additive. That applies to routes such as current `type` and
 `member`, which reject rather than return a document.
 
-It does not apply where a command currently succeeds after silently dropping
-the projection. Changing `library`, `package`, or another such route from a full
-typed document to lowered JSON changes a successful machine response. The
-adoption slice must identify that compatibility change explicitly and first
-establish visible fail-closed routing or an approved migration; it may not call
-the change additive.
+Before the routing audit, `library`, `package`, `timeline`, `implements`, and
+`extensions`, plus early-return discovery, IL-offset, and nested package-search
+routes, succeeded after silently dropping the projection. Establishing visible
+routing was therefore an explicit compatibility change: discovery now honors
+the request under its lens contract, while the unadopted routes reject before
+writing stdout. Replacing those rejections with conforming lowered JSON is
+additive. A future route found to succeed after dropping projection must
+likewise establish visible fail-closed routing or an approved migration before
+adoption; it may not call the change additive.
 
 Once a command ships lowered JSON, changing its strings to inferred native JSON
 types is breaking. A future typed Markout seam may support a separately designed
@@ -562,9 +570,9 @@ Adopt one coherent command family at a time.
    combined-family composition, lens precedence, labeled-array preservation,
    Markout inline-to-plain rendering, pinned machine-key plans, graph-field
    parity, the pinned `vocabulary --fields` alias, representability preflight,
-   transactional stdout, and integration with the final #4677 limit contract
-   around the existing `find`/`vocabulary` formatter. Move or expose projection
-   decisions at the L2 boundary.
+   transactional stdout, and integration with the item/range/line limit
+   contract around the existing `find`/`vocabulary` formatter. Move or expose
+   projection decisions at the L2 boundary.
 2. **Audit every projection-capable route.** Prove that each accepted
    `--json --fields/--columns` request is owned by a lens/payload, rendered as
    lowered JSON, or rejected visibly. Add fail-closed routing or an explicit
@@ -612,14 +620,54 @@ Existing pilot coverage proves only the currently wired slice:
 - The mixed-content, duplicate-key, over-wide-row, and streaming-callback tests
   in `JsonSectionFormatterTests` gate visible failure for the formatter's known
   loss cases.
+- `ProjectedJsonRoutingAudit_InventoryIncludesEveryProjectionCapableCommand`
+  recursively fixes the audited executable-route set using each route's own
+  and inherited options. The
+  `ProjectedJsonRoutingAudit_*TypedDocumentFailsClosed`,
+  `ProjectedJsonRoutingAudit_*DiscoveryOwnsProjectedJson`,
+  `ProjectedJsonRoutingAudit_EffectiveDiscoveryProjectionPreservesRows`,
+  `ProjectedJsonRoutingAudit_EmptyEffectiveDiscoveryValidatesProjection`,
+  `ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed`,
+  `ProjectedJsonRoutingAudit_MultiPackagePayloadProjectionsFailClosed`,
+  `ProjectedJsonRoutingAudit_NarrowedDiscoveryOwnsProjectionValidation`,
+  `ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition`,
+  `ProjectedJsonRoutingAudit_PackageLensPayloadFailsBeforeAcquisition`,
+  `ProjectedJsonRoutingAudit_PackageLensRoutesFailClosed`,
+  `ProjectedJsonRoutingAudit_PackageSearchCountProjectionCountsAfterPreflight`,
+  `ProjectedJsonRoutingAudit_PackageSearchCountProjectionFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchEmptyWindowIsNotAnEmptySearch`,
+  `ProjectedJsonRoutingAudit_PackageSearchDirectionRequiresCarrier`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedDiscoveryFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedModesFailBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedPayloadFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedProjectionFailsClosed`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedInvalidItemLimitFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedWindowAndDestinationAreApplied`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritsPrerelease`,
+  `ProjectedJsonRoutingAudit_PackageSearchInvalidItemLimitFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchMalformedLimitWithRowsIsContained`,
+  `ProjectedJsonRoutingAudit_PackageSearchItemLimitBypassesHostLineWindow`,
+  `ProjectedJsonRoutingAudit_PackageSearchItemLimitConflictsFailBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchItemLimitSpellingsAreEquivalent`,
+  `ProjectedJsonRoutingAudit_PackageSearchItemLimitWorksAfterSubcommand`,
+  `ProjectedJsonRoutingAudit_PackageSearchInvalidWindowFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchOutputPathFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchParentTargetFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchProjectionListFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchTailItemLimitFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchWindowConflictsFailBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_TypeShapeFailsClosed`, and
+  `ProjectedJsonRoutingAudit_TypeShapePayloadProjectionsFailClosed`
+  tests, together with the existing `type`, `member`, `project`, `find`,
+  `vocabulary`, and payload-projection tests, gate that every current route
+  lowers, rejects, or is claimed before typed-document serialization.
 
-The full contract remains **unverified** until these required future gates are
+The full contract remains **unverified** until these remaining future gates are
 implemented:
 
 | Required future gate | Claim it must enforce |
 | --- | --- |
 | `JsonDialectRoutingTests` | Lenses and payload projections claim requests first; only otherwise-unclaimed, non-empty `--fields`/`--columns` select lowered JSON, while `-S`, `--rows`, and `--compact` do not lower. |
-| `ProjectedJsonRoutingAuditTests` | Every projection-capable command either honors an accepted lens/payload, emits lowered JSON, or rejects visibly; no route succeeds after dropping the projection. |
 | `ProjectedJsonTypedCompatibilityTests` | Adopting a command does not change its plain typed `--json` schema or value kinds. |
 | `ProjectedJsonSectionConformanceTests` | Every adopted section kind maps to the documented envelope and arity. |
 | `ProjectedJsonLabeledArrayTests` | Labeled-array keys, empty applicable labels, section object type, and sibling boundaries survive; labeled/unlabeled mixtures and mapped-key collisions fail before stdout. |
@@ -631,7 +679,7 @@ implemented:
 | `ProjectedJsonMachineKeyTests` | Every shipped or newly adopted root field, section, field, column, and labeled array has a unique pinned machine key independent of display-heading changes. |
 | `ProjectedJsonDiagnosticsTests` | Partial, unmatched, projected-away, all-`PassThrough`, empty, no-result, no-data, and unrepresentable requests have the documented output/stderr/exit behavior; unmatched-name failure requires at least one applicable `Project` section. |
 | `ProjectedJsonAtomicityTests` | Every pre-commit projection/formatter failure leaves stdout empty; removing the buffer fails the test. |
-| `ProjectedJsonWindowingTests` | Under the final #4677 contract, semantic item/row windows happen before encoding and any rendered-line mode emits one complete JSON value or rejects with empty stdout. |
+| `ProjectedJsonWindowingTests` | Semantic item/range windows happen before encoding; multi-print line windows modify each content value; every structured result remains complete. |
 | `ProjectedJsonFormatParityTests` | Every adopted table section has decoded key/order/value parity with JSONL from the same `-S <section>` shape, including Markout semantic inline values and empty-string padding for short rows. |
 | `ProjectedJsonNativeAotSmoke` | A published NativeAOT CLI executes both dialects without reflection fallback or trim/AOT warnings on the emit path. |
 
@@ -651,8 +699,9 @@ JSON.
   `--fields`/`--columns`; their migration must be explicit.
 - No general field-to-column alias; the shipped `vocabulary` exception is
   command-owned and gated.
-- No decision about the `-n` item domain, `--rows` interaction, `--lines`
-  grammar, or migration; issue #4677 owns those contracts.
+- No second item-domain, range, line-window, or multi-print contract; any
+  adoption here must consume the focused owners sequenced by the [item-and-line
+  composition](item-and-line-limits.md#composition).
 - No silent fallback from requested lowered JSON to typed or unprojected JSON.
 - No reconstruction of sections, rows, or trees from rendered Markdown.
 - No assumption that a future typed Markout seam may change the shipped lowered

@@ -34,13 +34,12 @@ jobs:
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Validate certification and resolve commit
         id: sha
@@ -76,18 +75,17 @@ jobs:
             os: ubuntu-26.04-arm
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Pack RID-specific package
-        run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
+        run: dotnet pack src/DotnetInspect.Cli -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
 
       - name: Upload RID package
         uses: actions/upload-artifact@v7
@@ -103,15 +101,14 @@ jobs:
     needs: resolve
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Pack pointer package
         # SelfContained=true forces the pack TFM segment to 'any', so the pointer
@@ -119,7 +116,7 @@ jobs:
         # carries no implementation, so SelfContained pulls in no runtime.
         # RID-specific packages are built by build-native; disabling inner RID
         # packs keeps this portable job pointer-only on .NET 11 Preview 7+.
-        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
+        run: dotnet pack src/DotnetInspect.Cli -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7
@@ -131,7 +128,7 @@ jobs:
       - name: Pack any (non-AOT) package
         # TFM is pinned to net10.0 structurally via Directory.Build.props so this
         # fallback stays installable on the LTS runtime. See issue #240.
-        run: dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
+        run: dotnet pack src/DotnetInspect.Cli -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
 
       - name: Upload any package
         uses: actions/upload-artifact@v7
@@ -149,7 +146,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.sha }}
       
@@ -193,10 +190,9 @@ jobs:
         shell: bash
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Revalidate certification before publish
         env:
@@ -251,11 +247,11 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(grep -oP '(?<=<VersionPrefix>)[^<]+' src/dotnet-inspect/dotnet-inspect.csproj)
+          VERSION=$(grep -oP '(?<=<VersionPrefix>)[^<]+' src/DotnetInspect.Cli/DotnetInspect.Cli.csproj)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
       
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}
           target_commitish: ${{ needs.resolve.outputs.sha }}

@@ -30,7 +30,7 @@ Four experiences render member bodies, and today each carries its own stack:
 | Skeleton source | `CSharpTypePrinter.Print` | declarations, no bodies |
 | Full source | `MemberBodyProducer.Project` | full C# bodies |
 | Merged IL + C# | `ResearchViews.RenderMixedCore` | C# spine, IL beneath |
-| Implementation diff | `ImplementationDiff.CompareMembers` | per-member C#/IL/source diff |
+| Implementation diff | `ImplementationComparisonQuery` / `DirectMemberComparisonQuery` | assembly or selected-member C#/IL/source diff |
 
 They already agree on the bottom: every C# or IL body path calls
 `IrImporter.Import(MetadataSource, …) → IrFunction` and then projects it. But
@@ -89,6 +89,28 @@ pervasive and carry no layering argument, so their edges are omitted:
 and `CSharp.Decompiler`; `Findings` (the shared finding/diagnostic type) is
 consumed almost everywhere — `Metadata`, `Instructions`, `Analysis`,
 `CSharp.Decompiler`, `Research`, and `Text`.
+
+## Feature ownership
+
+`LibraryBodyAnalysisFeatures.MethodEvidence` owns the ordinary direct-call,
+unsafe, and method-signal census. It deliberately does not materialize
+evaluation-stack or reaching-definition value flow: most Analysis consumers
+need call identities, not each call's argument provenance or result sinks.
+`LibraryBodyAnalysisFeatures.JsonWireContractFlow` is the explicit,
+tsbindgen-owned opt-in for that narrower evidence. It adds the existing
+call-only `DirectCall.ArgumentSources` and `LibraryBodyIndex.ResultSinks`,
+alongside resolved-value, block-reachability, field-access, and recognized
+compiler span-lowering facts. `ILInspector.JsExportSurface` uses those facts to
+authenticate generated runtime registrations and `JsonTypeInfo<T>` flows and
+to prove a JSON string reaches an export envelope. The resolved-value union does
+not reinterpret the older call-only completeness contract, add an
+Analysis-wide value-flow default, or change ordinary MethodEvidence behavior.
+
+`LibraryBodyIndexTests.MethodEvidence_OmitsCallValueFlowUntilJsonWireContractFlowIsRequested`
+is the non-vacuity gate: it proves plain MethodEvidence retains calls with no
+argument/result-flow materialization, while the named feature supplies both.
+`MethodCallResolvedValueTests` gates the additional resolved-value,
+reachability, field-access, and span-lowering facts.
 
 The same producers, read as a 2×2 of **representation** × **rung**, show why
 `Instructions` and `CSharp.Decompiler` are *rung-peers* (both the "body" rung)
@@ -380,6 +402,12 @@ the original `PrintedRangeMap` slot — because that map promises only
 descendants-before-ancestors, and ids taken from emission order would be
 reproducible by accident.
 
+While an owning caller composes a document, the printer projection may also
+retain that caller's producer-issued Finding instance key beside an annotation.
+The key is an internal association tag, not part of the public map constructor
+or serialized document. Decompiler carries it through placement without
+minting, parsing, or validating Finding identity.
+
 #### The portable document: text, nodes, regions, facts, targets
 
 `AnnotatedSourceDocument` is the transport envelope, and it is a **text buffer
@@ -530,16 +558,21 @@ body with no facts still has a full node plane. The separation is what lets
 future syntax/trivia/XML-doc producers add nodes without touching the fact
 vocabulary.
 
-**`Targets` is the only join, and it is why a cross-medium fact is stated once.**
+**`Targets` is the only placement join.**
 `Fact → target → node → spans → text` is the whole walk, in one shape, with no
-polymorphic target kind to switch on. A fact observed on a C# node and on its
-exact-offset instruction is one row in `Facts` with two rows in `Targets` —
-unambiguously one observation, where the old shape repeated it on two lines and
-left a consumer to compare tuples and guess. Facts are deduplicated on their full
-semantic identity (descriptor, category, conditionality, detail, source offset,
-origin) *after* portable escaping, and the constructor enforces that uniqueness
-along with contiguous ids, resolvable and non-duplicated target pairs, and — for
-a target on an IL node — an `IlOffset` equal to the fact's own `SourceOffset`.
+polymorphic target kind to switch on. A caller-distinguished fact observed on a
+C# node and on its exact-offset instruction is one row in `Facts` with two rows
+in `Targets` — unambiguously one observation, where the old shape repeated it on
+two lines and left a consumer to compare tuples and guess.
+
+Fact content is not occurrence identity. Two observations may agree on
+descriptor, category, conditionality, detail, source offset, and origin and
+still retain separate document-local fact ids. The constructor therefore
+preserves visible-value multiplicity rather than deduplicating or rejecting it;
+the producer must establish any cross-medium sameness while it still holds an
+owner-issued association. The constructor continues to enforce contiguous ids,
+resolvable and non-duplicated target pairs, and — for a target on an IL node —
+an `IlOffset` equal to the fact's own `SourceOffset`.
 
 A graph overlay does not add an edge-to-node join.
 `AnnotatedMemberDocument` pairs the unchanged document with an
@@ -584,9 +617,13 @@ covers the span rules, text bounds, and the overflowing `int.MaxValue` span;
 `...RejectsMisplacedIlOffsets` covers the `Instruction`-kind invariant in both
 directions, offsets belonging to IL nodes only, being unique and strictly
 increasing, and staying optional for a future structural IL node;
-`...RejectsBrokenIdentity` and `...RejectsFalseTargetClaims` cover
-contiguous ids, fact deduplication, dangling and duplicated targets, the
-instruction-offset agreement, and the header-fact rules;
+`...AnnotatedSourceDocumentPreservesDisplayIdenticalFactMultiplicity` proves
+equal visible values retain separate document-local observations;
+`...PrintedBodyMapPreservesCallerIssuedFindingInstanceKey` proves the printer
+projection retains an owner-issued association through placement;
+`...RejectsBrokenIdentity` and `...RejectsFalseTargetClaims` cover contiguous
+ids, dangling and duplicated targets, the instruction-offset agreement, and
+the header-fact rules;
 `...AnnotatedSourceDocumentSnapshotsValidatesAndReplays` covers the input
 snapshot, structural equality, and JSON replay. On the producer side,
 `AnnotatedSourceDocumentProjectionTests.MultiLineCSharpStructureIsSpannedAroundTheInterleavedIl`

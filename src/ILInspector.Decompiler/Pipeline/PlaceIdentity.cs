@@ -34,10 +34,23 @@ public static class PlaceIdentity
     /// </summary>
     public static bool SameVariable(IrExpression? left, IrExpression? right) => (left, right) switch
     {
-        (LoadArgument a, LoadArgument b) => a.Index == b.Index,
+        (LoadArgument a, LoadArgument b) => SameArgument(
+            a.Index,
+            a.Parameter,
+            b.Index,
+            b.Parameter),
         (LoadLocal a, LoadLocal b) => a.Index == b.Index,
         _ => false,
     };
+
+    internal static bool SameArgument(
+        int leftIndex,
+        Parameter? leftParameter,
+        int rightIndex,
+        Parameter? rightParameter)
+        => leftParameter is not null || rightParameter is not null
+            ? ReferenceEquals(leftParameter, rightParameter)
+            : leftIndex == rightIndex;
 
     /// <summary>
     /// Two reads of the same stack slot. The compiler spills a once-evaluated

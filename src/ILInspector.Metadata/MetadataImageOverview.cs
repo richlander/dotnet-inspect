@@ -222,8 +222,8 @@ public sealed record MetadataImageHeaders
 
     /// <summary>
     /// The CLI header, or <see langword="null"/> when the image has none. An
-    /// image with metadata always has one; the nullability keeps a native or
-    /// malformed image describable rather than throwing.
+    /// image can carry metadata without a CLI header, including a COFF-only
+    /// .cormeta section or an export-discovered ReadyToRun manifest.
     /// </summary>
     public MetadataCorHeaderSummary? Cor { get; }
 }
@@ -235,12 +235,14 @@ public sealed record MetadataCorHeaderSummary
         ushort MajorRuntimeVersion,
         ushort MinorRuntimeVersion,
         CorFlags Flags,
-        int EntryPointTokenOrRelativeVirtualAddress)
+        int EntryPointTokenOrRelativeVirtualAddress,
+        DirectoryEntry ManagedNativeHeaderDirectory = default)
     {
         this.MajorRuntimeVersion = MajorRuntimeVersion;
         this.MinorRuntimeVersion = MinorRuntimeVersion;
         this.Flags = Flags;
         this.EntryPointTokenOrRelativeVirtualAddress = EntryPointTokenOrRelativeVirtualAddress;
+        this.ManagedNativeHeaderDirectory = ManagedNativeHeaderDirectory;
     }
 
     /// <summary>The CLI header's major runtime version.</summary>
@@ -258,6 +260,13 @@ public sealed record MetadataCorHeaderSummary
     /// the image has no entry point.
     /// </summary>
     public int EntryPointTokenOrRelativeVirtualAddress { get; }
+
+    /// <summary>
+    /// The CLI managed-native-header directory. A non-zero size is the ordinary
+    /// ReadyToRun presence signal; composite images can advertise their R2R
+    /// header through a separate PE export and are not covered by this field.
+    /// </summary>
+    public DirectoryEntry ManagedNativeHeaderDirectory { get; }
 
     /// <summary>
     /// The entry-point token when the header carries a managed one, otherwise

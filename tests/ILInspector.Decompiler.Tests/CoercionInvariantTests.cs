@@ -1,0 +1,478 @@
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
+using Convert = ILInspector.Decompiler.Pipeline.Convert;
+
+namespace ILInspector.Decompiler.Tests;
+
+// Slice 3 of docs/design/value-typed-emission.md: the Coerce node, the
+// insertion pass, and the invariant. Neutrality is proven empirically by the
+// corpus render-text A/B (adversarial review: "by construction" held only for
+// pure-CoerceText sinks — lambda returns and slot-carried values needed
+// scope exclusions), plus the full suite. These tests pin the routing
+// machinery itself.
+public class CoercionInvariantTests
+{
+    static readonly TypeRef Enum32 = TypeRef.Definition("synthetic", "", "E32");
+    static readonly TypeRef Int32Type = TypeRef.CoreLib("System", "Int32");
+
+    [Fact]
+    public void BoolSlotLoadedIntoLogicalNot_UnifiesToBool_NoUnassignedSplit()
+    {
+        // #2377: a bool store into an int slot whose load feeds a LogicalNot
+        // (`!S`) must unify the slot to bool. Otherwise the store names `S_0`
+        // (bool) while the `S_0 == 0` consumer names a distinct `int S_0_1`
+        // that nothing assigns (CS0165), and the bool store is dead.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new LoadArgument(0, "flag", boolType)));
+        first.Add(new Branch(1));
+        container.Add(first);
+        var second = new Block(1);
+        second.Add(new Return(new LogicalNot(new LoadStackSlot(0, Int32Type))));
+        container.Add(second);
+        var function = Function(container, boolType, new Parameter("flag", boolType));
+
+        string output = CSharpPrinter.Print(function).Output!.Replace("\r", "");
+
+        Assert.DoesNotContain("S_0_1", output);   // no split
+        Assert.DoesNotContain("int S_0", output); // slot is bool, not int
+        Assert.Contains("bool S_0 = flag;", output);
+        Assert.Contains("!S_0", output);          // bool negation, not `S_0 == 0`
+        Assert.DoesNotContain("S_0 == 0", output);
+    }
+
+    [Fact]
+    public void BoolSlotAsDirectBranchCondition_UnifiesToBool_RendersBare()
+    {
+        // #2377 (positive polarity): a bool store into an int slot whose load is a
+        // direct branch condition (`if (S)`) also unifies to bool and renders bare
+        // — `S != 0` would be `bool != int` (CS0019) and the split would be CS0165.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new LoadArgument(0, "flag", boolType)));
+        first.Add(new ConditionalBranch(new LoadStackSlot(0, Int32Type), 0x10));
+        container.Add(first);
+        var second = new Block(0x10);
+        second.Add(new Return(new LoadArgument(0, "flag", boolType)));
+        container.Add(second);
+        var function = Function(container, boolType, new Parameter("flag", boolType));
+
+        string output = CSharpPrinter.Print(function).Output!.Replace("\r", "");
+
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.DoesNotContain("int S_0", output);
+        Assert.Contains("bool S_0 = flag;", output);
+        Assert.DoesNotContain("S_0 != 0", output);
+    }
+
+    static IrFunction Function(BlockContainer body, TypeRef returnType, params Parameter[] parameters)
+        => new("M", TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(returnType, [.. parameters], HasThis: false, GenericParameterCount: 0), [], body)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [Enum32] = TypeShape.Enum },
+            EnumMembers = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+            {
+                [Enum32] = new Dictionary<long, string> { [1] = "One" },
+            },
+        };
+
+    static BlockContainer Returning(IrExpression value)
+    {
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Return(value));
+        container.Add(block);
+        return container;
+    }
+
+    [Fact]
+    public void UncoercedEnumSink_IsAViolation_AndInsertionClearsIt()
+    {
+        // A non-constant integer at an enum return: not provably at target, so
+        // the invariant flags it; the insertion pass wraps it and the invariant
+        // goes green — the repair loop in miniature.
+        var function = Function(
+            Returning(new LoadArgument(0, "raw", Int32Type)),
+            Enum32,
+            new Parameter("raw", Int32Type));
+
+        var before = CoercionInvariant.Check(function);
+        Assert.Single(before);
+        Assert.Contains("E32", before[0].Message);
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(CoercionInvariant.Check(function));
+        var coerce = Assert.IsType<Coerce>(Assert.Single(function.Descendants.OfType<Return>()).Value);
+        Assert.Equal(Enum32, coerce.Target);
+        Assert.Contains("return (E32)raw;", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void AtTargetValue_IsExemptThroughTheOnePredicate()
+    {
+        // The exemption ("provably already at the target type") is
+        // CoercionDomain.IsAtTarget — one predicate, no per-sink judgment.
+        var function = Function(
+            Returning(new LoadArgument(0, "e", Enum32)),
+            Enum32,
+            new Parameter("e", Enum32));
+
+        Assert.Empty(CoercionInvariant.Check(function));
+        new CoercionInsertionPass().Run(function, PassContext.None);
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+    }
+
+    [Fact]
+    public void OutOfDomainSink_IsNotChecked()
+    {
+        // Reference-typed sinks are outside the invariant's domain until an
+        // inverse conversion-classifier exists.
+        var stringType = TypeRef.CoreLib("System", "String");
+        var function = Function(
+            Returning(new LoadArgument(0, "o", TypeRef.CoreLib("System", "Object"))),
+            stringType,
+            new Parameter("o", TypeRef.CoreLib("System", "Object")));
+
+        Assert.Empty(CoercionInvariant.Check(function));
+        new CoercionInsertionPass().Run(function, PassContext.None);
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+    }
+
+    [Fact]
+    public void CoerceComposesOverConvert_KeepingIlHistory()
+    {
+        // Leak case #6's composition: Coerce(Convert(long, m1), UE) — the inner
+        // Convert keeps the IL history when folding is not applicable (checked
+        // conv), the outer Coerce owns the surface conversion.
+        var convert = new Convert(TypeRef.CoreLib("System", "Int64"), isChecked: true, isUnsigned: false,
+            new LoadArgument(0, "raw", Int32Type));
+        var function = Function(
+            Returning(convert),
+            Enum32,
+            new Parameter("raw", Int32Type));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        var coerce = Assert.IsType<Coerce>(Assert.Single(function.Descendants.OfType<Return>()).Value);
+        Assert.IsType<Convert>(coerce.Operand);
+        Assert.Empty(CoercionInvariant.Check(function));
+    }
+
+    [Fact]
+    public void NestedSinks_WrapDeepestFirst_LiveTreeStaysCoerced()
+    {
+        // A conditional (enum-merged) whose arm needs coercion, itself sitting
+        // in an int-typed... rather: enum return whose conditional arms mix — the
+        // arm wrap must land in the LIVE tree even though the outer wrap clones.
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", TypeRef.CoreLib("System", "Boolean")),
+            new LoadArgument(1, "raw", Int32Type),
+            new LoadArgument(2, "e", Enum32))
+        {
+            MergedType = Enum32,
+        };
+        var function = Function(
+            Returning(conditional),
+            Enum32,
+            new Parameter("c", TypeRef.CoreLib("System", "Boolean")),
+            new Parameter("raw", Int32Type),
+            new Parameter("e", Enum32));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        // The conditional is at-target (MergedType == return type), so only the
+        // raw arm wraps — and it must wrap in the live tree.
+        var live = Assert.Single(function.Descendants.OfType<Conditional>());
+        Assert.IsType<Coerce>(live.WhenTrue);
+        Assert.IsType<LoadArgument>(live.WhenFalse);
+        Assert.Empty(CoercionInvariant.Check(function));
+        Assert.Contains("(E32)raw", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void SlotStore_IsATypedSink_WhenLoadsTestifyToOneType()
+    {
+        // Slice 5b: the census's dominant multi-typed-slot shape is the diamond
+        // whose arms store different types into a slot the join reads at one
+        // type. 5a reconciled constant arms; the non-constant arm now wraps in
+        // a Coerce at the slot store, and the printer's type-keyed naming
+        // collapses to one declaration by construction.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new LoadArgument(0, "e", Enum32)));
+        block.Add(new StoreStackSlot(3, new LoadArgument(1, "raw", Int32Type)));
+        block.Add(new Return(new LoadStackSlot(3, Enum32)));
+        container.Add(block);
+        var function = Function(container, Enum32,
+            new Parameter("e", Enum32), new Parameter("raw", Int32Type));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        var stores = function.Descendants.OfType<StoreStackSlot>().ToList();
+        Assert.IsType<LoadArgument>(stores[0].Value);
+        var coerced = Assert.IsType<Coerce>(stores[1].Value);
+        Assert.Equal(Enum32, coerced.Target);
+        Assert.Empty(CoercionInvariant.Check(function));
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(E32)raw", output);
+        Assert.DoesNotContain("S_3_1", output);
+    }
+
+    [Fact]
+    public void EnumStore_AtIntTestifiedSlot_WrapsAndKeepsOneRange()
+    {
+        // Round-2 review (both reviewers): the family gate must unwrap enum
+        // SOURCES symmetrically — an enum store at an int-testified slot is a
+        // renderable coercion ((int)e, the slice-4 widening rule), and denying
+        // it split the slot into a severed range with an unassigned read
+        // (`E32 S_0 = e; return S_0_1;` — CS0165).
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "e", Enum32)));
+        block.Add(new Return(new LoadStackSlot(0, Int32Type)));
+        container.Add(block);
+        var function = Function(container, Int32Type, new Parameter("e", Enum32));
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [Enum32] = Int32Type };
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        var coerced = Assert.IsType<Coerce>(
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>()).Value);
+        Assert.Equal(Int32Type, coerced.Target);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.Contains("(int)e", output);
+    }
+
+    [Fact]
+    public void BoolTestifiedSlot_DoesNotWrapIntStore()
+    {
+        // Round-2 review (both reviewers): bool and int share stack family I4,
+        // but integer→bool has no C# spelling — wrapping produced a bare
+        // `bool S_0; S_0 = intValue;` (CS0029). The gate's booleanness is
+        // directional: bool→integer composes, integer→bool never wraps.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new LoadArgument(0, "intValue", Int32Type)));
+        container.Add(first);
+        var second = new Block(1);
+        second.Add(new StoreStackSlot(0, new LoadArgument(1, "boolValue", boolType)));
+        second.Add(new Return(new LoadStackSlot(0, boolType)));
+        container.Add(second);
+        var function = Function(container, boolType,
+            new Parameter("intValue", Int32Type),
+            new Parameter("boolValue", boolType));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("bool S_0;\n\nS_0 = intValue;", output.Replace("\r", ""));
+        Assert.Contains("int S_0", output);
+    }
+
+    [Fact]
+    public void CrossEnumSlotStore_WrapsWithDirectEnumCast()
+    {
+        // Round 4 (Gemini): denying this wrap severed the single live range
+        // into an unassigned read (CS0165). C# permits explicit enum→enum
+        // conversion directly, so the renderer now spells it and the range
+        // stays unified.
+        var otherEnum = TypeRef.Definition("synthetic", "", "OtherE32");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "e", Enum32)));
+        block.Add(new Return(new LoadStackSlot(0, otherEnum)));
+        container.Add(block);
+        var function = Function(container, otherEnum, new Parameter("e", Enum32));
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [Enum32] = TypeShape.Enum,
+            [otherEnum] = TypeShape.Enum,
+        };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [Enum32] = Int32Type,
+            [otherEnum] = Int32Type,
+        };
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(OtherE32)e", output);
+        Assert.DoesNotContain("S_0_1", output);
+    }
+
+    [Fact]
+    public void BoolStore_AtNarrowIntegerTestifiedSlot_WrapsWithTargetCast()
+    {
+        // Round 4 (MAI + Gemini): denying the wrap severed the range
+        // (`byte S_0_1;` read unassigned). The composition now carries the
+        // target cast where int does not convert implicitly:
+        // (byte)(boolValue ? 1 : 0).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "boolValue", boolType)));
+        block.Add(new Return(new LoadStackSlot(0, byteType)));
+        container.Add(block);
+        var function = Function(container, byteType, new Parameter("boolValue", boolType));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(byte)(boolValue ? 1 : 0)", output);
+        Assert.DoesNotContain("S_0_1", output);
+    }
+
+    [Fact]
+    public void EnumStore_WithoutUnderlyingMetadata_WrapsWithAssumedIntCast()
+    {
+        // Round 4 (Gemini): denying severed the range. The renderer's
+        // enum→primitive branch now shares the assumed-int rule for a
+        // missing-value__ shape ((int)e is legal C# for any enum), so the
+        // range stays unified — and the slot testimony itself proves the I4
+        // family, making the assumption safe here.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "e", Enum32)));
+        block.Add(new Return(new LoadStackSlot(0, Int32Type)));
+        container.Add(block);
+        var function = Function(container, Int32Type, new Parameter("e", Enum32));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(int)e", output);
+        Assert.DoesNotContain("S_0_1", output);
+    }
+
+    [Fact]
+    public void CrossFamilySlotStore_IsNotWrapped_DisjointRangeKeepsSplitNaming()
+    {
+        // Slice-5b adversarial review (Gemini, blocking): a dead `long` store
+        // on an int-testified slot is not a coercion candidate — the verifier
+        // never merges across stack families, so the cross-family store is
+        // proof of a DISJOINT live range. Wrapping it produced a Coerce the
+        // renderer rightly refused to cast (bare CS0266). It yields as a
+        // PrinterOwned counted residual instead, and the printer's split
+        // naming keeps the ranges as separate typed variables.
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new LoadArgument(0, "longValue", longType)));
+        container.Add(first);
+        var second = new Block(1);
+        second.Add(new StoreStackSlot(0, new LoadArgument(1, "intValue", Int32Type)));
+        second.Add(new Return(new LoadStackSlot(0, Int32Type)));
+        container.Add(second);
+        var function = Function(container, Int32Type,
+            new Parameter("longValue", longType),
+            new Parameter("intValue", Int32Type));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        var audit = CoercionInvariant.Audit(function);
+        Assert.Empty(audit.Violations);
+        Assert.True(audit.Residuals.Values.Sum() > 0, "the disjoint-range store must be counted, not hidden");
+
+        // Split naming gives each range its own correctly-typed variable —
+        // never Gemini's `int S_0; S_0 = longValue;` (CS0266).
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("long S_0;", output);
+        Assert.Contains("int S_0_1;", output);
+        Assert.DoesNotContain("int S_0;", output);
+    }
+
+    [Fact]
+    public void SlotCarriedValue_IsExcluded_UntilInstanceTwoTypesIt()
+    {
+        // Review finding #1: wrapping a LoadStackSlot breaks the printer's slot
+        // unifier's structural pattern matches (phantom split locals in
+        // ApiSurfaceExtractor::Extract). Slot-carried values stay excluded from
+        // both wrap and check until instance 2 materializes typed locals.
+        var function = Function(
+            Returning(new LoadStackSlot(0, Int32Type)),
+            TypeRef.CoreLib("System", "Boolean"));
+
+        Assert.Empty(CoercionInvariant.Check(function));
+        new CoercionInsertionPass().Run(function, PassContext.None);
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+    }
+
+    [Fact]
+    public void LambdaBodyReturn_IsNotAttributedToTheOuterSignature()
+    {
+        // Review finding #2: a bool predicate return inside a lambda embedded in
+        // an int-returning method must not be coerced to the outer return type
+        // (`t => t.Type != 4` became `t => t.Type != 4 ? 1 : 0`).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var lambdaBody = Returning(new Comparison(
+            ComparisonKind.NotEqual,
+            isUnsigned: false,
+            new LoadArgument(0, "t", Int32Type),
+            new Constant(4, Int32Type)));
+        var lambda = new Lambda(
+            TypeRef.Definition("System.Private.CoreLib", "System", "Func`2"),
+            [new Parameter("t", Int32Type)],
+            [], [], usesUpdatedMemorySafetyRules: false, skipLocalsInit: false,
+            lambdaBody);
+        var function = Function(
+            SingleStatementBody(new StoreLocal(0, TypeRef.Definition("System.Private.CoreLib", "System", "Func`2"), lambda)),
+            Int32Type);
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        Assert.Empty(CoercionInvariant.Check(function));
+    }
+
+    static BlockContainer SingleStatementBody(IrNode statement)
+    {
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(statement);
+        container.Add(block);
+        return container;
+    }
+
+    [Fact]
+    public void FullPipeline_LeavesFixturesInvariantClean()
+    {
+        // The standing assertion: after the real pipeline (which ends in the
+        // insertion pass), every method in the enum-heavy fixture set satisfies
+        // the invariant. This is where a future pass reshaping sink values
+        // without coercion fails a unit test instead of a recompile.
+        using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);
+        foreach (var method in new[]
+        {
+            nameof(EnumCastSamples.EnumConditional),
+            nameof(EnumCastSamples.EnumFlagsCompound),
+            nameof(EnumCastSamples.EnumCoalesce),
+            nameof(EnumCastSamples.LongEnumArray),
+            nameof(EnumCastSamples.LongEnumBoxed),
+            nameof(EnumCastSamples.ULongEnumBoxedMax),
+            nameof(EnumCastSamples.UnsignedEnumConditionalArm),
+            nameof(EnumCastSamples.CrossAssemblyEnumArray),
+        })
+        {
+            var function = IrImporter.Import(source, typeof(EnumCastSamples).FullName!, method);
+            Assert.NotNull(function);
+            IrPasses.Run(function!);
+            var violations = CoercionInvariant.Check(function!);
+            Assert.True(violations.Count == 0,
+                $"{method}: " + string.Join("; ", violations.Select(v => v.Message)));
+        }
+    }
+}

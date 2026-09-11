@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
@@ -67,7 +68,8 @@ public static class SignatureBlobGuard
     {
         try
         {
-            return !ExceedsDepth(ref blob, kind, maxDepth);
+            SignatureBlobGuardMeasurements measurements = default;
+            return !ExceedsDepth(ref blob, kind, maxDepth, ref measurements);
         }
         catch (BadImageFormatException)
         {
@@ -95,10 +97,18 @@ public static class SignatureBlobGuard
         BlobReader blob,
         Kind kind,
         int maxDepth = DefaultMaxDepth)
+        => IsSafeAndCompleteToDecode(blob, kind, out _, maxDepth);
+
+    internal static bool IsSafeAndCompleteToDecode(
+        BlobReader blob,
+        Kind kind,
+        out SignatureBlobGuardMeasurements measurements,
+        int maxDepth = DefaultMaxDepth)
     {
+        measurements = default;
         try
         {
-            return !ExceedsDepth(ref blob, kind, maxDepth)
+            return !ExceedsDepth(ref blob, kind, maxDepth, ref measurements)
                 && blob.RemainingBytes == 0;
         }
         catch (BadImageFormatException)
@@ -122,10 +132,24 @@ public static class SignatureBlobGuard
                 kind,
                 maxDepth);
 
+    internal static bool IsSafeAndCompleteToDecode(
+        MetadataReader reader,
+        BlobHandle signature,
+        Kind kind,
+        out SignatureBlobGuardMeasurements measurements,
+        int maxDepth = DefaultMaxDepth)
+    {
+        measurements = default;
+        return !signature.IsNil
+            && IsSafeAndCompleteToDecode(
+                reader.GetBlobReader(signature), kind, out measurements, maxDepth);
+    }
+
     static bool ExceedsDepth(
         ref BlobReader blob,
         Kind kind,
-        int maxDepth)
+        int maxDepth,
+        ref SignatureBlobGuardMeasurements measurements)
     {
         // Work items are read strictly left-to-right; the stack only tracks *what* to read next and
         // at what depth, so recursion lives on the heap and can never overflow the native stack.
@@ -169,7 +193,7 @@ public static class SignatureBlobGuard
                     break;
 
                 case Op.ArrayShape:
-                    if (SkipArrayShape(ref blob))
+                    if (SkipArrayShape(ref blob, ref remainingTypeNodes, ref measurements))
                         return true;
                     break;
             }
@@ -418,21 +442,50 @@ public static class SignatureBlobGuard
 
     }
 
-    /// <summary>Skips an ArrayShape (rank, sizes, lower bounds). Returns true (unsafe) if either
-    /// count exceeds the remaining blob: SRM's array decoder pre-allocates a builder from these
-    /// counts before reading elements, so an unbounded count (a compressed integer can encode ~536M)
-    /// would OOM SRM even though the blob is only a few bytes.</summary>
-    static bool SkipArrayShape(ref BlobReader blob)
+    /// <summary>
+    /// Consumes an ArrayShape, charging its size and lower-bound counts to the shared type-node
+    /// budget before either is materialized.
+    /// </summary>
+    /// <remarks>
+    /// The remaining-bytes check alone is not a bound on work: SRM allocates and fills an
+    /// <c>ImmutableArray</c> for each count while decoding the shape, before
+    /// <c>TypeNodeProvider.GetArrayType</c> gets a chance to charge anything. A blob that is
+    /// merely long can therefore encode many shapes whose counts each pass the per-shape byte
+    /// check while their aggregate is arbitrarily large. Charging the same currency the type
+    /// nodes use bounds the aggregate too, and leaves ordinary wide-but-shallow signatures —
+    /// whose real ranks are single digits — untouched.
+    /// <c>SignatureBlobGuardTests.Rejects_array_shape_counts_beyond_the_type_node_budget</c> and
+    /// <c>SignatureBlobGuardTests.Rejects_aggregate_array_shape_counts_beyond_the_type_node_budget</c>
+    /// gate it.
+    /// </remarks>
+    static bool SkipArrayShape(
+        ref BlobReader blob,
+        ref int remainingTypeNodes,
+        ref SignatureBlobGuardMeasurements measurements)
     {
         blob.ReadCompressedInteger();           // rank
         int numSizes = blob.ReadCompressedInteger();
-        if (numSizes < 0 || numSizes > blob.RemainingBytes)
+        if (numSizes >= 0)
+            measurements.Sizes = measurements.Sizes.Observe(numSizes);
+        if (numSizes < 0
+            || numSizes > blob.RemainingBytes
+            || numSizes > remainingTypeNodes)
+        {
             return true;
+        }
+        remainingTypeNodes -= numSizes;
         for (int i = 0; i < numSizes; i++)
             blob.ReadCompressedInteger();        // size
         int numLoBounds = blob.ReadCompressedInteger();
-        if (numLoBounds < 0 || numLoBounds > blob.RemainingBytes)
+        if (numLoBounds >= 0)
+            measurements.LowerBounds = measurements.LowerBounds.Observe(numLoBounds);
+        if (numLoBounds < 0
+            || numLoBounds > blob.RemainingBytes
+            || numLoBounds > remainingTypeNodes)
+        {
             return true;
+        }
+        remainingTypeNodes -= numLoBounds;
         for (int i = 0; i < numLoBounds; i++)
             blob.ReadCompressedSignedInteger();  // lower bound
         return false;

@@ -20,10 +20,10 @@ public static class UnionTypeScanner
 
     public static List<UnionTypeInfo> Scan(PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         List<UnionTypeInfo> results = [];
 
         foreach (var typeHandle in reader.TypeDefinitions)

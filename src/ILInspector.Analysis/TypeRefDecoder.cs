@@ -314,7 +314,10 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
     public TypeRef GetSZArrayType(TypeRef elementType) => TypeRef.SzArray(elementType);
     public TypeRef GetArrayType(TypeRef elementType, ArrayShape shape)
-        => TypeRef.MdArray(elementType, shape);
+        => ArrayShapeText.IsLoadableRank(shape.Rank)
+            ? TypeRef.MdArray(elementType, shape)
+            : TypeRef.Unsupported(
+                $"array rank {shape.Rank} is outside the loadable range 1..{ArrayShapeText.MaxRenderableRank}");
     public TypeRef GetByReferenceType(TypeRef elementType) => TypeRef.ByRef(elementType);
     public TypeRef GetPointerType(TypeRef elementType) => TypeRef.Pointer(elementType);
     public TypeRef GetPinnedType(TypeRef elementType) => TypeRef.Pinned(elementType);

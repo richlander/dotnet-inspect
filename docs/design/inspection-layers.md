@@ -11,8 +11,8 @@ See [overview.md](../overview.md) for subsystem ownership,
 [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
 owns the source-neutral boundary below workspace-backed assembly queries.
 [The package query CLI](package-query-cli.md) applies this split to a
-concrete, not-yet-implemented feature: nuspec/promoted facet predicates over
-`find --package-prefix`.
+concrete feature: its host-neutral nuspec facet engine is implemented at L1,
+while CLI exposure and promoted-tier predicates remain future work.
 
 ## Purpose
 
@@ -34,14 +34,19 @@ consumer picks a depth instead of re-deriving a rule.
 ## The layers
 
 ```text
-dotnet-inspect                      L3  argument parsing, console, formats
+dotnet-inspect L3
   |
-  +-- DotnetInspector.Sections      L2  sections, categories, shape ladder
-        |
-        +-- DotnetInspector.Queries L1  typed inspection requests -> results
-              |
-              +-- DotnetInspector.*     packages, services, core
-                  ILInspector.*         metadata, analysis, decompiler, research
+  v
+DotnetInspector.Sections --+----> DotnetInspector.RowSelection
+  L2                       |       shared typed leaf
+  |                        |
+  v                        |
+DotnetInspector.Queries ---+
+  L1
+  |
+  v
+DotnetInspector.* / ILInspector.*
+packages, services, metadata, analysis, decompiler, research
 ```
 
 Each layer is a separate component. A consumer decides how far up it comes:
@@ -54,6 +59,15 @@ Each layer is a separate component. A consumer decides how far up it comes:
 A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
 
+`DotnetInspector.RowSelection` is an orthogonal leaf utility rather than a new
+layer. L3 does not reach the leaf directly; its boundary output is typed
+operation intent. L2 owns resolution into the executable plan and typed source
+request. L1 or source owners may analyze that request for equivalent execution
+and return a typed result with completion evidence through the
+[source delegation](source-delegation.md) pattern. The
+[composition map](item-and-line-limits.md#composition) owns the exact sequence.
+L2 and L1/source owners reach the leaf without depending on one another.
+
 ## Implementation status
 
 `DotnetInspector.Queries` and the optional
@@ -64,16 +78,31 @@ body-signal comparison, unsafe-evidence, top-leverage, resource-triage,
 Implementation
 comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
-slices, group-scoped PDB-mapped-or-decompiled type/member source, immutable
-package-manifest facts, and bounded package-prefix profiles. Package dependency
-selection and package-prefix profiles consume the same validated manifest-facts
-query. The profile's L2 `Packages` section owns package/dependency row grain,
-schema, projection, and visible failure or truncation evidence; `find` retains
-only request binding, acquisition authorization, diagnostics, and format
-selection. The
+slices, seeded structural-clone retrieval, group-scoped
+PDB-mapped-or-decompiled type/member source, immutable package-manifest facts,
+bounded package-prefix profiles, and product-owned nuspec package-query facets.
+Package dependency selection, package-prefix profiles, and package-query facets
+consume the same validated manifest-facts query. The package-query contract
+owns ordered opaque facet descriptors, typed selection validation, ANDed
+evaluation, inert evidence, distinct candidate and match bounds, and typed
+completion without choosing a renderer. This contract is gated by
+`PackageQueryTests` and the
+`PackageQueryPlanner_IsReachableFromBrowserConsumer` consumer canary. The
+profile's L2 `Packages` section owns package/dependency row grain, schema,
+projection, and visible failure or truncation evidence; `find` retains only
+request binding, acquisition authorization, diagnostics, and format selection.
+The
 API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
-over two host-resolved surfaces. The body-signal seam consumes already-acquired
+over two host-resolved surfaces. Its
+[selected-library coordinator](../inspection-space.md#selected-library-api-comparison)
+also projects two explicit context participants under independent bounds and
+withholds comparison when either API surface is incomplete. The
+[Library API diff presentation](library-api-diff-presentation.md) contract
+owns the portable Library-root and changed-Type projection over that complete
+result. Browser selection, transport, and inventory/detail adoption remain
+separate deliveries.
+The body-signal seam consumes already-acquired
 Analysis indexes and retains `ResearchComparison`; keeping that query in the
 companion assembly avoids imposing Research on core query consumers. Core L1
 now intentionally references Decompiler for `AssemblyContextSourceQuery`,
@@ -159,12 +188,19 @@ query's required closure, transitive cost, and single-query execution plan, and
 passes that cost into the host execution scope. Commands compile multi-query
 plans once and may reuse them across assembly contexts.
 
-`DotnetInspector.Artifacts` now provides the source-neutral floor below these
+`Inspector.Artifacts` provides the source-neutral floor below these
 layers: generation-scoped identity and registration, adapter-owned typed
 provenance and diagnostics, acquisition outcomes, and owner-issued guarded
-admission/query access. It references no project. No current workspace behavior
-has moved onto that floor yet; `ArtifactSetSession`, local acquisition, and
-Metadata consumption remain later migration steps.
+admission/query access. It references no project.
+`ILInspector.Metadata` consumes this subject-neutral contract without crossing
+into tool-tier composition. The `EngineProjectsDoNotReferenceToolProjects`
+architecture gate rejects every production engine-to-tool edge.
+`Inspector.Artifacts.Workspaces` composes bounded immutable contributions
+into a sealed `ArtifactSetSession`, and `Inspector.Artifacts.Local`
+snapshots explicit files before registration. The package-free host fixture
+passes a guarded session snapshot to Metadata. Core Queries, retained workspaces,
+directory acquisition, and Metadata trust-role consumption remain later
+migration steps.
 
 ### L1 — `DotnetInspector.Queries`
 
@@ -179,6 +215,96 @@ flag — decide between eager and lazy acquisition.
 L1 takes **content**, not filesystem paths. A consumer without a filesystem must
 be able to call it. See [Seam rules](#seam-rules).
 
+Package-manifest facts return `PackageManifestFailure`, not parser or validation
+exceptions. Its stable reason distinguishes malformed XML, unsupported document
+shape or namespace, identity mismatch, invalid dependency declarations, and
+query-owned configured limits. The message is derived only from that reason and
+optional numeric XML location; package-authored text never becomes diagnostic
+text. Package profiles retain the reason on their failure event, and L2 projects
+it into the row status while keeping the safe message visible. Dependency-group
+selection retains the same manifest failure alongside its legacy
+exception-shaped package-content failure. These contracts are gated by
+`PackageManifestFactsQueryTests.FailureMessage_IsStableForEveryReason`,
+`PackageManifestFactsQueryTests.FailureMessage_IsSafeForUnknownFutureReason`,
+`PackageProfileQueryTests.ExecuteAsync_ReportsInvalidManifestAndContinues`, and
+`FindCommandTests.PackageProfileSection_KeepsFailuresAndTruncationVisible`.
+
+The Services parser currently reports decoded-character exhaustion through its
+malformed-XML outcome. L1 preserves that classification rather than inferring a
+resource-limit reason from exception text; distinguishing it requires an
+explicit parser-owned contract.
+
+Real-package compatibility evidence is pinned by coordinate and exact manifest
+hash in [`eng/package-manifest-corpus.json`](../../eng/package-manifest-corpus.json).
+The ordinary `PackageManifestCorpusTests` gate is deterministic and offline; it
+validates the catalog's complete structural coverage and the verifier's visible,
+content-free hash and oracle failures. The explicit
+[`eng/verify-package-manifest-corpus.cs`](../../eng/verify-package-manifest-corpus.cs)
+gate fetches bounded exact bytes, runs the L1 query, and compares its facts with
+a test-only NuGet.Packaging oracle. Neither downloaded third-party content nor
+the oracle dependency enters a product, NativeAOT, or Browser path. The pinned
+coordinates, hashes, baseline, and maintenance procedure are recorded in
+[`eng/package-manifest-corpus.md`](../../eng/package-manifest-corpus.md).
+
+The manifest-facts path has two consumer and resource canaries.
+`BrowserEngineBoundaryTests.PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible`
+executes the query from exact in-memory bytes in the inspect-web consumer test
+surface. The CI inspect-web lane publishes the Browser/Wasm engine, where the
+exported `QueryPackageDependencies` operation roots the same query through
+`PackageDependencyGroupsQuery`; the
+`PackageManifestFactsQuery.cs` change-detection canary ensures changes to that
+path cannot skip the lane.
+`PackageManifestFactsQueryTests.Execute_AcceptsManifestAtExactByteLimit`,
+`Execute_AcceptsManifestAtExactDecodedCharacterLimit`,
+`Execute_EnforcesManifestByteLimit`, and
+`Execute_RejectsManifestBeyondDecodedCharacterLimit` gate the byte and
+decoded-character boundaries. The existing
+`Execute_AcceptsScalarAndCollectionLimits`,
+`Execute_RejectsOversizedScalarFact`,
+`Execute_RejectsExcessivePackageTypeCardinality`,
+`Execute_RejectsExcessiveDependencyGroupCardinality`, and
+`Execute_RejectsExcessiveDependencyCardinality` tests gate the remaining exact
+boundaries.
+
+`FindCommandTests.PackageProfileDefaultScale_AcquiresEachManifestOnceAndBoundsProjectedRows`
+is the deterministic operation-count canary. Its pinned input is the default
+100-coordinate profile, with 64 dependencies per manifest and a 25-row output
+window. The recorded baseline is one search, exactly one manifest request per
+coordinate, no package archive requests, one registry materialization reused by
+subsequent reads, and exactly 25 projected rows. Run it with:
+
+```bash
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
+  --filter-method '*PackageProfileDefaultScale*'
+```
+
+`RestoredProjectDependencyFactsQuery` implements the contract in
+[`restored-project-dependency-facts.md`](restored-project-dependency-facts.md)
+over exact caller-supplied `project.assets.json` bytes and an optional exact
+TFM/RID request, supporting assets schema versions 3 and 4. It projects one
+content provenance digest, one selection identity independent of JSON property
+order, one root, per-framework declaration groups with `InertString`-contained
+package identity and version-constraint spellings, and a package-resolving
+graph of direct/transitive edges reachable from root traversal — never a path,
+filesystem, cache, MSBuild evaluation, or output type. Declaration and graph
+projection fail independently, each as a closed `Available` (complete or
+incomplete)/`Unavailable`/`Failed` outcome with a typed, content-free failure
+reason. This query has no CLI or section adoption yet; it is gated by
+`RestoredProjectDependencyFactsQueryTests` and the
+`restored-project.dependency-facts` fixture in `DotnetInspector.Fixtures`.
+
+`RestoredProjectDependencyTraversalQuery` implements the contract in
+[`restored-project-dependency-traversal.md`](restored-project-dependency-traversal.md)
+over the same bytes and target request. It consumes one internal projection
+issued by the facts query — there is no second assets parse or target-selection
+rule — and projects the root, project-reference, and package relationship set
+with minimum root-relative distance, explicit depth boundaries, depth-scoped
+typed failures, stated completion, and a topology identity scoped to the facts
+owner's unchanged selection identity. Package relationships carry the facts
+owner's exact graph edges rather than reminted evidence. This query also has no
+CLI or section adoption yet; it is gated by
+`RestoredProjectDependencyTraversalQueryTests`.
+
 L1 does not reference Markout.
 
 ### L2 — `DotnetInspector.Sections`
@@ -187,6 +313,15 @@ Owns the named, selectable unit (the **section**), the topical **categories**
 that surface it, the disclosure ladder that decides when it appears, and the
 **shape ladder** that narrows a result to what was asked for. L2 is where results
 are integrated with Markout serialization.
+
+L2 binds declared typed row sets to the consumer-neutral
+`DotnetInspector.RowSelection` leaf component.
+[Semantic row selection](semantic-row-selection.md) defines that component's
+ordered stage plan, strictness, stage-local positions, and pure output. At this
+boundary, L3 supplies typed operation intent. L2 owns its resolution into the
+executable plan and typed source request, and binds the typed source result and
+completion evidence back to declared row sets. This layer contract does not
+define the relative order of L2's internal row operations.
 
 Categories are consumer-neutral. `@Surface`, `@Performance`, `@Audit`,
 `@Integrations`, and `@SourceLink` are topical groupings, not terminal
@@ -249,7 +384,7 @@ Markout renders markdown, tsv, and jsonl, so most of the format axis is
 implemented below L3 even though L3 names the value. Read the owner column as
 "who chooses", not "who writes the characters" — the same distinction the Shape
 row makes by crediting Markout with defining the ladder that L2 selects a rung
-from. A renderer that lives in `src/dotnet-inspect/Output/` is not evidence that
+from. A renderer that lives in `src/DotnetInspect.Cli/Output/` is not evidence that
 rendering is an L3 responsibility; it is either genuinely
 dotnet-inspect-specific or a candidate to move.
 
@@ -267,6 +402,9 @@ the L1 noun:
 - **schema query** — `-D` catalog discovery, see [schema-query.md](schema-query.md). L2.
 - **row query** — field predicates within a section, see
   [row-query-order.md](row-query-order.md). L2.
+- **row selection** — ordered semantic stages over one or more complete logical
+  sequences, see [semantic-row-selection.md](semantic-row-selection.md).
+  Shared leaf component, bound to declared row sets by L2.
 - **a user's search string** — CLI option names such as `OriginalTypeQuery` and
   `PlatformPrefixQuery` in `ApiOptions`, and the `ILOffsetQuery` helper. These
   are inputs typed by a user, not typed requests. L3.
@@ -284,7 +422,7 @@ scanning and is not called a scanner.
 
 **Result** names what a query returns (`XxxQuery` -> `XxxResult`).
 "Inspection" stays reserved for composed aggregates and "Finding" for the
-[`ILInspector.Findings`](../../src/ILInspector.Findings) spine, so the three
+[`Inspector.Findings`](../../src/Inspector.Findings) spine, so the three
 nouns remain distinguishable.
 
 ## Seam rules
@@ -311,6 +449,1103 @@ consumer's convenience.
 7. **Presentation-free means presentation-free.** No layer below L3 writes to the
    console or decides an output format.
 
+## Queries-to-Research population boundary
+
+**Status:** #5860 implements the #4711 population sealer and companion-internal
+projection, with the named Release gates in
+[Migration and gates](#migration-and-gates). The implementation profile is
+consumed by `DirectMemberComparisonQuery`, CLI `match --body` (#5967), and
+the retained Browser method-body comparison facade projection from #5990.
+Whole-assembly and body-signal query execution remain separate step-7
+migrations in #4706. The unconsumed Queries body-signal population profile is
+retired in #6044; its target-evidence migration still requires #4777 and an
+actual execution adopter.
+
+This boundary is owned by the L1 `DotnetInspector.Queries` component and this
+document. The component spans the core query assembly and the optional
+`DotnetInspector.ResearchQueries` companion: the latter is a physical dependency
+split that keeps Research out of core query consumers, not a second
+architectural owner.
+
+`ILInspector.Research` remains the adjacent owner. It owns Research identity
+construction, admission, target resolution, correspondence, and comparison
+semantics under [Implementation Diff](implementation-diff.md). L1 may require
+Research-issued identities and retain their correspondence to query identities;
+it must not mint, infer, or reinterpret them.
+
+The implemented
+[workspace Research target composition](research-workspace-target-composition.md)
+consumes this receipt to associate Metadata's terminal forwarding definition
+with one exact existing Research attempt. That composition remains
+Queries-owned and does not change this population-sealing contract.
+
+### Legacy query execution seam
+
+`ImplementationComparisonInput` currently accepts independent old/new
+collections of Research-owned `ImplementationAssemblyInput` values.
+`BodySignalComparisonInput` accepts independent old/new
+`LibraryBodyIndex` collections. Both query adapters pass those collections
+directly to Research. Neither adapter has a query-owned operation identity,
+sealed population, or receipt proving which query inputs became which Research
+admission values.
+
+`AssemblyContextGroup` already seals participant registration and
+binding-policy consistency for one live workspace group. That remains a
+workspace lifetime contract. A comparison may borrow its participant evidence,
+but the group does not become the comparison-population owner and its disposal
+rules do not move into this boundary.
+
+`QueryComparisonPopulationSealer.Execute` accepts a typed, Queries-owned
+implementation population request and returns a
+sealed `QueryComparisonPopulation<TBinding>` or typed rejection. The internal
+`QueryPopulationProjection.Execute` in the ResearchQueries companion admits the
+sealed inputs and returns `ProjectedQueryPopulation` with its inert
+`QueryToResearchPopulationReceipt`, or a typed projection/admission rejection.
+It uses Research-issued occurrence associations, not input order or borrowed
+value equality, to establish the input map. One sealing invocation has exactly
+one question; the question map identifies the unique admitted question, even
+when both sides are empty.
+
+The existing `ImplementationComparisonInput`, `BodySignalComparisonInput`, and
+their public `Execute` result contracts remain supported by the CLI `diff`
+consumer. The receipt is not discarded to adapt them prematurely. #4706 counts the shared
+population boundary as step 1, local CLI/browser adoption as steps 8/9, and
+final Queries/Research retirement as steps 16/17.
+
+### Population contract
+
+Each sealing invocation is one query question. The current execution consumer
+is `DirectMemberComparisonQuery.Execute`. Before Research execution, L1
+snapshots and seals:
+
+- one opaque, operation-local `QueryComparisonOperationId`;
+- one opaque `QueryComparisonQuestionId` parented by that operation;
+- the exact type-filter and member-target values supplied as selection intent;
+- every submitted old/new input-binding occurrence, assigning each a fresh
+  opaque `QueryComparisonInputId` parented by that operation and question plus
+  an explicit `Before` or `After` side.
+
+This is the complete **query input population**. It is not the later set of
+resolved methods, Research subjects, attempts, correspondence outcomes, work
+items, or producer results. Target expansion and target correspondence consume
+this population in the Research-owned follow-up design; they cannot add query
+input members retroactively.
+
+The operation, question, and input ids are identity. Assembly names, paths,
+MVIDs, list positions, rendered labels, filter text, and Research subject ids
+are evidence or intent and never substitute for those ids. Side participates in
+population membership. Reusing one input record in another `Execute` call mints
+a new operation, question, and input population. Repeating the same borrowed
+owner value within or across sides preserves the submitted multiplicity and
+mints one distinct side-local input id per occurrence.
+
+The three query id types are sealed opaque reference identities with
+non-public constructors. The sealer mints all three kinds inside `Execute`;
+public input records and profile bindings carry no population id or parent.
+Callers cannot supply an arbitrary id, parse one from text, or convert between
+id kinds. The sealer does not deduplicate borrowed values, and it does not open
+content, hash bytes, read an MVID, compare paths, or use list position as the
+resulting identity.
+
+The implemented boundary has one typed profile used by the direct-member query:
+
+| Profile | Query-owned input binding | Borrowed owner values |
+| --- | --- | --- |
+| Implementation comparison | one binding per submitted assembly input | exact `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, and `LibraryBodyIndex` |
+
+The separate whole-assembly execution migration must replace the Research-owned
+`ImplementationAssemblyInput` at its public L1 input seam with a query-owned
+idless binding. A body-signal adoption must supply its required Metadata target
+evidence and an actual public execution consumer together; the unused
+index-only population request, sealer overload, and projection are not retained
+as placeholders for that future work. Research's own supported profiles and the
+existing `BodySignalComparisonQuery` are unchanged by this Queries contraction.
+
+The sealer copies caller-owned collections and selection sets into immutable
+storage before returning. Subsequent caller mutation cannot change the
+population. An empty side is an explicit frozen set, not omitted state. A
+fresh input id appears exactly once, every member names the freshly minted
+operation and question, and every retained value belongs to the declared
+profile. A null or invalid profile binding produces a typed query-population
+rejection before Research execution.
+
+Sealing does not open assembly content, read metadata, resolve targets, or
+validate Analysis evidence against an assembly image. In particular,
+`ImplementationDiff.ValidateBodyIndex` remains a Research-owned content check;
+the L1 sealer only proves which exact borrowed values entered the population.
+
+### Projection and receipt
+
+The optional ResearchQueries companion is the only L1 assembly that references
+both core Queries and Research. It consumes one sealed profile and requires
+Research to return distinct owner-issued typed identities for these roles:
+
+- the comparison operation;
+- the question whose selection intent will be resolved;
+- each side-local admitted input.
+
+Rank 1 fixes those required roles and L1's correspondence obligations, not the
+Research types, representation, constructors, accessibility, factory shape,
+admission payload, or validation semantics. The Research-owned target-request
+design defines that contract. L1 accepts only values issued by that owner and
+cannot derive them from query ids or display values.
+
+The Research-owned API must let the companion associate each returned identity
+with the exact sealed antecedent in the same interaction. Its concrete shape is
+Research-owned, but it cannot require L1 to collect identities and later join
+them by ordinal, content, or display value.
+
+Projection is atomic. Either every sealed query identity receives exactly one
+Research identity and the companion-internal projection entry point returns one
+`ProjectedQueryPopulation`, or no projected population is exposed. That
+internal result contains the Research-owned admission value and one
+Queries-owned `QueryToResearchPopulationReceipt`.
+
+The receipt contains one exact operation pair plus separately typed immutable
+question and input maps whose ranges use the concrete owner-issued types from
+the Research contract. Each input correspondence also retains the exact
+`Before` or `After` side from the sealed antecedent. The maps use exact
+owner-issued identity, not structural or textual equality. For each map:
+
+- the domain equals the corresponding sealed query-id set;
+- the range equals the corresponding Research-issued id set;
+- every domain value has one image;
+- every range value has one antecedent; and
+- query and Research identities remain non-convertible and unequal by
+  construction.
+
+Missing, extra, duplicate, substituted, wrong-side, or wrong-operation entries
+reject projection. The companion validates its map cardinality, domain, range,
+parentage, and side against the sealed population and the complete
+Research-issued response. Any validation internal to Research remains outside
+this document. Neither owner infers the other's identity from shared facts.
+
+The receipt is inert and immutable. It may retain opaque owner-issued ids,
+profile kind, and side, but it retains no assembly descriptor, resolver, body
+index, metadata source, callback, lease, producer evidence, display row, or
+cleanup authority. The companion returns it as an immediate output of that one
+companion-internal projection entry point. It is not an additional return value
+from `ImplementationComparisonQuery.Execute` or
+`BodySignalComparisonQuery.Execute`, and it is not registered, cached,
+published, or cleaned up by this boundary. This design does not define an outer
+result shape or longer-lived retention policy.
+
+The Research-owned input value in one correspondence is admission identity for
+one projected query input. It is not a `ResearchSubjectKey`, resolved
+member/type identity, Finding subject, change id, row id, or display coordinate.
+Those later identities cannot appear in the population receipt.
+
+### Migration and gates
+
+Implementation and adoption proceed without reversing dependency direction:
+
+1. Core Queries adds the query-owned ids, profile bindings, immutable
+   populations, and sealing results. It does not reference Research.
+2. The Research-owned target-request design defines the concrete owner-issued
+   identity and admission-output API required by the roles above. This document
+   does not require a friend grant, internal API, or public API shape.
+3. The ResearchQueries companion adds the internal projection entry point,
+   `ProjectedQueryPopulation`, and `QueryToResearchPopulationReceipt` after
+   that adjacent contract exists.
+4. Wiring the current public query `Execute` paths is deferred to the dependent
+   Research session/completion and Queries outer-result efforts. This focused
+   implementation does not discard the receipt or change the current
+   `ImplementationDiffResult` and `ResearchComparison` result shapes.
+5. The Research-owned body-index/content check and target matching remain in
+   Research until their owning designs change them.
+
+`QueryComparisonPopulationTests` in `DotnetInspector.Queries.Tests` contains
+the named non-vacuity gates for the implemented boundary:
+
+- `ComparisonPopulation_SealsImmutableInputAndSelectionSnapshots`
+- `QueryPopulationBindings_AreIdlessBorrowedWrappers`
+- `ComparisonPopulation_MintsFreshParentedIdentitiesPerExecute`
+- `ComparisonPopulation_SealsEverySubmittedOccurrenceWithDeclaredSide`
+- `ResearchPopulationProjection_IsTotalAndBijective`
+- `ResearchPopulationProjection_MapsEachReturnedIdentityToItsExactSealedAntecedent`
+- `ResearchPopulationProjection_RejectsMissingExtraSubstitutedAndWrongSideMappings`
+- `QueryPopulationIdentities_AreOwnerIssuedAndNonConvertible`
+- `PopulationReceipt_DoesNotRetainBorrowedInputs`
+- `PopulationProjection_IsCompanionInternalAndAbsentFromPublicResults`
+
+The expected identity and map sets must be derived from the sealed population,
+so both missing and stale entries fail.
+`CoreQueries_AcquireDecompilerButNotResearch` already gates the project-reference
+closure and remains the dependency-direction proof.
+
+`ComparisonPopulation_Demo` exercises the product sealer, owner-issued Research
+admission, and receipt validator over an existing compiled fixture. Repeated
+borrowed values remain three distinct input occurrences; an incomplete map is
+rejected without a partial receipt. This internal-projection demo is distinct
+from #5676's public workspace file-based demo and does not claim host adoption.
+
+### Population-boundary non-goals
+
+This boundary does not define:
+
+- package-role realization, resource ownership, cleanup, or budgets;
+- Research target requests, attempts, correspondence outcomes, work items,
+  producer-specific inspection topology, producer execution, completion, or
+  comparison semantics;
+- [direct-member designation or comparison](direct-member-comparison.md);
+- Source, PDB, network, or authored-source behavior;
+- outer result publication, failure composition, CLI projection, or output
+  integrity; or
+- a global operation-stage catalog or shared cross-component lifecycle.
+
+## Package-role planning and cleanup boundary
+
+**Status:** target design for #4745; unimplemented and unverified until the
+named gates in [Package-role migration and gates](#package-role-migration-and-gates)
+land.
+
+This boundary is owned by the L1 `DotnetInspector.Queries` component and this
+document. Package-specific composition may remain in an optional physical
+companion so core assembly Queries can reach its source-neutral inputs without
+retaining a package implementation dependency. That physical split does not
+create a second architectural owner.
+
+`Inspector.Artifacts` remains the adjacent source-neutral owner. It owns
+artifact generations, identities, acquisition registrations and outcomes,
+diagnostics, guarded content access, and acquisition leases under
+[Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md).
+The package adapter owns package coordinates and
+[asset selection](../nuget-package-structure.md#assembly-asset-roles). L1
+consumes their owner-issued typed results; it does not mint an artifact identity,
+reinterpret a non-acquired outcome as an empty role, select package assets, or
+dispose a borrowed acquisition lease.
+
+### Current package-role gap
+
+`InspectionWorkspace.RealizePackageAssemblyContextRoles` already determines
+whether the selected implementation assets are absent, shared with the surface,
+or separate before `CreateRole` opens package entries. It does not return that
+decision as an inert plan. The same operation then opens entries, decodes
+assembly identity, creates live groups, and exposes one
+`PackageAssemblyContextRealization : IDisposable`.
+
+Construction and disposal failures lose the role-group coordinate that existed
+before opening. `PackageAssemblyContextRoles.DisposeGroups` attempts both
+distinct groups but throws an unkeyed `AggregateException`; construction and
+wrapper failures can add another aggregate layer. A consumer may flatten that
+exception graph, but cannot prove which planned group transferred, which group
+was released, or which group failed cleanup.
+
+The current contract remains documented under
+[Workspace definitions](workspace-definitions.md). It is migration evidence,
+not the target result shape. Its shared-group reuse, reference-only surfaces,
+exact participant correspondence, no-partial-group validation, and attempt-all
+cleanup behavior remain required.
+
+### Imported prerequisites
+
+Planning begins after source acquisition and package asset selection. Its
+inputs contain:
+
+- exact package-owner-selected surface and implementation occurrences;
+- the exact Artifacts-issued registration for every selected artifact;
+- the owner-issued correspondence from each selected package occurrence to
+  its neutral assembly projection; and
+- role-local group policy supplied as Queries input.
+
+The input records are idless from L1's perspective. They may borrow Artifacts,
+package, and Metadata values, but they cannot carry a caller-created Queries
+operation, binding, or group id.
+
+L1 accepts only the acquired, authorized values provided through that typed
+seam. An Artifacts `Unavailable`, `Rejected`, or `Failed` outcome remains that
+owner's result and cannot become an empty package-role plan. The adapter decides
+which package entries occupy each role and whether a surface occurrence has a
+selected implementation counterpart. L1 does not recover those decisions from
+entry paths, package labels, decoded assembly names, MVIDs, list positions, or
+display text.
+
+Acquisition may already have opened source content before this boundary. The
+plan-before-open rule begins at L1 ownership transfer: no L1 assembly
+projection, retained snapshot, assembly-context group, or derived group
+resource may be opened or retained until one valid plan exists.
+
+### Package-role plan
+
+One planning invocation mints:
+
+- one opaque `PackageRoleRealizationOperationId`;
+- one opaque `PackageRoleBindingId` for every submitted role occurrence; and
+- the exact set of opaque `PackageRoleGroupId` values that this operation may
+  own.
+
+The ids are sealed Queries-owned reference identities with non-public
+constructors and operation-local parentage. Reusing the same imported artifact
+in another invocation mints new ids. Repeating one imported registration in
+multiple role occurrences preserves the multiplicity and mints one binding id
+per occurrence; artifact identity remains provenance and correspondence, not
+role-binding or group identity.
+
+The result is one single-use `PackageRoleRealizationPlan`. Its semantic payload
+is immutable: it copies the submitted role occurrences and policy values,
+retains their exact typed owner-issued antecedents, and closes one topology:
+
+| Topology | Role meaning | Exact owned-group domain |
+| --- | --- | --- |
+| `Absent` | no implementation role was selected | surface group only |
+| `Shared` | surface and implementation use one exact compatible selection | surface and implementation name the same group id |
+| `Separate` | implementation has a distinct selected role | distinct surface and implementation group ids |
+
+The package-owner selection proof, including explicit reference-only
+occurrences, determines role correspondence. L1 associates each fresh binding
+id with its exact submitted antecedent while planning; it does not collect
+bindings and later join them by ordinal or evidence. A missing implementation
+counterpart for one surface occurrence remains explicit correspondence absence
+inside a present role and does not imply that the whole implementation topology
+is `Absent`.
+
+Planning validates only Queries-owned shape: non-empty surface membership,
+topology consistency, operation-local uniqueness, role-policy compatibility,
+and complete exact antecedent association. Invalid shape returns a typed
+Queries planning rejection before any group creation. Package selection,
+Artifacts registration, acquisition outcome, assembly decoding, and projection
+validation remain with their owners.
+
+The plan is inert. It retains no stream, open callback, assembly image,
+`AssemblyContextGroup`, derived resource, cleanup delegate, acquisition lease,
+exception, or package-authored diagnostic text. Caller mutation after planning
+cannot alter role membership, group count, topology, correspondence, or policy.
+One private atomic consumption marker is capability state, not semantic plan
+data or a resource handle. A second realization attempt throws
+`InvalidOperationException` as a programmer error before allocating cleanup
+state or creating a group; it does not return a second open outcome or cleanup
+report.
+
+### Realization and completion
+
+Realization atomically consumes the plan. Before a planned group can transfer
+into Queries lifetime, L1 creates one
+`PackageRoleGroupReleaseCompletion` cell keyed by that group's
+`PackageRoleGroupId`. The cells have exactly the plan's group-id domain: one for
+`Absent` or `Shared`, two for `Separate`. This is a component-local fixed-domain
+table, not a shared cleanup authority or budget ledger.
+
+Each cell has one monotonic lifecycle: not transferred, transferred, release
+requested, and completed with one immutable cleanup record. The first caller to
+request release initiates it; every other caller observes or awaits the same
+completion. No path can replace a completed record or invoke group release
+again.
+
+The package-role session and `InspectionWorkspace` retain the same cells for
+the groups they share. Failed-open rollback, explicit package-session close,
+and workspace disposal therefore converge on one release authority rather than
+disposing the group independently. Workspace-first disposal does not consume a
+failure that the session can no longer report, and session-first close removes
+the completed group from later workspace work.
+
+An `AssemblyContextGroup` may defer actual resource release while a callback is
+active. A release cell becomes complete only after that group reaches
+quiescence, releases its owned resources and snapshots, and records the
+resulting group-level disposition. The target opening operation and live
+session close are asynchronous so Browser/Wasm and other consumers can await
+failed-open, cancellation, or close completion without blocking a thread.
+Close is idempotent, accepts no cancellation token once release is requested,
+and returns the same report instance on every call.
+
+Asynchronous opening returns a discriminated `PackageRoleOpenOutcome`:
+
+- `Realized` carries one live Queries-owned package-role session;
+- `Rejected` carries a stable Queries-owned primary diagnostic plus a complete
+  immutable cleanup report when the plan cannot be admitted; and
+- `Failed` carries a stable Queries-owned primary diagnostic plus a complete
+  immutable cleanup report when execution fails.
+
+Those arms are the only expected non-cancellation failure channel. Expected
+admission and opening failures are returned, and cleanup failure is represented
+only in the report rather than thrown as a primary failure. The primary
+diagnostic is authoritative; the cleanup report records only the disposition
+of planned groups and never becomes a competing primary result.
+
+The primary outcome in this boundary is package-role realization, not later
+query, Research, publication, or presentation work. An imported owner
+diagnostic may be retained as its exact typed value, but L1 does not copy its
+code or summary into a new interpretation. Queries-owned diagnostics use a
+stable reason and fixed owner-authored summary; they retain no raw exception,
+exception message, stack trace, package entry name, or package-authored text.
+
+A successful open cannot truthfully contain its future cleanup result. The live
+session's close operation requests release for every transferred group, awaits
+their shared release cells, and returns the final immutable
+`PackageRoleCleanupReport`. Expected cleanup failure is represented in that
+report and close does not throw it. The target session is not an `IDisposable`
+whose only failure channel is an exception; current throwing `Dispose` surfaces
+remain compatibility adapters until their callers migrate.
+
+Every cleanup report has exactly the plan's group-id domain. Each
+`PackageRoleGroupCleanupRecord` is one of:
+
+- `NotTransferred`, when ownership of that planned group never completed in
+  the plan's one permitted realization;
+- `Released`, when the transferred group released successfully; or
+- `Failed`, with one bounded Queries-owned group-release diagnostic.
+
+`Realized` sessions close with no `NotTransferred` records. A failed open
+requests release for every group whose ownership transferred, even when an
+earlier release fails, awaits every resulting completion, then returns its
+primary diagnostic and complete report. Shared topology transfers and releases
+its one group exactly once even though both role views name it. Separate
+topology records implementation and surface cleanup under their distinct ids;
+request or completion order never becomes identity.
+
+L1 captures a group failure at that exact group's release site. It does not
+flatten, retain, count, reorder, or reinterpret the group's exception graph.
+One group-level `Failed` record says only that release of that planned group
+failed. Cleanup failure never selects or replaces the terminal primary.
+
+### Shareable completion and demand projections
+
+**Status:** implemented for #5122 and verified by the named
+`PackageAssemblyContextCompletionTests` Release gates below. Coordinated
+workspace adoption is implemented under #5185 and verified by the
+[workspace-close composition gates](../inspection-space.md#workspace-close-and-group-release-authority).
+
+One successfully opened package-role operation produces one
+workspace-owned `PackageAssemblyContextCompletion`. The completion owns the
+combined role groups, immutable participant layout, and exact keyed cleanup
+completion. It does not retain the first demand's
+`PackageRootIdentity` objects as the identity of that shared layout, and it
+never flows to a demand as a caller-disposable value.
+
+The operation is prepared before it is started. Preparation snapshots the
+ordered selected `PackageRootBinding` antecedents and returns one cold,
+single-use operation with an opaque operation identity. Exact-request
+admission publishes that identity before invoking the operation. Execution
+accepts no demand cancellation token: a canceled demand stops waiting through
+the admission owner, while the workspace-owned operation continues to one
+explicit success or failure. The executor provides a cooperative scheduling
+opportunity before opening the first selected asset and after at most each
+subsequent asset realization attempt. This bounds host scheduling latency at
+asset granularity without claiming that decoding one asset is preemptible or
+requiring a background thread.
+
+The completion issues one `PackageAssemblyContextProjection` per admitted
+demand. Projection creation receives:
+
+- the exact ordered selected coordinate, content-generation, and selection
+  antecedents that admission matched to the completion; and
+- that demand's ordered `PackageRootIdentity` references for those same
+  selected package slots.
+
+The completion verifies exact antecedent count, order, coordinate value, and
+generation and selection token identity before issuing a projection. It then
+creates fresh `PackageAssemblyRoleParticipant` wrappers that retain the
+receiving demand's exact Root references while reusing the completion's
+underlying `AssemblyContextParticipant` objects. Surface and implementation
+participant order, shared/separate topology, reference-only absence, and
+`ImplementationParticipant` correspondence remain identical to the shared
+layout. Root-only packages remain outside this projection because the
+admission contract omits them from the selected request and the host retains
+them independently.
+
+A projection exposes non-owning surface and optional implementation role
+views. A role view is a Queries-owned query target, not an
+`AssemblyContextGroup`: it exposes the demand-local participant wrappers and
+permits only operations that retain the participant and group for the duration
+of that query. It exposes no `Dispose`, group-release request, owned-resource
+registration, or release-after-use operation. In particular,
+`AssemblyContextIntegrationsQuery.ExecuteParticipantAsync` is not available
+through the view because its completion permanently releases a participant.
+The projection also does not expose
+`AssemblyContextGroup.RetainAssemblyReference`; that operation creates an
+independent snapshot whose retained-byte lifetime would escape the demand and
+the shared completion's lease boundary.
+
+Projection access and return have one atomic linearization boundary. Each
+projection tracks only its own active uses:
+
+- access that linearizes before return may complete using the shared group;
+- return closes that projection to new access immediately, waits for its
+  already-linearized uses, then removes only that demand's use from the
+  completion;
+- access that linearizes after return throws
+  `ObjectDisposedException` naming the projection before entering the group;
+  and
+- concurrent or repeated return calls observe one shared completion and have
+  no effect on other projections.
+
+Returning or closing from inside an active use of the same projection is a
+programmer error rejected before lifetime state changes; otherwise awaiting
+the operation would wait on itself. A completion-global active-use counter is
+unnecessary: the completion retains the exact set of outstanding projections,
+and each projection owns its own use drain.
+
+`PackageAssemblyContextCompletion.CloseAsync` is the only package-role
+terminal-release request. It accepts no cancellation token, atomically closes
+projection admission, waits for every issued projection to return, then
+requests release of each distinct planned group and awaits the existing group
+quiescence protocol. A close racing the final projection return linearizes in
+either order but starts group cleanup once. Repeated close calls return the
+same task and immutable `PackageRoleCleanupReport` instance. The wait may be
+indefinite when a demand violates the admission owner's explicit assumption
+that every issued lease eventually returns; the completion does not revoke or
+forge that demand's return.
+
+Cleanup records retain the exact `PackageRoleGroupId` domain and states defined
+above. Shared topology produces one record; separate topology produces two;
+record order never substitutes for identity. Expected group-release failure is
+captured at that group's release completion and remains a keyed `Failed`
+record; it does not escape through another demand's query or replace a primary
+operation result. The completion retains no caller cancellation source, and a
+projection retains no terminal release capability.
+
+The current `PackageAssemblyContextRealization : IDisposable` remains a
+single-caller compatibility surface. It may continue to expose and dispose its
+groups, but exact-request admission must never cache or share it. The new
+completion is initially package-role-owned beside that compatibility path.
+Coordinated workspace registration, workspace-close signaling, late
+completion, and preservation of existing lease-holder access during workspace
+close remain owned by
+[Workspace close and group release authority](../inspection-space.md#workspace-close-and-group-release-authority)
+and were adopted separately under #5185.
+
+The adjacent exact-request admission and assembly-context group lifecycle
+models bound cache leases and group quiescence respectively. Neither model
+claims to prove projection construction or its use/return boundary. The
+implementation therefore names direct Release gates:
+
+- `PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder`
+- `PackageRealizationProjection_OneReturnDoesNotInvalidateAnotherDemand`
+- `PackageRealizationProjection_CannotTerminallyReleaseSharedParticipant`
+- `PackageRealizationProjection_RetainedSnapshotPolicyIsExplicit`
+- `PackageRealizationLeaseHolder_CannotReleaseSharedGroup`
+- `PackageRealizationReturnedLease_RejectsProjectionAccess`
+- `PackageRealizationConcurrentUseAndReturn_LinearizesBeforeCleanup`
+- `PackageRealizationProjection_ReentrantReturnRejectsBeforeMutation`
+- `PackageRealizationCompletion_LastReturnAndCloseStartCleanupOnce`
+- `PackageRealizationCompletion_CloseReturnsExactKeyedCleanupDomain`
+- `PackageRealizationCompletion_RepeatedCloseSharesReport`
+- `PackageRealizationLease_ReturnIsIdempotent`
+- `PackageRealizationRelease_WaitsForEveryLease`
+- `PackageRealizationRelease_UsesPackageRoleCompletionExactlyOnce`
+- `PackageRealizationCleanupFailure_RemainsVisible`
+- `PackageRealizationOperation_IsWorkspaceOwnedAndCallerIndependent`
+- `PackageRealizationOperation_CannotRunBeforeInFlightPublication`
+- `PackageRealizationOperation_HasBoundedCooperativeProgress`
+
+Realization has one terminal-primary commitment. Explicit cancellation
+checkpoints and expected rejection/failure sites compete to select it; the
+first selected terminal primary wins. After commitment, mandatory cleanup does
+not observe the caller's cancellation token:
+
+- a selected `Rejected` or `Failed` primary remains authoritative even if the
+  token is canceled during cleanup, and the corresponding outcome is returned
+  with the final report;
+- cancellation selected before a non-cancellation primary remains
+  cancellation, requests and awaits cleanup for every transferred group, then
+  throws one dedicated
+  `PackageRoleRealizationCanceledException : OperationCanceledException`; and
+- cancellation before any ownership transfer propagates as an ordinary
+  `OperationCanceledException` because there is no group disposition to report.
+
+The dedicated exception preserves the original cancellation token and exposes
+the one immutable keyed cleanup report through a typed property. It is the only
+post-transfer cancellation channel; no open outcome is also returned. The
+report remains ancillary cleanup evidence, cancellation remains the primary
+result, and the exception does not wrap cleanup exceptions or turn cancellation
+into a failure outcome. Cancellation observed after an outcome has committed
+cannot retroactively replace that outcome.
+
+The report is inert. It may retain the operation id, topology, group ids,
+cleanup states, and stable Queries diagnostics. It retains no group, role
+participant, artifact or assembly descriptor, acquisition registration, lease,
+content accessor, callback, exception, release-completion cell, or cleanup
+authority.
+
+### Package-role migration and gates
+
+Migration preserves dependency direction and current behavior:
+
+1. L1 adds the pure planning contract and purpose-built topology fixtures. No
+   package entry or group is opened by this slice.
+2. L1 adds the shared quiescent group-release completion for plan-created
+   groups beneath `InspectionWorkspace` and package-role composition. Current
+   synchronous disposal remains a compatibility adapter over that one
+   completion path.
+3. L1 adds the asynchronous typed-open/session/close path beside the current
+   throwing `RealizePackageAssemblyContextRoles` compatibility API. The
+   synchronous compatibility API retains its current throwing behavior; it
+   does not implement the target complete-report contract.
+4. L1 adds the shareable completion and demand-local projection boundary above
+   without changing workspace registration ownership. The completion becomes
+   the package-role release authority consumed by later admission and
+   workspace-adoption slices.
+5. The package composition adapter supplies its typed selected-role and
+   Artifacts correspondence inputs after that adjacent migration exists. This
+   document does not prescribe the adapter's type, factory, accessibility,
+   acquisition, or package-selection implementation.
+6. Product callers migrate to the typed path. Only then may the compatibility
+   `AggregateException` surfaces and direct package dependencies be retired
+   under their owning migration plans.
+
+The target contract remains unimplemented until these named non-vacuity gates
+land:
+
+- `PackageRolePlan_ClosesTopologyBeforeAnyGroupCreation`
+- `PackageRolePlan_PreservesEverySelectedOccurrenceAndExactAntecedent`
+- `PackageRolePlan_MintsFreshOperationLocalIdentities`
+- `PackageRolePlan_IsInertAndImmuneToCallerMutation`
+- `PackageRolePlan_RejectsInvalidShapeWithoutOwnershipTransfer`
+- `PackageRolePlan_SecondRealizationIsProgrammerErrorBeforeSideEffects`
+- `PackageRolePlan_PlannedGroupsEqualCleanupRecordDomain`
+- `PackageRoleRealization_ReservesEveryCleanupCellBeforeTransfer`
+- `PackageRoleOpen_CreatesOnlyPlannedGroups`
+- `PackageRoleOpenFailure_PreservesPrimaryAndCompleteCleanupReport`
+- `PackageRoleClose_AttemptsEveryTransferredGroupAndKeysEachOutcome`
+- `PackageRoleClose_IsIdempotentAcrossAllTopologies`
+- `PackageRoleSharedTopology_ReleasesOneGroupExactlyOnce`
+- `PackageRoleGroupRelease_WorkspaceAndSessionObserveSameCompletion`
+- `PackageRoleGroupRelease_AwaitsDeferredCleanupAfterActiveCallback`
+- `PackageRoleCleanupReport_RetainsNoBorrowedInputsOrExceptions`
+- `PackageRoleTerminalPrimary_FailureBeforeCancellationPreservesFailure`
+- `PackageRoleTerminalPrimary_CancellationBeforeFailurePreservesCancellation`
+- `PackageRoleCancellationException_AfterTransferCarriesCleanupReport`
+- `PackageRoleAsyncLifecycle_NeverBlocksSingleThreadedHost`
+- `PackageRoleTargetPath_ReturnsKeyedFailuresWithoutAggregateException`
+- `PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder`
+- `PackageRealizationProjection_OneReturnDoesNotInvalidateAnotherDemand`
+- `PackageRealizationProjection_CannotTerminallyReleaseSharedParticipant`
+- `PackageRealizationProjection_RetainedSnapshotPolicyIsExplicit`
+- `PackageRealizationLeaseHolder_CannotReleaseSharedGroup`
+- `PackageRealizationReturnedLease_RejectsProjectionAccess`
+- `PackageRealizationConcurrentUseAndReturn_LinearizesBeforeCleanup`
+- `PackageRealizationProjection_ReentrantReturnRejectsBeforeMutation`
+- `PackageRealizationCompletion_LastReturnAndCloseStartCleanupOnce`
+- `PackageRealizationCompletion_CloseReturnsExactKeyedCleanupDomain`
+- `PackageRealizationCompletion_RepeatedCloseSharesReport`
+- `PackageRealizationLease_ReturnIsIdempotent`
+- `PackageRealizationRelease_WaitsForEveryLease`
+- `PackageRealizationRelease_UsesPackageRoleCompletionExactlyOnce`
+- `PackageRealizationCleanupFailure_RemainsVisible`
+- `PackageRealizationOperation_IsWorkspaceOwnedAndCallerIndependent`
+- `PackageRealizationOperation_CannotRunBeforeInFlightPublication`
+- `PackageRealizationOperation_HasBoundedCooperativeProgress`
+
+The expected binding, group, and cleanup sets must be derived from the plan, so
+both missing and stale entries fail. The no-open gate must observe the real
+group-construction seam and fail when planning is bypassed. Existing
+`PackageAssemblyContextRealizationTests` and
+`PackageAssemblyContextRolesTests.Dispose_ContinuesAfterBothRoleGroupsFail`
+remain compatibility evidence; they do not prove the target typed path. The
+single-threaded lifecycle gate exercises failed-open rollback, post-transfer
+cancellation, and session close through the asynchronous target path and fails
+if any completion uses a blocking wait.
+
+### Package-role boundary non-goals
+
+This boundary does not define:
+
+- Artifacts identity, acquisition, authorization, guarded-content, lease,
+  diagnostic, adapter, generation, or quiescence semantics;
+- package coordinates, TFM/RID selection, archive layout, asset selection, or
+  package provenance;
+- Metadata assembly decoding, identity, or projection rules;
+- a global stage catalog, cleanup service, exception collector, or budget
+  ledger;
+- cross-version endpoints, comparison population sealing, Research admission,
+  producer execution, or Implementation Diff orchestration;
+- outer-result publication, CLI/output behavior, or row integrity; or
+- Source, PDB, network, cache, retry, or authored-source behavior.
+
+## Package-realization exact-request admission
+
+**Status:** target design, scoped independently of #4745; implementation
+deferred because no approved retained product caller exists. This is a separate
+responsibility of the same L1 owner, not an extension of the
+[Package-role planning and cleanup boundary](#package-role-planning-and-cleanup-boundary)'s
+plan/realize/cleanup contract or gate list. Admission decides whether one whole
+package-role operation starts or whether an exact earlier operation is joined
+or reused. The adjacent boundary still owns planning, group construction,
+binding, aggregate limit enforcement, quiescence, and cleanup.
+
+This contract supersedes the earlier per-coordinate target. The current
+compatibility API does not produce independently composable per-coordinate
+realizations, so decomposing one request into partial cache hits would change
+the operation it claims to reuse.
+
+### Current admission gap
+
+`RealizePackageAssemblyContextRoles` has no cache or admission logic today.
+Repeated calls independently reopen content and mint unrelated
+`AssemblyContextGroup` and participant sets.
+`PackageAssemblyContextRealizationConcurrentDemandTests` demonstrates that
+behavior; #4960 tracks the product gap.
+
+The API has no product caller today. Its only non-test consumer is the
+`inspect-web` prototype, where `BrowserInspectionScope` creates one
+`InspectionWorkspace` and one package-role realization per scope.
+`BrowserPackageWorkspace` retains and reuses complete prototype scopes through
+a higher registry boundary with its own exact-content check. It does not make
+a workspace-local admission hit reachable. Implementing this contract before a
+retained multi-call product workspace adopts it would add unreachable
+infrastructure rather than product value. The workspace owner records the
+[retained-caller decision](../inspection-space.md#retained-package-realization-caller):
+the current Inspect Web registry answers repeated exact requests before its
+workspace sees them, while replacing that registry with a session-wide
+projection-backed workspace would be a separately approved product-topology
+migration rather than a narrow admission caller.
+
+### Why the whole exact request is the cache unit
+
+The compatibility API realizes every selected package in one operation:
+
+- all surface assets enter one immutable binding domain;
+- implementation assets either share that group or enter one second group;
+- `SharesGroup` is decided from the flattened request-wide asset sets;
+- equivalent assembly identities are rejected across each combined role;
+- `MaxAssembliesPerRole` applies to each combined role; and
+- `MaxAggregateRetainedImageBytes` is apportioned across the request's
+  complete topology.
+
+Two packages can therefore be valid separately but invalid together, and one
+package's role topology can change when another package joins the request.
+Independent per-coordinate results cannot be recombined without bypassing
+those checks or changing cross-package reference resolution. Admission never
+uses a ready subset, never joins an overlapping superset, and never assembles a
+new result from cached and fresh coordinate fragments.
+
+A package coordinate remains the smallest stable semantic input identity:
+package id, version, framework, runtime identifier, and resolved producer
+identify one selectable occurrence. `Producer` distinguishes feeds, but it is
+source identity rather than immutable content-generation identity. A store may
+replace bytes under the same package/version/producer key, so coordinate
+equality alone cannot authorize reuse.
+The realized coordinate therefore promises a repeatable producer-bound
+acquisition request, not immutable bytes; acquisition's generation identity is
+the immutable-content proof.
+
+Each selected request member therefore also carries an acquisition-owned,
+opaque content-generation identity. Equal generation identities within the
+workspace guarantee the same immutable package content for the binding's
+lifetime. Replacement content receives a different generation identity or is
+visibly rejected by acquisition-owned interning. Admission compares the token
+but does not construct it, hash content, or define its portability.
+
+Content identity still does not determine selected assets. The same acquired
+package can produce different compile-asset outcomes for different requested
+frameworks, and `RealizedMemberCoordinate.Package.Framework` records the
+acquisition target rather than the selected package asset folder. Each member
+therefore also carries an acquisition-owned selection identity. Equal
+selection identities guarantee the same selection arm and, for `Selected`, the
+same ordered surface and implementation asset sequences. Admission compares
+that token without defining TFM matching, asset paths, selection ordering, or
+selection failure semantics.
+
+The generation and selection guarantees consumed here are acquisition-owned
+product facts, gated by
+`PackageRootGenerationIdentity_ReplacementChangesIdentity`,
+`PackageRootSelectionIdentity_DifferentAssetsChangeIdentity`, and
+`RealizedPackageCoordinate_ReacquisitionContractIsCoherent`.
+
+Individual assembly content still has no equivalent independent coordinate, so
+this layer does not admit by assembly identity and does not replace
+`AssemblyInspectionSession.Borrow`'s pass-the-open-handle convention.
+
+### Exact request identity
+
+Admission consumes an immutable, already-resolved request. Its selected entries
+bind each `PackageRootRealization` to the
+`RealizedMemberCoordinate.Package`, immutable content-generation identity, and
+selection identity issued for that same occurrence. The acquisition boundary
+owns normalization, generation and selection identity, and correspondence;
+admission must not reconstruct a coordinate from display fields, treat
+`ProducerKey` as a generation, infer selection identity from a requested
+framework string, or accept an unproven binding.
+
+Root-only packages remain host-owned and are omitted from the selected
+sequence. If no selected package remains, the host returns the Root-only result
+without a cache entry, lease, or package-role cleanup request.
+Two demands that differ only in their Root-only members may share the same
+selected-package admission; each demand composes its own host-owned Root-only
+portion outside the lease.
+
+The cache key is:
+
+1. the ordered sequence of selected realized package-coordinate,
+   content-generation, and selection bindings; and
+2. the exact validated `PackageAssemblyContextRealizationOptions` value.
+
+Order remains part of identity because combined role construction and binding
+operate over ordered participants, and the demand-local projection preserves
+the submitted surface and implementation participant order. This focused
+design does not silently canonicalize that observable input. Two requests
+containing the same coordinates in a different order may run independently.
+
+Options use exact value equality across every policy field, including
+`MaxAssembliesPerRole`, `MaxAggregateRetainedImageBytes`,
+`MaxAssemblyEntryBytes`, and `RequireDeclaredEntryLengths`. A result admitted
+under looser limits cannot satisfy a stricter demand. Adding a future options
+field changes key equality by construction; admission does not maintain a
+separate hand-written compatibility table or take ownership of the adjacent
+boundary's budget arithmetic.
+
+A selected normalized coordinate may occur only once, even with two different
+generation tokens. Duplicate coordinates are rejected visibly before cache
+lookup, so they cannot join an entry or multiply one package occurrence inside
+a combined group.
+
+`PackageRootRealization` alone still does not carry the complete resolved
+coordinate and is not an admission identity. Acquisition now issues
+`PackageRootBinding`, which carries that Root, the authoritative coordinate,
+content-generation identity, and selection identity for one occurrence. This
+section consumes that typed binding; it does not define coordinate
+construction, normalization, generation, selection, or acquisition.
+
+### Admission and publication
+
+Each exact request identity has one workspace-scoped cache entry. An absent
+entry admits one package-role operation. Admission publishes the entry as
+in-flight, including its physical operation identity, atomically and before
+the workspace-owned executor can run or re-enter admission. A matching
+in-flight demand joins that operation. A matching ready demand receives an
+independent lease over its retained result. Overlapping requests, reordered
+requests, and requests with different options use different entries even when
+some package coordinates are equal.
+
+Admission is capacity-bounded across the whole workspace. Workspace
+configuration supplies validated positive limits for:
+
+- retained or in-flight exact-request entries;
+- concurrently in-flight package-role operations; and
+- aggregate retained-byte reservation across all admitted entries.
+
+An absent request atomically reserves one entry, one operation slot, and its
+exact `MaxAggregateRetainedImageBytes` option value before the executor starts.
+That byte reservation may be zero, matching current options validation; the
+request still consumes entry and operation capacity.
+Joining an in-flight entry or leasing a ready entry consumes no additional
+capacity. Operation settlement releases the operation slot. Failure before
+publication also releases the entry and byte reservation; successful ready
+publication retains both until terminal cleanup completes. Caller cancellation
+does not release capacity still owned by the physical operation.
+
+If any reservation would exceed its workspace limit, that demand receives a
+typed capacity rejection before an operation id is minted or package-role work
+starts. Capacity rejection is not cached and does not disturb an existing
+entry. The
+[retained-caller decision](../inspection-space.md#retained-package-realization-caller)
+requires any approved caller to choose explicit workspace limits; the admission
+implementation cannot inherit unbounded cardinality from caller input.
+
+One operation publishes one combined result atomically. Every demand attached
+to that operation receives the same success and realization identity, or every
+attached demand receives the same visible failure. No prefix, per-coordinate
+fragment, group, or participant collection becomes reusable before the whole
+package-role completion succeeds. A failed operation returns its exact key to
+absent so a later exact demand may retry.
+
+Each demand retains its own cancellation. Cancellation before lease delivery
+detaches that demand with a typed canceled outcome; it does not cancel or
+shorten the workspace-owned operation for another attached demand. The demand
+that first encountered an absent entry is not the operation's lifetime owner.
+If every attached demand cancels, the physical operation remains represented
+until it completes and may retain its ready result for a later exact request.
+It cannot disappear from the cache as though it never started. Workspace
+disposal closes admission but does not cancel or shorten an already-started
+physical operation; the operation settles naturally and a late success moves
+directly to cleanup. This deliberately accepts that synchronous work already
+in progress may reach its aggregate retained-byte limit before cleanup; caller
+or disposal cancellation is not an alternate partial-cleanup path.
+
+The physical operation is workspace-owned and independent of every demand's
+cancellation. Its in-flight identity is published atomically before any of its
+work can re-enter admission. Each demand may stop waiting without transferring
+or ending operation ownership. On supported single-threaded Browser/Wasm
+hosts, the operation provides bounded cooperative scheduling opportunities so
+cancellation and workspace lifecycle work can proceed without a background
+thread. The current synchronous compatibility API cannot provide this
+contract; #5122 owns the shareable asynchronous package-role completion and
+its cooperative-progress gate.
+
+A cancellation racing successful lease delivery linearizes as either
+cancellation without a lease or lease delivery followed by the caller's
+ordinary idempotent return obligation.
+
+The cache owns an adjacent-boundary shareable package-role completion, not the
+current caller-owned `PackageAssemblyContextRealization`. That compatibility
+type implements `IDisposable`, directly disposes its groups, and embeds the
+first caller's `PackageRootIdentity` references in participant wrappers; it
+cannot be returned to several independent callers safely.
+
+An adopting output seam must instead issue one demand-local projection per
+lease. The projection may reference the shared underlying group participants,
+but its `PackageAssemblyRoleParticipant` values must preserve that demand's
+submitted `PackageRootIdentity` references and ordered package associations.
+One caller cannot dispose, invalidate, or terminally release another caller's
+projection. Defining and implementing the adjacent package-role shareable
+completion is a prerequisite (#5122); this admission owner only retains it and
+issues leases.
+
+The projection must not expose a caller-disposable
+`AssemblyContextGroup` or any capability whose completion terminally releases
+a shared participant or group. "Non-owning" is insufficient:
+`AssemblyContextIntegrationsQuery.ExecuteParticipantAsync` leaves its group
+undisposed but permanently releases the selected participant for every
+sharer. Only the workspace-owned package-role completion can initiate
+participant or group release. Disposing or returning one projection releases
+its lease only.
+
+Projection use and lease return have one atomic linearization. A use that
+linearizes after return receives a typed returned-lease rejection and cannot
+begin group access. A use that linearizes before return may finish after the
+lease is removed; package-role quiescence prevents terminal cleanup from
+completing until that already-started use ends. `AssemblyContextGroup`
+`RetainAssemblyReference` can create an independent non-pooled snapshot whose
+lifetime already outlives group disposal. The #5122 projection does not expose
+that capability; returning the lease therefore ends all access through the
+projection without creating an independently retained snapshot.
+
+### Shared-realization lifetime
+
+The workspace cache, not an admitting or reusing caller, owns each ready
+combined realization. Successful atomic publication issues one
+`PackageRealizationLease` to every attached demand. A later exact demand
+receives its own lease. The lease carries no package-selection,
+group-release, or cleanup authority; it records only that its demand may use
+the retained result.
+
+A ready entry remains retained when its active lease count reaches zero. The
+first implementation has no eviction, time-to-live, memory-pressure release,
+or cross-workspace persistence. Retention until workspace disposal prevents
+the last ordinary caller from racing a new exact demand by releasing and
+recreating the same request.
+
+Returning a lease is idempotent. The first return removes that demand from the
+active lease set; later returns do not change lease accounting, cache state, or
+cleanup authority. A returned lease cannot be used again. Because one lease
+covers one whole combined realization, cancellation or failure cannot require
+rollback of a partially leased coordinate prefix.
+
+In the target contract, workspace disposal atomically closes every request
+entry. Pending demands are rejected, in-flight entries become draining, and
+ready entries become closing before any later demand can join or receive a
+lease. Existing lease holders retain access to an already-published
+realization until they return their leases. A closing entry cannot be reused,
+reopened, or returned to ready.
+
+An operation that succeeds after disposal does not publish or issue leases.
+Its newly created combined realization transfers directly into closing with
+zero active leases. Every still-attached demand receives a typed
+workspace-closed rejection. A late failed operation remains a visible failed
+admission and leaves no reusable entry. Disposal does not turn either result
+into shortened success.
+
+When a closing realization has no active leases, admission requests the
+existing package-role session close operation and retains its exact typed
+completion. The package-role boundary continues to own group release,
+quiescence, complete keyed cleanup reporting, and failure semantics. Admission
+neither releases an `AssemblyContextGroup` directly nor reinterprets a
+`PackageRoleCleanupReport`. Cleanup is requested at most once; concurrent
+workspace disposers and a last-returning lease observe or await the same
+completion.
+
+Target workspace disposal is asynchronous. The
+[workspace close contract](../inspection-space.md#workspace-close-and-group-release-authority),
+defined by #5156, owns sole terminal release authority, coordinated
+lease-draining access, late-completion cleanup, and non-blocking close. Its
+direct-group asynchronous foundation is implemented by #5192, and coordinated
+package-role registration and release are implemented by #5185. The synchronous
+caller-owned `PackageAssemblyContextRealization` compatibility path still
+disposes its groups independently and is not the admission result. Admission
+implementation depends on the landed coordinated adoption and uses the
+owner-issued completion, projection, and lease handoffs from #5122 and this
+contract. The target may wait indefinitely for a lease whose holder never
+returns it; weak-fairness model results therefore state the explicit caller
+assumption that every issued lease is eventually returned.
+
+Cleanup failure remains visible through the package-role completion and does
+not produce a ready entry. Once cleanup completes, successfully or with
+recorded failure, that exact request is terminal for the disposed workspace.
+
+### Implementation prerequisites and gates
+
+Implementation of #4960 must not begin until:
+
+- the owner-issued `PackageRootBinding` input and its #5121 generation,
+  selection, coordinate, and adopter gates have landed;
+- the package-role boundary supplies a shareable completion and demand-local
+  participant projection instead of the caller-owned disposable compatibility
+  result (#5122);
+- the assembly-context workspace adopts owner-issued coordinated release
+  completions for package-role groups and passes the remaining coordinated
+  gates from the landed
+  [workspace close contract](../inspection-space.md#workspace-close-and-group-release-authority)
+  (#5185; the direct asynchronous foundation landed in #5192);
+  and
+- an approved retained multi-call workspace caller makes exact-request join or
+  reuse reachable. This prerequisite is satisfied only when the workspace owner
+  names that caller and its lifetime. The
+  [current retained-caller decision](../inspection-space.md#retained-package-realization-caller)
+  records that no existing product topology satisfies this prerequisite, so
+  #4960 remains deferred.
+
+The target contract remains unimplemented until these named gates land:
+
+- `PackageRealizationRootOnly_BypassesAdmissionWithoutLeaseOrCleanup`
+- `PackageRealizationDuplicateCoordinates_RejectBeforeAdmission`
+- `PackageRealizationExactRequest_AdmitsOneCombinedOperation`
+- `PackageRealizationCapacity_RejectsBeforeStartingOperation`
+- `PackageRealizationCapacity_BoundsEntryCount`
+- `PackageRealizationCapacity_BoundsInFlightOperationCount`
+- `PackageRealizationCapacity_BoundsReservedRetainedBytes`
+- `PackageRealizationFailure_ReleasesReservedCapacity`
+- `PackageRealizationCleanupCompletion_ReleasesReservedCapacity`
+- `PackageRealizationCanceledOperation_RetainsCapacityUntilSettlement`
+- `PackageRealizationOverlappingRequest_DoesNotPartiallyReuse`
+- `PackageRealizationReorderedRequest_DoesNotShare`
+- `PackageRealizationDifferentOptions_DoNotShare`
+- `PackageRealizationDifferentContentGeneration_DoesNotShare`
+- `PackageRealizationDifferentSelection_DoesNotShare`
+- `PackageRealizationPublication_IsAtomicForAttachedDemands`
+- `PackageRealizationDemandCancellation_DetachesWithoutCancelingSharedWork`
+- `PackageRealizationFinalCancellation_CannotAbandonPhysicalOperation`
+- `PackageRealizationCallerCancellation_CannotFailPhysicalOperation`
+- `PackageRealizationCanceledOperation_CanCompleteAndBeReused`
+- `PackageRealizationOperation_IsWorkspaceOwnedAndCallerIndependent`
+- `PackageRealizationOperation_CannotRunBeforeInFlightPublication`
+- `PackageRealizationOperation_HasBoundedCooperativeProgress`
+- `PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder`
+- `PackageRealizationProjection_RetainedSnapshotPolicyIsExplicit`
+- `PackageRealizationProjection_CannotTerminallyReleaseSharedParticipant`
+- `PackageRealizationLeaseHolder_CannotReleaseSharedGroup`
+- `PackageRealizationReturnedLease_RejectsProjectionAccess`
+- `PackageRealizationConcurrentUseAndReturn_LinearizesBeforeCleanup`
+- `PackageRealizationReadyReuse_IssuesIndependentLeases`
+- `PackageRealizationReadyEntry_RemainsCachedWithoutLeases`
+- `PackageRealizationLease_ReturnIsIdempotent`
+- `PackageRealizationWorkspaceDisposal_ClosesAdmissionAtomically`
+- `PackageRealizationLateSuccessAfterDisposal_CleansWithoutPublication`
+- `PackageRealizationLateSuccessAfterDisposal_RejectsAttachedDemands`
+- `PackageRealizationRelease_WaitsForEveryLease`
+- `PackageRealizationRelease_UsesPackageRoleCompletionExactlyOnce`
+- `PackageRealizationClosingEntry_CannotBeReusedOrResurrected`
+- `PackageRealizationCleanupFailure_RemainsVisible`
+- `PackageRealizationAsyncDisposal_NeverBlocksSingleThreadedHost`
+- `PackageRealizationRetainedCaller_ExercisesExactReadyReuse`
+
+[`PackageRealizationAdmission.tla`](../models/package-realization-admission/PackageRealizationAdmission.tla)
+checks this target design's own internal soundness: whole-request identity,
+exact-policy, content-generation, and selection isolation; duplicate and
+Root-only front-door exclusion and outcomes; single-flight admission; atomic
+publication;
+cancellation without operation abandonment or caller-induced operation
+failure; consistent shared outcomes; lease issuance and idempotent return;
+workspace-wide admission capacity; disposal-driven draining; no release with
+an active lease; exactly-once cleanup; terminal closure; and eventual
+settlement of open and draining operations. Every bounded request topology has
+a complete safety/liveness configuration in addition to focused reachability
+and mutation probes. The model's weak-fairness progress checks assume every
+lease holder eventually returns its lease and every physical operation
+eventually settles; they do not prove implementation conformance, projection
+use/return quiescence, cooperative executor yields, a reachable retained
+caller, or non-blocking waits. See its companion
+[`README.md`](../models/package-realization-admission/README.md) for checked
+configurations.
+
 ## Current migration state
 
 Metadata-image, direct-reference, assembly-context reference,
@@ -327,6 +1562,12 @@ canaries:
 - `MetadataImageQuery` consumes an already-open `AssemblyInspectionSession` and
   returns an explicit `Available` / `NoMetadata` / `Failed` result instead of
   mutating `LibraryInspection`.
+- `AssemblyContextMetadataImageQuery`,
+  `AssemblyContextMetadataTableQuery`, and
+  `AssemblyContextMetadataHeapQuery` own group-session access for metadata
+  over filesystem-free participants. Table windows validate their row bound
+  before opening content; heap listings retain complete, referenced-only, or
+  non-enumerable coverage and both truncation signals.
 - `AssemblyReferencesQuery` consumes the same content-shaped session and returns
   flat immutable metadata identities. The CLI separately projects the legacy
   display rows and carries the typed identities through `LibraryInspection` to
@@ -341,6 +1582,11 @@ canaries:
   from an empty dependency set.
   Browser-Wasm composes those two typed results without parsing XML or opening
   an assembly session.
+- `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
+  binding-consistent group and invokes the Metadata-owned population scan once
+  over the committed participant order. It returns resource-free subjects,
+  graph facts, and typed per-participant failures; the CLI `depends` host
+  projects package diagnostics without inventing filesystem paths.
 - `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`
   and `Extension Methods`. The CLI adds path-based Finding provenance and
   compatibility projections after query execution.
@@ -407,6 +1653,12 @@ canaries:
   prerequisite and composes missing registration surfaces over the same
   immutable participant snapshots. The entire `@Integrations` section family
   is query-owned; the CLI retains only command hosting and projection.
+- Metadata-owned `IntegrationConceptCatalog` descriptors now flow through
+  scanner and opportunity evidence, while `IntegrationAnalysisCatalog` binds
+  those exact descriptors to the generic Census request planner, group query
+  prerequisites, and Integration graph relationships. Existing labels remain
+  compatibility presentation; L1 composition no longer uses them as concept
+  identity.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
   `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union
   Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Top Leverage`,
@@ -447,9 +1699,9 @@ intentional and visible:
 - The CLI retains the typed metadata result on `LibraryInspection` because the
   existing renderer still consumes that aggregate. Its `Failed` case feeds the
   existing inspection-failure surface rather than collapsing into empty output.
-- Metadata row and heap projection still retain
-  `LibraryInspection.MetadataAssemblyPath` for on-demand rendering. Removing
-  that path-shaped residual requires a content-shaped projection query.
+- The CLI's metadata row and heap renderer still reads
+  `LibraryInspection.MetadataAssemblyPath`; the content-shaped assembly-context
+  queries are available, but that existing CLI adapter has not adopted them.
 - `InspectionCost` and the legacy `SectionCost` are parallel during migration;
   L2 maps between them exhaustively.
 
@@ -459,8 +1711,9 @@ The layering is closer to reality than it looks: the CLI's directories already
 declare `DotnetInspector.*` namespaces, and Markout coupling is already
 concentrated in the upper directories while the model and service directories
 are essentially free of it. The boundary is largely drawn; the metadata canary
-establishes the L1 project and structural pattern, but the remaining facets and
-the L2 project split still need migration.
+establishes the L1 project and structural pattern, and the first reusable L2
+Rows seam now exists, but the remaining facets and broader L2 migration are
+still incomplete.
 
 The structural fix is continuing L1 beyond the completed library section-query
 migration. Collection outside the typed query-bound library facets is still not
@@ -484,8 +1737,9 @@ uniformly content-shaped or demand-driven:
 
 Converting the remaining collection into typed, demand-driven, content-shaped
 queries is therefore the migration path for the split, not a follow-up to it.
-L2 is close to a project move as query coverage expands; the descriptor contract is
-already Markout-free apart from its name binding.
+`DotnetInspector.Sections` currently contains the unresolved row-selection
+intent and Rows cohort seams; the descriptor contract remains in the CLI
+assembly and is already Markout-free apart from its name binding.
 
 ## Non-goals
 

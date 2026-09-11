@@ -1,0 +1,44 @@
+<Project>
+
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <RepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</RepositoryRoot>
+    <FixtureProject>$(RepositoryRoot)/fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts.csproj</FixtureProject>
+    <ArtifactMatrixRoot Condition="'$(ArtifactMatrixRoot)' == ''">$(RepositoryRoot)/artifacts/classic-async-artifact-matrix/$(RuntimeIdentifier)</ArtifactMatrixRoot>
+    <DotnetHost Condition="'$(DOTNET_HOST_PATH)' != ''">$(DOTNET_HOST_PATH)</DotnetHost>
+    <DotnetHost Condition="'$(DotnetHost)' == ''">dotnet</DotnetHost>
+    <CommonPublishArguments>-p:Configuration=$(Configuration) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=true -p:IsPublishable=true -p:PublishTrimmed=true -p:TrimMode=full</CommonPublishArguments>
+  </PropertyGroup>
+
+  <Target Name="Build">
+    <Error
+      Condition="'$(RuntimeIdentifier)' == ''"
+      Text="RuntimeIdentifier is required to publish the classic async artifact matrix." />
+    <MakeDir Directories="$(ArtifactMatrixRoot)" />
+
+    <MSBuild
+      Projects="$(FixtureProject)"
+      Targets="Build"
+      Properties="Configuration=$(Configuration)"
+      RemoveProperties="RuntimeIdentifier"
+      BuildInParallel="false" />
+
+    <!-- Separate host invocations keep Publish evaluation downstream of Restore. -->
+    <Exec
+      WorkingDirectory="$(RepositoryRoot)"
+      Command="&quot;$(DotnetHost)&quot; restore &quot;$(FixtureProject)&quot; $(CommonPublishArguments) -p:PreserveClassicAsyncRoles=false &quot;-p:BaseIntermediateOutputPath=$(ArtifactMatrixRoot)/obj/trimmed/&quot; &quot;-p:BaseOutputPath=$(ArtifactMatrixRoot)/bin/trimmed/&quot; --nologo" />
+
+    <Exec
+      WorkingDirectory="$(RepositoryRoot)"
+      Command="&quot;$(DotnetHost)&quot; publish &quot;$(FixtureProject)&quot; $(CommonPublishArguments) --no-restore -p:PreserveClassicAsyncRoles=false &quot;-p:BaseIntermediateOutputPath=$(ArtifactMatrixRoot)/obj/trimmed/&quot; &quot;-p:BaseOutputPath=$(ArtifactMatrixRoot)/bin/trimmed/&quot; &quot;-p:PublishDir=$(ArtifactMatrixRoot)/trimmed/&quot; --nologo" />
+
+    <Exec
+      WorkingDirectory="$(RepositoryRoot)"
+      Command="&quot;$(DotnetHost)&quot; restore &quot;$(FixtureProject)&quot; $(CommonPublishArguments) -p:PreserveClassicAsyncRoles=true &quot;-p:BaseIntermediateOutputPath=$(ArtifactMatrixRoot)/obj/role-preserved-trimmed/&quot; &quot;-p:BaseOutputPath=$(ArtifactMatrixRoot)/bin/role-preserved-trimmed/&quot; --nologo" />
+
+    <Exec
+      WorkingDirectory="$(RepositoryRoot)"
+      Command="&quot;$(DotnetHost)&quot; publish &quot;$(FixtureProject)&quot; $(CommonPublishArguments) --no-restore -p:PreserveClassicAsyncRoles=true &quot;-p:BaseIntermediateOutputPath=$(ArtifactMatrixRoot)/obj/role-preserved-trimmed/&quot; &quot;-p:BaseOutputPath=$(ArtifactMatrixRoot)/bin/role-preserved-trimmed/&quot; &quot;-p:PublishDir=$(ArtifactMatrixRoot)/role-preserved-trimmed/&quot; --nologo" />
+  </Target>
+
+</Project>

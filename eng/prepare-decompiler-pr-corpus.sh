@@ -52,6 +52,8 @@ declare -a assemblies=(
 
 declare -a self_assemblies=(
   "$root/artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll"
+  "$root/artifacts/bin/DotnetInspector.Networking/release/DotnetInspector.Networking.dll"
+  "$root/artifacts/bin/NetworkAccess/release/NetworkAccess.dll"
   "$root/artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll"
   "$root/artifacts/bin/DotnetInspector.Services/release/DotnetInspector.Services.dll"
   "$root/artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll"

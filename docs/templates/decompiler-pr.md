@@ -1,14 +1,19 @@
 # Decompiler PR template
 
 <!--
-Use this for decompiler PRs that affect raising, structuring, validity,
-fidelity, or corpus behavior. Delete sections that do not apply. Keep generated
-tables generated; do not re-key metric rows by hand.
+Use this single template for every decompiler PR that affects raising,
+structuring, validity, fidelity, or corpus behavior. There is no alternate
+template for focused validity fixes. Delete sections that do not apply. Keep
+generated tables generated; do not re-key metric rows by hand.
 
-Every behavior-changing raise PR must keep Raise contract, Structural review
-status, Before, After, and Fully raised. Before and After must each show a
-concrete C# example. After records this PR's output; Fully raised records the
-intended endpoint.
+Every output-changing decompiler PR must acquire exact base/head product
+documents, run `DecompilerHarness --structural-review`, and keep Structural
+review status, Before, After, and Evidence. This is a mandatory attempt, not
+optional presentation polish. Every behavior-changing raise must also keep
+Raise contract and Fully raised. Every invalid-`Full` or output-correctness fix
+must keep Correctness-fix contract and Corpus validity. Before and After must
+each show a concrete C# example. After records this PR's output; Fully raised
+records the intended endpoint.
 
 Glossary: **IL fidelity** judges whether the rendered C# recompiles to the
 original contract body; **fully raised** judges whether that faithful rendering
@@ -20,6 +25,9 @@ assessment sits next to the code it judges:
 
 - Valid: does it compile and bind (True/False)?
 - Correct: does it preserve the original observable behavior (True/False)?
+- Printer exact: when the method is enrolled in a whole-file source oracle,
+  does the rendered body match the checksum-pinned authored body before source
+  normalization (True/False/not enrolled)?
 - IL fidelity: does it recompile to the original opcodes (True/False), or is it
   not currently checkable? This is the camp the #3127 trap hides in: a render
   can be Valid and Correct yet no longer opcode-faithful. It is judged by the
@@ -44,9 +52,10 @@ the same `{Type} {MethodSelector} {scope}`:
   Portable-PDB-selected, checksum-matching C# acquired locally or through
   SourceLink with the candidate decompilation. Its checksum proves agreement
   with the Portable PDB declaration, not independent build provenance. Normal
-  output is reviewer-sized; use `-v:d` when it reports a partial presentation.
-  When no matching C# is available, retain the generated unavailable result and
-  use raw `IL` as the authoritative compiled-body evidence.
+  output reports factual added, removed, changed, and moved line counts; use
+  `-v:d` for the complete diff. When no matching C# is available, retain the
+  generated unavailable result and use raw `IL` as the authoritative
+  compiled-body evidence.
 - Before: `-S "Decompiled Source"` at the base commit (the pre-change output).
 - After: `-S "Decompiled Source"` at this PR's head (the post-change output).
 - Applied Taste: `-S "Applied Taste"` at the same commit as each render, to
@@ -55,7 +64,8 @@ the same `{Type} {MethodSelector} {scope}`:
 Only Fully raised is authored by hand — it is the intended endpoint, not a
 current render.
 
-dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "Source Diff"
+dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} \
+  -S "Source Diff" -v:d
 
 Keep the generated PDB Source → After lens beside Before → After. It supplies
 the PDB source reference as part of the diff, so do not duplicate that code
@@ -66,9 +76,6 @@ Adversarial review evidence belongs in a separate PR comment, not this
 description. Before marking the PR ready, post a comment that names each
 reviewer/model, the exact head reviewed, findings and their resolution commits
 or explicit non-actions, and each reviewer's final verdict.
-
-For focused invalid-Full / burndown row fixes, prefer
-`docs/templates/decompiler-burndown-fix-pr.md`.
 -->
 
 - Fixes/advances #{issue}
@@ -112,24 +119,53 @@ output. "The tests pass" is not a lowering or ownership proof.
 | Decline boundary | {near misses that remain flat and their tests} |
 | Falsifier | {evidence that would make the raise unsound} |
 
+### Correctness-fix contract
+
+<!--
+Required for invalid-`Full` or output-correctness fixes. Keep the structural
+review whenever the rendered body changes, even when the fix does not introduce
+a new raise.
+
+- False claim: the exact validity or correctness claim the product made.
+- Root cause: why the product produced that output.
+- Fix shape: the narrow code, predicate, ownership, or rendering change.
+- Scope boundary: sibling defects or nearby shapes this change does not fix.
+- Falsifier: the concrete observation that would disprove the fix.
+-->
+
+| Obligation | Contract |
+| --- | --- |
+| False claim | {invalid `Full`, incorrect behavior, or other false product claim} |
+| Root cause | {why the product produced the defective output} |
+| Fix shape | {narrow code, predicate, ownership, or rendering change} |
+| Scope boundary | {nearby shapes or sibling defects intentionally unchanged} |
+| Falsifier | {evidence that would make the fix incorrect or incomplete} |
+
 ### Two-lens review
 
 <!--
-For a changed rendered body, acquire both exact revisions with:
+For a changed rendered body, acquire both exact revisions as root JSON
+documents:
 
+```bash
+# At the exact base revision
 dotnet-inspect member {Type} {MethodSelector} {scope} \
-  -S "Annotated Source Document"
+  -S "Annotated Source Document" --json > /tmp/before.json
 
-Save each product-emitted document separately, then produce the generated
-artifact directly from those exact revisions:
+# At the exact head revision
+dotnet-inspect member {Type} {MethodSelector} {scope} \
+  -S "Annotated Source Document" --json > /tmp/after.json
 
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --structural-review /tmp/before.json /tmp/after.json
+```
 
 Then acquire the independent SourceLink-backed lens from the PR head:
 
+```bash
 dotnet-inspect member {Type} {MethodSelector} {scope} \
-  -S "Source Diff" --bare > /tmp/source-diff.txt
+  -S "Source Diff" -v:d --bare > /tmp/source-diff.txt
+```
 
 Paste both outputs verbatim under their respective headings. The structural
 artifact's complete Before/After blocks and rich structural
@@ -140,36 +176,47 @@ selected text, labels, and display order never establish correspondence.
 Fidelity and retained IL notes are independent evidence, not claims inferred
 from the C# transition.
 
+Running this acquisition and command is required. Do not delete the section,
+substitute a hand-written diff, or report an unavailable result without first
+attempting to acquire the product documents. The tool evolves against the real
+raise corpus tracked by #4952; use its current generated output rather than
+copying an older PR's annotation shape.
+
 The Source Diff is PDB Source → After text convergence, not structural
-correspondence. Its comments name the PDB-selected document and checksum
-agreement, including whether CR/LF normalization was required, without claiming
-independent build provenance. If its normal projection reports `Partial`,
-either retain that explicit limit or rerun with `-v:d` for complete line
-evidence. Record compile-back status beside it as an independent oracle; do not
-infer fidelity from textual similarity.
+correspondence. Its fields name the PDB-selected document and checksum
+agreement, including whether CR/LF normalization was required, without
+claiming independent build provenance. Normal output is a factual analysis
+summary; `-v:d` renders the complete line evidence. Record compile-back status
+beside it as an independent oracle; do not infer fidelity from textual
+similarity.
 
-If the generated review reports `Partial`, explicitly determine whether the
-claimed changed structure has a unique matched row. Incidental matched rows do
-not prove a change represented only by unsupported or ambiguous gaps. In that
-case, or when either document lacks product provenance or the physical method
-identities differ, write:
+If document acquisition fails, either document lacks product provenance, or
+the physical method identities differ, write:
 
-Not generated — unsupported or ambiguous product correspondence: {detail}
+Attempted — unavailable for the claimed change: {exact acquisition,
+provenance, or identity result}
 
 Do not fabricate comparison JSON. This presentation boundary does not by itself
 change the raise verdict; independent validity, correctness, fidelity, and
 corpus evidence still decide it.
 
-When this artifact is present, delete the duplicate code fences in the
-standalone Before and After sections below, but retain their validity,
-correctness, fidelity, taste, and commit verdicts.
+When the claimed change has supported correspondence, paste the current
+generated output verbatim. A useful `Partial` result remains a generated
+artifact, with its gap warning intact. When the claimed change appears only in
+gaps, retain the standalone Before and After bodies instead of presenting
+incidental rows as its structural delta. When a generated artifact is present,
+delete the duplicate code fences in those standalone sections, but retain their
+validity, correctness, fidelity, taste, and commit verdicts.
 -->
 
 #### Before → After: structural raise delta
 
-Structural review status: {generated artifact / Not generated — unsupported or ambiguous product correspondence: detail}
+Structural review status: {Generated — complete / Generated — partial; claimed
+change appears in supported generated row(s) / Attempted — unavailable for the
+claimed change: exact result}
 
-{paste generated structural review}
+{paste the generated structural review verbatim when correspondence supports
+the claimed change; otherwise retain the standalone Before and After bodies}
 
 #### PDB Source → After: source convergence
 
@@ -221,6 +268,7 @@ against that reference.
 
 - Valid: {True/False}
 - Correct: {True/False}
+- Printer exact: {True/False/not enrolled}
 - IL fidelity: {True/False/not currently checkable}
 - Taste applied: {None / list the byte-divergent style lenses from `-S "Applied Taste"`}
 - Commit: {base commit digest}
@@ -240,6 +288,7 @@ the method signature line here too, for the same reason.
 
 - Valid: {True/False}
 - Correct: {True/False}
+- Printer exact: {True/False/not enrolled}
 - IL fidelity: {True/False/not currently checkable}
 - Taste applied: {None / list the byte-divergent style lenses from `-S "Applied Taste"`}
 - Commit: {head commit digest}
@@ -297,6 +346,48 @@ For render A/B or corpus deltas, list stable changed-method identities and
 classify every loss/gain. Do not use a net count to offset a newly invalid,
 behavior-changing, or unexplained method.
 
+## Corpus validity
+
+<!--
+Required for invalid-`Full` fixes and any change that can alter output legality.
+Compare the same input population at Baseline and Head. Classify every changed
+validity row; do not offset a new defect with fixes elsewhere.
+
+Use a real corpus witness when one exists. If none exists, write "not
+applicable", explain why the compiler-produced or synthetic reduced fixture is
+the authoritative reproducer, and name the focused census or gate that bounds
+the affected population. Do not invent a witness or switch templates.
+-->
+
+> Did this change introduce any new invalid-`Full` defects?
+
+**Conclusion:** **PASS/ADVISORY/BLOCKED** — {baseline-versus-head validity
+verdict and decisive evidence}.
+
+Run: {corpus, focused census, or reduced-fixture population}, Baseline versus
+Head.
+
+| Metric | Baseline | Head |
+| --- | ---: | ---: |
+| Full malformed (-) | {count} | {count} |
+| Valid to invalid (-) | - | {count} |
+| Invalid to valid (+) | - | {count} |
+| Invalid to invalid, changed | - | {count} |
+
+<!-- markdownlint-disable MD033 -->
+<details>
+<summary>Changed validity rows (showing up to 24)</summary>
+
+| Direction | Method | Diagnostic / bucket | Baseline | Head |
+| --- | --- | --- | --- | --- |
+| Regressed/Fixed/Changed | `{Type::Method}` | `{CSxxxx or bucket}` | `{old}` | `{new}` |
+
+For the full local delta, see
+[Reproducing decompiler corpus deltas](../decompiler-corpus-delta-repro.md).
+
+</details>
+<!-- markdownlint-enable MD033 -->
+
 ## Decompiler quality
 
 > Should the corpus signal block this PR?
@@ -347,7 +438,7 @@ For the full local delta, see
 ## Validation
 
 ```bash
-dotnet build src/dotnet-inspect -c Release --nologo --verbosity quiet
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -filter "/*/*/{FocusedTests}/*"
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+dotnet build src/DotnetInspect.Cli -c Release --nologo --verbosity quiet
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -filter "/*/*/{FocusedTests}/*"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 ```

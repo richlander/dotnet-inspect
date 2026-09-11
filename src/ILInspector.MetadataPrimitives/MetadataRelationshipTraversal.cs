@@ -20,10 +20,10 @@ public static class MetadataSafetyPolicy
     public const int MaxStructuralSignatureWorkChars = 4 * 1024 * 1024;
 
     /// <summary>
-    /// Maximum work charged while constructing one member-anchor signature
-    /// tree. Type-name occurrences are charged by character length with a
-    /// short-leaf floor, and every composite type node (arrays, pointers,
-    /// generics, function pointers) is charged a fixed per-node unit, so
+    /// Maximum work charged while constructing one member anchor. Type-name
+    /// occurrences are charged by character length with a short-leaf floor,
+    /// and every composite type node (arrays, pointers, generics, function
+    /// pointers) is charged a fixed per-node unit, so
     /// discarded modifier subtrees that are deep or wide cannot amplify past
     /// this ceiling before rejection. TypeDef/TypeRef leaves charge from
     /// UTF-8 storage and materialize names only when rendered, so unique long
@@ -33,8 +33,13 @@ public static class MetadataSafetyPolicy
     /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>,
     /// <c>CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation</c>,
     /// <c>CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget</c>,
     /// and
-    /// <c>CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation</c>.
+    /// <c>CreateMethodAnchorInfo_HighGenericArityExhaustsBeforeContextAllocation</c>.
+    /// The caller-owned cumulative overload also charges names, rendered
+    /// strings, canonical identity, selector output, and fingerprint input
+    /// against this ceiling.
     /// </summary>
     public const int MaxAnchorSignatureWorkChars =
         MaxStructuralSignatureWorkChars;
@@ -70,6 +75,40 @@ public static class MetadataSafetyPolicy
     /// <c>Resolve_DuplicateCandidatesFailClosedAtCap</c>.
     /// </summary>
     public const int MaxCorrespondenceCandidates = 1024;
+
+    /// <summary>
+    /// Maximum Property, Event, and MethodSemantics rows scanned while
+    /// indexing memory-safety accessor associations.
+    /// </summary>
+    public const int MaxMemorySafetyAssociationRows =
+        MaxCorrespondenceMethodRows;
+
+    /// <summary>
+    /// Maximum custom-attribute rows inspected for one memory-safety module or
+    /// member query.
+    /// </summary>
+    public const int MaxMemorySafetyAttributeRows =
+        MaxCorrespondenceCandidates;
+
+    /// <summary>
+    /// Maximum type-name materialization work for one memory-safety attribute
+    /// scan.
+    /// </summary>
+    public const int MaxMemorySafetyNameWorkChars =
+        MaxStructuralSignatureWorkChars;
+
+    /// <summary>
+    /// Maximum CustomAttribute rows walked once while proving that owner-range
+    /// attribute lookups observe every physical row.
+    /// </summary>
+    public const int MaxMemorySafetyCustomAttributeOrderRows = 1024 * 1024;
+
+    /// <summary>
+    /// Maximum TypeDef, MethodDef, NestedClass, Property, and Event rows walked
+    /// once while proving that the range and binary-search projections backing
+    /// declaring-type and accessor lookups observe every physical row.
+    /// </summary>
+    public const int MaxMemorySafetyProjectionIntegrityRows = 1024 * 1024;
 
     /// <summary>
     /// Maximum <see cref="BadImageFormatException"/> failures while decoding

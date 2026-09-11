@@ -465,84 +465,154 @@ public static class StructuralCloneCrossAssemblyCorpus
     {
         ArgumentNullException.ThrowIfNull(report);
         var text = new StringBuilder();
-        text.Append("Cross-assembly clone corpus: ")
+        text.AppendLine("Cross-assembly retrieval evaluation");
+        text.Append("Query selection: ")
+            .Append(report.TotalQueries)
+            .Append(
+                report.TotalQueries == 1
+                    ? " query entry"
+                    : " query entries")
+            .AppendLine(
+                " in the loaded ledger; each selects a method in the "
+                    + "query artifact");
+        text.AppendLine(
+            "Submitted candidate population: all methods in the "
+                + "ledger-declared right-side type; RetrieveSimilar ranks "
+                + "only methods with completed body analysis and a "
+                + "query-compatible signature");
+        text.Append("Expectations met: ")
             .Append(report.PassedQueries)
             .Append('/')
             .Append(report.TotalQueries)
-            .Append(" queries; rows=")
+            .AppendLine(" queries");
+        text.Append("Results within declared review depth: ")
             .Append(report.ReviewedCandidates)
             .Append('/')
             .Append(report.RequestedReviewSlots)
-            .Append(" relevant=")
+            .AppendLine(" requested");
+        text.Append("Relevant peers within reviewed depth: ")
             .Append(report.RelevantAtK)
             .Append('/')
             .Append(report.ReviewedCandidates)
-            .Append(" precision=")
+            .AppendLine(" results");
+        text.Append(
+                "Precision over labeled results within reviewed depth: ")
             .Append(Percentage(report.PrecisionBasisPoints))
-            .Append(" labeled-recall=")
-            .Append(Percentage(report.RecallBasisPoints))
-            .Append(" hazards=")
+            .AppendLine();
+        text.Append("Recall at reviewed depth over declared peers: ")
+            .Append(Percentage(report.RecallBasisPoints));
+        if (report.RecallBasisPoints is not null)
+        {
+            text.Append(" (")
+                .Append(report.RelevantAtK)
+                .Append('/')
+                .Append(report.RelevantLabels)
+                .Append(')');
+        }
+        text.AppendLine();
+        text.Append("Semantic lookalikes at reviewed depth: ")
             .Append(report.SemanticHazardsAtK)
-            .Append(" hard-negatives=")
+            .AppendLine();
+        text.Append("Hard negatives at reviewed depth: ")
             .Append(report.HardNegativesAtK)
-            .Append(" known-misses=")
-            .Append(report.KnownMisses)
             .AppendLine();
-        text.Append("left-mvid=")
+        text.Append("Declared peers not recovered within reviewed depth: ")
+            .Append(
+                report.Queries.All(static query =>
+                    query.RelevantLabels == 0
+                    || query.RetrievalDisposition
+                        == StructuralCloneRetrievalDisposition.Completed)
+                    ? report.KnownMisses.ToString(
+                        CultureInfo.InvariantCulture)
+                    : "n/a")
+            .AppendLine();
+        text.Append("Query artifact: ")
+            .Append(report.LeftAssembly)
+            .Append(" (MVID ")
             .Append(report.LeftModuleVersionId)
-            .Append(" right-mvid=")
+            .AppendLine(")");
+        text.Append("Candidate artifact: ")
+            .Append(report.RightAssembly)
+            .Append(" (MVID ")
             .Append(report.RightModuleVersionId)
-            .AppendLine();
+            .AppendLine(")");
         foreach (StructuralCloneCrossAssemblyQueryResult query
             in report.Queries)
         {
-            text.Append(query.Passed ? "PASS " : "FAIL ")
+            text.Append(
+                    query.Passed
+                        ? "EXPECTATIONS MET: "
+                        : "EXPECTATIONS NOT MET: ")
                 .Append(query.Id)
-                .Append(" seed=")
+                .AppendLine();
+            text.Append("  Query method: ")
                 .Append(query.Seed.Method)
-                .Append(" disposition=")
+                .AppendLine();
+            text.Append("  Retrieval status: ")
                 .Append(query.RetrievalDisposition)
-                .Append(" rows=")
-                .Append(query.TopCandidates.Length)
-                .Append('/')
+                .AppendLine();
+            text.Append("  Candidate methods submitted: ")
+                .Append(query.RetrievalReceipt.InputMethods)
+                .Append("; completed body analysis: ")
+                .Append(query.RetrievalReceipt.EligibleMethods)
+                .Append("; ranked candidates: ")
+                .Append(query.RetrievalReceipt.RankedCandidates)
+                .Append("; retrieval returned candidates: ")
+                .Append(query.RetrievalReceipt.ReturnedCandidates)
+                .AppendLine();
+            text.Append("  Review depth: ")
                 .Append(query.ReviewedTopK)
-                .Append(" relevant=")
+                .Append("; results within depth: ")
+                .Append(query.TopCandidates.Length)
+                .Append("; relevant peers: ")
                 .Append(query.RelevantAtK)
                 .Append('/')
                 .Append(query.TopCandidates.Length)
-                .Append(" precision=")
-                .Append(Percentage(query.PrecisionBasisPoints))
-                .Append(" recall=")
-                .Append(Percentage(query.RecallBasisPoints))
                 .AppendLine();
+            text.Append("  Precision over labeled results at depth: ")
+                .Append(Percentage(query.PrecisionBasisPoints))
+                .Append("; recall@")
+                .Append(query.ReviewedTopK)
+                .Append(" over declared peers: ")
+                .Append(Percentage(query.RecallBasisPoints));
+            if (query.RecallBasisPoints is not null)
+            {
+                text.Append(" (")
+                    .Append(query.RelevantAtK)
+                    .Append('/')
+                    .Append(query.RelevantLabels)
+                    .Append(')');
+            }
+            text.AppendLine();
             foreach (StructuralCloneCrossAssemblyTopCandidate candidate
                 in query.TopCandidates)
             {
                 text.Append("  #")
                     .Append(candidate.Rank)
-                    .Append(" score=")
+                    .Append(" structural-score=")
                     .Append(candidate.Similarity.Score)
+                    .Append("/10000")
                     .Append(' ')
                     .Append(candidate.Method.Method)
                     .Append(" [")
-                    .Append(candidate.Relevance?.ToString() ?? "Unreviewed")
+                    .Append(RelevanceText(candidate.Relevance))
                     .AppendLine("]");
             }
             if (!query.TopKFullyReviewed)
             {
                 text.AppendLine(
-                    "  FAIL reviewed top-k is incomplete or contains "
-                        + "unreviewed rows");
+                    "  INCOMPLETE REVIEW: results within top-K are "
+                        + "incomplete or include unknown relevance");
             }
             foreach (StructuralCloneCrossAssemblyLabelResult label
                 in query.Labels.Where(static label => !label.Passed))
             {
-                text.Append("  FAIL label ")
+                text.Append("  UNMET EXPECTATION candidate=")
                     .Append(label.Candidate.Method)
                     .Append(" rank=")
                     .Append(label.Rank?.ToString(
                         CultureInfo.InvariantCulture) ?? "unranked")
-                    .Append(" maximum=")
+                    .Append(" maximum-expected-rank=")
                     .Append(label.Label.MaximumRank)
                     .AppendLine();
                 foreach (StructuralCloneCrossAssemblyContrastResult contrast
@@ -552,9 +622,9 @@ public static class StructuralCloneCrossAssemblyCorpus
                         || label.Similarity.Score
                             <= contrast.Similarity.Score))
                 {
-                    text.Append("    contrast ")
+                    text.Append("    contrast-not-outscored candidate=")
                         .Append(contrast.Method.Method)
-                        .Append(" score=")
+                        .Append(" structural-score=")
                         .Append(
                             contrast.Similarity?.Score.ToString(
                                 CultureInfo.InvariantCulture)
@@ -573,6 +643,25 @@ public static class StructuralCloneCrossAssemblyCorpus
         }
         return text.ToString();
     }
+
+    static string RelevanceText(
+        StructuralCloneReviewRelevance? relevance)
+        => relevance switch
+        {
+            StructuralCloneReviewRelevance.Relevant =>
+                "relevant peer",
+            StructuralCloneReviewRelevance.HardNegative =>
+                "hard negative (unrelated lookalike)",
+            StructuralCloneReviewRelevance.OrdinaryNegative =>
+                "ordinary negative",
+            StructuralCloneReviewRelevance.SemanticHazard =>
+                "semantic lookalike (behavior differs)",
+            null => "unreviewed (relevance unknown)",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(relevance),
+                relevance,
+                "Unknown structural-clone review relevance."),
+        };
 
     public static string ToJson(
         StructuralCloneCrossAssemblyCorpusReport report)

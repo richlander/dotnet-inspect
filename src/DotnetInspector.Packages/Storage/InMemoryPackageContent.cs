@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
+using System.Security.Cryptography;
 
 namespace DotnetInspector.Packages;
 
@@ -10,28 +11,63 @@ namespace DotnetInspector.Packages;
 /// and <see cref="NupkgPath"/> are always <c>null</c> because nothing is
 /// materialized on disk.
 /// </summary>
-public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEntryManifest
+public sealed class InMemoryPackageContent :
+    IPackageContent,
+    IPackageContentEntryManifest,
+    IPackageContentDigestSource
 {
     const long MaxEntryMaterializationBytes = 512L * 1024 * 1024;
 
     private readonly byte[] _nupkgBytes;
     private readonly Lazy<IReadOnlyList<PackageContentEntry>> _entries;
+    private readonly PackageContentGenerationIdentity _generationIdentity;
 
     public InMemoryPackageContent(
+        byte[] nupkgBytes,
+        bool fromCache,
+        string producerKey) :
+        this(
+            Copy(nupkgBytes),
+            fromCache,
+            producerKey,
+            new PackageContentGenerationIdentity())
+    {
+    }
+
+    internal static InMemoryPackageContent CreateOwned(
         byte[] nupkgBytes,
         bool fromCache,
         string producerKey)
     {
         ArgumentNullException.ThrowIfNull(nupkgBytes);
+        return new InMemoryPackageContent(
+            nupkgBytes,
+            fromCache,
+            producerKey,
+            new PackageContentGenerationIdentity());
+    }
+
+    private InMemoryPackageContent(
+        byte[] nupkgBytes,
+        bool fromCache,
+        string producerKey,
+        PackageContentGenerationIdentity generationIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(nupkgBytes);
         ArgumentException.ThrowIfNullOrEmpty(producerKey);
+        ArgumentNullException.ThrowIfNull(generationIdentity);
         _nupkgBytes = nupkgBytes;
         _entries = new(ReadEntries);
+        _generationIdentity = generationIdentity;
         FromCache = fromCache;
         ProducerKey = producerKey;
     }
 
-    /// <summary>The raw nupkg bytes backing this content.</summary>
-    public ReadOnlyMemory<byte> NupkgBytes => _nupkgBytes;
+    /// <summary>A snapshot of the raw nupkg bytes backing this content.</summary>
+    public ReadOnlyMemory<byte> NupkgBytes => _nupkgBytes.ToArray();
+
+    internal bool ReferencesArchive(ReadOnlyMemory<byte> nupkgBytes) =>
+        new ReadOnlyMemory<byte>(_nupkgBytes).Equals(nupkgBytes);
 
     internal byte[] RetainedArchive => _nupkgBytes;
 
@@ -48,6 +84,28 @@ public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEnt
     public string ProducerKey { get; }
 
     /// <inheritdoc />
+    public PackageContentGenerationIdentity GenerationIdentity =>
+        _generationIdentity;
+
+    /// <summary>
+    /// Returns a cache-origin handle over the same retained content generation.
+    /// </summary>
+    public InMemoryPackageContent AsCacheHit() =>
+        FromCache
+            ? this
+            : new InMemoryPackageContent(
+                _nupkgBytes,
+                fromCache: true,
+                ProducerKey,
+                _generationIdentity);
+
+    static byte[] Copy(byte[] nupkgBytes)
+    {
+        ArgumentNullException.ThrowIfNull(nupkgBytes);
+        return nupkgBytes.ToArray();
+    }
+
+    /// <inheritdoc />
     /// <remarks>
     /// In-memory content has no extracted tree; archive validation alone
     /// admits the payload.
@@ -59,6 +117,23 @@ public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEnt
     {
         stream = new MemoryStream(_nupkgBytes, writable: false);
         return true;
+    }
+
+    PackageContentDigest IPackageContentDigestSource.GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PackageContentDigest digest = _generationIdentity.GetOrCreateDigest(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            chargeWork(_nupkgBytes.LongLength);
+            return new PackageContentDigest(
+                _generationIdentity,
+                Convert.ToHexStringLower(SHA256.HashData(_nupkgBytes)));
+        })!;
+        cancellationToken.ThrowIfCancellationRequested();
+        return digest;
     }
 
     /// <inheritdoc />

@@ -1,6 +1,58 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 namespace DotnetInspector.Packages;
+
+/// <summary>
+/// Opaque identity for one retained package-content generation.
+/// </summary>
+/// <remarks>
+/// Equality is reference identity. The token is intentionally process-local and
+/// carries no package bytes, source location, or credentials.
+/// </remarks>
+public sealed class PackageContentGenerationIdentity
+{
+    static readonly ConditionalWeakTable<IPackageContent, PackageContentGenerationIdentity>
+        Identities = new();
+    private readonly object _digestGate = new();
+    private PackageContentDigest? _digest;
+    private bool _creatingDigest;
+
+    internal PackageContentGenerationIdentity()
+    {
+    }
+
+    internal static PackageContentGenerationIdentity For(IPackageContent content) =>
+        Identities.GetValue(
+            content,
+            static _ => new PackageContentGenerationIdentity());
+
+    internal PackageContentDigest? GetOrCreateDigest(
+        Func<PackageContentDigest?> create)
+    {
+        ArgumentNullException.ThrowIfNull(create);
+        lock (_digestGate)
+        {
+            if (_digest is not null)
+                return _digest;
+            if (_creatingDigest)
+            {
+                throw new InvalidOperationException(
+                    "Digest computation cannot re-enter the same package-content generation.");
+            }
+
+            _creatingDigest = true;
+            try
+            {
+                return _digest = create();
+            }
+            finally
+            {
+                _creatingDigest = false;
+            }
+        }
+    }
+}
 
 /// <summary>
 /// Host-neutral view over the materialized contents of a NuGet package.
@@ -38,6 +90,14 @@ public interface IPackageContent
     /// Canonical identity of the source that produced this package payload.
     /// </summary>
     string ProducerKey { get; }
+
+    /// <summary>
+    /// Opaque identity for the immutable retained content exposed by this
+    /// handle. Stores may preserve it across handles to the same retained
+    /// generation; replacement content must receive a different identity.
+    /// </summary>
+    PackageContentGenerationIdentity GenerationIdentity =>
+        PackageContentGenerationIdentity.For(this);
 
     /// <summary>
     /// When true, admission must require archive/tree matching for any

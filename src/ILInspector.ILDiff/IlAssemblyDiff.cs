@@ -1,7 +1,10 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
@@ -48,6 +51,109 @@ public sealed record IlMemberDiffResult(
     ImmutableArray<IlIdentityResolutionFailure> IdentityFailures = default);
 
 /// <summary>
+/// One explicitly admitted endpoint for an IL member comparison. A present endpoint identifies an
+/// exact method definition; subject absence is separate evidence and is never inferred from a null
+/// reader, handle, or body.
+/// </summary>
+public abstract record IlMemberDiffEndpoint
+{
+    IlMemberDiffEndpoint()
+    {
+    }
+
+    public sealed record Present : IlMemberDiffEndpoint
+    {
+        public Present(
+            IlMemberDiffSubject subject,
+            PEReader pe,
+            MetadataReader reader,
+            MethodDefinitionHandle method)
+        {
+            Subject = ValidateSubject(subject);
+            Pe = pe ?? throw new ArgumentNullException(nameof(pe));
+            Reader = reader ?? throw new ArgumentNullException(nameof(reader));
+            if (method.IsNil)
+                throw new ArgumentException("Method handle must not be nil.", nameof(method));
+            Method = method;
+        }
+
+        public IlMemberDiffSubject Subject { get; }
+        public PEReader Pe { get; }
+        public MetadataReader Reader { get; }
+        public MethodDefinitionHandle Method { get; }
+    }
+
+    public sealed record SubjectAbsent : IlMemberDiffEndpoint
+    {
+        public SubjectAbsent(IlMemberDiffSubject subject, string? detail = null)
+        {
+            Subject = ValidateSubject(subject);
+            Detail = detail;
+        }
+
+        public IlMemberDiffSubject Subject { get; }
+        public string? Detail { get; }
+    }
+
+    static IlMemberDiffSubject ValidateSubject(IlMemberDiffSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject.Identity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject.Label);
+        return subject;
+    }
+}
+
+/// <summary>
+/// The total IL-owned result for two explicitly admitted endpoints. <see cref="MemberDiff"/> is
+/// present exactly when both endpoint inspections completed and the pair-dependent IL differ ran.
+/// </summary>
+public sealed record IlMemberEndpointComparison
+{
+    internal IlMemberEndpointComparison(
+        IlMemberDiffSubject old,
+        IlMemberDiffSubject @new,
+        FindingComparison<CanonicalIlOperation> findings,
+        IlMemberDiffResult? memberDiff)
+    {
+        Old = old ?? throw new ArgumentNullException(nameof(old));
+        New = @new ?? throw new ArgumentNullException(nameof(@new));
+        Findings = findings ?? throw new ArgumentNullException(nameof(findings));
+
+        bool isCompletePair = findings.Value
+            is FindingComparison<CanonicalIlOperation>.Complete
+            {
+                Transition:
+                {
+                    Old: FindingInspectionState.Complete,
+                    New: FindingInspectionState.Complete,
+                },
+            };
+        if (isCompletePair != (memberDiff is not null))
+        {
+            throw new ArgumentException(
+                "A native member diff must be present exactly for a complete/complete endpoint pair.",
+                nameof(memberDiff));
+        }
+
+        if (memberDiff is not null
+            && (memberDiff.Old != old || memberDiff.New != @new))
+        {
+            throw new ArgumentException(
+                "The native member diff must retain the admitted endpoint subjects.",
+                nameof(memberDiff));
+        }
+
+        MemberDiff = memberDiff;
+    }
+
+    public IlMemberDiffSubject Old { get; }
+    public IlMemberDiffSubject New { get; }
+    public FindingComparison<CanonicalIlOperation> Findings { get; }
+    public IlMemberDiffResult? MemberDiff { get; }
+}
+
+/// <summary>
 /// Product-owned IL/body diff producer over two metadata-backed assemblies.
 /// </summary>
 public static class IlAssemblyDiff
@@ -64,6 +170,95 @@ public static class IlAssemblyDiff
     readonly record struct MethodIdentityResult(
         string? Identity,
         MetadataTypeNameFailure? Failure);
+
+    readonly record struct InspectedEndpoint(
+        IlMemberDiffSubject Subject,
+        FindingInspection<CanonicalIlOperation> Inspection,
+        MethodInstructions? Body,
+        MethodBodyBlock? MethodBody);
+
+    /// <summary>
+    /// Compares two explicitly admitted endpoints without performing selector resolution or
+    /// cross-version correspondence. The pair-dependent IL body differ runs only when both
+    /// endpoint inspections complete.
+    /// </summary>
+    public static IlMemberEndpointComparison CompareMemberEndpoints(
+        IlMemberDiffEndpoint oldEndpoint,
+        IlMemberDiffEndpoint newEndpoint,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
+    {
+        ArgumentNullException.ThrowIfNull(oldEndpoint);
+        ArgumentNullException.ThrowIfNull(newEndpoint);
+
+        var old = InspectEndpoint(oldEndpoint);
+        var @new = InspectEndpoint(newEndpoint);
+        var findings = IlFindings.CompareInspections(
+            old.Inspection,
+            @new.Inspection,
+            old.Body,
+            @new.Body,
+            acceptanceThreshold: 100);
+
+        IlMemberDiffResult? memberDiff = null;
+        if (old.MethodBody is not null
+            && @new.MethodBody is not null
+            && findings.Value
+                is FindingComparison<CanonicalIlOperation>.Complete
+                {
+                    Transition:
+                    {
+                        Old: FindingInspectionState.Complete,
+                        New: FindingInspectionState.Complete,
+                    },
+                })
+        {
+            var oldPresent = (IlMemberDiffEndpoint.Present)oldEndpoint;
+            var newPresent = (IlMemberDiffEndpoint.Present)newEndpoint;
+            memberDiff = new IlMemberDiffResult(
+                old.Subject,
+                @new.Subject,
+                IlBodyDiff.Compare(
+                    oldPresent.Reader,
+                    old.MethodBody,
+                    newPresent.Reader,
+                    @new.MethodBody,
+                    normalization),
+                []);
+        }
+
+        return new IlMemberEndpointComparison(
+            old.Subject,
+            @new.Subject,
+            findings,
+            memberDiff);
+    }
+
+    static InspectedEndpoint InspectEndpoint(IlMemberDiffEndpoint endpoint)
+        => endpoint switch
+        {
+            IlMemberDiffEndpoint.Present present => InspectPresentEndpoint(present),
+            IlMemberDiffEndpoint.SubjectAbsent absent => new(
+                absent.Subject,
+                new FindingInspection<CanonicalIlOperation>.Absent(
+                    FindingInspectionAbsenceKind.SubjectAbsent,
+                    absent.Detail),
+                Body: null,
+                MethodBody: null),
+            _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
+        };
+
+    static InspectedEndpoint InspectPresentEndpoint(IlMemberDiffEndpoint.Present endpoint)
+    {
+        var subject = new FindingSubject(endpoint.Subject.Identity, endpoint.Subject.Label);
+        var inspection = IlFindings.InspectMethod(
+            endpoint.Pe,
+            endpoint.Reader,
+            endpoint.Method,
+            subject,
+            out var body,
+            out var methodBody);
+        return new InspectedEndpoint(endpoint.Subject, inspection, body, methodBody);
+    }
 
     public static IlAssemblyDiffPairResult CompareFiles(
         string oldPath,
@@ -468,6 +663,33 @@ sealed class SignatureIdentityContext
         => Failure ??= failure;
 }
 
+static class RejectedArrayShapeIdentity
+{
+    public static string Format(string elementType, ArrayShape shape)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Append(hash, shape.Rank);
+        Append(hash, shape.Sizes.Length);
+        foreach (int size in shape.Sizes)
+            Append(hash, size);
+        Append(hash, shape.LowerBounds.Length);
+        foreach (int lowerBound in shape.LowerBounds)
+            Append(hash, lowerBound);
+
+        Span<byte> digest = stackalloc byte[32];
+        if (!hash.TryGetHashAndReset(digest, out int written) || written != digest.Length)
+            throw new CryptographicException("Could not hash the rejected array shape.");
+        return $"{elementType}[<unsupported-array-shape:{Convert.ToHexString(digest)}>]";
+    }
+
+    static void Append(IncrementalHash hash, int value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32LittleEndian(bytes, value);
+        hash.AppendData(bytes);
+    }
+}
+
 sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, SignatureIdentityContext>
 {
     readonly SignatureIdentityContext _context;
@@ -538,7 +760,13 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, Signatur
     }
 
     public string GetSZArrayType(string elementType) => $"{elementType}[]";
-    public string GetArrayType(string elementType, ArrayShape shape) => $"{elementType}[{new string(',', Math.Max(shape.Rank - 1, 0))}]";
+    public string GetArrayType(string elementType, ArrayShape shape)
+    {
+        if (ArrayShapeText.TryFormat(elementType, shape, out string text))
+            return text;
+
+        return RejectedArrayShapeIdentity.Format(elementType, shape);
+    }
     public string GetByReferenceType(string elementType) => $"{elementType}&";
     public string GetPointerType(string elementType) => $"{elementType}*";
     public string GetPinnedType(string elementType) => $"{elementType} pinned";

@@ -17,31 +17,29 @@ internal static class SignatureRenderer
     public static string RenderDecodedSignature(
         MetadataReader reader,
         MethodDefinition method,
-        string name,
+        string methodName,
         MethodSignature<string> signature,
+        GenericContext context,
         bool extensionThis = false)
     {
         var paramHandles = method.GetParameters();
         var paramTypes = signature.ParameterTypes;
+        string[] parameterNames = MetadataParameterNames.Resolve(
+            reader,
+            paramHandles,
+            paramTypes.Length,
+            context.MethodParameters);
 
         List<string> parameters = [];
         for (int i = 0; i < paramTypes.Length; i++)
         {
-            string? paramName = null;
-            foreach (var handle in paramHandles)
-            {
-                var param = reader.GetParameter(handle);
-                if (param.SequenceNumber == i + 1)
-                {
-                    paramName = reader.GetString(param.Name);
-                    break;
-                }
-            }
-
             var prefix = extensionThis && i == 0 ? "this " : "";
-            parameters.Add($"{prefix}{paramTypes[i]} {paramName ?? $"arg{i}"}");
+            parameters.Add($"{prefix}{paramTypes[i]} {parameterNames[i]}");
         }
 
-        return $"{signature.ReturnType} {name}({string.Join(", ", parameters)})";
+        string declarationName = context.MethodParameters.Count == 0
+            ? methodName
+            : $"{methodName}<{string.Join(", ", context.MethodParameters)}>";
+        return $"{signature.ReturnType} {declarationName}({string.Join(", ", parameters)})";
     }
 }

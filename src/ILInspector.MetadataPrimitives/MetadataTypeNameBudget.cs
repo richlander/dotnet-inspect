@@ -17,7 +17,10 @@ namespace ILInspector.Metadata;
 /// materialized by <see cref="MetadataReader.GetBlobReader(StringHandle)"/>;
 /// the decoded recheck still prevents later segments from being appended.
 /// Accounting matches <c>MetadataTypeDefinitionName.Create</c>: namespace
-/// characters plus one delimiter per name segment.
+/// characters plus one delimiter per name segment. Every component the reader
+/// consumes is charged, including a nil one: the decoded length is zero but the
+/// read still costs the caller a segment, so charging nothing would let a deep
+/// chain of nil-named nodes materialize proportionally for free.
 /// </remarks>
 internal struct MetadataTypeNameBudget
 {
@@ -47,6 +50,11 @@ internal struct MetadataTypeNameBudget
     {
         if (handle.IsNil)
         {
+            // A nil component still consumes a chain slot, a delimiter, and a
+            // segment allocation in the caller. Charge the read so that a deep
+            // chain of nil-named nodes cannot drive proportional materializing
+            // work while charging the observer nothing.
+            beforeMaterialize?.Invoke(0);
             value = string.Empty;
             encoded += delimiterChars;
             characters += delimiterChars;

@@ -106,19 +106,10 @@ internal sealed class CSharpSourceIdentityContext
 
     public IReadOnlyList<CSharpSourceMemberIdentity> ConversionOperatorMembers(ConversionOperatorDeclarationSyntax conversion)
     {
-        bool isImplicit = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword);
-        bool isChecked = conversion.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword);
-        string methodName = (isImplicit, isChecked) switch
-        {
-            (true, true) => "op_CheckedImplicit",
-            (true, false) => "op_Implicit",
-            (false, true) => "op_CheckedExplicit",
-            (false, false) => "op_Explicit",
-        };
         return
         [
             new CSharpSourceMemberIdentity(
-                methodName,
+                ConversionOperatorMetadataName(conversion),
                 SourceShape(conversion, SourceMemberSignatureKind.ConversionOperator),
                 BodyText(conversion),
                 ["conversion-operator"]),
@@ -287,7 +278,7 @@ internal sealed class CSharpSourceIdentityContext
     static string PartialIndexerKey(string fullType, IndexerDeclarationSyntax indexer)
         => $"{fullType}({string.Join(",", indexer.ParameterList.Parameters.Select(parameter => parameter.Type?.ToString() ?? ""))})";
 
-    static string? IndexerMetadataName(IndexerDeclarationSyntax indexer)
+    internal static string? IndexerMetadataName(IndexerDeclarationSyntax indexer)
     {
         foreach (var attribute in indexer.AttributeLists.SelectMany(list => list.Attributes))
         {
@@ -446,7 +437,7 @@ internal sealed class CSharpSourceIdentityContext
             ? $"{expression};"
             : $"return {expression};";
 
-    static string OperatorMetadataName(OperatorDeclarationSyntax op)
+    internal static string OperatorMetadataName(OperatorDeclarationSyntax op)
     {
         string methodName = op.OperatorToken.Kind() switch
         {
@@ -454,8 +445,12 @@ internal sealed class CSharpSourceIdentityContext
             SyntaxKind.MinusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryNegation" : "op_Subtraction",
             SyntaxKind.ExclamationToken => "op_LogicalNot",
             SyntaxKind.TildeToken => "op_OnesComplement",
-            SyntaxKind.PlusPlusToken => "op_Increment",
-            SyntaxKind.MinusMinusToken => "op_Decrement",
+            SyntaxKind.PlusPlusToken => op.ParameterList.Parameters.Count == 0
+                ? "op_IncrementAssignment"
+                : "op_Increment",
+            SyntaxKind.MinusMinusToken => op.ParameterList.Parameters.Count == 0
+                ? "op_DecrementAssignment"
+                : "op_Decrement",
             SyntaxKind.TrueKeyword => "op_True",
             SyntaxKind.FalseKeyword => "op_False",
             SyntaxKind.AsteriskToken => "op_Multiply",
@@ -473,10 +468,38 @@ internal sealed class CSharpSourceIdentityContext
             SyntaxKind.GreaterThanToken => "op_GreaterThan",
             SyntaxKind.LessThanEqualsToken => "op_LessThanOrEqual",
             SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
+            SyntaxKind.PlusEqualsToken => "op_AdditionAssignment",
+            SyntaxKind.MinusEqualsToken => "op_SubtractionAssignment",
+            SyntaxKind.AsteriskEqualsToken => "op_MultiplicationAssignment",
+            SyntaxKind.SlashEqualsToken => "op_DivisionAssignment",
+            SyntaxKind.PercentEqualsToken => "op_ModulusAssignment",
+            SyntaxKind.AmpersandEqualsToken => "op_BitwiseAndAssignment",
+            SyntaxKind.BarEqualsToken => "op_BitwiseOrAssignment",
+            SyntaxKind.CaretEqualsToken => "op_ExclusiveOrAssignment",
+            SyntaxKind.LessThanLessThanEqualsToken => "op_LeftShiftAssignment",
+            SyntaxKind.GreaterThanGreaterThanEqualsToken => "op_RightShiftAssignment",
+            SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken
+                => "op_UnsignedRightShiftAssignment",
             _ => op.OperatorToken.ValueText,
         };
         return op.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword)
             ? $"op_Checked{methodName["op_".Length..]}"
             : methodName;
+    }
+
+    internal static string ConversionOperatorMetadataName(
+        ConversionOperatorDeclarationSyntax conversion)
+    {
+        bool isImplicit = conversion.ImplicitOrExplicitKeyword.IsKind(
+            SyntaxKind.ImplicitKeyword);
+        bool isChecked = conversion.CheckedKeyword.IsKind(
+            SyntaxKind.CheckedKeyword);
+        return (isImplicit, isChecked) switch
+        {
+            (true, true) => "op_CheckedImplicit",
+            (true, false) => "op_Implicit",
+            (false, true) => "op_CheckedExplicit",
+            (false, false) => "op_Explicit",
+        };
     }
 }

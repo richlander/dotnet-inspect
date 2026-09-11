@@ -1,15 +1,20 @@
+using System.Net;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using System.Reflection;
 using System.Text;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using DotnetInspector.RoundTripCompilation;
 using DotnetInspector.Services;
-using ILInspector.Findings;
+using NuGetFetch;
+using Inspector.Findings;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
-using ILInspector.Research;
+using InertText;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -35,19 +40,18 @@ enum AuthoredBuildContextStatus
     Failed,
 }
 
-sealed record AuthoredBuildContextAssessment(
-    AuthoredBuildContextStatus Status,
-    bool IsDeterministic,
-    string Detail,
-    IReadOnlyDictionary<string, string>? RecordedOptions = null);
-
 sealed record AuthoredRebuildFidelityResult(
     ReturnToSender.Result DecompilerLane,
     AuthoredRebuildOutcome Outcome,
     SourceChecksumVerification? ChecksumVerification,
-    AuthoredBuildContextAssessment BuildContext,
+    RecordedBuildContext BuildContext,
     string? Detail,
-    ImplementationMemberDiffResult? ImplementationDiff);
+    [property: JsonIgnore] LocalComparisonQueryResult? MemberComparison,
+    RebuildCompilationAttempt? AuthoredAttempt = null)
+{
+    public LaneBuildContext AuthoredContext => BuildContext.Assess(AuthoredAttempt);
+    public LaneBuildContext DecompiledContext => BuildContext.Assess(DecompilerLane.CompilationAttempt);
+}
 
 static class AuthoredRebuildFidelity
 {
@@ -61,71 +65,13 @@ static class AuthoredRebuildFidelity
     {
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         using var httpClient = HttpClientFactory.CreateClient();
-        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
-        List<AuthoredRebuildFidelityResult> results = [];
-
-        foreach (string assemblyPath in assemblies)
-        {
-            if (results.Count >= cap)
-                break;
-
-            IReadOnlyList<ReturnToSender.Result> decompilerResults;
-            try
-            {
-                decompilerResults = ReturnToSender.CompileBackPropertyGetters(
-                    assemblyPath,
-                    cap - results.Count);
-            }
-            catch (Exception ex) when (ex is IOException
-                or UnauthorizedAccessException
-                or BadImageFormatException
-                or InvalidOperationException)
-            {
-                Console.Error.WriteLine(
-                    $"Warning: authored rebuild skipped '{assemblyPath}' "
-                    + $"({ex.GetType().Name}: {ex.Message}).");
-                continue;
-            }
-
-            using var source = SourceLinkService.Open(assemblyPath);
-            await AcquirePdbAsync(source, httpClient);
-            IReadOnlyList<MetadataReference> compilationReferences =
-                decompilerResults.FirstOrDefault()?.FinalRequest?
-                    .CompilationClosure?.References
-                ?? ReturnToSender.CompilationReferences(
-                    assemblyPath).ToArray();
-            var buildContext = AssessBuildContext(
-                SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
-                MetadataFindings.InspectCompilationOptions(
-                    source.Context,
-                    new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
-                MetadataFindings.InspectCompilationReferences(
-                    source.Context,
-                    new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
-                compilationReferences);
-
-            foreach (var decompilerResult in decompilerResults)
-            {
-                if (results.Count >= cap)
-                    break;
-
-                AuthoredRebuildFidelityResult evaluated =
-                    await EvaluateAsync(
-                    source,
-                    fetcher,
-                    decompilerResult,
-                    buildContext);
-                results.Add(
-                    evaluated with
-                    {
-                        DecompilerLane =
-                            evaluated.DecompilerLane with
-                            {
-                                FinalRequest = null,
-                            },
-                    });
-            }
-        }
+        var fetcher = new SourceFetch(HttpClientFactory.SharedUntrustedFetch);
+        IReadOnlyList<AuthoredRebuildFidelityResult> results =
+            await EvaluateAssembliesAsync(
+                assemblies,
+                cap,
+                httpClient,
+                fetcher);
 
         WriteReport(results, maxExamples);
         return results.Any(result =>
@@ -136,11 +82,147 @@ static class AuthoredRebuildFidelity
             : 0;
     }
 
+    internal static async Task<IReadOnlyList<AuthoredRebuildFidelityResult>>
+        EvaluateAssembliesAsync(
+            IReadOnlyList<string> assemblies,
+            int cap,
+            HttpClient httpClient,
+            SourceFetch fetcher,
+            IPdbStore? pdbStore = null)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cap);
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(fetcher);
+
+        List<AuthoredRebuildFidelityResult> results = [];
+
+        foreach (string assemblyPath in assemblies)
+        {
+            if (results.Count >= cap)
+                break;
+
+            ReturnToSender.CompilationClosure? compilationClosure = null;
+            IReadOnlyList<ReturnToSender.Result> decompilerResults;
+            try
+            {
+                compilationClosure = ReturnToSender.CreateCompilationClosure(assemblyPath);
+                decompilerResults = ReturnToSender.CompileBackPropertyGetters(
+                    assemblyPath,
+                    cap - results.Count,
+                    compilationClosure);
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or InvalidOperationException)
+            {
+                Console.Error.WriteLine(
+                    $"Warning: authored rebuild skipped '{assemblyPath}' "
+                    + $"({ex.GetType().Name}: {ex.Message}).");
+                compilationClosure?.Dispose();
+                continue;
+            }
+
+            using (compilationClosure)
+            {
+                SourceLinkService? source = null;
+                Exception? pdbAcquisitionFailure = null;
+                try
+                {
+                    source = SourceLinkService.Open(assemblyPath);
+                    await AcquirePdbAsync(
+                        source,
+                        httpClient,
+                        pdbStore: pdbStore);
+                }
+                catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
+                {
+                    pdbAcquisitionFailure = ex;
+                }
+                var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
+                RecordedBuildContext buildContext =
+                    source is null
+                        ? RecordedBuildContext.Failed(
+                            subject,
+                            "Portable PDB acquisition failed before build-context inspection.")
+                        : new RecordedBuildContext(
+                            SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
+                            MetadataFindings.InspectCompilationOptions(
+                                source.Context,
+                                subject),
+                            MetadataFindings.InspectCompilationReferences(
+                                source.Context,
+                                subject));
+
+                using (source)
+                {
+                    foreach (var decompilerResult in decompilerResults)
+                    {
+                        if (results.Count >= cap)
+                            break;
+
+                        AuthoredRebuildFidelityResult evaluated;
+                        if (pdbAcquisitionFailure is not null)
+                        {
+                            evaluated = new AuthoredRebuildFidelityResult(
+                                decompilerResult,
+                                AuthoredRebuildOutcome.SourceFailed,
+                                ChecksumVerification: null,
+                                buildContext,
+                                "Portable PDB acquisition failed: "
+                                    + pdbAcquisitionFailure.Message,
+                                MemberComparison: null);
+                        }
+                        else if (source is { Context.NeedsPdb: true })
+                        {
+                            evaluated = new AuthoredRebuildFidelityResult(
+                                decompilerResult,
+                                AuthoredRebuildOutcome.SourceAbsent,
+                                ChecksumVerification: null,
+                                buildContext,
+                                source.Context.WindowsPdbDetected
+                                    ? "A Windows PDB was found, but portable-PDB source mapping is unavailable."
+                                    : "No matching portable PDB is available.",
+                                MemberComparison: null);
+                        }
+                        else
+                        {
+                            if (source is null)
+                            {
+                                throw new InvalidOperationException(
+                                    "PDB acquisition completed without a source context or failure.");
+                            }
+
+                            evaluated = await EvaluateAsync(
+                                source,
+                                fetcher,
+                                decompilerResult,
+                                buildContext);
+                        }
+
+                        results.Add(
+                            evaluated with
+                            {
+                                DecompilerLane =
+                                    evaluated.DecompilerLane with
+                                    {
+                                        FinalRequest = null,
+                                    },
+                            });
+                    }
+                }
+            }
+        }
+
+        return results;
+    }
+
     internal static async Task<AuthoredRebuildFidelityResult> EvaluateAsync(
         SourceLinkService source,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         ReturnToSender.Result decompilerResult,
-        AuthoredBuildContextAssessment buildContext)
+        RecordedBuildContext buildContext)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(fetcher);
@@ -155,14 +237,14 @@ static class AuthoredRebuildFidelity
                 ChecksumVerification: null,
                 buildContext,
                 "RTS did not produce a final artifact request.",
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
 
         var subject = new FindingSubject(
             decompilerResult.MemberAnchor?.StableSelector
                 ?? $"{request.FullType}.{request.MethodName}",
             $"{request.FullType}.{request.MethodName}");
-        var authored = await PdbSourceAcquisition.AcquireMemberAsync(
+        var authored = await PdbSourceHouse.AcquireMemberAsync(
             source,
             MetadataTokens.GetToken(request.TargetMethod),
             request.MethodName,
@@ -176,7 +258,7 @@ static class AuthoredRebuildFidelity
                 authored.ChecksumVerification,
                 buildContext,
                 absent.Detail,
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
         if (authored.Lines.Value is FindingInspection<string>.Failed failed)
         {
@@ -186,7 +268,7 @@ static class AuthoredRebuildFidelity
                 authored.ChecksumVerification,
                 buildContext,
                 failed.Error.Reason,
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
         if (authored.Text is not { } authoredBody)
         {
@@ -196,7 +278,7 @@ static class AuthoredRebuildFidelity
                 authored.ChecksumVerification,
                 buildContext,
                 "Authored-source acquisition completed without body text.",
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
 
         if (!TryExtractTargetBody(
@@ -211,7 +293,7 @@ static class AuthoredRebuildFidelity
                 authored.ChecksumVerification,
                 buildContext,
                 "Checksum-verified authored member source did not contain the target body.",
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
 
         return CompileAuthoredBody(
@@ -225,28 +307,73 @@ static class AuthoredRebuildFidelity
         string memberSource,
         string metadataMethodName,
         out string body)
-        => TryExtractTargetBody(
+        => TryExtractTargetBodies(
             memberSource,
             metadataMethodName,
             expectedParameterCount: null,
-            out body);
+            out body,
+            out _);
 
     internal static bool TryExtractTargetBody(
         string memberSource,
         string metadataMethodName,
         int expectedParameterCount,
         out string body)
-        => TryExtractTargetBody(
+        => TryExtractTargetBodies(
             memberSource,
             metadataMethodName,
             (int?)expectedParameterCount,
-            out body);
+            out body,
+            out _);
 
-    static bool TryExtractTargetBody(
+    internal static bool TryExtractTargetBodies(
+        string memberSource,
+        string metadataMethodName,
+        int expectedParameterCount,
+        out string body,
+        out string? printerBody)
+        => TryExtractTargetBodies(
+            memberSource,
+            metadataMethodName,
+            (int?)expectedParameterCount,
+            out body,
+            out printerBody);
+
+    static bool TryExtractTargetBodies(
         string memberSource,
         string metadataMethodName,
         int? expectedParameterCount,
-        out string body)
+        out string body,
+        out string? printerBody)
+        => TryMatchTargetBodies(
+            memberSource,
+            metadataMethodName,
+            expectedParameterCount,
+            out body,
+            out printerBody,
+            out bool hasBody)
+            && hasBody;
+
+    internal static bool IsBodylessTarget(
+        string memberSource,
+        string metadataMethodName,
+        int expectedParameterCount)
+        => TryMatchTargetBodies(
+            memberSource,
+            metadataMethodName,
+            expectedParameterCount,
+            out string body,
+            out _,
+            out bool hasBody)
+            && !hasBody;
+
+    static bool TryMatchTargetBodies(
+        string memberSource,
+        string metadataMethodName,
+        int? expectedParameterCount,
+        out string body,
+        out string? printerBody,
+        out bool hasBody)
     {
         ArgumentNullException.ThrowIfNull(memberSource);
         ArgumentException.ThrowIfNullOrWhiteSpace(metadataMethodName);
@@ -258,6 +385,8 @@ static class AuthoredRebuildFidelity
         int bestScore = -1;
         bool ambiguous = false;
         body = "";
+        printerBody = null;
+        hasBody = false;
         foreach (var member in root.DescendantNodes()
             .OfType<MemberDeclarationSyntax>()
             .Where(candidate => candidate.Parent is ClassDeclarationSyntax))
@@ -273,14 +402,27 @@ static class AuthoredRebuildFidelity
             }
 
             bestScore = candidate.Score;
-            body = candidate.Body;
+            body = candidate.Body.Legacy;
+            printerBody = candidate.Body.Printer;
+            hasBody = candidate.Body.HasBody;
             ambiguous = false;
         }
 
-        return bestScore >= 0 && !ambiguous && body.Length > 0;
+        return bestScore >= 0 && !ambiguous;
     }
 
-    static (int Score, string Body) MemberBody(
+    readonly record struct ExtractedBody(
+        string Legacy,
+        string? Printer,
+        bool HasBody = true)
+    {
+        public static ExtractedBody None => new(
+            "",
+            Printer: null,
+            HasBody: false);
+    }
+
+    static (int Score, ExtractedBody Body) MemberBody(
         MemberDeclarationSyntax member,
         MetadataMethodIdentity identity,
         int? expectedParameterCount)
@@ -328,13 +470,21 @@ static class AuthoredRebuildFidelity
                     identity,
                     AccessorBodyText(property, SyntaxKind.SetAccessorDeclaration)),
             IndexerDeclarationSyntax indexer
-                when AccessorNameMatches(identity, "get_", "Item")
+                when IndexerAccessorMatches(
+                    identity,
+                    "get_",
+                    indexer,
+                    expectedParameterCount)
                 => ScoredBody(
                     indexer.ExplicitInterfaceSpecifier,
                     identity,
                     AccessorBodyText(indexer, SyntaxKind.GetAccessorDeclaration)),
             IndexerDeclarationSyntax indexer
-                when AccessorNameMatches(identity, "set_", "Item")
+                when IndexerAccessorMatches(
+                    identity,
+                    "set_",
+                    indexer,
+                    expectedParameterCount)
                 => ScoredBody(
                     indexer.ExplicitInterfaceSpecifier,
                     identity,
@@ -357,8 +507,56 @@ static class AuthoredRebuildFidelity
                     eventDeclaration.ExplicitInterfaceSpecifier,
                     identity,
                     AccessorBodyText(eventDeclaration, SyntaxKind.RemoveAccessorDeclaration)),
-            _ => (-1, ""),
+            OperatorDeclarationSyntax op
+                when string.Equals(
+                    CSharpSourceIdentityContext.OperatorMetadataName(op),
+                    identity.SimpleName,
+                    StringComparison.Ordinal)
+                    && ParameterCountMatches(
+                        op.ParameterList.Parameters.Count,
+                        expectedParameterCount)
+                => (2, BodyText(
+                    op.Body,
+                    op.ExpressionBody,
+                    ReturnsVoid(op.ReturnType))),
+            ConversionOperatorDeclarationSyntax conversion
+                when string.Equals(
+                    CSharpSourceIdentityContext.ConversionOperatorMetadataName(
+                        conversion),
+                    identity.SimpleName,
+                    StringComparison.Ordinal)
+                    && ParameterCountMatches(
+                        conversion.ParameterList.Parameters.Count,
+                        expectedParameterCount)
+                => (2, BodyText(
+                    conversion.Body,
+                    conversion.ExpressionBody,
+                    returnsVoid: false)),
+            _ => (-1, ExtractedBody.None),
         };
+
+    static bool IndexerAccessorMatches(
+        MetadataMethodIdentity identity,
+        string prefix,
+        IndexerDeclarationSyntax indexer,
+        int? expectedParameterCount)
+    {
+        int parameterCount = indexer.ParameterList.Parameters.Count
+            + (prefix == "set_" ? 1 : 0);
+        if (!ParameterCountMatches(parameterCount, expectedParameterCount))
+            return false;
+
+        string? declaredName =
+            CSharpSourceIdentityContext.IndexerMetadataName(indexer);
+        if (declaredName is not null)
+            return AccessorNameMatches(identity, prefix, declaredName);
+
+        // The PDB body slicer can omit an IndexerName attribute outside its
+        // vouched declaration range. The exact mapped MethodDef supplies the
+        // accessor name; equal-rank neighboring indexers remain ambiguous.
+        return identity.SimpleName.StartsWith(prefix, StringComparison.Ordinal)
+            && identity.SimpleName.Length > prefix.Length;
+    }
 
     static bool ParameterCountMatches(int actual, int? expected)
         => expected is null || actual == expected.Value;
@@ -370,10 +568,10 @@ static class AuthoredRebuildFidelity
             ? metadataMethodName == ".cctor"
             : metadataMethodName == ".ctor";
 
-    static (int Score, string Body) ScoredBody(
+    static (int Score, ExtractedBody Body) ScoredBody(
         ExplicitInterfaceSpecifierSyntax? syntax,
         MetadataMethodIdentity identity,
-        string body)
+        ExtractedBody body)
         => (ExplicitInterfaceMatchScore(syntax, identity.ExplicitInterface), body);
 
     static bool AccessorNameMatches(
@@ -510,7 +708,7 @@ static class AuthoredRebuildFidelity
         }
     }
 
-    static string AccessorBodyText(
+    static ExtractedBody AccessorBodyText(
         BasePropertyDeclarationSyntax declaration,
         SyntaxKind accessorKind)
     {
@@ -526,34 +724,108 @@ static class AuthoredRebuildFidelity
                     or SyntaxKind.RemoveAccessorDeclaration);
         }
 
-        if (accessorKind == SyntaxKind.GetAccessorDeclaration
-            && declaration is PropertyDeclarationSyntax
-                { ExpressionBody: { } expressionBody })
+        ArrowExpressionClauseSyntax? expressionBody = declaration switch
         {
-            return $"return {expressionBody.Expression};";
+            PropertyDeclarationSyntax property => property.ExpressionBody,
+            IndexerDeclarationSyntax indexer => indexer.ExpressionBody,
+            _ => null,
+        };
+        if (accessorKind == SyntaxKind.GetAccessorDeclaration
+            && expressionBody is not null)
+        {
+            return new($"return {expressionBody.Expression};", Printer: null);
         }
 
-        return "";
+        return ExtractedBody.None;
     }
 
-    static string BodyText(
+    static ExtractedBody BodyText(
         BlockSyntax? block,
         ArrowExpressionClauseSyntax? expressionBody,
         bool returnsVoid)
     {
         if (block is not null)
         {
-            return string.Join(
-                Environment.NewLine,
-                block.Statements.Select(statement => statement.ToFullString()))
+            string legacy = string.Join(
+                    Environment.NewLine,
+                    block.Statements.Select(statement => statement.ToFullString()))
                 .Trim();
+            return new(
+                legacy,
+                PrinterBodyIsMechanicallyComparable(block)
+                    ? PrinterBodyText(block)
+                    : null);
         }
         if (expressionBody is null)
-            return "";
+            return ExtractedBody.None;
 
-        return returnsVoid
+        string projected = returnsVoid
             ? $"{expressionBody.Expression};"
             : $"return {expressionBody.Expression};";
+        // Expression-bodied declarations have a different source envelope than
+        // the block body emitted by the decompiler. They remain valid Correct
+        // evidence, but are deliberately ineligible for byte-for-byte printer
+        // comparison until that projection has its own versioned contract.
+        return new(projected, Printer: null);
+    }
+
+    static bool PrinterBodyIsMechanicallyComparable(BlockSyntax block)
+    {
+        var lines = block.SyntaxTree.GetText().Lines;
+        return !block.DescendantTokens().Any(token =>
+                lines.GetLinePositionSpan(token.Span) is var span
+                && span.Start.Line != span.End.Line)
+            && !block.DescendantTrivia(descendIntoTrivia: true).Any(trivia =>
+                trivia.GetStructure() is DirectiveTriviaSyntax);
+    }
+
+    static string PrinterBodyText(BlockSyntax block)
+    {
+        string text = block.SyntaxTree.GetText()
+            .ToString(Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
+                block.OpenBraceToken.Span.End,
+                block.CloseBraceToken.SpanStart))
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+        string[] lines = text.Split('\n');
+        int start = 0;
+        int end = lines.Length;
+        while (start < end && string.IsNullOrWhiteSpace(lines[start]))
+            start++;
+        while (end > start && string.IsNullOrWhiteSpace(lines[end - 1]))
+            end--;
+        if (start == end)
+            return "";
+
+        bool closeBraceSharesContentLine =
+            end == lines.Length && !string.IsNullOrWhiteSpace(lines[end - 1]);
+        if (closeBraceSharesContentLine)
+            lines[end - 1] = lines[end - 1].TrimEnd(' ', '\t');
+
+        int indentation = int.MaxValue;
+        for (int i = start; i < end; i++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[i]))
+                continue;
+
+            int current = 0;
+            while (current < lines[i].Length
+                && lines[i][current] is ' ' or '\t')
+            {
+                current++;
+            }
+            indentation = Math.Min(indentation, current);
+        }
+
+        if (indentation is int.MaxValue)
+            indentation = 0;
+
+        return string.Join(
+            "\n",
+            lines[start..end].Select(line =>
+                string.IsNullOrWhiteSpace(line)
+                    ? ""
+                    : line[Math.Min(indentation, line.Length)..]));
     }
 
     static bool ReturnsVoid(TypeSyntax type)
@@ -564,7 +836,7 @@ static class AuthoredRebuildFidelity
         ReturnToSender.Result decompilerResult,
         string authoredBody,
         SourceChecksumVerification? checksumVerification,
-        AuthoredBuildContextAssessment buildContext)
+        RecordedBuildContext buildContext)
     {
         ArgumentNullException.ThrowIfNull(decompilerResult);
         ArgumentNullException.ThrowIfNull(authoredBody);
@@ -577,9 +849,38 @@ static class AuthoredRebuildFidelity
                 checksumVerification,
                 buildContext,
                 "RTS did not produce a final artifact request.",
-                ImplementationDiff: null);
+                MemberComparison: null);
+        }
+        if (request.CompilationClosure is not { } compilationClosure)
+        {
+            return new AuthoredRebuildFidelityResult(
+                decompilerResult,
+                AuthoredRebuildOutcome.ContextFailed,
+                checksumVerification,
+                buildContext,
+                "RTS did not retain its frozen compilation closure.",
+                MemberComparison: null);
         }
 
+        return compilationClosure.Use(context => CompileAuthoredBodyCore(
+            decompilerResult,
+            request,
+            authoredBody,
+            checksumVerification,
+            buildContext,
+            [.. context.CompilerReferences.Cast<MetadataReference>()]));
+    }
+
+    static AuthoredRebuildFidelityResult CompileAuthoredBodyCore(
+        ReturnToSender.Result decompilerResult,
+        ArtifactRequest request,
+        string authoredBody,
+        SourceChecksumVerification? checksumVerification,
+        RecordedBuildContext buildContext,
+        MetadataReference[] references)
+    {
+        RebuildCompilationAttempt? authoredAttempt = null;
+        LocalComparisonQueryResult? memberComparison = null;
         try
         {
             using var originalPe = new PEReader(File.OpenRead(request.AssemblyPath));
@@ -589,30 +890,21 @@ static class AuthoredRebuildFidelity
                 request,
                 new ProductTargetBody(authoredBody, []));
             var artifact = CompileBackSourceComposer.Compose(authoredRequest);
-            var parseOptions = ParseOptions(buildContext.RecordedOptions);
-            var compileOptions = CompilationOptions(buildContext.RecordedOptions);
-            if (request.CompilationClosure is not { } compilationClosure)
-            {
-                return new AuthoredRebuildFidelityResult(
-                    decompilerResult,
-                    AuthoredRebuildOutcome.ContextFailed,
-                    checksumVerification,
-                    buildContext,
-                    "RTS did not retain its frozen compilation closure.",
-                    ImplementationDiff: null);
-            }
-            MetadataReference[] references =
-                compilationClosure.References;
-            var compilation = CSharpCompilation.Create(
-                "return-to-sender",
-                [CSharpSyntaxTree.ParseText(artifact.Source, parseOptions)],
+            var parseOptions = ParseOptions(buildContext);
+            var compileOptions = CompilationOptions(buildContext);
+            var compilation = RoundTripCompilationEngine.Compile(
+                () => artifact,
+                produced => produced.Source,
                 references,
-                compileOptions);
-            using var stream = new MemoryStream();
-            var emit = compilation.Emit(stream);
-            if (!emit.Success)
+                parseOptions,
+                compileOptions,
+                static (_, _, _) => RoundTripGrowthResult.Stop("authored-recompile-failed"),
+                new RoundTripCompilationOptions { AssemblyName = "return-to-sender", MaxIterations = 1 });
+            authoredAttempt = RebuildCompilationAttempt.Capture(
+                artifact, parseOptions, compileOptions, compilation.Provenance, references);
+            if (!compilation.Succeeded || compilation.PeImage is null)
             {
-                var error = emit.Diagnostics.FirstOrDefault(diagnostic =>
+                var error = compilation.Diagnostics.FirstOrDefault(diagnostic =>
                     diagnostic.Severity == DiagnosticSeverity.Error);
                 return new AuthoredRebuildFidelityResult(
                     decompilerResult,
@@ -622,40 +914,30 @@ static class AuthoredRebuildFidelity
                     error is null
                         ? "The authored body did not compile in the RTS shell."
                         : $"{error.Id}: {error.GetMessage()}",
-                    ImplementationDiff: null);
+                    MemberComparison: null,
+                    AuthoredAttempt: authoredAttempt);
             }
 
             var originalMethod = MetadataTokens.MethodDefinitionHandle(
                 MetadataTokens.GetRowNumber(request.TargetMethod));
-            var implementationDiff = ReturnToSender.BuildImplementationDiff(
+            memberComparison = ReturnToSender.CompareMemberBodies(
                 request.AssemblyPath,
                 originalReader,
                 originalMethod,
-                stream.ToArray(),
+                compilation.PeImage,
                 request.FullType,
                 request.MethodName,
-                overload: 0,
-                ImplementationDiffMechanism.IlBody);
-            if (implementationDiff is null)
-            {
-                return new AuthoredRebuildFidelityResult(
-                    decompilerResult,
-                    AuthoredRebuildOutcome.ContextFailed,
-                    checksumVerification,
-                    buildContext,
-                    "The authored rebuild target could not be compared to shipped IL.",
-                    ImplementationDiff: null);
-            }
+                overload: 0);
+            var (outcome, detail) = ClassifyComparison(memberComparison);
 
             return new AuthoredRebuildFidelityResult(
                 decompilerResult,
-                implementationDiff.IsExact
-                    ? AuthoredRebuildOutcome.Exact
-                    : AuthoredRebuildOutcome.IlDifferent,
+                outcome,
                 checksumVerification,
                 buildContext,
-                Detail: null,
-                implementationDiff);
+                detail,
+                memberComparison,
+                authoredAttempt);
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -668,101 +950,33 @@ static class AuthoredRebuildFidelity
                 checksumVerification,
                 buildContext,
                 $"{ex.GetType().Name}: {ex.Message}",
-                ImplementationDiff: null);
+                MemberComparison: memberComparison,
+                AuthoredAttempt: authoredAttempt);
         }
     }
 
-    internal static AuthoredBuildContextAssessment AssessBuildContext(
-        bool isDeterministic,
-        FindingInspection<CompilationOptionInfo> options,
-        FindingInspection<CompilationReferenceInfo> references,
-        IEnumerable<MetadataReference> actualReferences)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(references);
-        ArgumentNullException.ThrowIfNull(actualReferences);
-
-        if (options.Value is FindingInspection<CompilationOptionInfo>.Failed optionFailure)
+    internal static (AuthoredRebuildOutcome Outcome, string? Detail) ClassifyComparison(
+        LocalComparisonQueryResult comparison)
+        => ReturnToSender.GetIlDiff(comparison)?.Diff.Outcome switch
         {
-            return new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Failed,
-                isDeterministic,
-                $"Compilation options: {optionFailure.Error.Reason}");
-        }
-        if (references.Value is FindingInspection<CompilationReferenceInfo>.Failed referenceFailure)
-        {
-            return new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Failed,
-                isDeterministic,
-                $"Compilation references: {referenceFailure.Error.Reason}");
-        }
-        if (options.Value is not FindingInspection<CompilationOptionInfo>.Complete optionComplete
-            || references.Value is not FindingInspection<CompilationReferenceInfo>.Complete referenceComplete
-            || optionComplete.Findings.IsEmpty
-            || referenceComplete.Findings.IsEmpty)
-        {
-            return new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Incomplete,
-                isDeterministic,
-                "Portable-PDB compilation options or references are incomplete.");
-        }
+            IlBodyDiffOutcome.Exact => (AuthoredRebuildOutcome.Exact, null),
+            IlBodyDiffOutcome.OpcodeDiff or IlBodyDiffOutcome.OperandDiff =>
+                (AuthoredRebuildOutcome.IlDifferent, null),
+            _ => (AuthoredRebuildOutcome.ContextFailed,
+                "The authored rebuild target could not be compared to shipped IL: "
+                + ReturnToSender.DescribeIlComparisonFailure(comparison)),
+        };
 
-        var drift = new List<string>();
-        var optionValues = optionComplete.Findings
-            .Select(finding => finding.Payload)
-            .ToDictionary(option => option.Name, option => option.Value, StringComparer.OrdinalIgnoreCase);
-        CheckOption(optionValues, "optimization", "release", drift);
-        CheckOption(optionValues, "unsafe", "true", drift, missingIsDrift: false);
-        CheckOption(optionValues, "language-version", "preview", drift, missingIsDrift: false);
-        CheckOption(
-            optionValues,
-            "compiler-version",
-            typeof(CSharpCompilation).Assembly
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                ?.InformationalVersion
-                ?? typeof(CSharpCompilation).Assembly.GetName().Version?.ToString()
-                ?? "unknown",
-            drift,
-            missingIsDrift: false);
-
-        var actualNames = actualReferences
-            .Select(reference => Path.GetFileName(reference.Display))
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var missingReferences = referenceComplete.Findings
-            .Select(finding => finding.Payload.Name)
-            .Select(Path.GetFileName)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Where(name => !actualNames.Contains(name!))
-            .Take(3)
-            .ToArray();
-        if (missingReferences.Length > 0)
-            drift.Add($"references missing from RTS context: {string.Join(", ", missingReferences)}");
-
-        return drift.Count == 0
-            ? new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Recorded,
-                isDeterministic,
-                "Portable-PDB options and reference names agree with the RTS context.",
-                optionValues)
-            : new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Drift,
-                isDeterministic,
-                string.Join("; ", drift),
-                optionValues);
-    }
-
-    static CSharpParseOptions ParseOptions(
-        IReadOnlyDictionary<string, string>? options)
+    static CSharpParseOptions ParseOptions(RecordedBuildContext context)
     {
         var languageVersion = LanguageVersion.Preview;
-        if (options?.TryGetValue("language-version", out string? language) == true
+        if (context.Option("language-version") is { } language
             && LanguageVersionFacts.TryParse(language, out var parsedLanguage))
         {
             languageVersion = parsedLanguage;
         }
 
-        var symbols = options?.TryGetValue("define", out string? define) == true
+        var symbols = context.Option("define") is { } define
             ? define.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             : [];
         return new CSharpParseOptions(
@@ -770,14 +984,13 @@ static class AuthoredRebuildFidelity
             preprocessorSymbols: symbols);
     }
 
-    static CSharpCompilationOptions CompilationOptions(
-        IReadOnlyDictionary<string, string>? options)
+    static CSharpCompilationOptions CompilationOptions(RecordedBuildContext context)
     {
-        bool release = options?.TryGetValue("optimization", out string? optimization) != true
+        bool release = context.Option("optimization") is not { } optimization
             || string.Equals(optimization, "release", StringComparison.OrdinalIgnoreCase);
-        bool allowUnsafe = options?.TryGetValue("unsafe", out string? unsafeValue) != true
+        bool allowUnsafe = context.Option("unsafe") is not { } unsafeValue
             || bool.TryParse(unsafeValue, out bool parsedUnsafe) && parsedUnsafe;
-        bool checkOverflow = options?.TryGetValue("checked", out string? checkedValue) == true
+        bool checkOverflow = context.Option("checked") is { } checkedValue
             && bool.TryParse(checkedValue, out bool parsedChecked) && parsedChecked;
         return new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary,
@@ -787,78 +1000,163 @@ static class AuthoredRebuildFidelity
             checkOverflow: checkOverflow);
     }
 
-    static void CheckOption(
-        IReadOnlyDictionary<string, string> options,
-        string name,
-        string expected,
-        ICollection<string> drift,
-        bool missingIsDrift = true)
-    {
-        if (!options.TryGetValue(name, out string? actual))
-        {
-            if (missingIsDrift)
-                drift.Add($"{name} is not recorded");
-            return;
-        }
-
-        if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
-            drift.Add($"{name}={actual} (RTS uses {expected})");
-    }
-
     internal static async Task AcquirePdbAsync(
         SourceLinkService source,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        string? packageName = null,
+        string? packageVersion = null,
+        IPdbStore? pdbStore = null)
     {
+        if (source.Context.HasPdb
+            && source.Context.PdbId is null
+            && string.Equals(
+                source.Context.PdbLocation,
+                "Standalone",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "The standalone Portable PDB identity cannot be verified "
+                + "because the assembly has no Portable CodeView entry.");
+        }
+
         if (!source.Context.NeedsPdb || source.Context.PdbId is not { } pdb)
             return;
 
-        var result = await new SymbolPackageDownloader(httpClient).DownloadPdbAsync(
+        using var failureScope =
+            FeedFailureTelemetry.Scope(mergeIntoParent: false);
+        FeedFailureCollector failures = FeedFailureTelemetry.Current!;
+        var downloader = pdbStore is null
+            ? new SymbolPackageDownloader(httpClient)
+            : new SymbolPackageDownloader(httpClient, pdbStore);
+        var result = await downloader.DownloadPdbAsync(
             pdb.Guid,
             pdb.Age,
             pdb.PdbFileName,
             pdb.IsPortable,
             source.Context.AssemblyPath,
+            packageName,
+            packageVersion,
             portablePdbStamp: pdb.Stamp);
         if (result.PdbFilePath is not null)
+        {
             source.LoadPdb(result.PdbFilePath, "Symbol Package", result.SymbolServer);
+            return;
+        }
+
+        if (result.StoreFailure is { } storeFailure)
+        {
+            throw new IOException(
+                storeFailure switch
+                {
+                    PortablePdbStoreFailureKind.ReadFailed =>
+                        "The PDB store could not read cached Portable PDB content.",
+                    PortablePdbStoreFailureKind.InvalidCachedContent =>
+                        "The PDB store returned malformed or mismatched cached content.",
+                    PortablePdbStoreFailureKind.PublicationNotRetained =>
+                        "The PDB store did not retain verified Portable PDB content.",
+                    _ => "The PDB store could not provide verified Portable PDB content.",
+                });
+        }
+
+        if (failures.HasFailures)
+        {
+            throw new HttpRequestException(
+                "Portable PDB sources did not answer: "
+                + string.Join(
+                    "; ",
+                    failures.Failures.Select(static failure =>
+                        failure.Status == HttpStatusCode.OK
+                            ? "a source returned invalid or mismatched Portable PDB content"
+                            : $"{failure.StatusText} while {failure.PhaseText}")));
+        }
     }
 
-    static void WriteReport(
-        IReadOnlyList<AuthoredRebuildFidelityResult> results,
-        int maxExamples)
-    {
-        Console.WriteLine($"AUTHORED-SOURCE REBUILD FIDELITY over {results.Count} target(s)");
-        Console.WriteLine();
-        foreach (AuthoredRebuildOutcome outcome in Enum.GetValues<AuthoredRebuildOutcome>())
-            Console.WriteLine($"  {outcome,-16}: {results.Count(result => result.Outcome == outcome)}");
-        Console.WriteLine();
-        Console.WriteLine("Build context:");
-        foreach (AuthoredBuildContextStatus status in Enum.GetValues<AuthoredBuildContextStatus>())
-            Console.WriteLine($"  {status,-16}: {results.Count(result => result.BuildContext.Status == status)}");
-        Console.WriteLine($"  {"Deterministic",-16}: {results.Count(result => result.BuildContext.IsDeterministic)}");
+    internal static bool IsPdbAcquisitionFailure(Exception exception)
+        => exception is IOException
+            or UnauthorizedAccessException
+            or BadImageFormatException
+            or InvalidDataException
+            or InvalidOperationException
+            or HttpRequestException
+            or TaskCanceledException;
 
-        var examples = results
-            .Where(result => result.Outcome != AuthoredRebuildOutcome.Exact
-                || result.BuildContext.Status != AuthoredBuildContextStatus.Recorded
-                || !result.BuildContext.IsDeterministic)
+    internal static void WriteReport(
+        IReadOnlyList<AuthoredRebuildFidelityResult> results,
+        int maxExamples,
+        TextWriter? output = null)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExamples);
+        output ??= Console.Out;
+        var rows = results.Select(result => (
+            Result: result, Authored: result.AuthoredContext, Decompiled: result.DecompiledContext)).ToArray();
+        output.WriteLine($"AUTHORED-SOURCE REBUILD FIDELITY over {results.Count} target(s)");
+        output.WriteLine();
+        foreach (AuthoredRebuildOutcome outcome in Enum.GetValues<AuthoredRebuildOutcome>())
+            output.WriteLine($"  {outcome,-16}: {results.Count(result => result.Outcome == outcome)}");
+        output.WriteLine();
+        output.WriteLine("Decompiler outcomes:");
+        foreach (var group in results.GroupBy(result => result.DecompilerLane.Status).OrderBy(group => group.Key))
+            output.WriteLine($"  {group.Key,-16}: {group.Count()}");
+        WriteContextSummary("A (authored)", rows.Select(row => row.Authored));
+        WriteContextSummary("B (decompiled)", rows.Select(row => row.Decompiled));
+        output.WriteLine($"  {"Deterministic",-16}: {results.Count(result => result.BuildContext.IsDeterministic == true)}");
+        output.WriteLine($"  {"Determinism unknown",-16}: {results.Count(result => result.BuildContext.IsDeterministic is null)}");
+
+        var examples = rows
+            .Where(row => row.Result.Outcome != AuthoredRebuildOutcome.Exact
+                || row.Result.DecompilerLane.Status != FidelityCheck.CompileBackStatus.Exact
+                || row.Authored.Status != AuthoredBuildContextStatus.Recorded
+                || row.Decompiled.Status != AuthoredBuildContextStatus.Recorded
+                || row.Result.BuildContext.IsDeterministic != true)
             .Take(maxExamples)
             .ToArray();
-        if (examples.Length == 0)
-            return;
 
-        Console.WriteLine();
-        Console.WriteLine("Examples:");
-        foreach (var result in examples)
+        output.WriteLine();
+        output.WriteLine($"Examples: {examples.Length} shown (limit {maxExamples}; all results retained)");
+        foreach (var row in examples)
         {
+            var result = row.Result;
             var target = result.DecompilerLane.Plan.TargetMethod;
-            Console.WriteLine($"  {target.Type}::{target.Method}");
-            Console.WriteLine($"    decompiled : {result.DecompilerLane.Status}");
-            Console.WriteLine($"    authored   : {result.Outcome}");
-            Console.WriteLine($"    checksum   : {result.ChecksumVerification?.ToString() ?? "unavailable"}");
-            Console.WriteLine($"    deterministic: {result.BuildContext.IsDeterministic}");
-            Console.WriteLine($"    context    : {result.BuildContext.Status} — {result.BuildContext.Detail}");
+            output.WriteLine($"  {Field(target.Type)}::{Field(target.Method)}");
+            output.WriteLine($"    decompiled : {result.DecompilerLane.Status}");
+            output.WriteLine($"    authored   : {result.Outcome} (comparison-only; normalized IL-body when available)");
+            output.WriteLine($"    checksum   : {result.ChecksumVerification?.ToString() ?? "unavailable"}");
+            output.WriteLine($"    deterministic: {result.BuildContext.IsDeterministic?.ToString() ?? "unavailable"}");
+            WriteContext("A", row.Authored, result.AuthoredAttempt);
+            WriteContext("B", row.Decompiled, result.DecompilerLane.CompilationAttempt);
             if (!string.IsNullOrWhiteSpace(result.Detail))
-                Console.WriteLine($"    detail     : {result.Detail}");
+                output.WriteLine($"    detail     : {Field(result.Detail)}");
+            if (!string.IsNullOrWhiteSpace(result.DecompilerLane.Detail))
+                output.WriteLine($"    decompiler detail: {Field(result.DecompilerLane.Detail)}");
         }
+
+        void WriteContextSummary(string label, IEnumerable<LaneBuildContext> contexts)
+        {
+            output.WriteLine();
+            output.WriteLine($"{label} build context (disclosed evidence only):");
+            foreach (AuthoredBuildContextStatus status in Enum.GetValues<AuthoredBuildContextStatus>())
+                output.WriteLine($"  {status,-16}: {contexts.Count(context => context.Status == status)}");
+        }
+
+        void WriteContext(string lane, LaneBuildContext context, RebuildCompilationAttempt? attempt)
+        {
+            output.WriteLine($"    {lane} context  : {context.Status}");
+            if (attempt is not null)
+                output.WriteLine($"      target: {Field(attempt.Target.ToString())}; owner artifact retained; artifact digest unavailable");
+            int agreeingReferences = context.Facts.Count(fact =>
+                fact.Dimension == "references" && fact.Status == BuildContextFactStatus.Agree);
+            if (agreeingReferences > 0)
+                output.WriteLine($"      references: {agreeingReferences} agree on MVID, aliases, kind, and embed-interop (not original bytes)");
+            foreach (var fact in context.Facts)
+            {
+                if (fact.Dimension == "references" && fact.Status == BuildContextFactStatus.Agree)
+                    continue;
+                output.WriteLine($"      {Field(fact.Dimension)}/{Field(fact.Name)}: {fact.Status}; "
+                    + $"recorded={Field(fact.Recorded)}; effective={Field(fact.Effective)}; {Field(fact.Detail)}");
+            }
+        }
+
+        static InertString Field(string? value) => new(TextPolicy.Field, value ?? "unavailable");
     }
 }

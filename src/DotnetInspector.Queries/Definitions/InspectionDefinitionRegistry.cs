@@ -182,9 +182,12 @@ public sealed class InspectionDefinitionRegistry
             .ToArray();
 
         return new ResolvedWorkspaceContext(
-            context.Name,
-            context.Framework,
-            context.RuntimeIdentifier,
+            new WorkspaceContextDescriptor(
+                new WorkspaceContextAddress(
+                    workspace.Id,
+                    context.Name),
+                context.Framework,
+                context.RuntimeIdentifier),
             new ReadOnlyCollection<WorkspaceMemberCoordinate>(members));
     }
 
@@ -284,22 +287,22 @@ public sealed class ResolvedScenario
 public sealed class ResolvedWorkspaceContext
 {
     internal ResolvedWorkspaceContext(
-        string name,
-        string? framework,
-        string? runtimeIdentifier,
+        WorkspaceContextDescriptor descriptor,
         IReadOnlyList<WorkspaceMemberCoordinate> members)
     {
-        Name = name;
-        Framework = framework;
-        RuntimeIdentifier = runtimeIdentifier;
+        Descriptor = descriptor;
         Members = members;
     }
 
-    public string Name { get; }
+    public WorkspaceContextDescriptor Descriptor { get; }
 
-    public string? Framework { get; }
+    public WorkspaceContextAddress Address => Descriptor.Address;
 
-    public string? RuntimeIdentifier { get; }
+    public string Name => Descriptor.Name;
+
+    public string? Framework => Descriptor.Framework;
+
+    public string? RuntimeIdentifier => Descriptor.RuntimeIdentifier;
 
     public IReadOnlyList<WorkspaceMemberCoordinate> Members { get; }
 }

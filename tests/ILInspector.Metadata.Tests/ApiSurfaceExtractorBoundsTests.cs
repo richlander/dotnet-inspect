@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -301,10 +302,16 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
-    public void ExtensionReceiverIdentityContributesItsOwnRetainedText()
+    public void ProjectedDeclaringTypeIdentityContributesItsOwnRetainedText()
     {
         const string receiver = "System.Collections.Generic.IEnumerable<T>";
         const string declaringType = "Samples.Extensions";
+        MetadataTypeDefinitionName declaringTypeDefinition = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    ["Extensions"]))
+            .Name;
         var withoutReceiver = new ApiMember
         {
             Name = "M",
@@ -320,12 +327,189 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 ExtensionReceiverType = receiver,
             },
             DeclaringTypeCanonicalName = declaringType,
+            DeclaringTypeDefinitionName = declaringTypeDefinition,
         };
 
         Assert.Equal(
-            receiver.Length + declaringType.Length,
+            receiver.Length
+                + declaringType.Length
+                + declaringTypeDefinition.Namespace.Length
+                + declaringTypeDefinition.Segments.Sum(
+                    static segment => segment.Length),
             ApiSurfaceExtractor.CountRetainedText(withReceiver)
                 - ApiSurfaceExtractor.CountRetainedText(withoutReceiver));
+    }
+
+    [Fact]
+    public void JsonPropertyNameFactsContributeTheirRetainedText()
+    {
+        const string propertyName = "wire_name";
+        var withoutNames = new ApiMember();
+        var withNames = new ApiMember
+        {
+            JsonPropertyName = propertyName,
+        };
+        var withoutFilteredName = new ApiType();
+        var withFilteredName = new ApiType
+        {
+            FilteredJsonPropertyNameFacts =
+            [
+                new(
+                    FilteredJsonPropertyNameKind.AutoPropertyBackingField,
+                    "Value",
+                    0x04000001,
+                    ["backing_wire_name"]),
+            ],
+        };
+
+        Assert.Equal(
+            propertyName.Length,
+            ApiSurfaceExtractor.CountRetainedText(withNames)
+                - ApiSurfaceExtractor.CountRetainedText(withoutNames));
+        Assert.Equal(
+            "Value".Length + "backing_wire_name".Length,
+            ApiSurfaceExtractor.CountRetainedText(withFilteredName)
+                - ApiSurfaceExtractor.CountRetainedText(withoutFilteredName));
+    }
+
+    [Fact]
+    public void JsonSerializablePropertyNameContributesItsRetainedText()
+    {
+        const string propertyName = "RegisteredCustomPayload";
+        var withoutName = new ApiType
+        {
+                JsonSerializableRoots =
+                [
+                    new(ElementType: null, IsArray: false),
+                ],
+        };
+        var withName = new ApiType
+        {
+                JsonSerializableRoots =
+                [
+                    new(
+                        ElementType: null,
+                        IsArray: false,
+                        TypeInfoPropertyName: propertyName),
+                ],
+        };
+
+        Assert.Equal(
+                propertyName.Length,
+                ApiSurfaceExtractor.CountRetainedText(withName)
+                    - ApiSurfaceExtractor.CountRetainedText(withoutName));
+    }
+
+    [Fact]
+    public void GetterAccessibilityContributesItsRetainedText()
+    {
+        const string accessibility = "private";
+        var withoutAccessibility = new ApiMember();
+        var withAccessibility = new ApiMember
+        {
+            GetterAccessibility = accessibility,
+        };
+
+        Assert.Equal(
+            accessibility.Length,
+            ApiSurfaceExtractor.CountRetainedText(withAccessibility)
+                - ApiSurfaceExtractor.CountRetainedText(withoutAccessibility));
+    }
+
+    [Fact]
+    public void SetterAccessibilityContributesItsRetainedText()
+    {
+        const string accessibility = "private";
+        var withoutAccessibility = new ApiMember();
+        var withAccessibility = new ApiMember
+        {
+            SetterAccessibility = accessibility,
+        };
+
+        Assert.Equal(
+            accessibility.Length,
+            ApiSurfaceExtractor.CountRetainedText(withAccessibility)
+                - ApiSurfaceExtractor.CountRetainedText(withoutAccessibility));
+    }
+
+    [Fact]
+    public void BaseTypeReferenceContributesItsCompleteRetainedText()
+    {
+        const string assemblyName = "Dependency";
+        const string culture = "en-US";
+        const string token = "0011223344556677";
+        const string fullName = "Dependency.ReallyLongBaseType";
+        const string typeNamespace = "Dependency";
+        const string typeName = "ReallyLongBaseType";
+        MetadataTypeDefinitionName definitionName = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                typeNamespace,
+                [typeName])).Name;
+        var withoutReference = new ApiType();
+        var withReference = new ApiType
+        {
+            BaseTypeReference = new(
+                new ApiAssemblyIdentity(
+                    assemblyName,
+                    new Version(1, 2, 3, 4),
+                    culture,
+                    token),
+                fullName,
+                definitionName),
+        };
+
+        Assert.Equal(
+            assemblyName.Length
+                + culture.Length
+                + token.Length
+                + fullName.Length
+                + typeNamespace.Length
+                + typeName.Length,
+            ApiSurfaceExtractor.CountRetainedText(withReference)
+                - ApiSurfaceExtractor.CountRetainedText(withoutReference));
+    }
+
+    [Fact]
+    public void ParameterTypeReferenceContributesItsCompleteRetainedText()
+    {
+        const string assemblyName = "Dependency";
+        const string token = "0011223344556677";
+        const string fullName = "Dependency.ParameterType";
+        var withoutReference = new ApiMember
+        {
+            SignatureModel = new ApiSignature
+            {
+                Parameters = [new ApiParameter()],
+            },
+        };
+        var withReference = new ApiMember
+        {
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        TypeReferences =
+                        [
+                            new(
+                                new ApiAssemblyIdentity(
+                                    assemblyName,
+                                    new Version(1, 2, 3, 4),
+                                    culture: null,
+                                    publicKeyToken: token),
+                                fullName),
+                        ],
+                    },
+                ],
+            },
+        };
+
+        Assert.Equal(
+            assemblyName.Length + token.Length + fullName.Length,
+            ApiSurfaceExtractor.CountRetainedText(withReference)
+                - ApiSurfaceExtractor.CountRetainedText(withoutReference));
     }
 
     [Fact]
@@ -516,6 +700,28 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.Equal(MetadataTypeNameFailureMechanism.Metadata, failure.Mechanism);
         ApiType attributed = Assert.Single(surface.Types, type => type.Name == "Attributed");
         Assert.Empty(attributed.Attributes);
+        var inspection = MetadataFindings.InspectApiAttributes(
+            surface,
+            new FindingSubject("Attributed", "Attributed"),
+            attributed.FullName);
+        var failed = Assert.IsType<FindingInspection<ApiAttributeHandle>.Failed>(
+            inspection.Value);
+        Assert.Contains("enum attribute type index", failed.Error.Reason);
+        var missingType = Assert.IsType<FindingInspection<ApiTypeHandle>.Complete>(
+            MetadataFindings.InspectApiType(
+                surface,
+                new FindingSubject("Missing", "Missing"),
+                "Missing").Value);
+        Assert.Empty(missingType.Findings);
+        var missingMembers =
+            Assert.IsType<FindingInspection<ApiMemberHandle>.Absent>(
+                MetadataFindings.InspectApiMembers(
+                    surface,
+                    new FindingSubject("Missing", "Missing"),
+                    "Missing").Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.SubjectAbsent,
+            missingMembers.Kind);
         Assert.True(
             allocated < 64L * 1024 * 1024,
             $"{(bounded ? "bounded" : "unbounded")} extraction allocated {allocated:N0} bytes");
@@ -808,7 +1014,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void OneHugeCustomAttributeArrayCount_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildCustomAttributeArrayCountImage(
                 attributeCount: 1,
                 elementCount: 100_000_000));
@@ -817,7 +1023,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void RepeatedNamedArgumentCount_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildCustomAttributeNamedArgumentCountImage(
                 attributeCount: 64,
                 namedArgumentCount: 65_535));
@@ -859,7 +1065,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void OneHugeNamedArgumentArrayCount_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildNamedArgumentArrayCountImage(elementCount: 100_000_000));
     }
 
@@ -892,14 +1098,14 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void TypeRefEnumWidthDesync_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildTypeRefEnumDesyncImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void OverDeepEnumFieldModifiers_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildEnumCmodDesyncImage(
                 modifierCount: SignatureBlobGuard.DefaultMaxDepth + 1,
                 elementCount: 100_000_000));
@@ -908,63 +1114,63 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void AssemblyQualifiedNamedEnum_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildAssemblyQualifiedNamedEnumImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void ClassSystemStringFixedArgument_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildClassSystemStringImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void DottedSystemTypeTypeRef_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildDottedSystemTypeImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void StringTypedEnumValue_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildStringTypedEnumImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void BoxedEnumArrayEmptyName_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildBoxedEnumArrayEmptyNameImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void FnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildGenericEarlierThenArrayImage(pointerToFnPtr: false, elementCount: 100_000_000));
     }
 
     [Fact]
     public void PtrFnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildGenericEarlierThenArrayImage(pointerToFnPtr: true, elementCount: 100_000_000));
     }
 
     [Fact]
     public void ClassTypeDefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildClassTypeDefRow4DesyncImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void ValueTypeTypeRefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildValueTypeTypeRefRow4DesyncImage(elementCount: 100_000_000));
     }
 
@@ -1263,6 +1469,31 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.Equal(
             ApiSurfaceExtractionBound.RetainedTextCharacters,
             exceeded.Bound);
+        Assert.True(
+            allocated < 64L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    static void AssertRefusedAttributeDoesNotAmplify(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 100_000,
+                maxMembers: 1_000_000,
+                maxInspectionFailures: 1_024,
+                maxTypeForwarders: 100_000,
+                maxMetadataRows: 250_000,
+                maxRetainedTextCharacters: 8_000_000));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+        Assert.NotEmpty(extracted.Surface.Types);
         Assert.True(
             allocated < 64L * 1024 * 1024,
             $"bounded extraction allocated {allocated:N0} bytes");

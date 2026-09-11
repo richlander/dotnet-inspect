@@ -73,7 +73,7 @@ public sealed class SwapIdiomPass : IIrPass
 
         // 2. cross: `p = load(q)` — assigns into the just-saved place p.
         if (MatchStore(cross) is not { } crossStore
-            || !crossStore.Place.Equals(p)
+            || !crossStore.Place.Matches(p)
             || MatchPlace(crossStore.Value) is not { } q)
         {
             return false;
@@ -81,7 +81,7 @@ public sealed class SwapIdiomPass : IIrPass
 
         // 3. restore: `q = carrier` — writes the saved old-p value into q.
         if (MatchStore(restore) is not { } restoreStore
-            || !restoreStore.Place.Equals(q)
+            || !restoreStore.Place.Matches(q)
             || !carrier.Matches(restoreStore.Value))
         {
             return false;
@@ -89,7 +89,7 @@ public sealed class SwapIdiomPass : IIrPass
 
         // A swap exchanges two *distinct* places of the same type. Equal
         // places, or a type mismatch, are not the swap idiom.
-        if (p.Equals(q) || !p.Type.Equals(q.Type))
+        if (p.Matches(q) || !p.Type.Equals(q.Type))
             return false;
 
         // The exchanged places must be spellable, non-aliasing, by-value
@@ -128,19 +128,39 @@ public sealed class SwapIdiomPass : IIrPass
     /// <summary>A distinct by-value parameter or local lvalue in a swap.</summary>
     abstract record Place(TypeRef Type)
     {
+        public abstract bool Matches(Place other);
         public abstract IrExpression Load();
         public abstract DeconstructionTarget Target();
     }
 
-    sealed record ArgumentPlace(int Index, string PlaceName, TypeRef Type) : Place(Type)
+    sealed record ArgumentPlace(
+        int Index,
+        string PlaceName,
+        TypeRef Type,
+        Parameter? Parameter) : Place(Type)
     {
-        public override IrExpression Load() => new LoadArgument(Index, PlaceName, Type);
+        public override bool Matches(Place other)
+            => other is ArgumentPlace argument
+                && Type.Equals(argument.Type)
+                && PlaceIdentity.SameArgument(
+                    Index,
+                    Parameter,
+                    argument.Index,
+                    argument.Parameter);
+
+        public override IrExpression Load()
+            => new LoadArgument(Index, PlaceName, Type, Parameter);
         public override DeconstructionTarget Target()
-            => DeconstructionTarget.Argument(Index, PlaceName, Type);
+            => DeconstructionTarget.Argument(Index, PlaceName, Type, Parameter);
     }
 
     sealed record LocalPlace(int Index, TypeRef Type) : Place(Type)
     {
+        public override bool Matches(Place other)
+            => other is LocalPlace local
+                && Index == local.Index
+                && Type.Equals(local.Type);
+
         public override IrExpression Load() => new LoadLocal(Index, Type);
         public override DeconstructionTarget Target()
             => DeconstructionTarget.Local(Index, Type, isDeclared: false);
@@ -148,7 +168,12 @@ public sealed class SwapIdiomPass : IIrPass
 
     static Place? MatchPlace(IrExpression expression) => expression switch
     {
-        LoadArgument argument => new ArgumentPlace(argument.Index, argument.Name, argument.Type),
+        LoadArgument argument =>
+            new ArgumentPlace(
+                argument.Index,
+                argument.Name,
+                argument.Type,
+                argument.Parameter),
         LoadLocal local => new LocalPlace(local.Index, local.Type),
         _ => null,
     };
@@ -158,7 +183,12 @@ public sealed class SwapIdiomPass : IIrPass
     static StoreMatch? MatchStore(IrNode node) => node switch
     {
         StoreArgument argument => new StoreMatch(
-            new ArgumentPlace(argument.Index, argument.Name, argument.Type), argument.Value),
+            new ArgumentPlace(
+                argument.Index,
+                argument.Name,
+                argument.Type,
+                argument.Parameter),
+            argument.Value),
         StoreLocal local => new StoreMatch(
             new LocalPlace(local.Index, local.Type), local.Value),
         _ => null,
@@ -226,7 +256,9 @@ public sealed class SwapIdiomPass : IIrPass
     static bool IsHiddenLocal(IrFunction function, int index)
         => index >= 0
             && index < function.LocalNames.Length
-            && function.LocalNames[index] is null;
+            && function.LocalNames[index] is null
+            && (index >= function.SynthesizedLocalNames.Length
+                || function.SynthesizedLocalNames[index] is null);
 
     // A place type is swappable only when it is a spellable, boxable-or-plain
     // by-value type that is legal as a ValueTuple element. Mirrors the

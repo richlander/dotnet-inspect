@@ -697,7 +697,7 @@ internal sealed class MethodAllocationFacts
             TypeRefKind.Definition => type.Namespace.Length == 0 ? StripMetadataGenericArity(type.Name) : $"{type.Namespace}.{StripMetadataGenericArity(type.Name)}",
             TypeRefKind.GenericInstance => $"{RuntimeTypeName(type.ElementType ?? type)}<{string.Join(", ", type.TypeArguments.Select(RuntimeTypeName))}>",
             TypeRefKind.SzArray => $"{RuntimeTypeName(type.ElementType!)}[]",
-            TypeRefKind.Array => $"{RuntimeTypeName(type.ElementType!)}[{new string(',', type.Rank - 1)}]",
+            TypeRefKind.Array => $"{RuntimeTypeName(type.ElementType!)}[{ArrayShapeText.FormatDimensions(type.Rank)}]",
             TypeRefKind.ByRef => $"ref {RuntimeTypeName(type.ElementType!)}",
             TypeRefKind.Pointer => $"{RuntimeTypeName(type.ElementType!)}*",
             _ => type.ToQualifiedDisplayString(),

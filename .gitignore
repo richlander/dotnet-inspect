@@ -295,7 +295,7 @@ FakesAssemblies/
 # Node.js Tools for Visual Studio
 .ntvs_analysis.dat
 node_modules/
-prototypes/inspect-web/dist/
+inspect-web/dist/
 
 # Visual Studio 6 build log
 *.plg
@@ -494,3 +494,8 @@ $RECYCLE.BIN/
 
 # Vendored ILAssembler worktree (restore with eng/restore-ilassembler.sh)
 external/
+
+# TLC model-checker runtime output (not source; regenerate by running TLC)
+**/models/**/states/
+*_TTrace_*.tla
+*_TTrace_*.bin

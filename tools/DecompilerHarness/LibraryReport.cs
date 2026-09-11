@@ -179,10 +179,10 @@ internal static class LibraryReport
                     continue;
                 }
 
-                string? rendered;
+                DecompilerResult projection;
                 try
                 {
-                    rendered = CSharpPrinter.Print(function).Output;
+                    projection = CSharpPrinter.Print(function);
                 }
                 catch (Exception ex)
                 {
@@ -193,13 +193,22 @@ internal static class LibraryReport
                     continue;
                 }
 
+                string? rendered = projection.Output;
                 if (rendered is null)
                 {
                     continue;
                 }
                 report.RenderedMethods++;
 
-                string shell = ValidityCheck.Shell(function, rendered, typeName, methodName, constraints);
+                string shell = ValidityCheck.Shell(
+                    function,
+                    rendered,
+                    typeName,
+                    methodName,
+                    constraints,
+                    ValidityCheck.MethodShellContext.Create(
+                        function,
+                        projection.RequiresUnsafeBodyModifier));
                 var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);
                 var syntaxErrors = tree.GetDiagnostics().Where(ValidityCheck.IsError).ToList();
                 var illegal = ValidityCheck.IllegalStatements(tree);

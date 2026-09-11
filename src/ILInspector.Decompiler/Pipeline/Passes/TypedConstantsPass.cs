@@ -133,7 +133,7 @@ public sealed class TypedConstantsPass : IIrPass
                 // BooleanFoldingPass, whose 0/1-arm reconciliation must not be
                 // preempted here.
                 case Conditional { MergedType: { } merged } conditional
-                    when shapes.GetValueOrDefault(merged) == TypeShape.Enum:
+                    when CoercionRendering.IsEnum(merged, shapes):
                     Retype(conditional.WhenTrue, merged, shapes, stepper);
                     Retype(conditional.WhenFalse, merged, shapes, stepper);
                     break;
@@ -164,7 +164,7 @@ public sealed class TypedConstantsPass : IIrPass
         var type = operand is LoadIndirect { Address.ResultType: { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { } pointee } }
             ? pointee
             : operand.ResultType;
-        return type is { } && shapes.GetValueOrDefault(type) == TypeShape.Enum ? type : null;
+        return CoercionRendering.IsEnum(type, shapes) ? type : null;
     }
 
     static void RetypeArguments(MethodRef callee, IReadOnlyList<IrExpression> arguments, int receiverOffset, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
@@ -206,10 +206,12 @@ public sealed class TypedConstantsPass : IIrPass
                 IsChecked: false,
                 Target: { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int64" or "UInt64" } convertTarget,
                 Operand: Constant { Value: int payload },
-            } convert when shapes.GetValueOrDefault(target) == TypeShape.Enum:
+            } convert when CoercionRendering.IsEnum(target, shapes):
                 long widened = convertTarget.Name == "UInt64" ? (uint)payload : payload;
                 stepper.StepOver($"fold widening conv into enum {target.Name} constant", convert);
-                convert.ReplaceWith(new Constant(widened, target));
+                var widenedConstant = new Constant(widened, target);
+                widenedConstant.InheritSourceOffset(convert);
+                convert.ReplaceWith(widenedConstant);
                 return;
         }
     }
@@ -224,11 +226,15 @@ public sealed class TypedConstantsPass : IIrPass
                 {
                     case "Boolean" when value is 0 or 1:
                         stepper.StepOver($"retype constant {value} to bool", constant);
-                        constant.ReplaceWith(new Constant(value == 1, target));
+                        var boolean = new Constant(value == 1, target);
+                        boolean.InheritSourceOffset(constant);
+                        constant.ReplaceWith(boolean);
                         return;
                     case "Char" when value >= char.MinValue && value <= char.MaxValue:
                         stepper.StepOver($"retype constant {value} to char", constant);
-                        constant.ReplaceWith(new Constant((char)value, target));
+                        var character = new Constant((char)value, target);
+                        character.InheritSourceOffset(constant);
+                        constant.ReplaceWith(character);
                         return;
                 }
             }
@@ -243,10 +249,12 @@ public sealed class TypedConstantsPass : IIrPass
         // (an int, or an ldc.i8 for a long-backed enum); only the type changes.
         // Idempotent: a constant already carrying the target (an earlier run of
         // this pass) is left alone rather than re-replaced on every run.
-        if (shapes.GetValueOrDefault(target) == TypeShape.Enum && constant.Type?.Equals(target) != true)
+        if (CoercionRendering.CanSpellIntegerToEnum(constant.Type, target, shapes))
         {
             stepper.StepOver($"retype constant to enum {target.Name}", constant);
-            constant.ReplaceWith(new Constant(constant.Value, target));
+            var enumConstant = new Constant(constant.Value, target);
+            enumConstant.InheritSourceOffset(constant);
+            constant.ReplaceWith(enumConstant);
         }
     }
 }

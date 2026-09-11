@@ -145,7 +145,8 @@ Given an assembly image, enumerate the ECMA-335 metadata tables (`Module`,
 `AssemblyRef`, `ExportedType`, `GenericParam`, `MethodSpec`, …) and produce, per
 table, its rows with:
 
-This projection supports ordinary ECMA-335 assembly metadata only. Before any
+This projection supports ordinary ECMA-335 metadata roots: the CLI metadata
+root by default, or an explicitly selected ReadyToRun manifest root. Before any
 table, row, reverse-reference, image-overview, or heap operation constructs its
 `MetadataReaderOptions.None` reader, it calls the MetadataPrimitives-owned
 `MetadataImageFormatClassifier`. That classifier reads only the fixed
@@ -158,10 +159,14 @@ current project scope. A PE without metadata returns the classifier's typed
 projector's no-metadata boundary. The direct projector APIs throw
 `UnsupportedMetadataFormatException` before projecting rows or heaps only for
 unsupported Windows Metadata and `BadImageFormatException` for a malformed
-root; `AssemblyInspectionSession` and query owners map those specific
-mechanisms to typed unsupported-input and malformed-input results. Neither may
-become `null`, an empty projection, or partial rows. `MDP017` gates every
-existing entry point as well as the CLI metadata lens.
+root. Direct operations, including `AssemblyInspectionSession`, propagate those
+mechanisms; query failure mapping belongs to their consumers. A reported
+rejection must not become `null`, an empty projection, or partial rows.
+`MetadataImageFormatClassifierTests` gates the adopted direct projection
+entry points. Repository-wide reader-construction closure remains unverified
+and enforcement deliberately partial, as recorded in
+[Metadata primitives](../metadata-primitives.md#supported-assembly-metadata-format)
+and #5559.
 
 The diagnostic lens does not bypass format admission to inspect an arbitrarily
 long nonconforming root version. A padded version field above 256 bytes receives
@@ -185,6 +190,55 @@ root envelope, not a promise to inspect roots outside it.
 
 Resolution reuses `ILTokenResolver`; the projection does **not** fork a second
 decoder (see [Non-goals](#non-goals)).
+
+### ReadyToRun manifest roots
+
+This owner adopts the manifest extent supplied by the sibling
+[ReadyToRun image projection](readytorun-image-projection.md), without changing
+that owner's discovery, validation, alias, or failure contract. The immediate
+consumer is this projection's overview and table/row/reference/heap operations.
+Issue #5974 is slice 2 of #5835's four-slice production-host path. The CLI and
+browser/Wasm presentations are implemented by their separately owned slices 3
+and 4.
+
+Root selection is explicit. A separate manifest projects exactly the declared
+section-112 bytes through the existing SRM-backed projection, not the containing
+PE section and not the CLI root. A manifest need not contain an `Assembly` row.
+The existing PE-facing operations continue to select only CLI metadata and do
+not acquire a new dependency on successful R2R inspection.
+
+The manifest extent has the producer's raw-file meaning, including raw backing
+beyond a section's virtual size. A requested CLI root needs a CLI metadata
+directory: metadata in a COFF-only container is rejected by this root-scoped
+facet with `BadImageFormatException`, not assigned a synthetic PE/RVA identity.
+Existing projection entry points retain their established behavior.
+
+Provenance preserves the requested root and its canonical identity. Within the
+containing image, that identity consists of the canonical root kind and its RVA
+and size. When the producer reports exact CLI-directory aliasing, the canonical
+identity is the CLI root's existing extent, while the requested R2R provenance
+remains visible. It is not a second physical root. This image-relative identity
+is not an artifact identity or a cross-image cache key.
+
+Every row token, handle target, reverse reference, and heap address is relative
+to the selected root. A root-scoped inspection keeps these operations together;
+navigation must retain that scope rather than resolve an address against the
+default CLI root. Its retained metadata bytes are independent of the source
+reader's lifetime. Existing projection budgets, containment, table coverage, and
+failure shapes apply unchanged.
+
+Absence and failure remain different. No R2R advertisement or no section 112
+means no manifest root. An advertised empty or malformed root, or a reported R2R
+discovery failure, is not absence and does not fall back to CLI metadata. SRM
+still owns stream and table decoding after the shared bounded root-format
+classification; this is not a complete metadata-validity claim.
+
+The focused Release gate is `MetadataRootInspectionTests`: separate-root data
+and navigation, canonical CLI alias identity, absent manifest, malformed
+manifest with independently readable CLI metadata, raw-backed extents beyond
+virtual size, typed rejection of a CLI-root request without a CLI directory,
+source-reader disposal, and the SDK CoreLib canary. Broad composite/corpus work
+remains outside fast PR CI.
 
 ## Structured model
 
@@ -262,8 +316,7 @@ category, `@Metadata`, registered the same way `@Performance` is:
 The lens therefore adds **no new shape flags**. Metadata tables introduce no new
 currency — they are sections, addressed by name — so they are reached with the
 existing selection vocabulary rather than a focused flag. It rides the `library`
-command (the assembly-oriented surface; note the deprecated `package X
---metadata` alias already redirects there):
+command, the assembly-oriented surface:
 
 ```bash
 # Document: every projected table
@@ -278,7 +331,7 @@ dotnet-inspect library My.dll -S "Metadata: TypeRef" --columns Name --tsv
 # Scalar: collapse to a row count
 dotnet-inspect library My.dll -S "Metadata: TypeDef" --count
 
-# a bounded window into a large table
+# Released count syntax; the historical #4677 target proposed -n 20.
 dotnet-inspect library My.dll -S "Metadata: MethodDef" --rows 20
 
 # structured, for tooling
@@ -412,18 +465,13 @@ worked example that document points at.
   `StringPreview_NeverExceedsCharBudgetEvenWhenEscaped`, because
   `StringBudget_…` asserts only that the full length is reported and the
   preview is non-empty.
-- **Parse, never load — the tool is execution incapable.** Reading is SRM-only,
-  and the shipped tool is Native AOT: there is no JIT, so `Assembly.Load` and
-  friends cannot bring new IL to life. Nothing the tool downloads can be
-  executed, whatever the metadata says. That is a structural property, not a
-  convention. The gate is the AOT build itself — `PublishAot` is `true` by
-  default for `src/dotnet-inspect`, and `release.yml` builds every shipped
-  RID-specific package that way, so a change that needed runtime code
-  generation would fail to build rather than fail a test. The one caveat worth
-  naming: the RID-neutral `any` fallback package is deliberately non-AOT
-  (`-p:PublishAot=false`), so on that package the property rests on the code
-  being SRM-only rather than on the runtime being unable to comply. A malformed
-  coded index resolves to a visible failure marker, not a fabricated target.
+- **Parse, never load.** Metadata-table projection uses SRM readers and must not
+  load or execute inspected assemblies. Loading new IL assemblies at runtime is
+  unsupported by NativeAOT, and the shipped dotnet-inspect product graph is
+  maintained as NativeAOT-compatible. NativeAOT therefore provides
+  user-selected partial evidence for this composition absence claim, not a
+  syntactic or path-complete proof. A malformed coded index resolves to a
+  visible failure marker, not a fabricated target.
 - **Heaps are explicit-only.** The string/blob/user-string/guid heaps are the largest
   amplification surface, so nothing that merely asks for *more output* may turn
   one on — only naming a heap section does. Verbosity is the axis that would
@@ -877,11 +925,12 @@ channel the check just closed.
 
 ### Status
 
-The bounded-traversal budgets, execution-incapable parsing, and opt-in heaps are
-implemented, with their gates named above. So are the visual-encoding spelling
-(#3636, extended to Unicode general categories in #3628), the failure-message
-rule, and both the trust and rendering axes, which `mdi` exposes as
-`--show-untrusted-text` and `--dangerously-print-raw`.
+The bounded-traversal budgets and opt-in heaps are implemented, with their gates
+named above. Parse-never-load is implemented with the partial NativeAOT evidence
+posture described above. So are the visual-encoding spelling (#3636, extended
+to Unicode general categories in #3628), the failure-message rule, and both the
+trust and rendering axes, which `mdi` exposes as `--show-untrusted-text` and
+`--dangerously-print-raw`.
 
 The identifier allow lists and `--survey` remain the **target model**: nothing
 validates an identifier's grammar, and refusal stops at the first violation
@@ -936,7 +985,7 @@ dependency of the typed extractors, so it does not disturb the sibling topology.
 | Signature / blob **content** decode | Projection structure + the existing `SignatureDecoder` / `GuardedSignatureText` / `ILTokenResolver` as cell decoders |
 | Heap dumps + `BlobKind` / `StringKind` tagging | The projection's opt-in **heap enumeration** plus reverse-reference tagging (walk blob-typed columns) |
 | GUID → language / hash, custom-debug-info kinds | The projection's **additive friendly-decode** slot |
-| PE / COFF headers, debug directory, R2R | A **sibling** PE-header projection — not metadata-table facts (out of scope here) |
+| PE / COFF headers, debug directory, R2R | The sibling [ReadyToRun image projection](readytorun-image-projection.md) for the R2R envelope; other PE-header facts remain outside this metadata-table owner |
 | IL disassembly of method bodies | A **sibling** IL projection (Instructions / Analysis layer) |
 | EnC / multi-generation deltas | A **consumer** over per-generation projections + the `EncLog` / `EncMap` tables — a separate feature, today a non-goal |
 

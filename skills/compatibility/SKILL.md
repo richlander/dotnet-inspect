@@ -106,6 +106,13 @@ source body remotely. Package or PDB acquisition may still use the network;
 other SourceLink hosts do not use the local-repository path. Treat these rows
 as implementation evidence, not semantic-equivalence proof.
 
+For one explicitly selected method and one library per endpoint,
+`--pdb-source` compares authored source even when C# and IL are unchanged.
+For example, changing `1 + 2` to `3` can change Source without changing either
+compiled lane. The selected Source lane also reports unchanged or unavailable
+evidence, retaining acquisition failures rather than treating missing text as
+a deletion. Broader selections still enrich the locally changed members.
+
 ## What can be configured? (feature switches)
 
 `-S Switches` on `library` or `package --library` reports the behavior and
@@ -118,11 +125,11 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Switches
 
 ## Which versions to compare
 
-Version resolution is source-scoped. Use `Foo --version` for the best-known
-listed version: it reuses each source's matching latest entry and queries
-sources without one. Use `Foo --latest-version` to bypass those caches and
-refresh the newest version across all eligible configured sources, and
-`Foo --versions [N]` (add `--preview`) to list published versions. Unlisted
+Version resolution is source-scoped. Online `Foo --version` and
+`Foo --latest-version` resolve the newest listed version from fresh, complete
+discovery across all eligible configured sources, without legacy candidate
+cache reuse. Use `Foo --versions` (add `-n N` for N rows or `--preview` for
+prerelease) to list published versions. Unlisted
 versions are hidden unless
 `--include-unlisted` is explicit. `--versions-with-feed` retains each
 version/feed pair when source identity matters. Source declaration order is not
@@ -149,6 +156,13 @@ acquired. The agent owns the search policy and bound. For recurrence-safe
 current onset, walk backward from the bad version until the first successful
 absence; use binary search only for a predicate known to be monotonic.
 
+Online API/timeline ranges support configured folder and HTTP feeds. Discovery
+must be complete, and each probe can acquire only from a source that reported
+its coordinate. These vectors are listed-only; an `--include-unlisted`
+metadata listing can have different ordinals. Use an exact pin to inspect an
+unlisted coordinate. Local payload caches retain configured authority; HTTP
+payloads use temporary storage and are downloaded again on a later invocation.
+
 `timeline` renders `Evaluations` and `Transitions` over the same vector. Omit
 `--at` for a zero-payload address view and midpoint recommendation, repeat
 `--at` for sparse probes, or pass `--at all` for explicit dense traversal.
@@ -159,6 +173,8 @@ member selector scopes `analysis.allocation`, `analysis.call-site`, and
 `analysis.unsafety` timelines to one method body.
 Gap-spanning transitions are evidence across the selected probes, not claims
 about the exact introduction or removal version.
+Online recommendations retain source/configuration, TFM, prerelease, and
+visibility options so the next probe can run from a different working directory.
 
 The range and point probes identify a candidate boundary. Confirm the adjacent
 pair with Metadata's real Finding comparison rather than inferring introduction

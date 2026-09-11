@@ -14,6 +14,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
     readonly LibraryBodyPrimaryMetadataResolver _primaryMetadataResolver;
     readonly bool _includeMethodEvidence;
     readonly bool _includeLeakTriage;
+    readonly bool _isScoped;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
     internal LibraryBodyAnalysisAccumulator(
@@ -27,6 +28,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
             LibraryBodyAnalysisFeatures.MethodEvidence);
         _includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
+        _isScoped = plan.IsScoped;
         _exceptionTypeNames = _includeMethodEvidence
             ? ComputeExceptionTypeNames()
             : new HashSet<string>(StringComparer.Ordinal);
@@ -41,6 +43,11 @@ internal sealed class LibraryBodyAnalysisAccumulator
             new Dictionary<MethodIdentity, MethodIdentity>();
         var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
         var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var resultSinks = ImmutableArray.CreateBuilder<MethodResultSink>();
+        var fieldStores = ImmutableArray.CreateBuilder<FieldStoreFact>();
+        var fieldLoads = ImmutableArray.CreateBuilder<FieldLoadFact>();
+        var returnFlows =
+            ImmutableArray.CreateBuilder<MethodReturnFlow>();
         var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
@@ -125,6 +132,62 @@ internal sealed class LibraryBodyAnalysisAccumulator
                             : call with { Caller = declared };
                     }));
             }
+            if (!r.ResultSinks.IsDefaultOrEmpty)
+            {
+                resultSinks.AddRange(
+                    r.ResultSinks.Select(sink =>
+                    {
+                        MethodIdentity declared =
+                            ResolveDeclaredMethod(
+                                sink.Caller,
+                                declaredMethodsByBody);
+                        return declared == sink.Caller
+                            ? sink
+                            : sink with { Caller = declared };
+                    }));
+            }
+            if (!r.FieldStores.IsDefaultOrEmpty)
+            {
+                fieldStores.AddRange(
+                    r.FieldStores.Select(store =>
+                    {
+                        MethodIdentity declared =
+                            ResolveDeclaredMethod(
+                                store.Caller,
+                                declaredMethodsByBody);
+                        return declared == store.Caller
+                            ? store
+                            : store with { Caller = declared };
+                    }));
+            }
+            if (!r.FieldLoads.IsDefaultOrEmpty)
+            {
+                fieldLoads.AddRange(
+                    r.FieldLoads.Select(load =>
+                    {
+                        MethodIdentity declared =
+                            ResolveDeclaredMethod(
+                                load.Caller,
+                                declaredMethodsByBody);
+                        return declared == load.Caller
+                            ? load
+                            : load with { Caller = declared };
+                    }));
+            }
+            if (!r.ReturnFlows.IsDefaultOrEmpty)
+            {
+                returnFlows.AddRange(
+                    r.ReturnFlows.Select(flow =>
+                    {
+                        MethodIdentity declared =
+                            ResolveDeclaredMethod(
+                                flow.Caller,
+                                declaredMethodsByBody);
+                        return declared == flow.Caller
+                            ? flow
+                            : flow with { Caller = declared };
+                    }));
+            }
             if (!r.Allocations.IsDefaultOrEmpty)
                 allocationOccurrences[r.Token] = r.Allocations;
             if (!r.Unsafety.IsDefaultOrEmpty)
@@ -145,6 +208,24 @@ internal sealed class LibraryBodyAnalysisAccumulator
 
         var methodArray = methods.ToImmutable();
         var directCalls = calls.ToImmutable();
+        bool fieldAccessCensusComplete =
+            results.All(result =>
+                !result.RequiresCompleteFieldAccessCensus
+                || result.FieldAccessCensusComplete);
+        HashSet<TypeRef> typesWithCurrentInstanceMutations =
+        [
+            .. results
+                .Where(result =>
+                    result.Caller is not null
+                    && !result.CurrentInstanceMutations.IsDefaultOrEmpty)
+                .Select(result => result.Caller!.DeclaringType),
+        ];
+        RemoveExternallyStoredAsyncFieldSources(
+            resultSinks,
+            fieldStores,
+            fieldLoads,
+            typesWithCurrentInstanceMutations,
+            _isScoped || !fieldAccessCensusComplete);
         var nonHeapNewObjOperandTokens = _includeMethodEvidence
             ? ComputeNonHeapNewObjOperandTokens(directCalls)
             : new HashSet<int>();
@@ -163,6 +244,10 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 DeclaredMethods: declaredMethods.ToImmutable(),
                 Methods: methodArray,
                 DirectCalls: directCalls,
+                ResultSinks: resultSinks.ToImmutable(),
+                FieldStores: fieldStores.ToImmutable(),
+                FieldLoads: fieldLoads.ToImmutable(),
+                ReturnFlows: returnFlows.ToImmutable(),
                 BodySignals: bodySignals,
                 InAssemblyTypeIsException: _includeMethodEvidence
                     ? BuildInAssemblyExceptionMap()
@@ -188,6 +273,46 @@ internal sealed class LibraryBodyAnalysisAccumulator
             OwnershipFlow: new(ownershipFlow.ToImmutable()),
             Resources: new(leakTriageResult),
             Diagnostics: diagnostics.ToImmutable());
+    }
+
+    static void RemoveExternallyStoredAsyncFieldSources(
+        ImmutableArray<MethodResultSink>.Builder resultSinks,
+        ImmutableArray<FieldStoreFact>.Builder fieldStores,
+        ImmutableArray<FieldLoadFact>.Builder fieldLoads,
+        IReadOnlySet<TypeRef> typesWithCurrentInstanceMutations,
+        bool withholdWholeAssemblyProof)
+    {
+        for (int index = 0; index < resultSinks.Count; index++)
+        {
+            MethodResultSink sink = resultSinks[index];
+            if (sink.StateMachineFieldSource is not { } source)
+                continue;
+
+            bool hasExternalStore = fieldStores.Any(store =>
+                store.EvidenceMethod != sink.EvidenceMethod
+                && store.IsReachable != false
+                && source.Field.MightBeSameFieldAs(
+                    store.Identity));
+            bool hasExternalAddressEscape = fieldLoads.Any(load =>
+                load.EvidenceMethod != sink.EvidenceMethod
+                && load.IsAddress
+                && load.IsReachable != false
+                && source.Field.MightBeSameFieldAs(
+                    load.Identity));
+            if (!withholdWholeAssemblyProof
+                && !hasExternalStore
+                && !hasExternalAddressEscape
+                && !typesWithCurrentInstanceMutations.Contains(
+                    source.Field.DeclaringType))
+            {
+                continue;
+            }
+
+            resultSinks[index] = sink with
+            {
+                StateMachineFieldSource = null,
+            };
+        }
     }
 
     static MethodIdentity ResolveDeclaredMethod(

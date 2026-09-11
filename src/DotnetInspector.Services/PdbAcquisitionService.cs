@@ -3,6 +3,20 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Services;
 
+/// <summary>A typed failure to read or retain verified Portable PDB store content.</summary>
+public sealed class PdbStoreAcquisitionException : IOException
+{
+    internal PdbStoreAcquisitionException(
+        PortablePdbStoreFailureKind storeFailure,
+        Exception? innerException = null)
+        : base(
+            PdbAcquisitionService.DescribeStoreFailure(storeFailure),
+            innerException)
+        => StoreFailure = storeFailure;
+
+    public PortablePdbStoreFailureKind StoreFailure { get; }
+}
+
 /// <summary>
 /// Acquires a matching portable PDB for an already-open metadata context.
 /// </summary>
@@ -98,22 +112,54 @@ public static class PdbAcquisitionService
 
         if (result is PortablePdbAcquisitionResult.Acquired acquired)
         {
-            string? localPath = acquired.Pdb.LocalPath;
-            Stream stream =
-                await acquired.Pdb.OpenReadAsync(
-                    cancellationToken).ConfigureAwait(false);
-            context.LoadPdbFromStream(
-                stream,
-                "Symbol Package",
-                acquired.Pdb.SymbolServer,
-                localPath,
-                throwOnReadFailure: true);
+            try
+            {
+                string? localPath = acquired.Pdb.LocalPath;
+                Stream stream =
+                    await acquired.Pdb.OpenReadAsync(
+                        cancellationToken).ConfigureAwait(false);
+                context.LoadPdbFromStream(
+                    stream,
+                    "Symbol Package",
+                    acquired.Pdb.SymbolServer,
+                    localPath,
+                    throwOnReadFailure: true);
+            }
+            catch (IOException exception)
+            {
+                throw new PdbStoreAcquisitionException(
+                    PortablePdbStoreFailureKind.ReadFailed,
+                    exception);
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                throw new PdbStoreAcquisitionException(
+                    PortablePdbStoreFailureKind.ReadFailed,
+                    exception);
+            }
+        }
+        else if (result.StoreFailure is { } storeFailure)
+        {
+            throw new PdbStoreAcquisitionException(storeFailure);
         }
         else if (result.WindowsPdbDetected)
         {
             context.WindowsPdbDetected = true;
         }
     }
+
+    internal static string DescribeStoreFailure(
+        PortablePdbStoreFailureKind storeFailure)
+        => storeFailure switch
+        {
+            PortablePdbStoreFailureKind.ReadFailed =>
+                "The PDB store could not read cached Portable PDB content.",
+            PortablePdbStoreFailureKind.InvalidCachedContent =>
+                "The PDB store returned malformed or mismatched cached content.",
+            PortablePdbStoreFailureKind.PublicationNotRetained =>
+                "The PDB store did not retain verified Portable PDB content.",
+            _ => "The PDB store could not provide verified Portable PDB content.",
+        };
 
     public static Task AcquireAsync(
         PdbContext context,
@@ -122,14 +168,19 @@ public static class PdbAcquisitionService
         Action<string>? log,
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(httpClient);
 
         var (packageName, packageVersion, isPlatformAssembly) =
-            GetAcquisitionCoordinates(assembly);
+            GetAcquisitionCoordinates(
+                assembly,
+                fallbackPackageName,
+                fallbackPackageVersion);
         return AcquireAsync(
             context,
             httpClient,
@@ -152,7 +203,9 @@ public static class PdbAcquisitionService
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default,
-        SymbolAcquisitionLimits? limits = null)
+        SymbolAcquisitionLimits? limits = null,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -164,7 +217,10 @@ public static class PdbAcquisitionService
             return Task.CompletedTask;
 
         var (packageName, packageVersion, isPlatformAssembly) =
-            GetAcquisitionCoordinates(assembly);
+            GetAcquisitionCoordinates(
+                assembly,
+                fallbackPackageName,
+                fallbackPackageVersion);
 
         return AcquireCoreAsync(
             context,
@@ -187,13 +243,23 @@ public static class PdbAcquisitionService
         string? PackageVersion,
         bool IsPlatformAssembly)
         GetAcquisitionCoordinates(
-            ResolvedAssemblyReference assembly)
+            ResolvedAssemblyReference assembly,
+            string? fallbackPackageName,
+            string? fallbackPackageVersion)
         => assembly.Provenance switch
         {
             AssemblyResolutionProvenance.PackageAsset package =>
                 (package.PackageId, package.PackageVersion, false),
             AssemblyResolutionProvenance.PlatformAsset =>
                 (null, null, true),
+            AssemblyResolutionProvenance.ProjectAsset
+                or AssemblyResolutionProvenance.LocalAsset
+                or AssemblyResolutionProvenance.DesignatedAsset
+                when !string.IsNullOrWhiteSpace(
+                        fallbackPackageName)
+                    && !string.IsNullOrWhiteSpace(
+                        fallbackPackageVersion) =>
+                (fallbackPackageName, fallbackPackageVersion, false),
             _ => (null, null, false),
         };
 }

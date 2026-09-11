@@ -60,6 +60,43 @@ public static class PackageSourceDisplay
         return new InertString(TextPolicy.Field, name);
     }
 
+    internal static IReadOnlyList<InertString> ForVersionListings(
+        IReadOnlyList<NuGetSource> sources)
+    {
+        var labels = sources.Select(source =>
+        {
+            if (!string.IsNullOrEmpty(source.Name)
+                && !string.Equals(source.Name, source.Url, StringComparison.Ordinal))
+                return ForDiagnostics(source).ToString();
+            if (source.IsNuGetOrg)
+                return "nuget.org";
+            return Uri.TryCreate(source.Url, UriKind.Absolute, out var uri)
+                && !string.IsNullOrEmpty(uri.Host)
+                    ? new InertString(TextPolicy.Field, uri.Host).ToString()
+                    : ForDiagnostics(source).ToString();
+        }).ToArray();
+        var counts = labels.GroupBy(label => label, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var reserved = labels.ToHashSet(StringComparer.Ordinal);
+        var result = new List<InertString>(labels.Length);
+        for (int index = 0; index < labels.Length; index++)
+        {
+            string label = labels[index];
+            if (counts[label] > 1)
+            {
+                // Disambiguate presentation without hashing or exposing authority keys.
+                int ordinal = index + 1;
+                do
+                {
+                    label = $"{labels[index]} [source {ordinal++}]";
+                }
+                while (!reserved.Add(label));
+            }
+            result.Add(new InertString(TextPolicy.Field, label));
+        }
+        return result;
+    }
+
     static bool IsUrlShaped(string name) =>
         name.Contains("://", StringComparison.Ordinal)
         || (Uri.TryCreate(name, UriKind.Absolute, out Uri? parsed)

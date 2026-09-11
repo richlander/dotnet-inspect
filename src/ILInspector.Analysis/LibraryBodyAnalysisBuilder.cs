@@ -1,12 +1,9 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
-using ILInspector.Findings;
-using ILInspector.Instructions;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -27,12 +24,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     readonly PEReader _peReader;
     readonly LibraryBodyPrimaryMetadataResolver
         _primaryMetadataResolver;
+    readonly LibraryBodyGenericConstraintClassifier
+        _genericConstraintClassifier;
+    readonly LibraryBodyGeneratedProvenanceClassifier
+        _generatedProvenanceClassifier;
+    readonly LibraryBodyStableReceiverGetterClassifier
+        _stableReceiverGetterClassifier;
     readonly LibraryBodyMethodReferenceResolver
         _methodReferenceResolver;
-    readonly LibraryBodyLiftedSourceOwnerResolver
-        _liftedSourceOwnerResolver;
     readonly LibraryBodyAsyncSourceResolver
         _asyncSourceResolver;
+    readonly LibraryBodyDeclaredSourceResolver
+        _declaredSourceResolver;
     readonly LibraryBodyAsyncSiblingDispatchAnalyzer
         _asyncSiblingDispatchAnalyzer;
     readonly LibraryBodyAsyncSiblingAccessibilityAnalyzer
@@ -49,16 +52,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         TypeDefinitionHandle>? _localTypeDefinitions;
     readonly string _assemblyName;
     readonly Guid _mvid;
-    readonly bool _memorySafetyRulesEnabled;
-    readonly Action<MethodDefinitionHandle>? _stableReceiverGetterClassified;
-    readonly Action<TypeDefinitionHandle>? _sourceGeneratedTypeClassified;
     readonly Action? _parallelBuildStarting;
-    readonly ConcurrentDictionary<
-        MethodDefinitionHandle,
-        Lazy<bool>>
-        _stableReceiverGetters = new();
-    readonly Dictionary<TypeDefinitionHandle, bool>
-        _sourceGeneratedTypes = new();
 
     internal LibraryBodyAnalysisBuilder(
         string path,
@@ -92,35 +86,46 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 null,
                 null,
                 null);
-        _memorySafetyRulesEnabled = DetectMemorySafetyRules();
-        _stableReceiverGetterClassified =
-            stableReceiverGetterClassified;
-        _sourceGeneratedTypeClassified =
-            sourceGeneratedTypeClassified;
         _parallelBuildStarting = parallelBuildStarting;
         _methodReferenceResolver =
             new LibraryBodyMethodReferenceResolver(
                 reader,
                 methodReferenceResolved);
+        _genericConstraintClassifier =
+            new LibraryBodyGenericConstraintClassifier(reader);
+        _stableReceiverGetterClassifier =
+            new LibraryBodyStableReceiverGetterClassifier(
+                reader,
+                peReader,
+                stableReceiverGetterClassified);
         _primaryMetadataResolver =
             new LibraryBodyPrimaryMetadataResolver(
                 reader,
                 _assemblyName,
                 _mvid,
                 _methodReferenceResolver.ResolveMethod,
-                GenericParameterCanBeValueType,
-                IsStableReceiverGetter,
+                _genericConstraintClassifier
+                    .GenericParameterCanBeValueType,
+                _stableReceiverGetterClassifier
+                    .IsStableReceiverGetter,
                 asyncStateMachineTypesBuilt);
+        _generatedProvenanceClassifier =
+            new LibraryBodyGeneratedProvenanceClassifier(
+                reader,
+                _primaryMetadataResolver
+                    .HasGeneratedCodeAttribute,
+                sourceGeneratedTypeClassified);
         _asyncSourceResolver =
             new LibraryBodyAsyncSourceResolver(
                 reader,
                 _assemblyIdentity,
                 _primaryMetadataResolver,
-                IsSourceGeneratedTypeOrEnclosing,
+                _generatedProvenanceClassifier
+                    .IsSourceGeneratedTypeOrEnclosing,
                 LocalTypeDefinitions,
                 TypeFromEntity,
                 typeDefinitionIndexBuilt);
-        _liftedSourceOwnerResolver =
+        var liftedSourceOwnerResolver =
             new LibraryBodyLiftedSourceOwnerResolver(
                 reader,
                 peReader,
@@ -128,6 +133,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _methodReferenceResolver,
                 _asyncSourceResolver,
                 methodBodyReferenceIndexed);
+        _declaredSourceResolver =
+            new LibraryBodyDeclaredSourceResolver(
+                reader,
+                _primaryMetadataResolver,
+                liftedSourceOwnerResolver,
+                _asyncSourceResolver);
         if (resolver is not null && reader.IsAssembly)
             _referenceMetadataResolver =
                 new LibraryBodyReferenceMetadataResolver(
@@ -143,7 +154,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 reader,
                 ResolveExternalAsyncSiblingTypeDefinition,
                 _asyncSiblingMethodIndex,
-                HasGenericConstraints);
+                _genericConstraintClassifier
+                    .HasGenericConstraints);
         _asyncSiblingAccessibilityAnalyzer =
             new LibraryBodyAsyncSiblingAccessibilityAnalyzer(
                 reader,
@@ -157,7 +169,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _asyncSiblingMethodIndex,
                 _asyncSiblingDispatchAnalyzer,
                 _asyncSiblingAccessibilityAnalyzer,
-                HasGenericConstraints);
+                _genericConstraintClassifier
+                    .HasGenericConstraints);
     }
 
     public void Dispose() =>
@@ -256,6 +269,26 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodDefinition,
             typeSourceGenerated);
 
+    AsyncBodyAttribution?
+        ILibraryMethodAnalysisInfrastructure
+            .ResolveAsyncBody(
+                MethodIdentity method,
+                MethodDefinition methodDefinition,
+                bool typeSourceGenerated) =>
+        _asyncSourceResolver.ResolveAsyncBody(
+            method,
+            methodDefinition,
+            typeSourceGenerated);
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .IsAuthenticatedAsyncStateMachineExecutionMethod(
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition methodDefinition) =>
+        _asyncSourceResolver
+            .IsAuthenticatedAsyncStateMachineExecutionMethod(
+                methodHandle,
+                methodDefinition);
+
     ImmutableArray<OptimizationOpportunity>
         ILibraryMethodAnalysisInfrastructure
             .CollectAsyncSiblingOpportunities(
@@ -265,17 +298,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 bool typeSourceGenerated,
                 ref MethodIdentity? asyncSource)
     {
-        asyncSource = _asyncSourceResolver.ResolveSourceMethod(
-            context.Method,
-            methodDefinition,
-            typeSourceGenerated);
-        if (asyncSource is null)
-            return [];
-        if (CompilerGeneratedNames
-                .IsLocalFunctionOrLambda(asyncSource.Name)
-            && !TryResolveUltimateLiftedOwner(
-                asyncSource,
-                out _))
+        if (!_declaredSourceResolver.TryResolveAsyncSiblingSource(
+                context.Method,
+                methodDefinition,
+                typeSourceGenerated,
+                ref asyncSource))
         {
             return [];
         }
@@ -288,17 +315,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
-        out MethodIdentity? sourceOwner,
-        out bool sourceGenerated,
+        out AuthenticatedSourceOwner sourceOwner,
         IReadOnlySet<int>? ownerMethodScope,
         Func<TypeRef, bool>? ownerTypeScope,
         bool directlySelectedBody) =>
-        _liftedSourceOwnerResolver.TryResolve(
+        _declaredSourceResolver.TryResolveLiftedSourceOwner(
             liftedHandle,
             liftedMethod,
             liftedIdentity,
             out sourceOwner,
-            out sourceGenerated,
             ownerMethodScope,
             ownerTypeScope,
             directlySelectedBody);
@@ -313,63 +338,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             Func<TypeRef, bool>? ownerTypeScope,
             IReadOnlySet<int>? requestedMethodScope,
             bool directlySelectedBody)
-    {
-        if (_liftedSourceOwnerResolver.TryResolve(
-                methodHandle,
-                methodDefinition,
-                method,
-                out MethodIdentity? sourceOwner,
-                out _,
-                ownerMethodScope,
-                ownerTypeScope,
-                directlySelectedBody))
-        {
-            return sourceOwner;
-        }
-
-        MethodIdentity? asyncSource =
-            _asyncSourceResolver.ResolveDeclaredSourceMethod(
-                method,
-                methodDefinition,
-                typeSourceGenerated);
-        if (asyncSource is null
-            || asyncSource == method)
-            return asyncSource;
-
-        if (!CompilerGeneratedNames
-            .IsLocalFunctionOrLambda(asyncSource.Name))
-        {
-            return asyncSource;
-        }
-
-        EntityHandle asyncSourceHandle =
-            MetadataTokens.EntityHandle(
-                asyncSource.MetadataToken);
-        if (asyncSourceHandle.Kind
-                == HandleKind.MethodDefinition
-            && _liftedSourceOwnerResolver.TryResolve(
-                (MethodDefinitionHandle)asyncSourceHandle,
-                _reader.GetMethodDefinition(
-                    (MethodDefinitionHandle)asyncSourceHandle),
-                asyncSource,
-                out sourceOwner,
-                out _,
-                ownerMethodScope,
-                ownerTypeScope,
-                directlySelectedBody
-                    || requestedMethodScope?.Contains(
-                        asyncSource.MetadataToken)
-                        == true))
-        {
-            return sourceOwner;
-        }
-
-        return TryResolveUltimateLiftedOwner(
-            asyncSource,
-            out sourceOwner)
-            ? sourceOwner
-            : null;
-    }
+        => _declaredSourceResolver.ResolveDeclaredMethod(
+            methodHandle,
+            methodDefinition,
+            method,
+            typeSourceGenerated,
+            ownerMethodScope,
+            ownerTypeScope,
+            requestedMethodScope,
+            directlySelectedBody);
 
     DeclaredOwnerResolution ILibraryMethodAnalysisInfrastructure
         .ResolveUltimateDeclaredMethod(
@@ -377,118 +354,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             MethodDefinition methodDefinition,
             MethodIdentity method,
             bool typeSourceGenerated,
-            out MethodIdentity? ultimateOwner)
-    {
-        if (_liftedSourceOwnerResolver.TryResolve(
-                methodHandle,
-                methodDefinition,
-                method,
-                out MethodIdentity? liftedOwner,
-                out _,
-                ownerMethodScope: null,
-                ownerTypeScope: null,
-                directlySelectedBody: false)
-            && liftedOwner is not null)
-        {
-            return TryResolveUltimateLiftedOwner(
-                liftedOwner,
-                out ultimateOwner)
-                ? DeclaredOwnerResolution.Resolved
-                : DeclaredOwnerResolution.Unresolved;
-        }
-
-        AsyncSourceResolution asyncResolution =
-            _asyncSourceResolver.ResolveSourceOwnership(
-                method,
-                methodDefinition,
-                typeSourceGenerated,
-                out MethodIdentity? asyncSource);
-        if (asyncResolution == AsyncSourceResolution.Unresolved)
-        {
-            ultimateOwner = null;
-            return DeclaredOwnerResolution.Unresolved;
-        }
-        if (asyncResolution == AsyncSourceResolution.None
-            || asyncSource is null
-            || asyncSource == method)
-        {
-            ultimateOwner = null;
-            return DeclaredOwnerResolution.None;
-        }
-
-        if (CompilerGeneratedNames
-                .IsLocalFunctionOrLambda(asyncSource.Name))
-        {
-            return TryResolveUltimateLiftedOwner(
-                asyncSource,
-                out ultimateOwner)
-                ? DeclaredOwnerResolution.Resolved
-                : DeclaredOwnerResolution.Unresolved;
-        }
-
-        ultimateOwner = asyncSource;
-        return DeclaredOwnerResolution.Resolved;
-    }
-
-    bool TryResolveUltimateLiftedOwner(
-        MethodIdentity source,
-        out MethodIdentity? ultimateOwner)
-    {
-        MethodIdentity current = source;
-        Span<int> visited =
-            stackalloc int[
-                MetadataSafetyPolicy.MaxRelationshipNodes];
-        int count = 0;
-        while (CompilerGeneratedNames
-            .IsLocalFunctionOrLambda(current.Name))
-        {
-            if (count == visited.Length)
-            {
-                ultimateOwner = null;
-                return false;
-            }
-            for (int i = 0; i < count; i++)
-            {
-                if (visited[i]
-                    == current.MetadataToken)
-                {
-                    ultimateOwner = null;
-                    return false;
-                }
-            }
-            visited[count++] = current.MetadataToken;
-            EntityHandle currentHandle =
-                MetadataTokens.EntityHandle(
-                    current.MetadataToken);
-            if (currentHandle.Kind
-                    != HandleKind.MethodDefinition)
-            {
-                ultimateOwner = null;
-                return false;
-            }
-            var currentDefinition =
-                _reader.GetMethodDefinition(
-                    (MethodDefinitionHandle)currentHandle);
-            if (!_liftedSourceOwnerResolver.TryResolve(
-                    (MethodDefinitionHandle)currentHandle,
-                    currentDefinition,
-                    current,
-                    out MethodIdentity? sourceOwner,
-                    out _,
-                    ownerMethodScope: null,
-                    ownerTypeScope: null,
-                    directlySelectedBody: false)
-                || sourceOwner is null)
-            {
-                ultimateOwner = null;
-                return false;
-            }
-            current = sourceOwner;
-        }
-
-        ultimateOwner = current;
-        return true;
-    }
+            out AuthenticatedSourceOwner? immediateOwner,
+            out AuthenticatedSourceOwner? ultimateOwner)
+        => _declaredSourceResolver.ResolveUltimateDeclaredMethod(
+            methodHandle,
+            methodDefinition,
+            method,
+            typeSourceGenerated,
+            out immediateOwner,
+            out ultimateOwner);
 
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -555,24 +429,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
     }
 
-    static bool IsRecoverableMethodFailure(Exception exception) =>
-        LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(
-            exception);
-
-    // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
-    // when MemorySafetyRulesAttribute is applied (emitted [module:], like
-    // RefSafetyRulesAttribute). Check the module and assembly scopes.
-    public bool MemorySafetyRulesEnabled => _memorySafetyRulesEnabled;
-
-    bool DetectMemorySafetyRules()
-    {
-        const string ns = "System.Runtime.CompilerServices";
-        if (HasAttributeNamed(_reader.GetModuleDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns))
-            return true;
-        return _reader.IsAssembly
-            && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
-    }
-
     internal bool ScopeMayRequireStateMachineBody(
         IReadOnlySet<int> bodyScope) =>
         _asyncSourceResolver.ScopeMayRequireStateMachineBody(
@@ -581,15 +437,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     public LibraryBodyAnalysisResult Build(
         LibraryBodyAnalysisPlan plan)
     {
-        // A lifted source method can itself be async, so expand source owners
-        // before asking the async resolver for the resulting state-machine body.
-        plan = _asyncSourceResolver.ExpandEvidenceScope(plan);
-        plan = ExpandLiftedEvidenceScope(plan);
-        plan = _asyncSourceResolver.ExpandEvidenceScope(plan);
+        plan = _declaredSourceResolver.ExpandEvidenceScope(plan);
         bool includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+        bool includeAsyncSiblingOpportunities = plan.Includes(
+            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
+        bool includeAnyOpportunities =
+            includeOpportunities || includeAsyncSiblingOpportunities;
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         var methodRunner =
             new LibraryMethodAnalysisRunner(this);
@@ -614,7 +470,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             // actionable source-shape opportunities, so skip optimization-opportunity
             // collection for them (they are still indexed for calls/leverage/signals).
             bool typeSourceGenerated = includeMethodEvidence
-                && IsSourceGeneratedTypeOrEnclosing(typeHandle);
+                && _generatedProvenanceClassifier
+                    .IsSourceGeneratedTypeOrEnclosing(
+                        typeHandle);
             foreach (var methodHandle in typeDef.GetMethods())
                 workItems.Add((typeHandle, typeDef, typeSourceGenerated, methodHandle));
         }
@@ -632,11 +490,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             if (includeMethodEvidence)
                 _ = _primaryMetadataResolver
                     .AsyncStateMachineTypes();
-            if (includeOpportunities)
+            if (includeAnyOpportunities)
                 _asyncSourceResolver.Prewarm();
             // Prewarm the async-state-machine set so it is fully computed before the parallel
             // pass reads it read-only.
-            if (includeMethodEvidence || includeOpportunities)
+            if (includeMethodEvidence || includeAnyOpportunities)
                 _ = _primaryMetadataResolver.AsyncStateMachineTypes();
             _parallelBuildStarting?.Invoke();
             Parallel.For(0, workItems.Count, i =>
@@ -664,253 +522,16 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             }
         }
 
-        LibraryBodyAnalysisResult analysis = accumulator.Build(results);
-        if (!plan.ScopeExpansionDiagnostics.IsDefaultOrEmpty)
-        {
-            analysis = analysis with
-            {
-                Diagnostics = AnalysisDiagnosticAggregation
-                    .MergeInMetadataOrder(
-                        analysis.Diagnostics,
-                        plan.ScopeExpansionDiagnostics),
-            };
-        }
+        LibraryBodyAnalysisResult analysis =
+            _declaredSourceResolver.MergeScopeExpansionDiagnostics(
+                accumulator.Build(results),
+                plan);
         if (!includeMethodEvidence)
             return analysis;
-
-        IReadOnlyDictionary<int, MethodIdentity> asyncSources =
-            _asyncSourceResolver
-                .DeclaredSourceMethodsByMoveNextToken();
-        if (asyncSources.Count == 0)
-            return analysis;
-
-        var declaredSources = new Dictionary<int, MethodIdentity>(
-            analysis.Methods.DeclaredSources);
-        var publicationDiagnostics =
-            ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
-        foreach ((int token, MethodIdentity source) in asyncSources)
-        {
-            try
-            {
-                if (!declaredSources.ContainsKey(token)
-                    && TryResolveUltimateLiftedOwner(
-                        source,
-                        out MethodIdentity? ultimateOwner)
-                    && ultimateOwner is not null)
-                {
-                    declaredSources.Add(
-                        token,
-                        ultimateOwner);
-                }
-            }
-            catch (Exception ex)
-                when (LibraryMethodAnalysisRunner
-                    .IsRecoverableMethodFailure(ex))
-            {
-                var sourceHandle =
-                    (MethodDefinitionHandle)
-                    MetadataTokens.EntityHandle(
-                        source.MetadataToken);
-                MethodDefinition sourceDefinition =
-                    _reader.GetMethodDefinition(
-                        sourceHandle);
-                var diagnostic = new AnalysisDiagnostic(
-                    source.MetadataToken,
-                    LibraryMethodAnalysisRunner.MethodLabel(
-                        _reader,
-                        sourceDefinition.GetDeclaringType(),
-                        sourceHandle),
-                    $"{ex.GetType().Name}: {ex.Message}",
-                    DeclaringType: source.DeclaringType);
-                publicationDiagnostics.Add(diagnostic);
-            }
-        }
-        return analysis with
-        {
-            Diagnostics = AnalysisDiagnosticAggregation
-                .MergeInMetadataOrder(
-                    analysis.Diagnostics,
-                    publicationDiagnostics.ToImmutable()),
-            Methods = analysis.Methods with
-            {
-                DeclaredSources = declaredSources,
-            },
-        };
-    }
-
-    LibraryBodyAnalysisPlan ExpandLiftedEvidenceScope(
-        LibraryBodyAnalysisPlan plan)
-    {
-        if (!plan.Includes(
-                LibraryBodyAnalysisFeatures.MethodEvidence)
-            || !plan.IsScoped)
-        {
-            return plan;
-        }
-
-        var ownersByBody =
-            new Dictionary<MethodIdentity, MethodIdentity>();
-        ImmutableArray<AnalysisDiagnostic>.Builder diagnostics =
-            plan.ScopeExpansionDiagnostics.IsDefault
-                ? ImmutableArray.CreateBuilder<AnalysisDiagnostic>()
-                : plan.ScopeExpansionDiagnostics.ToBuilder();
-        foreach (TypeDefinitionHandle typeHandle
-            in _reader.TypeDefinitions)
-        {
-            TypeDefinition typeDefinition =
-                _reader.GetTypeDefinition(typeHandle);
-            foreach (MethodDefinitionHandle methodHandle
-                in typeDefinition.GetMethods())
-            {
-                MethodIdentity method;
-                try
-                {
-                    MethodDefinition methodDefinition =
-                        _reader.GetMethodDefinition(methodHandle);
-                    var scope =
-                        _primaryMetadataResolver.CreateScope(
-                            typeDefinition,
-                            methodDefinition);
-                    method =
-                        _primaryMetadataResolver.CreateMethodIdentity(
-                            typeHandle,
-                            methodHandle,
-                            methodDefinition,
-                            scope);
-                }
-                catch (Exception ex)
-                    when (IsRecoverableMethodFailure(ex))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    MethodDefinition methodDefinition =
-                        _reader.GetMethodDefinition(methodHandle);
-                    bool directlySelectedBody =
-                        plan.RequestedMethodScope?.Contains(
-                            MetadataTokens.GetToken(methodHandle))
-                            == true
-                        || plan.TypeScope?.Invoke(
-                            method.DeclaringType)
-                            == true;
-                    if (_liftedSourceOwnerResolver.TryResolve(
-                            methodHandle,
-                            methodDefinition,
-                            method,
-                            out MethodIdentity? sourceOwner,
-                            out _,
-                            plan.MethodScope,
-                            plan.TypeScope,
-                            directlySelectedBody)
-                        && sourceOwner is not null)
-                    {
-                        ownersByBody[method] = sourceOwner;
-                    }
-                }
-                catch (Exception ex)
-                    when (IsRecoverableMethodFailure(ex))
-                {
-                    diagnostics.Add(new AnalysisDiagnostic(
-                        method.MetadataToken,
-                        LibraryMethodAnalysisRunner
-                            .MethodLabel(
-                                _reader,
-                                typeHandle,
-                                methodHandle),
-                        $"{ex.GetType().Name}: {ex.Message}",
-                        DeclaringType: method.DeclaringType));
-                }
-            }
-        }
-
-        IReadOnlySet<int>? methodScope = plan.MethodScope;
-        if (methodScope is not null)
-        {
-            var expanded = new HashSet<int>(methodScope);
-            foreach ((
-                MethodIdentity body,
-                MethodIdentity owner)
-                in ownersByBody)
-            {
-                MethodIdentity declared =
-                    ResolveDeclaredMethod(
-                        owner,
-                        ownersByBody);
-                if (methodScope.Contains(
-                        declared.MetadataToken))
-                {
-                    expanded.Add(body.MetadataToken);
-                }
-            }
-            methodScope = expanded;
-        }
-
-        Dictionary<int, ImmutableArray<TypeRef>>?
-            evidenceSources =
-            plan.TypeScopeEvidenceSources is null
-                ? null
-                : new Dictionary<
-                    int,
-                    ImmutableArray<TypeRef>>(
-                    plan.TypeScopeEvidenceSources);
-        if (plan.TypeScope is not null)
-        {
-            evidenceSources ??= [];
-            foreach ((
-                MethodIdentity body,
-                MethodIdentity owner)
-                in ownersByBody)
-            {
-                TypeRef declaredSourceType =
-                    ResolveDeclaredMethod(
-                        owner,
-                        ownersByBody)
-                    .DeclaringType;
-                ImmutableArray<TypeRef> existing =
-                    evidenceSources.GetValueOrDefault(
-                        body.MetadataToken);
-                if (existing.IsDefault)
-                    existing = [];
-                if (!existing.Contains(declaredSourceType))
-                {
-                    evidenceSources[body.MetadataToken] =
-                        existing.Add(declaredSourceType);
-                }
-            }
-        }
-
-        return plan with
-        {
-            MethodScope = methodScope,
-            TypeScopeEvidenceSources = evidenceSources,
-            ScopeExpansionDiagnostics = diagnostics.ToImmutable(),
-        };
-    }
-
-    static MethodIdentity ResolveDeclaredMethod(
-        MethodIdentity method,
-        IReadOnlyDictionary<MethodIdentity, MethodIdentity>
-            ownersByBody)
-    {
-        MethodIdentity current = method;
-        for (int depth = 0;
-            depth <= ownersByBody.Count;
-            depth++)
-        {
-            if (!ownersByBody.TryGetValue(
-                    current,
-                    out MethodIdentity? owner)
-                || owner == current)
-            {
-                return current;
-            }
-            current = owner;
-        }
-
-        throw new InvalidOperationException(
-            "Lifted source-owner resolution contains a cycle.");
+        return _declaredSourceResolver
+            .PublishDeclaredSources(
+                analysis,
+                plan);
     }
 
     internal bool HasUnsafeEvidence()
@@ -953,535 +574,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     // Below it (and for all scoped member/type builds) the sequential path avoids thread overhead.
     const int ParallelBuildMethodThreshold = 200;
 
-    // Name-based recognition of FRAMEWORK value types whose `newobj` resolves to a bare
-    // TypeRef the token dispatch cannot follow (a non-generic framework struct like DateTime
-    // or Guid lives in an assembly this one does not load). The common generic framework
-    // value types (Span/ReadOnlySpan/Memory/Nullable/ValueTuple`n) are constructed through a
-    // TypeSpec and are resolved authoritatively by the signature blob, so they are listed
-    // here only as a fast path. In-assembly and cross-assembly value types are NOT matched by
-    // name — that is the operand-token metadata path's job — because a display name omits
-    // assembly identity and would misclassify an external reference type that shares a
-    // namespace+name with an in-assembly struct (#1804 review).
-    static bool IsNonHeapConstructionByName(TypeRef type)
-    {
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        if (definition.Kind != TypeRefKind.Definition || !definition.TrustedFrameworkAssembly)
-            return false;
-        if (definition.Namespace == "System" && definition.Name is
-                "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1" or "Nullable`1"
-                or "ValueTuple" or "ValueTuple`1" or "ValueTuple`2" or "ValueTuple`3" or "ValueTuple`4"
-                or "ValueTuple`5" or "ValueTuple`6" or "ValueTuple`7" or "ValueTuple`8")
-            return true;
-        return IsWellKnownValueType(definition.Namespace, definition.Name);
-    }
-
-    bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
-    {
-        foreach (var handle in attributes)
-        {
-            var (ns, name) = AttributeTypeName(_reader.GetCustomAttribute(handle).Constructor);
-            if (name == simpleName && (namespaces.Length == 0 || Array.IndexOf(namespaces, ns) >= 0))
-                return true;
-        }
-        return false;
-    }
-
-    // True when the member/type is marked [System.CodeDom.Compiler.GeneratedCode] —
-    // the universal source-generator signal (System.Text.Json, regex, etc.). Such code
-    // has ordinary names (so the compiler-generated name heuristics miss it) but is not
-    // an actionable source-shape optimization target.
-    bool HasGeneratedCodeAttribute(CustomAttributeHandleCollection attributes)
-        => HasAttributeNamed(attributes, "GeneratedCodeAttribute", "System.CodeDom.Compiler");
-
-    bool IsSourceGeneratedTypeOrEnclosing(TypeDefinitionHandle handle)
-    {
-        if (_sourceGeneratedTypes.TryGetValue(handle, out bool cached))
-            return cached;
-
-        Span<TypeDefinitionHandle> chain =
-            stackalloc TypeDefinitionHandle[
-                MetadataSafetyPolicy.MaxRelationshipNodes];
-        int count = 0;
-        TypeDefinitionHandle current = handle;
-        bool inherited = false;
-        while (!current.IsNil)
-        {
-            if (_sourceGeneratedTypes.TryGetValue(
-                    current,
-                    out inherited))
-            {
-                break;
-            }
-            for (int i = 0; i < count; i++)
-            {
-                if (chain[i] == current)
-                {
-                    inherited = true;
-                    goto CacheChain;
-                }
-            }
-            if (count == chain.Length)
-            {
-                inherited = true;
-                goto CacheChain;
-            }
-
-            chain[count++] = current;
-            try
-            {
-                current = _reader.GetTypeDefinition(current)
-                    .GetDeclaringType();
-            }
-            catch (Exception ex)
-                when (LibraryMethodAnalysisRunner
-                    .IsRecoverableMethodFailure(ex))
-            {
-                inherited = true;
-                goto CacheChain;
-            }
-        }
-
-    CacheChain:
-        for (int i = count - 1; i >= 0; i--)
-        {
-            TypeDefinitionHandle candidate = chain[i];
-            if (!inherited)
-            {
-                _sourceGeneratedTypeClassified?.Invoke(candidate);
-                inherited = HasGeneratedCodeAttribute(
-                    _reader.GetTypeDefinition(candidate)
-                        .GetCustomAttributes());
-            }
-            _sourceGeneratedTypes[candidate] = inherited;
-            if (inherited)
-            {
-                for (int j = i - 1; j >= 0; j--)
-                    _sourceGeneratedTypes[chain[j]] = true;
-                return true;
-            }
-        }
-        return inherited;
-    }
-
-    static bool HasGenericConstraints(
-        MetadataReader reader,
-        MethodDefinition method)
-    {
-        foreach (var handle in method.GetGenericParameters())
-        {
-            var parameter = reader.GetGenericParameter(handle);
-            if (parameter.Attributes
-                    != GenericParameterAttributes.None
-                || parameter.GetConstraints().Count > 0)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
-    {
-        if (constructor.Kind == HandleKind.MemberReference
-            && _reader.GetMemberReference((MemberReferenceHandle)constructor).Parent is { Kind: HandleKind.TypeReference } parent)
-        {
-            var typeRef = _reader.GetTypeReference((TypeReferenceHandle)parent);
-            return (_reader.GetString(typeRef.Namespace), _reader.GetString(typeRef.Name));
-        }
-        if (constructor.Kind == HandleKind.MethodDefinition)
-        {
-            var declType = _reader.GetTypeDefinition(_reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType());
-            return (_reader.GetString(declType.Namespace), _reader.GetString(declType.Name));
-        }
-        return ("", "");
-    }
-
-    // A value-type `newobj` whose operand is an unresolvable external TypeRef is still
-    // recorded (as a non-heap annotation) when the type is a recognized framework value
-    // type by name, so the row is not silently dropped.
-    bool IsUnresolvedExternalValueTypeConstruction(
-        int operandToken,
-        TypeRef type)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(operandToken);
-            var parent = handle.Kind switch
-            {
-                HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
-                _ => default,
-            };
-            return parent.Kind == HandleKind.TypeReference
-                && IsNonHeapConstructionByName(type);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-    }
-
-    // The declaring type and name behind a field-store operand. Returns (null, null)
-    // when the operand is not a resolvable field, leaving the escape-kind judgment to
-    // the allocation analysis that asked.
-    (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(int fieldToken, GenericScope callerScope)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(fieldToken);
-            switch (handle.Kind)
-            {
-                case HandleKind.FieldDefinition:
-                    var field = _reader.GetFieldDefinition((FieldDefinitionHandle)handle);
-                    return (
-                        TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, field.GetDeclaringType(), 0),
-                        _reader.GetString(field.Name));
-                case HandleKind.MemberReference:
-                    return (
-                        ResolveMemberReferenceParentType(handle, callerScope),
-                        _reader.GetString(_reader.GetMemberReference((MemberReferenceHandle)handle).Name));
-                default:
-                    return (null, null);
-            }
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
-        {
-            return (null, null);
-        }
-    }
-
-    bool IsDelegateConstructorToken(int operandToken, MemberRef constructor)
-    {
-        if (constructor.Kind != MemberKind.Constructor
-            || constructor.ParameterTypes.Length != 2
-            || !constructor.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Object"))
-            || !constructor.ParameterTypes[1].Equals(TypeRef.CoreLib("System", "IntPtr")))
-        {
-            return false;
-        }
-
-        var definition = constructor.DeclaringType.Kind == TypeRefKind.GenericInstance
-            ? constructor.DeclaringType.ElementType ?? constructor.DeclaringType
-            : constructor.DeclaringType;
-        if (definition.TrustedFrameworkAssembly
-            && definition.Assembly == TypeRef.CoreLibrary
-            && definition.Namespace == "System"
-            && (definition.Name.StartsWith("Func`", StringComparison.Ordinal)
-                || definition.Name.StartsWith("Action`", StringComparison.Ordinal)
-                || definition.Name == "Action"))
-        {
-            return true;
-        }
-
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(operandToken);
-            EntityHandle parent = handle.Kind switch
-            {
-                HandleKind.MethodDefinition => _reader.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType(),
-                HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
-                _ => default,
-            };
-            return parent.Kind == HandleKind.TypeDefinition
-                && TypeDerivesFromMulticastDelegate((TypeDefinitionHandle)parent);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-    }
-
-    bool TypeDerivesFromMulticastDelegate(TypeDefinitionHandle handle)
-    {
-        var visited = new HashSet<TypeDefinitionHandle>();
-        var current = handle;
-        while (visited.Add(current))
-        {
-            var baseHandle = _reader.GetTypeDefinition(current).BaseType;
-            switch (baseHandle.Kind)
-            {
-                case HandleKind.TypeReference:
-                    var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
-                    return _reader.GetString(baseRef.Namespace) == "System"
-                        && _reader.GetString(baseRef.Name) == "MulticastDelegate";
-                case HandleKind.TypeDefinition:
-                    current = (TypeDefinitionHandle)baseHandle;
-                    continue;
-                default:
-                    return false;
-            }
-        }
-        return false;
-    }
-
-    string? CalliReturnDetail(int token, GenericScope scope)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            if (handle.Kind != HandleKind.StandaloneSignature)
-                return null;
-            var standalone = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle);
-            if (!SignatureBlobGuard.IsSafeToDecode(
-                    _reader,
-                    standalone.Signature,
-                    SignatureBlobGuard.Kind.StandaloneMethod))
-                return null;
-            var signature = standalone.DecodeMethodSignature(TypeRefDecoder.Instance, scope);
-            return signature.ReturnType.ToDisplayString();
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return null;
-        }
-    }
-
-    // True only when a `box` operand is positively identified as a value type that
-    // unconditionally allocates. ECMA-335 allows `box` on reference types (no allocation),
-    // generic parameters (compiler-mandated / JIT-specialized), and `Nullable<T>` (no
-    // allocation when null) — all excluded to avoid false positives. In-assembly types are
-    // resolved authoritatively via their base type; external types are accepted only from a
-    // curated set of well-known framework value types.
-    bool IsAllocatingValueTypeBox(int token, TypeRef boxed)
-    {
-        // Nullable<T> boxing allocates only when HasValue; conservatively exclude.
-        var leaf = boxed.Kind == TypeRefKind.GenericInstance ? boxed.ElementType ?? boxed : boxed;
-        if (leaf.Kind == TypeRefKind.Definition && leaf.Namespace == "System" && leaf.Name == "Nullable`1")
-            return false;
-
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            if (handle.Kind == HandleKind.TypeDefinition)
-                return IsValueTypeDefinition((TypeDefinitionHandle)handle);
-            // A constructed generic type (e.g. Box<int>) is a TypeSpec whose signature blob
-            // directly encodes value-type-ness (ELEMENT_TYPE_VALUETYPE vs ELEMENT_TYPE_CLASS),
-            // so we don't need to resolve the definition. Covers in-assembly and external
-            // generic structs alike; Nullable<T> is already excluded above.
-            if (handle.Kind == HandleKind.TypeSpecification)
-                return IsValueTypeSpec((TypeSpecificationHandle)handle);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-
-        return leaf.Kind == TypeRefKind.Definition
-            && leaf.TrustedFrameworkAssembly
-            && IsWellKnownValueType(leaf.Namespace, leaf.Name);
-    }
-
-    bool GenericParameterCanBeValueType(
-        TypeRef genericParameter,
-        MethodIdentity caller)
-    {
-        try
-        {
-            var methodHandle = (MethodDefinitionHandle)
-                MetadataTokens.EntityHandle(caller.MetadataToken);
-            var method = _reader.GetMethodDefinition(methodHandle);
-            GenericParameterHandleCollection handles =
-                genericParameter.Kind == TypeRefKind.MethodGenericParameter
-                    ? method.GetGenericParameters()
-                    : _reader.GetTypeDefinition(method.GetDeclaringType())
-                        .GetGenericParameters();
-            if (genericParameter.GenericParameterIndex < 0
-                || genericParameter.GenericParameterIndex >= handles.Count)
-            {
-                return false;
-            }
-
-            var handle = handles.ElementAt(
-                genericParameter.GenericParameterIndex);
-            var parameter = _reader.GetGenericParameter(handle);
-            if ((parameter.Attributes
-                    & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
-            {
-                return false;
-            }
-
-            foreach (var constraintHandle in parameter.GetConstraints())
-            {
-                EntityHandle constraint =
-                    _reader.GetGenericParameterConstraint(constraintHandle).Type;
-                if (!ConstraintCanIncludeValueType(constraint))
-                    return false;
-            }
-            return true;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentException
-            or OverflowException
-            or InvalidCastException)
-        {
-            return false;
-        }
-    }
-
-    bool IsStableReceiverGetter(DecodedInstruction instruction)
-    {
-        try
-        {
-            EntityHandle methodHandle = MetadataTokens.EntityHandle(
-                MethodInstructionFacts.OperandInt32(instruction));
-            if (methodHandle.Kind != HandleKind.MethodDefinition)
-                return false;
-
-            var definitionHandle =
-                (MethodDefinitionHandle)methodHandle;
-            var method = _reader.GetMethodDefinition(definitionHandle);
-            bool overridableVirtualCall = instruction.OpCode == ILOpCode.Callvirt
-                && (method.Attributes & MethodAttributes.Virtual) != 0
-                && (method.Attributes & MethodAttributes.Final) == 0
-                && (_reader.GetTypeDefinition(method.GetDeclaringType()).Attributes
-                    & TypeAttributes.Sealed) == 0;
-            if (method.RelativeVirtualAddress == 0
-                || overridableVirtualCall
-                || !_reader.GetString(method.Name).StartsWith(
-                    "get_",
-                    StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            return _stableReceiverGetters.GetOrAdd(
-                definitionHandle,
-                handle => new Lazy<bool>(
-                    () => ClassifyStableReceiverGetter(handle),
-                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentException
-            or OverflowException
-            or InvalidCastException)
-        {
-            return false;
-        }
-    }
-
-    bool ClassifyStableReceiverGetter(
-        MethodDefinitionHandle methodHandle)
-    {
-        _stableReceiverGetterClassified?.Invoke(methodHandle);
-        MethodDefinition method =
-            _reader.GetMethodDefinition(methodHandle);
-        var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
-        if (body.ExceptionRegions.Length != 0)
-            return false;
-        DecodedInstruction? first = null;
-        DecodedInstruction? fieldLoad = null;
-        DecodedInstruction? third = null;
-        int count = 0;
-        foreach (DecodedInstruction instruction
-            in InstructionDecoder.Decode(body.GetILBytes() ?? []))
-        {
-            if (instruction.OpCode == ILOpCode.Nop)
-                continue;
-            switch (count++)
-            {
-                case 0:
-                    first = instruction;
-                    break;
-                case 1:
-                    fieldLoad = instruction;
-                    break;
-                case 2:
-                    third = instruction;
-                    break;
-                default:
-                    return false;
-            }
-        }
-        if (count != 3
-            || first is not { OpCode: ILOpCode.Ldarg_0 }
-            || fieldLoad is not { OpCode: ILOpCode.Ldfld }
-            || third is not { OpCode: ILOpCode.Ret })
-        {
-            return false;
-        }
-
-        EntityHandle fieldHandle = MetadataTokens.EntityHandle(
-            MethodInstructionFacts.OperandInt32(fieldLoad));
-        return fieldHandle.Kind == HandleKind.FieldDefinition
-            && (_reader.GetFieldDefinition(
-                    (FieldDefinitionHandle)fieldHandle).Attributes
-                & FieldAttributes.InitOnly) != 0;
-    }
-
-    bool ConstraintCanIncludeValueType(EntityHandle constraint)
-    {
-        if (constraint.Kind == HandleKind.TypeDefinition)
-        {
-            TypeAttributes attributes = _reader
-                .GetTypeDefinition((TypeDefinitionHandle)constraint)
-                .Attributes;
-            return (attributes & TypeAttributes.Interface) != 0;
-        }
-
-        if (constraint.Kind == HandleKind.TypeReference)
-        {
-            var reference = _reader.GetTypeReference(
-                (TypeReferenceHandle)constraint);
-            string @namespace = _reader.GetString(reference.Namespace);
-            string name = _reader.GetString(reference.Name);
-            return @namespace == "System"
-                && name is "ValueType" or "Enum";
-        }
-
-        // Type specifications and generic-parameter constraints cannot be
-        // proven here to admit a value-type instantiation.
-        return false;
-    }
-
-    // Reads a TypeSpec signature blob to decide value-type-ness directly from metadata. The
-    // signature is an ELEMENT_TYPE_* stream; a generic instance is GENERICINST followed by
-    // VALUETYPE (0x11) or CLASS (0x12), and a bare value/class spec starts with that byte.
-    bool IsValueTypeSpec(TypeSpecificationHandle handle)
-    {
-        const byte ElementTypeValueType = 0x11;
-        const byte ElementTypeGenericInst = 0x15;
-        var blob = _reader.GetBlobReader(_reader.GetTypeSpecification(handle).Signature);
-        if (blob.RemainingBytes == 0)
-            return false;
-        byte code = blob.ReadByte();
-        if (code == ElementTypeGenericInst)
-        {
-            if (blob.RemainingBytes == 0)
-                return false;
-            code = blob.ReadByte();
-        }
-        // VALUETYPE (0x11) is a value type; CLASS (0x12) and everything else is not.
-        return code == ElementTypeValueType;
-    }
-
-    // Authoritative in-assembly check: a value type extends System.ValueType or System.Enum.
-    bool IsValueTypeDefinition(TypeDefinitionHandle handle)
-    {
-        var baseHandle = _reader.GetTypeDefinition(handle).BaseType;
-        if (baseHandle.IsNil)
-            return false;
-        var (ns, name) = baseHandle.Kind switch
-        {
-            HandleKind.TypeReference => (_reader.GetString(_reader.GetTypeReference((TypeReferenceHandle)baseHandle).Namespace),
-                _reader.GetString(_reader.GetTypeReference((TypeReferenceHandle)baseHandle).Name)),
-            HandleKind.TypeDefinition => (_reader.GetString(_reader.GetTypeDefinition((TypeDefinitionHandle)baseHandle).Namespace),
-                _reader.GetString(_reader.GetTypeDefinition((TypeDefinitionHandle)baseHandle).Name)),
-            _ => ("", ""),
-        };
-        return ns == "System" && name is "ValueType" or "Enum";
-    }
-
-    static bool IsWellKnownValueType(string ns, string name)
-        => (ns == "System" && name is "Boolean" or "Byte" or "SByte" or "Char"
-                or "Int16" or "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64"
-                or "Single" or "Double" or "IntPtr" or "UIntPtr" or "Decimal"
-                or "Half" or "Int128" or "UInt128"
-                or "DateTime" or "DateTimeOffset" or "TimeSpan" or "Guid")
-           || (ns == "System.Numerics" && name is "BigInteger" or "Complex")
-           || (ns == "System" && name.StartsWith("ValueTuple", StringComparison.Ordinal))
-           || (ns == "System.Collections.Generic" && name == "KeyValuePair`2");
-
     TypeRef TypeFromEntity(EntityHandle handle)
     {
         try
@@ -1498,111 +590,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         {
             return TypeRef.Unsupported("interface implementation");
         }
-    }
-
-    // Resolves a metadata type token (TypeDef/TypeRef/TypeSpec) to a TypeRef, used to
-    // inspect a newarr element type. Returns Unsupported on any malformed/unknown token.
-    TypeRef ResolveTypeToken(int token, GenericScope scope)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            return handle.Kind switch
-            {
-                HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)handle, 0),
-                HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)handle, 0),
-                HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, scope, (TypeSpecificationHandle)handle, 0),
-                _ => TypeRef.Unsupported("newarr element"),
-            };
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return TypeRef.Unsupported("newarr element");
-        }
-    }
-
-    bool IsInAssemblyReferenceTypeElement(int elementToken)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(elementToken);
-            return handle.Kind == HandleKind.TypeDefinition
-                && !IsValueTypeDefinition((TypeDefinitionHandle)handle);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-    }
-
-    TypeRef? ResolveMemberReferenceParentType(EntityHandle handle, GenericScope callerScope)
-    {
-        var parent = _reader.GetMemberReference((MemberReferenceHandle)handle).Parent;
-        return parent.Kind switch
-        {
-            HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)parent, 0),
-            HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)parent, 0),
-            HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, callerScope, (TypeSpecificationHandle)parent, 0),
-            _ => null,
-        };
-    }
-
-    static int ArgumentSlotCount(MethodIdentity method)
-        => method.ParameterTypes.Length + (method.IsStatic ? 0 : 1);
-
-    MemberRef ResolveCalliMember(int token, GenericScope scope)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            if (handle.Kind != HandleKind.StandaloneSignature)
-                return MemberRef.Unsupported("calli signature unavailable");
-            var standalone = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle);
-            if (!SignatureBlobGuard.IsSafeToDecode(
-                    _reader,
-                    standalone.Signature,
-                    SignatureBlobGuard.Kind.StandaloneMethod))
-            {
-                return MemberRef.Unsupported("calli signature unavailable");
-            }
-
-            var signature = standalone.DecodeMethodSignature(TypeRefDecoder.Instance, scope);
-            return new MemberRef(
-                TypeRef.Unsupported("function pointer"),
-                "calli",
-                signature.ParameterTypes,
-                signature.ReturnType,
-                MemberKind.FunctionPointer)
-            {
-                HasThis = signature.Header.IsInstance,
-                SignatureHeader = signature.Header.RawValue,
-                RequiredParameterCount =
-                    signature.RequiredParameterCount,
-                GenericArity = signature.GenericParameterCount,
-                OpenParameterTypes = signature.ParameterTypes,
-                OpenReturnType = signature.ReturnType,
-            };
-        }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentException
-            or OverflowException)
-        {
-            return MemberRef.Unsupported("calli signature unavailable");
-        }
-    }
-
-    GenericScope CreateScope(TypeDefinition typeDef, MethodDefinition methodDef)
-        => new(GenericParameterNames(typeDef.GetGenericParameters()), GenericParameterNames(methodDef.GetGenericParameters()));
-
-    ImmutableArray<string> GenericParameterNames(GenericParameterHandleCollection handles)
-    {
-        if (handles.Count == 0)
-            return [];
-        var names = ImmutableArray.CreateBuilder<string>(handles.Count);
-        foreach (var handle in handles)
-            names.Add(_reader.GetString(_reader.GetGenericParameter(handle).Name));
-        return names.MoveToImmutable();
     }
 
 }

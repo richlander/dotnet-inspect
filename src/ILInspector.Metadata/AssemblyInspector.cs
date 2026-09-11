@@ -6,6 +6,31 @@ using System.Security.Cryptography;
 namespace ILInspector.Metadata;
 
 /// <summary>
+/// Owner-issued identity for the managed metadata image represented by a PE.
+/// </summary>
+public abstract record ManagedMetadataIdentity
+{
+    private ManagedMetadataIdentity()
+    {
+    }
+
+    public abstract string Name { get; }
+
+    public sealed record Assembly(AssemblyReferenceIdentity Identity) :
+        ManagedMetadataIdentity
+    {
+        public override string Name => Identity.Name;
+    }
+
+    public sealed record Module(
+        string ModuleName,
+        Guid ModuleVersionId) : ManagedMetadataIdentity
+    {
+        public override string Name => ModuleName;
+    }
+}
+
+/// <summary>
 /// Inspects .NET assemblies to extract PE header info, assembly metadata, and references.
 /// </summary>
 public static class AssemblyInspector
@@ -22,10 +47,10 @@ public static class AssemblyInspector
         var corHeader = peHeaders.CorHeader;
 
         info.HasCorHeader = corHeader != null;
-        info.HasManagedMetadata = peReader.HasMetadata;
+        info.HasManagedMetadata = MetadataFormatAdmission.AdmitImage(peReader);
 
         bool hasR2R = corHeader != null && corHeader.ManagedNativeHeaderDirectory.Size > 0;
-        bool hasILCode = corHeader != null && peReader.HasMetadata;
+        bool hasILCode = corHeader != null && MetadataFormatAdmission.AdmitImage(peReader);
         bool isILOnly = corHeader?.Flags.HasFlag(CorFlags.ILOnly) == true;
 
         info.HasILCode = hasILCode;
@@ -67,9 +92,9 @@ public static class AssemblyInspector
         info.IsExecutable = peHeaders.IsExe;
         info.IsDll = peHeaders.IsDll;
 
-        if (peReader.HasMetadata)
+        if (MetadataFormatAdmission.AdmitImage(peReader))
         {
-            var metadataReader = peReader.GetMetadataReader();
+            var metadataReader = MetadataFormatAdmission.GetMetadataReader(peReader);
             info.RuntimeVersion = metadataReader.MetadataVersion;
 
             if (metadataReader.IsAssembly)
@@ -117,9 +142,9 @@ public static class AssemblyInspector
     {
         var info = ExtractAssemblyInfo(peReader);
 
-        if (peReader.HasMetadata)
+        if (MetadataFormatAdmission.AdmitImage(peReader))
         {
-            var metadataReader = peReader.GetMetadataReader();
+            var metadataReader = MetadataFormatAdmission.GetMetadataReader(peReader);
             info.MetadataVersion = metadataReader.GetTableRowCount(TableIndex.Module);
             info.HasUnsafeCode = CheckForUnsafeCode(metadataReader);
         }
@@ -137,10 +162,10 @@ public static class AssemblyInspector
     public static List<AssemblyReferenceIdentity> ExtractReferenceIdentities(PEReader peReader)
     {
         ArgumentNullException.ThrowIfNull(peReader);
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
-        return ExtractReferenceIdentities(peReader.GetMetadataReader());
+        return ExtractReferenceIdentities(MetadataFormatAdmission.GetMetadataReader(peReader));
     }
 
     /// <summary>
@@ -245,11 +270,39 @@ public static class AssemblyInspector
     /// Extracts typed assembly-reference identities from a file path.
     /// </summary>
     public static List<AssemblyReferenceIdentity> ExtractReferenceIdentities(string assemblyPath)
-    {
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream);
-        return ExtractReferenceIdentities(peReader);
-    }
+        => OwnedResourceCleanup.ReadAdmittedPeImage(
+            () => File.OpenRead(assemblyPath),
+            ExtractReferenceIdentities,
+            []);
+
+    /// <summary>
+    /// Extracts the assembly or module definition identity from a managed image.
+    /// Returns null when the PE has no admitted managed metadata.
+    /// </summary>
+    public static ManagedMetadataIdentity? ExtractManagedMetadataIdentity(
+        string assemblyPath)
+        => OwnedResourceCleanup.ReadAdmittedPeImage<
+            ManagedMetadataIdentity?>(
+            () => File.OpenRead(assemblyPath),
+            static peReader =>
+            {
+                MetadataReader reader =
+                    MetadataFormatAdmission.GetMetadataReader(peReader);
+                if (reader.IsAssembly)
+                {
+                    return new ManagedMetadataIdentity.Assembly(
+                        AssemblyReferenceIdentity.FromAssemblyDefinition(
+                            reader));
+                }
+
+                ModuleDefinition module = reader.GetModuleDefinition();
+                return new ManagedMetadataIdentity.Module(
+                    reader.GetString(module.Name),
+                    module.Mvid.IsNil
+                        ? Guid.Empty
+                        : reader.GetGuid(module.Mvid));
+            },
+            noMetadataResult: null);
 
     /// <summary>
     /// Extracts assembly references and company name in a single pass.
@@ -267,11 +320,10 @@ public static class AssemblyInspector
     /// </summary>
     public static (List<AssemblyReferenceIdentity> References, string? Company)
         ExtractReferenceIdentitiesAndCompany(string assemblyPath)
-    {
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream);
-        return ExtractReferenceIdentitiesAndCompany(peReader);
-    }
+        => OwnedResourceCleanup.ReadAdmittedPeImage(
+            () => File.OpenRead(assemblyPath),
+            ExtractReferenceIdentitiesAndCompany,
+            ([], null));
 
     /// <summary>
     /// Extracts assembly references and company name from a resolved descriptor.
@@ -292,9 +344,11 @@ public static class AssemblyInspector
         ExtractReferenceIdentitiesAndCompany(ResolvedAssemblyReference assembly)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        using var stream = assembly.OpenRead();
-        using var peReader = new PEReader(stream);
-        return ExtractReferenceIdentitiesAndCompany(peReader);
+        return OwnedResourceCleanup.ReadAdmittedPeImage(
+            assembly.OpenRead,
+            ExtractReferenceIdentitiesAndCompany,
+            ([], null),
+            assembly.ValidateArtifactContent);
     }
 
     /// <summary>
@@ -315,10 +369,10 @@ public static class AssemblyInspector
         ExtractReferenceIdentitiesAndCompany(PEReader peReader)
     {
         ArgumentNullException.ThrowIfNull(peReader);
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return ([], null);
 
-        var metadataReader = peReader.GetMetadataReader();
+        var metadataReader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var refs = ExtractReferenceIdentities(metadataReader);
         var company = ExtractCompanyAttribute(metadataReader);
         return (refs, company);

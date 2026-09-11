@@ -28,15 +28,13 @@ public sealed record AssemblyIdentityNames(
 public static class AssemblyIdentityScanner
 {
     public static AssemblyIdentityNames Scan(string assemblyPath)
-    {
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream);
-        return Scan(peReader);
-    }
+        => OwnedResourceCleanup.ReadPeImage(
+            () => File.OpenRead(assemblyPath),
+            Scan);
 
     public static AssemblyIdentityNames Scan(PEReader peReader)
     {
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         string name = reader.IsAssembly
             ? reader.GetString(reader.GetAssemblyDefinition().Name)
             : string.Empty;

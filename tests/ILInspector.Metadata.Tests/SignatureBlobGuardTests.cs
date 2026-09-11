@@ -14,6 +14,28 @@ public class SignatureBlobGuardTests
     const byte Ptr = 0x0f, ByRef = 0x10, ValueType = 0x11, Class = 0x12, Var = 0x13, Array = 0x14,
         GenericInst = 0x15, FnPtr = 0x1b, SzArray = 0x1d, CmodReqd = 0x1f, CmodOpt = 0x20, I4 = 0x08;
 
+    [Theory]
+    [InlineData(new byte[] { 6, I4 }, true, 0, 0, 0, 0)]
+    [InlineData(new byte[] { 6, Array, I4, 2, 2, 3, 4, 1, 0 }, true, 1, 2, 1, 1)]
+    [InlineData(new byte[] { 6, Array, Array, I4, 1, 1, 3, 1, 0, 2, 2, 3, 4, 0 }, true, 2, 3, 2, 1)]
+    [InlineData(new byte[] { 6, Array, I4, 2, 2, 3 }, false, 1, 2, 0, 0)]
+    [InlineData(new byte[] { 6, Array, I4, 1, 0, 0, I4 }, false, 1, 0, 1, 0)]
+    public unsafe void ArrayMeasurements_PreserveAdmissionAndPartialScan(
+        byte[] signature, bool accepted, int sizeCount, long sizeTotal, int lowerCount, long lowerTotal)
+    {
+        fixed (byte* bytes = signature)
+        {
+            var blob = new BlobReader(bytes, signature.Length);
+            Assert.Equal(accepted, SignatureBlobGuard.IsSafeAndCompleteToDecode(blob, SignatureBlobGuard.Kind.Field));
+            Assert.Equal(accepted, SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                blob, SignatureBlobGuard.Kind.Field, out var measurements));
+            Assert.Equal(sizeCount, measurements.Sizes.Count);
+            Assert.Equal(sizeTotal, measurements.Sizes.Total);
+            Assert.Equal(lowerCount, measurements.LowerBounds.Count);
+            Assert.Equal(lowerTotal, measurements.LowerBounds.Total);
+        }
+    }
+
     [Fact]
     public void ShallowType_IsSafe()
     {
@@ -327,6 +349,76 @@ public class SignatureBlobGuardTests
         // shape counts before reading elements, so an unbounded count OOMs even from a 7-byte blob.
         byte[] blob = [0x14 /* ARRAY */, I4, 0x01 /* rank */, 0xdf, 0xff, 0xff, 0xff /* sizesCount */];
         Assert.False(GuardTypeSpec(blob));
+    }
+
+    // The remaining-bytes check alone bounds one shape against the blob, not the work SRM does:
+    // it materializes an array per count while decoding the shape, before TypeNodeProvider can
+    // charge anything. A blob that is merely long therefore buys unbounded materialization. These
+    // three pin the boundary: the shared MetadataSafetyPolicy.MaxSignatureTypeNodes budget bounds
+    // each count and their aggregate, and ordinary wide-but-shallow ranks stay accepted.
+    [Fact]
+    public void ArrayShapeCountWithinTypeNodeBudget_IsSafe()
+        => Assert.True(GuardTypeSpec(ArrayShapeWithSizes(1_000)));
+
+    [Fact]
+    public void ArrayShapeCountBeyondTypeNodeBudget_IsUnsafe()
+        => Assert.False(GuardTypeSpec(
+            ArrayShapeWithSizes(
+                MetadataSafetyPolicy.MaxSignatureTypeNodes + 1)));
+
+    [Fact]
+    public void AggregateArrayShapeCountsBeyondTypeNodeBudget_IsUnsafe()
+    {
+        // Each count clears the per-shape byte check and the budget on its own; only their sum
+        // exceeds it. Under a per-shape-only bound every one of these would be accepted.
+        int each = (MetadataSafetyPolicy.MaxSignatureTypeNodes / 3) + 1;
+        Assert.True(GuardTypeSpec(NestedArrayShapesWithSizes(1, each)));
+        Assert.False(GuardTypeSpec(NestedArrayShapesWithSizes(3, each)));
+    }
+
+    static byte[] ArrayShapeWithSizes(int sizes)
+        => NestedArrayShapesWithSizes(1, sizes);
+
+    /// <summary>
+    /// <paramref name="depth"/> nested ELEMENT_TYPE_ARRAY wrappers around an I4, each declaring
+    /// rank 1, <paramref name="sizes"/> one-byte sizes, and no lower bounds.
+    /// </summary>
+    static byte[] NestedArrayShapesWithSizes(int depth, int sizes)
+    {
+        var blob = new List<byte>();
+        for (int i = 0; i < depth; i++)
+            blob.Add(Array);
+        blob.Add(I4);
+        for (int i = 0; i < depth; i++)
+        {
+            blob.Add(0x01); // rank 1
+            WriteCompressedUnsigned(blob, sizes);
+            for (int size = 0; size < sizes; size++)
+                blob.Add(0x00);
+            blob.Add(0x00); // 0 lo-bounds
+        }
+        return blob.ToArray();
+    }
+
+    // ECMA-335 II.23.2 compressed unsigned integer.
+    static void WriteCompressedUnsigned(List<byte> blob, int value)
+    {
+        if (value < 0x80)
+        {
+            blob.Add((byte)value);
+        }
+        else if (value < 0x4000)
+        {
+            blob.Add((byte)(0x80 | (value >> 8)));
+            blob.Add((byte)value);
+        }
+        else
+        {
+            blob.Add((byte)(0xC0 | (value >> 24)));
+            blob.Add((byte)(value >> 16));
+            blob.Add((byte)(value >> 8));
+            blob.Add((byte)value);
+        }
     }
 
     [Theory]

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using NuGetFetch;
 
 namespace DotnetInspector.Packages;
@@ -17,15 +18,32 @@ namespace DotnetInspector.Packages;
 /// </remarks>
 public sealed record PackageSourceAuthorization
 {
+    private readonly IReadOnlyDictionary<
+        PackageSourceAssociation,
+        ConfiguredPackageAuthority> _authoritiesByAssociation;
+
     PackageSourceAuthorization(
-        IReadOnlyList<PackageSource> sources,
+        IReadOnlyList<ConfiguredPackageAuthority> authorities,
         string? denialReason)
     {
-        Sources = sources;
+        Authorities = authorities;
+        Sources = new ReadOnlyCollection<PackageSource>(
+            [.. authorities.Select(authority => authority.Source)]);
+        IEqualityComparer<PackageSourceAssociation> associationComparer =
+            ReferenceEqualityComparer.Instance;
+        _authoritiesByAssociation =
+            authorities.ToDictionary(
+                authority => authority.Association,
+                associationComparer);
         DenialReason = denialReason;
     }
 
-    /// <summary>The authorized producers, in consultation order.</summary>
+    /// <summary>The configured package authorities for one package ID.</summary>
+    public IReadOnlyList<ConfiguredPackageAuthority> Authorities { get; }
+
+    /// <summary>
+    /// The selected source representations, in consultation order.
+    /// </summary>
     public IReadOnlyList<PackageSource> Sources { get; }
 
     /// <summary>
@@ -35,13 +53,25 @@ public sealed record PackageSourceAuthorization
     /// </summary>
     public string? DenialReason { get; }
 
-    /// <summary>Authorizes <paramref name="sources"/> in consultation order.</summary>
+    /// <summary>
+    /// Authorizes each independently selected source as one authority, in
+    /// consultation order.
+    /// </summary>
+    /// <remarks>
+    /// A policy that owns configured aliases must select and collapse them
+    /// before calling this method; endpoint resemblance alone does not grant
+    /// this method enough policy evidence to combine authorities.
+    /// </remarks>
     public static PackageSourceAuthorization Authorize(
         IEnumerable<PackageSource> sources)
     {
         ArgumentNullException.ThrowIfNull(sources);
         return new PackageSourceAuthorization(
-            new ReadOnlyCollection<PackageSource>([.. sources]),
+            new ReadOnlyCollection<ConfiguredPackageAuthority>(
+                [
+                    .. sources.Select(source =>
+                        new ConfiguredPackageAuthority(source)),
+                ]),
             denialReason: null);
     }
 
@@ -50,6 +80,20 @@ public sealed record PackageSourceAuthorization
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
         return new PackageSourceAuthorization([], reason);
+    }
+
+    /// <summary>
+    /// Recovers the exact configured authority for an owner-issued source
+    /// association.
+    /// </summary>
+    public bool TryGetAuthority(
+        PackageSourceAssociation association,
+        [NotNullWhen(true)] out ConfiguredPackageAuthority? authority)
+    {
+        ArgumentNullException.ThrowIfNull(association);
+        return _authoritiesByAssociation.TryGetValue(
+            association,
+            out authority);
     }
 }
 

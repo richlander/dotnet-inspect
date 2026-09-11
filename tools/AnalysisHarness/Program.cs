@@ -43,9 +43,10 @@ const string Usage =
           label; precision and recall cover only those labels, not all possible relationships.
 
       --clone-cross-assembly-corpus <left> <right> [--cross-assembly-ledger <file>] [--json]
-          Grade product-owned cross-image structural-clone retrieval against the authored
-          version-pair ledger. Similarity uses portable structural operand categories and does
-          not establish a cross-reader clone relation.
+          Grade product-owned cross-image structural-clone retrieval against the loaded
+          version-pair ledger. Each ledger entry selects a left-side query method and submits
+          all methods in the declared right-side type; the product ranks the supported,
+          signature-compatible subset. Similarity does not establish a clone relation.
 
       --clone-census <assembly> [--seed <0xMethodDef|Type::Method>] [--top N]
           Run bounded product-owned exact discovery over every MethodDef in one assembly.

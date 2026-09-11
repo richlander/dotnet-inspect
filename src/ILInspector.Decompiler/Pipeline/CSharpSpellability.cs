@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using CSharpText;
 using ILInspector.Metadata;
 
@@ -18,7 +19,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class CSharpSpellability
 {
-    internal readonly record struct NameIssue(string Discriminator, string Reason);
+    internal readonly record struct NameIssue(
+        string Discriminator,
+        string Reason,
+        DecompilerFidelityLocation? Location = null);
 
     enum PlaceKind { Argument, Local, StackSlot }
     enum ExplicitTypeContext
@@ -66,6 +70,22 @@ internal static class CSharpSpellability
 
         return node switch
         {
+            IrFunction function => LocalFunctionDeclarationIssue(function)
+                ?? ParameterNamesIssue(
+                function.Signature.Parameters,
+                ParameterReservedNames(
+                    function,
+                    function.Signature.GenericParameterNames),
+                "a method generic parameter or local-function declaration")
+                ?? LocalNamesIssue(
+                    function,
+                    function.Locals.Length,
+                    function.LocalNames,
+                    function.EliminatedLocalSlots,
+                    ExactLocalNameAllocation.ReservedNames(
+                        function,
+                        function.Signature.Parameters,
+                        function.Signature.GenericParameterNames)),
             Call call => MethodIssue(call.Callee),
             NewObject newObject => ConstructorIssue(newObject.Constructor),
             AddressOfMethod address => MethodGroupTargetIssue(address.Method),
@@ -86,11 +106,203 @@ internal static class CSharpSpellability
             DeconstructionTarget target => DeconstructionTargetIssue(target),
             RecursivePropertyDeclarationPattern pattern => PropertyIssue(pattern.PropertyName),
             EventSubscription subscription => PropertyIssue(subscription.EventName),
-            LocalFunctionStatement statement => LocalFunctionIssue(statement.Name),
+            Lambda lambda => ParameterNamesIssue(
+                    lambda.Parameters,
+                    ParameterReservedNames(
+                        lambda.Body,
+                        lambda.CapturedBinderNames),
+                    "an actually referenced enclosing binder or local-function declaration")
+                ?? NestedLocalNamesIssue(
+                    lambda.LocalNames,
+                    lambda.Parameters,
+                    lambda.Body,
+                    lambda.CapturedBinderNames),
+            LocalFunctionStatement statement => LocalFunctionIssue(statement.Name)
+                ?? ParameterNamesIssue(
+                    statement.Parameters,
+                    ParameterReservedNames(
+                        statement.Body,
+                        statement.CapturedBinderNames),
+                    "an actually referenced enclosing binder or local-function declaration")
+                ?? NestedLocalNamesIssue(
+                    statement.LocalNames,
+                    statement.Parameters,
+                    statement.Body,
+                    statement.CapturedBinderNames),
             LocalFunctionInvocation invocation => LocalFunctionIssue(invocation.Name),
             _ => null,
         };
     }
+
+    static NameIssue? LocalFunctionDeclarationIssue(IrFunction function)
+    {
+        if (function.Signature.GenericParameterNames.IsEmpty)
+            return null;
+
+        var genericParameterNames = function.Signature.GenericParameterNames
+            .ToHashSet(StringComparer.Ordinal);
+        // Nested local-function raising is unsupported, so every declaration
+        // this pipeline can emit belongs to the host function's declaration space.
+        foreach (var localFunction in function
+            .DescendantsOutsideNestedFunctions
+            .OfType<LocalFunctionStatement>())
+        {
+            if (genericParameterNames.Contains(localFunction.Name))
+            {
+                return Issue(
+                    DecompilerFidelityDiscriminators.UnspellableLocalFunctionName,
+                    $"local function name '{localFunction.Name}' conflicts with a method generic parameter");
+            }
+        }
+
+        return null;
+    }
+
+    static IEnumerable<string> ParameterReservedNames(
+        IrNode scope,
+        IEnumerable<string> reservedNames)
+        => reservedNames.Concat(
+            scope.DescendantsOutsideNestedFunctions
+                .OfType<LocalFunctionStatement>()
+                .Select(statement => statement.Name));
+
+    static NameIssue? ParameterNamesIssue(
+        ImmutableArray<Parameter> parameters,
+        IEnumerable<string>? reservedNames = null,
+        string reservedNameDescription = "a method generic parameter")
+    {
+        var parameterNames = new HashSet<string>(StringComparer.Ordinal);
+        HashSet<string>? reserved = reservedNames is null
+            ? null
+            : new HashSet<string>(reservedNames, StringComparer.Ordinal);
+        foreach (var parameter in parameters)
+        {
+            if (!HasLosslessBodyIdentifierSpelling(parameter.DisplayName))
+            {
+                return Issue(
+                    DecompilerFidelityDiscriminators.UnspellableParameterName,
+                    $"parameter name '{parameter.DisplayName}' has no lossless C# spelling");
+            }
+            if (!parameterNames.Add(parameter.DisplayName))
+            {
+                return Issue(
+                    DecompilerFidelityDiscriminators.UnspellableParameterName,
+                    $"duplicate parameter name '{parameter.DisplayName}' has no lossless C# binding");
+            }
+            if (reserved?.Contains(parameter.DisplayName) == true)
+            {
+                return Issue(
+                    DecompilerFidelityDiscriminators.UnspellableParameterName,
+                    $"parameter name '{parameter.DisplayName}' conflicts with {reservedNameDescription}");
+            }
+        }
+
+        return null;
+    }
+
+    static NameIssue? LocalNamesIssue(
+        IrNode scope,
+        int localCount,
+        ImmutableArray<string?> localNames,
+        IReadOnlySet<int>? eliminatedLocalSlots = null,
+        IEnumerable<string>? reservedNames = null,
+        IrNode? retainedScope = null)
+    {
+        var reserved = reservedNames is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(reservedNames, StringComparer.Ordinal);
+        var retainedLocalSlots = ExactLocalNameAllocation.RetainedLocalSlots(
+            retainedScope ?? scope,
+            localCount,
+            eliminatedLocalSlots);
+        var allocation = ExactLocalNameAllocation.Allocate(
+            scope,
+            localCount,
+            localNames,
+            reserved,
+            retainedLocalSlots);
+        for (var index = 0; index < localNames.Length; index++)
+        {
+            string? name = localNames[index];
+            if (name is null || !retainedLocalSlots.Contains(index))
+                continue;
+            if (!HasLosslessBodyIdentifierSpelling(name))
+            {
+                return new NameIssue(
+                    DecompilerFidelityDiscriminators.UnspellableLocalName,
+                    $"local name '{name}' has no lossless C# spelling",
+                    DecompilerFidelityLocation.AtLocal(index));
+            }
+            if (index < allocation.Dispositions.Length
+                && allocation.Dispositions[index]
+                    == ExactLocalNameDisposition.Collision)
+            {
+                string reason = reserved.Contains(name)
+                    ? $"local name '{name}' conflicts with a parameter, method generic parameter, captured binder, or local-function declaration"
+                    : $"duplicate local name '{name}' has no lossless C# binding";
+                return new NameIssue(
+                    DecompilerFidelityDiscriminators.UnspellableLocalName,
+                    reason,
+                    DecompilerFidelityLocation.AtLocal(index));
+            }
+        }
+
+        return null;
+    }
+
+    static NameIssue? NestedLocalNamesIssue(
+        ImmutableArray<string?> localNames,
+        ImmutableArray<Parameter> parameters,
+        BlockContainer body,
+        ImmutableArray<string> capturedBinderNames)
+        => LocalNamesIssue(
+            body,
+            localNames.Length,
+            localNames,
+            reservedNames: ExactLocalNameAllocation.ReservedNames(
+                body,
+                parameters,
+                [],
+                capturedBinderNames.Concat(
+                    ExternalArgumentNamesInScope(body, parameters))),
+            retainedScope: body);
+
+    internal static IEnumerable<string> ExternalArgumentNamesInScope(
+        IrNode scope,
+        ImmutableArray<Parameter> parameters)
+    {
+        var parameterBindings = new HashSet<Parameter>(
+            parameters,
+            ReferenceEqualityComparer.Instance);
+        var parameterNames = new HashSet<string>(
+            parameters.Select(parameter => parameter.DisplayName),
+            StringComparer.Ordinal);
+        foreach (var node in scope.DescendantsOutsideNestedFunctions.Prepend(scope))
+        {
+            (string? Name, Parameter? Parameter) argument = node switch
+            {
+                LoadArgument load => (load.Name, load.Parameter),
+                LoadArgumentAddress address => (address.Name, address.Parameter),
+                StoreArgument store => (store.Name, store.Parameter),
+                DeconstructionTarget { Kind: DeconstructionTargetKind.Argument } target
+                    => (target.ArgumentName, target.ArgumentParameter),
+                _ => default,
+            };
+            if (argument.Name is not null
+                && (argument.Parameter is { } binding
+                    ? !parameterBindings.Contains(binding)
+                    : !parameterNames.Contains(argument.Name)))
+            {
+                yield return argument.Name;
+            }
+        }
+    }
+
+    static bool HasLosslessBodyIdentifierSpelling(string name)
+        => CSharpIdentifier.IsIdentifierLike(name)
+            && !name.Any(static character =>
+                char.IsSurrogate(character)
+                || char.GetUnicodeCategory(character) == UnicodeCategory.Format);
 
     /// <summary>
     /// Whether the printer can spell <paramref name="expression"/> as a value the
@@ -113,6 +325,9 @@ internal static class CSharpSpellability
     {
         var pending = new Stack<IrExpression>();
         var seenPlaces = new HashSet<(PlaceKind Kind, int Index)>();
+        var seenArgumentBindings = new HashSet<Parameter>(
+            ReferenceEqualityComparer.Instance);
+        var seenUnboundArgumentIndices = new HashSet<int>();
         var bodyNodes = function.DescendantsOutsideNestedFunctions.ToList();
         pending.Push(expression);
 
@@ -194,9 +409,15 @@ internal static class CSharpSpellability
                         pending.Push(patternDefault);
                     break;
                 case LoadArgument load
-                    when seenPlaces.Add((PlaceKind.Argument, load.Index)):
+                    when load.Parameter is { } parameter
+                        ? seenArgumentBindings.Add(parameter)
+                        : seenUnboundArgumentIndices.Add(load.Index):
                     foreach (var store in bodyNodes.OfType<StoreArgument>())
-                        if (store.Index == load.Index)
+                        if (PlaceIdentity.SameArgument(
+                                load.Index,
+                                load.Parameter,
+                                store.Index,
+                                store.Parameter))
                             pending.Push(store.Value);
                     break;
                 case LoadLocal load

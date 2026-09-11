@@ -1,9 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
-using ILInspector.Decompiler;
-using ILInspector.Findings;
+using DotnetInspector.Queries;
 using ILInspector.Instructions;
-using ILInspector.Research;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
 namespace DotnetInspector.RoundTripCompilation;
@@ -20,7 +18,7 @@ public sealed record RoundTripScopeMemberComparison(
     IlBodyDiffOutcome IlStatus,
     RoundTripCSharpEvidence? CSharpDiff,
     RoundTripIlEvidence? IlDiff,
-    [property: JsonIgnore] ImplementationMemberDiffResult? Evidence,
+    [property: JsonIgnore] LocalComparisonQueryResult? Evidence,
     string? CSharpFailure,
     string? IlFailure);
 
@@ -78,12 +76,16 @@ public static class RoundTripScopeComparison
             File.WriteAllBytes(allPath, allPe);
             using var clusterSource = DecompilerMetadataSource.OpenWithoutSymbols(clusterPath);
             using var allSource = DecompilerMetadataSource.OpenWithoutSymbols(allPath);
+            using var workspace = new InspectionWorkspace();
+            var query = new RoundTripComparisonQuery(workspace, clusterSource, allSource);
             var members = ImmutableArray.CreateBuilder<RoundTripScopeMemberComparison>();
             foreach (var target in clusterRequest.Targets)
             {
                 var clusterMember = cluster.Members.Single(member => member.Target.Method == target.Method);
                 var allMember = all.Members.Single(member => member.Target.Method == target.Method);
-                if (clusterMember.Correspondence.Target is not { } clusterTarget
+                if (!clusterMember.Correspondence.IsExact
+                    || clusterMember.Correspondence.Target is not { } clusterTarget
+                    || !allMember.Correspondence.IsExact
                     || allMember.Correspondence.Target is not { } allTarget)
                 {
                     string failure = clusterMember.Correspondence.Failure
@@ -101,33 +103,16 @@ public static class RoundTripScopeComparison
                     continue;
                 }
 
-                var subject = new FindingSubject(
-                    target.Anchor.StableSelector,
-                    $"{target.Anchor.TypeFullName}.{target.Anchor.MemberName}");
-                var clusterInspection = CSharpFindings.Inspect(clusterSource, clusterTarget.Handle, subject);
-                var allInspection = CSharpFindings.Inspect(allSource, allTarget.Handle, subject);
-                var evidence = ImplementationDiff.CompareMembers(
-                    clusterSource,
-                    clusterTarget.Handle,
-                    allSource,
-                    allTarget.Handle);
-                var csharpStatus = clusterInspection is FindingInspection<CSharpCanonicalLine>.Complete
-                    && allInspection is FindingInspection<CSharpCanonicalLine>.Complete
-                        ? evidence.CSharpDiff is { IsExact: true }
-                            ? RoundTripEvidenceStatus.Exact
-                            : RoundTripEvidenceStatus.Changed
-                        : RoundTripEvidenceStatus.Unavailable;
+                var evidence = query.Compare(clusterTarget, allTarget);
                 members.Add(new RoundTripScopeMemberComparison(
                     target,
-                    csharpStatus,
-                    evidence.IlDiff?.Diff.Outcome ?? IlBodyDiffOutcome.Unavailable,
-                    ToEvidence(evidence.CSharpDiff),
-                    ToEvidence(evidence.IlDiff?.Diff),
-                    evidence,
-                    CSharpFailure: csharpStatus == RoundTripEvidenceStatus.Unavailable
-                        ? "cluster or all C# inspection was not complete"
-                        : null,
-                    IlFailure: evidence.IlDiff?.Diff.Failure));
+                    evidence.CSharpStatus,
+                    evidence.IlStatus,
+                    evidence.CSharpDiff,
+                    evidence.IlDiff,
+                    evidence.Evidence,
+                    evidence.CSharpFailure,
+                    evidence.IlFailure));
             }
 
             return new RoundTripScopeComparisonResult(
@@ -185,22 +170,6 @@ public static class RoundTripScopeComparison
                == right with { References = [], ParseFeatures = [] }
            && left.ParseFeatures.SequenceEqual(right.ParseFeatures, StringComparer.Ordinal)
            && left.References.SequenceEqual(right.References);
-
-    static RoundTripCSharpEvidence? ToEvidence(CSharpBodyDiffResult? diff)
-        => diff is null ? null : new(
-            Normalize(diff.Rows),
-            Normalize(diff.FailureRows),
-            Normalize(diff.IdentityFailures));
-
-    static RoundTripIlEvidence? ToEvidence(IlBodyDiffResult? diff)
-        => diff is null ? null : new(
-            diff.Outcome,
-            diff.Failure,
-            Normalize(diff.Rows),
-            Normalize(diff.FailureRows));
-
-    static ImmutableArray<T> Normalize<T>(ImmutableArray<T> values)
-        => values.IsDefault ? [] : values;
 
     static string TemporaryPath(string scope)
         => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-roundtrip-{scope}-{Guid.NewGuid():N}.dll");

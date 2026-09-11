@@ -1,0 +1,599 @@
+using System.Collections.Immutable;
+using DotnetInspector.Fixtures;
+using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
+namespace ILInspector.Decompiler.Tests;
+
+public class ValidityShellNoiseTests
+{
+    static readonly TypeRef ReferenceEqualityComparerType =
+        TypeRef.Definition("Microsoft.CodeAnalysis", "System.Collections.Generic", "ReferenceEqualityComparer");
+
+    static readonly TypeRef NonGenericConvertType =
+        TypeRef.Definition("ILInspector.Decompiler", "ILInspector.Decompiler.Pipeline", "Convert");
+
+    [Fact]
+    public void RuntimeAsyncNoAwaitShell_UsesMetadataAsyncContext()
+    {
+        using var source = MetadataSource.Open(
+            FixtureCatalog.DecompilerRuntimeAsync.AssemblyPath());
+        var function = IrImporter.Import(
+            source,
+            "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures",
+            "NoAwait");
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        Assert.Equal(MetadataFactState.Yes, function.IsRuntimeAsync);
+        Assert.False(function.RequiresAsyncBodyModifier);
+
+        var projection = CSharpPrinter.Print(function);
+        string body = Assert.IsType<string>(projection.Output);
+        string shell = ValidityCheck.Shell(
+            function,
+            body,
+            function.DeclaringType.Name,
+            function.Name,
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                projection.RequiresUnsafeBodyModifier));
+
+        Assert.Contains("async Task __M(", shell);
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void RuntimeAsyncNoAwaitUnsafeShell_PreservesUnsafeContext()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.RuntimeAsyncNoAwaitUnsafe));
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        Assert.Equal(MetadataFactState.Yes, function.IsRuntimeAsync);
+        Assert.False(function.RequiresAsyncBodyModifier);
+
+        var projection = CSharpPrinter.Print(function);
+        Assert.True(projection.RequiresUnsafeBodyModifier);
+        string body = Assert.IsType<string>(projection.Output);
+        string shell = ValidityCheck.Shell(
+            function,
+            body,
+            function.DeclaringType.Name,
+            function.Name,
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                projection.RequiresUnsafeBodyModifier));
+
+        Assert.Contains("async unsafe Task __M(", shell);
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void RuntimeAsyncNoAwaitUnsafeRts_PreservesUnsafeContextWithoutFloor()
+    {
+        Type fixtureType = typeof(CfgSampleClass);
+        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            fixtureType.Assembly.Location,
+            [new ReturnToSender.RequestedTarget(
+                fixtureType.FullName!,
+                nameof(CfgSampleClass.RuntimeAsyncNoAwaitUnsafe),
+                Overload: 0)]));
+
+        Assert.True(
+            result.Source.Contains(
+                "unsafe async Task RuntimeAsyncNoAwaitUnsafe",
+                StringComparison.Ordinal),
+            result.Source);
+        Assert.False(result.UsedCompileBackFloor, result.Detail);
+        Assert.NotEqual(
+            FidelityCheck.CompileBackStatus.RecompileFail,
+            result.Status);
+    }
+
+    [Theory]
+    [InlineData("get_UnsafeGetter", "unsafe int UnsafeGetter")]
+    [InlineData("add_UnsafeChanged", "unsafe void add_UnsafeChanged")]
+    [Trait("Speed", "Slow")]
+    public void AccessorRts_PreservesUnsafeBodyContextWithoutFloor(
+        string methodName,
+        string declaration)
+    {
+        Type fixtureType = typeof(CfgSampleClass);
+        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            fixtureType.Assembly.Location,
+            [new ReturnToSender.RequestedTarget(
+                fixtureType.FullName!,
+                methodName,
+                Overload: 0)]));
+
+        Assert.Contains(declaration, result.Source);
+        Assert.False(result.UsedCompileBackFloor, result.Detail);
+        Assert.NotEqual(
+            FidelityCheck.CompileBackStatus.RecompileFail,
+            result.Status);
+    }
+
+    [Fact]
+    public void OrdinaryTaskReturningShell_DoesNotInferAsyncFromReturnType()
+    {
+        TypeRef task = TypeRef.CoreLib(
+            "System.Threading.Tasks",
+            "Task");
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("fixture", "", "Ordinary"),
+            new MethodSignature(
+                task,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            new BlockContainer());
+
+        string shell = ValidityCheck.Shell(
+            function,
+            "return null;\n",
+            function.DeclaringType.Name,
+            function.Name,
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: false));
+
+        Assert.Contains("unsafe Task __M(", shell);
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.AwaitOnce))]
+    [InlineData(nameof(CfgSampleClass.AwaitUsingResource))]
+    [InlineData(nameof(CfgSampleClass.NestedAwaitUsingResources))]
+    [InlineData(nameof(CfgSampleClass.AwaitForeach))]
+    public void AsyncShellWithAwaitSyntax_DoesNotComposeUnsafeModifier(
+        string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        Assert.True(function.RequiresAsyncBodyModifier);
+
+        string body = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+        Assert.Contains("await", body);
+        string shell = ValidityCheck.Shell(
+            function,
+            body,
+            typeof(CfgSampleClass).FullName!,
+            methodName,
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: true));
+
+        Assert.Contains("async Task<int> __M(", shell);
+        Assert.DoesNotContain("unsafe Task<int> __M(", shell);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.AwaitUsingAfterUnsafeRead))]
+    [InlineData(nameof(CfgSampleClass.AwaitForeachAfterUnsafeRead))]
+    public void LegacyUnsafeOperationWithRaisedAwaitSyntax_UsesExplicitBlock(
+        string methodName)
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        var result = CSharpPrinter.Print(function);
+        string body = Assert.IsType<string>(result.Output);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.False(function.UsesUpdatedMemorySafetyRules);
+        Assert.True(result.ContainsAwaitExpression);
+        Assert.False(result.RequiresUnsafeBodyModifier);
+        Assert.Contains("unsafe\n{", body);
+        Assert.Contains("await ", body);
+
+        string shell = ValidityCheck.Shell(
+            function,
+            body,
+            typeof(CfgSampleClass).FullName!,
+            methodName,
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: true));
+
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Theory]
+    [InlineData("CS0029", "class Real {} sealed class __Shell { Real M() => this; }")]
+    [InlineData("CS0019", "sealed class Real {} sealed class __Shell { bool M(Real value) => this == value; }")]
+    [InlineData("CS0019", "class Real {} sealed class __Shell { bool M((int, Real) value) => (1, this) == value; }")]
+    [InlineData("CS0030", "sealed class Real {} sealed class __Shell { Real M() => (Real)this; }")]
+    [InlineData("CS0030", "class Real {} sealed class __Shell { Real[] M() => (Real[])new[] { this }; }")]
+    [InlineData("CS0023", "sealed class __Shell { bool M() => !this; }")]
+    [InlineData(
+        "CS0266",
+        "class Real { public static explicit operator Real(__Shell value) => new(); } sealed class __Shell { Real M() => this; }")]
+    [InlineData(
+        "CS1605",
+        "sealed class __Shell { static void Take(ref __Shell value) {} void M() { Take(ref this); } }")]
+    [InlineData(
+        "CS8121",
+        "class Real {} sealed class Derived : Real {} sealed class __Shell { object M() { if (this is Derived value) return value; return null; } }")]
+    [InlineData(
+        "CS8129",
+        "class Real { public void Deconstruct(out int x, out int y) { x = y = 0; } } sealed class __Shell { void M() { (int x, int y) = this; } }")]
+    public void SyntheticShellThisDiagnostics_AreFiltered(string diagnosticId, string source)
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(source);
+        var matching = diagnostics.Where(d => d.Id == diagnosticId).ToImmutableArray();
+        Assert.NotEmpty(matching);
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            matching,
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Empty(defects);
+    }
+
+    [Fact]
+    public void ShellNameInMethodLevelDiagnostic_StaysReported()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(
+            "sealed class __Shell { bool M() { } }");
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            diagnostics,
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Equal(["CS0161"], defects.Select(d => d.Id));
+    }
+
+    [Theory]
+    [InlineData(
+        "CS0266",
+        "sealed class __Shell { byte M(long value) => this.Equals(null) ? value : value; }")]
+    [InlineData(
+        "CS0029",
+        "sealed class __Shell { void M() { (string, object) value; value = (1, this); } }")]
+    public void ShellThisInSiblingSubexpression_DoesNotHideDefect(
+        string diagnosticId,
+        string source)
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(source);
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            diagnostics.Where(d => d.Id == diagnosticId),
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Equal([diagnosticId], defects.Select(d => d.Id));
+    }
+
+    [Fact]
+    public void ShellThisInStructuralOperand_DoesNotHideOtherTypeMismatch()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(
+            "class Real {} sealed class __Shell { bool M((string, Real) value) => (1, this) == value; }");
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            diagnostics.Where(d => d.Id == "CS0019"),
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Equal(diagnostics.Count(d => d.Id == "CS0019"), defects.Length);
+        Assert.All(defects, defect => Assert.Equal("CS0019", defect.Id));
+    }
+
+    [Fact]
+    public void UnenumeratedShellDiagnostic_StaysReportedWithoutEvidenceMiss()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(
+            "class Real {} sealed class Derived : Real {} sealed class __Shell { Derived M() => this as Derived; }");
+        var diagnostic = Assert.Single(diagnostics, d => d.Id == "CS0039");
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            [diagnostic],
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Equal(["CS0039"], defects.Select(d => d.Id));
+    }
+
+    [Fact]
+    public void ProtectedAccessThroughDeclaringTypeReceiver_IsFiltered()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel("""
+            class Base { protected object Clone() => new(); }
+            class Real : Base {}
+            class __Shell : Base
+            {
+                object M(Real value) => value.Clone();
+            }
+            """);
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            diagnostics,
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Empty(defects);
+    }
+
+    [Fact]
+    public void ProtectedAccessThroughOtherTypeReceiver_StaysReported()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel("""
+            class Base { protected object Clone() => new(); }
+            class Real : Base {}
+            class __Shell : Base
+            {
+                object M(Real value) => value.Clone();
+            }
+            """);
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            diagnostics,
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Other")),
+            semanticModel);
+
+        Assert.Equal(["CS1540"], defects.Select(d => d.Id));
+    }
+
+    [Theory]
+    [InlineData("CS0712", "class __Shell { object M() => new Convert(); }")]
+    [InlineData("CS0721", "class __Shell { void M(Convert value) {} }")]
+    [InlineData(
+        "CS0721",
+        "class __Shell { System.Threading.Tasks.Task M(System.Convert value) => null; }")]
+    [InlineData("CS0722", "class __Shell { Convert M() => null; }")]
+    [InlineData("CS0723", "class __Shell { void M() { Convert value = null; } }")]
+    public void StaticTypeNameCollisions_UseDiagnosticSyntax(
+        string diagnosticId,
+        string source)
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(
+            "using System;" + Environment.NewLine + source);
+        var matching = diagnostics.Where(d => d.Id == diagnosticId).ToImmutableArray();
+        Assert.NotEmpty(matching);
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            matching,
+            tree,
+            Function(
+                TypeRef.Definition("fixture", "", "Host"),
+                [NonGenericConvertType]),
+            semanticModel);
+
+        Assert.Empty(defects);
+    }
+
+    [Fact]
+    public void StaticTypeDiagnosticWithoutModelCollision_StaysReported()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(
+            "using System; class __Shell { void M() { Convert value = null; } }");
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            diagnostics.Where(d => d.Id == "CS0723"),
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Host")),
+            semanticModel);
+
+        Assert.Equal(["CS0723"], defects.Select(d => d.Id));
+    }
+
+    [Theory]
+    [InlineData("CS0029")]
+    [InlineData("CS0723")]
+    public void SupportedDiagnosticWithoutSourceLocation_IsFailVisible(string diagnosticId)
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel("class __Shell {}");
+        var descriptor = new DiagnosticDescriptor(
+            diagnosticId,
+            "Synthetic",
+            "Synthetic",
+            "Compiler",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+        var diagnostic = Diagnostic.Create(descriptor, Location.None);
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            [diagnostic],
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Host")),
+            semanticModel);
+
+        Assert.Equal(
+            [diagnosticId, ValidityCheck.StructuredEvidenceMissId],
+            defects.Select(d => d.Id));
+    }
+
+    [Fact]
+    public void SupportedShellDiagnosticWithoutExpectedSyntax_IsFailVisible()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel("class __Shell {}");
+        var descriptor = new DiagnosticDescriptor(
+            "CS0029",
+            "Synthetic",
+            "Synthetic",
+            "Compiler",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+        var diagnostic = Diagnostic.Create(
+            descriptor,
+            Location.Create(
+                tree,
+                tree.GetRoot(TestContext.Current.CancellationToken).FullSpan));
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            [diagnostic],
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Equal(
+            ["CS0029", ValidityCheck.StructuredEvidenceMissId],
+            defects.Select(d => d.Id));
+    }
+
+    [Fact]
+    public void DeclaringTypeStaticPropertyCtorAssignmentCollision_IsFiltered()
+    {
+        var (diagnostic, tree, semanticModel) = ReadOnlyInstanceDiagnostic();
+        var function = StaticConstructorWithBackingStore(ReferenceEqualityComparerType, "Instance");
+
+        Assert.True(ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(diagnostic, tree, function, semanticModel));
+    }
+
+    [Fact]
+    public void DeclaringTypeStaticPropertyCtorAssignmentWithoutBackingStore_StaysReported()
+    {
+        var (diagnostic, tree, semanticModel) = ReadOnlyInstanceDiagnostic();
+        var function = StaticConstructorWithBackingStore(ReferenceEqualityComparerType, backingPropertyName: null);
+
+        Assert.False(ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(diagnostic, tree, function, semanticModel));
+    }
+
+    [Fact]
+    public void OtherTypeStaticPropertyAssignment_StaysReported()
+    {
+        var (diagnostic, tree, semanticModel) = ReadOnlyInstanceDiagnostic();
+        var otherType = TypeRef.Definition("fixture", "Fixture", "Holder");
+        var function = StaticConstructorWithBackingStore(otherType, "Instance");
+
+        Assert.False(ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(diagnostic, tree, function, semanticModel));
+    }
+
+    [Fact]
+    public void DeclaringTypeGetOnlyPropertyAssignment_BindsInsideStaticConstructor()
+    {
+        var diagnostics = Compile("""
+            public sealed class Rq
+            {
+                public static Rq Instance { get; }
+
+                static Rq()
+                {
+                    Rq.Instance = new Rq();
+                }
+            }
+            """);
+
+        Assert.DoesNotContain(diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    static (Diagnostic Diagnostic, SyntaxTree Tree, SemanticModel SemanticModel) ReadOnlyInstanceDiagnostic()
+    {
+        var tree = CSharpSyntaxTree.ParseText("""
+            #pragma warning disable
+            using System.Collections.Generic;
+
+            class __Shell
+            {
+                void __M()
+                {
+                    ReferenceEqualityComparer.Instance = null!;
+                }
+            }
+            """, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CreateCompilation(tree);
+        var diagnostic = Assert.Single(compilation.GetDiagnostics(), d => d.Id == "CS0200");
+        return (diagnostic, tree, compilation.GetSemanticModel(tree));
+    }
+
+    static (ImmutableArray<Diagnostic> Diagnostics, SyntaxTree Tree, SemanticModel SemanticModel)
+        CompileWithModel(string source)
+    {
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview),
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CreateCompilation(tree);
+        return (
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken),
+            tree,
+            compilation.GetSemanticModel(tree));
+    }
+
+    static ImmutableArray<Diagnostic> Compile(string source)
+        => CreateCompilation(CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview)))
+            .GetDiagnostics();
+
+    static CSharpCompilation CreateCompilation(SyntaxTree tree)
+        => CSharpCompilation.Create(
+                "validity-shell-noise",
+                [tree],
+                ValidityCheck.RuntimeReferences(),
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true)
+                    .WithMetadataImportOptions(MetadataImportOptions.All));
+
+    static IrFunction StaticConstructorWithBackingStore(TypeRef declaringType, string? backingPropertyName)
+    {
+        var field = new FieldRef(declaringType, "<Instance>k__BackingField", declaringType)
+        {
+            BackingPropertyName = backingPropertyName,
+        };
+        var block = new Block();
+        block.Add(new StoreField(field, instance: null, new Constant(null, declaringType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            ".cctor",
+            declaringType,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction Function(
+        TypeRef declaringType,
+        ImmutableArray<TypeRef> locals = default)
+        => new(
+            "M",
+            declaringType,
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            locals.IsDefault ? [] : locals,
+            new BlockContainer());
+}

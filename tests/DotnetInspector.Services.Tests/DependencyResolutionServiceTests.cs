@@ -1,0 +1,1099 @@
+using System.Net;
+using System.Text;
+using DotnetInspector.Core;
+using DotnetInspector.Packages;
+using NuGetFetch;
+
+namespace DotnetInspector.Services.Tests;
+
+[Collection(CoreCacheCollection.Name)]
+public class DependencyResolutionServiceTests
+{
+    [Theory]
+    [InlineData("net9.0", "net8.0")]
+    [InlineData("net8.0", "netcoreapp3.1")]
+    [InlineData("netcoreapp3.1", "netstandard2.1")]
+    [InlineData("netstandard2.1", "netstandard2.0")]
+    [InlineData("netstandard2.0", "net472")]
+    public void TfmResolver_GetTfmPriority_OrdersCorrectly(string higher, string lower)
+    {
+        Assert.True(TfmResolver.GetTfmPriority(higher) > TfmResolver.GetTfmPriority(lower));
+    }
+
+    [Fact]
+    public void TfmSelector_SelectHighestTfm_UsesSharedPriorityPolicy()
+    {
+        var tfms = new[] { "netstandard2.0", "net472", "net8.0", "net10.0" };
+
+        Assert.Equal("net10.0", TfmSelector.SelectHighestTfm(tfms));
+    }
+
+    [Fact]
+    public void TfmSelector_SelectHighestTfm_NormalizesLongFormTfms()
+    {
+        var tfms = new[] { ".NETFramework4.7.2", ".NETStandard2.0", ".NETCoreApp,Version=v8.0" };
+
+        Assert.Equal(".NETCoreApp,Version=v8.0", TfmSelector.SelectHighestTfm(tfms));
+    }
+
+    [Fact]
+    public void TfmSelector_GetTfmPriority_NormalizesLongFormTfms()
+    {
+        Assert.Equal(TfmResolver.GetTfmPriority("net8.0"), TfmSelector.GetTfmPriority(".NETCoreApp,Version=v8.0/linux-x64"));
+        Assert.Equal(TfmResolver.GetTfmPriority("netstandard2.0"), TfmSelector.GetTfmPriority(".NETStandard2.0"));
+        Assert.Equal(TfmResolver.GetTfmPriority("net472"), TfmSelector.GetTfmPriority(".NETFramework4.7.2"));
+        Assert.Equal(TfmResolver.GetTfmPriority("net40"), TfmSelector.GetTfmPriority(".NETFramework,Version=v4.0,Profile=Client"));
+    }
+
+    [Fact]
+    public void TfmSelector_OrderByTfmPriorityDescending_PreservesCallerTieBreakers()
+    {
+        var tfms = new[] { "net8.0-windows", "net8.0", "netstandard2.0" };
+
+        var ordered = TfmSelector.OrderByTfmPriorityDescending(tfms, tfm => tfm)
+            .ThenBy(tfm => tfm, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Assert.Equal(["net8.0", "net8.0-windows", "netstandard2.0"], ordered);
+    }
+
+    [Theory]
+    [InlineData("[1.0.0, )", "1.0.0")]
+    [InlineData("1.0.0", "1.0.0")]
+    [InlineData("[2.1.0, 3.0.0)", "2.1.0")]
+    public void ResolveVersionFromRange_ReturnsMinVersion(string range, string expectedVersion)
+    {
+        Assert.Equal(expectedVersion, DependencyResolutionService.ResolveVersionFromRange(range));
+    }
+
+    [Fact]
+    public void ResolveVersionFromRange_InvalidRange_ReturnsNull()
+    {
+        Assert.Null(DependencyResolutionService.ResolveVersionFromRange("not-a-version"));
+    }
+
+    [Fact]
+    public async Task ResolveDependencyTree_MalformedTransitiveNuspec_PropagatesTypedRejection()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        var handler = new MalformedNuspecHandler();
+        using var client = new HttpClient(handler);
+        string packageId = $"typed-rejection-probe-{Guid.NewGuid():N}";
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = packageId, Version = "1.0.0" }
+        };
+
+        await Assert.ThrowsAsync<NuspecParseException>(
+            () => DependencyResolutionService.ResolveDependencyTreeAsync(
+                client,
+                dependencies,
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log: null));
+    }
+
+    [Fact]
+    public async Task ResolveDependencyTree_UnmappedTransitivePackagePropagatesMappingFailure()
+    {
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dependency-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="https://private.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="Other.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = "Unmapped.Dependency", Version = "1.0.0" }
+        };
+
+        try
+        {
+            PackageSourceMappingException exception =
+                await Assert.ThrowsAsync<PackageSourceMappingException>(
+                    () => DependencyResolutionService.ResolveDependencyTreeAsync(
+                        new HttpClient(),
+                        dependencies,
+                        "net10.0",
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                        log: null,
+                        sourceOptions: new NuGetSourceOptions { ConfigFile = configPath }));
+
+            Assert.Equal(PackageSourceMappingFailure.NoPattern, exception.Failure);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
+    public async Task ResolveDependencyTree_UsesCallerSourcesForEveryTransitiveNuspec()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        const string index = "https://private.example/v3/index.json";
+        const string flat = "https://private.example/v3-flatcontainer/";
+        string suffix = Guid.NewGuid().ToString("N");
+        string parentId = $"Parent.Package.{suffix}";
+        string childId = $"Child.Package.{suffix}";
+        var handler = new TransitiveNuspecHandler(index, flat, parentId, childId);
+        using var client = new HttpClient(handler);
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = parentId, Version = "1.0.0" }
+        };
+
+        List<DependencyNode> result =
+            await DependencyResolutionService.ResolveDependencyTreeAsync(
+                client,
+                dependencies,
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log: null,
+                sourceOptions: new NuGetSourceOptions { Sources = [index] });
+
+        DependencyNode parent = Assert.Single(result);
+        Assert.Equal(parentId, parent.PackageId);
+        Assert.Equal(childId, Assert.Single(parent.Children).PackageId);
+        Assert.Contains(
+            $"{flat}{parentId.ToLowerInvariant()}/1.0.0/{parentId.ToLowerInvariant()}.nuspec",
+            handler.Requested);
+        Assert.Contains(
+            $"{flat}{childId.ToLowerInvariant()}/1.0.0/{childId.ToLowerInvariant()}.nuspec",
+            handler.Requested);
+        Assert.All(handler.Requested, url =>
+            Assert.StartsWith("https://private.example/", url, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_RevisitRetainsIncomingRelationship()
+    {
+        var root = new PackageDependencyIdentity("root", "1.0.0");
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = "shared", Version = "1.0.0" },
+        };
+        using var client = new HttpClient(new UnexpectedRequestHandler());
+
+        PackageDependencyGraph graph =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                root,
+                rootAuthor: null,
+                dependencies,
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "shared",
+                },
+                log: null);
+
+        PackageDependencyRelationship relationship =
+            Assert.Single(graph.Relationships);
+        Assert.Equal(root, relationship.Source);
+        Assert.Equal(
+            new PackageDependencyIdentity("shared", "1.0.0"),
+            relationship.Target);
+        Assert.Equal(
+            PackageDependencyResolutionState.Declared,
+            relationship.Resolution);
+        Assert.Empty(graph.Tree);
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_NormalizesEquivalentCycleCoordinates()
+    {
+        var root = new PackageDependencyIdentity("Root.Package", "1.0");
+        using var client = new HttpClient(new UnexpectedRequestHandler());
+
+        PackageDependencyGraph graph =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                root,
+                rootAuthor: null,
+                [new PackageDependency
+                {
+                    Id = "Root.Package",
+                    Version = "1.0",
+                }],
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log: null);
+
+        PackageDependencyGraphNode node =
+            Assert.Single(graph.Nodes);
+        PackageDependencyRelationship cycle =
+            Assert.Single(graph.Relationships);
+        Assert.Equal("1.0.0", node.Identity.Version);
+        Assert.Equal(node.Identity, cycle.Source);
+        Assert.Equal(node.Identity, cycle.Target);
+        Assert.Equal(
+            PackageDependencyResolutionState.Resolved,
+            cycle.Resolution);
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_SharedTargetRetainsBothIncomingRelationships()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        string suffix = Guid.NewGuid().ToString("N");
+        string leftId = $"Left.Package.{suffix}";
+        string rightId = $"Right.Package.{suffix}";
+        string sharedId = $"Shared.Package.{suffix}";
+        string index = $"https://private.example/{suffix}/v3/index.json";
+        string flat = $"https://private.example/{suffix}/flat/";
+        using var client = new HttpClient(
+            new SharedDependencyNuspecHandler(
+                index,
+                flat,
+                leftId,
+                rightId,
+                sharedId));
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = leftId, Version = "1.0.0" },
+            new() { Id = rightId, Version = "1.0.0" },
+        };
+
+        PackageDependencyGraph graph =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                new PackageDependencyIdentity("Root.Package", "1.0.0"),
+                rootAuthor: null,
+                dependencies,
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log: null,
+                new NuGetSourceOptions { Sources = [index] });
+
+        Assert.Equal(5, graph.Relationships.Count);
+        Assert.Equal(
+            2,
+            graph.Relationships.Count(relationship =>
+                relationship.Target.PackageId == sharedId));
+        Assert.All(
+            graph.Relationships.Where(relationship =>
+                relationship.Target.PackageId == sharedId),
+            relationship => Assert.Equal(
+                PackageDependencyResolutionState.Resolved,
+                relationship.Resolution));
+        PackageDependencyRelationship cycle = Assert.Single(
+            graph.Relationships,
+            relationship =>
+                relationship.Source.PackageId == sharedId
+                && relationship.Target.PackageId == leftId);
+        Assert.Equal(
+            PackageDependencyResolutionState.Resolved,
+            cycle.Resolution);
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_ExpandsDistinctVersionsWithoutChangingCompatibilityTree()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        string suffix = Guid.NewGuid().ToString("N");
+        string leftId = $"Left.Package.{suffix}";
+        string rightId = $"Right.Package.{suffix}";
+        string sharedId = $"Shared.Package.{suffix}";
+        string firstLeafId = $"Leaf.One.{suffix}";
+        string secondLeafId = $"Leaf.Two.{suffix}";
+        string index = $"https://private.example/{suffix}/v3/index.json";
+        string flat = $"https://private.example/{suffix}/flat/";
+        using var client = new HttpClient(
+            new VersionedSharedDependencyNuspecHandler(
+                index,
+                flat,
+                leftId,
+                rightId,
+                sharedId,
+                firstLeafId,
+                secondLeafId));
+
+        PackageDependencyGraph graph =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                new PackageDependencyIdentity(
+                    "Root.Package",
+                    "1.0.0"),
+                rootAuthor: null,
+                [
+                    new PackageDependency
+                    {
+                        Id = leftId,
+                        Version = "1.0.0",
+                    },
+                    new PackageDependency
+                    {
+                        Id = rightId,
+                        Version = "1.0.0",
+                    },
+                ],
+                "net10.0",
+                new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase),
+                log: null,
+                new NuGetSourceOptions { Sources = [index] });
+
+        Assert.Contains(
+            graph.Relationships,
+            relationship =>
+                relationship.Source.PackageId == sharedId
+                && relationship.Source.Version == "1.0.0"
+                && relationship.Target.PackageId == firstLeafId);
+        Assert.Contains(
+            graph.Relationships,
+            relationship =>
+                relationship.Source.PackageId == sharedId
+                && relationship.Source.Version == "2.0.0"
+                && relationship.Target.PackageId == secondLeafId);
+
+        Assert.Equal(2, graph.Tree.Count);
+        Assert.Single(graph.Tree[0].Children);
+        Assert.Empty(graph.Tree[1].Children);
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_UnavailableTargetIsNotReportedAsResolved()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        string packageId = $"Unavailable.Package.{Guid.NewGuid():N}";
+        string index = $"https://private.example/{Guid.NewGuid():N}/v3/index.json";
+        using var client = new HttpClient(
+            new MissingNuspecHandler(index));
+
+        PackageDependencyGraph graph =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                new PackageDependencyIdentity("Root.Package", "1.0.0"),
+                rootAuthor: null,
+                [new PackageDependency
+                {
+                    Id = packageId,
+                    Version = "1.0.0",
+                }],
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log: null,
+                new NuGetSourceOptions { Sources = [index] });
+
+        Assert.Equal(
+            PackageDependencyResolutionState.Unavailable,
+            Assert.Single(graph.Relationships).Resolution);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_ExactMatch()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "net9.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net9.0");
+        Assert.Equal("net9.0", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_FallsBackToLowerTfm()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net6.0" },
+            new() { TargetFramework = "net8.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net9.0");
+        Assert.Equal("net8.0", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_LongFormGroupDoesNotExceedTarget()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net6.0" },
+            new() { TargetFramework = ".NETCoreApp,Version=v8.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net7.0");
+
+        Assert.Equal("net6.0", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_NormalizesLongFormTarget()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net6.0" },
+            new() { TargetFramework = "net8.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, ".NETCoreApp,Version=v8.0");
+
+        Assert.Equal("net8.0", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_FallsBackToAny()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "any" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net9.0");
+        Assert.Equal("any", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_NoMatch_ReturnsNull()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net9.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net6.0");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_NetStandard_MatchesNetApp()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "netstandard2.0" },
+            new() { TargetFramework = "netstandard2.1" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net8.0");
+        Assert.Equal("netstandard2.1", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_PrefersCompatibleFrameworkOverUniversal()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = "any" },
+            new() { TargetFramework = "netstandard2.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(
+            groups,
+            "net8.0");
+
+        Assert.Equal("netstandard2.0", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_PreservesLegacyExplicitGroupPrecedence()
+    {
+        NuspecData nuspec = NuspecParser.ParseContent(
+            """
+            <package>
+              <metadata>
+                <dependencies>
+                  <dependency id="Before" version="1.0.0" />
+                  <group targetFramework="any">
+                    <dependency id="Middle" version="2.0.0" />
+                  </group>
+                  <dependency id="After" version="3.0.0" />
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+
+        DependencyGroup? result =
+            DependencyResolutionService.FindBestMatchingTfmGroup(
+                nuspec.DependencyGroups!,
+                "net8.0");
+
+        Assert.Equal(
+            "Middle",
+            Assert.Single(result!.Dependencies).Id);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_MergesLegacyImplicitDependencies()
+    {
+        NuspecData nuspec = NuspecParser.ParseContent(
+            """
+            <package>
+              <metadata>
+                <dependencies>
+                  <dependency id="Before" version="1.0.0" />
+                  <group targetFramework="net9.0" />
+                  <dependency id="After" version="3.0.0" />
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+
+        DependencyGroup? result =
+            DependencyResolutionService.FindBestMatchingTfmGroup(
+                nuspec.DependencyGroups!,
+                "net8.0");
+
+        Assert.Equal(
+            ["Before", "After"],
+            result!.Dependencies.Select(dependency => dependency.Id));
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_NoGroups_ReturnsNoDependencyGroups()
+    {
+        var result = DependencyResolutionService.SelectDependencyGroup(null, null);
+
+        Assert.Equal(DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups, result.Status);
+        Assert.Null(result.Group);
+        Assert.Empty(result.AvailableTargetFrameworks);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_NoRequestedTfm_SelectsHighestTfm()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "netstandard2.0" },
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "net472" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, null);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Group?.TargetFramework);
+        Assert.Equal("net8.0", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_RequestedTfm_AllowsCompatibleFallbackAndPreservesRequestedTarget()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net6.0" },
+            new() { TargetFramework = "net8.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, "net9.0");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Group?.TargetFramework);
+        Assert.Equal("net9.0", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_EmptyRequestedTfm_SelectsEmptyTfmGroup()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, "");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("", result.Group?.TargetFramework);
+        Assert.Equal("", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_EmptyRequestedTfm_SelectsEmptyTfmGroup()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("", result.Group?.TargetFramework);
+        Assert.Equal("", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_RequestedTfm_NoMatch_ReturnsAvailableTfms()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "net9.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, "net6.0");
+
+        Assert.Equal(DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework, result.Status);
+        Assert.Null(result.Group);
+        Assert.Equal("net6.0", result.TargetFramework);
+        Assert.Equal(["net8.0", "net9.0"], result.AvailableTargetFrameworks);
+    }
+
+    [Theory]
+    [InlineData(".NETStandard2.0", "netstandard2.0")]
+    [InlineData(".NETFramework4.5", "net45")]
+    [InlineData(".NETCoreApp,Version=v8.0", "net8.0")]
+    [InlineData(".NETCoreApp,Version=v8.0.0", "net8.0")]
+    [InlineData(
+        ".NETFramework,Version=v4.0.0,Profile=Client",
+        "net40-client")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0.0,Platform=Windows,PlatformVersion=7.0.0",
+        "net8.0-windows7.0")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0.0,Platform=Windows,PlatformVersion=10.0.19041.0",
+        "net8.0-windows10.0.19041.0")]
+    public void SelectDependencyGroup_ExactMode_NormalizesNuGetLongForm(
+        string declared,
+        string requested)
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = declared }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            requested,
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal(declared, result.Group?.TargetFramework);
+        Assert.Equal(requested, result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_RejectsOverlongFrameworkVersion()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = ".NETCoreApp,Version=v8.0.0.0.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net8.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal(
+            DependencyResolutionService.DependencyGroupSelectionStatus
+                .NoMatchingTargetFramework,
+            result.Status);
+        Assert.Null(result.Group);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_DoesNotConflateFrameworkProfile()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new()
+            {
+                TargetFramework =
+                    ".NETFramework,Version=v4.0,Profile=Client",
+            },
+            new() { TargetFramework = "net40" },
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net40",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal("net40", result.Group?.TargetFramework);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("net45")]
+    public void SelectDependencyGroup_QualifiedGroupOutranksUniversal(
+        string? requested)
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = "any" },
+            new()
+            {
+                TargetFramework =
+                    ".NETFramework,Version=v4.0,Profile=Client",
+            },
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            requested);
+
+        Assert.Equal(
+            ".NETFramework,Version=v4.0,Profile=Client",
+            result.Group?.TargetFramework);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("any")]
+    public void SelectDependencyGroup_ExactMode_UniversalGroupMatchesAnyTarget(
+        string declared)
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = declared }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net9.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal(declared, result.Group?.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_PrefersExactGroupOverUniversal()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = "any" },
+            new() { TargetFramework = ".NETCoreApp,Version=v8.0.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net8.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal(".NETCoreApp,Version=v8.0.0", result.Group?.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_DoesNotFallbackForRequestedTfm()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net9.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal(DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework, result.Status);
+        Assert.Null(result.Group);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_EmptyDependencyGroup_IsStillSelected()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0", Dependencies = [] }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, null);
+
+        Assert.True(result.IsSelected);
+        Assert.Empty(result.Group!.Dependencies);
+    }
+
+    [Fact]
+    public void DependencyNode_Record_Properties()
+    {
+        var child = new DependencyNode("ChildPkg", "1.0.0", "Author1", []);
+        var node = new DependencyNode("ParentPkg", "2.0.0", "Author2", [child]);
+
+        Assert.Equal("ParentPkg", node.PackageId);
+        Assert.Equal("2.0.0", node.Version);
+        Assert.Equal("Author2", node.Author);
+        Assert.Single(node.Children);
+        Assert.Equal("ChildPkg", node.Children[0].PackageId);
+    }
+
+    private sealed class MalformedNuspecHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string body = request.RequestUri!.AbsolutePath.EndsWith(
+                ".nuspec",
+                StringComparison.OrdinalIgnoreCase)
+                ? "<package><metadata><id>REJECTED-TEXT</metadata></package>"
+                : """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""";
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+                RequestMessage = request
+            });
+        }
+    }
+
+    private sealed class TransitiveNuspecHandler(
+        string index,
+        string flat,
+        string parentId,
+        string childId) : HttpMessageHandler
+    {
+        public List<string> Requested { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            Requested.Add(url);
+
+            string? body = url switch
+            {
+                _ when url == index =>
+                    $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"{{flat}}"}]}""",
+                _ when url.EndsWith(
+                    $"/{parentId.ToLowerInvariant()}.nuspec",
+                    StringComparison.Ordinal) =>
+                    $$"""
+                    <package>
+                      <metadata>
+                        <id>{{parentId}}</id>
+                        <version>1.0.0</version>
+                        <authors>Test</authors>
+                        <dependencies>
+                          <group targetFramework="net10.0">
+                            <dependency id="{{childId}}" version="1.0.0" />
+                          </group>
+                        </dependencies>
+                      </metadata>
+                    </package>
+                    """,
+                _ when url.EndsWith(
+                    $"/{childId.ToLowerInvariant()}.nuspec",
+                    StringComparison.Ordinal) =>
+                    $$"""
+                    <package>
+                      <metadata>
+                        <id>{{childId}}</id>
+                        <version>1.0.0</version>
+                        <authors>Test</authors>
+                      </metadata>
+                    </package>
+                    """,
+                _ => null
+            };
+
+            return Task.FromResult(new HttpResponseMessage(
+                body is null ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+            {
+                Content = new StringContent(body ?? "", Encoding.UTF8),
+                RequestMessage = request
+            });
+        }
+    }
+
+    private sealed class UnexpectedRequestHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                $"Unexpected request: {request.RequestUri}");
+    }
+
+    private sealed class MissingNuspecHandler(string index) :
+        HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string? body = request.RequestUri!.ToString() == index
+                ? """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://private.example/flat/"}]}"""
+                : null;
+            return Task.FromResult(new HttpResponseMessage(
+                body is null ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+            {
+                Content = new StringContent(body ?? "", Encoding.UTF8),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    private sealed class SharedDependencyNuspecHandler(
+        string index,
+        string flat,
+        string leftId,
+        string rightId,
+        string sharedId) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = url switch
+            {
+                _ when url == index =>
+                    $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"{{flat}}"}]}""",
+                _ when EndsWithNuspec(url, leftId) =>
+                    PackageWithDependency(leftId, sharedId),
+                _ when EndsWithNuspec(url, rightId) =>
+                    PackageWithDependency(rightId, sharedId),
+                _ when EndsWithNuspec(url, sharedId) =>
+                    PackageWithDependency(sharedId, leftId),
+                _ => null,
+            };
+
+            return Task.FromResult(new HttpResponseMessage(
+                body is null ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+            {
+                Content = new StringContent(body ?? "", Encoding.UTF8),
+                RequestMessage = request,
+            });
+        }
+
+        private static bool EndsWithNuspec(string url, string packageId) =>
+            url.EndsWith(
+                $"/{packageId.ToLowerInvariant()}.nuspec",
+                StringComparison.Ordinal);
+
+        private static string PackageWithDependency(
+            string packageId,
+            string dependencyId) =>
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>1.0.0</version>
+                <dependencies>
+                  <group targetFramework="net10.0">
+                    <dependency id="{{dependencyId}}" version="1.0.0" />
+                  </group>
+                </dependencies>
+              </metadata>
+            </package>
+            """;
+    }
+
+    private sealed class VersionedSharedDependencyNuspecHandler(
+        string index,
+        string flat,
+        string leftId,
+        string rightId,
+        string sharedId,
+        string firstLeafId,
+        string secondLeafId) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = url switch
+            {
+                _ when url == index =>
+                    $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"{{flat}}"}]}""",
+                _ when EndsWithNuspec(url, leftId, "1.0.0") =>
+                    PackageWithDependency(
+                        leftId,
+                        "1.0.0",
+                        sharedId,
+                        "1.0.0"),
+                _ when EndsWithNuspec(url, rightId, "1.0.0") =>
+                    PackageWithDependency(
+                        rightId,
+                        "1.0.0",
+                        sharedId,
+                        "2.0.0"),
+                _ when EndsWithNuspec(url, sharedId, "1.0.0") =>
+                    PackageWithDependency(
+                        sharedId,
+                        "1.0.0",
+                        firstLeafId,
+                        "1.0.0"),
+                _ when EndsWithNuspec(url, sharedId, "2.0.0") =>
+                    PackageWithDependency(
+                        sharedId,
+                        "2.0.0",
+                        secondLeafId,
+                        "1.0.0"),
+                _ when EndsWithNuspec(url, firstLeafId, "1.0.0") =>
+                    PackageWithoutDependencies(
+                        firstLeafId,
+                        "1.0.0"),
+                _ when EndsWithNuspec(url, secondLeafId, "1.0.0") =>
+                    PackageWithoutDependencies(
+                        secondLeafId,
+                        "1.0.0"),
+                _ => null,
+            };
+
+            return Task.FromResult(new HttpResponseMessage(
+                body is null
+                    ? HttpStatusCode.NotFound
+                    : HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    body ?? "",
+                    Encoding.UTF8),
+                RequestMessage = request,
+            });
+        }
+
+        private static bool EndsWithNuspec(
+            string url,
+            string packageId,
+            string version) =>
+            url.EndsWith(
+                $"/{packageId.ToLowerInvariant()}/{version}/"
+                + $"{packageId.ToLowerInvariant()}.nuspec",
+                StringComparison.Ordinal);
+
+        private static string PackageWithDependency(
+            string packageId,
+            string version,
+            string dependencyId,
+            string dependencyVersion) =>
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>{{version}}</version>
+                <dependencies>
+                  <group targetFramework="net10.0">
+                    <dependency id="{{dependencyId}}" version="{{dependencyVersion}}" />
+                  </group>
+                </dependencies>
+              </metadata>
+            </package>
+            """;
+
+        private static string PackageWithoutDependencies(
+            string packageId,
+            string version) =>
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>{{version}}</version>
+              </metadata>
+            </package>
+            """;
+    }
+}

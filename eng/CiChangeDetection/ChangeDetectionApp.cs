@@ -1,3 +1,5 @@
+using CiChangeDetection.Planning;
+
 namespace CiChangeDetection;
 
 /// <summary>
@@ -40,12 +42,27 @@ public static class ChangeDetectionApp
             return 0;
         }
 
+        if (args is ["--refresh-decompiler-skip-projects"])
+        {
+            bool changed = DecompilerSkipProjectsGenerator.Generate(repository);
+            Console.WriteLine(changed
+                ? "Refreshed eng/decompiler-gate-skip-projects.txt from the "
+                    + "evaluated Release decompiler project closure."
+                : "eng/decompiler-gate-skip-projects.txt is already current.");
+            return 0;
+        }
+
         if (args.Length != 0)
         {
             throw new InvalidOperationException(
-                "Usage: dotnet run eng/test-ci-change-detection.cs [-- --refresh-evil-provenance-pin]");
+                "Usage: dotnet run eng/test-ci-change-detection.cs "
+                + "[-- --refresh-evil-provenance-pin | "
+                + "--refresh-decompiler-skip-projects]");
         }
 
+        RepositoryLineEndingGuard.AssertContract();
+        RepositoryLineEndingGuard.Validate(repository);
+        InspectWebProjectGraphPolicy.Validate(repository);
         WorkflowContractResult result = LoadContract(
             repository,
             workflowText,
@@ -65,10 +82,12 @@ public static class ChangeDetectionApp
                     validateProvenancePin: false);
                 return ProvenancePin.Refresh(mutated, mutatedContract);
             });
-        DetectionTestSuite.Run(repository, result);
+        ChangePlanTestSuite.Run(repository);
 
         Console.WriteLine(
-            "CI change detection fail-safe, path canaries, and provenance pin mutations passed.");
+            "CI aggregate fail-safe, repository line endings, path canaries, "
+            + "provenance pin mutations, change-planner construction, and "
+            + "workflow scope transport passed.");
         return 0;
     }
 

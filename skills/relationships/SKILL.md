@@ -7,10 +7,9 @@ description: Map how code connects — implementors and subclasses, extension me
 # dotnet-inspect: relationships and dependency graphs
 
 Use this skill to map how code connects: what implements or extends a type, what
-it depends on, and who calls it. Dependency views already render as trees; add
-`--mermaid` for a standalone diagram or `--markdown --mermaid` to embed one.
-Member Call Graphs instead default to Markdown edge tables and offer an
-explicit `--tree` path view.
+it depends on, and who calls it. Dependency graphs and Member Call Graphs share
+the same graph gestures: add `--tree` for a standalone path view, `--mermaid`
+for a standalone diagram, or `--markdown --mermaid` to embed one.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -18,13 +17,31 @@ dnx dotnet-inspect -y -- <command>
 
 Scope any of these commands the same way: `--project path/to.csproj` (restored
 project references), `--package Foo` (repeatable), `--library path.dll`,
-`--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (curated
+`--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (current
 Microsoft.* sets), and `--tfm net9.0`. For `implements` and `extensions`, use
-`--package-prefix Azure.AI` to search every package under a NuGet ID prefix;
-`depends` does not accept `--package-prefix`.
+`--package-prefix Azure.AI` to search up to 500 packages under a NuGet ID
+prefix; the command warns when that bound is reached. `depends` does not accept
+`--package-prefix`.
 
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
+
+## What does the root declare directly?
+
+`dependency-evidence` reports one normalized snapshot of the direct
+dependencies declared by explicit package, nuspec, restored-project, or
+package-prefix roots. It preserves framework scopes, version constraints,
+restored resolution evidence, and root-set completion without walking the
+transitive dependency tree. Use `depends` when traversal is the goal.
+
+```bash
+dnx dotnet-inspect -y -- dependency-evidence \
+  --package Newtonsoft.Json --tfm net8.0
+dnx dotnet-inspect -y -- dependency-evidence \
+  --project ./src/App/App.csproj --nuspec ./artifacts/App.nuspec -v:n
+dnx dotnet-inspect -y -- dependency-evidence \
+  --package-prefix Microsoft.Extensions --tfm net10.0 --jsonl
+```
 
 ## What implements or extends it?
 
@@ -43,13 +60,16 @@ dnx dotnet-inspect -y -- extensions string --project ./src/App/App.csproj -v:n
 ## What does it depend on?
 
 `depends Type` walks dependency graphs upward — type hierarchy, library
-references, or package dependencies, depending on scope. Add `--mermaid` for a
-diagram.
+references, or package dependencies, depending on scope. Shared targets remain
+distinct incoming edges and appear as revisits in tree output. `--table`,
+`--tsv`, `--jsonl`, `--count`, `--rows`, and `-n` address the same ordered
+logical edges; `--json` retains the existing type-tree contract.
 
 ```bash
 dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
+dnx dotnet-inspect -y -- depends Int128 --table --rows 1..10
 ```
 
 ## Who calls it? (reverse edges)
@@ -89,14 +109,34 @@ dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 
 ## What does it integrate with? (ecosystem)
 
+All integrations are enabled by default. Discover and narrow the ordinary
+Integration result with canonical ecosystem identities:
+
+```bash
+dnx dotnet-inspect -y -- library -Q Integrations
+dnx dotnet-inspect -y -- library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
+dnx dotnet-inspect -y -- library MyLibrary.dll -S "Integration: Aspire" --where "ecosystem=ecosystem.aspire" --jsonl
+```
+
+Omitting `-S` with this predicate selects the Integration family. Use a concrete
+section for tabular output. An empty filtered result is not absence of all
+Integration support; full-library presence and Census remain unchanged.
+Unsupported IDs and combinations fail explicitly. Do not combine the ecosystem
+predicate with Performance Triage or Body Shapes queries.
+This option belongs to `library`, not `package --library` or `graph`.
+
 `graph integrations` compares an explicit package set inside one
 binding-consistent target. Repeat `--package name[@version]`, provide the shared
 `--tfm`, and add `--relationship <id>` only when the default Integration family
 should be narrowed. This is an induced set, not a traversal: it has no direction
 or depth. Markdown is an edge table by default; `--tree`, `--mermaid`, `--json`,
 `--jsonl`, `--count`, and `--rows` project the same logical relationships.
-Binding failures usually mean a package that owns the missing endpoint was not
-included; they remain visible and produce a nonzero exit.
+Missing `api.extension` or `integration.observed` endpoints whose assemblies are
+absent from the explicit package set remain outside the induced graph; add the
+owning package to admit those relationships. A missing
+`integration.opportunity` target and other binding failures -- unavailable,
+ambiguous, rejected, or selected outside the active context -- remain visible
+and produce a nonzero exit.
 
 ```bash
 dnx dotnet-inspect -y -- graph integrations \

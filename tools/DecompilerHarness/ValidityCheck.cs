@@ -98,6 +98,20 @@ static class ValidityCheck
         public bool IsValid => !IsMalformed && SemanticChecked && !HasSemanticDefect;
     }
 
+    internal readonly record struct MethodShellContext(
+        bool RequiresAsyncContext,
+        bool RequiresUnsafeContext,
+        bool HasAwaitSyntax)
+    {
+        public static MethodShellContext Create(
+            IrFunction function,
+            bool requiresUnsafeContext)
+            => new(
+                function.RequiresAsyncMethodContext,
+                requiresUnsafeContext,
+                ValidityCheck.HasAwaitSyntax(function));
+    }
+
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, string? emitDefectsPath = null, string? diffDefectsPath = null, bool lowered = false)
     {
         var results = Evaluate(assemblies, cap, lowered);
@@ -200,7 +214,8 @@ static class ValidityCheck
                 }
 
                 var evaluationTargets = candidates;
-                var semanticEligible = new ConcurrentBag<ValidityCandidate>();
+                var semanticEligible =
+                    new ConcurrentBag<RenderedValidityCandidate>();
 
                 Parallel.ForEach(evaluationTargets, options, item =>
                 {
@@ -212,9 +227,10 @@ static class ValidityCheck
                     Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
                         ? method => IrImporter.Import(source, method)
                         : null;
-                    var rendered = (lowered
+                    var projection = lowered
                         ? CSharpPrinter.PrintLowered(function, importMethodBody)
-                        : CSharpPrinter.PrintRaised(function, importMethodBody)).Output;
+                        : CSharpPrinter.PrintRaised(function, importMethodBody);
+                    var rendered = projection.Output;
                     if (rendered is null)
                         return;
                     bool full = function.Fidelity == DecompilationFidelity.Full;
@@ -225,6 +241,9 @@ static class ValidityCheck
                         typeName,
                         methodName,
                         constraints,
+                        MethodShellContext.Create(
+                            function,
+                            projection.RequiresUnsafeBodyModifier),
                         productParameterList,
                         references,
                         parseOptions,
@@ -249,50 +268,58 @@ static class ValidityCheck
                         return; // parallel return
                     }
 
-                    semanticEligible.Add(item);
+                    semanticEligible.Add(new RenderedValidityCandidate(
+                        item,
+                        rendered,
+                        projection.RequiresUnsafeBodyModifier));
                 });
 
                 var semanticSample = semanticEligible
-                    .OrderBy(StableValidityHash)
-                    .ThenBy(candidate => StableValidityKey(candidate), StringComparer.Ordinal)
+                    .OrderBy(candidate => StableValidityHash(candidate.Candidate))
+                    .ThenBy(
+                        candidate => StableValidityKey(candidate.Candidate),
+                        StringComparer.Ordinal)
                     .Take(cap)
+                    .ToList();
+                var sampledCandidates = semanticSample
+                    .Select(candidate => candidate.Candidate)
                     .ToHashSet();
 
-                foreach (var item in semanticEligible.Except(semanticSample))
+                foreach (var item in semanticEligible.Where(
+                    candidate => !sampledCandidates.Contains(
+                        candidate.Candidate)))
                 {
+                    var candidate = item.Candidate;
                     results.Add(new MethodResult(
-                        item.TypeName,
-                        item.MethodName,
-                        CorpusMethodIdentity.SignatureText(item.Function.Signature),
+                        candidate.TypeName,
+                        candidate.MethodName,
+                        CorpusMethodIdentity.SignatureText(
+                            candidate.Function.Signature),
                         true,
                         [],
                         false,
                         []));
                 }
+                semanticEligible.Clear();
 
                 Parallel.ForEach(semanticSample, options, item =>
                 {
-                    var typeName = item.TypeName;
-                    var methodName = item.MethodName;
-                    var function = item.Function;
-                    var productParameterList = item.ProductParameterList;
-                    Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
-                        ? method => IrImporter.Import(source, method)
-                        : null;
-                    var rendered = (lowered
-                        ? CSharpPrinter.PrintLowered(function, importMethodBody)
-                        : CSharpPrinter.PrintRaised(function, importMethodBody)).Output;
-                    if (rendered is null)
-                        return;
+                    var candidate = item.Candidate;
+                    var typeName = candidate.TypeName;
+                    var methodName = candidate.MethodName;
+                    var function = candidate.Function;
 
                     Interlocked.Increment(ref semChecked);
                     var semantic = EvaluateRenderedBody(
                         function,
-                        rendered,
+                        item.Rendered,
                         typeName,
                         methodName,
                         constraints,
-                        productParameterList,
+                        MethodShellContext.Create(
+                            function,
+                            item.RequiresUnsafeBodyModifier),
+                        candidate.ProductParameterList,
                         references,
                         parseOptions,
                         compileOptions,
@@ -312,6 +339,11 @@ static class ValidityCheck
         string MethodName,
         IrFunction Function,
         string? ProductParameterList);
+
+    sealed record RenderedValidityCandidate(
+        ValidityCandidate Candidate,
+        string Rendered,
+        bool RequiresUnsafeBodyModifier);
 
     static string StableValidityKey(ValidityCandidate candidate)
         => $"{candidate.TypeName}|{candidate.MethodName}|{CorpusMethodIdentity.SignatureText(candidate.Function.Signature)}";
@@ -333,9 +365,6 @@ static class ValidityCheck
         }
         return hash;
     }
-
-    internal static CSharpParseOptions ParseOptions()
-        => CompilerFeatureOptions.ParseOptions();
 
     internal static CSharpCompilationOptions CompileOptions()
         => new CSharpCompilationOptions(
@@ -365,13 +394,21 @@ static class ValidityCheck
         string typeName,
         string methodName,
         IReadOnlyDictionary<string, Dictionary<string, string>> constraints,
+        MethodShellContext shellContext,
         string? productParameterList,
         ImmutableArray<MetadataReference> references,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
         bool bindSemantics)
     {
-        string shell = Shell(function, body, typeName, methodName, constraints, productParameterList);
+        string shell = Shell(
+            function,
+            body,
+            typeName,
+            methodName,
+            constraints,
+            shellContext,
+            productParameterList);
         var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);
         var malformed = ImmutableArray.CreateBuilder<ValidityDiagnostic>();
         malformed.AddRange(SignatureDefaultDiagnostics(function, productParameterList));
@@ -665,7 +702,9 @@ static class ValidityCheck
 
     /// <summary>Wraps a body in a generic instance method on a class so locals, params, type params, and `this` all bind; member access on `this` becomes filtered binding noise.</summary>
     internal static string Shell(IrFunction function, string body, string typeName, string methodName,
-        IReadOnlyDictionary<string, Dictionary<string, string>> constraints, string? productParameterList = null)
+        IReadOnlyDictionary<string, Dictionary<string, string>> constraints,
+        MethodShellContext shellContext,
+        string? productParameterList = null)
     {
         var generics = GenericParameterNames(function);
         string genericList = generics.Count > 0 ? "<" + string.Join(", ", generics) + ">" : "";
@@ -676,17 +715,20 @@ static class ValidityCheck
         string parameters = productParameterList ?? string.Join(", ", function.Signature.Parameters.Select(ParameterText));
         // A decompiled async method renders its awaiting constructs faithfully, but
         // the original `async` modifier lives in metadata, not in the body. Use the
-        // printer's typed requirement rather than searching for AwaitExpression:
-        // later raises may consume the expression into `await using` while the body
-        // still requires an async context. The signature return type is already the
+        // function's unified typed context rather than searching for AwaitExpression:
+        // runtime-async metadata remains decisive when no await survives, while later
+        // classic raises may consume the expression into `await using` and leave the
+        // body requiring an async context. The signature return type is already the
         // awaitable (Task/Task<T>/ValueTask, or void for async void), so `async`
         // binds cleanly.
-        // `unsafe` and `async` are mutually exclusive here: the blanket `unsafe`
-        // modifier puts the whole body in an unsafe context, where `await` is illegal
-        // (CS4004) — so an awaiting body takes `async` INSTEAD of `unsafe`. Async
-        // method bodies do not carry pointer operations across awaits, so dropping the
-        // unsafe context costs nothing.
-        string modifier = function.RequiresAsyncBodyModifier ? "async" : "unsafe";
+        // A method-wide unsafe context forbids await syntax (CS4004), but async
+        // methods without emitted await syntax can require both modifiers. Route the
+        // printer-owned unsafe fact rather than rediscovering pointer syntax here.
+        string modifier = shellContext.RequiresAsyncContext
+            ? shellContext.RequiresUnsafeContext && !shellContext.HasAwaitSyntax
+                ? "async unsafe"
+                : "async"
+            : "unsafe";
         return $$"""
             #pragma warning disable
             using System;
@@ -712,6 +754,9 @@ static class ValidityCheck
             }
             """;
     }
+
+    static bool HasAwaitSyntax(IrFunction function)
+        => UnsafeAwaitOperand.ContainsAwait(function);
 
     static string ParameterText(Parameter parameter)
         => parameter.Type.Kind == TypeRefKind.ByRef

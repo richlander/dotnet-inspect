@@ -43,7 +43,7 @@ internal static class NuGetV3SearchResourceDiscovery
                     response,
                     ReadSearchEndpointsAsync,
                     options,
-                    client.Timeout,
+                    operation.RequestTimeout,
                     requestToken).ConfigureAwait(false);
             }).ConfigureAwait(false);
     }

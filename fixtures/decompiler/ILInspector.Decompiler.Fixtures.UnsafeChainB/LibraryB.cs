@@ -1,0 +1,56 @@
+namespace ILInspector.Decompiler.Fixtures.UnsafeChainB;
+
+using ILInspector.Decompiler.Fixtures.UnsafeChainA;
+
+using System.Threading.Tasks;
+
+/// <summary>
+/// Caller assembly B of the cross-assembly unsafe chain. <see cref="M2"/> calls
+/// <see cref="LibraryA.M1"/> — a pointerless requires-unsafe method in assembly
+/// A. Under the updated memory-safety rules the call needs an explicit unsafe
+/// context even though no pointer crosses the boundary. The source wraps it in
+/// an <c>unsafe { }</c> block; a faithful decompilation must do the same, which
+/// requires reading A.M1's <c>RequiresUnsafeAttribute</c> cross-assembly.
+/// </summary>
+public static class LibraryB
+{
+    public static int ReadContractField()
+    {
+        unsafe
+        {
+            return LibraryA.ContractField;
+        }
+    }
+
+    public static void WriteContractField(int value)
+    {
+        unsafe
+        {
+            LibraryA.ContractField = value;
+        }
+    }
+
+    public static ref int AddressContractField()
+    {
+        unsafe
+        {
+            return ref LibraryA.ContractField;
+        }
+    }
+
+    public static int ReadSafeField()
+        => LibraryA.SafeField;
+
+    public static async Task<int> AwaitSafePointer(nint value)
+        => await LibraryA.SafePointerTask((int*)value);
+
+    // Cross-assembly call to a pointerless requires-unsafe method. The call —
+    // not any intrinsic pointer op — is what forces the unsafe context.
+    public static int M2()
+    {
+        unsafe
+        {
+            return LibraryA.M1();
+        }
+    }
+}

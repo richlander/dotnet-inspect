@@ -29,7 +29,7 @@ uses `ExtensionsCommand.ProjectExtensions` to require correspondence between
 each scanner member and Metadata's extension-member census by anchor, kind,
 canonical extended type, return type, and assembly. Presentation takes the
 member kind from the validated observation. See
-[`ExtensionsCommand`](../../src/dotnet-inspect/Commands/ExtensionsCommand.cs).
+[`ExtensionsCommand`](../../src/DotnetInspect.Cli/Commands/ExtensionsCommand.cs).
 
 ## 2. Retain acquisition outcomes
 
@@ -47,7 +47,7 @@ erase the rest.
 - [PR #2628](https://github.com/richlander/dotnet-inspect/pull/2628) retains
   failed library inspections and projects them through the `Inspection
   Failures` section instead of making failure look empty. See
-  [`LibraryInspection`](../../src/dotnet-inspect/Models/LibraryInspection.cs).
+  [`LibraryInspection`](../../src/DotnetInspect.Cli/Models/LibraryInspection.cs).
 - [PR #2662](https://github.com/richlander/dotnet-inspect/pull/2662) creates one
   extension-member inspection per assembly, writes failed inspections to
   standard error, excludes only the failed census, and keeps successful
@@ -56,7 +56,7 @@ erase the rest.
   failure per version cell: one throwing evaluation becomes that cell's `Failed`
   while later cells are still evaluated, applying the same one-bad-source
   principle at N-address scale. See
-  [`TimelineCommand`](../../src/dotnet-inspect/Commands/TimelineCommand.cs).
+  [`TimelineCommand`](../../src/DotnetInspect.Cli/Commands/TimelineCommand.cs).
 
 ## 3. Replace instead of accreting
 
@@ -78,7 +78,7 @@ comparison, but they must not rerun a parallel matcher or count-only diff.
 - [PR #2640](https://github.com/richlander/dotnet-inspect/pull/2640) replaces
   the project `Grounding` lens with `Skills`; it does not leave both selectors
   and row models active. See
-  [`ProjectCommand`](../../src/dotnet-inspect/Commands/ProjectCommand.cs).
+  [`ProjectCommand`](../../src/DotnetInspect.Cli/Commands/ProjectCommand.cs).
 
 ## 4. Consume envelopes fail-visibly
 
@@ -100,7 +100,7 @@ its preferred evidence projection is unavailable.
   fallback `ImplementationDiffRow` from the change detail or descriptor when a
   known change has no unified evidence lines, rather than rendering it as
   nothing. See
-  [`DiffOutputFormatter`](../../src/dotnet-inspect/Output/DiffOutputFormatter.cs).
+  [`DiffOutputFormatter`](../../src/DotnetInspect.Cli/Output/DiffOutputFormatter.cs).
 
 ## 5. Confirmation lenses report native cases
 
@@ -121,12 +121,12 @@ the lens to allocation transitions.
 same contract to direct call sites. `DiffCommand` validates the focused target
 before acquisition, rejects classification filters, and renders
 `PairFinding.{pair.Kind}` directly. See
-[`DiffCommand`](../../src/dotnet-inspect/Commands/DiffCommand.cs).
+[`DiffCommand`](../../src/DotnetInspect.Cli/Commands/DiffCommand.cs).
 [PR #2697](https://github.com/richlander/dotnet-inspect/pull/2697) proves the
 marginal cost of the next descriptor: `analysis.unsafety` reuses the generic
 `BuildAnalysisFindingTransitions<T>` plus `RetainedFindingComparisonSet` for one
 row-mapper and one delegation, without a parallel matcher. See
-[`DiffCommand`](../../src/dotnet-inspect/Commands/DiffCommand.cs) and
+[`DiffCommand`](../../src/DotnetInspect.Cli/Commands/DiffCommand.cs) and
 [`RetainedFindingComparisonSet`](../../src/ILInspector.Research/ResearchChanges.cs).
 [PR #2699](https://github.com/richlander/dotnet-inspect/pull/2699) renders the
 same native cases in timeline transition rows as `pair.Kind`, without a triage
@@ -153,16 +153,16 @@ regression can escape by falling into an excluded failure bucket.
   `PointerStoreUsesOriginalAddress_StaysCompileBackCheckable` in both fidelity
   views. The docket may accept `Exact` or `OpcodeDiff`, but not disappearance,
   `RecompileFail`, or `ContextFail`. See
-  [`FidelityGateTests`](../../src/ILInspector.Decompiler.Tests/FidelityGateTests.cs)
+  [`FidelityGateTests`](../../tests/ILInspector.Decompiler.Tests/FidelityGateTests.cs)
   and
-  [`LoweredFidelityGateTests`](../../src/ILInspector.Decompiler.Tests/LoweredFidelityGateTests.cs).
+  [`LoweredFidelityGateTests`](../../tests/ILInspector.Decompiler.Tests/LoweredFidelityGateTests.cs).
 
 ## 7. Correlate through the census and identity tiers
 
 **Rule.** An N-address consumer routes whole-census state through
 `FindingCensusCorrelation<T>` and exact-identity tracks through `Correlate(key)`.
 It must not build a private per-cell state model, and it must not merge the two
-vocabularies: `Complete` is a census inspection state, not a fifth exact-identity
+vocabularies: `Complete` is a census inspection state, not an exact-identity
 correlation state (see [Finding Nomenclature](finding-nomenclature.md)).
 
 `Unevaluated` is a presentation join of the address space against the evaluated
@@ -177,8 +177,8 @@ failure to the cell. Pins:
 `CellException_BecomesFailureAndLaterCellsStillEvaluate`,
 `EmptyOwnedCensus_PreservesSubjectAvailabilityTransitions`, and
 `ProbeOrder_DoesNotChangeTimelineOrder` in
-[`TimelineCommandTests`](../../src/dotnet-inspect.Tests/TimelineCommandTests.cs).
-See [`FindingCensusCorrelation`](../../src/ILInspector.Findings/FindingCorrelation.cs).
+[`TimelineCommandTests`](../../tests/DotnetInspect.Cli.Tests/TimelineCommandTests.cs).
+See [`FindingCensusCorrelation`](../../src/Inspector.Findings/FindingCorrelation.cs).
 
 ## 8. Equality is not correspondence
 
@@ -194,8 +194,8 @@ gives Finding collection records sequence- and set-aware value equality while
 keeping matching key-driven. The test that pins this behavior is
 `FindingPayloadEquality_IsProducerOwnedButMatchingRemainsKeyDriven`: equal keys
 still match while unequal payload content reports unequal, and that is correct.
-See [Finding Value Equality](finding-value-equality.md) and
-[`FindingValueEquality`](../../src/ILInspector.Findings/FindingValueEquality.cs).
+See [Finding value semantics](finding-value-equality.md) and
+[`FindingValueEquality`](../../src/Inspector.Findings/FindingValueEquality.cs).
 
 ## 9. Retain provenance without promoting judgments
 

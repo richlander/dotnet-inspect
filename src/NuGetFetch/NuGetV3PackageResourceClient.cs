@@ -73,7 +73,7 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                             response,
                             NuGetApi.DeserializeVersionIndexAsync,
                             options,
-                            client.Timeout,
+                            operation.RequestTimeout,
                             requestToken).ConfigureAwait(false);
                     return (IReadOnlyList<string>?)index?.Versions
                         ?? throw new NuGetSourceResponseException(
@@ -228,7 +228,7 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                         MaxMetadataResponseBytes =
                             options.MaxManifestResponseBytes,
                     },
-                    client.Timeout,
+                    operation.RequestTimeout,
                     requestToken).ConfigureAwait(false);
             }).ConfigureAwait(false);
     }
@@ -280,7 +280,7 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                         response,
                         NuGetApi.DeserializeServiceIndexAsync,
                         options,
-                        client.Timeout,
+                        operation.RequestTimeout,
                         requestToken).ConfigureAwait(false);
                 }).ConfigureAwait(false);
         }

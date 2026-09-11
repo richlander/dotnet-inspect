@@ -1,5 +1,7 @@
 namespace CSharpText;
 
+using System.Globalization;
+
 /// <summary>
 /// The authoritative producer of spellable C# identifiers: reserved-keyword
 /// <c>@</c>-escaping and the sanitization of unspellable metadata names (names with
@@ -14,10 +16,10 @@ namespace CSharpText;
 /// bodies). It deliberately does <em>not</em> escape declaration-only contextual
 /// keywords (<c>record</c>, <c>required</c>, <c>init</c>, <c>file</c>, <c>scoped</c>),
 /// which are legal bare identifiers in expression and body position where raised and
-/// compile-back identifiers live. Declaration-position escaping, which additionally
-/// covers those contextual keywords, is
-/// <c>CSharpDeclarationWriter.EscapeIdentifier</c>, and its containing
-/// counterpart is <see cref="ContainIdentifierForDeclaration"/>.
+/// compile-back identifiers live. Declaration-position escaping additionally
+/// covers contextual keywords that acquire meaning there. Exact type-declaration
+/// names use <see cref="AdmitTypeDeclaration"/>; presentation-only declaration
+/// text uses <see cref="ContainIdentifierForDeclaration"/>.
 /// </remarks>
 public static class CSharpIdentifier
 {
@@ -53,6 +55,49 @@ public static class CSharpIdentifier
     /// </summary>
     public static bool IsIdentifierLike(string name)
         => CSharpIdentifierCore.IsIdentifierLike(name);
+
+    /// <summary>
+    /// Admits an exact identifier identity for a type-declaration position under
+    /// the repository's current C# language version.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="IsIdentifierLike"/>, this compiler-characterized boundary
+    /// refuses supplementary-plane letters rejected by the current compiler and
+    /// format characters that the compiler removes from emitted TypeDef identity.
+    /// <c>CSharpTypeDeclarationIdentifierAdmissionTests</c> gates the accepted
+    /// grammar, complete compiler keyword inventory, and emitted identity.
+    /// </remarks>
+    public static CSharpTypeDeclarationIdentifierAdmission AdmitTypeDeclaration(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (name.Any(char.IsSurrogate))
+        {
+            return new CSharpTypeDeclarationIdentifierAdmission.Refused(
+                CSharpTypeDeclarationIdentifierRefusalReason.InvalidIdentifier);
+        }
+
+        int identifierStart = 0;
+        while (identifierStart < name.Length && name[identifierStart] == '\uFEFF')
+            identifierStart++;
+        string lexicalIdentifier = identifierStart == 0 ? name : name[identifierStart..];
+        if (!CSharpIdentifierCore.IsIdentifierLike(lexicalIdentifier))
+        {
+            return new CSharpTypeDeclarationIdentifierAdmission.Refused(
+                CSharpTypeDeclarationIdentifierRefusalReason.InvalidIdentifier);
+        }
+
+        if (name.Any(static ch => char.GetUnicodeCategory(ch) == UnicodeCategory.Format))
+        {
+            return new CSharpTypeDeclarationIdentifierAdmission.Refused(
+                CSharpTypeDeclarationIdentifierRefusalReason.IdentityNotPreserved);
+        }
+
+        string spelling = CSharpKeywords.RequiresTypeDeclarationEscape(name)
+            ? "@" + name
+            : name;
+        return new CSharpTypeDeclarationIdentifierAdmission.Admitted(spelling);
+    }
 
     /// <summary>An identifier safe to emit in C# source: a reserved keyword is
     /// <c>@</c>-escaped (a parameter named <c>delegate</c> becomes <c>@delegate</c>).
@@ -130,4 +175,43 @@ public static class CSharpIdentifier
     /// projection folded line endings but let a vertical tab through.
     /// </remarks>
     public static string ContainRenderedText(string text) => CSharpIdentifierCore.ContainComposedName(text);
+}
+
+/// <summary>
+/// The closed result of admitting one exact identity in a C# type-declaration
+/// identifier position.
+/// </summary>
+public abstract record CSharpTypeDeclarationIdentifierAdmission
+{
+    private CSharpTypeDeclarationIdentifierAdmission()
+    {
+    }
+
+    /// <summary>A legal source spelling that preserves the requested identity.</summary>
+    public sealed record Admitted : CSharpTypeDeclarationIdentifierAdmission
+    {
+        internal Admitted(string spelling)
+            => Spelling = spelling;
+
+        public string Spelling { get; }
+    }
+
+    /// <summary>The requested identity cannot be represented in this position.</summary>
+    public sealed record Refused : CSharpTypeDeclarationIdentifierAdmission
+    {
+        internal Refused(CSharpTypeDeclarationIdentifierRefusalReason reason)
+            => Reason = reason;
+
+        public CSharpTypeDeclarationIdentifierRefusalReason Reason { get; }
+    }
+}
+
+/// <summary>Why an exact type-declaration identifier was refused.</summary>
+public enum CSharpTypeDeclarationIdentifierRefusalReason
+{
+    /// <summary>The text is not an identifier accepted by the current compiler.</summary>
+    InvalidIdentifier,
+
+    /// <summary>The compiler would change the emitted identifier identity.</summary>
+    IdentityNotPreserved,
 }

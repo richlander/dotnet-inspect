@@ -1,5 +1,3 @@
-using tsbindgen;
-
 namespace ILInspector.JsExportSurface.Tests;
 
 /// <summary>Verifies <see cref="CamelCase.FromPascalCase"/>.</summary>

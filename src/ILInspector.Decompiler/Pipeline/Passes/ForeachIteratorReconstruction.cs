@@ -73,7 +73,16 @@ internal static class ForeachIteratorReconstruction
                 enumeratorField = f;
         if (enumeratorField is null)
             return false;
-        if (!HasSingleEnumeratorDisposalFinally(work, enumeratorField))
+        if (!TryGetEnumeratorDisposalFinally(work, enumeratorField, out var disposalFinally))
+            return false;
+        if (context.ImportMethodBody is null)
+            return false;
+        var disposalBody = context.ImportMethodBody(disposalFinally);
+        if (disposalBody is null
+            || !TryGetDisposalMethod(disposalBody, out var dispose)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                dispose,
+                work.UsesUpdatedMemorySafetyRules))
             return false;
 
         // field name -> (local index, type): the enumerator, plus any hoisted loop fields.
@@ -107,6 +116,39 @@ internal static class ForeachIteratorReconstruction
         if (dispatchEnd >= blocks.Count)
             return false;
 
+        var receiver = FindCapturedReceiver(work, kickoff, handoff);
+        StoreLocal? receiverStore = null;
+        if (work.Descendants.Any(node =>
+                node is LoadFieldAddress { Field.Name: "<>4__this" } address
+                    && Equals(address.Field.DeclaringType, work.DeclaringType)
+                || receiver is not null && node is StoreField store && Equals(store.Field, receiver.Field)))
+            return false;
+
+        // Keep the immutable receiver alias from the entry block. Other useful
+        // initialization still belongs to an unsupported dispatch shape.
+        foreach (var statement in blocks.Take(dispatchEnd).SelectMany(block => block.Children))
+        {
+            if (ReferenceEquals(statement, stateStore)
+                || statement is ConditionalBranch or Branch or Leave
+                || statement is StoreLocal { Value: Constant } marker && marker.Index == returnLocal)
+                continue;
+            if (receiver is not null
+                && receiverStore is null
+                && statement is StoreLocal alias
+                && ReferenceEquals(alias.Parent, blocks[0])
+                && alias.Index != stateLocal && alias.Index != returnLocal
+                && Equals(alias.Type, receiver.Field.Type)
+                && receiver.Matches(alias.Value)
+                && work.DescendantsOutsideNestedFunctions
+                    .Where(node => ReferenceOwnership.ReferencesOrBindsLocal(node, alias.Index))
+                    .All(node => ReferenceEquals(node, alias) || node is LoadLocal))
+            {
+                receiverStore = alias;
+                continue;
+            }
+            return false;
+        }
+
         // Rebuild the surviving blocks: strip the scaffolding, sew the yields, drop the
         // disposal idiom, and remap the state-machine fields to the fresh locals/arguments.
         var container = new BlockContainer();
@@ -117,6 +159,9 @@ internal static class ForeachIteratorReconstruction
                 continue;
 
             var rebuilt = new Block(blocks[i].StartOffset);
+            if (i == dispatchEnd && receiverStore is not null && receiver is not null)
+                rebuilt.Add(new StoreLocal(receiverStore.Index, receiverStore.Type,
+                    new LoadArgument(0, receiver.Target)));
             foreach (var statement in blocks[i].Children.ToList())
             {
                 statement.Detach();
@@ -125,7 +170,7 @@ internal static class ForeachIteratorReconstruction
                     case StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" }:
                         continue;  // a state advance / resume marker
                     case StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" } yieldStore:
-                        if (!TryRemap(yieldStore.Value, kickoff, locals, out var yielded))
+                        if (!TryRemap(yieldStore.Value, kickoff, locals, receiver, out var yielded))
                             return false;
                         rebuilt.Add(new YieldReturn(yielded));
                         continue;
@@ -134,7 +179,7 @@ internal static class ForeachIteratorReconstruction
                         // `<>7__wrap1 = null` is the disposal reset — drop it.
                         if (slotStore.Value is Constant { Value: null })
                             continue;
-                        if (!TryRemap(slotStore.Value, kickoff, locals, out var stored))
+                        if (!TryRemap(slotStore.Value, kickoff, locals, receiver, out var stored))
                             return false;
                         rebuilt.Add(new StoreLocal(slot.Index, slotField.Type, stored));
                         continue;
@@ -147,7 +192,7 @@ internal static class ForeachIteratorReconstruction
                     case Return:
                         continue;  // the leave-to-terminal and terminal `return V` markers
                     default:
-                        if (!TryRemapInPlace(statement, kickoff, locals))
+                        if (!TryRemapInPlace(statement, kickoff, locals, receiver))
                             return false;
                         rebuilt.Add(statement);
                         continue;
@@ -163,8 +208,12 @@ internal static class ForeachIteratorReconstruction
         // forms the `while (e.MoveNext())` loop with the yields riding along.
         IrPasses.Run(work, IrPasses.Default, context);
 
-        // Fold the hidden-enumerator loop into a foreach.
-        if (!RaiseForeach(work, context))
+        // The normal pipeline may already have raised this enumerator when its
+        // exact-named Current local survived. Otherwise use the single-use matcher.
+        int enumeratorIndex = locals[enumeratorField.Name].Index;
+        if (work.DescendantsOutsideNestedFunctions.Any(
+                node => ReferenceOwnership.ReferencesOrBindsLocal(node, enumeratorIndex))
+            && !RaiseForeach(work, dispose, context, enumeratorIndex))
             return false;
 
         // Validate: fully structured, keeps a yield, recovers the foreach, and leaves no
@@ -190,7 +239,11 @@ internal static class ForeachIteratorReconstruction
     // — e a compiler-hidden enumerator local — into `foreach (item in collection) BODY`. The
     // copy-propagated single-use form (where `item = e.Current` folded into the body) is
     // recovered by introducing a fresh loop variable for the surviving `e.Current` reads.
-    static bool RaiseForeach(IrFunction work, PassContext context)
+    static bool RaiseForeach(
+        IrFunction work,
+        MethodRef dispose,
+        PassContext context,
+        int enumeratorIndex)
     {
         foreach (var block in work.Body.Descendants.OfType<Block>().ToList())
         {
@@ -198,6 +251,7 @@ internal static class ForeachIteratorReconstruction
             for (var i = 0; i + 1 < children.Count; i++)
             {
                 if (children[i] is not StoreLocal enumeratorStore
+                    || enumeratorStore.Index != enumeratorIndex
                     || enumeratorStore.Value is not Call { Callee.Name: "GetEnumerator" } getEnumerator
                     || getEnumerator.Arguments.Count != 1
                     || children[i + 1] is not WhileLoop loop
@@ -208,18 +262,20 @@ internal static class ForeachIteratorReconstruction
                     continue;
                 }
 
-                var enumeratorIndex = enumeratorStore.Index;
                 var loopBody = loop.Body;
 
                 int loopVariable;
                 TypeRef elementType;
+                MethodRef currentAccessor;
                 if (loopBody.Children.Count > 0
                     && loopBody.Children[0] is StoreLocal currentStore
-                    && IsCurrentOf(currentStore.Value, enumeratorIndex))
+                    && currentStore.Value is LoadProperty current
+                    && IsCurrentOf(current, enumeratorIndex))
                 {
                     // `item = e.Current` survived (multi-use) — adopt it as the loop variable.
                     loopVariable = currentStore.Index;
                     elementType = currentStore.Type;
+                    currentAccessor = current.Accessor;
                     currentStore.Detach();
                 }
                 else
@@ -230,10 +286,11 @@ internal static class ForeachIteratorReconstruction
                     if (read is null)
                         return false;
                     elementType = read.ResultType!;
-                    loopVariable = work.AddLocal(elementType, "item");
-                    foreach (var current in loopBody.Descendants.OfType<LoadProperty>().ToList())
-                        if (IsCurrentOf(current, enumeratorIndex))
-                            current.ReplaceWith(new LoadLocal(loopVariable, elementType));
+                    currentAccessor = read.Accessor;
+                    loopVariable = work.AddSynthesizedLocal(elementType, "item");
+                    foreach (var currentProperty in loopBody.Descendants.OfType<LoadProperty>().ToList())
+                        if (IsCurrentOf(currentProperty, enumeratorIndex))
+                            currentProperty.ReplaceWith(new LoadLocal(loopVariable, elementType));
                 }
 
                 // The enumerator local must not leak past its Current/MoveNext uses.
@@ -243,7 +300,12 @@ internal static class ForeachIteratorReconstruction
                 var collection = getEnumerator.Arguments[0];
                 collection.Detach();
                 loopBody.Detach();
-                var foreachStatement = new ForeachStatement(loopVariable, elementType, collection, loopBody);
+                var foreachStatement = new ForeachStatement(
+                    loopVariable,
+                    elementType,
+                    collection,
+                    loopBody,
+                    [getEnumerator.Callee, moveNext.Callee, currentAccessor, dispose]);
                 context.Stepper.StepOver("raise hidden-enumerator loop to foreach", loop);
                 loop.ReplaceWith(foreachStatement);
                 enumeratorStore.Detach();
@@ -257,8 +319,12 @@ internal static class ForeachIteratorReconstruction
         => expression is LoadProperty { PropertyName: "Current", Instance: LoadLocal receiver }
             && receiver.Index == enumeratorIndex;
 
-    static bool HasSingleEnumeratorDisposalFinally(IrFunction work, FieldRef enumeratorField)
+    static bool TryGetEnumeratorDisposalFinally(
+        IrFunction work,
+        FieldRef enumeratorField,
+        out MethodRef disposalFinally)
     {
+        disposalFinally = null!;
         if (work.Regions is not [{ Kind: HandlerKind.Fault }])
             return false;
 
@@ -270,14 +336,33 @@ internal static class ForeachIteratorReconstruction
         if (finallyCalls.Count != 1)
             return false;
 
-        var statement = (ExpressionStatement)finallyCalls[0].Parent!;
-        return statement.Parent is Block block
-            && block.Children.Any(child => child is StoreField
+        var call = finallyCalls[0];
+        var statement = (ExpressionStatement)call.Parent!;
+        if (statement.Parent is not Block block
+            || !block.Children.Any(child => child is StoreField
             {
                 Instance: LoadArgument { Index: 0 },
                 Field: var field,
                 Value: Constant { Value: null },
-            } && Equals(field, enumeratorField));
+            } && Equals(field, enumeratorField)))
+        {
+            return false;
+        }
+        disposalFinally = call.Callee;
+        return true;
+    }
+
+    static bool TryGetDisposalMethod(IrFunction disposalBody, out MethodRef dispose)
+    {
+        dispose = null!;
+        var calls = disposalBody.Descendants
+            .OfType<Call>()
+            .Where(call => call.Callee.Name == "Dispose")
+            .ToList();
+        if (calls is not [var call])
+            return false;
+        dispose = call.Callee;
+        return true;
     }
 
     static bool IsDefaultExit(Block block, int returnLocal)
@@ -305,10 +390,11 @@ internal static class ForeachIteratorReconstruction
     }
 
     static bool TryRemap(IrExpression expression, IrFunction kickoff,
-        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals, out IrExpression result)
+        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals,
+        CapturedReceiver? receiver, out IrExpression result)
     {
         var clone = (IrExpression)expression.Clone();
-        if (!TryRemapInPlace(clone, kickoff, locals, out var replacedRoot))
+        if (!TryRemapInPlace(clone, kickoff, locals, receiver, out var replacedRoot))
         {
             result = null!;
             return false;
@@ -318,11 +404,12 @@ internal static class ForeachIteratorReconstruction
     }
 
     static bool TryRemapInPlace(IrNode node, IrFunction kickoff,
-        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals)
-        => TryRemapInPlace(node, kickoff, locals, out _);
+        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals, CapturedReceiver? receiver)
+        => TryRemapInPlace(node, kickoff, locals, receiver, out _);
 
     static bool TryRemapInPlace(IrNode node, IrFunction kickoff,
-        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals, out IrNode? replacedRoot)
+        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals,
+        CapturedReceiver? receiver, out IrNode? replacedRoot)
     {
         replacedRoot = null;
         var ok = true;
@@ -346,16 +433,23 @@ internal static class ForeachIteratorReconstruction
                 return;
             switch (current)
             {
+                case LoadField load when receiver is not null && receiver.Matches(load):
+                    swaps.Add((current, new LoadArgument(0, receiver.Target)));
+                    return;
                 case LoadField { Instance: LoadArgument { Index: 0 }, Field: var field }:
                     if (locals.TryGetValue(field.Name, out var slot))
                         swaps.Add((current, new LoadLocal(slot.Index, field.Type)));
                     else if (TryGetParameter(kickoff, field.Name, out var index, out var parameter))
-                        swaps.Add((current, new LoadArgument(index, parameter.Name, parameter.Type)));
+                        swaps.Add((current, new LoadArgument(index, parameter)));
                     else
                         ok = false;
                     return;  // never descend into a swapped field's `this` receiver
                 case LoadField { Field.Name: var name } when GeneratedCodeIdentity.IsGeneratedFieldName(name):
                     ok = false;  // a state-machine field reached through some other path
+                    return;
+                case LoadArgument argument when receiver is not null
+                    && ReferenceEquals(argument.Parameter, receiver.Source):
+                    ok = false;
                     return;
                 default:
                     foreach (var child in current.Children)
@@ -363,6 +457,36 @@ internal static class ForeachIteratorReconstruction
                     return;
             }
         }
+    }
+
+    sealed record CapturedReceiver(FieldRef Field, Parameter Source, Parameter Target)
+    {
+        public bool Matches(IrNode node)
+            => node is LoadField { Instance: LoadArgument { Index: 0 } instance, Field: var field }
+                && ReferenceEquals(instance.Parameter, Source)
+                && Equals(field, Field);
+    }
+
+    static CapturedReceiver? FindCapturedReceiver(IrFunction work, IrFunction kickoff, NewObject handoff)
+    {
+        if (kickoff.ReceiverParameter is not { } target
+            || work.ReceiverParameter is not { } source
+            || !Equals(work.DeclaringType, handoff.Constructor.DeclaringType)
+            || handoff.Parent is not ObjectInitializerExpression { IsCollection: false } initializer)
+            return null;
+
+        var captures = initializer.Entries
+            .Where(entry => entry.ConsumedField?.Name == "<>4__this").ToArray();
+        if (captures is not [{ ConsumedField: { } field, Arguments: [LoadArgument value] }]
+            || !Equals(field.DeclaringType, work.DeclaringType)
+            || field.Type.DeclaredValueTypeHint != ValueTypeHint.ReferenceType
+            || !Equals(field.Type, target.Type)
+            || !Equals(value.Type, field.Type)
+            || value.Index != 0
+            || !ReferenceEquals(value.Parameter, target))
+            return null;
+
+        return new CapturedReceiver(field, source, target);
     }
 
     static bool TryGetParameter(IrFunction kickoff, string name, out int index, out Parameter parameter)

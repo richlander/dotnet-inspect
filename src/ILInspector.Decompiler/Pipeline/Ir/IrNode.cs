@@ -216,9 +216,9 @@ public abstract class IrNode
 
     /// <summary>
     /// A detached deep copy of this subtree. The node's payload is shared
-    /// (the model types it references — <see cref="TypeRef"/>, method/field
-    /// handles, constants — are immutable), its children are cloned
-    /// recursively, and the copy has no parent. This is the duplication
+    /// (immutable model values remain immutable, while parameter binders remain
+    /// the same shared identity), its children are cloned recursively, and the
+    /// copy has no parent. This is the duplication
     /// primitive for passes that must materialize one node at more than one
     /// site (e.g. inlining a shared terminator block into each guard).
     /// </summary>

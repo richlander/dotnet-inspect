@@ -32,10 +32,46 @@ provenance, and failures, and retains each available immutable snapshot for the
 rest of that library inspection without reopening the source path. Package
 `--all-libraries` partitions binding universes by package asset directory,
 preserving non-`net*` framework and runtime contexts, and releases each
-participant before advancing. Progressive member call
+participant before advancing. For a remote package whose default selection
+resolves one target framework, that grouped path now consumes the shared
+artifact-backed package-role realization: the existing visible surface
+selection remains the input to ordinary library inspection while Integration
+queries use its exact body-bearing implementation participant when one exists.
+A rejected implementation remains visible without erasing an available
+surface, and asynchronous workspace close retains the artifact generation
+until both participant groups settle. Ordinary presentation retains the
+selected extraction file's timestamp rather than manufacturing a timestamp
+from the artifact stream. The artifact-backed path requires the
+binding's frozen surface role to exactly cover the command's visible selection
+and to form exact assembly-identity correspondence. Other package shapes use
+the Package adapter's distinct explicit inspection selection over retained
+content, sharing artifact materialization and Metadata projection without
+claiming compile-role authority. This includes local archives without nuspec
+identity, tools and nested entries, multiple frameworks, and legacy framework
+spellings. Per-entry publication failures remain visible while successful
+neighbors retain their asset-directory binding groups. Neither path reopens a
+selected source as a substitute for rejected artifact evidence. The focused
+contract lives in [explicit package inspection
+selection](design/artifact-acquisition-and-workspaces.md#explicit-package-inspection-selection).
+Descriptor-less images remain outside grouped Integration realization and
+continue through existing ordinary file inspection; this cutover does not
+replace that broader extraction consumer.
+Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
-directions, and remain independent of rendering. The `extensions`,
+directions, and remain independent of rendering. Group-scoped optimization
+ranking also builds Analysis indexes from retained snapshots, resolves
+cross-assembly metadata only to selected siblings under each participant's
+binding policy, attributes bodies to public API owners, and returns one stable
+product-owned order across the group. Seeded structural-clone retrieval binds
+one exact seed participant and one explicit candidate participant, keeps both
+retained snapshots alive for one same-image or cross-image Analysis call, and
+returns the product result unchanged beside both subjects' identity and
+provenance. Exact method analysis reads signals,
+allocations, direct calls, unsafe evidence, exception regions, opportunities,
+and diagnostics from one physical MethodDef body without exposing the snapshot
+or Analysis index to its consumer. Analysis index execution remains sequential,
+preserving the Browser/Wasm baseline. The `extensions`,
 `implements`, and `find` commands also execute typed queries through ephemeral
 workspaces. Ordinary search fan-out creates and disposes one-participant groups
 sequentially; explicit extension reachability uses one binding-consistent group
@@ -109,6 +145,10 @@ gates this composition.
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
 
+- [Assembly context group lifecycle model](models/assembly-context-group-lifecycle/README.md)
+  checks the current callback admission, participant-local image opening,
+  retained-image budget, disposal, and quiescent release protocol. Its bounded
+  TLC evidence supplements rather than replaces the named Release tests.
 - [Inspection layers](design/inspection-layers.md) owns host and query-layer
   boundaries.
 - [Assembly inspection query model](design/assembly-inspection-query.md) owns
@@ -332,6 +372,12 @@ them. It also retains the acquisition provenance and policy inputs needed to
 decide whether a query may use their content. Authorization remains a decision
 for the current query plan, not a permanent property of the group.
 
+[Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) owns
+the committed logical Package occurrences above those physical contexts,
+closed-by-default selective dependency expansion, revision-bound scope edits,
+and closure completeness. Artifact Acquisition retains realization, admission,
+binding-context publication, query authorization, and physical lifetime.
+
 Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
 package versions or framework contexts without mixing their bindings.
@@ -375,6 +421,251 @@ all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
 gates preservation of an in-flight callback failure when deferred cleanup also
 fails.
+
+#### Workspace close and group release authority
+
+`InspectionWorkspace` owns whether new assembly-context group construction may
+begin, whether a completed group may enter the workspace registry, and when
+workspace close is complete. It does not follow from that ownership that the
+workspace directly disposes every group. A group has exactly one terminal
+release completion, selected before construction begins:
+
+| Registration kind | Terminal release authority | Workspace close behavior |
+| --- | --- | --- |
+| Direct | Workspace-owned release completion | Request release and await the group's quiescent terminal result |
+| Coordinated | Adjacent owner-issued release completion | Close workspace participation and await that same completion; never call `AssemblyContextGroup.Dispose()` independently |
+
+The coordinated form is the handoff used by package-role completion. The
+package-role owner supplies its keyed release-completion cell and owns the
+cleanup record it produces. Exact-request admission owns its request leases,
+cache closure, and the decision that authorizes package-role release. The
+workspace consumes only a narrow participation handle: it can close workspace
+admission, route a late group into cleanup, and await the owner-issued terminal
+completion. It does not inspect lease counts, reconstruct package-role group
+ids, or reinterpret the cleanup result.
+
+Group construction begins by atomically registering one opaque
+`WorkspaceGroupAdmission` while the workspace is open. The admission records
+the release kind and exact release completion before any potentially awaited
+construction work. It is single-use and belongs to one workspace. Completion
+has two outcomes:
+
+- while the workspace remains open, the exact constructed group and release
+  completion publish as one registry entry; or
+- after close begins, the group never publishes or becomes available to a new
+  query. It transfers directly into the recorded release path, and workspace
+  close awaits that cleanup.
+
+Failure or cancellation before a group exists completes the admission without
+inventing a group cleanup result. Its primary outcome remains owned by the
+constructing operation. If a group was returned, however, cleanup is a
+workspace obligation even when the operation ignored cancellation. A caller
+cannot abandon the admission ticket and leave an unregistered group outside
+both the registry and cleanup.
+
+Workspace close is one monotonic `Open` -> `Closing` -> `Closed` transition.
+The first `CloseAsync` call closes new admission under the workspace gate,
+captures every published registration and in-flight admission, and creates one
+shared completion. Later close calls return the same eventual
+`InspectionWorkspaceCloseReport`; close accepts no cancellation token after it
+starts. Direct registrations request their workspace-owned release.
+Coordinated registrations receive the workspace-close signal through their
+owner-issued participation handle and retain existing lease-holder access until
+that owner authorizes terminal release. Both forms close new group access
+before releasing resources, and actual release remains subject to the existing
+`AssemblyContextGroup` callback and owned-resource quiescence contract.
+
+The adjacent owner may authorize coordinated release before workspace close,
+such as when an explicit package-role session closes first. That transition
+atomically removes the registration from active workspace use, prevents new
+lease or query admission through it, and retains its historical registration
+and terminal completion for the eventual workspace report. A later workspace
+close observes the same completion; it neither reactivates nor releases the
+group again.
+
+Close awaits every admission that was in flight when closure began, every
+late-result cleanup path, and every group release completion. One failed group
+does not prevent another release from being requested or observed. The final
+report retains one workspace registration identity and exact terminal release
+result for every group that reached workspace ownership, in registration
+order. That historical domain is immutable: owner-first release cannot remove
+an entry, while failed or canceled construction that produced no group never
+enters the domain and cannot acquire cleanup data. A coordinated entry retains
+the adjacent owner's typed cleanup result; the workspace does not flatten it
+into exception text or a second cleanup taxonomy. Expected cleanup failures are
+data in the report. The report becomes available only after all entries are
+terminal and is the same immutable instance returned by every close call.
+
+Workspace construction selects its lifetime mode before any group admission.
+The existing public construction path creates a synchronous-compatibility
+workspace. It continues to accept the current synchronous direct and
+package-role construction APIs. A coordinated registration in that mode must
+provide a synchronous request-release adapter over the same owner-issued
+completion retained by the package-role session; workspace disposal requests
+that path exactly once and never independently disposes the group.
+
+The synchronous compatibility path preserves the existing `IDisposable`
+boundary, not the target complete-report contract. `Dispose()` closes new
+workspace access and requests every direct or coordinated release before
+returning, but it does not block for quiescent completion or return the eventual
+report. Deferred release continues only through the already-owned group
+callback and release-completion state machine; the adapter starts no task or
+background work. Expected synchronous request failures retain the current
+throwing compatibility behavior. New retained or shared hosts instead use an
+explicit asynchronous construction path whose close is awaitable and reports
+every terminal result.
+
+On an asynchronous workspace, `DisposeAsync` awaits the same close completion
+and exposes its report through the workspace rather than throwing expected
+cleanup failures that could replace a primary exception from an `await using`
+body. On a synchronous-compatibility workspace, `DisposeAsync` performs the
+same release request as `Dispose()` so generic asynchronous disposal remains
+compatible. Callers that need to branch on cleanup use `CloseAsync` and inspect
+its returned report.
+
+Lifetime-mode enforcement is fail-before-mutation. A
+synchronous-compatibility workspace rejects construction that requires an
+awaited admission or lacks a synchronous request-release adapter before that
+construction begins. Calling synchronous `Dispose()` on an asynchronous
+workspace throws `InvalidOperationException` before changing workspace state
+and directs the caller to asynchronous close. The validity of `Dispose()`
+therefore never depends on a race with later registration. Synchronous
+disposal never blocks a thread on a task, starts fire-and-forget cleanup, or
+leaves a half-closed workspace after rejecting the path. Its accepted
+compatibility path records a durable release request before returning; it does
+not launch an unobserved task or transfer progress to a background thread.
+
+The state transitions are short synchronous updates under the workspace gate.
+No gate is held across user or owner callbacks, group release, or an `await`.
+Progress resumes through ordinary task continuations and requires neither
+`Task.Run` nor a background thread, preserving the single-threaded
+Browser/Wasm execution target.
+
+[`InspectionWorkspaceClose.tla`](models/inspection-workspace-close/InspectionWorkspaceClose.tla)
+models this workspace-level interaction. It covers direct and coordinated
+release ownership, close racing construction, lease-draining authorization,
+group quiescence, complete failure reporting, and eventual asynchronous close.
+It treats package admission and coordinated release as adjacent abstract
+completions whose contracts remain owned by
+`docs/design/inspection-layers.md`. Its direct-group path instantiates the
+exact-group request,
+terminal receipt, and result lifecycle in
+[`AssemblyContextGroupReleaseLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupReleaseLifecycle.tla);
+callback and resource internals remain in the detailed
+[`AssemblyContextGroupLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla)
+model. The model checks the interaction contract. The Release gates below
+enforce the shipped close mechanics; exact direct-receipt attribution remains
+unverified by a fault-injection implementation gate.
+
+The direct and coordinated workspace-close paths are implemented. The
+parameterless constructor retains synchronous compatibility.
+`CreateAsynchronous()` selects the awaited lifetime before admission,
+`CloseAsync()` returns one shared `Task<InspectionWorkspaceCloseReport>`,
+`DisposeAsync()` awaits that task, and `CloseReport` exposes the same immutable
+report after completion. Each direct group has one release completion. An
+asynchronous workspace captures that outcome as an
+`InspectionWorkspaceDirectGroupCloseResult`; synchronous compatibility
+continues to throw the same cleanup failure while requesting the same
+group-owned release.
+
+The direct implementation is enforced by these Release gates:
+
+- `WorkspaceClose_RejectsAdmissionAndRoutesLateGroupToRelease` closes admission
+  atomically, prevents a late construction result from publishing, and retains
+  its cleanup result;
+- `WorkspaceClose_NoGroupFailureSettlesAdmissionWithoutCleanupEntry` proves a
+  construction failure after admission cannot strand close or invent a group
+  cleanup record;
+- `WorkspaceClose_AwaitsAllGroupCompletionsAndReportsEveryFailure` proves
+  callback/group quiescence, attempt-all cleanup, stable ordering, and complete
+  failure retention;
+- `WorkspaceClose_ConcurrentCallersShareCompletionAndReportInstance` proves
+  repeated and concurrent close calls join one task and receive the same
+  immutable report object;
+- `WorkspaceDispose_CompatibilityUsesSharedReleaseAuthority` proves
+  asynchronous `Dispose()` rejection is fail-before-mutation and synchronous
+  compatibility retains its throwing behavior through the group-owned release
+  completion; and
+- `WorkspaceClose_BrowserWasmUsesAwaitedProgressWithoutThreadBlocking` proves
+  close rejects new work immediately, preserves an already-admitted callback,
+  and reaches terminal close through awaited progress without a blocking wait
+  or background-thread requirement.
+
+Shareable package-role completion uses the coordinated path. It batch-registers
+every planned physical group before awaited construction, pre-issues the exact
+`PackageRoleGroupId` and terminal `PackageRoleCleanupReport` task, and closes
+projection admission through a workspace-owned gate before owner release is
+requested. The workspace never adds those groups to its direct-release set.
+Package-role completion remains their sole physical release authority, while
+`InspectionWorkspaceCoordinatedGroupCloseResult<PackageRoleGroupCleanupRecord>`
+retains the exact keyed cleanup record without translating it.
+
+The shareable completion operation requires `CreateAsynchronous()` because its
+construction has awaited admission and it does not provide a synchronous
+request-release adapter. The synchronous caller-owned
+`CreatePackageAssemblyContextRoles` path remains unchanged.
+
+The coordinated composition is enforced by these Release gates:
+
+- `WorkspaceClose_DirectAndCoordinatedGroupsReleaseExactlyOnce`;
+- `WorkspaceClose_ExistingCoordinatedLeaseRemainsUsableUntilOwnerRelease`; and
+- `WorkspaceClose_OwnerFirstReleaseDeactivatesRegistrationAndRetainsReport`.
+
+`WorkspaceClose_CoordinatedLateGroupsCommitHistoryBeforeOwnerRelease` proves
+that close racing a separate-topology construction records both planned
+admissions in registration order before dispatching their shared owner release,
+returns no completion to the late caller, and retains both exact keyed cleanup
+records.
+
+This contract does not define package admission keys, cache policy, package
+selection, role planning, participant projection, package cleanup-record shape,
+artifact acquisition lifetime, query-specific participant release policy, or
+the implementation of
+[#4960](https://github.com/richlander/dotnet-inspect/issues/4960).
+
+#### Retained package-realization caller
+
+**Status:** no approved product caller.
+
+Inspect Web is the only current multi-operation consumer of
+package roles. Its `BrowserPackageWorkspace` retains a bounded registry of
+complete `BrowserInspectionScope` instances keyed by an exact
+package-coordinate set; the workspace README owns that retention and eviction
+policy. Each scope owns one `InspectionWorkspace` and one package-role
+realization. The registry returns the already-open scope for a later exact
+request, so the workspace never receives a second independent package-role
+demand and cannot exercise workspace-local exact-request admission.
+
+Moving reuse below that boundary would be a product-topology migration, not a
+narrow caller adoption. A Browser-session owner would need to adopt the landed
+demand-projection and coordinated-release contracts across the prototype:
+replace retained whole scopes with independently returned demand projections,
+migrate every scope query to projection-safe access, attach package-archive
+retention to the shared completion instead of one demand, and define awaited
+session reset or shutdown so retained entries eventually close.
+
+A one-request workspace beneath each existing registry key cannot receive a
+second independent exact demand because the outer registry returns the retained
+scope first. An Integrations-only workspace would duplicate the ordinary
+realization solely to resubmit a demand that Integrations already answers from
+the retained scope. Neither topology adds an independently useful product
+lifetime.
+
+The retained Browser platform path is not a package-role caller: each cumulative
+rebuild creates a fresh `InspectionWorkspace` through `WorkspaceContextLoader`
+instead of submitting repeated package-role demands. The CLI, the only shipped
+host, remains operation-scoped. Therefore no existing component justifies the
+lower-level retained cache, and
+[#4960](https://github.com/richlander/dotnet-inspect/issues/4960) remains
+deferred. A future caller proposal must establish its product lifetime first,
+including explicit bounds for retained or in-flight exact requests, concurrent
+physical operations, and aggregate retained-byte reservation, and must name one
+real repeated exact-demand scenario plus one neighboring distinct-demand
+scenario. Once that caller is approved, the admission implementation owns the
+observable ready-reuse, non-hit, capacity-rejection, and terminal-cleanup gates
+through that caller. Admission must not be implemented or a caller lifetime
+manufactured solely to make those gates pass.
+
 `WorkspaceContextLoader` now realizes package, platform, and embedded
 coordinates without requiring a filesystem. A platform coordinate maps the
 `runtime` or `aspnetcore` family to its product-owned implementation-pack
@@ -637,6 +928,260 @@ malformed-image failure caching, and
 `MemberCallGraphSessionTests.InvalidImageClassification_CoversMetadataDecoderExceptions`
 gates the complete metadata-decoder exception classification.
 
+`AssemblyContextOptimizationOpportunitiesQuery` is the first whole-assembly
+Analysis ranking over a complete group. It opens one optimization-only body
+index per available participant from the workspace-retained snapshot, uses the
+participant's binding policy only for selected siblings in that group, and
+releases call-graph caches before advancing. Analysis owns opportunity priority,
+semantic loop classification, source-owner aggregation for lifted bodies, and
+generated-framework suppression before aggregation and deterministic ordering;
+the query joins analyzed body tokens to owning public API members and carries
+their exact metadata type identity and stable member selector. Getter/setter or
+add/remove evidence aggregates under that one public member while retaining
+every contributing body token. Non-public counts, Analysis diagnostics,
+metadata projection failures, and participant acquisition failures remain
+beside the ranked result. Group execution remains sequential rather than
+introducing a parallel-only contract.
+`OptimizationOpportunityRankingTests` gate the product ranking policy, and
+`AssemblyContextOptimizationOpportunitiesQueryTests` gate public-body
+attribution, group ordering, binding-policy use, visible rejection, and query
+cost.
+`AssemblyContextResearchProjectionQueryTests.Projection_DoesNotAcquireAPolicySelectionOutsideTheGroup`
+gates the shared resolver's group-containment boundary.
+
+`AssemblyContextMethodAnalysisQuery` is the exact method-scoped Analysis seam.
+It accepts one group participant and physical MethodDef token, opens an
+optimization-capable body index over that participant's retained snapshot, and
+returns the matching method identity, signals, allocation and unsafe
+occurrences, physical call sites, unsafe declaration evidence, exception
+regions, optimization opportunities, and Analysis diagnostics. Invalid and
+bodyless tokens are typed participant failures rather than empty success. The
+query does not aggregate a source method with async or lifted implementation
+bodies; callers select each exact physical body explicitly. The query releases
+derived call-graph caches before returning, and group execution remains
+sequential for Browser/Wasm.
+`AssemblyContextMethodAnalysisQueryTests` gate exact-token filtering, compiled
+allocation/call/exception/opportunity evidence, visible invalid and bodyless
+failures, and unbounded query cost.
+
+`AssemblyContextStructuralCloneRetrievalQuery` is the first query that joins
+two explicitly selected assembly participants while both immutable snapshots
+remain borrowed. Its input names the seed and candidate groups and
+participants, selects the seed by a MethodDef token or an exact structured type
+plus `MemberAnchor`, and declares either one exact candidate type or an explicit
+whole-assembly population. A-vs-A uses one reader only when both selections
+refer to the same participant in the same group. Every other request uses
+independent readers, including equal-MVID content acquired under separate
+registrations, so reader-local identity is never inferred from module identity.
+
+The query resolves only exact metadata identities, enumerates the full selected
+population without query-side truncation, and dispatches one mutually exclusive
+same-image or cross-image Analysis path. The exactly-once Analysis call count is
+unverified beyond direct inspection. The returned
+`StructuralCloneRetrievalResult` is not projected or reconstructed: ranks,
+score components, method outcomes, blockers, receipts, MVID-scoped method
+addresses, and the four product dispositions remain owned by Analysis.
+Acquisition rejection, missing or ambiguous exact targets, and pre-retrieval
+metadata failure are separate typed query outcomes. The query is `Unbounded`;
+whole-assembly scope is explicit, and Analysis method, result, and
+body-production limits remain the visible work controls. Exact selection still
+uses Metadata-owned cumulative name, member-anchor, method-row, decode-failure,
+and custom-attribute work ceilings, so malformed metadata fails visibly before
+retrieval rather than multiplying per-row work. Each candidate type-name
+attempt consumes structural-name work, and decode failures also count against
+the decode-failure ceiling. Method projection is validated once per image
+rather than at each projection site: the query admits a reader only after
+confirming that no TypeDef method range reports a negative length and that
+the ranges cover the MethodDef table exactly once, and seed and population
+resolution accept only an image carrying that confirmation. Those two
+requirements bound the underlying `MethodList` column jointly, which is why
+neither is redundant: a negative length is what makes the starts
+non-decreasing, and coverage is what forces the first non-null start to row 1
+and holds every later start within one past the projected table. A null start
+sits outside that chain: ECMA-335 II.22.37 permits it and the reader reports
+its range as length zero rather than as the difference to the next start.
+A repeated or out-of-range row, a `MethodPtr` table
+that aliases one MethodDef row into two types, a descending range, and a
+`MethodList` start past the table -- which SRM reports as an empty or
+negative-length range rather than an error -- are all typed
+metadata failures in the participant role that read the image, instead of
+reaching Analysis as untyped argument errors, being reported as a member
+ambiguity, or returning a success-shaped empty population. The check is a
+single pass over the image's own tables and reads no raw table bytes; it is not
+a claim that every malformed image is diagnosed before Analysis. It introduces
+no network, source, Research, Finding, Decompiler, or presentation capability.
+`AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
+product-result preservation, type and whole-assembly population behavior,
+exact-member, extension-member, and token selection, ambiguity, limit
+separation, unsupported bodies, seed-before-candidate failure precedence,
+malformed acquisition and metadata-neighbor isolation, and same-MVID
+independent-reader handling. Its virtual-token, repeated-long-leaf,
+repeated-long-unequal-leaf, repeated-malformed-leaf, near-limit-member-anchor,
+repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
+pre-retrieval work ceilings and visible metadata-failure boundary. Its
+type-name decode-failure case gates the decode-failure ceiling, paired with a
+below-ceiling case that proves isolated malformed neighbors remain tolerable.
+Fifteen cases gate whole-image method ownership across the type-scoped,
+whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
+covering duplicate, out-of-range, cross-type aliased, and silently empty
+projections, a descending `MethodList` range, an uncovered `MethodPtr` row, and
+metadata declaring no TypeDef rows. The descending cases pin the check on both
+metadata shapes -- a `MethodPtr`-free image and a reordered `MethodPtr`
+permutation -- and each is rejected at the module row, before any row is
+projected. A further case pushes every start past the end of the projected
+table so the earlier ranges report length zero and enumerate nothing, isolating
+the one path that reaches the end of the derived bound with a negative final
+range. Every fixture in this group pins its per-row range lengths, so the shape
+it claims to exercise is gated rather than asserted in prose. A further case starts
+the column past MethodDef row 1 while every range keeps a non-negative length,
+so it is rejected by coverage alone and pins the half of the ordering proof the
+range-length check cannot supply. A further case carries a null start *after* a
+populated run, which ECMA-335 II.22.37 cannot express because each run is
+delimited by the following start, so the negative length lands on the preceding
+row. Those fifteen are all rejections; a
+sixteenth case gates that a null
+`MethodList`, which ECMA-335 permits and the runtime reader projects as an
+empty run, is accepted rather than reported as malformed. A seventeenth gates
+uniqueness of the exact seed member, which a rejected sibling leaves unproven,
+and an eighteenth gates that matching a candidate leaf charges the
+declaring-chain traversal it performs rather than only the names it compares;
+that case pins its fixture's declaring depth, because a shallow fixture would
+exhaust the same budget while leaving the traversal unexercised.
+
+`WorkspaceStructuralCloneSearchQuery` composes that single-pair retrieval into
+one Library, Type, or Member search over an exact caller-supplied participant
+snapshot. Its request binds the seed subject, one candidate breadth (`Self`,
+`SelfAndRegisteredEcosystems`, or `Everything`), one candidate discovery value
+(`SimilarNames` or `All`), and its result and work bounds; the default is
+`Everything` plus `SimilarNames`. The normative contract is
+[Structural clone search scope](design/structural-clone-search-scope.md).
+
+Workspace registration lookup is not implemented, so breadth membership is
+supplied rather than inferred: each snapshot entry carries its own
+`ContainingLibrary`, `RegisteredEcosystem`, or `Available` membership, and the
+snapshot binds the starting and effective Workspace revisions plus one opaque
+snapshot identity. The constructor rejects a repeated participant, a repeated
+acquisition registration, a missing or duplicated containing library, and
+revisions from different Workspaces, so inconsistent or duplicated membership
+cannot be expressed. A snapshot retains groups rather than immutable images, so
+its issuer must both associate each group with the Workspace that issued those
+revisions and keep every group and participant alive for the execution it is
+passed to. Both obligations are unverified — the group exposes no
+owning-Workspace identity, and enforcement waits on the concrete Workspace and
+registration producer — so premature release is made visible instead of
+silently changing results: a released containing library returns a typed
+`SeedLibraryReleased` failure and a released candidate becomes that library's
+`CandidateLibraryReleased` incomplete coverage beside the evidence already
+ranked.
+
+A Member seed is every exact method body the selected member occupies. A method
+anchor selects its own body, so an explicit accessor selection stays one body,
+and a property or event anchor expands to the bodies its `MethodSemantics` rows
+associate with it. An indexer overloads on its index parameters, so those
+parameters are part of its exact identity and a selected overload expands to
+its own accessors alone. The association is read through the metadata owner's
+accessor projection and its anchors through the metadata owner's identity
+producers, so no accessor name convention is re-derived here. An accessor
+association naming a MethodDef another type declares is malformed metadata, not
+a body of the selected member: TypeDef method ranges are validated as a
+partition of the MethodDef table at image entry, which is what makes SRM's
+declaring-type lookup answer for exactly one type. A selected member that
+occupies no method body — including every field, which is a supported Member
+subject that occupies none — is the typed `SeedMemberHasNoMethodBody` outcome
+rather than a missing member or an arbitrary body, and repeated exact
+identities remain ambiguous.
+
+`SimilarNames` admits a candidate only when one seed clears the fixed `0.6`
+normalized threshold on both the innermost declaring-type simple base name and
+the member name; both conditions must hold for the same seed, and that
+qualifying seed-candidate pair is also the unit of evaluation. Each seed owns
+its own candidate group inside a participant, so a candidate admitted by one
+seed is never retrieved against a different seed, and a row's reported name
+scores are its own pair's. Names are decoded under a per-name character bound
+and every comparison and admission scan charges one shared name-work budget, so
+an artifact-authored name population cannot buy unbounded edit-distance work.
+An undecodable name and an exhausted budget are visible seed and library
+coverage rather than a silently narrowed population.
+
+Names equal under `StringComparison.OrdinalIgnoreCase` score `1.0` at no
+comparison cost; every other comparison folds both names invariantly before
+`StringDistance.Similarity`. Decoded names are preserved as decoded and folding
+is invariant uppercasing, which is the mapping that comparison itself uses:
+lowercasing would separate Greek capital sigma from the final sigma and exclude
+a peer the product promises to score `1.0`. That same equivalence keys the seed
+name index and the score memoization, so two spellings of one name cannot admit
+different candidates.
+
+Decoded-name scores are
+memoized under a bound on retained score cells as well as entries, because one
+entry costs one cell per distinct seed name and an entry bound alone would
+retain gigabytes for a large seed population. A name's whole logical comparison
+work is charged before the cache is consulted and is the same on a hit and on a
+miss, so the shared budget reaches exhaustion at the same candidate for every
+cache capacity. The cache is therefore a pure optimization: it changes how much
+`StringDistance` recomputes, never the charged work, the discovered methods,
+the ranked rows, or the reported coverage.
+
+Work is bounded per library and in aggregate. Beyond the per-library seed and
+candidate populations, a request bounds the breadth-admitted participant count
+and the total seed-by-candidate retrieval population submitted to Analysis.
+Both are whole-unit bounds, discovered at different points. The participant
+bound is preflight over the snapshot's exact entry order, and the containing
+library is always the first admitted participant. The retrieval-pair bound is a
+whole-participant admission bound: under `SimilarNames` a participant's pair
+population is only known while its per-seed candidate groups are formed, so
+admission stops mid-formation and abandons that participant, after which the
+latched budget excludes later participants without opening them. Either way a
+participant that does not fit is excluded whole rather than truncated. Every
+whole-unit exclusion carries its failure and makes coverage incomplete, which
+keeps it distinct from the intentional returned-row limit.
+
+Pairs are one global ranking. A seed's admitted candidate group is submitted in
+bounded consecutive chunks so cancellation is observed between units of
+retrieval work rather than after one whole-population call; each chunk requests
+its complete ranked population, so no per-seed or per-chunk truncation can
+corrupt the global top N, and chunking moves only cancellation granularity and
+the seed body-production count, never the ranked rows, the per-pair name
+evidence, or the aggregate retrieval charge. The result
+limit applies only after the merge. Ties resolve by the Analysis component
+order and then by exact endpoint identity, where an endpoint carries the
+snapshot-issued opaque participant identity rather than an MVID and token
+alone. The snapshot owns that deterministic snapshot-local order: it captures
+its owner-issued entry order once as part of its exact identity, rejects
+repeated participants and repeated acquisition registrations, and issues one
+identity per entry, so two registrations of identical content stay distinct and
+an ordinal never leaks across snapshots. A physical self-pair is excluded, and
+an unordered pair whose two endpoints are both seeds is returned in one
+deterministic orientation; a Member seed keeps the selected seed on the left.
+Intentional row suppression is reported separately from incomplete metadata,
+name, acquisition, work-bound, and Analysis coverage. Analysis blockers are
+attributed to both owners of the retrieval that produced them: the seed it ran
+for, and the participant whose candidate methods it omitted. A library carries
+the distinct Analysis blockers that omitted its candidates, aggregated over
+every seed and chunk, and is incomplete while it holds one, so a candidate body
+Analysis could not produce can never leave that library reporting complete
+coverage. A seed-side blocker stays with its seed: it omits no candidate of any
+one participant and is already visible as that seed's coverage. Cross-image
+rank remains retrieval evidence: the query establishes no checked clone
+relation and produces no comparison document. Presentation projects the
+complete Query result into the resource-free
+[`CloneCandidateDocument`](design/clone-candidate-presentation.md), preserving
+the global ranking, exact snapshot-relative endpoint addresses, coverage,
+failures, and receipts without changing that evidence boundary.
+`WorkspaceStructuralCloneSearchQueryTests` gates the request defaults, all six
+breadth and discovery combinations, seed expansion including property and
+event accessor bodies, overloaded-indexer selection, the field bodyless
+outcome, cross-type accessor association, and explicit accessor narrowing,
+ordinal-ignore-case name
+equality, per-pair name admission,
+pair suppression, exact endpoint identity for equal content, snapshot-local
+identity order, global ranking with a post-merge limit, revision and snapshot
+binding, snapshot validation, released-group containment for both the seed and
+a candidate, cache-independent admission under both a complete and an
+exhausted name budget, per-library Analysis blocker attribution,
+chunked-retrieval equivalence, cancellation, and the visible seed,
+candidate, participant, aggregate retrieval, name, and acquisition limits.
+
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.
 
@@ -665,8 +1210,8 @@ and one requested query.
 
 A host build may include zero or more immutable **inspection bundles**. For an
 assembly-backed scenario, the bundle may carry a portable workspace definition
-from which the host creates an ordinary runtime workspace. It never contains a
-serialized live workspace.
+from which the host creates a Workspace. It never contains the Workspace's live
+process state.
 
 A bundle may contain:
 
@@ -688,27 +1233,38 @@ a typed query result to instantiate a workspace in a later authorized stage.
 Several scenarios may reuse one workspace definition, and a host may inspect
 the definition without running a preset or acquiring its inputs.
 
-Product-resident home demos ship as a static id→factory registry
-(`DotnetInspector.Queries.Definitions.ProductInspectionDemos`, smooth-markdown-table
-`RendererRegistry` style); hosts resolve one demo via
-`ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo's
-peer records and requires a `ProductDemoSections` binding. Home demos are closed
-presets over the open query/section product: the registry fixes inputs and names
-**existing product section(s)** (`ProductDemoSections.ExpandRunSections` expands
-Call Graph presets format-aware: Markdown keeps Call Graph + Callers;
-table/tsv/jsonl keep Callers when the demo has caller scope so the re-add stays
-one section, otherwise Call Graph so package-local entry points still emit rows;
-mermaid keeps Call Graph; document JSON fails closed until graph projection
-lands); the CLI host runs them through the normal type/member section pipelines
-(`DemoScenarioRunner` → `TypeCommand` / `MemberCommand`) and returns those
-sections in ordinary formats. Demos must not call past sections into ad hoc
-inspection APIs; a capability that is not a product section is not a home demo
-until the section exists. CLI argv, definition plans, and browser engine
-operations (including a generated TypeScript binding of that engine surface)
-must be encodings of the same preset—not parallel demo systems. Residual:
-minted view-facet ids, `WorkspaceContextLoader` as the shared group-run owner,
-and Call Graph structured-JSON projection (see
-workspace-definitions). Detail:
+Product-resident home demos ship through the static application
+ecosystem catalog. `DotnetInspector.Ecosystems` owns which sources ship,
+ecosystem grouping, display metadata, and global product order. Workspace
+Definitions owns `ProductDemoSourceBinding`, record types and peer-graph
+validation, exact scenario resolution, section admission, run plans, execution,
+and failures. The selected application-authored factory constructs the records.
+Grouped and flat discovery expose only immutable metadata; selecting one exact
+scenario ID dispatches only that source, whose binding requires exactly one
+matching scenario record. Selection retains the catalog descriptor beside the
+resolved scenario, and hosts use that descriptor as product display metadata.
+The donor `DotnetInspector.Queries.Definitions.ProductInspectionDemos` registry
+has been removed; `DotnetInspector.Ecosystems` is the sole shipping application
+inventory.
+
+Home demos are closed presets over the open query/section product: each source
+fixes inputs and names **existing product section(s)**
+(`ProductDemoSections.ExpandRunSections` expands Call Graph presets
+format-aware: Markdown keeps Call Graph + Callers; table/tsv/jsonl keep Callers
+when the demo has caller scope so the re-add stays one section, otherwise Call
+Graph so package-local entry points still emit rows; mermaid keeps Call Graph;
+document JSON fails closed until graph projection lands). The CLI host runs
+them through the normal type/member section pipelines (`DemoScenarioRunner` →
+`TypeCommand` / `MemberCommand`) and returns those sections in ordinary
+formats. Demos must not call past sections into ad hoc inspection APIs; a
+capability that is not a product section is not a home demo until the section
+exists. CLI argv, definition plans, and browser engine operations (including a
+generated TypeScript binding of that engine surface) must be encodings of the
+same preset—not parallel demo systems. Ecosystem grouping does not select or
+activate the pack's package set, prefixes, or scanner, and is never inferred
+from package coordinates or display text. Residual: minted view-facet ids,
+`WorkspaceContextLoader` as the shared group-run owner, and Call Graph
+structured-JSON projection (see workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 
@@ -830,6 +1386,64 @@ acquisition, while a typed miss reaches a separately preflighted moderated PDB
 acquisition successor. Availability and integrity declare unbounded work and
 accept host-owned HTTP clients and an optional cache.
 
+### Selected-library API comparison
+
+Queries coordinates an ordered API comparison of two explicitly selected
+assembly-context participants. Each participant is projected inside its own
+existing binding group; selecting one library does not shrink that group's
+dependency-resolution context. The caller supplies the participants, visibility
+scope, and projection limits. Package-version choice, cross-version library
+selection, and presentation remain caller or adjacent-owner responsibilities.
+
+`AssemblyContextApiComparisonQuery` retains each side's
+`AssemblyContextSubject` and complete projection outcome, including a subject
+whose projection was omitted by a limit. Both sides are attempted independently.
+The same caller-declared budget applies separately to each endpoint, not to
+their combined population.
+
+The query compares only two fully projected surfaces. Rejection, failure,
+projection truncation, an API-row inspection failure, or a degraded member
+signature on either side prevents comparison, while retaining both endpoint
+outcomes and any available facts.
+In particular, a participant can be available while some API rows failed:
+`AssemblyContextApiSurfaceResult.IsComplete` alone does not establish that its
+surface is eligible for this comparison. Guarded signature substitution is
+also retained separately as `ApiMember.SignatureDecodeStatus`, without
+necessarily producing a row failure. The endpoint's completion consumes both
+signals; a substituted signature is not complete comparison evidence.
+
+A valid empty public surface is complete evidence and may be compared. An
+unavailable or incomplete surface is not an empty surface and must not produce
+apparent additions, removals, equality, or a negative compatibility conclusion.
+This stricter admission is deliberate: the Library Diff consumer in
+[#5083](https://github.com/richlander/dotnet-inspect/issues/5083) needs an
+exhaustive result within its advertised API scope, not a comparison of two
+potentially different healthy subsets.
+
+When admitted, the query delegates to `ApiComparisonQuery`, retaining its
+Metadata-owned type/member Finding correspondence, signature compatibility
+classification, and exactness. Visibility scope does not add attribute,
+implementation, IL, or authored-source comparison. The existing raw-surface
+query and its CLI consumer remain unchanged.
+
+`AssemblyContextApiComparisonQueryTests` gates ordered subject identity,
+selected-participant projection, complete and empty comparisons, independent
+budgets, unavailable neighbors, row-level failure admission, and degraded
+signature admission. `AssemblyContextApiSurfaceQueryTests` owns
+extraction-bound enforcement;
+`ApiComparisonQueryTests` owns the Metadata-comparison seam.
+
+[#6119](https://github.com/richlander/dotnet-inspect/issues/6119) is the
+selected-library slice of
+[#5104](https://github.com/richlander/dotnet-inspect/issues/5104), not its
+whole-package root/asset correspondence contract. The browser adoption path
+has three remaining deliveries: this query, Package-scoped comparison
+selection/defaults, and a feature facade with its immediate Library API Diff
+inventory/detail consumer. The existing CLI already consumes the shared
+Metadata comparison through `ApiComparisonQuery`; migrating its path-based
+acquisition to retained contexts remains separate. This query does not claim
+that the browser inspector or immersive comparison viewer is implemented.
+
 ### Executor
 
 Sequential topological execution defines the baseline. It works in
@@ -868,6 +1482,10 @@ sequential executor satisfies these rules without requiring threads.
 Producers receive the narrow context named by their scope, not a mutable
 workspace object. This keeps the workspace from becoming a god object and makes
 cross-group access explicit.
+[Analysis universe realization](design/analysis-universe-realization.md) owns
+the equivalent narrow handoff when a validated analysis plan needs an ordered
+finite population, one or more contexts, and provider-issued executable
+capabilities.
 
 ## Core currencies
 

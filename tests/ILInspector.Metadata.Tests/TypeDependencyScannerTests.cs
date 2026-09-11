@@ -1,5 +1,7 @@
 using CSharpText;
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
+using ILInspector.Metadata.TypeDependencyFixtures;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -109,12 +111,205 @@ public class TypeDependencyScannerTests
 
         // Each expanded name should appear exactly once
         var duplicates = expandedNames
-            .GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(n => n, StringComparer.Ordinal)
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
             .ToList();
 
         Assert.Empty(duplicates);
+    }
+
+    [Fact]
+    public void Relationships_RetainEverySharedDagEdge()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                "Int128",
+                RefAssemblies);
+
+        Assert.Equal(CountNodes(result.Tree), result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships
+                .GroupBy(
+                    static relationship => relationship.TargetTypeName,
+                    StringComparer.OrdinalIgnoreCase),
+            static incoming => incoming.Count() > 1);
+    }
+
+    [Fact]
+    public void Relationships_ExpandDistinctConstructedGenericTypes()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                typeof(TypeDependencyConstructedRoot).FullName!,
+                [typeof(TypeDependencyConstructedRoot).Assembly.Location]);
+
+        Assert.Equal(6, result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared<int>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase<int>",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared<string>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase<string>",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Relationships_PreserveCaseDistinctTypeIdentities()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                typeof(TypeDependencyCaseRoot).FullName!,
+                [typeof(TypeDependencyCaseRoot).Assembly.Location]);
+
+        Assert.Equal(4, result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyCaseBranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyCaseLeaf",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyCasebranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyCaseleaf",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExactLookup_PrefersCaseDistinctSemanticIdentity()
+    {
+        string target = typeof(TypeDependencyCasebranch).FullName!;
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                target,
+                [typeof(TypeDependencyCasebranch).Assembly.Location]);
+
+        Assert.Equal(target, result.MatchedType);
+        TypeDependencyRelationship relationship =
+            Assert.Single(result.Relationships);
+        Assert.EndsWith(
+            "TypeDependencyCaseleaf",
+            relationship.TargetTypeName,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Relationships_ExpandCaseDistinctConstructedGenericTypes()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                typeof(TypeDependencyCaseGenericRoot).FullName!,
+                [typeof(TypeDependencyCaseGenericRoot).Assembly.Location]);
+
+        Assert.Equal(6, result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCaseValue>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCaseValue>",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            result.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    "TypeDependencyGenericShared"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCasevalue>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    "TypeDependencyGenericBase"
+                    + "<ILInspector.Metadata.TypeDependencyFixtures."
+                    + "TypeDependencyCasevalue>",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Relationships_DoNotBorrowCaseDistinctDefinitionWhenExactTypeIsMissing()
+    {
+        const string root =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.Root";
+        FixtureDefinition consumer =
+            FixtureCatalog.MetadataTypeDependencyConsumer;
+        FixtureDefinition reference =
+            FixtureCatalog.MetadataTypeDependencyReference;
+
+        TypeDependencyResult missingReference =
+            TypeDependencyScanner.BuildDependencyTree(
+                root,
+                [consumer.AssemblyPath()]);
+
+        Assert.Contains(
+            missingReference.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    ".Root",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    ".Casebranch",
+                    StringComparison.Ordinal));
+        Assert.All(
+            missingReference.Relationships,
+            static relationship => Assert.EndsWith(
+                ".Root",
+                relationship.SourceTypeName,
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            missingReference.Relationships,
+            static relationship =>
+                relationship.TargetTypeName.EndsWith(
+                    ".UnrelatedLeaf",
+                    StringComparison.Ordinal));
+
+        TypeDependencyResult resolvedReference =
+            TypeDependencyScanner.BuildDependencyTree(
+                root,
+                [consumer.AssemblyPath(), reference.AssemblyPath()]);
+
+        Assert.Equal(2, resolvedReference.Relationships.Count);
+        Assert.Contains(
+            resolvedReference.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    ".Casebranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    ".ActualLeaf",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            resolvedReference.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    ".Casebranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    ".UnrelatedLeaf",
+                    StringComparison.Ordinal));
     }
 
     [Fact]
@@ -166,6 +361,251 @@ public class TypeDependencyScannerTests
         Assert.DoesNotContain(allNames, n => n == "System.Enum");
     }
 
+    [Fact]
+    public void DescriptorPopulation_FoundAndAllHealthyIsComplete()
+    {
+        const string root =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.Root";
+        ResolvedAssemblyReference consumer =
+            Descriptor(
+                FixtureCatalog.MetadataTypeDependencyConsumer
+                    .AssemblyPath());
+        ResolvedAssemblyReference reference =
+            Descriptor(
+                FixtureCatalog.MetadataTypeDependencyReference
+                    .AssemblyPath());
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                root,
+                [consumer, reference]);
+        TypeDependencyResult pathResult =
+            TypeDependencyScanner.BuildDependencyTree(
+                root,
+                [
+                    FixtureCatalog.MetadataTypeDependencyConsumer
+                        .AssemblyPath(),
+                    FixtureCatalog.MetadataTypeDependencyReference
+                        .AssemblyPath(),
+                ]);
+
+        Assert.True(result.HasSurvivingParticipant);
+        Assert.True(result.IsComplete);
+        Assert.True(result.Dependency.Found);
+        Assert.Equal(pathResult.MatchedType, result.Dependency.MatchedType);
+        Assert.Equal(
+            TreeShape(pathResult.Tree),
+            TreeShape(result.Dependency.Tree));
+        Assert.Equal(
+            pathResult.Relationships,
+            result.Dependency.Relationships);
+        Assert.Equal(
+            [consumer.Registration, reference.Registration],
+            result.Candidates.Select(
+                static candidate => candidate.Registration));
+        Assert.All(
+            result.Candidates,
+            static candidate =>
+                Assert.IsType<
+                    TypeDependencyCandidateOutcome.Completed>(
+                        candidate));
+    }
+
+    [Fact]
+    public void DescriptorPopulation_NotFoundAndAllHealthyIsCertified()
+    {
+        ResolvedAssemblyReference assembly =
+            Descriptor(
+                typeof(TypeDependencyScannerTests)
+                    .Assembly.Location);
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                "No.Such.Type",
+                [assembly]);
+
+        Assert.True(result.HasSurvivingParticipant);
+        Assert.True(result.IsComplete);
+        Assert.False(result.Dependency.Found);
+        Assert.Empty(result.Dependency.Tree);
+        Assert.Empty(result.Dependency.Relationships);
+    }
+
+    [Fact]
+    public void DescriptorPopulation_RejectionMakesSurvivingGraphIncomplete()
+    {
+        const string root =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.Root";
+        ResolvedAssemblyReference rejected =
+            Descriptor(
+                FixtureCatalog.MetadataTypeDependencyConsumer
+                    .AssemblyPath(),
+                selectedName: "WrongIdentity");
+        ResolvedAssemblyReference healthy =
+            Descriptor(
+                FixtureCatalog.MetadataTypeDependencyConsumer
+                    .AssemblyPath());
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                root,
+                [rejected, healthy]);
+
+        Assert.True(result.HasSurvivingParticipant);
+        Assert.True(result.Dependency.Found);
+        Assert.False(result.IsComplete);
+        var failure =
+            Assert.IsType<TypeDependencyCandidateOutcome.Rejected>(
+                result.Candidates[0]);
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            failure.Failure.Kind);
+        Assert.Same(rejected.Registration, failure.Registration);
+        Assert.IsType<TypeDependencyCandidateOutcome.Completed>(
+            result.Candidates[1]);
+        Assert.Same(
+            healthy.Registration,
+            result.Candidates[1].Registration);
+    }
+
+    [Fact]
+    public void DescriptorPopulation_RejectionCleanupCannotAbortHealthyNeighbor()
+    {
+        const string root =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.Root";
+        string path =
+            FixtureCatalog.MetadataTypeDependencyConsumer
+                .AssemblyPath();
+        ResolvedAssemblyReference rejected =
+            Descriptor(
+                path,
+                selectedName: "WrongIdentity",
+                openRead: () =>
+                    new ThrowingDisposeStream(
+                        File.ReadAllBytes(path)));
+        ResolvedAssemblyReference healthy =
+            Descriptor(path);
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                root,
+                [rejected, healthy]);
+
+        Assert.True(result.Dependency.Found);
+        Assert.False(result.IsComplete);
+        Assert.IsType<TypeDependencyCandidateOutcome.Rejected>(
+            result.Candidates[0]);
+        Assert.IsType<TypeDependencyCandidateOutcome.Completed>(
+            result.Candidates[1]);
+    }
+
+    [Fact]
+    public void DescriptorPopulation_ReleaseAttemptsEveryCompletedImage()
+    {
+        string path =
+            FixtureCatalog.MetadataTypeDependencyConsumer
+                .AssemblyPath();
+        byte[] bytes = File.ReadAllBytes(path);
+        int disposeCount = 0;
+        ResolvedAssemblyReference first =
+            Descriptor(
+                path,
+                openRead: () =>
+                    new ThrowingDisposeStream(
+                        bytes,
+                        () => disposeCount++));
+        ResolvedAssemblyReference second =
+            Descriptor(
+                path,
+                openRead: () =>
+                    new ThrowingDisposeStream(
+                        bytes,
+                        () => disposeCount++));
+
+        AggregateException failure =
+            Assert.Throws<AggregateException>(() =>
+                TypeDependencyScanner.BuildDependencyPopulation(
+                    "No.Such.Type",
+                    [first, second]));
+
+        Assert.Equal(2, failure.InnerExceptions.Count);
+        Assert.Equal(2, disposeCount);
+    }
+
+    [Fact]
+    public void DescriptorPopulation_AllRejectedIsUnavailableInInputOrder()
+    {
+        string path =
+            typeof(TypeDependencyScannerTests).Assembly.Location;
+        ResolvedAssemblyReference first =
+            Descriptor(path, selectedName: "WrongFirst");
+        ResolvedAssemblyReference second =
+            Descriptor(path, selectedName: "WrongSecond");
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                "No.Such.Type",
+                [first, second]);
+
+        Assert.False(result.HasSurvivingParticipant);
+        Assert.False(result.IsComplete);
+        Assert.False(result.Dependency.Found);
+        Assert.Equal(
+            [first.Registration, second.Registration],
+            result.Candidates.Select(
+                static candidate => candidate.Registration));
+        Assert.All(
+            result.Candidates,
+            static candidate =>
+            {
+                var rejected =
+                    Assert.IsType<
+                        TypeDependencyCandidateOutcome.Rejected>(
+                            candidate);
+                Assert.Equal(
+                    CandidateOpenFailureKind.InvalidImage,
+                    rejected.Failure.Kind);
+            });
+    }
+
+    private static ResolvedAssemblyReference Descriptor(
+        string path,
+        string? selectedName = null,
+        Func<Stream>? openRead = null)
+    {
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "type dependency scanner tests"));
+        return ResolvedAssemblyReference.Create(
+            source.Identity with
+            {
+                Name = selectedName ?? source.Identity.Name,
+            },
+            path: null,
+            openRead ?? (() => File.OpenRead(path)),
+            source.Provenance,
+            source.LastWriteTimeUtc);
+    }
+
+    private sealed class ThrowingDisposeStream(
+        byte[] bytes,
+        Action? onDispose = null)
+        : MemoryStream(bytes, writable: false)
+    {
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                onDispose?.Invoke();
+                throw new IOException(
+                    "Synthetic dependency-scan cleanup failure.");
+            }
+        }
+    }
+
     private static void CollectNames(List<TypeDependencyNode> nodes, List<string> result)
     {
         foreach (var node in nodes)
@@ -183,6 +623,26 @@ public class TypeDependencyScannerTests
             {
                 result.Add(FqnParser.NormalizeTypeName(node.TypeName));
                 CollectExpandedNames(node.Children, result);
+            }
+        }
+    }
+
+    private static int CountNodes(IReadOnlyList<TypeDependencyNode> nodes) =>
+        nodes.Count
+        + nodes.Sum(static node => CountNodes(node.Children));
+
+    private static IEnumerable<string> TreeShape(
+        IReadOnlyList<TypeDependencyNode> nodes,
+        string prefix = "")
+    {
+        foreach (TypeDependencyNode node in nodes)
+        {
+            yield return prefix + node.TypeName;
+            foreach (string child in TreeShape(
+                node.Children,
+                prefix + "  "))
+            {
+                yield return child;
             }
         }
     }

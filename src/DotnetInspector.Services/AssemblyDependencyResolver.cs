@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
@@ -33,6 +34,9 @@ public sealed record ResolvedAssemblyDependency(
 public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPath)
 {
     public IReadOnlyList<string>? PackageRoots { get; init; }
+    public string? RootPackageDirectory { get; init; }
+    public NuGetSourceOptions? PackageSourceOptions { get; init; }
+    public bool UsePackageSourcePolicy { get; init; }
     public IReadOnlyList<string>? CorpusAssemblyPaths { get; init; }
     public string? ProjectAssetsPath { get; init; }
     public string? TargetFramework { get; init; }
@@ -78,7 +82,7 @@ public sealed class AssemblyDependencySnapshotBudgetExceededException(
 /// assemblies) and exposes only paths/descriptors plus the metadata identity
 /// callback needed by Metadata/Decompiler/Research.
 /// </summary>
-public sealed class AssemblyDependencyResolver :
+public sealed partial class AssemblyDependencyResolver :
     IAssemblyReferenceResolver,
     IAssemblyBindingPolicy
 {
@@ -96,14 +100,22 @@ public sealed class AssemblyDependencyResolver :
 
     readonly AssemblyDependencyResolutionOptions _options;
     readonly ConcurrentDictionary<
-        string,
+        AssemblyDescriptorKey,
         Lazy<AssemblyDescriptorResolution>> _descriptors =
+            [];
+    readonly ConcurrentDictionary<
+        string,
+        Lazy<SnapshotImageResolution>> _snapshotImages =
             new(StringComparer.Ordinal);
     IReadOnlyList<ResolvedAssemblyDependency>? _resolved;
     IReadOnlyList<ResolvedAssemblyDependency>? _allCandidates;
     readonly ConcurrentDictionary<
         AssemblyBindingRequestKey,
         Lazy<AssemblyBindingSelection>> _bindingSelections = [];
+    readonly Lazy<PlatformFrameworkSnapshot> _installedPlatformFrameworkSnapshot =
+        new(
+            PlatformResolver.GetInstalledFrameworkSnapshot,
+            LazyThreadSafetyMode.ExecutionAndPublication);
     readonly object _snapshotBudgetLock = new();
     long _snapshotImageBytes;
 
@@ -123,16 +135,18 @@ public sealed class AssemblyDependencyResolver :
 
     public AssemblyBindingPolicyVersion Version { get; } = new();
 
-    public AssemblyBindingSelection Select(
+    public AssemblyBindingSelectionSnapshot Select(
         AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var key = AssemblyBindingRequestKey.From(request);
-        return _bindingSelections.GetOrAdd(
-            key,
-            _ => new Lazy<AssemblyBindingSelection>(
-                () => SelectCore(request),
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        return new AssemblyBindingSelectionSnapshot(
+            Version,
+            _bindingSelections.GetOrAdd(
+                key,
+                _ => new Lazy<AssemblyBindingSelection>(
+                    () => SelectCore(request),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value);
     }
 
     public IReadOnlyList<ResolvedAssemblyDependency> ResolveAll()
@@ -166,8 +180,13 @@ public sealed class AssemblyDependencyResolver :
             Path.GetFullPath(_options.TargetAssemblyPath),
             AssemblyResolutionProvenance.Local("target assembly"));
 
-    IReadOnlyList<ResolvedAssemblyDependency> CollectDependencies(bool deduplicate)
+    IReadOnlyList<ResolvedAssemblyDependency> CollectDependencies(
+        bool deduplicate,
+        Action<ResolvedAssemblyDependency>? capture = null,
+        Action<AssemblyDependencyDiscoveryFailure>? discoveryFailure = null,
+        CancellationToken cancellationToken = default)
     {
+        bool strict = capture is not null;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resolved = new List<ResolvedAssemblyDependency>();
         string targetPath = Path.GetFullPath(_options.TargetAssemblyPath);
@@ -176,9 +195,18 @@ public sealed class AssemblyDependencyResolver :
 
         void Add(string path, AssemblyDependencyProvenance provenance, string? packageId = null, string? packageVersion = null, string? frameworkName = null)
         {
-            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                 return;
 
+            if (capture is not null)
+            {
+                capture(new ResolvedAssemblyDependency(
+                    Path.GetFullPath(path), provenance, packageId, packageVersion, frameworkName));
+                return;
+            }
+            if (!File.Exists(path))
+                return;
             string simpleName = Path.GetFileNameWithoutExtension(path);
             if (_options.ExcludeTargetAssembly && simpleName.Equals(targetName, StringComparison.OrdinalIgnoreCase))
                 return;
@@ -193,48 +221,88 @@ public sealed class AssemblyDependencyResolver :
                 frameworkName));
         }
 
-        if (targetDirectory is not null && Directory.Exists(targetDirectory) && _options.IncludeSiblingAssemblies)
-            foreach (var path in Directory.EnumerateFiles(targetDirectory, "*.dll"))
-                Add(path, AssemblyDependencyProvenance.SiblingAssembly);
-
-        foreach (var path in PackageDependencyReferencePaths(
-            targetPath,
-            _options.PackageRoots,
-            preferImplementationAssemblies: _options.PreferImplementationAssemblies))
+        void Probe(AssemblyDependencyProvenance tier, string? location, Action probe)
         {
-            var package = TryReadPackageIdentity(path, _options.PackageRoots);
-            Add(path, AssemblyDependencyProvenance.PackageDependency, package.Id, package.Version);
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                probe();
+            }
+            catch (Exception ex) when (strict && IsDiscoveryFailure(ex))
+            {
+                discoveryFailure!(DiscoveryFailure(tier, location, ex));
+            }
         }
+
+        if (_options.IncludeSiblingAssemblies)
+            Probe(AssemblyDependencyProvenance.SiblingAssembly, targetDirectory, () =>
+            {
+                if (targetDirectory is not null && DiscoveryDirectoryExists(targetDirectory, strict))
+                    foreach (var path in Directory.EnumerateFiles(targetDirectory, "*.dll"))
+                        Add(path, AssemblyDependencyProvenance.SiblingAssembly);
+            });
+
+        Probe(AssemblyDependencyProvenance.PackageDependency, _options.RootPackageDirectory ?? targetPath, () =>
+        {
+            foreach (var path in PackageDependencyReferencePathsCore(
+                targetPath: targetPath,
+                packageRoots: _options.PackageRoots,
+                preferImplementationAssemblies: _options.PreferImplementationAssemblies,
+                rootPackageDirectory: _options.RootPackageDirectory,
+                targetFramework: _options.TargetFramework,
+                sourceOptions: _options.PackageSourceOptions,
+                useSourcePolicy: _options.UsePackageSourcePolicy,
+                strict: strict))
+            {
+                var package = TryReadPackageIdentity(path, _options.PackageRoots);
+                Add(path, AssemblyDependencyProvenance.PackageDependency, package.Id, package.Version);
+            }
+        });
 
         if (_options.IncludeTrustedPlatformAssemblies)
-        {
-            foreach (var path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-                Add(path, AssemblyDependencyProvenance.TrustedPlatformAssembly, frameworkName: "TRUSTED_PLATFORM_ASSEMBLIES");
-        }
+            Probe(AssemblyDependencyProvenance.TrustedPlatformAssembly, null, () =>
+            {
+                foreach (var path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+                    .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+                    Add(path, AssemblyDependencyProvenance.TrustedPlatformAssembly, frameworkName: "TRUSTED_PLATFORM_ASSEMBLIES");
+            });
 
         if (_options.IncludeAspNetCoreSharedFramework)
-            AddSharedFrameworkReferences("Microsoft.AspNetCore.App", path => Add(path, AssemblyDependencyProvenance.SharedFramework, frameworkName: "Microsoft.AspNetCore.App"));
+            Probe(AssemblyDependencyProvenance.SharedFramework, "Microsoft.AspNetCore.App", () =>
+                AddSharedFrameworkReferences("Microsoft.AspNetCore.App",
+                    path => Add(path, AssemblyDependencyProvenance.SharedFramework, frameworkName: "Microsoft.AspNetCore.App"),
+                    strict));
 
-        if (targetDirectory is not null && Directory.Exists(targetDirectory))
-        {
-            if (_options.IncludeDepsJsonAssets)
-                AddDepsJsonReferences(targetDirectory, targetName, path =>
+        if (_options.IncludeDepsJsonAssets && targetDirectory is not null)
+            Probe(AssemblyDependencyProvenance.DepsJsonAsset,
+                Path.Combine(targetDirectory, $"{targetName}.deps.json"), () =>
                 {
-                    var package = TryReadPackageIdentity(path, _options.PackageRoots);
-                    Add(path, AssemblyDependencyProvenance.DepsJsonAsset, package.Id, package.Version);
+                    if (DiscoveryDirectoryExists(targetDirectory, strict))
+                        AddDepsJsonReferences(targetDirectory, targetName, path =>
+                        {
+                            var package = TryReadPackageIdentity(path, _options.PackageRoots);
+                            Add(path, AssemblyDependencyProvenance.DepsJsonAsset, package.Id, package.Version);
+                        }, strict);
                 });
-        }
 
-        if (_options.ProjectAssetsPath is { Length: > 0 } assetsPath && File.Exists(assetsPath))
-        {
-            foreach (var (path, packageName, version) in ProjectAssetsParser.Parse(assetsPath, _options.TargetFramework, log: null))
-                Add(path, AssemblyDependencyProvenance.ProjectAsset, packageName, version);
-        }
+        if (_options.ProjectAssetsPath is { Length: > 0 } assetsPath)
+            Probe(AssemblyDependencyProvenance.ProjectAsset, assetsPath, () =>
+            {
+                if (!DiscoveryFileExists(assetsPath, strict))
+                    return;
+                var assets = strict
+                    ? ProjectAssetsParser.ParseForInventory(assetsPath, _options.TargetFramework)
+                    : ProjectAssetsParser.Parse(assetsPath, _options.TargetFramework, log: null);
+                foreach (var (path, packageName, version) in assets)
+                    Add(path, AssemblyDependencyProvenance.ProjectAsset, packageName, version);
+            });
 
         if (_options.CorpusAssemblyPaths is not null)
-            foreach (var path in _options.CorpusAssemblyPaths)
-                Add(path, AssemblyDependencyProvenance.CorpusAssembly);
+            Probe(AssemblyDependencyProvenance.CorpusAssembly, null, () =>
+            {
+                foreach (var path in _options.CorpusAssemblyPaths)
+                    Add(path, AssemblyDependencyProvenance.CorpusAssembly);
+            });
 
         return resolved;
     }
@@ -248,6 +316,15 @@ public sealed class AssemblyDependencyResolver :
     {
         var candidates =
             _allCandidates ??= CollectDependencies(deduplicate: false);
+        if (ResolveDesignatedOverlay(
+                candidates,
+                identity,
+                scope)
+            is { } overlayAttempt)
+        {
+            return overlayAttempt;
+        }
+
         CandidateOpenFailureKind? candidateFailure = null;
         CandidateTier? activeTier = null;
 
@@ -269,7 +346,9 @@ public sealed class AssemblyDependencyResolver :
                 {
                     return new AssemblyResolutionAttempt(
                         Assembly: null,
-                        candidateFailure);
+                        candidateFailure,
+                        MissDisposition:
+                            AssemblyBindingMissDisposition.NameOwnedNoMatch);
                 }
             }
             activeTier = tier;
@@ -304,7 +383,9 @@ public sealed class AssemblyDependencyResolver :
         {
             return new AssemblyResolutionAttempt(
                 Assembly: null,
-                candidateFailure);
+                candidateFailure,
+                MissDisposition:
+                    AssemblyBindingMissDisposition.NameOwnedNoMatch);
         }
 
         // The target may reference an older platform contract than the running
@@ -317,12 +398,21 @@ public sealed class AssemblyDependencyResolver :
             || scope == AssemblyResolutionScope.Any
                 && _options.IncludeInstalledPlatformFallback
                 && activeTier is null;
-        if (useInstalledPlatformFallback
-            && PlatformResolver.IsPlatformCandidate(identity.Name))
+        bool probeInstalledPlatform =
+            useInstalledPlatformFallback
+            && PlatformResolver.IsPlatformCandidate(identity.Name);
+        bool installedPlatformOwnsName = false;
+        if (probeInstalledPlatform)
         {
-            var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
-                identity.Name,
-                useRuntimeAssemblies: _options.PreferImplementationAssemblies);
+            var (path, framework, _, _) =
+                _options.PreferImplementationAssemblies
+                    ? PlatformResolver.ResolveAssembly(
+                        identity.Name,
+                        useRuntimeAssemblies: true)
+                    : PlatformResolver.ResolveAssemblyFromSnapshot(
+                        identity.Name,
+                        _installedPlatformFrameworkSnapshot.Value);
+            installedPlatformOwnsName = path is not null;
             if (path is not null)
             {
                 AssemblyDescriptorResolution descriptor = DescriptorResult(
@@ -352,8 +442,198 @@ public sealed class AssemblyDependencyResolver :
 
         return new AssemblyResolutionAttempt(
             Assembly: null,
-            candidateFailure);
+            candidateFailure,
+            MissDisposition: activeTier is not null
+                || installedPlatformOwnsName
+                    ? AssemblyBindingMissDisposition.NameOwnedNoMatch
+                    : AssemblyBindingMissDisposition.NoNameOwner);
     }
+
+    AssemblyResolutionAttempt? ResolveDesignatedOverlay(
+        IReadOnlyList<ResolvedAssemblyDependency> candidates,
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope)
+    {
+        static bool PathNameMatches(
+            ResolvedAssemblyDependency dependency,
+            AssemblyReferenceIdentity identity) =>
+            Path.GetFileNameWithoutExtension(dependency.Path).Equals(
+                identity.Name,
+                StringComparison.OrdinalIgnoreCase);
+
+        ResolvedAssemblyDependency? nameOwner = candidates.FirstOrDefault(
+            dependency =>
+                PathNameMatches(dependency, identity)
+                && (scope != AssemblyResolutionScope.Platform
+                    || IsEntitled(dependency.Provenance)));
+        if ((nameOwner is not null
+                && !IsEntitled(nameOwner.Provenance))
+            || !candidates.Any(dependency =>
+                dependency.Provenance
+                    is AssemblyDependencyProvenance.CorpusAssembly))
+        {
+            return null;
+        }
+        var entitled = new List<ResolvedAssemblyReference>();
+        CandidateOpenFailureKind? budgetFailure = null;
+        foreach (ResolvedAssemblyDependency dependency in candidates)
+        {
+            bool designated =
+                dependency.Provenance
+                    is AssemblyDependencyProvenance.CorpusAssembly;
+            if (!designated
+                && (!IsEntitled(dependency.Provenance)
+                    || !PathNameMatches(dependency, identity)))
+            {
+                continue;
+            }
+
+            AssemblyDescriptorResolution descriptor = DescriptorResult(
+                dependency.Path,
+                ResolutionProvenance(dependency));
+            if (descriptor.Assembly is { } assembly)
+            {
+                entitled.Add(assembly);
+            }
+            else if (descriptor.FailureKind
+                    is CandidateOpenFailureKind.ResourceBudget
+                && (designated
+                    || PathNameMatches(dependency, identity)))
+            {
+                budgetFailure =
+                    CandidateOpenFailureKind.ResourceBudget;
+            }
+        }
+
+        bool allowPlatformVersionRollForward =
+            scope == AssemblyResolutionScope.Platform
+            && _options.AllowPlatformAssemblyVersionRollForward;
+        AssemblyBindingSelection? selection =
+            DesignatedAssemblyBindingPrecedence.TrySelect(
+                identity,
+                entitled,
+                allowPlatformVersionRollForward,
+                _options.IgnoreAssemblyVersion);
+        if (budgetFailure is not null)
+        {
+            return new AssemblyResolutionAttempt(
+                Assembly: null,
+                budgetFailure);
+        }
+        if (selection is null)
+            return null;
+
+        bool useInstalledPlatformFallback =
+            scope == AssemblyResolutionScope.Platform
+            || scope == AssemblyResolutionScope.Any
+                && _options.IncludeInstalledPlatformFallback
+                && nameOwner is null;
+        bool hasEligiblePlatform = entitled.Any(candidate =>
+            candidate.Provenance
+                is AssemblyResolutionProvenance.PlatformAsset
+            && identity.MatchesCandidate(
+                candidate.Identity,
+                allowPlatformVersionRollForward,
+                _options.IgnoreAssemblyVersion));
+        if (useInstalledPlatformFallback
+            && !hasEligiblePlatform
+            && InstalledPlatformDescriptor(identity)
+                is { } installedPlatform)
+        {
+            if (installedPlatform.Assembly is { } assembly
+                && identity.MatchesCandidate(
+                    assembly.Identity,
+                    _options.AllowPlatformAssemblyVersionRollForward,
+                    _options.IgnoreAssemblyVersion))
+            {
+                ImmutableArray<ResolvedAssemblyReference> active =
+                    ActiveCandidates(selection);
+                ImmutableArray<ResolvedAssemblyReference> inactive =
+                    ShadowedCandidates(selection);
+                if (!active.IsEmpty
+                    && !active.Concat(inactive).Any(candidate =>
+                        ReferenceEquals(
+                            candidate.Registration,
+                            assembly.Registration)))
+                {
+                    AssemblyBindingCandidateDomain domain =
+                        AssemblyBindingCandidateDomain.Create(
+                            [.. active, .. inactive, assembly]);
+                    selection = selection
+                            is AssemblyBindingSelection.Selected selected
+                        ? domain.Finalize(selected.Occurrence)
+                        : domain.Finalize(active);
+                }
+            }
+        }
+
+        return selection switch
+        {
+            AssemblyBindingSelection.Selected selected =>
+                new AssemblyResolutionAttempt(
+                    selected.Assembly,
+                    CandidateFailure: null,
+                    selected.ShadowedAssemblies),
+            AssemblyBindingSelection.Ambiguous ambiguous =>
+                new AssemblyResolutionAttempt(
+                    Assembly: null,
+                    CandidateFailure: null,
+                    AmbiguousAssemblies: ambiguous.Assemblies,
+                    AmbiguousShadowedAssemblies:
+                        ambiguous.ShadowedAssemblies),
+            _ => null,
+        };
+    }
+
+    static ImmutableArray<ResolvedAssemblyReference> ActiveCandidates(
+        AssemblyBindingSelection selection) =>
+        selection switch
+        {
+            AssemblyBindingSelection.Selected selected =>
+                [selected.Assembly],
+            AssemblyBindingSelection.Ambiguous ambiguous =>
+                ambiguous.Assemblies,
+            _ => [],
+        };
+
+    static ImmutableArray<ResolvedAssemblyReference> ShadowedCandidates(
+        AssemblyBindingSelection selection) =>
+        selection switch
+        {
+            AssemblyBindingSelection.Selected selected =>
+                selected.ShadowedAssemblies,
+            AssemblyBindingSelection.Ambiguous ambiguous =>
+                ambiguous.ShadowedAssemblies,
+            _ => [],
+        };
+
+    AssemblyDescriptorResolution? InstalledPlatformDescriptor(
+        AssemblyReferenceIdentity identity)
+    {
+        if (!PlatformResolver.IsPlatformCandidate(identity.Name))
+            return null;
+
+        var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
+            identity.Name,
+            useRuntimeAssemblies: _options.PreferImplementationAssemblies);
+        return path is null
+            ? null
+            : DescriptorResult(
+                path,
+                AssemblyResolutionProvenance.Platform(
+                    framework ?? "InstalledPlatform",
+                    frameworkVersion: null,
+                    AssemblyDependencyProvenance
+                        .InstalledPlatformAssembly
+                        .ToString()));
+    }
+
+    static bool IsEntitled(
+        AssemblyDependencyProvenance provenance) =>
+        provenance is
+            AssemblyDependencyProvenance.TrustedPlatformAssembly
+            or AssemblyDependencyProvenance.SharedFramework
+            or AssemblyDependencyProvenance.CorpusAssembly;
 
     static CandidateTier TierFor(
         AssemblyDependencyProvenance provenance) =>
@@ -419,14 +699,41 @@ public sealed class AssemblyDependencyResolver :
         AssemblyResolutionScope scope)
     {
         AssemblyResolutionAttempt attempt = ResolveCore(identity, scope);
+        if (!attempt.AmbiguousAssemblies.IsDefaultOrEmpty)
+        {
+            return attempt.AmbiguousShadowedAssemblies.IsDefaultOrEmpty
+                ? AssemblyBindingSelection.Multiple(
+                    attempt.AmbiguousAssemblies)
+                : AssemblyBindingCandidateDomain.Create(
+                    [
+                        .. attempt.AmbiguousAssemblies,
+                        .. attempt.AmbiguousShadowedAssemblies,
+                    ]).Finalize(attempt.AmbiguousAssemblies);
+        }
         if (attempt.Assembly is { } assembly)
-            return AssemblyBindingSelection.Found(assembly);
+        {
+            return attempt.ShadowedAssemblies.IsDefaultOrEmpty
+                ? AssemblyBindingSelection.Found(assembly)
+                : AssemblyBindingCandidateDomain.Create(
+                    [assembly, .. attempt.ShadowedAssemblies])
+                    .Finalize([assembly]);
+        }
         return attempt.CandidateFailure is { } candidateFailure
             ? AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
                     candidateFailure))
-            : AssemblyBindingSelection.NotFound();
+            : attempt.MissDisposition switch
+            {
+                null or AssemblyBindingMissDisposition.Undifferentiated =>
+                    AssemblyBindingSelection.NotFound(),
+                AssemblyBindingMissDisposition.NoNameOwner =>
+                    AssemblyBindingSelection.NameNotOwned(),
+                AssemblyBindingMissDisposition.NameOwnedNoMatch =>
+                    AssemblyBindingSelection.NameOwnedButNoMatch(),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly-binding miss disposition."),
+            };
     }
 
     AssemblyBindingSelection SelectIntrinsicCoreLibrary(
@@ -505,12 +812,14 @@ public sealed class AssemblyDependencyResolver :
         string path,
         AssemblyResolutionProvenance provenance) =>
         _descriptors.GetOrAdd(
-            path,
-            (path, provenance) =>
+            new AssemblyDescriptorKey(path, provenance),
+            static (key, resolver) =>
                 new Lazy<AssemblyDescriptorResolution>(
-                    () => CreateDescriptor(path, provenance),
+                    () => resolver.CreateDescriptor(
+                        key.Path,
+                        key.Provenance),
                     LazyThreadSafetyMode.ExecutionAndPublication),
-            provenance).Value;
+            this).Value;
 
     AssemblyDescriptorResolution CreateDescriptor(
         string path,
@@ -518,20 +827,66 @@ public sealed class AssemblyDependencyResolver :
     {
         if (!_options.SnapshotAssemblyImages)
         {
-            bool created = ResolvedAssemblyReference.TryCreateFromPath(
-                path,
-                provenance,
-                out ResolvedAssemblyReference? reference,
-                out Exception? failure);
-            return created
-                ? new(reference, FailureKind: null)
-                : new(
-                    Assembly: null,
-                    ClassifyCandidateOpenFailure(
-                        failure
-                        ?? new BadImageFormatException()));
+            try
+            {
+                return FromMetadataSelection(
+                    ResolvedAssemblyReference.SelectFromPath(path, provenance));
+            }
+            catch (Exception ex) when (IsAcquisitionFailure(ex))
+            {
+                return new(new AssemblyDependencyAcquisition.Unavailable(
+                    AcquisitionFailure(ex)));
+            }
         }
 
+        SnapshotImageResolution snapshot =
+            _snapshotImages.GetOrAdd(
+                path,
+                static (path, state) =>
+                    new Lazy<SnapshotImageResolution>(
+                        () => state.Resolver.CreateSnapshotImage(path, state.Provenance),
+                        LazyThreadSafetyMode.ExecutionAndPublication),
+                (Resolver: this, Provenance: provenance)).Value;
+        if (snapshot.Failure is { } failure)
+        {
+            return new(new AssemblyDependencyAcquisition.Unavailable(failure));
+        }
+        if (snapshot.Classification is not AssemblyDescriptorSelectionResult.Ready ready)
+            return FromMetadataSelection(snapshot.Classification!);
+
+        byte[] image = snapshot.Image!;
+        return new(new AssemblyDependencyAcquisition.Acquired(
+            ResolvedAssemblyReference.Create(
+                ready.Reference.Identity,
+                Path.GetFullPath(path),
+                () => new MemoryStream(image, writable: false),
+                provenance)));
+    }
+
+    static AssemblyDescriptorResolution FromMetadataSelection(
+        AssemblyDescriptorSelectionResult selection) =>
+        new(selection switch
+        {
+            AssemblyDescriptorSelectionResult.Ready ready =>
+                new AssemblyDependencyAcquisition.Acquired(ready.Reference),
+            AssemblyDescriptorSelectionResult.Descriptorless descriptorless =>
+                new AssemblyDependencyAcquisition.Descriptorless(descriptorless),
+            AssemblyDescriptorSelectionResult.Rejected rejected =>
+                new AssemblyDependencyAcquisition.Rejected(rejected),
+            _ => throw new InvalidOperationException("Unknown Metadata descriptor selection."),
+        });
+
+    static bool IsAcquisitionFailure(Exception exception) =>
+        exception is IOException or UnauthorizedAccessException or NotSupportedException
+            or ObjectDisposedException or BadImageFormatException
+            or ArgumentOutOfRangeException or OverflowException;
+
+    static CandidateOpenFailure AcquisitionFailure(Exception exception) =>
+        new(ClassifyCandidateOpenFailure(exception), "The dependency image could not be acquired.");
+
+    SnapshotImageResolution CreateSnapshotImage(
+        string path, AssemblyResolutionProvenance provenance)
+    {
         long reservedBytes = 0;
         try
         {
@@ -549,44 +904,27 @@ public sealed class AssemblyDependencyResolver :
                 GC.AllocateUninitializedArray<byte>((int)length);
             source.ReadExactly(image);
 
-            using var stream = new MemoryStream(image, writable: false);
-            using var reader =
-                new System.Reflection.PortableExecutable.PEReader(stream);
-            if (!reader.HasMetadata)
-            {
-                return new(
-                    Assembly: null,
-                    CandidateOpenFailureKind.InvalidImage);
-            }
-
-            ResolvedAssemblyReference result =
-                ResolvedAssemblyReference.Create(
-                AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    reader.GetMetadataReader()),
-                Path.GetFullPath(path),
-                () => new MemoryStream(image, writable: false),
-                provenance);
+            var selection = ResolvedAssemblyReference.SelectFromStream(
+                () => new MemoryStream(image, writable: false), provenance);
+            if (selection is not AssemblyDescriptorSelectionResult.Ready)
+                return new(selection, Image: null, Failure: null);
             reservedBytes = 0;
-            return new(result, FailureKind: null);
+            return new(selection, image, Failure: null);
         }
         catch (AssemblyDependencySnapshotBudgetExceededException)
         {
             return new(
-                Assembly: null,
-                CandidateOpenFailureKind.ResourceBudget);
+                Classification: null,
+                Image: null,
+                new(CandidateOpenFailureKind.ResourceBudget,
+                    "The assembly dependency snapshot budget was exhausted."));
         }
-        catch (Exception ex) when (
-            ex is IOException
-                or UnauthorizedAccessException
-                or NotSupportedException
-                or ObjectDisposedException
-                or BadImageFormatException
-                or ArgumentOutOfRangeException
-                or OverflowException)
+        catch (Exception ex) when (IsAcquisitionFailure(ex))
         {
             return new(
-                Assembly: null,
-                ClassifyCandidateOpenFailure(ex));
+                Classification: null,
+                Image: null,
+                AcquisitionFailure(ex));
         }
         finally
         {
@@ -654,540 +992,35 @@ public sealed class AssemblyDependencyResolver :
 
     readonly record struct AssemblyResolutionAttempt(
         ResolvedAssemblyReference? Assembly,
-        CandidateOpenFailureKind? CandidateFailure);
+        CandidateOpenFailureKind? CandidateFailure,
+        ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies = default,
+        ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default,
+        ImmutableArray<ResolvedAssemblyReference>
+            AmbiguousShadowedAssemblies = default,
+        AssemblyBindingMissDisposition? MissDisposition = null);
 
-    sealed record AssemblyDescriptorResolution(
-        ResolvedAssemblyReference? Assembly,
-        CandidateOpenFailureKind? FailureKind);
+    readonly record struct AssemblyDescriptorKey(
+        string Path,
+        AssemblyResolutionProvenance Provenance);
 
-    public static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath)
-        => PackageDependencyReferencePaths(targetPath, packageRoots: null);
-
-    public static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath, IReadOnlyList<string>? packageRoots)
-        => PackageDependencyReferencePaths(targetPath, packageRoots, preferImplementationAssemblies: false);
-
-    public static IReadOnlyList<string> PackageDependencyReferencePaths(
-        string targetPath,
-        IReadOnlyList<string>? packageRoots,
-        bool preferImplementationAssemblies)
+    sealed record AssemblyDescriptorResolution(AssemblyDependencyAcquisition Acquisition)
     {
-        if (NuGetPackageContext(targetPath, packageRoots) is not { } context)
-            return [];
+        internal ResolvedAssemblyReference? Assembly =>
+            (Acquisition as AssemblyDependencyAcquisition.Acquired)?.Assembly;
 
-        var nuspec = Directory.EnumerateFiles(context.PackageDirectory, "*.nuspec").FirstOrDefault();
-        if (nuspec is null)
-            return [];
-
-        var packageDirectories = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
-        var dependencyGraph = new Dictionary<string, List<PackageDependency>>(StringComparer.OrdinalIgnoreCase);
-        List<PackageDependency> rootDependencies;
-        try
+        internal CandidateOpenFailureKind? FailureKind => Acquisition switch
         {
-            rootDependencies = CollectPackageDependencies(
-                context.PackageDirectory,
-                context.TargetFramework,
-                packageRoots,
-                packageDirectories,
-                dependencyGraph,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
-        {
-            return [];
-        }
-
-        var selectedVersions = packageDirectories.ToDictionary(
-            kv => kv.Key,
-            kv => kv.Value.Keys.OrderByDescending(version => version, PackageVersionComparer.Instance).First(),
-            StringComparer.OrdinalIgnoreCase);
-        var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var dependency in rootDependencies)
-            AddResolvedPackage(dependency.Id);
-
-        var references = new List<string>();
-        foreach (string id in resolved.Order(StringComparer.OrdinalIgnoreCase))
-            foreach (var path in ProbeNuGetPackageVersionDlls(
-                packageDirectories[id][selectedVersions[id]],
-                context.TargetFramework,
-                preferImplementationAssemblies))
-                references.Add(path);
-        return references;
-
-        void AddResolvedPackage(string id)
-        {
-            if (!selectedVersions.TryGetValue(id, out string? version) || !resolved.Add(id))
-                return;
-            if (!dependencyGraph.TryGetValue(PackageKey(id, version), out var dependencies))
-                return;
-            foreach (var dependency in dependencies)
-                AddResolvedPackage(dependency.Id);
-        }
-    }
-
-    static List<PackageDependency> CollectPackageDependencies(
-        string packageDirectory,
-        string targetFramework,
-        IReadOnlyList<string>? packageRoots,
-        Dictionary<string, Dictionary<string, string>> packageDirectories,
-        Dictionary<string, List<PackageDependency>> dependencyGraph,
-        HashSet<string> visiting)
-    {
-        var nuspec = Directory.EnumerateFiles(packageDirectory, "*.nuspec").FirstOrDefault();
-        if (nuspec is null)
-            return [];
-
-        var document = XDocument.Load(nuspec);
-        var dependencies = new List<PackageDependency>();
-        foreach (var dependency in SelectNuGetDependencies(document, targetFramework))
-        {
-            string? id = dependency.Attribute("id")?.Value;
-            string? version = DependencyExactVersion(dependency.Attribute("version")?.Value);
-            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(version))
-                continue;
-
-            foreach (var root in NuGetPackageRoots(packageRoots))
-            {
-                var dependencyDirectory = Path.Combine(root, id.ToLowerInvariant(), version.ToLowerInvariant());
-                if (!Directory.Exists(dependencyDirectory))
-                    continue;
-
-                if (!packageDirectories.TryGetValue(id, out var versions))
-                    packageDirectories[id] = versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                versions[version] = dependencyDirectory;
-                dependencies.Add(new PackageDependency { Id = id, Version = version });
-
-                string visitKey = $"{id}/{version}";
-                if (!dependencyGraph.ContainsKey(PackageKey(id, version)) && visiting.Add(visitKey))
-                {
-                    dependencyGraph[PackageKey(id, version)] = CollectPackageDependencies(
-                        dependencyDirectory,
-                        targetFramework,
-                        packageRoots,
-                        packageDirectories,
-                        dependencyGraph,
-                        visiting);
-                    visiting.Remove(visitKey);
-                }
-                break;
-            }
-        }
-        return dependencies;
-    }
-
-    sealed class PackageVersionComparer : IComparer<string>
-    {
-        public static readonly PackageVersionComparer Instance = new();
-
-        public int Compare(string? left, string? right)
-        {
-            if (string.Equals(left, right, StringComparison.OrdinalIgnoreCase))
-                return 0;
-            if (NuGetVersion.TryParse(left, out var leftVersion) && NuGetVersion.TryParse(right, out var rightVersion))
-                return leftVersion.CompareTo(rightVersion);
-            return string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
-        }
-    }
-
-    static string PackageKey(string id, string version) => $"{id}/{version}";
-
-    static NuGetReferenceContext? NuGetPackageContext(string targetPath, IReadOnlyList<string>? packageRoots = null)
-    {
-        string fullPath = Path.GetFullPath(targetPath);
-        foreach (var root in NuGetPackageRoots(packageRoots))
-        {
-            string fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            string prefix = fullRoot + Path.DirectorySeparatorChar;
-            if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var parts = fullPath[prefix.Length..].Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (parts.Length < 5
-                || (!parts[2].Equals("lib", StringComparison.OrdinalIgnoreCase)
-                    && !parts[2].Equals("ref", StringComparison.OrdinalIgnoreCase)))
-                return null;
-
-            return new(
-                Path.Combine(fullRoot, parts[0], parts[1]),
-                parts[3],
-                parts[0],
-                parts[1]);
-        }
-
-        return null;
-    }
-
-    static IEnumerable<string> NuGetPackageRoots(IReadOnlyList<string>? packageRoots = null)
-    {
-        if (packageRoots is not null)
-        {
-            foreach (var root in packageRoots)
-                yield return root;
-            yield break;
-        }
-
-        if (Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } envRoot)
-            yield return envRoot;
-
-        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrEmpty(home))
-            yield return Path.Combine(home, ".nuget", "packages");
-    }
-
-    static IEnumerable<XElement> SelectNuGetDependencies(XDocument document, string? tfm)
-    {
-        var dependencies = document.Descendants().FirstOrDefault(e => e.Name.LocalName == "dependencies");
-        if (dependencies is null)
-            yield break;
-
-        var directDependencies = dependencies.Elements().Where(e => e.Name.LocalName == "dependency").ToArray();
-        var groups = dependencies.Elements().Where(e => e.Name.LocalName == "group").ToArray();
-        string? normalizedTfm = NormalizeNuGetFramework(tfm);
-        var selectedGroup = normalizedTfm is null
-            ? null
-            : groups
-                .Select(group => new
-                {
-                    Group = group,
-                    Score = NuGetFrameworkCompatibilityScore(normalizedTfm, NormalizeNuGetFramework(group.Attribute("targetFramework")?.Value)),
-                })
-                .Where(candidate => candidate.Score is not null)
-                .OrderByDescending(candidate => candidate.Score)
-                .Select(candidate => candidate.Group)
-                .FirstOrDefault();
-
-        if (selectedGroup is not null)
-        {
-            foreach (var dependency in selectedGroup.Elements().Where(e => e.Name.LocalName == "dependency"))
-                yield return dependency;
-            yield break;
-        }
-
-        foreach (var dependency in directDependencies)
-            yield return dependency;
-    }
-
-    static string? NormalizeNuGetFramework(string? tfm)
-    {
-        if (string.IsNullOrWhiteSpace(tfm))
-            return null;
-
-        tfm = tfm.Trim().ToLowerInvariant();
-        if (tfm.StartsWith(".netstandard", StringComparison.Ordinal))
-            return "netstandard" + tfm[".netstandard".Length..];
-        if (tfm.StartsWith(".netcoreapp", StringComparison.Ordinal))
-            return "netcoreapp" + tfm[".netcoreapp".Length..];
-        if (tfm.StartsWith(".netframework", StringComparison.Ordinal))
-            return "net" + tfm[".netframework".Length..].Replace(".", "", StringComparison.Ordinal);
-        return tfm;
-    }
-
-    static int? NuGetFrameworkCompatibilityScore(string target, string? candidate)
-    {
-        if (candidate is null)
-            return null;
-        if (string.Equals(target, candidate, StringComparison.OrdinalIgnoreCase))
-            return 100_000;
-        if (!TryParseNuGetFramework(target, out var targetFramework) ||
-            !TryParseNuGetFramework(candidate, out var candidateFramework))
-            return null;
-
-        int versionScore = candidateFramework.Major * 100 + candidateFramework.Minor;
-        return targetFramework.Family switch
-        {
-            "net" when candidateFramework.Family == "net" && candidateFramework.VersionScore <= targetFramework.VersionScore
-                => 90_000 + versionScore,
-            "net" when candidateFramework.Family == "netcoreapp" && candidateFramework.VersionScore <= targetFramework.VersionScore
-                => 80_000 + versionScore,
-            "net" when candidateFramework.Family == "netstandard" && candidateFramework.VersionScore <= 201
-                => 70_000 + versionScore,
-            "netcoreapp" when candidateFramework.Family == "netcoreapp" && candidateFramework.VersionScore <= targetFramework.VersionScore
-                => 90_000 + versionScore,
-            "netcoreapp" when candidateFramework.Family == "netstandard" && candidateFramework.VersionScore <= 201
-                => 80_000 + versionScore,
-            "netstandard" when candidateFramework.Family == "netstandard" && candidateFramework.VersionScore <= targetFramework.VersionScore
-                => 90_000 + versionScore,
-            _ => null,
+            AssemblyDependencyAcquisition.Acquired => null,
+            AssemblyDependencyAcquisition.Descriptorless => CandidateOpenFailureKind.InvalidImage,
+            AssemblyDependencyAcquisition.Rejected rejected => rejected.Evidence.Failure.Kind,
+            AssemblyDependencyAcquisition.Unavailable unavailable => unavailable.Failure.Kind,
+            _ => throw new InvalidOperationException("Unknown dependency acquisition."),
         };
     }
 
-    static bool TryParseNuGetFramework(string tfm, out NuGetFramework framework)
-    {
-        framework = default;
-        if (tfm.StartsWith("netstandard", StringComparison.Ordinal))
-            return TryParseVersionedFramework("netstandard", tfm["netstandard".Length..], out framework);
-        if (tfm.StartsWith("netcoreapp", StringComparison.Ordinal))
-            return TryParseVersionedFramework("netcoreapp", tfm["netcoreapp".Length..], out framework);
-        if (tfm.StartsWith("net", StringComparison.Ordinal) && tfm[3..].Contains('.', StringComparison.Ordinal))
-            return TryParseVersionedFramework("net", tfm["net".Length..], out framework);
-        return false;
-    }
+    sealed record SnapshotImageResolution(
+        AssemblyDescriptorSelectionResult? Classification,
+        byte[]? Image,
+        CandidateOpenFailure? Failure);
 
-    static bool TryParseVersionedFramework(string family, string version, out NuGetFramework framework)
-    {
-        framework = default;
-        var parts = version.Split('.', 3);
-        if (parts.Length == 0 || !int.TryParse(parts[0], out int major))
-            return false;
-        int minor = 0;
-        if (parts.Length >= 2 && !int.TryParse(parts[1], out minor))
-            return false;
-        framework = new(family, major, minor);
-        return true;
-    }
-
-    // Delimiters that mark a NuGet version range rather than a single version;
-    // cached to avoid allocating the delimiter array on every call.
-    static readonly SearchValues<char> s_versionRangeDelimiters = SearchValues.Create("[](),");
-
-    static string? DependencyExactVersion(string? version)
-    {
-        if (string.IsNullOrWhiteSpace(version))
-            return null;
-
-        version = version.Trim();
-        if (version.Length >= 5 && version[0] == '[' && version[^1] == ']')
-        {
-            string inner = version[1..^1].Trim();
-            var range = inner.Split(',', 2);
-            if (range.Length == 1)
-                return inner;
-            if (range.Length == 2
-                && string.Equals(range[0].Trim(), range[1].Trim(), StringComparison.OrdinalIgnoreCase))
-                return range[0].Trim();
-        }
-
-        return version.AsSpan().ContainsAny(s_versionRangeDelimiters) ? null : version;
-    }
-
-    static IEnumerable<string> ProbeNuGetPackageVersionDlls(string packageDir, string? tfm, bool preferImplementationAssemblies)
-    {
-        if (!Directory.Exists(packageDir))
-            yield break;
-
-        var assetKinds = preferImplementationAssemblies
-            ? (string[])["lib", "ref"]
-            : (string[])["ref", "lib"];
-
-        foreach (string assetKind in assetKinds)
-        {
-            if (tfm is not null && AssetDirectory(packageDir, assetKind, tfm) is { } exactAssetDir)
-            {
-                foreach (var path in Directory.EnumerateFiles(exactAssetDir, "*.dll"))
-                    yield return path;
-                yield break;
-            }
-        }
-
-        foreach (string assetKind in assetKinds)
-        {
-            if (tfm is not null && CompatibleAssetDirectory(packageDir, assetKind, tfm) is { } compatibleAssetDir)
-            {
-                foreach (var path in Directory.EnumerateFiles(compatibleAssetDir, "*.dll"))
-                    yield return path;
-                yield break;
-            }
-        }
-    }
-
-    static string? AssetDirectory(string packageDir, string assetKind, string tfm)
-    {
-        string assetDir = Path.Combine(packageDir, assetKind, tfm);
-        return Directory.Exists(assetDir) ? assetDir : null;
-    }
-
-    static string? CompatibleAssetDirectory(string packageDir, string assetKind, string targetTfm)
-    {
-        string assetRoot = Path.Combine(packageDir, assetKind);
-        if (!Directory.Exists(assetRoot))
-            return null;
-
-        string? normalizedTarget = NormalizeNuGetFramework(targetTfm);
-        if (normalizedTarget is null)
-            return null;
-
-        return Directory.EnumerateDirectories(assetRoot)
-            .Select(dir => new
-            {
-                Directory = dir,
-                Score = NuGetFrameworkCompatibilityScore(normalizedTarget, NormalizeNuGetFramework(Path.GetFileName(dir))),
-            })
-            .Where(candidate => candidate.Score is not null)
-            .OrderByDescending(candidate => candidate.Score)
-            .Select(candidate => candidate.Directory)
-            .FirstOrDefault();
-    }
-
-    static void AddSharedFrameworkReferences(string frameworkName, Action<string> add)
-    {
-        string runtimeDirectory = RuntimeEnvironment.GetRuntimeDirectory()
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        string runtimeVersion = Path.GetFileName(runtimeDirectory);
-        string? runtimeFrameworkDirectory = Path.GetDirectoryName(runtimeDirectory);
-        if (string.IsNullOrEmpty(runtimeVersion)
-            || runtimeFrameworkDirectory is null
-            || !Path.GetFileName(runtimeFrameworkDirectory).Equals("Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase))
-            return;
-
-        string? sharedRoot = Path.GetDirectoryName(runtimeFrameworkDirectory);
-        if (sharedRoot is null)
-            return;
-
-        string frameworkRoot = Path.Combine(sharedRoot, frameworkName);
-        if (!Directory.Exists(frameworkRoot))
-            return;
-
-        string? selected = SelectSharedFrameworkDirectory(frameworkRoot, runtimeVersion);
-        if (selected is null)
-            return;
-
-        foreach (var path in Directory.EnumerateFiles(selected, "*.dll"))
-            add(path);
-    }
-
-    public static string? SelectSharedFrameworkDirectory(string frameworkRoot, string runtimeVersion)
-    {
-        string exactDirectory = Path.Combine(frameworkRoot, runtimeVersion);
-        if (Directory.Exists(exactDirectory))
-            return exactDirectory;
-        if (!System.Version.TryParse(
-            VersionCore(runtimeVersion),
-            out var runtime))
-            return null;
-
-        return Directory.EnumerateDirectories(frameworkRoot)
-            .Select(directory => new
-            {
-                Directory = directory,
-                Version = System.Version.TryParse(
-                    VersionCore(Path.GetFileName(directory)),
-                    out var version)
-                        ? version
-                        : null,
-            })
-            .Where(candidate => candidate.Version is not null
-                && candidate.Version.Major == runtime.Major
-                && candidate.Version.Minor == runtime.Minor)
-            .OrderByDescending(candidate => candidate.Version)
-            .Select(candidate => candidate.Directory)
-            .FirstOrDefault();
-    }
-
-    static string VersionCore(string version) => version.Split('-', 2)[0];
-
-    static void AddDepsJsonReferences(string targetDirectory, string targetName, Action<string> addReference)
-    {
-        var depsPath = Path.Combine(targetDirectory, $"{targetName}.deps.json");
-        if (!File.Exists(depsPath))
-            return;
-
-        try
-        {
-            using var doc = HardenedJson.Parse(File.ReadAllText(depsPath));
-            var root = doc.RootElement;
-            if (!root.TryGetProperty("targets", out var targets) ||
-                targets.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("libraries", out var libraries) ||
-                libraries.ValueKind != JsonValueKind.Object)
-                return;
-
-            var libraryPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var library in libraries.EnumerateObject())
-            {
-                if (library.Value.ValueKind == JsonValueKind.Object &&
-                    library.Value.TryGetProperty("path", out var pathElement) &&
-                    pathElement.ValueKind == JsonValueKind.String &&
-                    pathElement.GetString() is { Length: > 0 } path)
-                    libraryPaths[library.Name] = path;
-            }
-
-            foreach (var target in targets.EnumerateObject())
-            {
-                if (target.Value.ValueKind != JsonValueKind.Object)
-                    continue;
-
-                foreach (var library in target.Value.EnumerateObject())
-                {
-                    AddAssetGroup(targetDirectory, libraryPaths, library, "compile", addReference);
-                    AddAssetGroup(targetDirectory, libraryPaths, library, "runtime", addReference);
-                }
-            }
-        }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
-        catch (JsonException) { }
-    }
-
-    static void AddAssetGroup(
-        string targetDirectory,
-        IReadOnlyDictionary<string, string> libraryPaths,
-        JsonProperty library,
-        string groupName,
-        Action<string> addReference)
-    {
-        if (!library.Value.TryGetProperty(groupName, out var assets))
-            return;
-        if (assets.ValueKind != JsonValueKind.Object)
-            return;
-
-        foreach (var asset in assets.EnumerateObject())
-        {
-            if (asset.Name == "_._")
-                continue;
-
-            if (asset.Value.ValueKind == JsonValueKind.Object &&
-                asset.Value.TryGetProperty("localPath", out var localPathElement) &&
-                localPathElement.ValueKind == JsonValueKind.String &&
-                localPathElement.GetString() is { Length: > 0 } localPath &&
-                StorePath.TryResolveUnderRoot(
-                    targetDirectory,
-                    localPath,
-                    out string? resolvedLocalPath))
-            {
-                addReference(resolvedLocalPath);
-            }
-
-            if (libraryPaths.TryGetValue(library.Name, out var packagePath)
-                && StorePath.TryResolveUnderRoot(
-                    GlobalPackagesRoot(),
-                    packagePath,
-                    out string? packageDirectory)
-                && StorePath.TryResolveUnderRoot(
-                    packageDirectory,
-                    asset.Name,
-                    out string? resolvedAssetPath))
-            {
-                addReference(resolvedAssetPath);
-            }
-        }
-    }
-
-    static string GlobalPackagesRoot()
-    {
-        var packagesRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
-        if (!string.IsNullOrEmpty(packagesRoot))
-            return packagesRoot;
-
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".nuget",
-            "packages");
-    }
-
-    static (string? Id, string? Version) TryReadPackageIdentity(string path, IReadOnlyList<string>? packageRoots)
-    {
-        if (NuGetPackageContext(path, packageRoots) is { } context)
-            return (context.PackageId, context.PackageVersion);
-        return (null, null);
-    }
-
-    readonly record struct NuGetFramework(string Family, int Major, int Minor)
-    {
-        public int VersionScore => Major * 100 + Minor;
-    }
-
-    sealed record NuGetReferenceContext(
-        string PackageDirectory,
-        string TargetFramework,
-        string PackageId,
-        string PackageVersion);
 }

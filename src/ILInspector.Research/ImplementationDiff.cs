@@ -1,14 +1,12 @@
 using System.Collections.Immutable;
-using System.Reflection;
-using System.Reflection.Metadata;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Research;
 
@@ -18,9 +16,7 @@ public enum ImplementationDiffMechanism
     None = 0,
     CSharp = 1,
     IlBody = 2,
-    Source = 4,
     All = CSharp | IlBody,
-    AllAvailable = All | Source,
 }
 
 public sealed record ImplementationDiffOptions(
@@ -61,32 +57,6 @@ public sealed record PdbSourceComparisonInput(
     FindingInspection<string> OldInspection,
     FindingInspection<string> NewInspection);
 
-public sealed record ImplementationMemberDiffResult(
-    ResearchSubjectKey Subject,
-    CSharpBodyDiffResult? CSharpDiff,
-    IlMemberDiffResult? IlDiff,
-    IReadOnlyList<ResearchChange> Changes,
-    RetainedFindingComparisonSet RetainedComparisons)
-{
-    public FindingComparison<string>? SourceComparison { get; init; }
-
-    public bool HasCSharpChanges
-        => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.CSharp);
-
-    public bool HasIlChanges
-        => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.IlBody);
-
-    public bool HasSourceChanges
-        => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.Source);
-
-    public bool IsExact
-        => Changes.Count == 0
-           && (CSharpDiff is null || CSharpDiff.IsExact)
-           && (IlDiff is null || IlDiff.Diff.IsExact)
-           && RetainedComparisons.Items.All(comparison => comparison.IsExact)
-           && (SourceComparison is null || SourceComparison.IsExact);
-}
-
 /// <summary>
 /// Product-owned implementation diff projection that joins C# source-shape and
 /// IL/body changes by Research member identity.
@@ -111,167 +81,6 @@ public static class ImplementationDiff
             ResearchDiffInput.FromAssembly(oldAssemblyPath),
             ResearchDiffInput.FromAssembly(newAssemblyPath),
             options);
-    }
-
-    public static ImplementationMemberDiffResult CompareMembers(
-        MetadataSource oldSource,
-        MethodDefinitionHandle oldMethod,
-        MetadataSource newSource,
-        MethodDefinitionHandle newMethod,
-        ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.All,
-        ResearchSubjectKey? subject = null)
-    {
-        ArgumentNullException.ThrowIfNull(oldSource);
-        ArgumentNullException.ThrowIfNull(newSource);
-        if (oldMethod.IsNil)
-            throw new ArgumentException("Old method handle must not be nil.", nameof(oldMethod));
-        if (newMethod.IsNil)
-            throw new ArgumentException("New method handle must not be nil.", nameof(newMethod));
-
-        subject ??= SubjectFromMethod(oldSource, oldMethod);
-        CSharpBodyDiffResult? csharpDiff = null;
-        IlMemberDiffResult? ilDiff = null;
-        var changes = ImmutableArray.CreateBuilder<ResearchChange>();
-        var retainedComparisons = ImmutableArray.CreateBuilder<RetainedFindingComparison>();
-
-        if (mechanisms.HasFlag(ImplementationDiffMechanism.CSharp))
-        {
-            csharpDiff = CSharpBodyDiff.CompareMembers(oldSource, oldMethod, newSource, newMethod);
-            var semanticChanges = ToCSharpChanges(csharpDiff, subject);
-            changes.AddRange(semanticChanges);
-            var comparison = CSharpFindings.Compare(
-                oldSource,
-                oldMethod,
-                newSource,
-                newMethod,
-                new FindingSubject(subject.Id, subject.Display));
-            retainedComparisons.Add(new RetainedFindingComparison<CSharpCanonicalLine>(
-                subject,
-                CSharpFindings.LineDescriptor,
-                comparison));
-            if (comparison is FindingComparison<CSharpCanonicalLine>.Failed failed)
-            {
-                if (!semanticChanges.Any(change => change.Kind == ResearchChangeKind.Failed))
-                {
-                    changes.Add(FindingFailureChange(
-                        subject,
-                        ResearchChangeMechanism.CSharp,
-                        ResearchChangeCategory.CSharp,
-                        CSharpFindings.InspectionDescriptor,
-                        failed.Failure));
-                }
-            }
-            else if (FindingDivergenceChange(
-                subject,
-                ResearchChangeMechanism.CSharp,
-                ResearchChangeCategory.CSharp,
-                CSharpFindingDivergenceDescriptor,
-                comparison.IsExact,
-                csharpDiff.IsExact) is { } divergence)
-            {
-                changes.Add(divergence);
-            }
-        }
-
-        if (mechanisms.HasFlag(ImplementationDiffMechanism.IlBody))
-        {
-            string label = subject.TypeName is { Length: > 0 } typeName && subject.MemberName is { Length: > 0 } memberName
-                ? $"{typeName}::{memberName}"
-                : subject.Display;
-            ilDiff = IlAssemblyDiff.CompareMembers(
-                oldSource.Pe,
-                oldSource.Reader,
-                oldMethod,
-                newSource.Pe,
-                newSource.Reader,
-                newMethod,
-                oldLabel: label,
-                newLabel: label);
-            var semanticChanges = ToIlChanges(ilDiff, subject);
-            changes.AddRange(semanticChanges);
-            var comparison = IlFindings.Compare(
-                oldSource.Pe,
-                oldSource.Reader,
-                oldMethod,
-                newSource.Pe,
-                newSource.Reader,
-                newMethod,
-                new FindingSubject(subject.Id, subject.Display));
-            retainedComparisons.Add(new RetainedFindingComparison<CanonicalIlOperation>(
-                subject,
-                IlFindings.OperationDescriptor,
-                comparison));
-            if (comparison is FindingComparison<CanonicalIlOperation>.Failed failed)
-            {
-                if (!semanticChanges.Any(change => change.Kind == ResearchChangeKind.Failed))
-                {
-                    changes.Add(FindingFailureChange(
-                        subject,
-                        ResearchChangeMechanism.IlBody,
-                        ResearchChangeCategory.IlBody,
-                        IlFindings.InspectionDescriptor,
-                        failed.Failure));
-                }
-            }
-            else if (MethodHasBody(oldSource, oldMethod)
-                && MethodHasBody(newSource, newMethod)
-                && FindingDivergenceChange(
-                    subject,
-                    ResearchChangeMechanism.IlBody,
-                    ResearchChangeCategory.IlBody,
-                    IlFindingDivergenceDescriptor,
-                    comparison.IsExact,
-                    ilDiff.Diff.IsExact) is { } divergence)
-            {
-                changes.Add(divergence);
-            }
-        }
-
-        return new ImplementationMemberDiffResult(
-            subject,
-            csharpDiff,
-            ilDiff,
-            changes.ToImmutable(),
-            new RetainedFindingComparisonSet(retainedComparisons));
-    }
-
-    public static ImplementationMemberDiffResult CompareMembersWithPdbSource(
-        MetadataSource oldSource,
-        MethodDefinitionHandle oldMethod,
-        MetadataSource newSource,
-        MethodDefinitionHandle newMethod,
-        FindingInspection<string> oldPdbSource,
-        FindingInspection<string> newPdbSource,
-        ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.AllAvailable,
-        ResearchSubjectKey? subject = null)
-    {
-        ArgumentNullException.ThrowIfNull(oldPdbSource);
-        ArgumentNullException.ThrowIfNull(newPdbSource);
-
-        var result = CompareMembers(
-            oldSource,
-            oldMethod,
-            newSource,
-            newMethod,
-            mechanisms & ~ImplementationDiffMechanism.Source,
-            subject);
-        if (!mechanisms.HasFlag(ImplementationDiffMechanism.Source))
-            return result;
-
-        var comparison = FindingComparison.Compare(
-            oldPdbSource,
-            newPdbSource);
-        var retained = result.RetainedComparisons.Items.ToBuilder();
-        retained.Add(new RetainedFindingComparison<string>(
-            result.Subject,
-            TextFindings.LineDescriptor,
-            comparison));
-        return result with
-        {
-            Changes = [.. result.Changes, .. ToSourceChanges(comparison, result.Subject)],
-            RetainedComparisons = new RetainedFindingComparisonSet(retained),
-            SourceComparison = comparison,
-        };
     }
 
     public static ImplementationDiffResult Compare(
@@ -429,24 +238,22 @@ public static class ImplementationDiff
         MetadataSource source,
         LibraryBodyIndex bodyIndex)
     {
-        MethodIdentity? indexedMethod =
-            bodyIndex.DeclaredMethods.FirstOrDefault()
-            ?? bodyIndex.Methods.FirstOrDefault();
-        if (indexedMethod is null)
-            return;
-
+        LibraryBodyModuleIdentity indexedModule = bodyIndex.ModuleIdentity;
+        AssemblyReferenceIdentity? sourceIdentity = source.Reader.IsAssembly
+            ? AssemblyReferenceIdentity.FromAssemblyDefinition(source.Reader)
+            : null;
         Guid sourceMvid = source.Reader.GetGuid(
             source.Reader.GetModuleDefinition().Mvid);
-        if (StringComparer.OrdinalIgnoreCase.Equals(
-                source.AssemblyName,
-                indexedMethod.AssemblyName)
-            && sourceMvid == indexedMethod.ModuleVersionId)
+        if (AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                sourceIdentity,
+                indexedModule.AssemblyIdentity)
+            && sourceMvid == indexedModule.ModuleVersionId)
         {
             return;
         }
 
         throw new ArgumentException(
-            $"The body index for '{indexedMethod.AssemblyName}' does not match "
+            $"The body index for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' does not match "
             + $"assembly content '{source.AssemblyName}'.",
             nameof(bodyIndex));
     }
@@ -802,25 +609,4 @@ public static class ImplementationDiff
                 descriptor,
                 $"{descriptor.Title} from the semantic projection for '{subject.Display}'.");
 
-    static bool MethodHasBody(MetadataSource source, MethodDefinitionHandle method)
-        => source.Reader.GetMethodDefinition(method).RelativeVirtualAddress != 0;
-
-    static ResearchSubjectKey SubjectFromMethod(MetadataSource source, MethodDefinitionHandle methodHandle)
-    {
-        var reader = source.Reader;
-        var method = reader.GetMethodDefinition(methodHandle);
-        var typeHandle = method.GetDeclaringType();
-        var type = reader.GetTypeDefinition(typeHandle);
-        var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method, IsExtensionMethod(reader, type, method));
-        string typeFullName = reader.GetFullTypeName(type);
-        string memberName = reader.GetString(method.Name);
-        return ResearchMemberIdentity.SubjectFromAnchor(anchor, $"{typeFullName}.{memberName}");
-    }
-
-    static bool IsExtensionMethod(MetadataReader reader, TypeDefinition type, MethodDefinition method)
-        => type.Attributes.HasFlag(TypeAttributes.Abstract)
-           && type.Attributes.HasFlag(TypeAttributes.Sealed)
-           && method.Attributes.HasFlag(MethodAttributes.Static)
-           && AttributeReader.HasExtensionAttribute(reader, type.GetCustomAttributes())
-           && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
 }

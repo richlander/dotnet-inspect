@@ -5,8 +5,10 @@ staged correctness gauntlet. It is **not** just a catalog of today's harness
 flags. The current tools are the raw material; this document names the
 first-class correctness system we want agents and maintainers to use.
 
-[decompiler.md](decompiler.md) explains how the decompiler pipeline produces
-output. [decompiler-quality.md](decompiler-quality.md) explains the quality
+[Decompiler architecture](decompiler-architecture.md) maps the implementation,
+host consumers, and test infrastructure. [decompiler.md](decompiler.md) explains
+how the pipeline produces output.
+[decompiler-quality.md](decompiler-quality.md) explains the quality
 strategy and target selection. This page answers a more operational design
 question: **which boss did this change beat, and which boss is still ahead?**
 
@@ -46,19 +48,54 @@ observation layer. It must not use that parse to construct or rewrite the C#
 artifact it later compiles as evidence. C# spelling, declaration shape, body
 layout, and artifact replacement remain product responsibilities.
 
-ReturnToSender authored-body controls therefore operate on the exact frozen
-compilation unit produced for the decompiled body. The product renderer selects
-the target body while rendering and returns an immutable source artifact with a
-typed replacement range and operation. The harness supplies the independently
-acquired authored body, invokes that product operation, and compiles the result.
-It must not rediscover the target by member name, overload count, syntax-tree
-search, or textual heuristics, and it must not recompose the shell from mutable
-planning state. This keeps assembly identity, modifiers, primary-constructor
-shape, closure membership, references, and every non-target source byte fixed
-between the experiment and its control.
+Syntax and semantic validity bind the same first product projection. The
+harness may sample that immutable rendered artifact for the semantic lane, but
+must not invoke a mutating raising pipeline again and accidentally compile a
+different second projection.
+`CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
+gates this ownership boundary with compiler-produced runtime-async IL.
+
+Semantic compilation replays the normalized memory-safety model with a compiler
+configuration that actually enforces it. Updated modules use Preview plus the
+`updated-memory-safety-rules` feature. Legacy, malformed, unsupported, and
+unmarked modules use the stable latest language version without that feature;
+Roslyn 5.9 Preview itself enables the updated behavior and therefore cannot
+serve as a legacy oracle. Runtime-async is added independently from method
+implementation metadata.
+`CompilerFeatureOptionsTests.HarnessReplayEnforcesDistinctLegacyAndUpdatedUnsafeRules`
+gates the observable distinction. Render A/B semantic comparisons select the
+same per-assembly options for both projections, so a legacy validity regression
+cannot be hidden by Preview's updated behavior.
+
+ReturnToSender authored-body controls therefore create a separate
+comparison-only `RoundTripRequest` with the independently acquired body as its
+typed replacement. After
+[#4931](https://github.com/richlander/dotnet-inspect/issues/4931) lands, it
+consumes the CSharp owner's derived replacement artifact, which binds the frozen
+source template digest, typed body range, preserved rendering policy and
+non-target bytes, and distinct result digest. The control artifact cannot
+inherit the template artifact's closure, participant coverage, admission, or
+receipt evidence. It preserves the source artifact and module identity, target
+set, scope and body policy, compiler policy, and frozen reference selection,
+but it cannot issue a compile-context receipt or `Exact`.
+
+The harness must not rediscover the target by member name, overload count,
+syntax-tree search, or textual heuristics, and it must not recompose the shell
+from mutable planning state. A mismatch in the preserved request identity or
+policy, any changed non-target byte, or any reused artifact receipt makes the
+control unavailable rather than comparable. This target wiring is **unverified**
+until
+`AuthoredBodyControlPreservesProductRenderedShell` runs in the Release harness
+suite. The existing string-returning `CSharpSourceArtifact.ReplaceBody`
+primitive and its
+`SourceArtifactReplacesTheSelectedNestedMethodBlockOnly` and
+`SourceArtifactReplacementPreservesConstructorInitializer` tests prove byte
+replacement but not owner-issued derivation, so they cannot enable causal
+control attribution by themselves.
 
 ReturnToSender's earlier source-corpus lookup is a different, non-authoritative
-operation. It may use `CSharpText.MemberSignatureShape` to discriminate
+operation. It may use
+[`CSharpText.MemberSignatureShape`](design/member-signature-shape.md) to discriminate
 same-named candidates, but correspondence remains typed as unique, ambiguous,
 or unavailable and may fall back to the recorded ordinal. It cannot turn a
 shape match into fault-attribution identity; attribution still requires the
@@ -132,31 +169,30 @@ entry gate invalidates every later result, so run it first and report it.
    looks green. Decompiler-relevant projects:
 
    ```bash
-   dotnet run --project src/ILInspector.Decompiler.Tests -c Release
-   dotnet run --project src/ILInspector.Analysis.Tests -c Release
+   dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
+   dotnet run --project tests/ILInspector.Analysis.Tests -c Release
    dotnet run --project tests/ILInspector.Metadata.Tests -c Release
    ```
 
    Filter to a class while iterating, e.g.
    `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
-   The decompiler test host rejects an explicit `-class`, `-method`, or
-   `-filter` selector that matches no discovered test, including one unmatched
-   selector alongside valid selectors. Every requested `-id` must resolve
-   after the other filters, even when another ID is valid. The host also
-   rejects standalone or combined direct selections that resolve to no
-   runnable test, including through explicit-test mode, and reports stale or
-   malformed `-run` serializations directly. A misspelled targeted gate
-   therefore fails instead of reporting a successful zero-test or partial run.
-   Preflight discovery runs in a short-lived child process so its serializer
-   registration and disposable theory data cannot alter the real runner process.
-   `ExplicitFilterGuardTests.TestHost_RejectsEveryUnmatchedExplicitFilter` is
-   the subprocess gate for both the rejection and isolation contracts.
-   `ExplicitFilterGuardTests.AppHostAlias_ConcurrentProcessesAreIsolated`
-   protects its renamed-apphost regression from concurrent test processes by
-   holding isolated aliases live in independent workers while another host
-   starts through the real muxer.
-   `ExplicitFilterGuardTests.AppHostAlias_CancellationCleansParentOwnedDirectories`
-   protects worker cleanup when the parent cancels those processes.
+   [The repository xUnit test host](design/xunit-test-host.md) selects
+   Microsoft Testing Platform (MTP) as the owner of aggregate non-vacuity.
+   The decompiler host owns `--gate` preset expansion and the stronger
+   `--gate pre-merge` receipt: the preset names independent correctness claims,
+   so the CI checker requires report evidence for every expected class and
+   compares independent pre-enumerated discovery identities with execution
+   identities to prove every selected case executes exactly once. MTP's
+   aggregate minimum cannot replace either property.
+
+   Until the MTP adoption tracked by #5379, the decompiler executable retains
+   its transitional `ExplicitFilterGuard` preflight. That preflight is not the
+   repository contract and is removed by adoption rather than generalized.
+   The MTP migration must preserve `--gate` expansion and the per-class receipt
+   and discovery-to-execution completeness receipt while replacing native
+   xUnit selector syntax with MTP filters. If the selected MTP version cannot
+   expose the required independent identities, this suite remains on its
+   transitional host until an equally strong MTP-backed receipt exists.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by
@@ -175,13 +211,14 @@ entry gate invalidates every later result, so run it first and report it.
 
 Notes:
 
-- The full `src/ILInspector.Decompiler.Tests` suite runs compile-back fidelity
+- The full `tests/ILInspector.Decompiler.Tests` suite runs compile-back fidelity
   checks and can be slow, especially under a contended shared machine; it is part
   of the entry gate for behavior changes, but iterate against a class filter and
   run the full suite before requesting review.
 - **PR CI runs only the fast unit subset.** The `test` job in `ci.yml` runs
-  `dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait-
-  "Speed=Slow"`, `dotnet run --project src/ILInspector.Decompiler.Tests -c
+  `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --
+  --filter-not-trait
+  "Speed=Slow"`, `dotnet run --project tests/ILInspector.Decompiler.Tests -c
   Release -- -trait- "Speed=Slow"`, and the matching fast Analysis/IL
   round-trip filters. These gate command surface, pass logic, printer, importer
   facts, identity, and classification regressions without the broad integration
@@ -195,7 +232,7 @@ Notes:
   prove the slow suite is green; run the full suite locally before review.
 - The IL round-trip oracle follows the same shape: PR CI runs
   `dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release --
-  -trait- "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
+  --filter-not-trait "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
   `DotnetInspector.ILRoundtrip.Tests` command keeps the assembly-wide sweep in
   Deep Inspect / full local coverage. Mark new broad/corpus-style
   round-trip checks `[Trait("Speed", "Slow")]`.
@@ -214,7 +251,7 @@ the pipeline — test suite, harness, sweep, benchmark — validates after every
 pass in the same build users run.
 
 The shipped CLI is the one sanctioned opt-out
-(`IrInvariants.DisableForShippedTool()` in `src/dotnet-inspect/Program.cs`), so
+(`IrInvariants.DisableForShippedTool()` in `src/DotnetInspect.Cli/Program.cs`), so
 the tool pays nothing on the decompile hot path. Declining validation has
 exactly one form — `Enabled`'s setter is private, so the compiler rejects any
 other spelling — and `IrInvariantsHostContractTests` pins that one call site, so
@@ -264,9 +301,9 @@ narrows to X's fast tests.
 
 ```bash
 # every Fidelity test, fast and slow:
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity"
 # fast Fidelity tests only:
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity" -trait- "Speed=Slow"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity" -trait- "Speed=Slow"
 ```
 
 Areas and their member classes:
@@ -313,8 +350,8 @@ Memorizing the `Speed`/`Area` trait spellings above is friction, and an
 arguments before delegating to the runner. Run `--gate list` for the table:
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate list
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate list
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 ```
 
 | Preset | Expands to | Use |
@@ -351,23 +388,30 @@ notification was ever sent. Detection latency was unbounded, not weekly
 
 The `decompiler-gates` CI job closes that hole. Source, test, and tool projects
 run it by default, except for measured false positives in
-`eng/decompiler-gate-skip-projects.txt`. The initial exemptions are the CLI and
-its tests, which do not feed the gate. `DecompilerProjectGraphPolicy` in the
-`eng/CiChangeDetection` gate asserts that every exemption names a project root
-and that no exempted project tree overlaps a project in MSBuild's evaluated
-Release project-reference closure rooted at `ILInspector.Decompiler.Tests`.
-New project trees therefore run the gate without a list update; neither a
-nested project nor a nested exemption can silently hide sources compiled by a
-graph project. An unreadable, invalid, or vacuous graph or skip list exempts
-nothing. Global build inputs and the gate's own scripts and pins remain
+`eng/decompiler-gate-skip-projects.txt`. That manifest is generated, not
+hand-maintained: `dotnet run eng/test-ci-change-detection.cs -- \
+--refresh-decompiler-skip-projects` recomputes it from every project directory
+under `fixtures/`, `src/`, `tests/`, and `tools/` that falls outside MSBuild's
+evaluated Release project-reference closure rooted at
+`ILInspector.Decompiler.Tests`, so it stays comprehensive as the repository
+grows instead of drifting back toward a small hand-picked list. Re-run it and
+commit the result whenever a project is added, removed, or re-wired.
+`DecompilerProjectGraphPolicy` in the `eng/CiChangeDetection` gate still
+asserts that every exemption names a project root and that no exempted project
+tree overlaps that same closure — the generator and the assertion share the
+one evaluated graph, so they cannot disagree. New project trees therefore run
+the gate until the manifest is regenerated; neither a nested project nor a
+nested exemption can silently hide sources compiled by a graph project. An
+unreadable, invalid, or vacuous graph or skip list exempts nothing. Global
+build inputs and the gate's own scripts and pins remain
 explicit triggers. The job runs separately so it never serializes with the hot
 `test` lane, and executes `--gate pre-merge`.
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
   --gate pre-merge -preEnumerateTheories -noColor -list full/json \
   > /tmp/expected.json
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
   --gate pre-merge -preEnumerateTheories -noColor -noAutoReporters \
   -reporter json -xml /tmp/gates.xml | tee /tmp/events.jsonl
 dotnet run eng/check-decompiler-gate.cs -- \
@@ -574,6 +618,8 @@ Use these names in issues and PRs when selecting evidence:
 | **Entry gate** | Build and focused tests. This should be 100% green before any broader claim. |
 | **Shape proof** | The pass-specific `shape + proof + decline` story: positive fixture plus near-miss negative. |
 | **Validity** | Parse/statement/binding proof. This catches invalid C# and many skeleton defects. |
+| **Correct** | Authored-source correspondence after the harness's established source normalization. |
+| **Printer exact** | Opt-in authored-source correspondence before normalization, after versioned mechanical envelope handling only. |
 | **Annotation fidelity** | Allocation/unsafety/lifetime facts agree with independent IL witnesses. |
 | **Type artifact correctness** | Whole-type/source output has the right type/file/member shape. |
 | **Type binding** | Whole-type/source output binds in a Roslyn harness. |
@@ -591,17 +637,35 @@ both:
   `FidelityUnavailable`, `RecompileFail`, `ContextFail`, `NotFull`,
   `not-sampled`.
 
-The compile-back fidelity contract defines `Exact` as a full product-owned IL
-body comparison match. It compares opcode families, immediate values, symbolic
-member/type/string identities, and branch topology while tolerating
-local/argument macro and slot-layout changes. `OpcodeDiff` means opcode names
-differ; `OperandDiff` means the opcode names match but the body comparison
-differs; `FidelityUnavailable` means the comparison could not return a verdict.
-The contract is explicitly EH-blind and is not a semantic-equivalence claim.
-Its version is independent from the corpus snapshot schema version.
+The shipping compile-back fidelity contract currently defines `Exact` as a full
+product-owned IL body comparison match. The body comparison covers opcode
+families, immediate values, symbolic member/type/string identities, and branch
+topology while tolerating local/argument macro and slot-layout changes.
+`OpcodeDiff` means opcode names differ; `OperandDiff` means the opcode names
+match but the body comparison differs; `FidelityUnavailable` means the
+comparison could not return a verdict. The contract is explicitly EH-blind and
+is not a semantic-equivalence claim. Its version is independent from the corpus
+snapshot schema version.
+
+Issue #4810's target contract strengthens `Exact` to require a complete
+compile-context receipt for the exact artifact and member. Under that contract,
+missing, mismatched, or incomplete reference-closure, artifact-coverage, or
+rebuilt-binding evidence produces `FidelityUnavailable` even when the body
+comparison is exact. This safety property is **unverified** until the planned
+`ExactRequiresNonVacuousCompileContextReceipts` and
+`EveryExactProducerRequiresMatchingContextReceipt` gates run in Release.
 
 When reporting deltas, spell out `currentValidity`, `currentDecompilerFidelity`,
 and `currentFidelityCheck` rather than mixing axes.
+
+For authored-source evidence, use the nested source judgments
+`Printer exact ⊆ Correct ⊆ Valid`. The source-oracle manifest names a complete
+expected eligible-member set for each immutable whole-file identity. Every
+registered file must clear Valid and Correct; only files explicitly opted into
+Printer exact must clear the pre-normalized comparison. Missing or stale
+members fail the gate. `AuthoredSourceOracleManifestTests` enforces the set and
+nesting contract. Compile-back fidelity remains independent: Printer exact does
+not imply opcode fidelity, and opcode fidelity does not imply Printer exact.
 
 ## What each PR should report
 
@@ -621,7 +685,7 @@ example.
 Report:
 
 1. focused tests;
-2. `src/ILInspector.Decompiler.Tests`;
+2. `tests/ILInspector.Decompiler.Tests`;
 3. generated quality card showing no unexpected corpus movement;
 4. adversarial review summary with resolution commit links.
 
@@ -701,7 +765,7 @@ context, conversions, field/local ordering, or shift masking.
 
 Report compile-back evidence in two layers:
 
-1. **Fixture gate** — the focused `src/ILInspector.Decompiler.Tests` fixture that
+1. **Fixture gate** — the focused `tests/ILInspector.Decompiler.Tests` fixture that
    covers the changed shape. Name whether the sugared gate (`FidelityGateTests`),
    lowered gate (`LoweredFidelityGateTests`), or a pass-specific test is the
    relevant guard. If a fidelity-diff docket row is fixed, shrink `KnownDiffs` and
@@ -770,7 +834,7 @@ Decline (adversarial near miss): <synthetic/near-miss shape that must NOT raise;
 Proof level: shape proof (pass fixtures + adversarial negative)
   [+ validity if output legality changes]
 Evidence:
-- src/ILInspector.Decompiler.Tests <ClassTests>: <N> positive, <M> negative, all green
+- tests/ILInspector.Decompiler.Tests <ClassTests>: <N> positive, <M> negative, all green
 - <generated quality card, only if corpus behavior can move>
 Honesty note: invalid Full -> Partial is an honesty improvement, not a regression.
 ```
@@ -863,25 +927,32 @@ Report changed-method runs in three bands:
    escalation — typically a Roslyn-class internal cross-assembly graph). Do not
    count them as passing.
 
-The operational order is **escalate, do not cluster-first**: run the cheap
-whole-module grouped compile, then escalate only the rows it could not check to
-the (per-method, iterative) closure path, and treat a closure bail as
-`not-safely-capturable`. A whole-module `Exact` is already trustworthy and a
-closure cannot make it worse (it falls back), so escalation reaches the same
-checkable population as attempting the closure on every row, far more cheaply,
-while the three bands fall out of the capture provenance for free.
+The shipping operational order remains **escalate, do not cluster-first**: run
+the cheap whole-module grouped compile, then escalate only rows it could not
+check to the per-method iterative closure path. Existing `Exact` corpus labels
+record the current comparison contract; they are not compile-context receipts.
+
+Under issue #4810's target contract, a whole-module body comparison is reusable
+as `Exact` only when its artifact and member compile-context receipt is complete;
+comparison equality alone is not trustworthy. Rows without that receipt
+escalate to the closure path. A closure bail is `not-safely-capturable`, and a
+post-attempt stalled/root-budget/iteration-budget result remains a typed failure
+rather than borrowing whole-module success. Once receipt production is
+implemented, this ordering can still avoid unnecessary per-method attempts
+because complete whole-module receipts need no escalation.
 
 When repeated skeleton/context fixes only trade compiler diagnostics without
-growing the checkable population, stop the incremental burndown and say the
+growing the checkable population, stop the incremental repair work and say the
 plateau plainly. The next action is either a bounded safety case over the
 checkable rows, or a measurement issue before redesign. The #1318 plateau was
 measured under #1412: the failures are not predominantly unrelated-sibling
 poison but types genuinely inside the target's (often large) reconstruction
 closure. The harness ships an opt-in **reconstruction-closure (cluster) emitter**
 (`CB_CLUSTER=1`) that reconstructs only the target's transitive closure instead
-of the whole module and falls back to the whole-module skeleton on bail, so it
-never regresses, emitting the safely-capturable bands above. The gain is
-library-shaped, not universal — see
+of the whole module. The current harness falls back to the whole-module skeleton
+on bail; under issue #4810's target compile-context receipt contract, that
+fallback is a separately labelled control and cannot replace the failed cluster
+attempt or inherit its fidelity claim. The gain is library-shaped, not universal — see
 [decompiler-quality.md](decompiler-quality.md#reconstruction-closures-and-the-safely-capturable-population)
 for the framing and the extension/inherited-member follow-ups.
 
@@ -943,7 +1014,9 @@ raise code.
 When the decision is **Go** and all merge-blocking validation, CI, and required
 review are complete, post a PR comment that clearly says `Ready to merge`. If
 extra tests or review continue after that point, mark them as non-blocking
-follow-up work so the PR state remains unambiguous.
+follow-up work so the PR state remains unambiguous. Keep the `ready-to-merge`
+and `carry-forward` PR labels synchronized with
+[repository guidance](../AGENTS.md#keep-the-review-clean-label-current).
 
 ## Naming the harnesses by role
 
@@ -967,7 +1040,7 @@ reviewer needs to inspect the fight.
 
 ## Using the gauntlet to generate work
 
-When the burndown queue is empty, do not invent rows. Ask which boss is failing:
+When the defect queue is empty, do not invent rows. Ask which boss is failing:
 
 - Entry gate failures become build/test fixes.
 - Shape proof failures become adversarial fixtures or predicate hardening.

@@ -3,7 +3,7 @@
 Measures how two Native AOT codegen settings affect the CLI's text-handling hot paths:
 
 - `IlcInstructionSet` — the instruction-set baseline the binary is compiled against.
-- `OptimizationPreference` — `Size` (what `src/dotnet-inspect/dotnet-inspect.csproj`
+- `OptimizationPreference` — `Size` (what `src/DotnetInspect.Cli/DotnetInspect.Cli.csproj`
   sets today) or `Speed`.
 
 `dotnet-inspect` is distributed primarily as Native AOT, so these are questions about

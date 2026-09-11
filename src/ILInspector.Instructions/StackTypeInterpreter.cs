@@ -14,9 +14,34 @@ public sealed record TypedStackResult(
     bool IsComplete,
     string? IncompleteReason)
 {
+    /// <summary>
+    /// The evaluation stack leaving each visited block, indexed by block index. A block the
+    /// interpreter never reached keeps a default (uninitialized) entry, so "unreached" stays
+    /// distinguishable from "left an empty stack". Empty when the interpreter did not run to
+    /// completion.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="StackBefore"/> already merges predecessors at a block entry, which collapses a
+    /// join to <see cref="StackValue.NoProducer"/> and loses the individual alternatives. Keeping
+    /// each block's exit lets a consumer recover them by walking predecessors, without re-running
+    /// the transition function outside this interpreter.
+    /// <c>StackTypeInterpreterTests.Retains_per_block_exit_stacks_including_unreached_blocks</c>
+    /// gates it.
+    /// </remarks>
+    public ImmutableArray<ImmutableArray<StackValue>> BlockExit { get; init; } = [];
+
     /// <summary>The evaluation stack just before <paramref name="offset"/> executes (bottom-to-top), or empty if unreached.</summary>
     public ImmutableArray<StackValue> StackBeforeOffset(int offset)
         => StackBefore.TryGetValue(offset, out var stack) ? stack : [];
+
+    /// <summary>
+    /// The evaluation stack leaving block <paramref name="blockIndex"/>, or a default array when
+    /// the block was never reached or exits were not recorded.
+    /// </summary>
+    public ImmutableArray<StackValue> BlockExitAt(int blockIndex)
+        => blockIndex >= 0 && blockIndex < BlockExit.Length
+            ? BlockExit[blockIndex]
+            : default;
 
     /// <summary>
     /// The receiver slot of a <c>call</c>/<c>callvirt</c>/<c>newobj</c> at <paramref name="callOffset"/>,
@@ -58,6 +83,7 @@ public static class StackTypeInterpreter
             return new TypedStackResult(instructions, blocks, stackBefore.ToImmutable(), true, null);
 
         var blockEntry = new ImmutableArray<StackValue>?[blocks.Blocks.Length];
+        var blockExit = new ImmutableArray<StackValue>[blocks.Blocks.Length];
         var ehEntryBlocks = ExceptionEntryStacks(blocks);
 
         var worklist = new Queue<int>();
@@ -88,6 +114,7 @@ public static class StackTypeInterpreter
             }
 
             var exit = stack.ToImmutableArray();
+            blockExit[blockIndex] = exit;
             foreach (int successor in block.Edges.Successors)
             {
                 if (ehEntryBlocks.ContainsKey(successor))
@@ -100,7 +127,10 @@ public static class StackTypeInterpreter
             }
         }
 
-        return new TypedStackResult(instructions, blocks, stackBefore.ToImmutable(), true, null);
+        return new TypedStackResult(instructions, blocks, stackBefore.ToImmutable(), true, null)
+        {
+            BlockExit = [.. blockExit],
+        };
 
         void SeedEntry(int blockIndex, ImmutableArray<StackValue> entry)
         {
@@ -285,10 +315,12 @@ public static class StackTypeInterpreter
                 return BinaryNumeric();
             case ILOpCode.Shl or ILOpCode.Shr or ILOpCode.Shr_un:
                 if (stack.Count < 2) return Underflow();
-                stack.RemoveAt(stack.Count - 1); // shift amount; result keeps the shifted value's type, already on top
-                return null;
+                var shifted = stack[^2].Type;
+                stack.RemoveRange(stack.Count - 2, 2);
+                return Push(shifted);
             case ILOpCode.Neg or ILOpCode.Not:
-                return stack.Count >= 1 ? null : Underflow();
+                if (stack.Count < 1) return Underflow();
+                return Replace(1, stack[^1].Type);
             case ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un:
                 return Reduce(2, StackType.Int32);
             case ILOpCode.Ckfinite:

@@ -5,14 +5,15 @@ network use. The core rule is: start with cheap evidence in the command's base
 scope, then require an explicit gesture for broader domains or larger probe
 budgets.
 
-The model combines four mechanisms:
+The model combines five mechanisms:
 
 1. **Verbosity** supplies automatic presets over base categories.
 2. **Section selection** with `-S` supplies explicit scope and backpressure.
 3. **Discovery** with `-D` describes the catalog before content is requested.
-4. **Capabilities** gate network, source-content, and other expensive work.
+4. **Query discovery** with `-Q` describes implemented facets and operators.
+5. **Capabilities** gate network, source-content, and other expensive work.
 
-`-D` and `-S` are intentionally capitalized. They form a query namespace that
+`-D`, `-S`, and `-Q` are intentionally capitalized. They form a query namespace that
 is less likely to collide with command-specific lowercase options.
 
 ## Verbosity
@@ -59,8 +60,10 @@ only a candidate; terminal evidence requires the same trusted framework
 identity as the full census. The reader is supplied through a synchronous
 capability callback whose contract forbids retention or disposal; it does not
 materialize that census. The
-explicit-only `Body Shapes` section is likewise uncategorized; its required
-`Kind=...` predicate supplies its scope.
+explicit-only `Body Shapes` and `Body Shape Summary` sections are likewise
+uncategorized; their required `Kind=...` predicate supplies their scope.
+[Body Shape views](body-shape-views.md) owns the occurrence-versus-summary
+presentation choice.
 
 `UnsafeEvidencePresenceTests.UnsafeEvidencePresence_UserDefinedUnsafeLookalikeDoesNotCountAsEvidence`,
 `UnsafeEvidencePresence_RejectsAssemblyIlAboveBudget`,
@@ -145,9 +148,95 @@ joining the base scope; `Unsafe Members` is the current library example.
 Commands not yet migrated may retain their existing discovery behavior. New
 work should follow the reference model rather than copy a legacy command.
 
+## Query discovery
+
+This subsection owns one disclosure claim: **`-Q` describes a section's
+implemented CLI query capabilities without executing its evidence producers.**
+Field predicates, rankings, source orders, and package-facet semantics remain
+owned by their existing query implementations. A displayed column is not
+automatically a queryable facet, and a predicate is not automatically a ranking.
+
+The user approved this CLI-scoped capability in
+[delivery tracker #6002](https://github.com/richlander/dotnet-inspect/issues/6002).
+Its three adoption steps are contract and binding inventory, CLI implementation
+with focused gates and guidance, and PR publication/review. The consumer is the
+CLI; browser query controls and shared execution semantics do not change.
+This adds a disclosure mode, not an alternative execution architecture.
+The convention is the existing structural `-D` and section-resolution path:
+reuse its names, categories, aliases, projections, and format lowering rather
+than introduce another query language.
+
+| Gesture | Meaning |
+| --- | --- |
+| `-Q` / `--query-help` | List query-capable sections, supported operators, and facet counts |
+| `-Q Section` | Describe that section's exact query keys, operators, comparisons, and value domains |
+| `-Q @Category` / `-Q "Pattern*"` | Describe matching sections using the existing section resolver |
+| `-S "Query: Section"` | Select the same query-description companion directly |
+| `-D "Query: Section"` | Describe the companion table's columns |
+
+`-Q` cannot combine with `-S` or `-D`. The named argument is its complete
+section scope; there is no `-S Section -Q` spelling. `--schema` and
+`--effective` do not modify `-Q`: it is already structural and does not probe
+data. Query execution flags such as `--where`, `--order-by`, and `--top` are
+rejected rather than run against the metadata or silently discarded.
+
+The initial commands are `library`, `type`, `member`, `package`, and `find`.
+Discovery describes command capabilities, including contexts requiring a
+selected type or member, rather than target-dependent applicability. A target
+may accompany the request, but it is not acquired or inspected. Commandless
+input must have an acquisition-free syntactic route; otherwise the diagnostic
+asks for an explicit command. A known section without query operators reports
+that state explicitly; an unknown section receives the normal selection
+diagnostic. Bare `-Q` omits sections without query operators.
+
+Each companion has the deterministic name `Query: <canonical section name>`.
+Its typed descriptor retains the owning section independently of that display
+name. Companions live outside the ordinary evidence catalog: normal verbosity,
+bare `-S`, data wildcards, categories, and ordinary `-D --schema` do not acquire
+them. Explicit companion selection may use `Query:` wildcards but cannot mix
+metadata and evidence sections in one request. Companion schema discovery
+(`-D "Query: Section"`) requires one resolved section.
+On `find`, `-S` accepts query companions only; ordinary data-section selection
+remains unsupported.
+
+Performance descriptors consume the same filterable/sortable field catalogs
+and value-domain rules as argument binding. Body Shapes consumes the exact
+product-owned C# body-kind vocabulary; library candidate-filter composition is
+distinct from the narrower type/member contract. Top Leverage and package
+facets are not advertised merely because similarly named data or core
+descriptors exist. Future package-query CLI adoption must register its actual
+bindings, preserving the distinction between Gallery source orders and row
+rankings.
+
+Markout lowers the typed metadata into ordinary section tables. Markdown,
+plain text, table, TSV, and JSONL use the existing projection path.
+Unprojected JSON retains structured operator/comparison/value arrays through
+source-generated serialization, following the existing typed-versus-lowered
+JSON convention. Projected JSON uses Markout lowering. For these table-only
+metadata rows, `--fields` and `--columns` select the same columns through the
+existing lens-projection rules. Named tabular query descriptions require one
+section; Markdown and JSON descriptions can carry multiple sections. `--rows`
+windows metadata rows, and `--count` counts sections for bare `-Q` or facets
+for named discovery. Detailed output adds copyable examples; ordinary output
+keeps the compact facet/operator/value table.
+
+`QueryDiscoveryTests` is the Release gate for scoped mode separation,
+acquisition-free requests with missing targets, exact owner-accepted bindings,
+Body Shapes composition, category/alias/glob resolution, companion visibility,
+explicit empty capability state, structured JSON, projection, and metadata
+row windows/counts. The boundary cases include a real-looking missing target
+and a core package facet catalog with no executable CLI binding: neither may
+turn capability discovery into target acquisition or advertise deferred work.
+
 ## Network and source capabilities
 
 Package acquisition and symbol/source acquisition are separate.
+
+In the Browser package query, selecting a product-issued package-content facet
+is the explicit package-acquisition gesture. The product planner caps that
+request at 20 candidates, and execution requires the host to supply an
+`IPackageQueryContentProvider`; merely discovering that an archive is
+available grants no authority to open it.
 
 Capability-bearing gestures carry **request provenance**, not authority.
 Argument parsing retains the user's original verbosity, explicit
@@ -207,7 +296,7 @@ After selecting a section, `--columns` and `--fields` project its data:
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json \
-  -m Serialize -S Methods --columns "Name;Signature;Obsolete"
+  --member Serialize -S Methods --columns "Name;Signature;Obsolete"
 ```
 
 Projection is validated against the selected section schema. Across multiple
@@ -221,19 +310,44 @@ than add one flag per column. See
 
 ## Counts and limits
 
+The examples and semantics in this section describe historical
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target
+behavior, not a released or implementation-ready contract. [Item and line
+limits](item-and-line-limits.md) records the replacement composition and
+focused-owner gaps; it defines no product syntax, behavior, or gates.
+
 Use built-in limiters instead of shell pipes:
 
 ```bash
 dotnet-inspect library System.Private.CoreLib -S "Async*" --count
-dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 10
+dotnet-inspect library System.Private.CoreLib -S "Async*" -n 10
 dotnet-inspect package System.Text.Json -n 12
+dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
 ```
 
-- `--count` reports rows for the selected candidate set, including zero-row
-  sections when category membership is being counted.
-- `-n N` and numeric shorthand such as `-6` limit output lines.
-- `--tail` takes lines from the end.
-- `--rows` limits rows within each table while preserving headings and headers.
+- `--count` reports exact cardinality after the selected candidate set's
+  preceding semantic item/range stages, as defined by
+  [Section-row shaping](section-row-shaping.md#count-semantics). The focused L3
+  design will decide final conflicts involving row addresses or rendered-line
+  windows. An upstream-bounded source may return Count only when it proves
+  exact completion for the logical request; a provider, work, page, time, or
+  memory cap is not semantic selection and must remain disclosed rather than
+  becoming a corpus total. Bare `package search`'s default provider and merged
+  caps remain non-semantic, so Count requires exact completion evidence for the
+  full candidate set rather than reporting `20`; an explicit `-n 20` is
+  semantic `Head(20)` and may prove the exact result `20` without exhausting
+  the tail. A Rows request may still render the capped search rows with their
+  bound incompleteness disclosure; that does not make the cap semantic or
+  Count-sufficient.
+- `-n N` and numeric shorthand such as `-6` limit declared items independently
+  within each row set after filtering and ordering. Bare `package search` uses
+  a default provider and global merged-row cap of 20; an explicit N sets both
+  caps to N.
+- `--tail` takes items from the end.
+- `--rows` selects absolute stable row ranges such as `11..20`, `11+10`, or
+  `11..`; it carries no count-only form.
+- `-n N --lines` explicitly limits rendered lines. For multi-item `--print`,
+  the line window applies to each selected payload.
 
 ## Explicit-only execution
 

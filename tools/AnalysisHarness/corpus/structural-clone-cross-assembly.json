@@ -3,12 +3,12 @@
   "left": {
     "assemblyName": "DiffFixtureSample",
     "type": "DiffFixtureSample.DiffSample",
-    "project": "src/DiffFixtures.V1"
+    "project": "fixtures/diff/DiffFixtures.V1"
   },
   "right": {
     "assemblyName": "DiffFixtureSample",
     "type": "DiffFixtureSample.DiffSample",
-    "project": "src/DiffFixtures.V2"
+    "project": "fixtures/diff/DiffFixtures.V2"
   },
   "limits": {
     "maximumMethods": 100,

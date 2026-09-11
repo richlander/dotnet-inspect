@@ -1,0 +1,21 @@
+<Project>
+  <Target
+      Name="WriteInspectWebAsyncLoweringReceipt"
+      BeforeTargets="CoreCompile"
+      Condition="'$(InspectWebAsyncLoweringReceiptDirectory)' != ''">
+    <Error
+        Condition="'$(InspectWebExpectedAsyncLowering)' != 'compiler' And '$(InspectWebExpectedAsyncLowering)' != 'runtime'"
+        Text="$(MSBuildProjectFullPath) has invalid expected async lowering '$(InspectWebExpectedAsyncLowering)'." />
+    <Error
+        Condition="'$(InspectWebExpectedAsyncLowering)' == 'runtime' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'"
+        Text="$(MSBuildProjectFullPath) compiled without Features=runtime-async=on." />
+    <Error
+        Condition="'$(InspectWebExpectedAsyncLowering)' == 'compiler' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) == 'True'"
+        Text="$(MSBuildProjectFullPath) unexpectedly compiled with Features=runtime-async=on." />
+    <MakeDir Directories="$(InspectWebAsyncLoweringReceiptDirectory)" />
+    <WriteLinesToFile
+        File="$(InspectWebAsyncLoweringReceiptDirectory)/$(MSBuildProjectName).txt"
+        Lines="$(MSBuildProjectFullPath)"
+        Overwrite="true" />
+  </Target>
+</Project>

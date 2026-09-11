@@ -1,6 +1,16 @@
 # dotnet-inspect
 
-CLI tool for inspecting .NET libraries and NuGet packages. It is for .NET what `docker inspect` and `kubectl describe` are for container land: view package metadata, API surfaces, dependencies, source provenance, and version-to-version changes.
+A tool for inspecting .NET libraries and NuGet packages. It is for .NET what
+`docker inspect` and `kubectl describe` are for containers: view package
+metadata, API surfaces, dependencies, and source.
+
+The .NET ecosystem uses a standardized binary format for managed assemblies
+([ECMA-335](https://ecma-international.org/publications-and-standards/standards/ecma-335/)
+`.dll` files). That's why NuGet packages primarily distribute binaries instead
+of source. That's where `dotnet-inspect` fits. It does for .NET binaries what
+LSP-based tools do for source. `dotnet-inspect` reads .NET binaries to answer
+basic questions about types and members and unlocks deeper insights, like call
+graphs and seeing what really changed across two binary versions
 
 ## Install or run
 
@@ -18,145 +28,79 @@ dnx dotnet-inspect -y -- <command>
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
-above. Contributors building this repository should use the latest .NET 11
-preview SDK. Published previews provide a coherent SDK, runtime, and workload
-pack set; daily builds are reserved for explicit work on compiler or runtime
-changes that have not reached a preview.
+above. Contributors building this repository should use .NET 11 RC1 SDK
+`11.0.100-rc.1.26425.128`.
 
-First check how `dotnet` is installed and which SDK it selects:
+Check the selected SDK first:
 
 ```bash
 command -v dotnet
 dotnet --version
 ```
 
-If that already resolves to a dotnetup-managed .NET 11 preview SDK, use normal
-`dotnet` commands:
+Build from source:
 
 ```bash
 dotnet build dotnet-inspect.slnx -c Release
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release
 ```
 
-If `dotnet` comes from a centrally managed location such as `/usr/bin`,
-`/usr/local/share/dotnet`, `/snap`, or `C:\Program Files\dotnet`, do not replace
-it or prepend another `dotnet` to PATH unless that is intentional for your
-machine. Use dotnetup in command-isolation mode, or ask your system
-administrator which setup is appropriate.
-
-Install and track the latest preview SDK with dotnetup:
-
-```bash
-curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
-bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
-dotnetup sdk install preview --interactive false
-```
-
-Then run repo commands through dotnetup when you want the preview SDK without
-making it your shell default:
-
-```bash
-dotnetup dotnet build dotnet-inspect.slnx -c Release
-dotnetup dotnet run --project src/ILInspector.Decompiler.Tests -c Release
-```
-
-For a temporary shell/process override, evaluate dotnetup's supported
-environment script before running repo commands:
-
-```bash
-eval "$(dotnetup print-env-script --shell bash)"
-dotnet build dotnet-inspect.slnx -c Release
-```
-
-That affects only the current shell process and its children. It changes future
-shells only if you add the line to a startup file such as `.bashrc`, `.profile`,
-or `.zshrc`.
-
-Verify the `dotnet` selected for commands run from this repository:
-
-```bash
-command -v dotnet
-dotnet --version
-dotnetup list
-```
-
-The Deep Inspect `nightly` lane is the deliberate daily-build exception. It
-uses the same acquisition model in an isolated workspace install and restores
-with a temporary NuGet config that includes both the .NET 11 daily feed and
-nuget.org. Most projects target the nightly `net11.0` SDK, while a few fixture
-projects still target stable `net10.0` packs.
-
-### Refreshing an older Windows checkout
-
-`.gitattributes` pins tracked text files to LF, but Git may leave CRLF bytes in
-a Windows working tree created before that policy was added. The tree still
-appears clean because Git compares normalized content. Check the effective
-working-tree endings with:
-
-```powershell
-git ls-files --eol | Select-String 'w/(crlf|mixed).*eol=lf'
-```
-
-No output means the checkout follows the policy. If files are listed, run the
-following commands from the repository root. First commit or stash any work and
-confirm `git status --short` is empty, because the final command discards
-working-tree changes:
-
-```powershell
-git rm --cached -r .
-git reset --hard HEAD
-```
-
-`RepositoryLineEndingTests.TrackedLfFilesHaveLfWorkingTreeEndings` enforces the
-same check and prints this repair when a stale checkout reaches the test suite.
+See [AGENTS.md](AGENTS.md) for contributor workflow, targeted test commands,
+and repository-specific guidance.
 
 ## What it inspects
 
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/App`, `project ./src/App -S Skills --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and dependency package skills; restore/build first if dependencies changed. No restore/build/MSBuild evaluation is run. |
+| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and dependency package skills; restore/build first if dependencies changed. dotnet-inspect does not restore or build. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
-| Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
+| Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
-Windows Metadata (`.winmd`) is not a supported input format.
+Platform packs have distinct package, Platform, and direct-library views. For
+example, `package Microsoft.NETCore.App.Ref@10.0.0` inspects the targeting-pack
+container as an exact NuGet package, while
+`library ./packs/Microsoft.NETCore.App.Ref/10.0.0/ref/net10.0/System.Runtime.dll`
+inspects one manually downloaded or extracted DLL directly. A Platform
+selection unwraps authorized pack DLLs without publishing its source pack as a
+Package participant. These entry paths preserve different provenance and do
+not infer Platform identity from a package or file name.
 
-Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. In API commands, common CoreLib aliases and simple type names such as `string`, `int`, `DateTime`, and `Guid` resolve to `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
+Windows Metadata (`.winmd`) is not a supported input format, and rejection is
+only partially enforced. Directory and package scans select `*.dll`, so a
+`.winmd` beside them is skipped without comment. A `.winmd` named explicitly —
+`library ./Foo.winmd`, `find --library ./Foo.winmd` — is rejected rather than
+inspected, though not every surface names the reason: `find` reports
+"Windows Metadata is not a supported metadata format", while `library` reports
+only "Could not read library". Owners that have not yet adopted the admission
+contract do not classify at all. Treat any Windows Metadata result as
+unsupported output regardless of how confident it looks. Tracked by
+[#5559](https://github.com/richlander/dotnet-inspect/issues/5559).
 
-Discover NuGet.org packages by ID prefix without downloading package archives:
+Bare names are routed automatically: platform-looking names (`System.*`,
+`Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names
+resolve as NuGet packages. In API commands, common CoreLib aliases and simple
+type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
+`System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`,
+or `--library` when you need a specific source.
 
-```bash
-dotnet-inspect find --package-prefix Azure.AI -t 100 --tsv
-```
-
-Patternless `--package-prefix` streams the latest listed package metadata and
-exact `.nuspec` manifests, including owners and declared dependency groups.
-`-t` limits packages rather than flattened dependency rows. Supplying a pattern
-keeps the existing API-search behavior and may acquire package archives:
-
-```bash
-dotnet-inspect find JsonSerializer --package-prefix Microsoft.
-```
-
-For API and relationship commands, `--project` means an existing
-`project.assets.json` restored-assets context. Passing a `.csproj` or project
-directory only locates that file; dotnet-inspect does not restore or build, so
-restore/build first if dependencies changed. `--bin` remains the output directory
-context for copied DLLs. A future `--deps` source can represent runtime
-`.deps.json` context.
+Use `-D --schema` to inspect the syntax-selected structural view without
+acquiring or loading the target. Package `--library` and `--all-libraries`
+queries expose their route-specific schemas before package resolution, while
+ambiguous commandless or dotted-member targets return separately labeled
+alternatives rather than a lookup-chosen union. A commandless
+`<target> --all-libraries` gesture always selects the package aggregate view.
 
 ## Demo: query rendered C# body shapes
 
-Discover the exact stable IDs accepted by body queries:
+Discover the stable IDs accepted by body queries:
 
 ```bash
 dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds" \
   --columns "ID;Label" --rows 5 --table
 ```
 
-Then use one as a typed library predicate. `Kind=...` auto-selects the
-explicit-only `Body Shapes` section, while the ordinary section query options
-control the returned columns and rows:
+Then use one as a typed predicate. `Kind=...` auto-selects `Body Shapes`, while
+ordinary section query options still control columns and rows:
 
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json \
@@ -176,136 +120,431 @@ dnx dotnet-inspect -y -- library System.Text.Json \
 | `System.Text.Json.JsonElement.GetProperty~b07c7787dc` | `0x060002EA` | `new KeyNotFoundException(SR.Format(SR.Arg_KeyNotFoundWithKey, propertyName))` |
 ```
 
-Use `--jsonl` for one machine-readable match per row or `--count` for the
-matching row count. Bodies that cannot be reconstructed at full fidelity are
-reported on stderr rather than mixed into structured output.
-
-At library scope, repeat the existing `--where` syntax to intersect the body
-kind with Performance Triage evidence before decompilation:
+For an overview, explicitly select `Body Shape Summary` to group identical
+rendered matches with an occurrence count:
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll \
-  --where "Kind=InvocationExpression" \
-  --where "Finding=analysis.call-site" \
-  --where "Shape=sync-call-in-async" \
-  --where "Confidence>=medium"
+dnx dotnet-inspect -y -- type StringBuilder --platform System.Private.CoreLib \
+  --where "Kind=ObjectCreationExpression" -S "Body Shape Summary" \
+  --columns "Match;Count"
 ```
 
-The Performance predicates select typed source MethodDef identities; `Body
-Shapes` then searches only those methods. Select a Performance section
-separately when the candidate, evidence, and IL receipt are also needed.
-Performance `--top` and `--order-by` do not compose; use `--rows` to limit
-rendered matches.
+`Body Shapes` retains individual occurrences. Keep `Member`, `Token`, and the
+start/end line and column fields to locate each match in the method's rendered
+C# body; these coordinates are not IL offsets or original source locations.
+Hiding columns never groups rows. Summary row limits select groups without
+reducing their occurrence counts; `--count` counts the selected view's rows.
+Both views are available on `library`, `type`, and `member`.
 
-Use the same predicate with one exact member name or stable selector to inspect
-only that member's MethodDef body:
-
-```bash
-dnx dotnet-inspect -y -- type JsonDocument \
-  --platform System.Text.Json \
-  --where "Kind=ObjectCreationExpression" --jsonl
-
-dnx dotnet-inspect -y -- member JsonDocument RootElement:1 \
-  --platform System.Text.Json \
-  --where "Kind=ObjectCreationExpression" --jsonl
-```
-
-Type scope searches the MethodDef and accessor bodies owned by exactly one
-resolved type. Member scope narrows that set to one selected body.
-An unambiguous method or single-accessor member is auto-selected. Overloaded
-names require `Name:N` or `Name~digest`. A property or event with multiple body
-accessors requires an accessor selector; use the durable
-`Name~digest:1`/`Name~digest:2` form when the owner is overloaded. `--all`
-permits a selected non-public member.
+Use `--jsonl` for one machine-readable row per match or `--count` for the row
+count. Bodies that cannot be reconstructed at full fidelity are reported on
+stderr rather than mixed into structured output.
 
 ## Capability inventory
 
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
-| Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
-| Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files with valid required Agent Skills metadata and directory-matching names, plus version-resolved package README/PROJECT docs from restored projects. Invalid metadata and missing restored skill files fail visibly. |
-| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections. |
-| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
-| API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Patternless `find --package-prefix PREFIX` discovers latest NuGet.org package manifests without downloading archives. Add `--project` to resolve type/member queries in the project's restored dependency context. |
-| API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified PDB Source evidence. |
-| Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods in one retained assembly, with explicit exact, near, different, unsupported, failed, limit-reached, and ambiguous-correspondence results. Add `--implementation` for side-by-side decompiled C# and IL. Overload selectors are not supported. |
-| Relationships | `graph`, `depends`, `extensions`, `implements` | Explicit package-set Integration graphs, type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors, and subclasses. Add `--project` to search project-referenced packages. |
-| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
-| Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
-| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `PDB Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `member M --where "Kind=ObjectCreationExpression"`; `type T --where "Kind=ObjectCreationExpression"`; `library X --where "Kind=ObjectCreationExpression"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one selected member, type, or assembly for exact stable rendered-syntax kinds and ranges, diffs checksum-verified PDB Source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
-| Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
+| Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, vulnerability data, custom feeds, and NuGet config support. |
+| Project package skills and docs | `project` | Direct dependency `Skills` rows from valid package `skills/**/SKILL.md` files plus version-resolved package docs in a restored project context. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`. |
+| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
+| Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
+| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
+| API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
+| API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL and selected-member authored-source evidence. |
+| Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
+| Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
+| Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
+| Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, package dependencies, reference graphs, extension methods/properties, implementors, and subclasses. |
+| Direct dependency evidence | `dependency-evidence` | One normalized snapshot of the direct dependencies declared by named package, nuspec, restored-project, or package-prefix roots, with framework scopes, version constraints, restored resolution evidence, and root-set completion. Unlike `depends`, it does not walk the transitive tree. |
+| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
+| Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
+| Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
+| Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
+| Workspace scope | `workspace --package X --tfm TFM` | Publish and render one complete product-owned Scope snapshot. Repeat `--package` to compose the Workspace; exact duplicate Packages coalesce in first-request order. |
+| Package Queries | `find --literal TEXT --package ID@VERSION --tfm TFM`, `workspace --root-request TOKEN` | Evaluate an ordinal decoded-`ldstr` substring over 1-5 explicitly named packages using disposable candidates, reporting per-candidate matched/no-match/not-applicable/failed outcomes with method-token and IL-offset evidence, plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
-| Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
+| Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
 ## Command inventory
 
 | Command | Purpose |
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
-| `project [path]` | Inspect restored direct package references for skill files and package docs. |
-| `library X` | Inspect assembly metadata, symbols, SourceLink, references (`-S References`, optionally `--tree --depth N`), resources, async methods, and rendered body shapes (`--where "Kind=<ID>"`). |
+| `project [path]` | Inspect restored project package skills and package docs. |
+| `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
 | `type X` | Discover types or render a single type shape. |
-| `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes (`--where "Kind=<ID>"`), checksum-verified PDB Source, and IL. |
-| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet.org package manifests. |
-| `match A B` | Compare two unambiguous `Type.Member` names from one retained assembly by identity-agnostic structural equivalence; add `--implementation` for side-by-side decompiled C# and IL. Overload selectors are not supported. |
-| `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility`, `C# Style Choices`, or `C# Body Kinds` to enumerate their legal values. |
-| `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified PDB Source implementation evidence. |
-| `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit, binding-consistent package set. |
-| `demo [id]` | List or run closed product-home inspection demos backed by real section output. |
+| `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
+| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet package manifests, or with `--literal TEXT` to find decoded IL string literals in explicitly named packages. |
+| `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
+| `timeline X` | Correlate API or member-body Findings across a package version range. |
+| `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
+| `graph libraries` | Show exact resolved `call`, `callvirt`, and `newobj` occurrences crossing between two explicit local libraries. |
+| `depends X` | Walk type, package, or library dependency graphs with lossless shared edges; emit tree, Mermaid, table, TSV, JSONL, JSON, or edge-count output. |
+| `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
-| `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
+| `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
+| `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
+| `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
+| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
+| `workspace` | Render the committed ordered package Roots of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact package Root a `find --literal` result names. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
+| `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
+| `demo [id]` | List or run product-home inspection demos backed by real section output. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
-| `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill sourcelink`, `skill performance`). |
 
-Convert a browser `w` query value to its exact compact JSON shape:
+## Signals, integrations, and focused guidance
+
+`Signals` is an evidence report, not a safety certification. Use `-S Signals`
+for a compact package or library overview, then opt into deeper audits only when
+you need them.
+
+Integration support is exposed through `@Integrations` or focused
+`Integration: ...` sections such as `Integration: Logging` or
+`Integration: OpenTelemetry`.
+
+Use `ecosystem` to inspect which ecosystem packs and Integration bindings are
+configured into this build. This is catalog knowledge, not evidence from an
+acquired library:
 
 ```bash
-dotnet-inspect workspace-state decode "$w"
-dotnet-inspect workspace-state decode "$w" | jq
+dotnet-inspect ecosystem
+dotnet-inspect ecosystem aspire
+dotnet-inspect ecosystem aspire -S Integrations
+dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 ```
 
-Convert JSON back to the one canonical base64url packet:
+All integrations are enabled by default. Discover the supported ecosystem
+predicate with `library -Q Integrations`, then narrow the ordinary result:
 
 ```bash
-dotnet-inspect workspace-state encode --file workspace-state.json
-printf '%s' "$json" | dotnet-inspect workspace-state encode -
+dotnet-inspect library -Q Integrations
+dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
+dotnet-inspect library ./MyLibrary.dll -S "Integration: Aspire" --where "ecosystem=ecosystem.aspire" --jsonl
 ```
 
-Bounded stdin and file input use strict UTF-8 and may end with one LF or CRLF;
-that transport line ending does not count against the packet or JSON payload
-limit.
+This filters Integration evidence and opportunities, not assembly-wide presence
+or Census. Other query families cannot be combined with the ecosystem predicate.
 
-Encoding accepts equivalent duplicate-free JSON whitespace, property order, and
-string escapes, then validates the complete v1 shape and emits its canonical
-packet. Decoding requires a canonical packet and emits the exact JSON text
-used by that packet. Both directions are bounded, local conversions: they do
-not acquire artifacts, authorize package sources, or execute a workspace.
-
-Remote dependency trees requested with `depends --package`,
-`package -S Dependencies --tree`, or the legacy `package --dependencies` alias
-resolve from nuspec manifests without downloading package archives. Local
-`.nupkg` inputs, wildcard selectors, and .NET tool redirects retain archive
-acquisition.
-
-`graph integrations` is the first generic inspection-graph command. Repeat
-`--package name[@version]` to declare the finite induced set and supply one
-shared `--tfm`. The command does not traverse: there is no direction or depth,
-and only relationships whose semantic endpoints are both inside the package
-subject closure enter the graph. Its default relationship family is
-`api.extension`, `integration.observed`, and `integration.opportunity`; repeat
-`--relationship <id>` to select an exact subset. Markdown renders an edge table
-by default; `--tree`, `--mermaid`, `--table`, `--tsv`, `--jsonl`, `--json`,
-`--count`, and `--rows` address the same ordered logical-edge rows. Missing
-peer packages remain visible as typed binding failures and make the command
-exit nonzero rather than silently shortening the graph. Tabular edge rows
-include source/target assembly identity and package ownership. JSON and JSONL
-keep occurrence counts numeric and absent values null rather than lowering
-them to display strings; JSON edges do not expose unresolved document-local
-occurrence ids.
+For deeper how-to guidance, use the embedded skills instead of relying on a very
+long README:
 
 ```bash
+dotnet-inspect skill list
+dotnet-inspect skill query
+dotnet-inspect skill signals
+dotnet-inspect skill decompiler
+dotnet-inspect skill performance
+dotnet-inspect skill relationships
+```
+
+## Experimental features
+
+These features are under active development. Their output shapes, section names,
+and signal sets may change between releases.
+
+### Performance analysis
+
+Use `library -S @Performance` for a whole-assembly triage pass, `Top Leverage`
+for ranking, `Resource Triage` for exception-path pool-churn candidates, and
+`Call Graph` to drill one selected member. The performance skill covers the full
+workflow in more depth.
+
+```bash
+dotnet-inspect library System.Text.Json -S @Performance
+dotnet-inspect library System.Text.Json -S @Performance --count
+dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json -T q
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
+```
+
+### Decompiler
+
+Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
+diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
+
+```bash
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
+dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
+```
+
+### ReadyToRun and raw metadata
+
+ReadyToRun and metadata sections are opt-in only. Use `@ReadyToRun` for the
+validated image header and section directory. Use `@Metadata` to discover or
+render decoded ECMA-335 table rows, `--metadata-root r2r-manifest` to inspect
+the ReadyToRun manifest metadata instead of the default CLI root, and `--heap`
+for one exact heap address in the selected root.
+
+```bash
+dotnet-inspect library System.Private.CoreLib -S @ReadyToRun
+dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -D @Metadata
+dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S @Metadata --count
+dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S "Metadata: TypeRef" --rows 20
+dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll --heap "#Strings:0x1a4"
+dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "Metadata: Image"
+```
+
+## Output and querying
+
+Default output is Markdown. For compact human scanning use `--table`; for
+machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
+`--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
+Use `-T q` to suppress tips in script-oriented commands.
+
+| Goal | Flags |
+| ---- | ----- |
+| Discover available sections and fields | `-D`, `-D --schema` |
+| Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
+| Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
+| Project columns/fields | `--columns`, `--fields` |
+| Limit rows | `--rows`, `-n`, `--head`, `--tail` |
+| Count results | `--count` |
+| Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, `--urls`, `--json-array` |
+| Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
+| Control tip verbosity | `-T q`, `-T m`, `-T d` |
+| Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
+
+`--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
+with a concrete `-S` when querying sectioned output. Markdown and JSON can
+represent multi-section documents.
+
+Useful discovery and projection patterns:
+
+```bash
+dotnet-inspect library System.Text.Json -D
+dotnet-inspect library -Q
+dotnet-inspect type -Q "Body Shapes"
+dotnet-inspect library -Q "Performance: Arrays" --json
+dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
+dotnet-inspect vocabulary -D
+dotnet-inspect vocabulary -S "C# Body Kinds" --rows 10
+dotnet-inspect library System.Text.Json -S Signals
+dotnet-inspect library System.Text.Json -S @Audit
+dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
+dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S "Integration: Logging"
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S "Integration: OpenTelemetry"
+dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
+dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
+```
+
+## Common examples
+
+### Packages and feeds
+
+```bash
+dotnet-inspect package System.Text.Json
+dotnet-inspect package System.Text.Json --versions -n 6
+dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
+dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
+dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
+dotnet-inspect find --package-prefix Azure.AI -t 100 --tsv
+```
+
+Patternless `find --package-prefix PREFIX` streams latest listed package
+metadata and exact `.nuspec` manifests without downloading package archives.
+`-t` limits packages rather than flattened dependency rows. Supplying a pattern
+keeps API-search behavior and may acquire package archives:
+
+```bash
+dotnet-inspect find JsonSerializer --package-prefix System.Text
+```
+
+Add `--where "facet=<ID>"` to run the shared Package Query engine instead,
+with one matched package per row and product-authored evidence. Discover the
+executable IDs before constructing a query:
+
+```bash
+dotnet-inspect find -Q Packages
+dotnet-inspect find --package-prefix dotnet-inspect -S Packages \
+  --where "facet=package.query.dotnet-tool" --candidates 5 --matches 5
+dotnet-inspect find --package-prefix dotnet-inspect --package-content \
+  --where "facet=package.query.dotnet-tool-v2" --candidates 5 --matches 5 --jsonl
+```
+
+Repeat `--where` to combine facets; the engine rejects incompatible selections.
+Tool v1 and v2 are compatible alternatives. `--candidates` bounds candidate
+work (default 200), while `--matches` stops after matching packages (default
+100); each has a CLI maximum of 1,000. Content facets require
+`--package-content`, which defaults to and permits at most 20 candidates.
+Reached limits and partial failures are reported explicitly. `--count` counts
+windowed matching package rows within the candidate budget and cannot be
+combined with `--matches`. Query mode uses these bounds, not `-t`.
+
+### Package Queries over explicit packages
+
+`find --literal TEXT` runs a Package Query: it acquires 1-5 explicitly named
+`ID@VERSION` packages, selects the primary implementation assembly of each for
+an explicit `--tfm`, and reports which candidates contain decoded `ldstr`
+literals matching `TEXT`. Add `-v:n` for the individual literal-use rows.
+
+```bash
+dotnet-inspect find --literal "Unexpected end when reading JSON" \
+  --package Newtonsoft.Json@13.0.3 --tfm net6.0
+```
+
+`TEXT` is a raw ordinal substring, not a type pattern: it is case-sensitive,
+matches no wildcards, and preserves whitespace and Unicode spelling exactly.
+The query covers selected primary implementation assemblies only, not every
+assembly in a package, and it reports each candidate's own outcome — `matched`,
+`no-match`, `not-applicable`, or `failed` — rather than collapsing them.
+Candidate packages are disposable: they are never added to the package cache.
+
+Each evaluated candidate carries a `Root` reopening token. Hand that token back
+to reopen exactly the Root the result came from:
+
+```bash
+dotnet-inspect workspace --root-request TOKEN
+```
+
+The token is opaque, credential-free, and exact. `workspace --root-request`
+rejects a token this tool did not issue, and reports an unauthorized producer
+or unavailable content instead of opening a different Root that happens to
+share the package id and version.
+
+### Projects and local assets
+
+```bash
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
+dotnet-inspect type Command --project ./src/DotnetInspect.Cli
+dotnet-inspect member Command --project ./src/DotnetInspect.Cli -S "Member Index"
+dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S Signals
+```
+
+For API and relationship commands, `--project` means an existing
+`project.assets.json` restored-assets context. Passing a `.csproj` or project
+directory only locates that file; dotnet-inspect does not restore or build.
+
+### Types, members, and source
+
+```bash
+dotnet-inspect type string --shape
+dotnet-inspect find JsonSerializer --platform System.Text.Json
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
+dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
+```
+
+### Compatibility and change tracking
+
+```bash
+dotnet-inspect diff --package Markout@0.33.0..0.35.2
+dotnet-inspect diff --platform System.Runtime@9.0.0..10.0.0 --breaking
+dotnet-inspect timeline --package Markout@0.33.0..0.35.2 --type Markout.MarkoutWriterOptions --members --at all
+dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all
+```
+
+### Structural matching
+
+Use the `Clone Candidates` section for a globally ranked search from an exact
+Library, Type, or logical Member seed. Breadth and candidate admission are
+independent; the default is `Everything` plus `SimilarNames`.
+
+```bash
+dotnet-inspect type Cases.Widget --library ./app.dll -S "Clone Candidates"
+dotnet-inspect member Cases.Widget --library ./app.dll -m Value \
+  -S "Clone Candidates" \
+  --where "Breadth=Self" \
+  --where "Discovery=All"
+dotnet-inspect type -Q "Clone Candidates"
+```
+
+`Breadth` accepts `Self`, `SelfAndRegisteredEcosystems`, or `Everything`;
+`Discovery` accepts `SimilarNames` or `All`. The current CLI supplies the
+selected exact library as its finite Workspace participant snapshot and
+discloses that scope in tabular diagnostics and structured coverage. It does
+not infer registered-ecosystem membership or silently narrow the requested
+breadth.
+
+Rows are retrieval candidates, not checked clone relations. They retain rank,
+both exact method endpoints, the 0-10,000 total and component scores, and the
+optional type/member name-similarity evidence. Plain `--json` also retains the
+portable seed, participant identity and provenance, coverage, failures, limits,
+and work receipt. `--rows`, `--columns`, `--fields`, `--count`, `--table`,
+`--tsv`, and `--jsonl` operate at the declared candidate-row output seam.
+
+Pairwise `match` remains the checked comparison path:
+
+```bash
+dotnet-inspect match Left.Compute Right.Compute --library ./app.dll
+dotnet-inspect match Left.Compute Right.Compute --library ./app.dll --body
+dotnet-inspect match Sample.Encode --similar --library ./app.dll
+dotnet-inspect match Sample.Encode --similar --library ./app.dll --assembly-wide --top 10
+```
+
+`--body` adds decompiled C# and IL body differences alongside the independent
+structural-match result. Both methods must resolve to the same physical
+assembly. A bodyless or unavailable endpoint stays visible rather than implying
+equal bodies. Use Markdown (the default) or `--json`; body evidence is not
+supported with `--table`, `--tsv`, `--jsonl`, or `--similar`.
+`--body --json` returns a `match`/`body` envelope: the body document retains
+per-producer native verdicts, physical endpoint addresses and availability,
+structured C#/IL differences, diagnostics, and cleanup outcomes. Plain
+`match --json` keeps its existing flat structural document. `--body` returns
+nonzero on query cancellation or failed body comparison while preserving the available output;
+a valid bodyless endpoint is reported as `NoApplicableInput`, not a body match.
+The [publication and CLI gates](docs/design/local-comparison-publication.md#demo-and-gates)
+cover these distinctions.
+
+`--similar` ranks structural candidates for one seed method. It is a discovery
+step, not a verdict: a rank establishes no relation, no semantic equivalence,
+and no authorship or copying claim. Within one image, confirm a candidate by
+re-running the pairwise form on the selected pair.
+
+The default candidate population is the seed's declaring type. `--assembly-wide`
+opts into whole-assembly retrieval, which costs materially more. `--top` bounds
+rendered rows only; `--json` retains every candidate, per-method outcome,
+blocker, and receipt regardless. `--max-results` and `--max-methods` move the
+product retrieval limits themselves. In `--table`, `--tsv`, and `--jsonl`, the
+ranked candidates are the only row shape; the seed, scope, disposition, receipt,
+blockers, and disclosure are written to stderr so stdout stays single-shaped and
+parseable.
+
+Every ranked row prints a `Token` column holding the candidate's metadata token,
+which the pairwise form accepts directly as the second operand. That keeps every
+row addressable even when a name is ambiguous across overloads or property
+accessors:
+
+```bash
+dotnet-inspect match 'Sample.Encode' 0x06000CF8 --library ./app.dll
+```
+
+A metadata token is a table row index, not a portable identity, so it addresses
+a member only in the assembly that defines it. `match` resolves a token against
+the image named by `--library` and fails when that image does not define the
+row, rather than binding it to an unrelated member.
+
+That distinction is visible when `--library` names a facade. If the seed's type
+is forwarded, the ranked rows come from the assembly that actually defines them,
+so the run names that assembly and the exact `--library` value to pass when
+confirming a candidate:
+
+```bash
+dotnet-inspect match System.String.IsNullOrEmpty --similar --library ./System.Runtime.dll
+```
+
+Comparing candidates drawn from two different assemblies is not supported;
+inspect each side on its own.
+
+### Relationships and graphs
+
+```bash
+dotnet-inspect depends Stream --markdown --mermaid
+dotnet-inspect depends Int128 --table --rows 1..10
+dotnet-inspect dependency-evidence --package Newtonsoft.Json --tfm net8.0
+dotnet-inspect dependency-evidence \
+  --project ./src/DotnetInspect.Cli \
+  --nuspec ./artifacts/package.nuspec \
+  -v:n
+dotnet-inspect implements IEquatable --project ./src/DotnetInspect.Cli -v:q
+dotnet-inspect extensions string --project ./src/DotnetInspect.Cli -v:q
 dotnet-inspect graph integrations \
   --package Microsoft.Extensions.DependencyInjection.Abstractions@10.0.0 \
   --package Microsoft.Extensions.Logging.Abstractions@10.0.0 \
@@ -313,588 +552,57 @@ dotnet-inspect graph integrations \
   --package Microsoft.Extensions.Http@10.0.0 \
   --tfm net10.0 \
   --relationship integration.observed
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll
 ```
 
-Single-type `type X` output is tree-shaped by default. Use `-v:n` or `-v:d`
-to grow that tree to overload leaves; use `--markdown -v:q` when you want the
-compact Markdown section view instead.
-When an exact type is not found, `type` treats the query as a best-effort
-namespace/type prefix browse within the resolved package, library, or platform
-scope.
-
-## Signals
-
-`Signals` is an evidence report, not a safety certification. Select it with
-`-S Signals`. For libraries, Signals reports metadata/provenance observations
-and acquires a missing PDB when selected to resolve SourceLink. For packages,
-Signals reports package metadata/assets, dependencies, signature provenance,
-and NuGet registry observations. On either `library` or `package`, the
-per-source-file reachability pass (`SourceLink: Availability`,
-`SourceLink: Missing Files`) is selected explicitly with `-S` because its cost
-scales with source-file count. The slow, exhaustive content check
-(`SourceLink: Integrity`) is opt-in only.
-
-For libraries, SourceLink presence and map usability are separate observations.
-`Signals` reports a present map as usable, partially usable, or unusable;
-`SourceLink: Diagnostics` lists parse failures and rejected document mappings.
-`Non-normalized Paths` separately lists SourceLink document keys that do not use
-the deterministic `/_/` prefix.
-
-Package Signals also reports `Artifact text containment`. `None` means no
-package-model text needed visual containment; `Required` names only the Unicode
-category kinds that were contained (`Cc`, `Cf`, `Cs`, `Zl`, or `Zp`), never the
-artifact text itself. Select `Audit: Artifact Text` (or `@Audit`) for one
-content-free row per detected package-model field, with `Location` and
-`Concerns` columns. Literal backslashes do not count as a concern even when the
-invertible encoding must disambiguate them. Library Signals will gain the same
-row when the library presentation model carries `InertString` through its
-complete text surface; until then, the package row does not claim library
-coverage. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`,
-`PackageInspectionTextTests.RequiredContainment_CoversEveryPackageTextSourceIndividually`,
-`Package_MultiplePackages_SignalsIncludePackageFileConcerns`, and
-`PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gate the
-summary, single/multi-package parity, provenance, and listing.
-
-Select `Audit: Findings` (or `@Audit`) to scan text-bearing files and decoded
-SourceLink mappings inside the package. It reports one row per finding with
-`Path`, `Kind`, and `Encoded Text`, including control/bidi text, cleared restore
-sources, declared package sources, concerning SourceLink map text, and literal
-`../` references in SourceLink document keys or URLs. A parent-path row is a
-prompt to review the mapping, not a maliciousness verdict. The scan is explicit
-because its work scales with package content; candidate paths, text reads,
-SourceLink carriers, and embedded-PDB expansion are bounded. Package
-document payloads are visually encoded on stdout; `--out
-<path>` on a single-file selection remains the byte-exact payload export.
-`PackageContentAuditTests` and
-`PackageAudit_RendersContentAndSourceLinkFindings` gate the scan and
-its Markdown/JSONL shape with compiler-produced PDB evidence.
-
-Library and package Signals also report `Identifier confusion` for assembly
-names and package IDs. Every non-ASCII identifier character is reported as an
-identity concern. Names whose leading characters exactly match `System`,
-`Microsoft`, or `Azure` after a bounded Greek/Cyrillic
-homoglyph fold receive the more specific `reserved-prefix homoglyph`
-classification. The summary reports only counts and matched prefixes. Select
-`Audit: Identifier Confusion` (or `@Audit`) for content-free locations,
-classifications, similarity, and code points; the Signal and audit rows never
-repeat the identifier value. This is separate from artifact-text containment:
-a homoglyph is ordinary graphic text and does not require `InertString`
-encoding, while an ASCII backslash triggers neither concern. Library Signals
-stays bounded to the selected assembly and its direct
-references. The explicit library audit additionally resolves and inspects the
-transitive reference closure.
-
-| Command | Scope | Signals |
-| ------- | ----- | ------- |
-| `library X -S Signals` | Metadata + provenance | Library metadata/provenance and identifier-confusion signals; a missing library PDB is acquired to resolve SourceLink. |
-| `library X -S "Audit: Identifier Confusion"` | Identifier audit | Adds content-free assembly-name, direct-reference, and resolved transitive-reference locations, classifications, similarity, and code points. |
-| `library X -S "Signals,SourceLink: Availability,SourceLink: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
-| `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
-| `package X -S Signals` | Full package signals | Package and dependency signals, including signature provenance, Gallery listing state, identifier confusion, artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
-| `package X -S "Signals,Audit: Artifact Text"` | Artifact-text audit | Adds a content-free listing of the package-model field locations and Unicode concern kinds that required containment. |
-| `package X -S "Signals,Audit: Findings"` | Package audit | Scans text-bearing package files and decoded SourceLink maps, listing each finding as path, kind, and safely encoded evidence. |
-| `package X -S "Signals,Audit: Identifier Confusion"` | Identifier audit | Adds content-free package-ID and dependency-ID locations, classifications, similarity, and code points. |
-| `package X -S "SourceLink: Availability,SourceLink: Missing Files"` | Package SourceLink reachability | Audits the selected package libraries and retains library provenance on missing-file rows. |
-| `package X -S "SourceLink: Integrity"` | Package content verification (slow, opt-in) | Aggregates checksum results across selected package libraries; any mismatch exits non-zero. |
-
-Vulnerability-service traffic is capability-gated. It runs only for detailed
-package inspection or an explicitly selected network-using package section;
-requests outside that scope are blocked at the shared HTTP handler.
-NuGet.org-wide statistics, verification, deprecation, and vulnerability
-metadata are queried only when `api.nuget.org` is among the configured package
-sources. RID companion-package verification follows the configured source list.
-
-## Integrations
-
-`@Integrations` is a library section category for ecosystem support such as AI,
-ASP.NET Core, Aspire, Authentication, Configuration, Dependency Injection,
-Logging, Options, Hosting, Health Checks, HTTP Client, OpenAPI, and
-OpenTelemetry. It is a usability index, not a raw evidence report: focused
-integration sections (named with an `Integration:` prefix, such as `Integration:
-Logging`) list package-owned actionable types and starter APIs rather than
-assembly references.
-
-Use `package Foo --library` to inspect one package DLL, or `package Foo
---all-libraries` when the package contains multiple relevant libraries. In
-all-library mode, singular sections such as `Library Info` are rendered per
-library while aggregate sections roll up rows across libraries and include
-library provenance when needed. `--rows` therefore windows singular sections
-within each library and aggregate sections across the rolled-up row set,
-including in row formats (`--table`, `--tsv`, `--jsonl`). Row formats require
-one concrete section, such as `Library Info`, `Switches`, or a focused
-`Integration:` section; use Markdown for category selectors such as
-`@Integrations`. Add `--count` to a category selector for per-section row
-counts, or to bare `-S` for the same map over the fixed overview. For
-Integrations, all-library mode scans selected managed assemblies together
-within each target framework; `--tfm all` keeps each framework in a separate
-inspection group.
-
-`Switches` is a peer library section for feature, compatibility, and runtime
-configuration switches such as `FeatureSwitchDefinitionAttribute` and
-`AppContext` switch names.
-
-## Experimental features
-
-These features are under active development. Their output shapes, section
-names, and signal sets may change between releases.
-
-### Performance analysis
-
-The whole-assembly call-graph analyzer ranks the members worth optimizing or
-hardening first. Select `Top Leverage` to rank members by direct callers,
-`Root Reach` (distinct entry points that transitively reach a member), fanout,
-depth, and loop calls. At `library` scope the performance findings are surfaced
-as a curated group of kind-scoped sections — `Performance: Boxing`,
-`Performance: Arrays`, `Performance: Closures and Delegates`,
-`Performance: Enumerators`, `Performance: Loop Hot Paths`,
-`Performance: Allocation Hotspots`, and `Performance: Async` — that you can
-request individually (`-S "Performance: Boxing"`) or as a group (`-S
-@Performance`, also reachable via the legacy name `-S Performance`). The
-kind sections are catalog-hidden: they do not appear in the top-level
-`-D`/`-D --schema` discovery catalog, which lists the `@Performance` category
-as their single entrypoint. Drill in with `-D @Performance` to list the kinds,
-or `-D "Performance: Boxing"` for one kind's columns. Each
-section is absent when it has no findings, so the group renders exactly the
-kinds that were found; `--count -S @Performance` returns a per-kind count map
-(including zero rows) as a cheap way to discover which kinds are present before
-requesting them. In flattened tabular output (`--table`/`--tsv`/`--jsonl`) the
-group renders as one self-describing table with a leading `Kind` column, so
-every row states which performance kind it belongs to. These sections rank in-loop (hot) and high-confidence
-opportunities first across actionable rewrite shapes (small non-escaping
-arrays, temporary or span-to-array copies, capturing and instance method-group
-delegates, async state-machine setup, synchronous calls from async methods when
-a signature-compatible `Async` sibling exists, loop-invariant materialization,
-and value-type boxing) plus `allocation-hotspot` rows for methods that allocate
-heavily without matching a specific shape. The `type` and `member` commands
-keep the single `Performance Triage` lens.
-
-The tight markdown columns carry the ranked, human-facing fields, including a
-static `Priority` that is separate from evidence/rewrite `Confidence`; the full
-per-row diagnostics (shape, provenance, candidate id, native `Finding`,
-declaring `Assembly`, module version ID, and `MethodToken`, operation-operand
-metadata `Token`, IL offset, allocation `Weight`, path/loop evidence, and the fix
-sentence) are preserved in the nested `performance` object of `--json`.
-Allocation rows carry `Weight`, a coarse size x multiplicity x reach static
-prior that you can query or sort when choosing pre-profile instrumentation
-targets. Exact allocation and call-site rows also retain a `Candidate` id, their
-native `Finding` descriptor, `Provenance=exact`, `Operation`, and metadata
-`Token`. Aggregate rows are marked `Provenance=aggregate`; `unmatched`
-identifies an instruction-level row that could not be joined to a producer
-occurrence. `Assembly` + (`EvidenceMethod` when present, otherwise
-`MethodToken`) + `IL` form the allocation-trace join coordinate;
-`ModuleVersionId` distinguishes physical module builds when static inputs carry
-it. `Token` is the operand of the reported IL operation and must not be used as
-the declaring method token. Those fields let trace and
-version-diff tooling join a triage row to
-`analysis.allocation` or `analysis.call-site` evidence without parsing
-`Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
-`--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
-of post-processing. The default ranking puts directly evidenced algorithmic amplification,
-avoidable cache-lookup factory allocations, and actionable high allocation
-weight first, then generic repeated costs. Recursive scan helpers remain medium
-priority unless source identity can establish shared-sequence amplification.
-Escape-unknown `small-array` rows
-remain medium priority even at high weight because no safe stack rewrite is
-proven. Static priority is not proof of runtime heat. `--top` limits the ranked data before
-rendering; flattened `Performance:*` output preserves that global order across
-kinds. `-n N`
-remains a renderer cap and is applied afterward if both are supplied. Drill
-candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
-to entry points and outbound calls in one view), and project per-node cost with
-`--fields`; `AsyncAlternatives` carries the count of
-`sync-call-in-async` opportunities on each method while Performance Triage
-retains the exact call-site evidence and replacement. Its row unit is a call
-edge, so `--count` reports relationships and
-`--rows` selects the same ordered relationships in every rendering. Markdown
-defaults to an edge table; add `--tree` for a standalone tree, `--mermaid` for a
-standalone diagram, or `--markdown --mermaid` for an embedded diagram.
-When `--bin`, `--project`, or `--caller-package` supplies an assembly scope,
-`Call Graph` traverses both callers and callees across that scope; `Callers`
-retains its narrower inbound-only scan.
-Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
-add `--all` to drill non-public members.
-
-Export nested JSON when runtime correlation is the next step. The `runfaster`
-prototype is available only in this repository and is not included in the
-published `dotnet-inspect` packages. From a source checkout, give it that
-document and a matching allocation trace:
+### Workspace sharing and built-in guidance
 
 ```bash
-dotnet-inspect library MyLib.dll -S "Performance:*" \
-  --where "Priority>=high" --json > triage.json
-dotnet run --project src/runfaster -- \
-  correlate --triage triage.json --trace workload.nettrace
+dotnet-inspect workspace-state decode "$w"
+dotnet-inspect workspace-state decode "$w" | jq
+dotnet-inspect workspace-state encode --file workspace-state.json
+dotnet-inspect workspace-state encode --file workspace-state.json --url
+dotnet-inspect member JsonConvert \
+  --package Newtonsoft.Json@13.0.4 \
+  SerializeObject:1 \
+  --tfm net6.0 \
+  --share
+dotnet-inspect depends \
+  --package Newtonsoft.Json \
+  --tfm net6.0 \
+  --share
+dotnet-inspect skill list
+dotnet-inspect demo list
+dotnet-inspect demo list -n 3 --json
 ```
 
-The compact `Performance:* --jsonl` table intentionally carries only the tight
-human-facing columns and therefore cannot support an exact trace join.
-`runfaster` reports those rows as not runtime-correlatable rather than treating
-them as negative workload evidence. For nested rows, it preserves the
-source-facing `MethodToken` but uses `EvidenceMethod` as the physical body token
-when supplied. Blank flattened cells are treated as absent; invalid non-empty
-or conflicting supplied evidence-method tokens fail visibly.
-Method-name samples can still establish method-level heat, but only a complete
-runtime coordinate can produce an exact `confirmed-hot` result.
-For filtered triage exports, allocation-stack correlation stops at the first
-frame in the represented assembly. If that method has no exported row, the
-allocation remains unattributed rather than being credited to an outer caller.
-When the same physical candidate arrives from both `--library` and `--triage`,
-the shape-compatible triage row carries the runtime evidence; the raw library
-row is marked `superseded-by-triage`, not workload-cold.
-Type-level ambiguity and its site cap count that shared coordinate once rather
-than counting the two input rows as separate allocation sites. If several
-library MVIDs share that coordinate, they remain distinct because the
-coordinate-only triage row cannot identify which module version it describes.
-Older nested exports without `ModuleVersionId` remain accepted and use that
-conservative ambiguity behavior.
-If triage was exported from a different build than a supplied library, their
-MVIDs do not collapse; the additional physical site can increase ambiguity or
-move the type above the confirmation site cap.
+`workspace-state encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
+for the existing share-packet JSON shape. Packet-only output remains the default.
+This is not an encoder for `workspace --json` inventory output. The packet's
+existing limits and the browser's supported restoration shapes still apply.
 
-`CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
-cross-method repetition fact. `CallerLoop=direct` means a resolved invocation
-of the row's method occurs inside an upstream caller's loop. It does not change
-the allocation's local `Loop`, multiplicity, confidence, weight, or ranking,
-and it does not claim runtime heat. Function loads such as `ldftn` are not
-invocations and do not produce this evidence.
+Bare `--share` emits a complete Inspect Web URL; `--share url` spells that
+default explicitly, while `--share packet` emits only the canonical packet.
 
-`Resource Triage` is an explicit library section for high-confidence
-exception-path pool-churn candidates. It currently reports `ArrayPool<T>`
-acquisitions whose exact def-use path reaches an external-input boundary before
-modeled cleanup. These are triage candidates, not permanent-memory-leak or
-memory-corruption accusations: the impact is pooled-array churn if the boundary
-throws, and static analysis does not establish runtime frequency. Each boundary
-is one row that retains its `analysis.resource-lifecycle` Finding, stable
-`Candidate`, exact acquire and boundary IL offsets, and resolved operation.
-Candidates with multiple boundaries repeat their candidate and acquisition
-fields so each operation remains paired with its own offset. Trusted in-memory
-transforms and unknown boundaries remain available to corpus measurement but
-are not exposed in this curated section.
+`member --share[=url|packet]` projects one explicitly selected public member
+overload from an exact NuGet.org package version and target framework. The URL
+opens that member's API Overview in the published browser. Select an overload
+with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
+private-feed, non-public, multi-library, and other rendering or analysis modes
+fail visibly rather than producing a link the browser cannot restore.
 
-```bash
-dotnet-inspect library MyLib.dll -S "Top Leverage"
-dotnet-inspect type MyType --library MyLib.dll --all -S "Top Leverage"
-dotnet-inspect library MyLib.dll -S @Performance
-dotnet-inspect library MyLib.dll -S @Performance --count
-dotnet-inspect library MyLib.dll -S "Performance: Boxing" --json
-dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
-dotnet-inspect library MyLib.dll --where "Priority>=high" --top 20 --tsv
-dotnet-inspect library MyLib.dll --triage-shape scan-method-in-loop-call,scan-method-in-recursive-traversal,linq-scan-in-loop,string-build-in-loop --top 20 --tsv
-dotnet-inspect library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
-dotnet-inspect library MyLib.dll --triage-shape allocation-fanout \
-  --order-by "OncePaths desc" --top 20 --tsv
-dotnet-inspect library MyLib.dll --where "Finding=analysis.call-site" --jsonl
-dotnet-inspect library MyLib.dll --where "CallerLoop=direct" --order-by "CallerLoopDepth desc" --jsonl
-dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
-dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Throw,Catch,Finally"
-dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Fanin,Loop,AsyncAlternatives"
-dotnet-inspect member MyType Value:1 --library MyLib.dll -S "Call Graph"
-dotnet-inspect member MyType Value:2 --library MyLib.dll -S "Call Graph"
-```
-
-A property, indexer, or event has no body of its own, so body sections
-(`Call Graph`, `Calls`, `Callers`, `IL`, `Decompiled Source`,
-`Facts`, and the other IL-body views) resolve it to its accessor methods.
-Address them through the overload-index selector: `Name:1` is the getter/adder
-(the default) and `Name:2` the setter/remover, each rooted at its metadata
-accessor name (`get_Name`, `set_Name`, `add_Name`, `remove_Name`). Fields have
-no accessor and stay body-less. The source-evidence sections
-(`PDB Source`, `Source Diff`, `Source Locations`) follow the same
-addressing and resolve through the accessor's PDB sequence points.
-`Source Locations` reports that accessor-specific range; `PDB Source` and
-`Source Diff` use its first line to select the enclosing source declaration,
-so a getter and setter both render the whole property rather than invalid
-accessor fragments.
-
-`allocation-fanout` is an opt-in aggregate view for construction-heavy
-registries, pipelines, and object graphs that do not match a local rewrite
-shape. It counts direct allocation sites and composes repeated exact
-intra-assembly callsites into `Once Paths`, while keeping conditional, repeated,
-unknown, cached, and opaque paths separate. The counts describe IL-visible
-normal-return paths, not runtime bytes or workload frequency; virtual, external,
-delegate, recursive, and runtime-library effects remain opaque.
-
-Common `--triage-shape` values include `capturing-delegate`,
-`async-state-machine`, `sync-call-in-async`, `box-value-type`,
-`generic-parameter-object-box`, `small-array`,
-`cache-lookup-factory-delegate`, `linq-scan-in-loop`,
-`scan-method-in-loop-call`, `scan-method-in-recursive-traversal`,
-`materialize-in-loop`, `string-build-in-loop`, `enumerator-allocation`, and
-`allocation-hotspot`.
-
-`generic-parameter-object-box` starts at medium priority because allocation
-depends on a value-type instantiation; exact local-loop evidence promotes it
-to high. Caller-loop evidence remains queryable but does not change priority.
-
-### Decompiler
-
-`member -S @Source` raises a method body to C# and shows the supporting
-evidence: `Decompiled Source` (raised C#), `Annotated Source` (C# with
-hidden-fact comments and interleaved IL), `Annotated Source Document` (the same
-rendering as a machine payload), `PDB Source` (Portable-PDB-selected,
-checksum-verified source acquired locally or through SourceLink),
-`Source Diff` (PDB Source compared with Decompiled Source), and `IL`.
-`Source Diff` names the PDB-selected document and whether its bytes matched the
-checksum exactly or after CR/LF normalization, without claiming independent
-build provenance. Normal output uses bounded unified hunks for review; if it
-reports a partial presentation, use `-v:d` to emit complete line evidence.
-Source convergence remains independent of compile-back fidelity: similar text
-does not prove equivalent IL, and different text does not prove incorrect
-behavior. The decompiler is exception-safe by construction and degrades
-honestly: IL with no faithful C# spelling renders as a visible comment and
-lowers the result's fidelity level (`Full` → `Partial` → `StructuredOnly` →
-`IlOnly` → `Failed`) instead of emitting plausible-but-wrong source, with a
-stable `DEC####` diagnostic on every degradation. If output looks wrong,
-capture all four sections; select `Fidelity Causes` for the typed cause census
-behind the grade. That section distinguishes Full fidelity, an absent method
-body, and inspection failure. Maintainers diagnose pipeline state with
-DecompilerHarness.
-
-The `Decompiled Source` view renders readable local names by default when a PDB
-does not supply the source name, deriving conservative names such as `text`,
-`items`, or `stringBuilder` from the local's type and role. This is
-byte-preserving; fidelity and corpus tooling retain stable `V_index` slot names.
-Set `dotnet_inspect_style_slot_local_names = true` in the tool-owned
-`.dotnet-inspectconfig` file to restore slot names, or use `--readable-names` to
-override that configuration for one invocation. The original
-`dotnet_inspect_style_readable_local_names = false` spelling remains accepted
-for compatibility. The same config file
-(discovered by walking up from the working directory) selects other class-3
-spellings using `.editorconfig` key names. Named enum labels that share one
-switch body are alphabetical by default; set
-`dotnet_inspect_style_enum_case_label_order = value` to retain recovered numeric
-order. Object creation uses target-typed `new(...)` by default; set
-`csharp_style_implicit_object_creation_when_type_is_apparent = false` to keep
-the explicit constructed type in `new T(...)`. `--taste` requests the whole
-oracle-endorsed set for one invocation without a config file. `Annotated Source`
-names the applied spellings in a trailing comment on the member signature, and
-drops its interleaved IL for any member a byte-divergent lens actually rewrote.
-See
-[docs/decompiler-taste.md](docs/decompiler-taste.md#style-configuration).
-
-`Annotated Source Document` is the machine form of that same view, emitted
-directly as JSON when it is the only selected section. It is a text buffer plus
-overlays: `text` is the exact interleaved rendering, and every coordinate is an
-absolute, end-exclusive UTF-16 span into it, so lines and columns are derived by
-counting newlines rather than stored. `text` is well-formed UTF-16 — an unpaired
-surrogate is rejected, never repaired, because JSON would replace it with U+FFFD
-and shift every later span; malformed IL operand and fact text arrives already
-contained as a visible `\uXXXX` spelling. `nodes` name text structure (C# syntax
-kinds from a stable rendered-syntax catalog, plus one `Instruction` node per
-rendered IL line carrying its `il_offset`),
-`regions` name construct parts, `facts` are the semantic observations stated once
-each, and `targets` is the only join between them — fact to node, then node spans
-to text. A node carries several spans when interleaved IL splits its construct,
-and the C# line breaks it printed stay inside those spans, so concatenating them
-reproduces the rendered source verbatim. `Instruction` is exactly the nodes that
-carry an `il_offset`, and a fact with no target is explicitly unanchored rather
-than missing. Producers never expose decompiler CLR type names as kinds;
-consumers tolerate unfamiliar kinds so the catalog can grow additively.
-
-```bash
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
-dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Decompiled Source"
-dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source"
-dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source Document" --json
-dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Fidelity Causes"
-dotnet-inspect library MyLib.dll --il-offset 0x06000001+0x5
-```
-
-## Raw metadata
-
-`library -S @Metadata` exposes the assembly's ECMA-335 metadata tables directly:
-one section per projected table (`Metadata: TypeDef`, `Metadata: MethodDef`,
-`Metadata: MemberRef`, …) plus `Metadata: Image` for the image-level facts —
-metadata version, heap sizes, and which tables are present — that are not rows.
-
-Rows are decoded, not dumped. A handle column shows the row it points at
-(`TypeRef[16] (System.Object)`), a list column shows its range
-(`MethodDef[1..33)`), heap offsets show their value, and flag columns show
-decoded names (`Sealed, BeforeFieldInit`), so a row is readable without a
-second lookup. The `#` column is the real metadata row id, so
-`--rows 40000..40099` names rows by their table position rather than by their
-position in the rendered page.
-
-These sections are **opt-in only**. A table such as `MethodDef` grows without a
-meaningful bound, so no verbosity renders one — not even `-v:d`. They are
-reachable by exact name (`-S "Metadata: TypeRef"`) or
-through the `@Metadata` category door, and they are catalog-hidden like the
-`@Performance` kinds: the top-level `-D` catalog lists `@Metadata` as their
-single entrypoint. Drill in with `-D @Metadata` to list the tables that
-actually carry rows in this image, or use `-S @Metadata --count` for a per-table
-row-count map before requesting a table. A table with no rows is omitted and
-named on stderr rather than rendered as an empty section.
-
-Because the lens composes into the normal section pipeline, section ordering,
-`--rows`, `--count`, `--columns`, `--tsv`, and `--jsonl` all behave as they do
-elsewhere. `-D "Metadata: TypeRef"` lists that table's columns, and `--columns`
-narrows to them. In tabular output each row carries a leading `table` column, so
-rows stay self-identifying once the Markdown headings are gone. The lens
-inspects one image, so selecting it for a package that resolves to several
-assemblies is an error rather than an ambiguous document.
-
-```bash
-dotnet-inspect library MyLib.dll -D @Metadata
-dotnet-inspect library MyLib.dll -S @Metadata --count
-dotnet-inspect library MyLib.dll -S "Metadata: TypeRef" --rows 20
-dotnet-inspect library MyLib.dll -S "Metadata: TypeRef" --columns Name --tsv
-dotnet-inspect library MyLib.dll -S "Metadata: MethodDef" --tsv --rows 100..199
-```
-
-A table can also be named by its ECMA-335 index, since this tool's own output
-prints hex tokens and a reader following a `0x02000015` reference already has
-the index in hand:
-
-```bash
-dotnet-inspect library MyLib.dll -S "Metadata: 0x02"   # same as "Metadata: TypeDef"
-```
-
-The two spellings are one section, not two: the hex form is an input alias, so
-the heading, section order, `--count`, and `-D` all answer in the canonical
-name. Hex must carry its `0x` — a bare `02` is a table *name* position — and
-only projected tables resolve, so an index outside the projection is an error
-naming what is available rather than an empty section. A table index is one
-byte, so it is one or two hex digits; a full metadata token such as
-`0x02000015` or `0x00000001` addresses a row, not a table, and is rejected.
-
-### Heaps
-
-The four ECMA-335 heaps get sections of their own (`Metadata: #Strings`,
-`Metadata: #Blob`, `Metadata: #GUID`, `Metadata: #US`), and a single address is
-addressable with the `--heap` coordinate carrier:
-
-```bash
-dotnet-inspect library MyLib.dll -S "Metadata: #Strings" --rows 20
-dotnet-inspect library MyLib.dll --heap "#Strings:0x1a4"
-```
-
-A heap name may be written with or without its `#`, and an address is decimal
-unless it carries an explicit `0x` — a bare `1a4` is rejected rather than
-guessed at.
-
-A heap is not a table, and the listings say so rather than implying a
-completeness they cannot deliver. `#Strings` and `#Blob` are length-prefixed
-byte soup with no index, so what a listing shows is the distinct values the
-projected table rows point at, address-ordered, with a `Refs` count. `#GUID` is
-listed completely, because its entries are fixed 16-byte records. `#US` lists
-nothing at all — no table column points into it, since its references are
-`ldstr` operands inside method bodies — but it keeps its section so its size
-stays visible and any address in it stays readable with `--heap`. Every listing
-renders its coverage as a caveat.
-
-## Output and querying
-
-Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one selected-section document (`--row N|first|last` chooses a displayed row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`2..10` is inclusive, `2+10` is start plus count, and `10..` is open-ended), `--count` to reduce a selected section/vector to a row count, and `--mermaid` for diagrams. On `member -S "Call Graph"`, `--tree` and `--mermaid` are standalone formats; pair `--mermaid` with `--markdown` to embed the diagram in a Markdown document. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
-
-On `find`, plain `--json` retains the typed result shape. Add `--columns` or
-`--fields` to emit projected JSON with the same selected rows and snake_case
-fields as `--tsv` and `--jsonl`.
-
-Call Graph edge rows use the machine field names `from`, `from_group`,
-`to`, `to_group`, and `label` under `--tsv` and `--jsonl`. Markdown and
-`--table` retain the human headings `From`, `From Group`, `To`, `To Group`, and
-`Label`.
-
-Sections and fields are queryable without a template language:
-
-```bash
-dotnet-inspect library System.Net.Security -S "Async*"
-dotnet-inspect member JsonSerializer --package System.Text.Json -D
-dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
-dotnet-inspect find JsonSerializer --platform System.Text.Json --columns Type,Library --json
-dotnet-inspect type --package System.Text.Json --columns Kind,Name
-dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
-dotnet-inspect library System.Text.Json -S @Audit
-dotnet-inspect library System.Text.Json -S "Async*" --count
-dotnet-inspect package Microsoft.Extensions.Logging.Abstractions --library -S Integrations
-dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
-dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Logging
-dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
-dotnet-inspect library System.Text.Json -S Signals
-dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
-dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
-dotnet-inspect type Command --project ./src/App
-dotnet-inspect member Command --project ./src/App -S "Member Index"
-dotnet-inspect project ./src/App -S Skills --jsonl
-dotnet-inspect project ./src/App -S Skills --paths
-dotnet-inspect project ./src/App -S Skills --print --row 1
-dotnet-inspect vocabulary -D
-dotnet-inspect vocabulary -S Accessibility --json
-dotnet-inspect vocabulary -S "C# Style Choices" --columns "ID,Title,Tier" --tsv
-dotnet-inspect vocabulary -S "C# Body Kinds" --rows 10
-dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
-dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
-```
-
-`package X -D` reports effective package sections and fields. `library X -D`
-is a cheap target-aware catalog; add `--effective` for full probes. On either
-command, `-D --schema` reports the complete static graph without inspecting the
-target. Bare `-S` returns high-value, fixed-length, network-free base sections.
-A single `type Type` uses `Type Info`, a type listing uses `API Info`, broad
-`member Type` summaries use `Method Groups`, `member Type -m Name` uses
-`Methods` overload rows, and a selected `member Type.Member:N` uses `Signature`.
-Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons.
-Package and library expose authored categories rather than a computed `@All`;
-workflow categories such as `@Source` and `@Audit` expand to focused section
-groups.
-
-Package uses `@Package` and `@Files` for its ordinary evidence, with focused
-`@Dependencies`, `@Audit`, and `@SourceLink` doors. Library similarly uses
-`@Library` and `@Surface` as its ordinary evidence scope.
-
-## Common examples
-
-```bash
-dotnet-inspect library System.Text.Json -S Signals
-dotnet-inspect library System.Private.CoreLib -S "Unsafe Members"
-dotnet-inspect package Microsoft.Extensions.Logging.Abstractions --library -S Integrations
-dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
-dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
-dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
-dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
-dotnet-inspect package System.Text.Json -S Signals
-dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
-dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
-dotnet-inspect package System.Text.Json -S @Package
-dotnet-inspect package System.Text.Json -S @Dependencies
-dotnet-inspect package System.Text.Json -S @Audit
-dotnet-inspect package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
-dotnet-inspect package System.Text.Json -S "SourceLink: Integrity"
-dotnet-inspect package System.Text.Json --versions
-dotnet-inspect package System.Text.Json --versions --include-unlisted
-dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
-dotnet-inspect type JsonSerializer --package System.Text.Json@8.0.0..8.0.5 --at '#4'
-dotnet-inspect member JsonSerializer Serialize --package System.Text.Json@8.0.0..8.0.5 --at 8.0.5
-dotnet-inspect type Command --project ./src/App
-dotnet-inspect member Command --project ./src/App -S "Member Index"
-dotnet-inspect project ./src/App -S Skills
-dotnet-inspect project ./src/App -S Skills --print --row 1
-dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
-dotnet-inspect type string --shape
-dotnet-inspect type --package System.Text.Json --table
-dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
-dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize -S "Member Index"
-dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize -S "Source Locations"
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
-dotnet-inspect member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
-dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll --bin ./app/bin/Release/net10.0
-dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll -S "Call Graph" --bin ./app/bin/Release/net10.0
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --tree
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --markdown --mermaid
-dotnet-inspect member MyType MyMethod:1 --library MyLib.dll -S "Unsafe*"
-dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
-dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
-dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all
-dotnet-inspect timeline --package MyLib@1.0.0..2.0.0 --type MyType --member Parse --finding analysis.unsafety --at all
-dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" --pdb-source -m MyType.HotPath
-dotnet-inspect depends Stream --markdown --mermaid
-dotnet-inspect implements IEquatable --project ./src/App -v:q
-dotnet-inspect extensions string --project ./src/App -v:n
-dotnet-inspect depends Command --project ./src/App -v:q
-```
+`depends --package <id>[@<version>] --tfm <tfm> --share[=url|packet]`
+projects the package Dependencies view without acquiring the package or
+traversing the graph in the CLI. An omitted version or `latest` is resolved
+from NuGet.org and pinned before emission; the published browser then acquires
+that exact coordinate and lazily computes the dependency graph for the
+selected target framework. Local archives, effective source policies that do
+not authorize exactly one NuGet.org source, wildcard, range, or build-metadata
+versions, omitted frameworks, the Browser-reserved `Microsoft.NETCore.App`
+Platform id, row windows, counts, and other rendering formats fail visibly
+rather than producing a non-reproducible link.
 
 ## Requirements
 
@@ -902,13 +610,14 @@ dotnet-inspect depends Command --project ./src/App -v:q
 
 ## LLM integration
 
-dotnet-inspect is [designed for LLM-driven development](docs/llm-design.md). The embedded skill (`dotnet-inspect skill`) is also distributed through the [dotnet/skills](https://github.com/dotnet/skills) marketplace.
+dotnet-inspect is [designed for LLM-driven development](docs/llm-design.md).
+The embedded skill (`dotnet-inspect skill`) is also distributed through the
+[dotnet/skills](https://github.com/dotnet/skills) marketplace.
 
 ## Contributor and agent docs
 
 Start with [AGENTS.md](AGENTS.md) for repository-wide engineering and workflow
-rules. It routes each change to the focused documentation that must be read.
-Use [docs/overview.md](docs/overview.md) when a change crosses subsystem
+rules. Use [docs/overview.md](docs/overview.md) when a change crosses subsystem
 ownership boundaries, and [taste/skill-guidance.md](taste/skill-guidance.md)
 when maintaining the embedded skill.
 

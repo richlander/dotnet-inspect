@@ -323,7 +323,7 @@ dotnet-inspect package System.Text.Json@8.0.0 -v:d -S Vulnerabilities
 ```expect
 ## Vulnerabilities
 CVE-2024-30105
-CVE-2024-43485
+GHSA-8g4q-xg66-9fp4
 ```
 
 ## 7. Preview packages from alternate feeds

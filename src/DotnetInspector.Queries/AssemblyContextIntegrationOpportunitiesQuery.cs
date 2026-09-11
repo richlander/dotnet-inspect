@@ -233,12 +233,13 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
         AssemblyContextParticipant participant,
         AssemblyIntegrationsEntry.Available integrations)
     {
-        var existing = new HashSet<string>(
+        var existing = new HashSet<IntegrationConceptDescriptor>(
             integrations.EcosystemSignals.Select(
-                static signal => signal.Integration),
-            StringComparer.Ordinal);
+                    static signal => signal.GetConcept())
+                .OfType<IntegrationConceptDescriptor>(),
+            ReferenceEqualityComparer.Instance);
         if (!integrations.OpenTelemetrySignals.IsDefaultOrEmpty)
-            existing.Add(EcosystemIntegrationNames.OpenTelemetry);
+            existing.Add(IntegrationConceptCatalog.OpenTelemetry);
 
         AssemblyImageAccessResult<
             AssemblyIntegrationOpportunitiesEntry> access =
@@ -266,19 +267,20 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
         AssemblyInspectionSession session,
         AssemblyIntegrationsEntry.Available integrations)
     {
-        var existing = new HashSet<string>(
+        var existing = new HashSet<IntegrationConceptDescriptor>(
             integrations.EcosystemSignals.Select(
-                static signal => signal.Integration),
-            StringComparer.Ordinal);
+                    static signal => signal.GetConcept())
+                .OfType<IntegrationConceptDescriptor>(),
+            ReferenceEqualityComparer.Instance);
         if (!integrations.OpenTelemetrySignals.IsDefaultOrEmpty)
-            existing.Add(EcosystemIntegrationNames.OpenTelemetry);
+            existing.Add(IntegrationConceptCatalog.OpenTelemetry);
         return Inspect(session, integrations, existing);
     }
 
     static AssemblyIntegrationOpportunitiesEntry Inspect(
         AssemblyInspectionSession session,
         AssemblyIntegrationsEntry.Available integrations,
-        HashSet<string> existing)
+        HashSet<IntegrationConceptDescriptor> existing)
     {
         try
         {

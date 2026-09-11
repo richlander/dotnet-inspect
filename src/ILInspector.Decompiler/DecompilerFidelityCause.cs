@@ -20,6 +20,7 @@ public static class DecompilerFidelityDiscriminators
     public const string LambdaHolderTypeName = "lambda-holder-type-name";
     public const string LambdaMethodName = "lambda-method-name";
     public const string LocalFunctionMethodName = "local-function-method-name";
+    public const string InvalidCalleeMemorySafetyRules = "invalid-callee-memory-safety-rules";
     public const string PinnedLocal = "pinned-local";
     public const string PrivateImplementationDetailsType = "private-implementation-details-type";
     public const string StateMachineTypeName = "state-machine-type-name";
@@ -29,6 +30,8 @@ public static class DecompilerFidelityDiscriminators
     public const string UnspellableInitializerMemberName = "unspellable-initializer-member-name";
     public const string UnspellableLocalFunctionName = "unspellable-local-function-name";
     public const string UnspellableMethodName = "unspellable-method-name";
+    public const string UnspellableLocalName = "unspellable-local-name";
+    public const string UnspellableParameterName = "unspellable-parameter-name";
     public const string UnspellablePropertyName = "unspellable-property-name";
     public const string UnspellableTypeName = "unspellable-type-name";
 }

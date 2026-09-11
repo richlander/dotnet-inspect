@@ -184,7 +184,8 @@ The CLI owns parsing and creates an immutable intent. The explicit or inferred
 inspection surface (`Type`, `Member`, or `Commandless`), exact type names,
 dotted type-or-member spellings, explicit member filters, overload ordinals,
 digests, generic arity, section/category selectors, projection selectors,
-discovery mode, and format remain distinct fields. A `type` surface with `-m`
+discovery mode, and format remain distinct fields. A `type` surface with
+`--member`
 remains a type inspection with its existing type-view filtering semantics; the
 filter does not silently reroute it to the member surface.
 
@@ -243,7 +244,7 @@ The inspection routes use four different catalogs:
 | Catalog | Realized owner and model | Route states |
 | --- | --- | --- |
 | Assembly type list | `ApiTypeSectionDescriptors` over `ApiSurface` | No exact type supplied, type glob, failed exact lookup promoted to prefix browse, or platform prefix browse |
-| Type/member list | `ApiMemberSectionDescriptors` over one `ApiType` | Resolved exact type, including the type surface with `-m` filters |
+| Type/member list | `ApiMemberSectionDescriptors` over one `ApiType` | Resolved exact type, including the type surface with `--member` filters |
 | Name-scoped overload inventory | `ApiMemberOverloadSectionDescriptors` over a resolved member set | Member filters without exact-target demand |
 | Exact-member detail | `ApiMemberDetailSectionDescriptors` over one resolved member target | Exact selector or valid exact-target promotion |
 
@@ -354,7 +355,7 @@ Address resolution follows this matrix:
 | Implied and explicit refinements have complementary components | Merge the present components into one logical selector |
 | Implied and explicit refinements have different present overload, digest, or generic-arity components | Return a typed selector-conflict diagnostic |
 | Explicit `type` surface with no exact type, a type glob, or a prefix-browse result | Select the assembly-type-list catalog |
-| Explicit `type` surface with a resolved exact type, with or without `-m`/kind filters | Select the type/member-list catalog and preserve type-view filter semantics |
+| Explicit `type` surface with a resolved exact type, with or without `--member`/kind filters | Select the type/member-list catalog and preserve type-view filter semantics |
 | Explicit `member` surface with no member gesture | Select the type/member-list catalog |
 | Explicit `member` surface with bare-name or glob filters | Resolve every filter, then deduplicate their union as `ResolvedMemberSet` |
 | Any logical inventory filter resolves to no members | Return one typed aggregate retaining every missed filter and suggestion before union materialization |
@@ -386,7 +387,7 @@ The resolution uses existing typed identity owners:
   final structural selection.
 
 Inspection surface, resolved route kind, and selector kind choose the active
-section catalog; raw target count does not. A type gesture with `-m` stays on
+section catalog; raw target count does not. A type gesture with `--member` stays on
 the type/member-list catalog. A member bare name that resolves to one overload
 remains an overload inventory unless canonical exact-member demand promotes
 it. A type glob or prefix browse stays on the assembly-type-list catalog even
@@ -1342,7 +1343,7 @@ the design authority.
 | Local selector finalization flags and provisional option mutation | Replace with parsed and resolved plan types |
 | Local source/PDB authorization checks derived from `IncludeSections` or the union of `Discover` selections into requested sections | Replace with producer-plan authorization |
 | Render-manifest effective discovery | Retain for post-producer field/column/empty observation; move every producer call into a declared probe plan |
-| `LibraryCommand`'s cross-process `effective-v*` successful catalog | Retain as the existing bare `library -D --effective` compatibility cache, but replace its resolved-path/content-hash/`sl0`-or-`sl1` predecessor key. The slice-5 successor subject freezes the resolved path, acquisition-owned immutable assembly-content digest, typed `LibraryCatalogRouteEvidence` for every route fact consumed by discovery, and typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity containing the retained identity-validated PDB digest, discovery-relevant provider/provenance, and SourceLink effectiveness. Lookup, cold production, and publication use that one subject; no post-production evidence may re-key it. Do not expose the catalog to the planned type/member executor or treat it as authorization. Apply the repository-wide persistent-cache cutover rule: classify retained assembly bytes before lookup and select a successor category so no pre-classifier, bracket-hash-mislabeled, route-aliased, or Boolean-PDB-keyed predecessor entry remains eligible; supported inputs recompute and repopulate that category. Replace the pre/post mutable-path hashing tracked by #3478, make every transitive assembly/PDB consumer in the cache-enabled cold path consume the corresponding retained content, and apply one finite 64 MiB portable-PDB retention budget before copy, hash, or reader work across every provider. A future library typed-preflight migration must convert the catalog to authorization-independent producer evidence or remove it |
+| `LibraryCommand`'s cross-process `effective-v*` successful catalog | Retain as the bare `library -D --effective` compatibility cache for package and platform routes, but make direct local-file routes bypass persistent lookup and publication and recompute from a fresh retained image in each tool run. Replace the persistent routes' resolved-path/content-hash/`sl0`-or-`sl1` predecessor key. The slice-5 successor subject freezes the resolved path, acquisition-owned immutable assembly-content digest, typed `LibraryCatalogRouteEvidence` for every route fact consumed by discovery, and typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity containing the retained identity-validated PDB digest, discovery-relevant provider/provenance, and SourceLink effectiveness. Lookup, cold production, and publication use that one subject; no post-production evidence may re-key it. Do not expose the catalog to the planned type/member executor or treat it as authorization. Apply the repository-wide persistent-cache cutover rule: classify retained assembly bytes before lookup and select a successor category so no pre-classifier, bracket-hash-mislabeled, route-aliased, or Boolean-PDB-keyed predecessor entry remains eligible; supported package/platform inputs recompute and repopulate that category. Replace the pre/post mutable-path hashing tracked by #3478, make every transitive assembly/PDB consumer in each cold path consume the corresponding retained content, and apply one finite 64 MiB portable-PDB retention budget before copy, hash, or reader work across every provider. A future library typed-preflight migration must convert the catalog to authorization-independent producer evidence or remove it |
 | `ArgumentPreprocessor`, `RouterCommandDefinition`, and `PackageCommand` structural routing | Retain syntactic routing, but replace command-only dispatch with the shared structural-view registry and move static classification before acquisition in slice 2 |
 | `ApiCommand.RunPreamble` and `ApiMemberSectionPipelines` static member catalog selection | Replace the provisional selectable-section union with explicit member type-view, inventory, and detail registry entries plus labeled dotted-tail alternatives in slice 2 |
 | `ApiSurfaceExtractor` and accessor-bearing `MetadataDeclarationQuery` calls to `GetAccessors()` | Replace every SRM convenience-accessor read in those files with the neutral `MethodSemanticsAssociationSession` and Metadata-owned semantic census, including non-admission compiler-generated-name heuristics; replace reader-only `GetProperty` and `GetTypeSurface` entry points with session-backed queries |
@@ -1408,17 +1409,33 @@ Depends on: slice 1.
   `ApiMemberSectionDescriptors`.
 - Replace explicit-member dotted-tail provisional unions with labeled complete-
   type and peeled-member alternatives.
+- Apply query syntax to each surviving interpretation rather than using it to
+  erase target ambiguity. For example, a Body Shapes predicate keeps the type
+  alternative and promotes only the member alternative to exact-member detail.
+  An interpretation rejected by its command's options contributes a typed
+  diagnostic, not schema authority; another command's acceptance cannot make
+  it valid.
 - Resolve the active catalog only after target/member resolution.
+- For non-static dotted ambiguity, reject selectors absent from every candidate
+  catalog before acquisition, but defer selectors valid in at least one
+  candidate until target/member resolution selects the active catalog. This
+  intentionally replaces a provisional-catalog diagnostic when the same
+  selector is valid for another interpretation.
 - Move shape validation to the resolved plan.
-- Preserve current address precedence and diagnostics for non-static execution
-  through a compatibility adapter except for the declared `--all-libraries`
-  correction below.
+  Partial provisional selection success does not settle the target catalog or
+  authorize a catalog-dependent cardinality check.
+- Preserve current address precedence and all other diagnostics for non-static
+  execution through a compatibility adapter except for the declared ambiguity
+  and `--all-libraries` corrections.
 - Intentionally replace commandless static-schema resolution notes and
   target-chosen catalogs with deterministic syntax-only catalogs or labeled
   alternatives; update command help and compatibility tests in this slice.
 - Intentionally add target-free static schema for package single-library and
   all-libraries views that currently defer or reject discovery; preserve their
   render behavior and document the new structural query.
+- Resolve static selectors against each route's selectable sections. This makes
+  invalid direct-library selectors visible instead of ignored and continues to
+  reject contextual schema sections that are not legal direct selectors.
 - Intentionally make commandless `<target> --all-libraries` route to package
   all-libraries before any lookup in static and non-static modes. The option
   exists only on the package command; this replaces the current lookup-driven
@@ -1448,7 +1465,8 @@ dual-success, complementary refinement, conflicting refinement, distinct
 inventory-filter per-filter outcomes and deduplication, bare-name/glob
 zero-one-many and partial-miss results, surface/route/selector-driven
 four-catalog selection, cross-catalog canonical target requirements,
-exact-section/alias/category/glob detail promotion, explicit `type -m` versus
+exact-section/alias/category/glob detail promotion, explicit `type --member`
+versus
 `member` compatibility, explicit-member no-selector type view and dotted-tail
 static-schema alternatives, and conflicting positional/qualified and
 qualified/qualified types.
@@ -1495,7 +1513,7 @@ be consumed by the type/member plan before slice 4 lands.
 
 - Land and pass
   `LayeringTests.MetadataPrimitives_RemainsLeaf` in
-  `src/dotnet-inspect.Tests` before adding the lossless row reader in this
+  `tests/DotnetInspect.Cli.Tests` before adding the lossless row reader in this
   slice; the composite `MDP016` gate expands after the reader exists.
 - Introduce `MetadataOperationContext.AdmitImage` as the single metadata-row
   charging authority, move
@@ -1533,14 +1551,16 @@ be consumed by the type/member plan before slice 4 lands.
   inherit the same gate; do not parse stream/table structure or add a projected
   WinMD reader, fallback, compatibility adapter, or correspondence gate.
 - In the same cutover, bump `LibraryCommand`'s `effective-v*` category before
-  any post-cutover cache lookup or write. Mint typed
+  any post-cutover package/platform cache lookup or write. Direct local-file
+  routes bypass both operations and recompute from a fresh retained image in
+  each tool run. Mint typed
   `LibraryCatalogRouteEvidence` from the owner-issued root route and every
   stable route fact consumed by discovery; do not infer it from the resolved
   path or use it as authorization. Acquire one bounded immutable
   artifact-content snapshot and its owner-computed SHA-256 digest, then open the
   acquisition-owned `PEReader` over those retained bytes and run the format
-  classifier before the local-symbol probe or catalog lookup on every
-  invocation. Charge retained assembly bytes and the one digest pass to the
+  classifier before the local-symbol probe or any catalog lookup. Charge
+  retained assembly bytes and any requested digest pass to the
   operation's finite image/work budgets; over-limit input fails visibly before
   cache access. Unsupported or malformed input performs no PDB probe, cache
   read, or current-category write.
@@ -1560,9 +1580,11 @@ be consumed by the type/member plan before slice 4 lands.
   probe constructs any PDB `MetadataReader` needed to mint that evidence before
   the catalog lookup. Bind the route evidence, retained assembly/digest,
   supported format result, and local-symbol evidence/snapshot into one immutable
-  `LibraryEffectiveCatalogSubject`; cache lookup, every cold producer, and
-  publication accept that subject rather than independently supplied key
-  components. A hit then returns without assembly identity decoding, an
+  `LibraryEffectiveCatalogSubject`; on package and platform routes, cache
+  lookup, every cold producer, and publication accept that subject rather than
+  independently supplied key components. Direct local-file discovery consumes
+  the retained evidence without persistent lookup or publication. A
+  package/platform hit then returns without assembly identity decoding, an
   assembly `MetadataReader`, or full discovery.
 - On a miss, make a new from-retained-content image/snapshot factory preserve
   the same bytes, digest, owner binding, and supported-format result while it
@@ -1570,20 +1592,22 @@ be consumed by the type/member plan before slice 4 lands.
   inspection session. Replace the current path-opening snapshot factory in this
   route rather than allowing it to call the mutable source opener again.
   Thread the retained reference through every transitive assembly consumer in
-  all three cache-enabled bare-library branches, including platform surface
-  classification, metadata inspection, scanners, and SourceLink/PDB
-  correlation; path remains provenance/presentation only. Carry
-  `LibraryCatalogRouteEvidence` to the producer and key rather than letting a
-  platform/direct/package distinction disappear after path resolution. The cold
-  inspection and successor publication use the same retained assembly and PDB
-  content and digests frozen in the subject; do not reopen, rehash, or re-key
-  from either mutable source inside the chain. Separately authorized source work
-  remains outside the catalog subject. If the owner observes a local-symbol
-  evidence-generation change before publication, decline the write rather than
-  filing the existing result under new evidence; a later invocation recomputes.
-  A catalog from the preceding category does not prove admission, and the
-  successor may be populated only after inspection succeeds. Preserve
-  subsequent cross-process hits for supported ECMA-335.
+  all three bare-library branches -- package/platform cache-enabled and direct
+  local-file cold-only -- including platform surface classification, metadata
+  inspection, scanners, and SourceLink/PDB correlation; path remains
+  provenance/presentation only. Carry `LibraryCatalogRouteEvidence` to every
+  producer and, on persistent routes, the key rather than letting a
+  platform/direct/package distinction disappear after path resolution. The
+  cold inspection and any successor publication use the same retained assembly
+  and PDB content and any digests frozen in the subject; do not reopen, rehash,
+  or re-key from either mutable source inside the chain. Separately authorized
+  source work remains outside the catalog subject. If the owner observes a
+  local-symbol evidence-generation change before publication, decline the
+  write rather than filing the existing result under new evidence; a later
+  invocation recomputes. A catalog from the preceding category does not prove
+  admission, and the successor may be populated only after inspection
+  succeeds. Preserve subsequent cross-process hits for supported
+  package/platform ECMA-335 inputs.
 - Add typed type, member, accessor, and `MethodImpl` validation results.
 - Replace the reader-only accessor-bearing
   `MetadataDeclarationQuery.GetProperty` and `GetTypeSurface` surfaces with
@@ -1712,7 +1736,7 @@ test method name, but the PR must map each test to its gate ID.
 | `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, commandless structural alternatives, and explicit-member dotted-tail alternatives; declaration-derived set equality requires one canonical target requirement for every stable identity registered in multiple catalogs and rejects conflicting declarations |
 | `MIP004` | Closed producer paths equal preflighted authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; unconditional prerequisite closure; conditional local-PDB hit, unrequested/denied miss, and authorized acquisition paths; transitive cost, execution-mode, and probe-policy closure; a probe-capable producer with a render-only prerequisite mapping to per-section `Unknown`; explicit-render denial; preflight-before-execution assertions; artifact-owner lease revalidation; same-target effective discovery under granting and denying hosts in both execution orders; two freshly minted same-host, same-target, same-request operations in which one receives an injected producer failure and the other succeeds after recovery, repeated in both operation orders; explicit attempts to present the first operation's plan to the second operation and to execute it after disposing the first context, both rejected before cache or producer access; and architecture closure proving the planned type/member executor never reads or writes the library-only `effective-v*` catalog. Together these prove completed outcomes are scoped to one operation-bound preflighted plan while persistent producer evidence is independently reauthorized |
 | `MIP005` | Presentation cannot widen work | A non-vacuity test that fails when render-manifest or ordinary rendering starts an undeclared producer |
-| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | The slice-2 structural-view mapping remains closed; set equality between the type/member catalog/route registry and its four realized pipeline owners plus every entry route; exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type -m` versus `member` catalog/output compatibility, surface/route/selector-driven assembly-type-list/type-member-list/overload-inventory/detail catalogs, explicit-member no-selector type view, targetless/glob/failed-exact/platform-prefix list routes, cross-catalog `MemberSet` and `ExactMember` identities, exact-section/alias/category/glob detail promotion, commandless and explicit-member dotted-tail static alternatives, unavailable detail sections, and overload/digest/arity cases |
+| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | The slice-2 structural-view mapping remains closed; set equality between the type/member catalog/route registry and its four realized pipeline owners plus every entry route; exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type --member` versus `member` catalog/output compatibility, surface/route/selector-driven assembly-type-list/type-member-list/overload-inventory/detail catalogs, explicit-member no-selector type view, targetless/glob/failed-exact/platform-prefix list routes, cross-catalog `MemberSet` and `ExactMember` identities, exact-section/alias/category/glob detail promotion, commandless and explicit-member dotted-tail static alternatives, unavailable detail sections, and overload/digest/arity cases |
 | `MIP007` | L1 member execution remains content-shaped and owner-authorized | Architecture closure plus admission/query-lease tests proving no readable path or descriptor bypass |
 | `MIP008` | The plan executes sequentially without filesystem assumptions | Browser/Wasm host test over in-memory content with the same producer trace and failures |
 | `MIP009` | The path remains NativeAOT-friendly, SRM-only, Roslyn-free, and load-free | NativeAOT publish/run plus dependency and inspected-assembly-loading architecture gates |
@@ -1735,8 +1759,19 @@ test method name, but the PR must map each test to its gate ID.
 | `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, and consumers after slice 8; no shipped product or reusable product-library SRM `PropertyDefinition.GetAccessors()` or `EventDefinition.GetAccessors()` call remains; Decompiler fixtures prove `MemberBodyProducer` and `MethodDefinitionFacts` consume the association session under the slice-6 owner-backed image lease and a finite Decompiler operation policy, call the current owner/lender liveness check before both cold and cached results, and retain their own classification policy without a bare-reader bypass; a gate-owned exact file/enclosing-member/occurrence-count allow list records every remaining solution call exactly once with category and justification as either a comparison-only independent SRM oracle or an address-only test-input selector whose assertion depends solely on product output; the mechanical gate fails stale, unlisted, or occurrence-count drift, while category correctness is an explicit reviewer obligation whenever the list changes; no allowed category may supply expected accessor structure or construct, normalize, repair, or substitute for an artifact later compiled or measured as product evidence; reflection `PropertyInfo.GetAccessors` is outside this closure |
 | `MDP014` | CSharp failure text contains no artifact data | Hostile control-character names through every CSharp representability failure path |
 | `MDP015` | `FallbackRequired` preserves contained type/member semantics and renders artifact text through `InertString` | Set equality between the normal representable renderer's Metadata fact requests and each contained fallback payload after named erasures; type and member parity fixtures cover accessibility, modifiers, attributes, constraints, constants/defaults, explicit implementation, complete accessor aggregates including raise and every `Other` association, base/interfaces, and kind-specific facts; valid raise/`Other` aggregates force contained fallback and preserve each association instead of becoming unrelated standalone methods; unsupported type-header and paired member/indexer cases prove no fact becomes `null`, omission, or identity collapse; declaration-derived sink closure requires every fallback sink to call `EnsurePermitted` with its exact `TextPolicy` immediately before unwrapping and format escaping; cross-policy fixtures deliver Prose-produced CR/LF/TAB plus hostile type names, member names, and signature fragments to Field, Markdown, JSON, TSV, and diagnostic sinks; round-trip and pairwise injectivity prove canonical visual encoding preserves exact artifact text while no live disallowed scalar reaches a sink |
-| `MDP016` | The lossless `MethodSemantics` row boundary is the only registered raw-table exception and remains mechanical, bounded, and SRM-backed | A pre-reader `LayeringTests.MetadataPrimitives_RemainsLeaf` gate in `src/dotnet-inspect.Tests` and post-reader symbol/API closure prove MetadataPrimitives remains an SRM-only leaf; the exact raw-layout allow list distinguishes the fixed metadata-root admission guard owned and gated by `MDP017` from table decoding, and only `MethodSemanticsRowReader` calls `GetTableMetadataOffset`, `GetTableRowSize`, or decodes raw ECMA table columns; the classifier and row reader may each call `PEReader.GetMetadata` and `PEMemoryBlock.GetReader` only for their separately bounded contracts, no arbitrary `TableIndex`, schema, or coded-index API escapes, and unrelated blob/heap `BlobReader` use is outside the detector; required-CI ordered-multiset equality with `ildasm` over association/role/method plus construction-known `ilasm` fixtures, with both external-tool groups required there but allowed to skip together locally; tool-independent `MetadataBuilder` and byte-patched raw-row fixtures remain the non-skipping construction-known floor, alongside conventional aggregate parity with SRM accessors; all four narrow/wide MethodDef and HasSemantics index combinations are generated once per test run and assert decoded values, while SRM row-size equality separately checks the total width; fixtures prove exact preservation of duplicate roles, zero/unknown/combined bits, physical row order, and nonmonotonic-order observation, while nil/out-of-range MethodDef or association rows produce typed mechanical rejection and the same out-of-order rows with the sorted bit clear fail at SRM reader construction; a supplied retained-association budget proves complete-scan bounded allocation before the leaf returns neutral rows, and the reader retains no block, reader, or pointer beyond the call; Browser/Wasm and NativeAOT gates exercise the same supported ECMA-335 result. Role legality, duplicates, declaring-type consistency, and ordering-policy rejection belong to `MDP004`; format classification belongs to `MDP017`; operation admission, generation/entry mapping, dependent-projection failure, and both cold/cache liveness wiring belong to `MDP006`/`MDP009`; consumer migration belongs to `MDP011`/`MDP013` |
+| `MDP016` | The lossless `MethodSemantics` row boundary is the only registered raw-table exception and remains mechanical, bounded, and SRM-backed | A pre-reader `LayeringTests.MetadataPrimitives_RemainsLeaf` gate in `tests/DotnetInspect.Cli.Tests` and post-reader symbol/API closure prove MetadataPrimitives remains an SRM-only leaf; the exact raw-layout allow list distinguishes the fixed metadata-root admission guard owned and gated by `MDP017` from table decoding, and only `MethodSemanticsRowReader` calls `GetTableMetadataOffset`, `GetTableRowSize`, or decodes raw ECMA table columns; the classifier and row reader may each call `PEReader.GetMetadata` and `PEMemoryBlock.GetReader` only for their separately bounded contracts, no arbitrary `TableIndex`, schema, or coded-index API escapes, and unrelated blob/heap `BlobReader` use is outside the detector; required-CI ordered-multiset equality with `ildasm` over association/role/method plus construction-known `ilasm` fixtures, with both external-tool groups required there but allowed to skip together locally; tool-independent `MetadataBuilder` and byte-patched raw-row fixtures remain the non-skipping construction-known floor, alongside conventional aggregate parity with SRM accessors; all four narrow/wide MethodDef and HasSemantics index combinations are generated once per test run and assert decoded values, while SRM row-size equality separately checks the total width; fixtures prove exact preservation of duplicate roles, zero/unknown/combined bits, physical row order, and nonmonotonic-order observation, while nil/out-of-range MethodDef or association rows produce typed mechanical rejection and the same out-of-order rows with the sorted bit clear fail at SRM reader construction; a supplied retained-association budget proves complete-scan bounded allocation before the leaf returns neutral rows, and the reader retains no block, reader, or pointer beyond the call; Browser/Wasm and NativeAOT gates exercise the same supported ECMA-335 result. Role legality, duplicates, declaring-type consistency, and ordering-policy rejection belong to `MDP004`; format classification belongs to `MDP017`; operation admission, generation/entry mapping, dependent-projection failure, and both cold/cache liveness wiring belong to `MDP006`/`MDP009`; consumer migration belongs to `MDP011`/`MDP013` |
 | `MDP017` | Unsupported Windows Metadata cannot enter a product metadata path or become malformed ECMA-335 | `MetadataImageFormatClassifier` is the sole registered metadata-root admission guard. `PEReader.HasMetadata == false` returns typed `NoMetadata` without requesting a block; otherwise the classifier obtains the owner-bound metadata block from the supplied `PEReader`, reads only the ECMA-335 signature, fixed major/minor/reserved fields, signed padded-version length, and at most the declared 256-byte padded field, scans through the first null for the ordinal ASCII `WindowsRuntime` marker SRM uses before optional WinRT projection, and constructs no `MetadataReader`. Ordinary and marker-bearing `MetadataBuilder` images, including a marker-bearing image without an mscorlib `AssemblyRef`, prove `SupportedEcma335` versus `UnsupportedWindowsMetadata`; a native PE proves `NoMetadata` and preserves its established no-metadata boundary; wrong-case markers, markers after the first null, and markers outside the declared field remain supported close negatives; an unmappable metadata directory, truncated fixed prefix, invalid signature, negative/over-256 padded length, and length beyond the block remain distinct typed malformed-root results, while injected lazy-stream I/O failure remains an acquisition failure. The gate records the deliberate compatibility boundary that SRM may accept a longer field when enough bytes exist, while the guard rejects it because ECMA-335 bounds the null-terminated version to 255 bytes and the padded field to 256; no input may be admitted with an unexamined marker beyond the fixed window. A marker-bearing byte-patched image whose unsorted `MethodSemantics` table would scan or fail during SRM reader initialization must return unsupported without `MetadataReader`, row, table, heap, or stream-header work. Prefetched and lazy-stream fixtures record total block-materialization cost separately; a test-only pre-materialized measurement that first obtains the block from the same `PEReader` isolates the subsequent classifier delta and proves classifier-owned allocation/work is bounded only by the root prefix and 256-byte field rather than row count. Product paths still classify before `MetadataReader` construction or managed metadata work. Within MetadataPrimitives, architecture closure permits root-admission interpretation only in the classifier; `MDP016` separately owns the exact raw-layout allow list for the classifier and `MethodSemanticsRowReader`, while the existing `StructuralCloneAnalysis.ReadUserStringHeap` stream parser remains explicitly excluded migration debt rather than an admission path. Acquisition/public-`PEReader` closure requires `AssemblyImage`, `PdbContext`, Decompiler `MetadataSource`, `MetadataImageInspector`, every `MetadataTableProjector` table/row/reference/heap entry point, and direct `MethodSemanticsRowReader` calls to invoke the classifier before `MetadataReader` construction, admission, or managed metadata work; portable-PDB `MetadataReader` construction after the owning assembly has passed admission is outside this assembly-metadata closure and remains bounded by one finite operation-owned retention/expansion budget. Direct acquisition/projector APIs preserve `NoMetadata`, map malformed roots to `BadImageFormatException` with bounded non-artifact text when their return shape has no failure arm, and throw `UnsupportedMetadataFormatException` with the same text constraint only for unsupported Windows Metadata; owning queries preserve each mechanism in a typed no-metadata, malformed-input, or unsupported-input result; CLI Markdown and structured metadata-lens modes prove there is no empty or partial success; Browser/Wasm and NativeAOT gates exercise every classifier arm. The library cache cutover first mints `LibraryCatalogRouteEvidence` from the owner-issued platform/package/direct-file route and every route fact consumed by discovery, then acquires one bounded immutable assembly-content snapshot and its owner-computed SHA-256 digest, opens a `PEReader` over those retained bytes, and invokes the classifier before the local-symbol probe or every catalog lookup. Unsupported or malformed input proves zero PDB opens, cache reads, or current-category writes. After supported admission, one operation-owned `PortablePdbRetentionBudget` applies a finite 64 MiB compatibility ceiling across adjacent, symbol-cache, acquired, and decompressed embedded providers. It reserves seekable length before allocation/copy/hash/reader construction, bounded-copies non-seekable input to limit plus one, and reserves embedded declared decompressed length before expansion. Over-limit input returns typed `PortablePdbRetentionLimitExceeded` with zero catalog read/write, does not become `None`, and does not fall through to another provider; product effective-discovery call closure rejects `SourceLinkReadLimits.Unlimited`. Within that budget, the probe reads the retained image's PE debug directory, constructs any PDB `MetadataReader` needed before catalog lookup, and returns typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity containing one retained, assembly-identity-validated portable PDB's SHA-256 digest, every provider/provenance dimension consumed by effective discovery, and typed SourceLink effectiveness. Bind the route evidence, retained assembly/digest, supported result, and local-symbol evidence/snapshot into one immutable `LibraryEffectiveCatalogSubject` before lookup. A supported catalog hit then constructs no assembly `MetadataReader` and performs no full discovery. On a miss, from-retained-content factories and every producer consume that subject; API closure rejects independently supplied subject components, route evidence, digest/snapshot, digest/result, format-result/reader, or PDB-evidence/PDB-reader pairs. Call-graph closure starts at all three cache-enabled bare-library branches and requires every transitive assembly/PDB consumer, including platform `AssemblySurfaceClassifier`, metadata inspection, scanners, and SourceLink correlation, to use those retained references and route evidence; a path may remain provenance or presentation but cannot reopen the subject. The mutable assembly source and each selected local PDB source are each opened exactly once, and neither is rehashed or reopened for the cold producer or write; the bracketed-path-hash workaround tracked by #3478 is removed. Publication uses the frozen subject and never substitutes post-production evidence. Separately authorized source work stays outside the subject; if the owner observes a local-symbol evidence-generation change, it declines publication rather than re-keying, and a later invocation probes and recomputes. A declaration-derived set-equality gate covers every route- or PDB-dependent section/field predicate, including applicability that falls back to `CanRender`, and every route/provider/provenance fact consumed by discovery; each must be a function of `LibraryCatalogRouteEvidence` and `LocalSymbolDiscoveryEvidence`, so adding a dependent producer cannot leave the successor key under-scoped. The migration declaration owns distinct predecessor and successor `effective-v*` categories and their registered set independently of key reachability. Cutover evidence seeds successful predecessor-category sentinels for both legacy `sl0` and `sl1` keys of exact marker-bearing bytes and proves classification returns unsupported before any catalog read and writes no successor entry. A paired supported ECMA-335 fixture with predecessor sentinels proves the old catalog is ignored, one real retained-content inspection populates the successor category under the new key shape, and a separate process receives the supported hit. Route fixtures invoke one exact installed assembly through platform and direct-file routes in both population orders, prove route evidence and keys differ, preserve the platform-only `Facade` field, and receive correct separate-process hits; package/direct same-file and every other declared route pair receive the same closure. Stable PDB fixtures cover `None`, a PDB without SourceLink, two identity-valid SourceLink PDBs with different document-path/catalog effectiveness, and every discovery-relevant provider kind; different PDB bytes or relevant provenance produce different keys and catalogs. A `None` subject whose cache warms to PDB P2 and a PDB P1 subject replaced by P2 prove every cold producer remains on the frozen subject and no entry is written under P2 evidence; an observed generation change declines publication, while a later invocation probes P2, recomputes, and may publish. Clearing P1 back to `None` is likewise visible only to a later invocation. Near/over-limit fixtures cover seekable adjacent, symbol-cache, acquired, non-seekable, and embedded-decompressed PDBs; the over-limit identity-valid trailing-data PDB must fail before hash/reader/cache work rather than returning success. In-process product acquisition seams whose successive assembly or PDB source opens return W, S, and W count exactly one open per selected source and assert that each published digest names the exact retained bytes supplied to admission and every producer. That deterministic witness and API closure fail mutations that restore bracketing hashes, reopen any transitive producer/publication path, re-key publication from post-production evidence, or permit independently paired evidence and result; cross-process sentinel cases remain separate evidence rather than timing the mutation. The gate records assembly/PDB retained-byte peaks, one linear digest pass per newly retained subject, reservation release on every failure, and no `SourceLinkReadLimits.Unlimited` product caller; the same 64 MiB finite policy and typed failure run without threads on Browser/Wasm. Category registration/set-equality closes the versioned category inventory |
+
+The [assembly image lifetime](assembly-image-lifetime.md) decision narrows
+`MDP017`'s cache cutover: direct local-file routes still owe the retained
+snapshot, classification, bounded PDB, and cold-path rules, but they must not
+read or publish a persistent effective-catalog entry. Every contrary
+direct-file persistence requirement in the `MDP017` row and the earlier
+migration and disposition text -- including separate-process hits,
+package/direct cache-sharing pairs, and direct-file successor keys -- is
+superseded. Platform and package routes retain the persistent-cache
+requirements. This target change is unverified pending
+`LocalAssemblyFacts_DoNotEnterACrossRunCache`.
 
 Contract tests should derive their cases from the declaration or section
 catalog where practical, so a new mode or validator cannot silently avoid the

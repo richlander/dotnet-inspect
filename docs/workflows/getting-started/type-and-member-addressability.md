@@ -78,24 +78,24 @@ type-count-positive
 > Goal: Narrow the type list to names matching a pattern.
 
 ```prompt
-Find all types starting with "Json" in System.Text.Json.
+Find all types starting with "JsonS" in System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json "Json*" -v:q
+dotnet-inspect type System.Text.Json "JsonS*" -v:q
 ```
 
 ```expect
-System.Text.Json.JsonDocument
 System.Text.Json.JsonSerializer
+System.Text.Json.JsonSerializerOptions
 ```
 
 ```query
-awk -F'`' '/^\| `/ { name=$2; sub(/^.*\./, "", name); rows++; if (name !~ /^Json/) bad=1 } END { if (rows && !bad) print "json-filter-only" }'
+awk -F'`' '/^\| `/ { name=$2; sub(/^.*\./, "", name); rows++; if (name !~ /^JsonS/) bad=1 } END { if (rows && !bad) print "jsons-filter-only" }'
 ```
 
 ```expect
-json-filter-only
+jsons-filter-only
 ```
 
 ## Address a single type
@@ -115,7 +115,8 @@ dotnet-inspect type System.Text.Json JsonSerializer -v:q --markdown
 ```expect
 # System.Text.Json.JsonSerializer
 Kind:
-Library: System.Text.Json
+Library:
+System.Text.Json.dll
 ```
 
 ### Fully qualified name (bare)
@@ -162,7 +163,8 @@ dotnet-inspect System.Text.Json.Serialization.JsonConverter -v:q --markdown
 
 ```expect
 # System.Text.Json.Serialization.JsonConverter
-Library: System.Text.Json
+Library:
+System.Text.Json.dll
 ```
 
 ## Qualified names for ASP.NET Core
@@ -179,7 +181,8 @@ dotnet-inspect Microsoft.AspNetCore.Builder.WebApplication -v:q --markdown
 
 ```expect
 # Microsoft.AspNetCore.Builder.WebApplication
-Library: Microsoft.AspNetCore
+Library:
+Microsoft.AspNetCore.dll
 Source: Platform
 ```
 

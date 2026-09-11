@@ -11,7 +11,8 @@ namespace NuGetFetch.Plugins;
 /// environment macros, and clear text.
 /// </para>
 /// <para>
-/// Plugins are discovered and started lazily, then kept for the lifetime of this object.
+/// Plugins are discovered and started lazily, then kept until the connection closes or this
+/// object is disposed. A later request restarts a plugin whose prior connection terminated.
 /// Discovery scans the NuGet convention directory and <c>PATH</c>, while starting one costs a
 /// process launch plus a five-message initialization handshake. Deferring both means commands
 /// that never receive an authentication challenge pay neither cost.
@@ -23,6 +24,7 @@ public sealed class PluginCredentialProvider : ICredentialSource, IAsyncDisposab
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Lazy<IReadOnlyList<PluginExecutable>> _executables;
     private readonly Dictionary<string, PluginConnection?> _connections = new(StringComparer.Ordinal);
+    private readonly PluginConnection.PluginConnectionTestHooks? _testHooks;
     private bool _disposed;
 
     /// <summary>Creates a provider over the plugins visible to this process.</summary>
@@ -36,9 +38,13 @@ public sealed class PluginCredentialProvider : ICredentialSource, IAsyncDisposab
     }
 
     /// <summary>Creates a provider over an explicit plugin list, bypassing discovery. For tests.</summary>
-    internal PluginCredentialProvider(Action<string>? log, IReadOnlyList<PluginExecutable> executables)
+    internal PluginCredentialProvider(
+        Action<string>? log,
+        IReadOnlyList<PluginExecutable> executables,
+        PluginConnection.PluginConnectionTestHooks? testHooks = null)
     {
         _log = log;
+        _testHooks = testHooks;
         PluginExecutable[] snapshot = [.. executables];
         _executables = new(() => snapshot, LazyThreadSafetyMode.ExecutionAndPublication);
     }
@@ -101,16 +107,39 @@ public sealed class PluginCredentialProvider : ICredentialSource, IAsyncDisposab
 
         foreach (PluginExecutable executable in executables)
         {
-            PluginConnection? connection = await GetConnectionAsync(executable, cancellationToken).ConfigureAwait(false);
+            GetAuthenticationCredentialsResponse? response = null;
 
-            if (connection is null)
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                continue;
-            }
+                PluginConnection? connection = await GetConnectionAsync(executable, cancellationToken).ConfigureAwait(false);
 
-            GetAuthenticationCredentialsResponse? response = await connection
-                .GetCredentialsAsync(uri, isRetry, !AllowInteractive, AllowInteractive, cancellationToken)
-                .ConfigureAwait(false);
+                if (connection is null)
+                {
+                    break;
+                }
+
+                try
+                {
+                    response = await connection
+                        .GetCredentialsForProviderAsync(
+                            uri,
+                            isRetry,
+                            !AllowInteractive,
+                            AllowInteractive,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+                }
+                catch (PluginConnection.ConnectionClosedBeforeRequestException) when (attempt == 0)
+                {
+                    // The selected connection closed before this request reached the pipe.
+                    // The next iteration replaces it and retries exactly once.
+                }
+                catch (PluginConnection.ConnectionClosedBeforeRequestException)
+                {
+                    break;
+                }
+            }
 
             if (response is null)
             {
@@ -160,11 +189,18 @@ public sealed class PluginCredentialProvider : ICredentialSource, IAsyncDisposab
             // not claim Authentication. Either way there is no point paying to launch it again.
             if (_connections.TryGetValue(executable.Path, out PluginConnection? existing))
             {
-                return existing;
+                if (existing is null || !existing.Closed.IsCompleted)
+                {
+                    return existing;
+                }
+
+                await existing.DisposeAsync().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                _connections.Remove(executable.Path);
             }
 
             PluginConnection? connection = await PluginConnection
-                .StartAsync(executable, _log, cancellationToken)
+                .StartAsync(executable, _log, cancellationToken, _testHooks)
                 .ConfigureAwait(false);
 
             _connections[executable.Path] = connection;

@@ -61,14 +61,58 @@ public sealed record MethodBody(
 /// dynamic view lets the printer drop a redundant <c>(dynamic)</c> cast on a
 /// raised dynamic member access whose receiver is this parameter.
 /// </summary>
-public sealed record Parameter(string Name, TypeRef Type, bool HasDefault = false, bool IsDynamic = false)
+public sealed record Parameter(
+    string Name,
+    TypeRef Type,
+    bool HasDefault = false,
+    bool IsDynamic = false,
+    bool NameIsSynthesized = false)
 {
+    string _displayName = Name;
+
+    /// <summary>
+    /// Final collision-resolved spelling. Exact artifact names remain unchanged;
+    /// only synthesized fallbacks can be reassigned.
+    /// </summary>
+    internal string DisplayName => _displayName;
+
+    internal void SetSynthesizedDisplayName(string name)
+    {
+        if (!NameIsSynthesized)
+            throw new InvalidOperationException("Only synthesized parameter names can be reassigned.");
+        _displayName = name;
+    }
+
     /// <summary>
     /// Whether an array parameter's element type was authored as
     /// <c>dynamic</c>. Non-array parameters report <see cref="MetadataFactState.No"/>.
     /// </summary>
     public MetadataFactState ArrayElementIsDynamic { get; init; } = MetadataFactState.Unknown;
+
+    public bool Equals(Parameter? other)
+        => other is not null
+            && Name == other.Name
+            && Equals(Type, other.Type)
+            && HasDefault == other.HasDefault
+            && IsDynamic == other.IsDynamic
+            && NameIsSynthesized == other.NameIsSynthesized
+            && ArrayElementIsDynamic == other.ArrayElementIsDynamic;
+
+    public override int GetHashCode()
+        => HashCode.Combine(
+            Name,
+            Type,
+            HasDefault,
+            IsDynamic,
+            NameIsSynthesized,
+            ArrayElementIsDynamic);
 }
+
+/// <summary>Imported generic-parameter flags and exact constraint types in their declaring context.</summary>
+public sealed record GenericParameterConstraintInfo(
+    int Index,
+    System.Reflection.GenericParameterAttributes Attributes,
+    ImmutableArray<TypeRef> Types);
 
 /// <summary>A method signature with symbolic types throughout.</summary>
 public sealed record MethodSignature(
@@ -84,6 +128,7 @@ public sealed record MethodSignature(
     /// unqualified call to that member would bind to the type parameter (CS0119).
     /// </summary>
     public ImmutableArray<string> GenericParameterNames { get; init; } = [];
+    public ImmutableArray<GenericParameterConstraintInfo> GenericParameters { get; init; } = [];
 }
 
 /// <summary>
@@ -99,4 +144,12 @@ public sealed record ImportedMethod(
     MetadataFactState DeclaringTypeCompilerGenerated = MetadataFactState.Unknown,
     MetadataFactState IsRuntimeAsync = MetadataFactState.Unknown,
     int MetadataToken = 0,
-    ImmutableArray<string> DeclaringTypeGenericParameterNames = default);
+    ImmutableArray<string> DeclaringTypeGenericParameterNames = default)
+{
+    internal ClassicAsyncRequestAdapterResult? ClassicAsyncRequest
+        { get; init; }
+    internal RequiresUnsafeContractResult RequiresUnsafeContract
+        { get; init; }
+    internal bool IsMetadataBacked { get; init; }
+    internal ImmutableArray<GenericParameterConstraintInfo> DeclaringTypeParameters { get; init; } = [];
+}

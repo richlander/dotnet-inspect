@@ -14,6 +14,8 @@ bash "$root/eng/prepare-decompiler-corpus.sh" "$tmp/pinned.txt"
 
 declare -a local_assemblies=(
   "$root/artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll"
+  "$root/artifacts/bin/DotnetInspector.Networking/release/DotnetInspector.Networking.dll"
+  "$root/artifacts/bin/NetworkAccess/release/NetworkAccess.dll"
   "$root/artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll"
   "$root/artifacts/bin/DotnetInspector.Services/release/DotnetInspector.Services.dll"
   "$root/artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll"
@@ -26,7 +28,7 @@ declare -a local_assemblies=(
 for assembly in "${local_assemblies[@]}"; do
   if [ ! -f "$assembly" ]; then
     echo "Missing local product assembly: $assembly" >&2
-    echo "Build first: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false" >&2
+    echo "Build first: dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false" >&2
     exit 1
   fi
 done

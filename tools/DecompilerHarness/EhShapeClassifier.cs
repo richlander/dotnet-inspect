@@ -3,7 +3,7 @@ using ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Sub-classifies a method already in the <c>eh-entangled</c> conditional-branch
 /// bucket (<see cref="ConditionalBranchShapeClassifier"/>) into the subshapes of
-/// the EH-aware structuring burndown (#1089). Returns the single most-blocking
+/// the EH-aware structuring docket (#1089). Returns the single most-blocking
 /// subshape per method, hardest first (so a method's bucket names the work that
 /// must land for it to fully raise).
 ///

@@ -23,7 +23,9 @@ public static class AllocationFanout
     public static ImmutableArray<AllocationFanoutSummary> Analyze(
         ImmutableArray<MethodIdentity> methods,
         ImmutableArray<DirectCall> directCalls,
-        IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> allocationOccurrences)
+        IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>>
+            allocationOccurrences,
+        IReadOnlySet<int>? excludedMethodTokens = null)
     {
         if (methods.IsDefault)
             throw new ArgumentException("Method census must be initialized.", nameof(methods));
@@ -33,7 +35,16 @@ public static class AllocationFanout
         var methodMap = MethodDefinitionMap.Create(methods);
         var edgesByCaller = directCalls
             .Where(IsInvocation)
-            .Select(call => new Edge(call, methodMap.Resolve(call)))
+            .Select(call =>
+            {
+                int targetToken = methodMap.Resolve(call);
+                if (excludedMethodTokens?.Contains(
+                        targetToken) == true)
+                {
+                    targetToken = 0;
+                }
+                return new Edge(call, targetToken);
+            })
             .GroupBy(static edge => edge.Call.Caller.MetadataToken)
             .ToDictionary(
                 static group => group.Key,

@@ -426,6 +426,8 @@ public static partial class AttributeReader
         KnownAttributeNames.DynamicAttribute => true,
         KnownAttributeNames.TupleElementNamesAttribute => true,
         KnownAttributeNames.RequiredMemberAttribute => true,
+        KnownAttributeNames.RequiresUnsafeAttribute => true,
+        KnownAttributeNames.RequiresUnsafeAttributeCompilerServices => true,
         KnownAttributeNames.DecimalConstantAttribute => true,
         KnownAttributeNames.DateTimeConstantAttribute => true,
         KnownAttributeNames.AsyncStateMachineAttribute => true,

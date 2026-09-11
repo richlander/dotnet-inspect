@@ -419,6 +419,9 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
         string @namespace,
         string name,
         int rank,
+        ImmutableArray<int> arraySizes,
+        ImmutableArray<int> arrayLowerBounds,
+        byte rawTypeKind,
         int genericParameterIndex,
         string unsupportedReason,
         byte signatureHeader,
@@ -433,6 +436,9 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
         Namespace = @namespace;
         Name = name;
         Rank = rank;
+        ArraySizes = arraySizes;
+        ArrayLowerBounds = arrayLowerBounds;
+        RawTypeKind = rawTypeKind;
         GenericParameterIndex = genericParameterIndex;
         UnsupportedReason = unsupportedReason;
         SignatureHeader = signatureHeader;
@@ -448,6 +454,9 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
     string Namespace { get; }
     string Name { get; }
     int Rank { get; }
+    ImmutableArray<int> ArraySizes { get; }
+    ImmutableArray<int> ArrayLowerBounds { get; }
+    byte RawTypeKind { get; }
     int GenericParameterIndex { get; }
     string UnsupportedReason { get; }
     byte SignatureHeader { get; }
@@ -469,6 +478,9 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
                 "",
                 "",
                 "",
+                0,
+                [],
+                [],
                 0,
                 -1,
                 "shape depth exceeded",
@@ -523,6 +535,9 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
             type.Namespace,
             type.Name,
             type.Rank,
+            type.ArraySizes,
+            type.ArrayLowerBounds,
+            type.RawTypeKind,
             type.GenericParameterIndex,
             type.UnsupportedReason,
             signatureHeader,
@@ -541,6 +556,9 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
             || !string.Equals(Namespace, other.Namespace, StringComparison.Ordinal)
             || !string.Equals(Name, other.Name, StringComparison.Ordinal)
             || Rank != other.Rank
+            || !ArraySizes.SequenceEqual(other.ArraySizes)
+            || !ArrayLowerBounds.SequenceEqual(other.ArrayLowerBounds)
+            || RawTypeKind != other.RawTypeKind
             || GenericParameterIndex != other.GenericParameterIndex
             || !string.Equals(
                 UnsupportedReason,
@@ -576,6 +594,13 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
         hash.Add(Namespace, StringComparer.Ordinal);
         hash.Add(Name, StringComparer.Ordinal);
         hash.Add(Rank);
+        hash.Add(ArraySizes.Length);
+        foreach (int size in ArraySizes)
+            hash.Add(size);
+        hash.Add(ArrayLowerBounds.Length);
+        foreach (int lowerBound in ArrayLowerBounds)
+            hash.Add(lowerBound);
+        hash.Add(RawTypeKind);
         hash.Add(GenericParameterIndex);
         hash.Add(UnsupportedReason, StringComparer.Ordinal);
         hash.Add(SignatureHeader);

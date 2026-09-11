@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-query
 version: 0.1.0
-description: Output formats, curated package/library -D/-S discovery and selection, value projection, @ categories, and output limits shared across commands.
+description: Output formats, -D/-S discovery and selection, -Q query-capability discovery, value projection, @ categories, and output limits shared across commands.
 ---
 
 # dotnet-inspect: query and output system
@@ -12,8 +12,10 @@ structured sections, with the broadest shared query surface on `type`, `member`,
 field/column projection. `find` supports `-D` discovery and field/column
 projection but not `-S` selection. `diff` supports `-D` and `-S` but not
 field/column projection. `timeline` supports section selection and projection
-but not `-D` discovery. Relationship commands render fixed output without `-D`
-or `-S`. Discover the shape first where available, then select and project.
+but not `-D` discovery. `workspace` supports output formats, `--count`, and
+`--rows`, but not discovery, section selection, or field projection.
+Relationship commands render fixed output without `-D` or `-S`. Discover the
+shape first where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -63,10 +65,10 @@ format.
 
 ## Discover and select sections
 
-`-D` and `-S` are the uppercase cross-command query namespace. Use `-D` to
+`-D`, `-S`, and `-Q` are the uppercase cross-command query namespace. Use `-D` to
 discover sections and fields, `-S` to select exact names, categories, compatible
-aliases, or wildcards, and `--columns`/`--fields` to project values. Discover
-first instead of guessing names.
+aliases, or wildcards, `-Q` to discover query facets and operators, and
+`--columns`/`--fields` to project values. Discover first instead of guessing names.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -D --tsv
@@ -116,6 +118,85 @@ populated members. Row formats require a concrete section or homogeneous
 family. Heterogeneous categories use Markdown/JSON; `Performance:*` flattens
 kinds and adds `Kind` when multiple kinds have rows.
 
+## Discover query capabilities
+
+`-Q` (alias `--query-help`) is structural and does not acquire or inspect a
+target. It is available on `library`, `type`, `member`, `package`, and `find`.
+Use it before constructing filters; displayed columns do not imply support for
+`--where`, `--order-by`, or `--top`.
+
+```bash
+dnx dotnet-inspect -y -- library -Q
+dnx dotnet-inspect -y -- type -Q "Body Shapes"
+dnx dotnet-inspect -y -- library -Q "Performance: Arrays" --json
+dnx dotnet-inspect -y -- library -Q @Performance
+```
+
+Bare `-Q` lists query-capable sections. Named `-Q` lists exact facet keys,
+operators, comparisons, and values; `-v:d` adds examples. JSON retains typed
+arrays of operators and legal values. Named TSV/JSONL output requires one
+section. `--columns`, `--fields`, `--rows`, and `--count` shape the discovery
+rows, not inspected data.
+
+Do not combine `-Q` with `-S`, `-D`, `--where`, `--order-by`, or `--top`.
+Each named description is a companion section called `Query: <Section>`;
+`-S "Query: Body Shapes"` selects it directly, but normal output and data
+wildcards omit companions. `-D "Query: Body Shapes"` describes one companion's
+columns; companion schema discovery requires one resolved section.
+A known section with no implemented query bindings
+says so; for example, `find -Q Results` does not advertise package facets as
+API-search predicates.
+
+`find -Q Packages` exposes the `facet` equality selector and its product-issued
+Package Query IDs. Use it with patternless `find --package-prefix`:
+
+```bash
+dnx dotnet-inspect -y -- find -Q Packages --json
+dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect -S Packages \
+  --where "facet=package.query.dotnet-tool" --candidates 5 --matches 5
+dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect --package-content \
+  --where "facet=package.query.dotnet-tool-v2" --candidates 5 --matches 5 --jsonl
+```
+
+`--where` repeats select product facets, not arbitrary package-field
+expressions. Independent facets are ANDed; compatible tool v1/v2 alternatives
+are ORed. Query rows represent individual packages, with exact versions and
+product-authored evidence. `--candidates` bounds work (default 200) and
+`--matches` bounds semantic matches (default 100), each at most 1,000.
+Package-content facets need `--package-content` and at most 20 candidates;
+the flag sets that conservative default. `--rows` and `--count` operate on
+matched package rows. Count rejects explicit `--matches`; reached budgets and
+failures remain visible. Package Query does not accept `-t`, API-search scopes,
+source overrides, or ranking. Query-execution flags cannot be combined with
+`-Q`.
+
+`library -Q Integrations` describes the ecosystem facet for the whole Integration
+family. All integrations are enabled by default; use
+`library MyLibrary.dll -S Integrations --where "ecosystem=ecosystem.aspire"`
+to narrow the ordinary result. The initial supported value is
+`ecosystem.aspire`. Use a concrete section such as `Integration: Aspire` for
+TSV/JSONL. This predicate does not combine with Body Shapes or Performance
+Triage filters/rankings.
+
+## Correlate one member's Findings
+
+Select `Finding Census` by its exact name for one body-backed method or
+accessor. It returns one indivisible envelope containing the census receipt,
+raw Facts, annotated-source document, and document-local fact-to-instance
+sidecar. The receipt scopes every instance key so display-identical Findings
+remain distinct.
+
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer \
+  --package System.Text.Json Serialize:1 \
+  -S "Finding Census" --json
+```
+
+The section is explicit-only: categories, broad wildcards, and non-exact
+selectors omit or reject it. Markdown and exact singleton JSON preserve the
+envelope. Table, TSV, JSONL, count, row-window, field, and column projections
+fail because they cannot preserve the correlation document.
+
 ## Query rendered body shapes
 
 At library scope, select exact rendered C# syntax occurrences with the stable
@@ -140,7 +221,15 @@ dnx dotnet-inspect -y -- type Widget --library MyLib.dll \
 At library scope, repeated Performance Triage predicates are ANDed before
 decompilation. The matching opportunities are mapped through their typed source
 owner identities and only those MethodDef bodies are searched for `Kind`.
-Body Shapes remains the output section; select a Performance section separately
+`Body Shapes` is the default occurrence section. Explicitly select
+`-S "Body Shape Summary"` for exact Kind/Match groups with a Count column;
+`--columns "Match;Count"` hides the already-known kind. Summary windows select
+groups without reducing their occurrence counts. `--count` counts the surviving
+rows in the selected view, and hiding columns never aggregates. Occurrence
+Member/Token and start/end coordinates locate matches in rendered C# method
+bodies, not original source files or IL.
+
+Select a Performance section separately
 when the canonical candidate/evidence/IL rows are also needed. Performance
 `--top` and `--order-by` do not compose with Body Shapes; use `--rows` to limit
 rendered matches.
@@ -176,18 +265,25 @@ select one concrete kind when a specific field controls the order.
 
 Prefer built-in limits to shell pipes:
 
-- `-n N` and numeric shorthand like `-6` cap output lines, like `head`.
+- `-n N` and numeric shorthand like `-6` cap output lines on commands that
+  have not adopted semantic rows, like `head`.
 - `--tail` takes the same count from the end, like `tail`.
-- `--rows N` takes the first N data rows per table, preserving headings and
-  headers; add `--tail` for the last N.
-- `--rows 2..10` is an absolute 1-based inclusive range (nine rows), `2+10`
-  means ten rows starting at row 2, and `10..` runs from row 10 to the end.
-  Ranges reject `--head`/`--tail`; all `--rows` forms reject `-n`.
+- `--rows N` takes the first N data rows per table on commands that retain the
+  legacy row window, preserving headings and headers; add `--tail` for the last
+  N. On adopted semantic-row surfaces, use `-n N` instead.
+- On commands retaining the legacy row window, `--rows 2..10` is an absolute
+  1-based inclusive range (nine rows), `2+10` means ten rows starting at row 2,
+  and `10..` runs from row 10 to the end. These legacy ranges reject
+  `--head`/`--tail`, and all legacy `--rows` forms reject `-n`.
 - `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
   it selects one displayed row, not a compacted projection position.
   `first`/`last` mean rendered endpoints; missing payloads fail instead of
   sliding. `-n N` may still limit the result.
 - `--count` counts rows in one selected table.
 
-Command-specific caps: `-t N` for type/find rows, `-m N` for members, and
-`--versions N` for package versions.
+Command-specific caps: `-t N` for type/find rows and `-m N` for members.
+Package `--versions` / `--versions-with-feed` and `demo list` use semantic rows.
+`-n N` selects complete items, while `-n N --lines` clips rendered lines.
+`--rows` on those surfaces accepts only `A..B`, `A..`, and `..B`; `-n` and
+`--rows` compose as stages in argv order. `--head` and `--tail` modify `-n`,
+not the range.

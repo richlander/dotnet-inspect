@@ -120,7 +120,9 @@ dotnet-inspect type Command \
 ```
 
 ```expect
-# System.CommandLine.Command (System.CommandLine 2.0.3)
+# System.CommandLine.Command
+Package: System.CommandLine
+Version: 2.0.3
 Kind: class
 Source: Project
 ```
@@ -143,7 +145,7 @@ Create an existing project without restoring it:
 
 ```setup
 rm -rf "$PROJECT_WORKFLOW/Missing"
-dotnet new console --no-restore -f net10.0 -n Missing \
+dotnet new console --no-restore -n Missing \
   -o "$PROJECT_WORKFLOW/Missing" > /dev/null
 ```
 

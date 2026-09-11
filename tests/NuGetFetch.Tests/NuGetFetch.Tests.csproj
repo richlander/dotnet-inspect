@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>NuGetFetch.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <IsAotCompatible>false</IsAotCompatible>
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\nuget\NuGetFetch.PluginFixture\PluginFixtureConfiguration.cs" Link="PluginFixtureConfiguration.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\nuget\NuGetFetch.CustomClientFixture\NuGetFetch.CustomClientFixture.csproj" />
+    <ProjectReference Include="..\nuget\NuGetFetch.PluginFixture\NuGetFetch.PluginFixture.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\NuGetFetch\NuGetFetch.csproj" />
+  </ItemGroup>
+
+</Project>

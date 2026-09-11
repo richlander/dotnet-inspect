@@ -362,7 +362,8 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
 - an explicit input remains represented when it induces no edge;
 - incoming traversal does not reverse semantic edge direction;
 - unsupported seed/relation combinations fail with guidance;
-- failures and traversal limits remain visible in every mode; and
+- failures admitted by each selected relationship's producer policy remain
+  visible in every mode, as do traversal limits; and
 - the same evidence has identical identity and direction across modes.
 
 ## Non-goals

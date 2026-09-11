@@ -22,7 +22,6 @@ public sealed record VocabularyWireSection(
     string Id,
     string Name,
     string Summary,
-    string[] Categories,
     [property: JsonPropertyName("accepted_by")] string[] AcceptedBy,
     VocabularyWireField[] Fields,
     Dictionary<string, JsonNode?>[] Values);
@@ -66,7 +65,7 @@ public static class VocabularyJson
     /// Projects <paramref name="document"/>'s selected <paramref name="sections"/> to the JSON
     /// wire-contract shape, without serializing. Exposed so a <c>[JSExport]</c> method can call
     /// <see cref="JsonSerializer.Serialize{TValue}(TValue, JsonTypeInfo{TValue})"/> directly in its
-    /// own IL body — required for <c>tsbindgen</c>'s <c>JsonWireContractResolver</c> to discover
+    /// own IL body — required for TypeScript facade generation to discover
     /// <see cref="VocabularyWireDocument"/> as the return DTO (it only reads <c>Serialize&lt;T&gt;</c>
     /// call sites in the exported method's own body, not through an indirect helper call).
     /// </summary>
@@ -85,7 +84,6 @@ public static class VocabularyJson
             section.Id,
             section.Name,
             section.Summary,
-            [.. section.Categories],
             [.. section.AcceptedBy],
             [.. section.Fields.Select(ToWireField)],
             [.. section.Values.Select(row => ToWireRow(section.Fields, row))]);

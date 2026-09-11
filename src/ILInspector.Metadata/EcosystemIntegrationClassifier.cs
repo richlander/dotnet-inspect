@@ -1,13 +1,114 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
 
 /// <summary>
 /// Pure ecosystem policy over metadata type names and decoded extension-method
-/// signatures. It owns no traversal, accumulation, or output ordering.
+/// signatures. It owns no traversal, evidence projection, or output ordering.
 /// </summary>
 internal static class EcosystemIntegrationClassifier
 {
+    internal static ImmutableArray<EcosystemIntegrationClassification> ClassifyAspire(
+        EcosystemIntegrationObservationContext context)
+    {
+        var classifications =
+            ImmutableArray.CreateBuilder<EcosystemIntegrationClassification>();
+        foreach (EcosystemIntegrationTypeObservation type in context.Types)
+        {
+            if (TryGetAspireKind(type.MetadataName, out string kind))
+                classifications.Add(type.Classify(IntegrationConceptCatalog.Aspire, kind));
+        }
+        foreach (EcosystemIntegrationMethodObservation method in context.StarterMethods)
+        {
+            if (TryClassifyAspireStarterMethod(
+                    method.DeclaringType.MetadataName,
+                    method.Name,
+                    method.Signature,
+                    out string kind))
+            {
+                classifications.Add(method.Classify(IntegrationConceptCatalog.Aspire, kind));
+            }
+        }
+        return classifications.ToImmutable();
+    }
+
+    internal static ImmutableArray<EcosystemIntegrationClassification> Classify(
+        EcosystemIntegrationObservationContext context)
+    {
+        var classifications =
+            ImmutableArray.CreateBuilder<EcosystemIntegrationClassification>();
+        foreach (EcosystemIntegrationTypeObservation type in context.Types)
+            ClassifyType(type, classifications);
+        foreach (EcosystemIntegrationMethodObservation method in context.StarterMethods)
+            ClassifyStarterMethod(method, classifications);
+        return classifications.ToImmutable();
+    }
+
+    static void ClassifyType(
+        EcosystemIntegrationTypeObservation type,
+        ImmutableArray<EcosystemIntegrationClassification>.Builder classifications)
+    {
+        string typeName = type.MetadataName;
+        if (TryGetAspNetCoreKind(typeName, out var aspNetCoreKind))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.AspNetCore, aspNetCoreKind));
+        if (TryGetAspireKind(typeName, out var aspireKind))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.Aspire, aspireKind));
+        if (TryGetAIKind(typeName, out var aiKind))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.AI, aiKind));
+        if (TryGetAuthenticationKind(typeName, out var authenticationKind))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.Authentication, authenticationKind));
+        if (TryGetConfigurationKind(typeName, out var configurationKind))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.Configuration, configurationKind));
+        if (TryGetOpenApiKind(typeName, out var openApiKind))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.OpenAPI, openApiKind));
+        if (TryGetDependencyInjectionKind(typeName, out var dependencyInjectionKind))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.DependencyInjection, dependencyInjectionKind));
+        if (IsLoggingType(typeName))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.Logging, "Logging"));
+        if (IsOptionsType(typeName))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.Options, "Options"));
+        if (IsHostingType(typeName))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.Hosting, "Hosting"));
+        if (IsHealthChecksType(typeName))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.HealthChecks, "Health Check"));
+        if (TryGetHttpClientKind(typeName, out var httpClientKind))
+            classifications.Add(type.Classify(IntegrationConceptCatalog.HttpClient, httpClientKind));
+    }
+
+    static void ClassifyStarterMethod(
+        EcosystemIntegrationMethodObservation method,
+        ImmutableArray<EcosystemIntegrationClassification>.Builder classifications)
+    {
+        string typeName = method.DeclaringType.MetadataName;
+        string methodName = method.Name;
+        MethodSignature<string> signature = method.Signature;
+        if (TryClassifyAspireStarterMethod(typeName, methodName, signature, out var aspireKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.Aspire, aspireKind));
+        if (TryClassifyAIStarterMethod(typeName, methodName, signature, out var aiKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.AI, aiKind));
+        if (TryClassifyAuthenticationStarterMethod(methodName, signature, out var authenticationKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.Authentication, authenticationKind));
+        if (TryClassifyConfigurationStarterMethod(methodName, signature, out var configurationKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.Configuration, configurationKind));
+        if (TryClassifyDependencyInjectionStarterMethod(typeName, methodName, signature, out var dependencyInjectionKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.DependencyInjection, dependencyInjectionKind));
+        if (TryClassifyLoggingStarterMethod(typeName, methodName, signature, out var loggingKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.Logging, loggingKind));
+        if (TryClassifyOpenApiStarterMethod(typeName, methodName, signature, out var openApiKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.OpenAPI, openApiKind));
+        if (TryClassifyOptionsStarterMethod(methodName, signature, out var optionsKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.Options, optionsKind));
+        if (TryClassifyAspNetCoreStarterMethod(methodName, signature, out var aspNetCoreKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.AspNetCore, aspNetCoreKind));
+        if (TryClassifyHealthChecksStarterMethod(methodName, signature, out var healthChecksKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.HealthChecks, healthChecksKind));
+        if (TryClassifyHostingStarterMethod(typeName, methodName, signature, out var hostingKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.Hosting, hostingKind));
+        if (TryClassifyHttpClientStarterMethod(typeName, methodName, signature, out var httpClientKind))
+            classifications.Add(method.Classify(IntegrationConceptCatalog.HttpClient, httpClientKind));
+    }
+
     internal static bool IsDependencyInjectionType(string typeName)
         => typeName.StartsWith("Microsoft.Extensions.DependencyInjection.", StringComparison.Ordinal);
 

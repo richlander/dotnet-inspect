@@ -1,0 +1,1358 @@
+# Static Ecosystem Packs
+
+## Status
+
+Focused cross-cutting pattern proposal for
+[#5710](https://github.com/richlander/dotnet-inspect/issues/5710), extended by
+the demo-content stack in
+[#5772](https://github.com/richlander/dotnet-inspect/issues/5772).
+
+This document defines the source-level structure by which the product can
+elevate a .NET ecosystem coherently through discovery metadata, an optional
+curated package set, recorded package-prefix declarations, and an optional
+Integration scanner implementation, plus product demos that exercise ordinary
+shipping sections over exact pinned inputs.
+
+The Package Set Registry includes Microsoft.Extensions, ASP.NET Core, and the
+audited 82-package Aspire inventory. The static pack registry, four-pack
+manifest, ten-demo contribution, Workspace-owned lazy source binding, CLI
+handoff, inspect-web facade handoff, and the corresponding active Release gates
+named below are implemented. The assembly-friend tests, solution
+dependency-policy rule, and strengthened inspect-web facade boundary gate are
+active. The optional scanner slot and Aspire binding selection are implemented
+under [#5935](https://github.com/richlander/dotnet-inspect/issues/5935), using
+the Integration-owned compatibility binding. CLI ecosystem narrowing is adopted under
+[#5985](https://github.com/richlander/dotnet-inspect/issues/5985);
+browser scanner selection remains staged. The source-owned
+`PackagePrefixDeclaration` is available from #6094, but catalog prefix slots
+and their CLI/browser discovery remain staged under #5728 and #6012.
+The [website example](#aspire-prefix-discovery-website-mockup) is a mockup,
+not shipped behavior. Existing search and full Integration behavior is unchanged.
+
+[Workspace registration and call-graph focal
+length](workspace-registration-and-call-graph-scope.md) records the approved
+target experience for inert ecosystem registration, compact namespace hints,
+core-package starting points, Integration-owned contract knowledge, and
+Platform as an ecosystem selecting source-owned discovery/acquisition
+bindings. The [retrieval-knowledge contract](#retrieval-hints-and-core-packages)
+under #6028 is implemented by #6037: discovery and exact lookup expose inert
+namespace hints and core-package priorities, covered by the
+[retrieval-knowledge gates](#retrieval-knowledge-gates).
+Executable source contributions retain separate prerequisites under #6012
+and #5728; the metadata does not establish Workspace registration or
+call-graph reachability.
+The
+[Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
+owns the explicit projection from one selected pack and the application-owned
+curated manifest into one newly constructed Workspace. This catalog retains
+application identity and contribution authorship; the handoff does not make
+Queries or browser Core depend on this assembly, and Workspace exposes no
+curated option.
+
+Explicit [tool-package references](#tool-package-references) are implemented
+under #6060, beginning with `Aspire.Cli`. They are independent discovery
+metadata, not installation or execution actions; tool prefixes are not part
+of this contribution.
+
+Participating normative owner:
+
+- [Static workspaces: definitions, assembly groups, and projections](workspace-definitions.md#product-demos-are-closed-section-presets)
+  solely owns `ProductDemoSourceBinding` construction, validation, resolution,
+  execution handoff, and failures.
+
+Supporting owners:
+
+- [Package Set Registry](package-set-registry.md) owns package-set identity,
+  membership validation, immutable snapshots, discovery, and exact lookup.
+- [Integrations](integrations.md) owns scanner input, concepts, evidence,
+  currency, failures, completion, and query results.
+- [Search scope resolution](search-scope-resolution.md) owns current CLI search
+  defaults and ordered source composition.
+- [Typed source intent](search-scope-domain.md#package-prefix-request) owns
+  `PackagePrefixDeclaration` and its intrinsic validation.
+- [Platform Library Population Declaration](platform-library-population-declaration.md)
+  owns the resource-free .NET runtime and ASP.NET Core population values.
+- [Package source model](package-source-model.md) owns source authorization,
+  package discovery, paging, failures, and payload acquisition.
+- [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
+  owns realization and workspace generations.
+- [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
+  owns lower declaration identity, explicit pack correspondence, projection
+  outcomes, curated-manifest validation, and complete curated Workspace
+  construction.
+- [Inspection bundles and demos](../inspection-space.md#inspection-bundles-and-demos)
+  owns the bundle and runtime-workspace composition boundary.
+- [Capability-driven section registry spike](capability-section-registry-spike.md)
+  supplies comparative evidence for a static table of noncapturing execution
+  bindings rather than runtime registration or an object graph.
+- [#5602](https://github.com/richlander/dotnet-inspect/issues/5602) tracks typed
+  source intent and staged CLI/browser source adoption.
+- [#5728](https://github.com/richlander/dotnet-inspect/issues/5728) is the
+  non-normative end-to-end delivery tracker joining the focused owner work,
+  application catalog, both front ends, and first complete ecosystem adoption.
+- [#5770](https://github.com/richlander/dotnet-inspect/issues/5770) is the
+  inspect-web consumer for one flat, inert product-demo list in the singular
+  Workspace viewer.
+- [#5772](https://github.com/richlander/dotnet-inspect/issues/5772) is the
+  three-slice Aspire and ecosystem-demo delivery stack.
+
+## Approved composition scope
+
+The operator approved #5772 as one bounded two-owner composition: this owner
+defines the static product-demo inventory and exact dispatch, while Workspace
+Definitions issues the one lazy source-binding currency required to transfer
+application-authored demo sources out of Queries. The handoff is
+`ProductDemoSourceBinding` in and `ResolvedScenario` or an owner-domain failure
+out. This approval does not transfer record, validation, resolution, section,
+run-plan, execution, or failure semantics to the catalog and does not admit
+changes to any other Workspace Definitions contract. Package-set, prefix, and
+scanner owner tracks remain separate efforts.
+
+## Authority and exact claim
+
+The Ecosystem Pack owner defines one static source-level contribution shape and
+one application-owned manifest of the contributions compiled into a product
+build.
+
+One pack registration may contain:
+
+- stable ecosystem identity and product-owned discovery metadata;
+- compact namespace hints and ordered core-package starting points;
+- explicit tool-package references;
+- one optional package-set identity;
+- zero or more ordered package-prefix discovery entries; and
+- one optional Integration-owned static scanner binding; and
+- zero or more ordered Workspace-Definitions-owned product-demo source
+  bindings with application-owned display metadata.
+
+The owner also defines:
+
+- pack and prefix-entry identity;
+- intrinsic registration and manifest-table validation;
+- deterministic manifest discovery and exact lookup;
+- demo-to-pack grouping, global product-demo order, grouped demo discovery, and
+  flattened product-demo discovery;
+- selection-time materialization boundaries; and
+- the rule that adding a manifest registration adds no ecosystem-specific
+  name, enum, switch arm, parser branch, or query path to reusable
+  infrastructure.
+
+It does not own:
+
+- package-set membership, equality, or lookup;
+- package-prefix query semantics, bounds, paging, or completion;
+- Integration concepts, scanning evidence, currency, or results;
+- package acquisition, artifact admission, workspace construction, or
+  lifetime;
+- demo record shape, scenario identity, validation, resolution, section or
+  facet admission, run-plan lowering, execution, or failure semantics;
+- source-selection defaults or cross-source deduplication;
+- CLI or browser actions, rendering, or host-level recommendation policy
+  beyond the catalog's declared pack-local core-package preference; or
+- runtime plugins, registration, discovery, unloading, or mutation.
+
+The lower Workspace projection is not another catalog capability implemented
+by copying descriptor fields at selection time. This owner explicitly pairs a
+pack with one handoff-owned immutable declaration and separately authors the
+ordered current curated-Workspace identities. The handoff defines projection,
+construction validation, and lower shape; this owner decides which shipped
+packs and contributions are paired.
+
+The exact claim is:
+
+> The host-neutral application catalog defines how one ecosystem contribution
+> is described, discovered, and selected. Source in that catalog defines which
+> static contributions ship and supplies their data, product-demo sources, and
+> scanner implementations. Namespace hints and core-package priorities are
+> inert discovery knowledge, not type identity, package-set membership, source
+> availability, Workspace registration, or call-graph reachability.
+> Product-demo inventory, grouping, display metadata,
+> and product order are application-catalog concerns; demo records, resolution,
+> section admission, run plans, and execution remain Workspace Definitions
+> concerns. The co-located Package Set Registry remains a separate owner, while
+> lower package-coordinate, query, and Integration infrastructure remains
+> independent and subject to its owners' separate contracts.
+
+## Why a pack is the product unit
+
+A package set alone answers which package IDs the product has selected. A
+recorded prefix answers which literal package-ID prefix the product associates
+with an ecosystem, not which packages currently match it. An Integration
+scanner answers how realized package APIs are interpreted. A product demo fixes
+exact package versions and a normal product view that demonstrates the
+ecosystem. Users experience those capabilities as one ecosystem even though
+their semantics belong to different owners.
+
+The pack is the smallest composition unit that keeps those capabilities
+discoverable together without merging their contracts:
+
+```text
+ecosystem pack
+  discovery metadata
+  optional PackageSetId
+  zero or more package-prefix entries
+  optional Integration scanner binding
+  zero or more product-demo contributions
+```
+
+The registration contains references and application bindings. It does not
+copy package membership, prefix execution, Integration result semantics, or
+Workspace Definitions semantics. Selecting any one capability does not select
+or execute its neighbors.
+
+## Contract shape
+
+The conceptual static data shape is:
+
+```text
+EcosystemPackRegistration
+  Descriptor   EcosystemPackDescriptor
+  NamespaceRoots immutable ordered namespace-root sequence
+  CorePackages immutable ordered PackageCoordinate sequence
+  ToolPackages immutable ordered PackageCoordinate sequence
+  PackageSet   PackageSetId?
+  Prefixes     immutable ordered EcosystemPackagePrefix sequence
+  Scanner      EcosystemIntegrationScannerBinding?
+  Demos        immutable ordered EcosystemDemoRegistration sequence
+
+EcosystemPackDescriptor
+  Id           EcosystemPackId
+  Title        string
+  Summary      string
+  Order        int
+
+EcosystemPackagePrefix
+  Id           EcosystemPackagePrefixId
+  Declaration  PackagePrefixDeclaration
+  Title        string
+  Summary      string
+  Order        int
+
+EcosystemDemoRegistration
+  Title        string
+  Summary      string
+  Order        int
+  Source       ProductDemoSourceBinding
+
+EcosystemDemoDescriptor
+  Ecosystem    EcosystemPackId
+  ScenarioId   string
+  Title        string
+  Summary      string
+  Order        int
+
+EcosystemDemoSelection
+  Descriptor   EcosystemDemoDescriptor
+  Scenario     ResolvedScenario
+```
+
+`ProductDemoSourceBinding` is issued by Workspace Definitions. It carries the
+exact scenario ID and an opaque owner-defined resolution operation. The
+scenario ID is the product-demo identity; the ecosystem catalog does not mint
+a parallel demo ID or infer identity from title, order, package coordinate, or
+ecosystem.
+
+The public discovery boundary exposes immutable pack, prefix-entry, and demo
+descriptor metadata, namespace roots, core-package priorities, tool references, package-set
+identity, and whether a scanner is available.
+`EcosystemPackDescriptor.HasScanner` reports scanner availability without
+exposing the binding. `EcosystemPackCatalog.SelectScanner` accepts the exact
+typed pack ID and returns `EcosystemScannerSelectionResult`: `Known` carries
+only the selected owner-issued binding, `Unavailable` identifies a registered
+pack without that capability, and `Unknown` preserves an unregistered ID.
+Neither missing case selects a neighboring scanner or a default.
+Exact demo selection returns one `EcosystemDemoSelection`, retaining the
+catalog descriptor beside the Workspace-Definitions-owned resolved scenario.
+Hosts use descriptor title and summary for product discovery and display;
+`ScenarioDefinition.Title` and `Description` remain portable definition fields,
+not a second product-catalog metadata authority. Other typed selections return
+only the chosen owner-issued request or binding. No discovery or selection
+surface exposes a mutable application manifest, demo record factory, delegate,
+or scanner implementation object.
+
+There is no `Ecosystem`, `IEcosystemModule`, pack factory, catalog builder,
+service registration, or per-pack runtime object. Registration construction is
+internal to `DotnetInspector.Ecosystems`: source-authored packs and the static
+manifest live in that assembly. Only immutable discovery and typed selection
+surfaces are public. Neither front end can construct or publish a registration,
+and no external construction path can add a pack to product discovery.
+
+The intended host-neutral application component is
+`DotnetInspector.Ecosystems`. It sits above Packages and
+Queries/Workspace Definitions and Metadata/Integrations and contains the
+application manifest and concrete pack source. Its only production consumers
+are the `dotnet-inspect` CLI front end and the
+`DotnetInspect.Web.Interop.Catalog` managed browser facade.
+`DotnetInspect.Web.Core`, the host and sibling export facades, Packages,
+Metadata, Queries, Services, Presentation, Vocabulary, and other reusable
+infrastructure do not reference it. Selected owner-issued package, demo, or
+scanner currencies flow from the catalog or two front ends into existing
+infrastructure; the catalog itself does not flow downward.
+
+## Identity
+
+An ecosystem pack has one canonical identity:
+
+```text
+ecosystem.<name>
+```
+
+`<name>` is one or more lower-case ASCII alphanumeric words separated by a
+single hyphen. It begins with a letter, ends with a letter or digit, and keeps
+the complete identity at or below 80 characters.
+
+Identity is ordinal and case-sensitive. There is no trimming, case folding,
+label lookup, prefix inference, package-name inference, or CLI-alias lookup.
+An issued identity is not reused for another ecosystem.
+
+`EcosystemPackId.TryCreate` is the conceptual non-throwing text boundary.
+Grammar-invalid text never reaches exact lookup. A grammar-valid unregistered
+identity produces typed unknown.
+
+Prefix-entry identity is local to one ecosystem pack and uses the same
+lower-case alphanumeric and single-hyphen name grammar. The stable external
+selection key is the typed pair:
+
+```text
+(EcosystemPackId, EcosystemPackagePrefixId)
+```
+
+This lets `ecosystem.aspire` distinguish `official` from `community` without
+creating a global prefix namespace or inferring either choice from display
+text.
+
+## Static application manifest
+
+One application-owned static table names the packs compiled into the product:
+
+```text
+ProductEcosystemPacks
+  PlatformPack.Registration
+  MicrosoftExtensionsPack.Registration
+  AspNetCorePack.Registration
+  AspirePack.Registration
+```
+
+The example names are illustrative pack source, not required core types. The
+manifest is explicit and statically rooted. It uses no reflection, assembly
+enumeration, `Activator`, dependency injection, configuration file, package
+loading, or runtime registration API.
+
+The manifest is fixed for one product build. Changing the shipped set is an
+ordinary reviewed source change. Runtime callers cannot add, remove, replace,
+reorder, or refresh registrations.
+
+The manifest sequence is authored in strictly ascending unique descriptor
+`Order`. Complete manifest validation rejects declaration order that disagrees
+with descriptor order rather than sorting it. Discovery preserves that
+validated sequence.
+
+Generic catalog mechanics in `DotnetInspector.Ecosystems` consume the
+registration contract but do not name a shipped ecosystem. A new application
+pack supplies its own descriptor, prefix data, package-set reference, demo
+sources, scanner implementation, tests, and manifest row as applicable. It
+does not add an enum member, switch arm, parser branch, or special-case query
+path to lower infrastructure. Separate Workspace Definitions or Integration
+adoption may add owner-issued bindings, records, concepts, or policy names
+under those owners' contracts; adding the manifest registration itself does
+not.
+
+Packs do not reference, invoke, order, or inherit from other packs. Shared
+algorithms belong to their owning infrastructure or a separately justified
+shared helper rather than one pack becoming another pack's substrate.
+
+## Dependency boundary
+
+The repository dependency policy is the enforcing gate for application-pack
+separation. It evaluates both project references and compiled Release assembly
+references, so an unused project edge and a binary edge are both visible.
+
+Existing policy already prevents reusable `ILInspector.*` libraries selected
+by its engine rules from taking a dependency on
+`DotnetInspector.Ecosystems`:
+
+- `engine-libraries-stay-below-tool-libraries` denies `DotnetInspector.*` from
+  the broad engine-library set; and
+- Metadata's explicit allow-only rule does not admit the ecosystem assembly.
+
+The implementation adds one focused project-and-assembly rule,
+`ecosystem-catalog-stays-in-approved-hosts`. Within
+`dotnet-inspect.slnx`, it denies `DotnetInspector.Ecosystems` from every
+production target except the `DotnetInspect.Cli` project and its
+`dotnet-inspect` assembly.
+
+The dependency-policy solution does not include inspect-web, so it does not
+claim to prove that boundary. The browser owner separately gates
+`BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly`, which reads the
+evaluated direct MSBuild `ProjectReference` items for every inspect-web
+production project. For each project whose declared graph can reach the catalog
+facade, it also reads the Release-built assembly's metadata `AssemblyRef` rows.
+`DotnetInspect.Web.Interop.Catalog` is the sole permitted project and compiled
+assembly reference. The compiled check rejects host source that consumes the
+catalog through the transitive host-to-catalog-facade project graph. Public
+demo identities are runtime-valued properties rather than compile-time
+constants, and the same gate rejects public literal fields before relying on
+the compiled reference: a supported source use therefore cannot erase the
+catalog dependency through constant inlining.
+`DotnetInspect.Web.Core`, the host and sibling export facades, and every other
+inspect-web production project reject both a declared edge and a compiled
+catalog reference. Test projects and the focused
+`DotnetInspector.Ecosystems.Consumer.Tests` non-friend canary may reference the
+catalog, but only `DotnetInspector.Ecosystems.Tests` may be an assembly friend.
+
+Together, the solution dependency policy and retargeted browser project-graph
+gate provide full coverage for the production dependency claim.
+`DotnetInspector.Ecosystems` consumes package-coordinate, prefix, and scanner
+currencies through their public owner-issued surfaces. Demo adoption adds a
+normal public reference from `DotnetInspector.Ecosystems` to
+`DotnetInspector.Queries` so application source can construct definition
+records and consume its `ProductDemoSourceBinding` and resolution surface.
+Queries and all other lower assemblies still do not reference the ecosystem
+assembly or grant it `InternalsVisibleTo`. This direction preserves L1
+ownership: the application catalog supplies fixed inputs to the owner rather
+than reimplementing record validation, scenario resolution, section admission,
+or run-plan lowering.
+
+The non-friend front-end canary separately proves that discovery and selection
+require only the ecosystem assembly's public surface. No source-text or
+string-constant scan is needed: Queries and Integrations may legitimately name
+application concepts in owner-domain records and evidence, and such a scan
+would conflate semantic content with an application-catalog dependency.
+
+`DotnetInspector.Ecosystems.csproj` declares exactly one friend,
+`DotnetInspector.Ecosystems.Tests`. The CLI, inspect-web facades, the non-friend
+canary, and all other production and test assemblies receive no friend access.
+Friendship is not an alternate registration, publication, or selection channel.
+
+## Materialization
+
+The application manifest follows the repository's static-registry pattern:
+
+- discovery initializes only immutable static registration metadata;
+- discovery does not resolve package-set membership, contact a package source,
+  acquire an artifact, open a workspace, or invoke a scanner;
+- exact lookup does not invoke the selected pack's scanner;
+- selecting a package-set action returns only that referenced package-set
+  identity;
+- selecting a prefix entry returns only its recorded `PackagePrefixDeclaration`
+  unchanged to the front end, not a query request or package results;
+- grouped or flattened demo discovery returns only immutable metadata and does
+  not invoke a demo source;
+- selecting one demo dispatches only that demo's
+  Workspace-Definitions-owned source binding; the binding constructs and
+  validates only its returned peer records, resolves its exact scenario ID,
+  and returns the resolved scenario beside the selected catalog descriptor; and
+- selecting Integration analysis returns only the selected pack's static
+  scanner binding to Integration orchestration.
+
+Workspace projection follows the same inert materialization rule. Selecting a
+pack's lower declaration returns only retained immutable handoff values. It
+does not resolve a package set, run a prefix query, inspect a platform catalog,
+invoke a scanner, construct a Workspace, or acquire content.
+
+The separate curated-Workspace API validates the complete authored manifest,
+passes the projected registrations as one complete explicit initialization to
+the public Workspace API, and returns the resulting Workspace. That operation
+adds no acquisition, prefix query, platform inspection, or scanner invocation.
+Repeated calls return independent Workspaces; raw Workspace construction
+remains outside this catalog and defaults to empty.
+
+The pattern does not require constructing an ecosystem object at any stage.
+The scanner binding statically roots its method and may materialize one
+process-lifetime delegate value when the table initializes. That value is not
+a scanner or operation object, and table initialization does not invoke it. A
+scanner that needs operation-local state places it in the Integration-owned
+caller context or in values created by the scan operation, never in a retained
+pack instance.
+
+The runtime may preinitialize immutable static data. That timing is not a
+semantic property because initialization performs no observable work,
+capability resolution, I/O, scanner invocation, or pack/scanner instance
+construction. The table may pay one bounded initialization cost and subsequent
+discovery and exact lookup reuse it. The implementation should remain a direct
+ordered table while the shipped pack count is small; it must not introduce a
+runtime registration graph, dependency resolver, or factory layer to optimize
+a scale the product does not have.
+
+## Product demos
+
+A demo contribution is application-authored content over a
+Workspace-Definitions-owned source binding. The application catalog owns:
+
+- which product demos ship in one build;
+- the pack that groups each demo;
+- title and summary;
+- one globally unique explicit `Order`; and
+- grouped and flattened metadata discovery.
+
+Workspace Definitions retains:
+
+- the exact scenario ID carried by the binding;
+- `InspectionDefinitionRecord` types and the peer-graph contract;
+- record and reference validation;
+- exact scenario resolution;
+- section or facet admission;
+- `ProductDemoRunPlan`;
+- execution semantics; and
+- visible failures.
+
+The pack registration stores one owner-issued binding and does not copy,
+inspect, or reinterpret its source or records. Workspace Definitions solely
+owns binding construction, admission, private source storage, record
+validation, exact resolution, section admission, and failures. The catalog
+consumes only the binding's public scenario identity and resolution result.
+
+Complete ecosystem-manifest validation rejects duplicate scenario IDs,
+duplicate demo orders, empty title or summary, and a pack-local demo sequence
+whose orders are not strictly ascending. It does not invoke a source to
+validate its records. Catalog selection dispatches only the chosen binding;
+the selected application factory constructs the records, while record and
+reference validation, single-scenario admission, exact resolution, and
+owner-domain failure remain Workspace Definitions behavior. An owner-domain
+failure remains visible rather than becoming an empty or default demo.
+
+Demo order is global across the product rather than derived from pack order.
+Grouped discovery presents packs in pack order and each pack's demos in their
+ascending demo order. Flattened discovery performs one bounded metadata-only
+merge into ascending global demo order. This lets the application preserve the
+current interleaved product order while retaining literal ecosystem grouping.
+The flat and grouped surfaces project the same registrations; there is no
+second demo manifest.
+
+Demo inputs are exact and pinned. A demo contribution may reference a package
+that also appears in its pack's curated package set, but the two statements
+have different semantics: the package set is an unversioned source-selection
+snapshot, while the demo is one reproducible scenario over exact coordinates.
+Selecting a demo does not select, resolve, count, or update the package set,
+does not expand a prefix, and does not return or invoke the scanner. Selecting
+another pack capability does not construct demo records.
+
+`ecosystem.platform` is an application grouping for basic .NET product demos,
+not a source-coordinate inference rule. A Platform demo may retain an exact
+package coordinate when that is the existing reproducible scenario. The
+catalog never infers grouping from package IDs, namespaces, titles, or
+workspace coordinate kinds.
+
+## Package-set composition
+
+`PackageSet` is absent or contains one `PackageSetId`. Discovery shows only
+that a curated-set action exists. The pack does not resolve, retain, copy, or
+count the set's coordinates.
+
+Selecting the set returns only `PackageSetId` to the front end. The ecosystem
+catalog does not perform Package Set Registry lookup or own typed unknown
+behavior. The front end resolves the ID through the co-located application
+registry, then hands only owner-issued package-coordinate or source values to
+lower orchestration. Selection does not automatically select the pack's
+prefixes or scanner. A curated set is not represented as prefix expansion, and
+its membership does not claim exhaustive ecosystem coverage.
+
+Pack registration validates the typed identity but does not look it up during
+discovery or selection. The application adoption suite exhaustively proves that
+every shipped pack reference resolves; it uses literal expected identities
+rather than deriving expectations from either registry.
+
+This is a deliberate split between two co-located static tables. For its
+curated-set contribution, the pack carries only `PackageSetId`, not package-set
+descriptors, registrations, membership coordinates, or registry access.
+Independent core-package and tool references are governed by the
+[retrieval-knowledge contract](#retrieval-hints-and-core-packages) and
+[tool-package contract](#tool-package-references). Literal
+application gates prove shipped references resolve, while the generic discovery
+gate retains the no-lookup runtime contract without asserting static
+initialization timing.
+
+The Package Set Registry remains the only package-set authority. Its #5720
+composition decision places the private shipped package-set manifest in
+`DotnetInspector.Ecosystems` with `PackageSetId`; only package-coordinate
+currency and validation remain below in `DotnetInspector.Packages`. One
+ecosystem source unit may author both a package-set registration and a pack
+registration, but the two static manifests remain separate and the pack stores
+only `PackageSetId` for its curated-set contribution. No reusable package, source, query, service, Vocabulary,
+or browser-Core component references the application registry.
+
+## Retrieval hints and core packages
+
+This is the focused catalog contract for #6028, implemented by #6037 within the
+[Workspace-registration adoption plan](workspace-registration-and-call-graph-scope.md#ownership-and-adoption).
+The existing registry and ordinary non-friend consumer suites enforce the
+[retrieval-knowledge gates](#retrieval-knowledge-gates).
+
+Each pack may contribute two independent, immutable ordered sequences:
+
+| Contribution | Meaning |
+| --- | --- |
+| Namespace roots | A small curated set of distinctive namespace subtrees that may help prioritize retrieval. |
+| Core packages | Package-coordinate starting points in product-authored preference order, not an exhaustive population. |
+
+Both sequences remain attached to the descriptor's exact `EcosystemPackId`.
+Discovery and exact lookup return the same knowledge without selecting or
+executing any capability. Either sequence may be empty; empty means no
+contribution, not evidence that the ecosystem has no namespaces or packages.
+
+### Namespace roots
+
+A root denotes its literal namespace and descendants at dot-separated
+namespace boundaries. The stored value contains no wildcard: `Example.Hosting`
+describes that namespace subtree, not `Example.HostingExtra`. Spelling is
+preserved with ordinal, case-sensitive equality. This is descriptive scope;
+the catalog does not match a type, discover a candidate, or resolve a reference.
+
+Roots are nonblank, contain no whitespace or `*`/`?` wildcards, and have no
+leading/trailing dot or empty dot-separated component. This intrinsic shape
+does not impose C# identifier grammar or establish that a namespace exists.
+Duplicate roots within one pack are invalid. Distinct overlapping roots and
+the same root in different packs are permitted; neither implies exclusive
+ownership. Discovery preserves authored order without sorting or collapsing
+overlapping subtrees.
+
+A hint is not an exhaustive namespace inventory, type-to-package map, or
+package-eligibility predicate. A match does not establish a definition, and a
+miss is not absence. Metadata remains authoritative. The focused
+source/resolution consumer will own candidate discovery and interpretation of
+the hint alongside actual reference evidence and permitted source domains.
+
+### Core-package priorities
+
+Core entries use the package owner's `PackageCoordinate`, validated through
+that owner's existing contract. As with the co-located package-set registry,
+these entries have no version, framework, or runtime-identifier override.
+The catalog does not reinterpret coordinate grammar, resolve a version,
+authorize a source, or inspect a package to publish this data.
+
+The sequence itself supplies preference order within the pack; there is no
+second numeric priority or catalog-wide ranking. It is not a query-result
+ordering, operation bound, selected population, or instruction to acquire the
+entries. Null entries, invalid coordinates, target/version overrides, and
+duplicate package IDs within one pack under ordinal, case-insensitive equality
+(as in the Package Set Registry) are invalid static declarations. The same core
+package may appear in different packs. Discovery preserves the complete
+authored sequence.
+
+Core references and the curated `PackageSetId` have different purposes.
+Core entries need not belong to a curated set, and a pack need not contribute
+one. Overlap is permitted without copying, deriving, changing, or resolving
+curated membership. The Package Set Registry remains its only authority.
+Selecting the curated set still means its explicit members, not the core
+sequence or a prefix sample.
+
+There is no positional pairing between namespace roots and core entries.
+Two roots and three core packages are a valid contribution, not a truncated
+zip or a declaration that each root belongs to one package. Any actual
+namespace/type correspondence requires evidence outside the catalog.
+
+### Knowledge is not traversal availability
+
+These additions do not create actions or satisfy the manifest's requirement
+for at least one contributed capability by themselves. Existing action
+selection, missing-capability results, and discovery materialization remain
+unchanged. Hosts must not infer executable traversal from a nonempty hint or
+core sequence, a curated set, or the presence of a pack identity.
+
+In particular, `ecosystem.platform` already groups product demos. It can retain
+that identity without pretending that its package-backed demos supply
+platform-source-owned traversal. This slice neither creates a Platform
+package set nor substitutes a `System.*` package prefix for a platform target.
+The catalog can expose the
+[resource-free population declaration](platform-library-population-declaration.md)
+independently; source realization and acquisition remain separate
+prerequisites.
+
+The implementation publishes inert knowledge through the shared
+catalog. The CLI and `DotnetInspect.Web.Interop.Catalog` are its production
+consumers; host metadata and operational adoption stay in #6012 stages 6 and 7.
+This focused contract and its catalog implementation are two
+slices within catalog stage 2, not a replacement roadmap. No existing
+architecture is retired, and no new host rendering strategy is introduced.
+
+### Producer prerequisites
+
+| Handoff | Disposition |
+| --- | --- |
+| Validated package-prefix declaration | `PackagePrefixDeclaration` is available from #6094 under #5602. Catalog registration and host discovery remain staged; a package-query implementation is not a prerequisite for reading this metadata. |
+| Namespace-guided candidate discovery | Requires focused source/resolution work under #6012. Neither #5602 nor the exact dependency-candidate adapter in #5765 already supplies it. |
+| Source-native Platform discovery/acquisition | Requires a focused producer binding. #3671's context/availability work is relevant, but an advertised index entry is not an acquired candidate or a binding. |
+
+These are residual owner obligations, not interfaces defined by this document.
+Existing source production, Gallery access, and payload-authority work may
+supply implementations. Their operational progress does not block this inert
+catalog contract and does not transfer their semantics into it. Scope
+admission, query populations, Workspace editing, persistence, and #6024's
+editor/Save/Inspect boundary remain outside this slice.
+
+## Tool-package references
+
+The catalog may contribute an independent, immutable, authored-order
+`ToolPackages` sequence under the descriptor's exact `EcosystemPackId`.
+These are explicit package references for .NET tools, not core API starting
+points, curated membership, package prefixes, or commands. Discovery and exact
+lookup preserve the same sequence. Empty means no authored contribution, not
+that an ecosystem has no tools.
+
+Entries use the package owner's `PackageCoordinate` and its existing intrinsic
+validation. As with core references, they have no version, framework, or
+runtime-identifier override. Null sequences or entries, invalid coordinates,
+overrides, and duplicate IDs within one tool sequence under ordinal
+case-insensitive equality fail complete registry construction visibly.
+Authored spelling and order survive publication. References may overlap
+between packs or contribution roles; no correspondence, exclusive ownership,
+or automatic union is inferred.
+
+Tool references remain separate from namespace hints, core priorities, and the
+curated `PackageSetId`. The catalog neither derives them from those neighbors
+nor resolves a package set to publish them. They do not create an action or
+satisfy the existing contributed-capability requirement by themselves.
+Reading them does not select a demo or scanner, acquire an inspected package,
+add a package to an inspection population, install a tool, or execute a command.
+No tool-prefix or expected/maximum-package-count field is part of this
+contribution. Operation limits remain consumer-owned.
+
+### Authored tool evidence
+
+An entry identifies a package the product has chosen as a .NET tool.
+Authorship uses published package metadata and ecosystem documentation, not
+name heuristics: a `.Tools` suffix does not establish `DotnetTool` packaging.
+The catalog validates coordinate shape without contacting a source; it does
+not claim that every future resolved version has a particular package type,
+command name, platform support, or compatibility with an inspected workspace.
+Any later operational consumer must use the resolved package's actual metadata
+under its source/operation contract rather than treating this reference as
+installation or execution authority.
+
+The first contribution is unversioned `Aspire.Cli` on the existing Aspire
+pack. Its [published 13.5.3 nuspec][aspire-cli-nuspec] declares `DotnetTool`,
+and [Aspire's installation documentation][aspire-cli-install] identifies the
+package as its .NET tool. The observed version is authorship evidence, not
+a manifest pin. `dotnet-ef` and `dotnet-grpc` demonstrate why tool package IDs
+cannot be inferred from API package prefixes; `Grpc.Tools` is instead a
+build-time dependency. These are supporting examples, not new pack
+registrations or a proposal for tool-prefix discovery.
+
+[aspire-cli-nuspec]: https://api.nuget.org/v3-flatcontainer/aspire.cli/13.5.3/aspire.cli.nuspec
+[aspire-cli-install]: https://aspire.dev/get-started/install-cli/
+
+The contribution follows the existing static metadata pattern within catalog
+stage 2 of #6012, coordinated by #5728. Its production consumers remain CLI
+and `DotnetInspect.Web.Interop.Catalog`; visible metadata adoption stays with
+their stages 6 and 7. No installation/execution path, new renderer, or source
+contract is introduced. The [tool-reference gates](#tool-reference-gates)
+enforce this catalog slice; they do not certify future package versions.
+
+## Recorded package prefixes
+
+Catalog definition and package-prefix querying are separate operations.
+A catalog entry records a validated literal prefix with its identity,
+product-owned title, summary, and order. Discovery and exact lookup answer
+"What prefix is recorded for Aspire?", not "Which packages match Aspire?".
+The user can obtain `Aspire.` from the catalog without running a package query.
+
+A pack may have no prefix, one prefix, or several independently selectable
+entries. For example, an Aspire pack may separately record `Aspire.` and
+`CommunityToolkit.Aspire.`. These are authored associations, not publisher
+ownership claims inferred from package names.
+
+The immutable prefix sequence is authored in strictly ascending unique
+`Order`. Complete registration validation rejects an out-of-order sequence
+rather than sorting it. Discovery preserves the validated sequence, so
+declaration order and `Order` cannot disagree across hosts.
+
+Each entry carries the source owner's
+[`PackagePrefixDeclaration`](search-scope-domain.md#package-prefix-request),
+not `PackagePrefixRequest`. It contains no expected or maximum package count,
+prerelease policy, source selection, or other query options. A consumer may
+later use the selected declaration in a separate query operation under that
+operation's own contract; the catalog does not construct that request.
+
+Discovery does not expand or combine prefixes, acquire packages, or infer a
+prefix from ecosystem, namespace-root, package-set, or Integration identity.
+It reports recorded metadata, not source availability or exhaustive coverage.
+
+Prefix validation stays with the declaration owner; this catalog does not
+establish another string grammar. The declaration prerequisite is implemented.
+Catalog registration and CLI/browser presentation remain the next adoption
+steps, independently of package-prefix query production.
+
+## Integration scanner binding
+
+`Scanner` is absent or names one Integration-owned opaque executable binding.
+It represents an ecosystem-specific semantic scanner, not a static list of
+Integration concept IDs.
+
+The binding is statically rooted and noncapturing:
+
+```text
+EcosystemIntegrationScannerBinding.Create(AspireIntegrationScanner.Scan)
+```
+
+The concrete binding, context, invocation, and result types belong to the
+Integration owner. The binding exposes no public `Invoke`, delegate, or target
+method after construction. Only Integration orchestration can execute it. That
+owner retains:
+
+- which realized participants are traversed;
+- all SRM access and guarded decode;
+- construction of an immutable decoded Integration observation context;
+- Integration concept and producer-policy identity;
+- actionable type/member currency;
+- evidence and provenance;
+- ordering and deduplication;
+- partial participant failures and completion; and
+- query and projection behavior.
+
+The pack supplies only the ecosystem-specific interpretation over that
+Integration-owned observation context and binds it to its registration. It
+receives no `PEReader`, `MetadataReader`, workspace, artifact bytes, or
+acquisition capability. It does not perform guarded decode, acquire scanner
+input, or lower scanner results for a host.
+
+The catalog never invokes the scanner. Selecting Integration analysis returns
+only the selected owner-issued binding to Integration orchestration, which
+invokes it under that owner's operation and failure contract. Exactly-once
+scanner invocation and result fidelity are therefore Integration adoption
+gates, not pack-registry gates.
+
+One binding is sufficient for one pack. If an ecosystem needs several
+classification passes, its scanner composes them behind the single
+Integration-owned binding rather than exposing a runtime scanner collection or
+execution graph.
+
+The [Integration-owned contract](integration-scanner-binding.md), locked under
+issue #5719 and implemented under #5902, separates common guarded traversal from
+decoded observations. The broad scanner remains the behavior oracle.
+The Aspire registration uses `EcosystemIntegrationScanner.AspireBinding`
+directly during migration, retaining one owner-side semantic policy rather
+than copying its predicates into application source. Other packs have no
+scanner contribution yet.
+
+Catalog adoption under #5935 is step 3 of the
+[six-step scanner path](integration-scanner-binding.md#adoption-and-retirement)
+in #5728. [CLI ecosystem narrowing](../cli-architecture.md#integration-ecosystem-queries)
+is adopted under #5985 using the ordinary Integration result, not the selected
+scanner operation; direct binding adoption remains distinct. Browser selection
+follows separately. Moving Aspire
+interpretation fully into application source and retiring owner-side
+compatibility remain the final step, after existing full-scan/presence
+consumers retain their behavior. The catalog introduces neither a generic
+delegate nor a parallel scan result.
+
+## Discovery and selection
+
+Static discovery returns every shipped descriptor in ascending unique `Order`.
+Exact lookup accepts `EcosystemPackId` and returns the matching registration
+view or typed unknown. It does not use titles, prefix text, package-set identity,
+scanner identity, or neighboring values as aliases.
+
+Grouped demo discovery returns each pack's immutable demo descriptors without
+invoking sources. Flattened demo discovery returns the same descriptors in
+global demo order and retains each descriptor's exact `EcosystemPackId`.
+Exact demo selection uses the owner-issued scenario ID with ordinal,
+case-sensitive equality. Unknown text does not alias by title, package,
+ecosystem, or order and does not select a default. A known selection returns
+its catalog descriptor and owner-resolved scenario together so a host never
+re-derives product display metadata from definition records.
+
+Discovery answers:
+
+```text
+Which ecosystems does this product build elevate, and which explicit actions
+does each make available?
+```
+
+It does not choose an action. Package-set addition, prefix search, and
+Integration inspection have different costs and outcomes and remain separate
+explicit selections.
+
+## Host plan
+
+The static manifest is host-neutral application product data directly consumed
+only by the CLI and `DotnetInspect.Web.Interop.Catalog` front ends. Neither
+copies the pack list, package-set identity, prefix metadata, or scanner
+availability.
+
+The CLI's `library --where "ecosystem=ecosystem.aspire"` consumes canonical pack
+identity through its explicit Integration-concept binding. It narrows ordinary
+Integration output rather than replacing complete evidence with a selected
+scanner result. The
+[CLI host](../cli-architecture.md#integration-ecosystem-queries)
+owns that grammar, supported facet values, diagnostics, and section projection.
+Direct selected-binding adoption and source-selector composition remain staged.
+
+The existing `demo list` and `demo <scenario-id>` surfaces move to the
+application catalog without changing their output or execution semantics.
+`demo list` consumes flattened metadata only. Running a demo selects its exact
+scenario ID, then consumes the Workspace-Definitions-owned resolved scenario
+and run plan through the existing type/member section pipeline. Product-facing
+title and summary come from the selected catalog descriptor, not from the
+resolved scenario's portable metadata.
+
+`DotnetInspect.Web.Interop.Catalog` projects an ecosystem action surface from
+the same descriptors through its generated facade. The TypeScript front end
+retains interaction and browser presentation. Browser infrastructure retains
+asynchronous acquisition, budget reservation, workspace replacement, rollback,
+and disposal without referencing the ecosystem catalog.
+
+For [#5770](https://github.com/richlander/dotnet-inspect/issues/5770), the
+managed facade projects the flattened demo metadata as one inert list. The
+TypeScript application may ignore ecosystem grouping for that view while
+dispatching the exact stable scenario ID. Listing performs no package
+acquisition or demo resolution, and opening one demo continues to replace the
+singular active Workspace through the existing browser path.
+
+For Integration execution, the facade selects the opaque binding and passes
+that owner-issued value with the realized operation inputs to
+Integration-owned orchestration. Browser Core may carry the Integration value
+through an Integration-typed parameter, but it does not reference the ecosystem
+catalog or rediscover the pack.
+
+The implemented
+[JSExport facade partition](inspect-web-jsexport-partitioning.md) designates
+`DotnetInspect.Web.Interop.Catalog` as the sole managed ecosystem-catalog
+consumer and assigns the complete discovery, selection, execution adaptation,
+and facade-local DTO closure to it. Sibling export facades neither consume that
+facade nor reference the catalog. The TypeScript application composes the
+separate facade result into its application model. Core and every other
+reusable browser project remain forbidden.
+
+The registry preserves typed data through both host boundaries. This design
+defines no broad report or output format; hosts render focused discovery and
+action metadata through their existing presentation owners.
+
+## Initial packs and staged adoption
+
+The first application adoption describes four packs from already-owned
+currencies and content:
+
+| Pack identity | Package-set identity | Product demos | Residual capabilities |
+| --- | --- | --- | --- |
+| `ecosystem.platform` | absent | `stj-serializer`, `stj-serialize-callgraph`, `stj-getdecimal-callgraph` | no prefix or scanner planned by this slice |
+| `ecosystem.microsoft-extensions` | `package-set.microsoft-extensions` | `extensions-callgraph`, `config-bind-callgraph`, `options-add-callgraph`, `di-tryadd-callgraph`, `http-addhttpclient-callgraph` | prefix catalog/host adoption remains staged; no scanner contributed yet |
+| `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | prefix catalog/host adoption remains staged; no scanner contributed yet |
+| `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; CLI supports ordinary-result narrowing, not scanner selection; browser selection remains staged; prefix catalog/host adoption remains staged |
+
+The eight existing demo IDs, metadata, global order, records, pins, and run
+plans remain unchanged. Their global orders are assigned in their current
+product sequence. The two new Aspire demos follow them. The literal
+demo-to-pack mapping is application policy and is not inferred from their
+package coordinates or titles.
+
+The initial retrieval metadata is independently authored alongside those
+capabilities:
+
+| Pack | Namespace roots | Core packages, in preference order |
+| --- | --- | --- |
+| Platform | `System` | none |
+| Microsoft.Extensions | `Microsoft.Extensions` | `Microsoft.Extensions.DependencyInjection.Abstractions`, `Microsoft.Extensions.Configuration.Abstractions`, `Microsoft.Extensions.Logging.Abstractions` |
+| ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore.OpenApi`, `Microsoft.AspNetCore.Authentication.JwtBearer` |
+| Aspire | `Aspire` | `Aspire.Hosting` |
+
+Aspire additionally contributes `Aspire.Cli` in its separate tool-package
+sequence; the other three packs contribute no tool references.
+
+Each root is a compact descriptive subtree, not a package correspondence.
+The Extensions entries prioritize foundational DI, configuration, and logging
+contracts even though the curated set excludes shared-framework-covered
+packages. ASP.NET Core starts with current OpenAPI and bearer-authentication
+add-on APIs rather than obsolete package versions of shared-framework
+fundamentals. Aspire starts with its hosting API. These choices are product
+preferences, not popularity rankings or complete ecosystem inventories.
+Platform deliberately contributes no package coordinate as a substitute for
+its future platform-source-owned discovery/acquisition binding. This metadata
+is not derived from package-set membership or demo records.
+
+The initial Workspace projection is staged under
+[the focused handoff](workspace-ecosystem-registration-handoff.md). Its
+application-owned curated order is Platform, ASP.NET Core, then
+Microsoft.Extensions, which deliberately differs from ordinary pack discovery
+order. Platform requires a source-owned runtime population declaration;
+ASP.NET Core requires both its source-owned shared-framework population and
+the recorded `Microsoft.AspNetCore.` prefix; Microsoft.Extensions requires the
+recorded `Microsoft.Extensions.` prefix. Retrieval knowledge alone cannot make
+one of those curated registrations population-complete. This is the current
+product composition rather than a permanent set of named Workspace presets;
+later product builds may change the one curated manifest without changing raw
+Workspace construction or existing expanded registration sets.
+
+| Global order | Scenario ID | Pack |
+| ---: | --- | --- |
+| 100 | `stj-serializer` | `ecosystem.platform` |
+| 200 | `extensions-callgraph` | `ecosystem.microsoft-extensions` |
+| 300 | `stj-serialize-callgraph` | `ecosystem.platform` |
+| 400 | `config-bind-callgraph` | `ecosystem.microsoft-extensions` |
+| 500 | `options-add-callgraph` | `ecosystem.microsoft-extensions` |
+| 600 | `di-tryadd-callgraph` | `ecosystem.microsoft-extensions` |
+| 700 | `http-addhttpclient-callgraph` | `ecosystem.microsoft-extensions` |
+| 800 | `stj-getdecimal-callgraph` | `ecosystem.platform` |
+| 900 | `aspire-postgres-callgraph` | `ecosystem.aspire` |
+| 1000 | `aspire-redis-callgraph` | `ecosystem.aspire` |
+
+Such registrations must not change package membership, search defaults,
+source order, limits, existing Integration behavior, or demo execution
+semantics.
+
+Aspire is the first intended new-pack candidate. The eventual full Aspire
+capability set depends on separately approved owner work:
+
+1. package/API evidence defines a complete current `aspire`-co-owned Aspire API
+   package set;
+2. the application Package Set Registry authors Aspire membership beside
+   the pack source under its separate static manifest; and
+3. Integrations defines and adopts the static scanner binding.
+
+The initial Aspire row does not wait for the prefix or scanner tracks. Its
+package-set and demo capabilities are independently coherent; later owner-issued
+slots extend the same registration without changing those semantics.
+
+An Aspire pack may then expose:
+
+```text
+ecosystem.aspire
+  package-set.aspire
+  demos     -> AddPostgres call graph, AddRedis call graph
+  prefixes  -> Aspire., CommunityToolkit.Aspire.
+  scanner   -> AspireIntegrationScanner.Scan
+```
+
+The first Aspire demo sources are exact package-local Call Graph presets:
+
+| Scenario ID | Package | Type and member | Stable anchor |
+| --- | --- | --- | --- |
+| `aspire-postgres-callgraph` | `Aspire.Hosting.PostgreSQL@13.5.3` | `Aspire.Hosting.PostgresBuilderExtensions.AddPostgres` | `e5a66a2bd9` |
+| `aspire-redis-callgraph` | `Aspire.Hosting.Redis@13.5.3` | `Aspire.Hosting.RedisBuilderExtensions.AddRedis` | `7618364a03` |
+
+Production `dotnet-inspect` resolves both packages to `net8.0` and emits
+nonempty ordinary Call Graph sections. `AddPostgres` reaches the PostgreSQL
+resource and eventing path; the selected four-parameter `AddRedis` overload
+retains both inbound overload delegation and outbound resource, eventing, and
+health-check paths. The implementation gates exact pins and anchors rather
+than re-discovering a member by display name.
+
+Entity Framework Core, OpenTelemetry, gRPC, Orleans, and other ecosystems are
+candidate packs, not registrations authorized by this design.
+
+## Demo
+
+### Aspire prefix discovery (website mockup)
+
+**Planned catalog discovery, not current website output.** This example shows
+the information a user obtains; it does not prescribe website navigation or
+controls. The website owner retains those presentation decisions.
+
+1. The user opens the ecosystem catalog in Inspect Web.
+2. They choose **Aspire**.
+3. The catalog view shows the recorded prefix, which the user can read or copy:
+
+```text
+Inspect Web
+Ecosystem catalog > Aspire
+
+Package prefixes
+  Aspire packages    Aspire.
+```
+
+The host obtains the value from the selected Aspire catalog entry. It does not
+derive it from the ecosystem name or namespace hint, and the user does not
+need to know `Aspire.` before opening the catalog. This flow ends with the
+prefix value, not a package-result table or an inspection workspace.
+Running a package-prefix query would be a separate operation.
+
+For a neighboring pack with no prefix contribution, such as the planned
+Platform row, the view says **No recorded package prefixes**. That describes
+the catalog, not a search that found no packages.
+
+Both catalog prefix registration and this host-facing discovery remain staged.
+The already implemented package-query page is a different surface and is not
+the source of the prefix in this example.
+
+### Shared catalog API examples
+
+Retrieval knowledge is available through the shared catalog, not a new CLI
+command or browser action:
+
+```csharp
+var pack = ((EcosystemPackLookupResult.Known)EcosystemPackCatalog.Lookup(
+    EcosystemPackIds.MicrosoftExtensions)).Descriptor;
+Console.WriteLine(pack.Id);
+Console.WriteLine($"  Namespace roots: {string.Join(", ", pack.NamespaceRoots)}");
+Console.WriteLine("  Core packages (preference order; unversioned)");
+foreach (var package in pack.CorePackages)
+    Console.WriteLine($"    {package.PackageId}");
+Console.WriteLine($"  Curated set: {pack.PackageSet}");
+```
+
+Output:
+
+```text
+ecosystem.microsoft-extensions
+  Namespace roots: Microsoft.Extensions
+  Core packages (preference order; unversioned)
+    Microsoft.Extensions.DependencyInjection.Abstractions
+    Microsoft.Extensions.Configuration.Abstractions
+    Microsoft.Extensions.Logging.Abstractions
+  Curated set: package-set.microsoft-extensions
+```
+
+The three core entries do not replace the curated membership. One root and
+three core packages are independent sequences, not a positional pairing.
+Reading this metadata does not grant traversal or perform package work.
+A neighboring pack can have no roots, no core entries, and an existing demo
+capability; a hint-only registration remains invalid. A second pack may
+declare one of the same roots without either claiming exclusive ownership.
+
+Explicit tools use the same inert discovery boundary:
+
+```csharp
+var aspire = ((EcosystemPackLookupResult.Known)EcosystemPackCatalog.Lookup(
+    EcosystemPackIds.Aspire)).Descriptor;
+Console.WriteLine(aspire.Id);
+Console.WriteLine($"  Core packages: {string.Join(", ", aspire.CorePackages.Select(p => p.PackageId))}");
+Console.WriteLine($"  Tool packages: {string.Join(", ", aspire.ToolPackages.Select(p => p.PackageId))}");
+Console.WriteLine($"  Curated set: {aspire.PackageSet}");
+```
+
+Output:
+
+```text
+ecosystem.aspire
+  Core packages: Aspire.Hosting
+  Tool packages: Aspire.Cli
+  Curated set: package-set.aspire
+```
+
+The neighboring Microsoft.Extensions pack still has core references and a
+curated-set identity but an empty tool sequence. Neither reading activates an
+existing capability or installs anything.
+
+Scanner selection is a shared application-catalog API, not a new CLI or
+browser action:
+
+```csharp
+var selection = EcosystemPackCatalog.SelectScanner(EcosystemPackIds.Aspire);
+if (selection is not EcosystemScannerSelectionResult.Known scanner)
+    throw new InvalidOperationException("The shipped Aspire scanner is unavailable.");
+
+using var session = AssemblyInspectionSession.Open(path);
+var rows = session.EcosystemIntegrations(scanner.Binding);
+```
+
+On the pinned `Aspire.Hosting.PostgreSQL@13.5.3` and
+`Aspire.Hosting.Redis@13.5.3` `net8.0` assemblies this yields six and four
+Aspire rows respectively, retaining the same ordered rows and evidence as the
+full scanner's Aspire subset. `ILInspector.Metadata.dll` is a neighboring
+input with zero Aspire rows. Selecting `ecosystem.microsoft-extensions`
+instead returns typed `Unavailable`; discovering or selecting any pack does
+not itself run a scanner.
+
+The flat product-demo projection preserves current order and appends Aspire:
+
+```text
+Demos
+
+System.Text.Json                     Browse a real package API
+Cross-package call graph             Trace calls across three packages
+Serialize call graph                 Dense package-local STJ graph
+Configuration Bind                  Recursive binder call graph
+Options hub                         Inbound fan-in at AddOptions
+DI TryAdd hub                       Keyed/scoped Try* fan-in
+AddHttpClient                       HttpClient factory registration
+JsonElement.GetDecimal              STJ number parse path
+Aspire AddPostgres                  PostgreSQL resource registration graph
+Aspire AddRedis                     Redis resource registration graph
+```
+
+The grouped ecosystem projection uses the same registrations:
+
+```text
+Platform
+  3 demos
+
+Microsoft.Extensions
+  Add curated packages
+  5 demos
+
+ASP.NET Core
+  Add curated packages
+
+Aspire
+  Add curated packages
+  2 demos
+```
+
+Listing either projection constructs no definition records. Selecting
+`aspire-postgres-callgraph` constructs and resolves only that scenario and
+does not resolve `package-set.aspire`, expand a prefix, construct the Redis
+demo, or return a scanner binding.
+
+## Required gates
+
+### Retrieval-knowledge gates
+
+These are active Release gates in the existing registry and non-friend
+consumer suites. Source/resolution interpretation remains with its own future
+consumer gates.
+
+| Gate | Required outcome |
+| --- | --- |
+| `EcosystemPackRegistryTests.RetrievalKnowledgePreservesIndependentImmutableSequencesAndPackIdentity` | Unequal-length sequences preserve exact pack association, literal spelling, authored order, and immutable snapshots; overlapping roots and cross-pack overlap remain valid. An unregistered curated-set identity is not resolved. |
+| `EcosystemPackRegistryTests.InvalidNamespaceRootsFailBeforePublication`, `InvalidCorePackagesFailBeforePublication`, and `MissingKnowledgeSequencesFailBeforePublication` | Malformed roots, missing sequences, and null, invalid, duplicate, versioned, or target-specific core coordinates fail complete construction visibly, without invoking demo sources. |
+| `EcosystemPackRegistryTests.EmptyKnowledgePreservesCapabilityRequirements` | Empty contributions remain empty; knowledge-only registrations fail the existing capability requirement. |
+| `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Reading knowledge and selecting one capability preserve the selected owner's outcome without invoking neighboring demo/scanner capabilities. |
+| `ProductEcosystemPackTests.ShippedRetrievalKnowledgeMatchesLiteralPolicy` | All four packs retain literal authored roots and core priorities, including Platform's empty core sequence. |
+| `PackageSetRegistryConsumerTests.PublicSurfaceKeepsCoreReferencesSeparateFromCuratedMembership` | An ordinary non-friend consumer reads immutable knowledge through discovery/lookup; Extensions core entries and curated membership remain distinct, and Platform gains no package-set or scanner capability. |
+
+### Tool-reference gates
+
+These active Release gates cover explicit catalog references, not remote
+package-type classification or tool execution:
+
+| Gate | Required outcome |
+| --- | --- |
+| `EcosystemPackRegistryTests.ToolReferencesRemainIndependentAndInert` | Exact identity, authored order, immutable snapshots, and independent contribution roles survive discovery/lookup, including cross-pack overlap and an unregistered curated-set ID; selecting an existing capability invokes no neighbor. |
+| `EcosystemPackRegistryTests.InvalidToolPackagesFailBeforePublication` and `MissingKnowledgeSequencesFailBeforePublication` | Invalid/null references or sequences, overrides, and within-list duplicate IDs fail complete publication visibly. |
+| `EcosystemPackRegistryTests.EmptyKnowledgePreservesCapabilityRequirements` | Empty tool contributions remain empty, and tool references alone do not satisfy the existing capability requirement. |
+| `ProductEcosystemPackTests.ShippedToolPackagesMatchLiteralPolicy` | Only Aspire contributes a tool reference, exactly unversioned `Aspire.Cli`; other shipped packs remain empty. |
+| `PackageSetRegistryConsumerTests.PublicSurfaceSeparatesToolsFromInspectionPackages` | An ordinary non-friend consumer reads the explicit tool separately from core references and curated membership through the public catalog. |
+
+### Existing and staged capability gates
+
+The pattern's target Release suite is `EcosystemPackRegistryTests` plus an
+ordinary non-friend consumer.
+
+| Gate | Property |
+| --- | --- |
+| `EcosystemPackRegistryTests.SyntheticManifestIsDiscoverableInDeclaredOrder` | Static discovery returns a literal expected synthetic descriptor and action sequence in unique explicit order. |
+| `EcosystemPackRegistryTests.ExactLookupUsesOnlyTypedIdentity` | Exact ID lookup returns the enumerated registration view; labels, prefix text, package-set IDs, case variants, and unknown IDs do not alias a pack. |
+| `EcosystemPackRegistryTests.InvalidStaticRegistrationsFailBeforePublication` | Duplicate pack IDs/order, out-of-order pack sequences, and empty registrations reject the complete static manifest before publishing any view rather than publishing a shortened view. |
+| `EcosystemPackRegistryTests.InvalidDemoRegistrationsFailBeforePublication` | Duplicate global scenario IDs/order, empty display metadata, and non-ascending pack-local demo order reject the complete manifest without invoking a demo source. |
+| `EcosystemPackRegistryTests.DiscoveryAndMaterializationDoNotInvokeDemoSources` | Materializing and discovering a synthetic manifest perform no package-set resolution, package-source or workspace work, demo-source invocation, scanner invocation, or pack/scanner instance construction; initialization timing itself is not asserted. Pack, grouped-demo, and flat-demo discovery do not resolve or execute capabilities. |
+| `EcosystemPackRegistryTests.FlattenedDemoDiscoveryPreservesGlobalProductOrder` | A synthetic interleaved manifest returns one descriptor per registration in unique global demo order while retaining literal pack identity; grouped and flattened views contain the same descriptor instances. |
+| `EcosystemPackRegistryTests.DemoSelectionInvokesOnlyTheSelectedSourceAndRetainsCatalogMetadata` | Exact scenario-ID selection dispatches only that binding and returns its unchanged catalog descriptor beside the Workspace-Definitions-owned resolved scenario; neighboring demo sources remain untouched, and catalog metadata may differ from portable scenario metadata. |
+| `EcosystemPackRegistryTests.DemoSelectionPreservesOwnerFailures` | Unknown IDs produce typed unknown without invoking a source, while a selected source's mismatched scenario record remains an owner-domain failure rather than an empty or default demo. |
+| `ProductDemoSourceBindingTests.ResolveRequiresExactlyOneMatchingScenario` | A selected source must return exactly one scenario with the binding's exact ID; absent, duplicate, and mismatched scenario records fail visibly. |
+| `ProductDemoSourceBindingTests.ResolvePreservesDefinitionAndSectionFailures` | Invalid peer records and unsupported demo sections remain visible Workspace-Definitions-owned failures. |
+| `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Selecting one synthetic pack returns only its scanner binding and leaves every neighboring binding unreturned and uninvoked. |
+| `EcosystemPackRegistryTests.ScannerOnlyPackIsValidAndMissingCapabilityIsDistinctFromUnknownPack` | A scanner-only contribution is valid; exact selection distinguishes a known pack without a scanner from an unknown pack. |
+| `ProductEcosystemPackTests.AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding` | Literal shipped availability identifies only Aspire and selection preserves the Integration-owned compatibility binding by identity. |
+| `PackageSetRegistryConsumerTests.PublicSurfaceHandsSelectedScannerToIntegrationOwner` | A non-friend consumer discovers and selects Aspire, passes only the binding to the public Integration operation, and retains typed missing-capability/unknown results. |
+| `EcosystemPackRegistryTests.PrefixSelectionPreservesExactValidatedIntent` | Staged until catalog prefix adoption: selecting an entry returns its recorded `PackagePrefixDeclaration` unchanged, without constructing or executing a query request. |
+| `EcosystemPackRegistryTests.PackageSetSelectionPreservesExactTypedIdentity` | Selecting a curated set returns only its `PackageSetId` and does not copy membership or activate another pack capability. |
+| `PackageSetRegistryConsumerTests.PublicSurfaceSupportsEcosystemDiscoveryAndDemoSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, demo factories, scanner implementation, CLI types, package clients, or workspaces. |
+| `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
+| `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
+| `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by the `DotnetInspect.Cli` project and its `dotnet-inspect` assembly; existing IL rules independently reject the reusable IL-library edges they select. |
+| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Public product-demo identities contain no literal fields that source access could inline without an assembly reference. Evaluated direct `ProjectReference` items reject catalog edges from every inspect-web production project except `DotnetInspect.Web.Interop.Catalog`. For each project whose declared graph can reach that facade, Release-built metadata `AssemblyRef` rows reject compiled catalog consumption through transitive availability. |
+
+Application adoption adds
+`ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and
+`ProductEcosystemPackTests.EveryPackageSetReferenceResolves` with literal
+descriptor and reference expectations, plus
+`ProductEcosystemPackTests.ShippedPackManifestKeepsCuratedMembershipAsIdentity`.
+That gate checks that registration and descriptor property shapes carry
+`PackageSetId` and no package-set descriptor, registration, or registry
+property. Independent core and tool coordinates are permitted; their authored
+content and distinction from curated membership are covered by the
+[retrieval-knowledge gates](#retrieval-knowledge-gates) and
+[tool-reference gates](#tool-reference-gates).
+`EcosystemPackRegistryTests.SyntheticManifestIsDiscoverableInDeclaredOrder`
+constructs and discovers a pack with an unregistered package-set identity,
+gating the generic registry path's no-lookup behavior.
+`ProductEcosystemPackTests.ShippedDemoManifestMatchesLiteralPolicy` fixes the
+ten scenario IDs, pack mapping, metadata, and global order without deriving
+expectations from source records.
+`ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
+resolves the transferred eight sources and pins their package coordinates,
+navigation shape, type and member selection, section, and run-plan lowering to
+the donor behavior.
+`ProductEcosystemPackTests.AspireDemoSourcesMatchLiteralPinsAndAnchors` gates
+the two exact package IDs, versions, TFMs, types, member anchors, and Call Graph
+bindings.
+`DemoCommandTests.Cli_EveryCallGraphDemo_Table_EmitsNonEmptyRows` gates
+nonempty ordinary CLI Call Graph execution through the existing section
+pipeline, including both Aspire scenarios.
+`DemoCommandTests.ListUsesCatalogDescriptorMetadata` and
+`BrowserProductHomeDemosTests.CatalogProjectionUsesEcosystemDescriptorMetadata`
+prove both hosts use application-catalog title and summary even when the
+portable scenario metadata differs.
+Integration adoption owns scanner invocation and witness gates. Generic
+catalog tests use synthetic pack names and do not establish built-in ecosystem
+policy.
+
+The implementation must also retain existing NativeAOT and Browser/Wasm build
+coverage. Static binding values root their target methods in published output.
+The first real scanner adoption must record the Browser/Wasm publish-size delta
+and decide whether it warrants a retained sensor; the pattern design does not
+claim that cost is zero.
+
+## Landing sequence
+
+Overall delivery is tracked by #5728.
+
+The owner tracks may advance independently:
+
+| Independent track | Owner work |
+| --- | --- |
+| Curated package set | #5720 places source-authored membership in the separate private application Package Set Registry, followed by registry implementation. |
+| Product demo | Workspace Definitions issues the lazy source binding; #5772 transfers application-authored sources and host discovery to the ecosystem catalog. |
+| Recorded prefix | #6094 supplies `PackagePrefixDeclaration` under #5602; catalog registration and host discovery adopt it separately from query execution. |
+| Semantic scanner | #5719 issues the opaque binding and decoded observation-context contract. |
+| Workspace registration | #6307 owns the lower declaration and catalog projection; platform population and exact-library coordinates remain separate source-owner prerequisites under #6012. |
+| Platform population declaration | #6328 issues the two resource-free Source Selection values; source realization remains a separate owner step. |
+
+1. Lock this focused pack pattern.
+2. Advance whichever independent owner track is needed for the first real pack.
+3. Under the approved #5772 two-owner composition, issue the
+   Workspace-Definitions-owned lazy source binding; transfer the eight
+   application-authored donor sources; add the two Aspire sources; implement
+   pack identity, descriptors, private manifest, package-set and demo slots,
+   grouped and flattened discovery, exact lookup and selection; and publish the
+   four-pack, ten-demo manifest with its focused gates. Do not change current
+   package membership, existing demo execution, or search behavior.
+4. Add each remaining contribution slot independently when its owner track lands;
+   no later slot reopens already implemented selection/materialization semantics.
+5. Adopt CLI and browser actions through the same implementation slice's
+   application-catalog handoff; Integration remains independently adoptable.
+
+The six listed owner tracks remain separately owned. The first four are the
+original catalog contribution tracks; Workspace registration and Platform
+population declaration are later composition prerequisites. #5720 records the
+package-set composition decision, while prefix catalog/host adoption and
+remaining scanner adoption stay staged. No
+implementation slice waits for every optional slot: each lands only when its
+owner-issued currency exists and one real application scenario makes that slice
+coherent.
+
+The package-set donor transfer already created
+`DotnetInspector.Ecosystems`, limited friendship to
+`DotnetInspector.Ecosystems.Tests`, and landed the solution dependency-policy
+and inspect-web project-graph gates. The demo track adds the Queries dependency
+and must keep those existing boundaries green; it does not add parallel
+boundary mechanisms.
+
+## Non-claims
+
+This design does not define:
+
+- runtime plugins, downloadable packs, reflection discovery, configuration
+  registration, dependency injection, hot reload, unloading, or catalog
+  mutation;
+- an ecosystem class, module object, scanner object, factory, service
+  provider, or execution graph;
+- package-set membership or prefix-query results;
+- tool-prefix discovery, tool installation, or command execution;
+- a new Integration concept, classifier, evidence shape, or query;
+- package acquisition or workspace behavior;
+- demo definition-record, resolution, section, run-plan, or execution
+  semantics;
+- inference of demo grouping from package, namespace, title, or source kind;
+- an implication that a demo uses, exhausts, or activates its pack's curated
+  package set;
+- automatic execution of every capability exposed by a pack;
+- general recommendation, cross-pack or query-result ranking, popularity, or
+  compatibility policy; the pack-local core-package preference defined above
+  is the limited exception;
+- generic CLI syntax or browser interaction details;
+- registration of ecosystem identities in the lower shared Vocabulary catalog;
+  front ends project the application catalog directly, and any future generic
+  query-value adoption requires a separately owned design; or
+- a requirement that every ecosystem have any particular one of package set,
+  prefix, scanner, or demos; every shipped pack must still expose at least one
+  capability.

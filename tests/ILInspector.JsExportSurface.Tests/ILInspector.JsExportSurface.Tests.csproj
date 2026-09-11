@@ -9,6 +9,7 @@
     <IsTestProject>true</IsTestProject>
     <IsAotCompatible>false</IsAotCompatible>
     <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,15 +17,53 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The payload oracle runs as a file-based app, not as test-host source. -->
+    <Compile Remove="Fixtures/ts-jsexport-runtime/union-payloads.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.UnionFixtures/ILInspector.JsExportSurface.UnionFixtures.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <ProjectReference Include="../../src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
-    <ProjectReference Include="../../src/tsbindgen/tsbindgen.csproj" />
-    <ProjectReference Include="../../src/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
+    <ProjectReference Include="../../src/ts-jsexport/ts-jsexport.csproj" />
+    <ProjectReference Include="../../src/TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures/ILInspector.JsExportSurface.MemberConverterFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures/ILInspector.JsExportSurface.NestedContextConstructorFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.NestedContextFixtures/ILInspector.JsExportSurface.NestedContextFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.NestedContextUnsupportedFixtures/ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.csproj" />
+    <ProjectReference
+      Include="../../fixtures/js-export/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj"
+      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.NamingFixtures/ILInspector.JsExportSurface.NamingFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.OperatorFixtures/ILInspector.JsExportSurface.OperatorFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.PublishabilityFixtures/ILInspector.JsExportSurface.PublishabilityFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.ScalarFixtures/ILInspector.JsExportSurface.ScalarFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/TsJsExport.ContextFixtures.Host/TsJsExport.ContextFixtures.Host.csproj" />
+    <ProjectReference
+      Include="../../fixtures/js-export/TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj"
+      Aliases="WrongContractFixture" />
   </ItemGroup>
+
+  <Target Name="CopyRuntimeAsyncFixture" AfterTargets="Build">
+    <MSBuild
+      Projects="../../fixtures/js-export/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj"
+      Targets="GetTargetPath">
+      <Output TaskParameter="TargetOutputs" ItemName="_RuntimeAsyncFixtureTargetPath" />
+    </MSBuild>
+    <Error
+      Condition="'@(_RuntimeAsyncFixtureTargetPath)' == ''"
+      Text="The runtime-async JSExport fixture target path was not resolved." />
+    <Copy
+      SourceFiles="@(_RuntimeAsyncFixtureTargetPath)"
+      DestinationFiles="$(TargetDir)ILInspector.JsExportSurface.RuntimeAsyncFixtures.dll" />
+  </Target>
 
 </Project>

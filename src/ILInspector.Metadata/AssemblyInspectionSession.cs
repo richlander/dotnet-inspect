@@ -1,3 +1,5 @@
+using System.Reflection.PortableExecutable;
+using Inspector.Resources;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -12,7 +14,16 @@ namespace ILInspector.Metadata;
 /// per-facet producers, not a god-object. The method-body seam is a sibling session opened over
 /// the same image.
 /// </summary>
-public sealed class AssemblyInspectionSession : IDisposable
+/// <remarks>
+/// Every session carries one synchronous terminal obligation. A session
+/// created by <c>Open</c> owns its image; a session created by
+/// <see cref="Borrow(PdbContext)"/> owns only its session borrow and leaves the
+/// lender's image open.
+/// </remarks>
+[ResourceOwnership]
+public sealed class AssemblyInspectionSession :
+    IDisposable,
+    IResourceSnapshotSource<AssemblyInspectionSession>
 {
     readonly AssemblyImage _image;
     readonly Lazy<MetadataTypeDeclarationProbe.Index>
@@ -48,6 +59,11 @@ public sealed class AssemblyInspectionSession : IDisposable
     internal static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
         new(AssemblyImage.OpenPrefetched(stream));
 
+    // Only the synchronous artifact query scope uses this borrow. It disposes
+    // the session before disposing the reader and releasing the image pin.
+    internal static AssemblyInspectionSession Borrow(PEReader reader) =>
+        new(AssemblyImage.Borrow(reader, () => _ = reader.GetEntireImage()));
+
     /// <summary>
     /// A session over an image a <see cref="PdbContext"/> already opened, so a caller that holds
     /// one can reach the facets without opening the path a second time.
@@ -69,6 +85,25 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// </summary>
     public static AssemblyInspectionSession Borrow(PdbContext context)
         => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The callback begins only while this session and any lender backing it
+    /// remain alive.
+    /// </remarks>
+    public TResult Snapshot<TState, TResult>(
+        TState state,
+        ResourceSnapshotCallback<
+            AssemblyInspectionSession,
+            TState,
+            TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        _image.EnsureAlive();
+        return callback(
+            new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(this),
+            state);
+    }
 
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata
@@ -133,6 +168,32 @@ public sealed class AssemblyInspectionSession : IDisposable
             includeAll,
             typesOnly);
 
+    /// <summary>
+    /// Reads a TypeDef's instance-field primitive after the durable address
+    /// matches this image. Used by TypeResolution so enum-width consumers never
+    /// borrow a <c>MetadataReader</c>.
+    /// </summary>
+    internal bool TryGetEnumUnderlyingType(
+        MetadataTypeDefinitionAddress address,
+        out System.Reflection.Metadata.PrimitiveTypeCode code)
+    {
+        _image.EnsureAlive();
+        code = default;
+        System.Reflection.Metadata.MetadataReader reader =
+            _image.GetMetadataReader();
+        if (!address.TryResolve(
+                reader,
+                out System.Reflection.Metadata.TypeDefinitionHandle handle))
+        {
+            return false;
+        }
+
+        return EnumUnderlyingPrimitive.TryFromEnumDefinition(
+            reader,
+            handle,
+            out code);
+    }
+
     /// <summary>The API surface at one explicit extraction scope.</summary>
     public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, scope, typesOnly);
@@ -187,6 +248,25 @@ public sealed class AssemblyInspectionSession : IDisposable
     public List<EcosystemIntegrationSignalInfo> EcosystemIntegrations()
         => EcosystemIntegrationScanner.Scan(_image.PEReader);
 
+    /// <summary>Decodes immutable Integration observations from this retained image.</summary>
+    public EcosystemIntegrationObservationContext EcosystemIntegrationObservations()
+    {
+        _image.EnsureAlive();
+        return _image.HasMetadata
+            ? EcosystemIntegrationObservationReader.Read(_image.GetMetadataReader())
+            : new EcosystemIntegrationObservationContext([], []);
+    }
+
+    /// <summary>Runs one selected scanner without computing full-library presence.</summary>
+    public List<EcosystemIntegrationSignalInfo> EcosystemIntegrations(
+        EcosystemIntegrationScannerBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        return EcosystemIntegrationScanner.Scan(
+            EcosystemIntegrationObservations(),
+            binding);
+    }
+
     /// <summary>Presence flags summarized from grouped integration evidence.</summary>
     public EcosystemIntegrationPresence EcosystemIntegrationPresence(
         IEnumerable<EcosystemIntegrationSignalInfo> ecosystemSignals)
@@ -198,6 +278,13 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Integration opportunities, excluding already-present integrations.</summary>
     public List<IntegrationOpportunityInfo> IntegrationOpportunities(IReadOnlySet<string> existingIntegrations)
         => IntegrationOpportunityScanner.Scan(_image.PEReader, existingIntegrations);
+
+    /// <summary>Integration opportunities, excluding exact configured concepts.</summary>
+    public List<IntegrationOpportunityInfo> IntegrationOpportunities(
+        IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations)
+        => IntegrationOpportunityScanner.Scan(
+            _image.PEReader,
+            existingIntegrations);
 
     /// <summary>Discriminated-union types.</summary>
     public List<UnionTypeInfo> UnionTypes()
@@ -260,6 +347,23 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// </summary>
     public MetadataTableProjection MetadataTables(MetadataProjectionOptions? options = null)
         => MetadataTableProjector.Project(_image.PEReader, options);
+
+    /// <summary>
+    /// Captures an explicitly selected metadata root for scoped table and heap
+    /// navigation. The captured root remains readable after this session closes.
+    /// </summary>
+    public MetadataRootInspection? MetadataRoot(MetadataRootKind root = MetadataRootKind.Cli)
+        => MetadataRootInspection.Open(_image.PEReader, root);
+
+    /// <summary>
+    /// Describes the validated ReadyToRun envelope, or returns null when the
+    /// image has no canonical ReadyToRun advertisement.
+    /// </summary>
+    public ReadyToRunImageOverview? ReadyToRunImage()
+    {
+        _image.EnsureAlive();
+        return ReadyToRunImageInspector.Describe(_image.PEReader);
+    }
 
     /// <summary>
     /// A single row of one metadata table, read on demand and independent of any
@@ -326,8 +430,19 @@ public sealed class AssemblyInspectionSession : IDisposable
     internal AssemblyReferenceIdentity AssemblyIdentity() =>
         AssemblyReferenceIdentity.FromAssemblyDefinition(_image.GetMetadataReader());
 
-    internal Guid ModuleVersionId()
+    /// <summary>
+    /// This image's module version id, read from the <c>Module</c> table's MVID column.
+    ///
+    /// This is the module identity a consumer joins its own evidence against — a decoded literal,
+    /// a body read, or a row description is only meaningful next to the module it came from — so
+    /// it is a first-class metadata fact rather than an internal detail. It decodes no names,
+    /// signatures, or bodies.
+    ///
+    /// Gate: <c>ModuleVersionId_MatchesTheInspectedModule</c>.
+    /// </summary>
+    public Guid ModuleVersionId()
     {
+        _image.EnsureAlive();
         var reader = _image.GetMetadataReader();
         return reader.GetGuid(reader.GetModuleDefinition().Mvid);
     }

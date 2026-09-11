@@ -258,6 +258,8 @@ public sealed class NullConditionalCoalescePass : IIrPass
         var call = new Call(shape.Call.Callee, shape.Call.IsVirtual, [receiver])
         {
             ConstrainedTo = shape.Call.ConstrainedTo,
+            ExtensionSyntaxConflict =
+                shape.Call.ExtensionSyntaxConflict,
         };
         var fallback = shape.Fallback;
         fallback.Detach();

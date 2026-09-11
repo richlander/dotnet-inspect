@@ -1,0 +1,883 @@
+using DotnetInspector.Fixtures;
+using ILInspector.Metadata;
+
+namespace DotnetInspector.Services.Tests;
+
+public class SourceRelativeAssemblyGroupBindingPolicyTests
+{
+    [Fact]
+    public void Select_ContinuationDoesNotChangeSeedFallback()
+    {
+        var fallback = NamedDescriptor("Fallback");
+        var owner = NamedDescriptor("Owner");
+        var shared = NamedDescriptor("Shared");
+        var dependency = NamedDescriptor("Dependency");
+        var missing = new SelectionPolicy(_ => AssemblyBindingSelection.NameNotOwned());
+        var selecting = new SelectionPolicy(request =>
+            AssemblyBindingSelection.Found(
+                request.Target is AssemblyBindingTarget.AssemblyReference
+                    { Identity.Name: "Shared" } ? shared : dependency));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(fallback, (IAssemblyBindingPolicy)missing), (owner, selecting)]);
+        AssemblyBindingRequest seedProbe = Request(dependency, shared);
+        Assert.IsType<AssemblyBindingSelection.Missing>(group.Select(seedProbe).Selection);
+        AssemblyBindingPolicyVersion version = group.Version;
+
+        var selected = Selected(group, Request(shared, owner));
+        var repeated = Selected(group, Request(shared, owner));
+        var continued = Selected(group, Request(dependency, selected.Occurrence));
+
+        Assert.Same(dependency, continued.Assembly);
+        Assert.Equal(selected.Occurrence.Lineage, repeated.Occurrence.Lineage);
+        Assert.NotEqual(AssemblyBindingLineage.Seed, selected.Occurrence.Lineage);
+        Assert.Same(version, selected.Occurrence.Lineage.Version);
+        Assert.Same(version, group.Version);
+        Assert.IsType<AssemblyBindingSelection.Missing>(group.Select(seedProbe).Selection);
+    }
+
+    [Fact]
+    public void Select_CanonicalRootUsesItsConfiguredResolver()
+    {
+        var first = NamedDescriptor("First");
+        var peer = NamedDescriptor("Peer");
+        var firstDependency = NamedDescriptor("FirstDependency");
+        var peerDependency = NamedDescriptor("PeerDependency");
+        var firstPolicy = new SelectionPolicy(_ => AssemblyBindingSelection.Found(firstDependency));
+        var peerPolicy = new SelectionPolicy(_ => AssemblyBindingSelection.Found(peerDependency));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(first, (IAssemblyBindingPolicy)firstPolicy), (peer, peerPolicy)]);
+
+        var selectedPeer = Selected(group, Request(peer, first));
+        var continued = Selected(group, Request(peerDependency, selectedPeer.Occurrence));
+
+        Assert.Same(peer, selectedPeer.Assembly);
+        Assert.Same(peerDependency, continued.Assembly);
+        Assert.Equal(0, firstPolicy.SelectionCount);
+        Assert.Equal(1, peerPolicy.SelectionCount);
+    }
+
+    [Fact]
+    public void Select_NestedGroupPreservesDelegatedContinuation()
+    {
+        var fallback = NamedDescriptor("Fallback");
+        var owner = NamedDescriptor("Owner");
+        var shared = NamedDescriptor("Shared");
+        var dependency = NamedDescriptor("Dependency");
+        var missing = new SelectionPolicy(_ => AssemblyBindingSelection.NameNotOwned());
+        var selecting = new SelectionPolicy(request =>
+            AssemblyBindingSelection.Found(
+                request.Target is AssemblyBindingTarget.AssemblyReference
+                    { Identity.Name: "Shared" } ? shared : dependency));
+        var inner = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(fallback, (IAssemblyBindingPolicy)missing), (owner, selecting)]);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(fallback, (IAssemblyBindingPolicy)missing), (owner, inner)]);
+
+        var selected = Selected(outer, Request(shared, owner));
+        var repeated = Selected(outer, Request(shared, owner));
+        var continued = Selected(outer, Request(dependency, selected.Occurrence));
+
+        Assert.Same(dependency, continued.Assembly);
+        Assert.Equal(selected.Occurrence.Lineage, repeated.Occurrence.Lineage);
+        Assert.Same(outer.Version, continued.Occurrence.Lineage.Version);
+        Assert.IsType<AssemblyBindingSelection.Missing>(
+            outer.Select(Request(dependency, shared)).Selection);
+    }
+
+    [Fact]
+    public void Select_AmbiguityAndShadowsDoNotEstablishRoutes()
+    {
+        var fallback = NamedDescriptor("Fallback");
+        var owner = NamedDescriptor("Owner");
+        var first = NamedDescriptor("FirstCandidate");
+        var second = NamedDescriptor("SecondCandidate");
+        var active = NamedDescriptor("Active");
+        var probe = NamedDescriptor("Probe");
+        var missing = new SelectionPolicy(_ => AssemblyBindingSelection.NameNotOwned());
+        var selecting = new SelectionPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Active" }
+                ? AssemblyBindingCandidateDomain.Create(
+                    [active, first])
+                    .Finalize([active])
+                : AssemblyBindingSelection.Multiple([first, second]));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(fallback, (IAssemblyBindingPolicy)missing), (owner, selecting)]);
+
+        Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(Request(probe, owner)).Selection);
+        var selected = Selected(group, Request(active, owner));
+        Assert.Same(first, Assert.Single(selected.ShadowedAssemblies));
+        foreach (var inactive in new[] { first, second })
+        {
+            Assert.IsType<AssemblyBindingSelection.Missing>(
+                group.Select(Request(probe, inactive)).Selection);
+        }
+    }
+
+    [Fact]
+    public void Select_DesignatedAmbiguityPreservesRootInactiveEvidence()
+    {
+        var owner = NamedDescriptor("Owner");
+        var first = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("first overlay"));
+        var second = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("second overlay"),
+            new Version(2, 0, 0, 0));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "root inactive evidence"));
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create(
+                [first, platform, second]);
+        var policy = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.RequireComposition(domain));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (first, (IAssemblyBindingPolicy)policy),
+                (second, (IAssemblyBindingPolicy)policy),
+                (platform, (IAssemblyBindingPolicy)policy),
+            ]);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(Request(first, owner)).Selection);
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
+        Assert.Same(platform, Assert.Single(ambiguous.ShadowedAssemblies));
+    }
+
+    [Fact]
+    public void Select_NestedDesignatedAmbiguityPreservesDelegatedInactiveEvidence()
+    {
+        var owner = NamedDescriptor("Owner");
+        var first = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("first overlay"));
+        var second = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("second overlay"),
+            new Version(2, 0, 0, 0));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "delegated inactive evidence"));
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create(
+                [first, platform, second]);
+        var policy = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.RequireComposition(domain));
+        var inner = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (first, (IAssemblyBindingPolicy)policy),
+                (second, (IAssemblyBindingPolicy)policy),
+                (platform, (IAssemblyBindingPolicy)policy),
+            ]);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)inner),
+                (first, (IAssemblyBindingPolicy)inner),
+            ]);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            outer.Select(Request(first, owner)).Selection);
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
+        Assert.Same(platform, Assert.Single(ambiguous.ShadowedAssemblies));
+    }
+
+    [Fact]
+    public void Select_DesignatedPrecedenceFinalizesCompositionHandoff()
+    {
+        var owner = NamedDescriptor("Owner");
+        var first = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("first overlay"));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "composition handoff"));
+        var second = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("second overlay"),
+            new Version(2, 0, 0, 0));
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create(
+                [first, platform, second]);
+        var policy = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.RequireComposition(domain));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (first, (IAssemblyBindingPolicy)policy),
+                (second, (IAssemblyBindingPolicy)policy),
+                (platform, (IAssemblyBindingPolicy)policy),
+            ]);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(Request(first, owner)).Selection);
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
+        Assert.Same(platform, Assert.Single(ambiguous.ShadowedAssemblies));
+    }
+
+    [Fact]
+    public void Select_RootFreeCompositionHandoffUsesItsCompleteDomain()
+    {
+        var owner = NamedDescriptor("Owner");
+        var selected = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("domain overlay"));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "domain fallback"));
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create(
+                [platform, selected]);
+        var policy = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.RequireComposition(domain));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)policy)]);
+
+        var actual = Selected(group, Request(selected, owner));
+
+        Assert.Same(selected, actual.Assembly);
+        Assert.Same(platform, Assert.Single(actual.ShadowedAssemblies));
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void Select_DirectCompositionUsesCanonicalParticipantRoute()
+    {
+        var owner = NamedDescriptor("Owner");
+        var selected = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("canonical overlay"));
+        var dependency = NamedDescriptor("Dependency");
+        var wrongDependency = NamedDescriptor("Dependency");
+        var source = new SelectionPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Platform.Library" }
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create([selected]))
+                : AssemblyBindingSelection.Found(wrongDependency));
+        var canonical = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.Found(dependency));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)source),
+                (selected, (IAssemblyBindingPolicy)canonical),
+            ]);
+
+        var first = Selected(group, Request(selected, owner));
+        var continued = Selected(
+            group,
+            Request(dependency, first.Occurrence));
+
+        Assert.Same(dependency, continued.Assembly);
+        Assert.Equal(1, source.SelectionCount);
+        Assert.Equal(1, canonical.SelectionCount);
+    }
+
+    [Fact]
+    public void Select_RoutingOnlyCompositionPreservesSelectingRoute()
+    {
+        var fallback = NamedDescriptor("Fallback");
+        var owner = NamedDescriptor("Owner");
+        var selected = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("selected overlay"));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "routing-only composition"));
+        var dependency = NamedDescriptor("Dependency");
+        var missing = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.NameNotOwned());
+        var selecting = new SelectionPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Platform.Library" }
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create(
+                        [platform, selected]))
+                : AssemblyBindingSelection.Found(dependency));
+        var inner =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [
+                    (fallback, (IAssemblyBindingPolicy)missing),
+                    (owner, (IAssemblyBindingPolicy)selecting),
+                ]);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (fallback, (IAssemblyBindingPolicy)inner),
+                (owner, (IAssemblyBindingPolicy)inner),
+                (selected, (IAssemblyBindingPolicy)inner),
+                (platform, (IAssemblyBindingPolicy)inner),
+            ]);
+
+        var first = Selected(outer, Request(selected, owner));
+        var continued = Selected(
+            outer,
+            Request(dependency, first.Occurrence));
+
+        Assert.Same(selected, first.Assembly);
+        Assert.Same(dependency, continued.Assembly);
+    }
+
+    [Fact]
+    public void Select_TransparentRoutingWrapperPreservesSelectingRoute()
+    {
+        var fallback = NamedDescriptor("Fallback");
+        var owner = NamedDescriptor("Owner");
+        var selected = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("selected overlay"));
+        var dependency = NamedDescriptor("Dependency");
+        var missing = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.NameNotOwned());
+        var selecting = new SelectionPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Platform.Library" }
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create([selected]))
+                : AssemblyBindingSelection.Found(dependency));
+        IAssemblyBindingPolicy inner =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [
+                    (fallback, (IAssemblyBindingPolicy)missing),
+                    (owner, (IAssemblyBindingPolicy)selecting),
+                ]);
+        var wrapped = new TransparentBindingPolicy(inner);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (fallback, (IAssemblyBindingPolicy)wrapped),
+                (owner, (IAssemblyBindingPolicy)wrapped),
+            ]);
+
+        var first = Selected(outer, Request(selected, owner));
+        var continued = Selected(
+            outer,
+            Request(dependency, first.Occurrence));
+
+        Assert.Same(selected, first.Assembly);
+        Assert.Same(dependency, continued.Assembly);
+    }
+
+    [Fact]
+    public void Select_NestedTerminalAmbiguityPreservesInactiveOrder()
+    {
+        var owner = NamedDescriptor("Owner");
+        var first = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("first overlay"));
+        var firstPlatform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "first inactive"));
+        var second = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("second overlay"),
+            new Version(2, 0, 0, 0));
+        var secondPlatform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "second inactive"));
+        AssemblyBindingSelection terminal =
+            AssemblyBindingCandidateDomain.Create(
+                [first, firstPlatform, second, secondPlatform])
+                .Finalize([first, second]);
+        var policy = new SelectionPolicy(_ => terminal);
+        var inner =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [(owner, (IAssemblyBindingPolicy)policy)]);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)inner),
+                (second, (IAssemblyBindingPolicy)inner),
+                (secondPlatform, (IAssemblyBindingPolicy)inner),
+            ]);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            outer.Select(Request(first, owner)).Selection);
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
+        Assert.Equal(
+            [firstPlatform, secondPlatform],
+            ambiguous.ShadowedAssemblies);
+    }
+
+    [Fact]
+    public void Select_TerminalSelectionDoesNotPromoteInactiveDesignatedEvidence()
+    {
+        var owner = NamedDescriptor("Owner");
+        var inactiveDesignated = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated(
+                "inactive designated"));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "inactive platform"));
+        var selectedDesignated = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated(
+                "selected designated"),
+            new Version(2, 0, 0, 0));
+        var additionalDesignated = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated(
+                "additional designated"),
+            new Version(3, 0, 0, 0));
+        AssemblyBindingSelection terminal =
+            AssemblyBindingCandidateDomain.Create(
+                [inactiveDesignated, platform, selectedDesignated])
+                .Finalize([selectedDesignated]);
+        var policy = new SelectionPolicy(_ => terminal);
+        var inner =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [(owner, (IAssemblyBindingPolicy)policy)]);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)inner),
+                (inactiveDesignated, (IAssemblyBindingPolicy)inner),
+                (additionalDesignated, (IAssemblyBindingPolicy)inner),
+            ]);
+
+        var selected = Selected(
+            outer,
+            Request(selectedDesignated, owner));
+
+        Assert.Same(selectedDesignated, selected.Assembly);
+        Assert.Equal(
+            [inactiveDesignated, platform],
+            selected.ShadowedAssemblies);
+    }
+
+    [Fact]
+    public void Select_RejectsForeignAndStaleContinuations()
+    {
+        var owner = NamedDescriptor("Owner");
+        var candidate = NamedDescriptor("Candidate");
+        var policy = new SelectionPolicy(_ => AssemblyBindingSelection.Found(candidate));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)policy)]);
+        var foreignGroup = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)policy)]);
+        var selected = Selected(group, Request(candidate, owner));
+        AssemblyBindingRequest continuation = Request(candidate, selected.Occurrence);
+        var foreign = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            foreignGroup.Select(continuation).Selection);
+        Assert.Equal(AssemblyBindingFailureKind.InvalidBindingOrigin, foreign.Failure.Kind);
+
+        AssemblyBindingPolicyVersion version = group.Version;
+        policy.Replace(_ => AssemblyBindingSelection.Found(candidate));
+
+        Assert.NotSame(version, group.Version);
+        var stale = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            group.Select(continuation).Selection);
+        Assert.Equal(AssemblyBindingFailureKind.InvalidBindingOrigin, stale.Failure.Kind);
+        var fresh = Selected(group, Request(candidate, owner));
+        Assert.NotEqual(selected.Occurrence.Lineage, fresh.Occurrence.Lineage);
+        Assert.Same(group.Version, fresh.Occurrence.Lineage.Version);
+    }
+
+    [Fact]
+    public void Select_IntrinsicCacheSeparatesSharedDescriptorLineages()
+    {
+        var first = NamedDescriptor("First");
+        var second = NamedDescriptor("Second");
+        var shared = Descriptor(typeof(SourceRelativeAssemblyGroupBindingPolicyTests).Assembly.Location);
+        var firstCore = Descriptor(typeof(object).Assembly.Location);
+        var secondCore = Descriptor(typeof(object).Assembly.Location);
+        var firstPolicy = new SelectionPolicy(request =>
+            AssemblyBindingSelection.Found(
+                request.Target is AssemblyBindingTarget.AssemblyReference reference
+                    && reference.Identity.Name == shared.Identity.Name ? shared : firstCore));
+        var secondPolicy = new SelectionPolicy(request =>
+            AssemblyBindingSelection.Found(
+                request.Target is AssemblyBindingTarget.AssemblyReference reference
+                    && reference.Identity.Name == shared.Identity.Name ? shared : secondCore));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(first, (IAssemblyBindingPolicy)firstPolicy), (second, secondPolicy)]);
+        var firstShared = Selected(group, Request(shared, first)).Occurrence;
+        var secondShared = Selected(group, Request(shared, second)).Occurrence;
+
+        for (int repeat = 0; repeat < 2; repeat++)
+        {
+            Assert.Same(firstCore, SelectCore(firstShared).Assembly);
+            Assert.Same(secondCore, SelectCore(secondShared).Assembly);
+        }
+        Assert.Equal(2, firstPolicy.SelectionCount);
+        Assert.Equal(2, secondPolicy.SelectionCount);
+
+        AssemblyBindingSelection.Selected SelectCore(AssemblyBindingOccurrence occurrence) =>
+            Selected(group, new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromOccurrence(occurrence),
+                AssemblyResolutionScope.Any));
+    }
+
+    [Fact]
+    public void Select_RoutingOnlyIntrinsicContinuationUsesCanonicalRouteOccurrence()
+    {
+        string corePath = typeof(object).Assembly.Location;
+        ResolvedAssemblyReference source = Descriptor(corePath);
+        var snapshot = Assert.IsType<AssemblyImageSnapshotResult.Ready>(
+            AssemblyImageSnapshot.FromRetainedContent(
+                source,
+                [.. File.ReadAllBytes(corePath)])).Snapshot;
+        ResolvedAssemblyReference retained =
+            snapshot.RetainAssemblyReference(source);
+        var policy = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.Found(source));
+        var group =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [(retained, (IAssemblyBindingPolicy)policy)]);
+        var selectedCore = Selected(group, Request(source, retained));
+
+        var intrinsic = Selected(
+            group,
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromOccurrence(
+                    selectedCore.Occurrence),
+                AssemblyResolutionScope.Any));
+
+        Assert.Same(retained, intrinsic.Assembly);
+    }
+
+    [Fact]
+    public void Select_WarmIntrinsicCacheObservesDelegateVersionChange()
+    {
+        var owner = Descriptor(typeof(SourceRelativeAssemblyGroupBindingPolicyTests).Assembly.Location);
+        var firstCore = Descriptor(typeof(object).Assembly.Location);
+        var secondCore = Descriptor(typeof(object).Assembly.Location);
+        var policy = new SelectionPolicy(_ => AssemblyBindingSelection.Found(firstCore));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)policy)]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        Assert.Same(firstCore, Selected(group, request).Assembly);
+        Assert.Same(firstCore, Selected(group, request).Assembly);
+        Assert.Equal(1, policy.SelectionCount);
+        AssemblyBindingPolicyVersion version = group.Version;
+
+        policy.Replace(_ => AssemblyBindingSelection.Found(secondCore));
+
+        Assert.NotSame(version, group.Version);
+        Assert.Same(secondCore, Selected(group, request).Assembly);
+        Assert.Equal(2, policy.SelectionCount);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Select_ForeignSnapshotEscapesBeforePayloadComposition(
+        bool intrinsic,
+        bool routingOnly)
+    {
+        var owner = Descriptor(typeof(SourceRelativeAssemblyGroupBindingPolicyTests).Assembly.Location);
+        var candidate = NamedDescriptor("Candidate");
+        var foreign = new AssemblyBindingSelectionSnapshot(
+            new AssemblyBindingPolicyVersion(),
+            AssemblyBindingSelection.Found(candidate));
+        var policy = new ForeignSnapshotPolicy(foreign);
+        var participants = new[] { (owner, (IAssemblyBindingPolicy)policy) };
+        var group = routingOnly
+            ? SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(participants)
+            : new SourceRelativeAssemblyGroupBindingPolicy(participants);
+        AssemblyBindingPolicyVersion version = group.Version;
+        var request = new AssemblyBindingRequest(
+            intrinsic ? AssemblyBindingTarget.CoreLibrary()
+                : AssemblyBindingTarget.Reference(candidate.Identity),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        Assert.Same(foreign, group.Select(request));
+        Assert.NotSame(version, group.Version);
+    }
+
+    [Fact]
+    public void Select_ForeignCompositionSnapshotEscapesBeforeDomainInterpretation()
+    {
+        var owner = NamedDescriptor("Owner");
+        var candidate = NamedDescriptor("Candidate");
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create([candidate]);
+        var foreign = new AssemblyBindingSelectionSnapshot(
+            new AssemblyBindingPolicyVersion(),
+            AssemblyBindingSelection.RequireComposition(domain));
+        var policy = new ForeignSnapshotPolicy(foreign);
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)policy)]);
+
+        AssemblyBindingSelectionSnapshot actual =
+            group.Select(Request(candidate, owner));
+
+        Assert.Same(foreign, actual);
+        Assert.Same(
+            domain,
+            Assert.IsType<
+                AssemblyBindingSelection.CompositionRequired>(
+                    actual.Selection).Domain);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void Select_RoutingOnlyKeepsTheContinuedCoreLibraryAsItsOwnIntrinsic()
+    {
+        var owner = Descriptor(typeof(SourceRelativeAssemblyGroupBindingPolicyTests).Assembly.Location);
+        var core = Descriptor(typeof(object).Assembly.Location);
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(owner.Path!)
+            {
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+            });
+        var group = SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+            [(owner, (IAssemblyBindingPolicy)resolver)]);
+        var selected = Selected(group, Request(core, owner));
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.FromOccurrence(selected.Occurrence),
+            AssemblyResolutionScope.Any);
+
+        Assert.Same(selected.Assembly, Selected(group, request).Assembly);
+    }
+
+    [Fact]
+    public void Select_ComposedCoreLibraryKeepsItsDescriptorAndSelectingRoute()
+    {
+        var owner = Descriptor(
+            typeof(SourceRelativeAssemblyGroupBindingPolicyTests)
+                .Assembly.Location);
+        var core = Descriptor(
+            typeof(object).Assembly.Location,
+            AssemblyResolutionProvenance.Designated(
+                "composed core library"));
+        var dependency = NamedDescriptor("Dependency");
+        var policy = new SelectionPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "System.Private.CoreLib" }
+                ? AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create([core]))
+                : AssemblyBindingSelection.Found(dependency));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)policy)]);
+
+        var selected = Selected(group, Request(core, owner));
+        var intrinsic = Selected(
+            group,
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromOccurrence(
+                    selected.Occurrence),
+                AssemblyResolutionScope.Any));
+        var continued = Selected(
+            group,
+            Request(dependency, intrinsic.Occurrence));
+
+        Assert.Same(core, selected.Assembly);
+        Assert.Same(core, intrinsic.Assembly);
+        Assert.Same(dependency, continued.Assembly);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExtractApiSurface_SharedForwarderRetainsBothResolverContexts(
+        bool interfaceFirst)
+    {
+        string consumerPath = FixtureCatalog.ServicesRouteLearningConsumer.AssemblyPath();
+        ResolvedAssemblyReference classConsumer = Descriptor(consumerPath);
+        ResolvedAssemblyReference interfaceConsumer = Descriptor(consumerPath);
+        ResolvedAssemblyReference middle = Descriptor(
+            FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("middle"));
+        ResolvedAssemblyReference classBase = Descriptor(
+            FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("base"));
+        ResolvedAssemblyReference interfaceBase = Descriptor(
+            FixtureCatalog.ServicesRouteLearningInterfaceBase.AssemblyPath());
+        var classPolicy = new AssemblyReferenceBindingPolicy(
+            new FixtureResolver(consumerPath, middle, classBase));
+        var interfacePolicy = new AssemblyReferenceBindingPolicy(
+            new FixtureResolver(consumerPath, middle, interfaceBase));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (classConsumer, (IAssemblyBindingPolicy)classPolicy),
+                (interfaceConsumer, (IAssemblyBindingPolicy)interfacePolicy),
+            ]);
+        AssemblyBindingPolicyVersion version = group.Version;
+        using var catalog = new TypeResolutionCatalog();
+        (ResolvedAssemblyReference Assembly, TypeParameterTypeKind Kind)[] requests =
+            [
+                (classConsumer, TypeParameterTypeKind.ReferenceType),
+                (interfaceConsumer, TypeParameterTypeKind.NeitherReferenceNorValue),
+            ];
+        if (interfaceFirst)
+            Array.Reverse(requests);
+
+        for (int repeat = 0; repeat < 2; repeat++)
+        {
+            foreach (var request in requests)
+            {
+                ApiSurface surface = Assert.IsType<
+                    ResolutionAwareApiSurfaceOutcome.Read>(
+                        catalog.ExtractApiSurface(request.Assembly, group)).Surface;
+                ApiType consumer = Assert.Single(
+                    surface.Types,
+                    static type => type.FullName
+                        == "DotnetInspector.Services.RouteLearning.Consumer`1");
+
+                Assert.Equal(
+                    request.Kind,
+                    Assert.Single(consumer.TypeParameters).TypeKind);
+                Assert.Empty(surface.InspectionFailures);
+                Assert.Same(version, group.Version);
+            }
+        }
+    }
+
+    static ResolvedAssemblyReference Descriptor(
+        string path,
+        AssemblyResolutionProvenance? provenance = null) =>
+        ResolvedAssemblyReference.CreateFromPath(
+            path,
+            provenance
+                ?? AssemblyResolutionProvenance.Local(
+                    "resolver-lineage fixture"));
+
+    static ResolvedAssemblyReference NamedDescriptor(string name) =>
+        NamedDescriptor(
+            name,
+            AssemblyResolutionProvenance.Local(
+                "resolver-lineage selection"));
+
+    static ResolvedAssemblyReference NamedDescriptor(
+        string name,
+        AssemblyResolutionProvenance provenance,
+        Version? version = null) =>
+        ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                name,
+                version ?? new Version(1, 0, 0, 0),
+                null,
+                null),
+            name + ".dll",
+            static () => throw new InvalidOperationException(
+                "Descriptor-only selection must not open an assembly."),
+            provenance);
+
+    static AssemblyBindingRequest Request(
+        ResolvedAssemblyReference target,
+        ResolvedAssemblyReference origin) =>
+        new(
+            AssemblyBindingTarget.Reference(target.Identity),
+            AssemblyBindingOrigin.FromAssembly(origin),
+            AssemblyResolutionScope.Any);
+
+    static AssemblyBindingRequest Request(
+        ResolvedAssemblyReference target,
+        AssemblyBindingOccurrence origin) =>
+        new(
+            AssemblyBindingTarget.Reference(target.Identity),
+            AssemblyBindingOrigin.FromOccurrence(origin),
+            AssemblyResolutionScope.Any);
+
+    static AssemblyBindingSelection.Selected Selected(
+        IAssemblyBindingPolicy policy,
+        AssemblyBindingRequest request) =>
+        Assert.IsType<AssemblyBindingSelection.Selected>(policy.Select(request).Selection);
+
+    sealed class SelectionPolicy(
+        Func<AssemblyBindingRequest, AssemblyBindingSelection> select) : IAssemblyBindingPolicy
+    {
+        Func<AssemblyBindingRequest, AssemblyBindingSelection> _select = select;
+        public AssemblyBindingPolicyVersion Version { get; private set; } = new();
+        internal int SelectionCount { get; private set; }
+
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
+        {
+            SelectionCount++;
+            return new(Version, _select(request));
+        }
+
+        internal void Replace(Func<AssemblyBindingRequest, AssemblyBindingSelection> replacement)
+        {
+            _select = replacement;
+            Version = new();
+        }
+    }
+
+    sealed class TransparentBindingPolicy(
+        IAssemblyBindingPolicy inner) : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version => inner.Version;
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) =>
+            inner.Select(request);
+    }
+
+    sealed class ForeignSnapshotPolicy(
+        AssemblyBindingSelectionSnapshot snapshot) : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+        internal int SelectionCount { get; private set; }
+
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
+        {
+            SelectionCount++;
+            return snapshot;
+        }
+    }
+
+    sealed class FixtureResolver(
+        string consumerPath,
+        ResolvedAssemblyReference middle,
+        ResolvedAssemblyReference implementation) : IAssemblyReferenceResolver
+    {
+        readonly AssemblyDependencyResolver _fallback = new(
+            new AssemblyDependencyResolutionOptions(consumerPath)
+            {
+                PreferImplementationAssemblies = true,
+                AllowPlatformAssemblyVersionRollForward = true,
+            });
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+        {
+            if (identity.Name == middle.Identity.Name)
+                return middle;
+            if (identity.Name == implementation.Identity.Name)
+                return implementation;
+            return _fallback.Resolve(identity, scope);
+        }
+    }
+}

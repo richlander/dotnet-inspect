@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Runtime.ExceptionServices;
 
 namespace ILInspector.Metadata;
 
@@ -83,22 +84,69 @@ public sealed record CorpusMemberMatch
     public string? Tfm { get; init; }
 }
 
+/// <summary>Why one corpus member did not produce a searchable API surface.</summary>
+public enum CorpusSearchFailureKind
+{
+    /// <summary>The assembly path could not be opened or read.</summary>
+    Unreadable,
+
+    /// <summary>The bytes did not form a valid PE image.</summary>
+    InvalidImage,
+
+    /// <summary>The PE image contains no managed metadata.</summary>
+    NoMetadata,
+
+    /// <summary>The image contains unsupported Windows Metadata.</summary>
+    UnsupportedMetadataFormat,
+
+    /// <summary>The image contains a malformed assembly metadata root.</summary>
+    MalformedMetadataRoot,
+}
+
+/// <summary>
+/// A typed per-member failure from a corpus search, retaining the member's
+/// provenance and exact malformed-root reason when applicable.
+/// </summary>
+public sealed record CorpusSearchFailure
+{
+    /// <summary>The corpus member that could not be searched.</summary>
+    public required CorpusMember Member { get; init; }
+
+    /// <summary>The typed failure category.</summary>
+    public required CorpusSearchFailureKind Kind { get; init; }
+
+    /// <summary>A bounded description that contains no artifact-controlled text.</summary>
+    public required string Detail { get; init; }
+
+    /// <summary>The exact malformed-root reason, when <see cref="Kind"/> is malformed.</summary>
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
+
 /// <summary>
 /// Result of <see cref="Corpus.SearchTypes"/>: matches plus the assembly paths whose metadata could
-/// not be read. Skipped paths are surfaced rather than dropped so an all-unreadable corpus cannot
-/// masquerade as a clean "no matches" success.
+/// not be read. <see cref="SkippedAssemblies"/> remains the path-only compatibility projection;
+/// <see cref="Failures"/> retains the typed per-member outcome.
 /// </summary>
 public sealed record CorpusTypeSearchOutcome(
     IReadOnlyList<CorpusTypeMatch> Results,
-    IReadOnlyList<string> SkippedAssemblies);
+    IReadOnlyList<string> SkippedAssemblies)
+{
+    /// <summary>Typed failures for members that could not be searched.</summary>
+    public IReadOnlyList<CorpusSearchFailure> Failures { get; init; } = [];
+}
 
 /// <summary>
 /// Result of <see cref="Corpus.SearchMembers"/>: matches plus the assembly paths whose metadata could
-/// not be read.
+/// not be read. <see cref="SkippedAssemblies"/> remains the path-only compatibility projection;
+/// <see cref="Failures"/> retains the typed per-member outcome.
 /// </summary>
 public sealed record CorpusMemberSearchOutcome(
     IReadOnlyList<CorpusMemberMatch> Results,
-    IReadOnlyList<string> SkippedAssemblies);
+    IReadOnlyList<string> SkippedAssemblies)
+{
+    /// <summary>Typed failures for members that could not be searched.</summary>
+    public IReadOnlyList<CorpusSearchFailure> Failures { get; init; } = [];
+}
 
 /// <summary>
 /// A resolved, finite, closed set of assemblies to operate <em>within</em>. This is the
@@ -150,10 +198,10 @@ public sealed class Corpus
         ArgumentNullException.ThrowIfNull(patterns);
 
         var results = new List<CorpusTypeMatch>();
-        var skipped = new List<string>();
+        var failures = new List<CorpusSearchFailure>();
 
         if (patterns.Count == 0)
-            return new CorpusTypeSearchOutcome(results, skipped);
+            return TypeSearchOutcome(results, failures);
 
         // Unbounded search scans members concurrently — each member is an independent metadata read —
         // then reassembles matches and skips in member order, so the output is identical to a
@@ -162,21 +210,38 @@ public sealed class Corpus
         if (limit is null)
         {
             var perMember = new List<CorpusTypeMatch>[_members.Count];
-            var perMemberSkip = new string?[_members.Count];
+            var perMemberFailure =
+                new CorpusSearchFailure?[_members.Count];
+            var perMemberException =
+                new ExceptionDispatchInfo?[_members.Count];
 
             Parallel.For(0, _members.Count, i =>
             {
-                perMember[i] = ScanTypesInMember(_members[i], patterns, includeAll, out perMemberSkip[i]);
+                try
+                {
+                    perMember[i] = ScanTypesInMember(
+                        _members[i],
+                        patterns,
+                        includeAll,
+                        out perMemberFailure[i]);
+                }
+                catch (Exception ex)
+                {
+                    perMember[i] = [];
+                    perMemberException[i] =
+                        ExceptionDispatchInfo.Capture(ex);
+                }
             });
 
             for (var i = 0; i < _members.Count; i++)
             {
+                perMemberException[i]?.Throw();
                 results.AddRange(perMember[i]);
-                if (perMemberSkip[i] is string skippedPath)
-                    skipped.Add(skippedPath);
+                if (perMemberFailure[i] is CorpusSearchFailure failure)
+                    failures.Add(failure);
             }
 
-            return new CorpusTypeSearchOutcome(results, skipped);
+            return TypeSearchOutcome(results, failures);
         }
 
         foreach (var member in _members)
@@ -184,55 +249,49 @@ public sealed class Corpus
             if (results.Count >= limit.Value)
                 break;
 
-            var matches = ScanTypesInMember(member, patterns, includeAll, out var skippedPath);
-            if (skippedPath is not null)
+            var matches = ScanTypesInMember(
+                member,
+                patterns,
+                includeAll,
+                out CorpusSearchFailure? failure);
+            if (failure is not null)
             {
-                skipped.Add(skippedPath);
+                failures.Add(failure);
                 continue;
             }
 
             foreach (var match in matches)
             {
                 if (results.Count >= limit.Value)
-                    return new CorpusTypeSearchOutcome(results, skipped);
+                    return TypeSearchOutcome(results, failures);
                 results.Add(match);
             }
         }
 
-        return new CorpusTypeSearchOutcome(results, skipped);
+        return TypeSearchOutcome(results, failures);
     }
 
     /// <summary>
-    /// Scans one member for type matches. An assembly whose metadata cannot be read is surfaced via
-    /// <paramref name="skippedPath"/> (never as a fake "no matches" success and never by aborting the
-    /// whole corpus search), matching the closed-set "keep failure visible" contract.
+    /// Scans one member for type matches. A member that cannot be searched is
+    /// surfaced through <paramref name="failure"/> rather than a fake "no
+    /// matches" success.
     /// </summary>
     private static List<CorpusTypeMatch> ScanTypesInMember(
         CorpusMember member,
         IReadOnlyList<string> patterns,
         bool includeAll,
-        out string? skippedPath)
+        out CorpusSearchFailure? failure)
     {
         var matches = new List<CorpusTypeMatch>();
 
-        ApiSurface? surface;
-        try
-        {
-            surface = AssemblyReader.ExtractApiSurface(member.AssemblyPath, includeAll, typesOnly: true);
-        }
-        catch
-        {
-            skippedPath = member.AssemblyPath;
-            return matches;
-        }
-
+        ApiSurface? surface = ReadSurface(
+            member,
+            includeAll,
+            typesOnly: true,
+            out failure);
         if (surface is null)
-        {
-            skippedPath = member.AssemblyPath;
             return matches;
-        }
 
-        skippedPath = null;
         var assemblyName = Path.GetFileNameWithoutExtension(member.AssemblyPath);
 
         foreach (var type in surface.Types)
@@ -262,6 +321,97 @@ public sealed class Corpus
         return matches;
     }
 
+    private static CorpusTypeSearchOutcome TypeSearchOutcome(
+        IReadOnlyList<CorpusTypeMatch> results,
+        IReadOnlyList<CorpusSearchFailure> failures) =>
+        new(
+            results,
+            failures
+                .Select(failure => failure.Member.AssemblyPath)
+                .ToArray())
+        {
+            Failures = failures,
+        };
+
+    private static CorpusSearchFailure SearchFailure(
+        CorpusMember member,
+        CorpusSearchFailureKind kind,
+        string detail,
+        MetadataRootMalformedReason? metadataRootReason = null) =>
+        new()
+        {
+            Member = member,
+            Kind = kind,
+            Detail = detail,
+            MetadataRootReason = metadataRootReason,
+        };
+
+    private static ApiSurface? ReadSurface(
+        CorpusMember member,
+        bool includeAll,
+        bool typesOnly,
+        out CorpusSearchFailure? failure)
+    {
+        try
+        {
+            using AssemblyImage image =
+                AssemblyImage.Open(member.AssemblyPath);
+            if (!image.HasMetadata)
+            {
+                failure = SearchFailure(
+                    member,
+                    CorpusSearchFailureKind.NoMetadata,
+                    "The assembly contains no managed metadata.");
+                return null;
+            }
+
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                image.PEReader,
+                includeAll,
+                typesOnly);
+            failure = null;
+            return surface;
+        }
+        catch (UnsupportedMetadataFormatException ex)
+        {
+            failure = SearchFailure(
+                member,
+                CorpusSearchFailureKind.UnsupportedMetadataFormat,
+                ex.Message);
+            return null;
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            failure = SearchFailure(
+                member,
+                CorpusSearchFailureKind.MalformedMetadataRoot,
+                ex.Message,
+                ex.Reason);
+            return null;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
+        {
+            failure = SearchFailure(
+                member,
+                CorpusSearchFailureKind.InvalidImage,
+                "The assembly is not a valid managed image.");
+            return null;
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException
+                or ArgumentException or NotSupportedException)
+        {
+            failure = SearchFailure(
+                member,
+                CorpusSearchFailureKind.Unreadable,
+                "The assembly could not be read.");
+            return null;
+        }
+    }
+
     /// <summary>
     /// Finds members in the corpus whose name matches any pattern, reusing <see cref="MemberSearch"/>
     /// per member so each match carries the provenance of the specific assembly that supplied it.
@@ -277,22 +427,38 @@ public sealed class Corpus
         ArgumentNullException.ThrowIfNull(patterns);
 
         var results = new List<CorpusMemberMatch>();
-        var skipped = new List<string>();
+        var failures = new List<CorpusSearchFailure>();
 
         if (patterns.Count == 0)
-            return new CorpusMemberSearchOutcome(results, skipped);
+            return MemberSearchOutcome(results, failures);
 
         foreach (var member in _members)
         {
             if (limit is int cap && results.Count >= cap)
                 break;
 
-            var remaining = limit is int lim ? lim - results.Count : (int?)null;
-            var outcome = MemberSearch.Search([member.AssemblyPath], patterns, includeAll, remaining);
+            ApiSurface? surface = ReadSurface(
+                member,
+                includeAll,
+                typesOnly: false,
+                out CorpusSearchFailure? failure);
+            if (failure is not null)
+            {
+                failures.Add(failure);
+                continue;
+            }
 
-            skipped.AddRange(outcome.SkippedAssemblies);
+            int? remaining =
+                limit is int lim ? lim - results.Count : null;
+            IReadOnlyList<MemberSearchResult> hits =
+                MemberSearch.Search(
+                    surface!,
+                    Path.GetFileNameWithoutExtension(
+                        member.AssemblyPath),
+                    patterns,
+                    remaining);
 
-            foreach (var hit in outcome.Results)
+            foreach (var hit in hits)
             {
                 results.Add(new CorpusMemberMatch
                 {
@@ -304,6 +470,18 @@ public sealed class Corpus
             }
         }
 
-        return new CorpusMemberSearchOutcome(results, skipped);
+        return MemberSearchOutcome(results, failures);
     }
+
+    private static CorpusMemberSearchOutcome MemberSearchOutcome(
+        IReadOnlyList<CorpusMemberMatch> results,
+        IReadOnlyList<CorpusSearchFailure> failures) =>
+        new(
+            results,
+            failures
+                .Select(failure => failure.Member.AssemblyPath)
+                .ToArray())
+        {
+            Failures = failures,
+        };
 }

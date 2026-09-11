@@ -1,4 +1,5 @@
 #:project ../src/DotnetInspector.Core/DotnetInspector.Core.csproj
+#:project ../src/DotnetInspector.Networking/DotnetInspector.Networking.csproj
 #:project ../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
 #:project ../src/DotnetInspector.Services/DotnetInspector.Services.csproj
 
@@ -7,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Core;
+using DotnetInspector.Networking;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
@@ -24,12 +26,12 @@ string[] positional = args
 // which is the shape this file exists to remove: a caller reading the exit code sees
 // a crash where the contract promises a stated refusal.
 const string UsageText =
-    "Usage: dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false "
+    "Usage: dotnet run "
     + "eng/prepare-decompiler-package-sweep.cs -- "
     + "<output-directory> [start-rank] [package-count] [--resolve-latest] [--refresh-pin]"
-    + "\n   or: dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false "
+    + "\n   or: dotnet run "
     + "eng/prepare-decompiler-package-sweep.cs -- --validate-pin <pin-file>..."
-    + "\n   or: dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false "
+    + "\n   or: dotnet run "
     + "eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules";
 
 // The names of the shape rules above, one per line, so that the suite holding them can
@@ -444,7 +446,7 @@ bool InvalidateManifest()
     }
 }
 
-// The same isolation knobs the CLI already reads (src/dotnet-inspect/Program.cs),
+// The same isolation knobs the CLI already reads (src/DotnetInspect.Cli/Program.cs),
 // honored here so a caller can point this sweep at a cache of its own. Without them the
 // sweep reaches the developer's shared caches and the network unconditionally, which is
 // why its two central properties -- that the pin binds, and that the copies land where

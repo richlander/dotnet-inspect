@@ -1257,8 +1257,7 @@ static class FidelityCheck
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            bool requiresAsync = function.RequiresAsyncBodyModifier
-                || function.IsRuntimeAsync == MetadataFactState.Yes;
+            bool requiresAsync = function.RequiresAsyncMethodContext;
             var wholeMember = TryRenderTargetMember(
                 pe,
                 source,
@@ -2745,6 +2744,8 @@ static class FidelityCheck
             return "target method not found";
         if (detail.Contains("return-to-sender-target-unavailable", StringComparison.OrdinalIgnoreCase))
             return "return-to-sender target unavailable";
+        if (detail.Contains("return-to-sender-context-unavailable", StringComparison.OrdinalIgnoreCase))
+            return "return-to-sender context unavailable";
         if (detail.Contains("method", StringComparison.OrdinalIgnoreCase)
             && detail.Contains("not found", StringComparison.OrdinalIgnoreCase))
             return "target method not found";

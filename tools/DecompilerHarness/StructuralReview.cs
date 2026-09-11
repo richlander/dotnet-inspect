@@ -62,7 +62,7 @@ internal static class StructuralReview
         {
             output.WriteLine(
                 $"Structural review status: **Partial** - {correspondenceGaps.Length} unsupported or ambiguous " +
-                "nodes were excluded. Matched rows do not establish changes represented only by the gaps below.");
+                "nodes were excluded. Supported rows do not establish changes represented only by the gaps below.");
             output.WriteLine();
         }
         output.WriteLine("## Before");
@@ -90,13 +90,20 @@ internal static class StructuralReview
         }
         else
         {
+            bool includeDetail = rows.Any(static row => row.Detail.Length > 0);
             bool includeFidelity = rows.Any(static row => row.Fidelity.Length > 0);
-            output.WriteLine(includeFidelity
-                ? "| Change | Structure | Region | Fidelity |"
-                : "| Change | Structure | Region |");
-            output.WriteLine(includeFidelity
-                ? "| --- | --- | --- | --- |"
-                : "| --- | --- | --- |");
+            output.Write("| Change | Structure | Region");
+            if (includeDetail)
+                output.Write(" | Detail");
+            if (includeFidelity)
+                output.Write(" | Fidelity");
+            output.WriteLine(" |");
+            output.Write("| --- | --- | ---");
+            if (includeDetail)
+                output.Write(" | ---");
+            if (includeFidelity)
+                output.Write(" | ---");
+            output.WriteLine(" |");
             foreach (var row in rows)
             {
                 output.Write("| ");
@@ -105,6 +112,11 @@ internal static class StructuralReview
                 output.Write(TableCell(row.Structure));
                 output.Write(" | ");
                 output.Write(TableCell(row.Region));
+                if (includeDetail)
+                {
+                    output.Write(" | ");
+                    output.Write(TableCell(row.Detail));
+                }
                 if (includeFidelity)
                 {
                     output.Write(" | ");
@@ -127,13 +139,25 @@ internal static class StructuralReview
         return
         [
             .. correspondence.UnmatchedBefore
-            .Where(static node => node.Reason != CSharpUnmatchedNodeReason.NoCounterpart)
+            .Where(static node => !HasVerdict(node.Reason))
             .Select(static node => (CSharpStructuralSide.Before, Node: node))
             .Concat(correspondence.UnmatchedAfter
-                .Where(static node => node.Reason != CSharpUnmatchedNodeReason.NoCounterpart)
+                .Where(static node => !HasVerdict(node.Reason))
                 .Select(static node => (CSharpStructuralSide.After, Node: node)))
         ];
     }
+
+    /// <summary>
+    /// Whether an unmatched node's reason resolved to an actual structural
+    /// verdict (a real Added/Removed row) rather than being a correspondence
+    /// gap: evidence-backed <see cref="CSharpUnmatchedNodeReason.NoCounterpart"/>,
+    /// or the narrow, honestly-scoped
+    /// <see cref="CSharpUnmatchedNodeReason.InferredDeclaration"/> carve-out
+    /// (issue #5022 item 5).
+    /// </summary>
+    static bool HasVerdict(CSharpUnmatchedNodeReason reason)
+        => reason is CSharpUnmatchedNodeReason.NoCounterpart
+            or CSharpUnmatchedNodeReason.InferredDeclaration;
 
     static void WriteCorrespondenceGaps(
         StringWriter output,

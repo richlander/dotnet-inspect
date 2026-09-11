@@ -3,182 +3,356 @@
 `AGENTS.md` owns the binding rules for adversarial review: what a candidate is,
 when a round may start, what makes a review review-clean, and when to stop. This
 document owns the operational side — how to find out where the round stands, how
-to dispatch and reconcile it, and what to do when the base moves under a clean
-result.
+to dispatch and reconcile it, how approved workflow adjustments apply, and what
+to do when the base moves under a clean result.
 
 Read [Adversarial review](../AGENTS.md#adversarial-review) first. This document
-owns procedure, never round state: it decides no question of eligibility,
-recovery, completion, or carry-forward, and where it needs one of those
-conditions it cites the rule rather than restating it, so the two cannot drift
-apart. Its own imperatives — which API to spend, how to set up a reviewer, what
-the report looks like — are the mechanics it exists to hold.
+owns operational transitions and reporting, not the rules that decide
+eligibility, recovery, completion, or carry-forward. Where it applies one of
+those rules, it cites the owner rather than restating it.
+
+## User-directed workflow adjustments
+
+[AGENTS.md](../AGENTS.md#user-directed-workflow-adjustments) states the binding
+boundary: a user adjustment changes only its named sequencing gate and cannot
+make failed evidence successful or transfer fixed-head evidence. The following
+standing adjustments define their exact scope and effect.
+
+### Standing adjustments
+
+- **Review ordinary non-Markdown changes in parallel with CI:** requires user
+  approval; conflict recovery is the explicit exception. A CI failure requiring
+  an author change still supersedes the attempt, and all findings carry forward.
+- **Pre-authorize merge for the final head:** after clean reviews or a waiver,
+  the user may authorize its exact head and base ref. Keep auto-merge unarmed
+  while gates are pending; after green preflight, use the [exact-head
+  precondition](github-api-operations.md#bind-merge-mutations-to-the-head).
+  Head/base-ref change or invalidated evidence expires authorization;
+  no-interaction tip movement within the same base ref preserves it.
+- **"CI is ready":** the user's statement that CI has no failures and the PR is
+  mergeable. Trust it without re-checking and move to the next task, such as
+  dispatching the next round's reviewers.
+- **Authorizing the next round before CI completes:** the agent does not need
+  to check CI status first; proceed with the authorized round.
+- **Skip re-review after a trivial base interaction:** requires the user's
+  approval for one exact integration head and its mechanically resolved
+  interaction at one exact analyzed base tip, offered only for a
+  `main`-targeting PR or bottom open stack slice whose waiver lineage starts at
+  one immutable review-clean head and recorded base (a renewal may only
+  integrate a further moved base from that same lineage).
+  Every overlap must resolve mechanically — analyzed base side verbatim, or
+  drop the PR's change to that file — and the cumulative diff against the
+  newest base must stay a subset of the original reviewed diff with no
+  surviving reviewed claim, contract, or behavior changed. `review-clean` stays
+  absent on the integration head. Later no-interaction base movement extends
+  the waiver and recorded merge authorization to the analyzed tip without
+  moving the head or asking again; head movement or any other interaction
+  expires both. Semantic conflict resolution or new authored change requires
+  ordinary re-review. Evidence to publish:
+  [Trivial-interaction re-review waiver](#trivial-interaction-re-review-waiver).
+
+## Candidate lifecycle
+
+[Canonical round flow](../AGENTS.md#canonical-round-flow) and
+[Forming a candidate](../AGENTS.md#forming-a-candidate) state the binding
+summary. This section owns the full round cycle, eligibility table,
+review-clean definition, and recovery transitions.
+
+### The round cycle
+
+Steps 1-5 run unlocked; the push at step 6 locks the head until step 10 closes
+it or a recovery transition supersedes it. Both integrations (steps 1 and 4)
+happen before the push — base movement after the push does not reopen the
+locked candidate.
+
+Before step 1 for new work, visibly state `Design basis:`. Name exactly one
+normative owner with its exact document section and owned claim, then identify
+supporting models, adjacent contracts, consumed constraints, and consumer
+boundaries by role rather than presenting them as co-owners. Apply the
+[design-scope rules](design-scope.md) before starting if ownership is unclear
+or the work appears to need multiple normative owners.
+
+1. Integrate the effective base.
+2. Make the initial or review-driven change.
+3. Run the focused gate.
+4. Integrate the effective base again.
+5. Re-run focused gates for anything the integrated range can affect.
+6. Push and record the candidate head and effective base; the lock begins.
+7. Satisfy the applicable eligibility row below.
+8. Dispatch every required reviewer at the exact candidate head.
+9. Reconcile all feedback publicly.
+10. Close only when reconciliation, the applicable local gates, and the status
+    acquisition cadence are satisfied. The lock ends, the round number is
+    spent, and the visible [round report](#the-round-report) is required.
+
+### Eligibility table
+
+| Attempt | Required before reviewer dispatch | May remain pending |
+| --- | --- | --- |
+| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate, applicable CI rule below | Mergeability; eligible pending CI |
+| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
+| Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
+| Failed-gate restart | Required fix pushed, one status attempt, applicable CI rule below, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
+| Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
+
+A non-Markdown candidate requires green current-head `ci-required` before
+reviewer dispatch unless the user authorized parallel review or conflict
+recovery applies. A Markdown-only candidate (every changed file is `*.md`)
+substitutes pre-commit `markdownlint` at non-boundary rounds. Only these
+exceptions make pending CI eligible; `ci-required` remains mandatory at
+six-round boundaries and final merge.
+
+### Review-clean, and recovery
+
+A review is **review-clean** when public reconciliation leaves no finding
+unresolved (a justified dismissal counts if recorded publicly) and the head did
+not move in response. Only a replacement head can earn `review-clean` after a
+fix-producing round. The report classification `clean` requires every required
+reviewer to return no findings against an unchanged locked head; use
+`converging`, `neutral`, or `diverging` when at least one finding was returned.
+
+Recovery transitions, applied without waiting for CI:
+
+- **Conflict:** supersede, integrate, resolve, push immediately, and restart
+  the same round. A conflict after clean review may instead take the
+  [exact-head trivial-interaction waiver](#trivial-interaction-re-review-waiver)
+  path when its resolution satisfies every stated condition; don't dispatch
+  replacement reviewers while that decision is pending.
+- **Scope violation:** keep the locked head unchanged while the user chooses
+  split, abandonment, or an approved broad exception (see
+  [Recovering from an over-broad design](design-scope.md#recovering-from-an-over-broad-design)).
+  A resulting head change follows the author-change transition at the same
+  round.
+- **Failure requiring an author change:** supersede, push the fix, satisfy the
+  failed-gate row, and restart the same round.
+- **Cancelled or evidenced transient failure:** keep the lock and retry the
+  unchanged head; repeat only with concrete transient evidence, otherwise treat
+  it as an author change.
+
+A final-gate `ci-required` failure observed during or after a non-boundary
+Markdown-only round does not interrupt or reopen that round. Finish its review
+path; afterward, retry the unchanged head only with concrete transient evidence,
+otherwise remove `review-clean` and form a candidate at the next round number.
+Never close a round or goal while one of its applicable required checks is red. A
+superseded attempt spends no round and gets no completion report; let its
+reviewers finish or acknowledge cancellation, and carry every returned finding
+forward.
+
+### Merge preflight
+
+Before an agent-driven merge, re-read GitHub state and confirm the expected
+head and base-ref name, valid review-clean or approved-waiver evidence,
+non-draft status, positive mergeability, and successful current-head
+`ci-required`. A mismatch, invalid evidence, true draft flag, REST
+`mergeable: null`, GraphQL `mergeable: UNKNOWN`, missing gate, or gate from
+another head is not ready. Use a GraphQL snapshot so documented
+`mergeStateStatus: BLOCKED` can also block the action; do not infer that enum
+from undocumented REST `mergeable_state` values. Follow
+[GitHub status queries](github-status-queries.md).
+
+GitHub merge and auto-merge bind an expected head, not an expected base. This
+preflight and carry-forward analysis are point-in-time observations, not an
+exact-base lock; do not chase `main` with branch updates to approximate one.
+Exact-base integration revalidation requires a merge queue or equivalent
+ruleset. Keep GitHub auto-merge unarmed while gates are pending. After a green
+preflight, exercise a recorded authorization through a direct merge using the
+[exact-head precondition](github-api-operations.md#bind-merge-mutations-to-the-head).
+If an auto-merge request exists, disable it before any recovery mutation or
+head-moving push.
+
+For stacks, every open layer must meet its applicable eligibility row above. A
+known-red or conflicted parent blocks upper slices; a pending parent does not
+block a first or conflict-recovery attempt.
 
 ## Status discovery
 
-Two questions — is the PR mergeable, and is it green. What varies is which API
-you spend answering them. Which attempts must wait for the answer is the
-eligibility table in [Canonical round flow](../AGENTS.md#canonical-round-flow).
+Two questions matter: is the PR mergeable, and is it green. The eligibility
+table in [Canonical round flow](../AGENTS.md#canonical-round-flow) decides
+which attempts must wait for those answers. This section owns when a status
+snapshot runs and how its result changes round state.
 
-### Which API to spend
+### Obtain one snapshot
 
-Default to REST. Reach for GraphQL when its capability is worth a point.
+Follow [GitHub status queries](github-status-queries.md) for API selection,
+request ordering, live-base conflict probing, fixed-head checks, and response
+classification. This document does not restate those mechanics. It consumes
+one classified snapshot and applies the round transition below.
 
-The two draw on separate hourly limits, so spending one does not touch the
-other. Checking is cheap: `rate_limit` does not consume the `core` or `graphql`
-quota it reports, verified by three consecutive calls leaving both counters
-unchanged. It is not unlimited — GitHub's secondary rate limits still apply — so
-read it when you need it, not in a loop.
+### Apply the result
 
-```bash
-gh api rate_limit --jq '.resources|to_entries[]
-  |select(.key=="core" or .key=="graphql")
-  |"\(.key)\tused=\(.value.used)/\(.value.limit)\treset=\(.value.reset|todate)"'
-```
+Handle lifecycle, head/base mismatch, and conflict outcomes in the order
+defined by [GitHub status queries](github-status-queries.md). Clear status
+predicates, `schedule`, `status-deadline`, and `goal` when the workflow leaves
+that wait. Preserve unrelated members such as `review`.
+
+Evaluate `waiting` as a set, not an exact string. Normalize new CI waits to
+`check:ci-required`, remove only predicates the result resolves, and preserve
+unrelated members such as `review`. In the table, **status members** means
+`checks`, every `check:<name>`, and `merge`.
+
+| Status snapshot says | Round transition |
+| --- | --- |
+| PR is merged | Leave the status wait, perform the [theme handoff](agent-session-state.md#complete-a-merge-with-a-theme-handoff), relinquish ownership, and end. |
+| PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
+| Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
+| Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
+| GitHub reports a conflict, or the local live-base test merge conflicts | Leave the status wait; apply conflict recovery before considering CI. |
+| `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
+| `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
+| GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
+| Green `ci-required` and positive mergeability at the expected head | Leave the status wait and continue when no other predicate remains. |
+| CI or mergeability is pending or missing | Preserve the unresolved status members and apply the round cadence below. |
+| Rate-limited or transient query failure | Record the concrete failure and retry-not-before time, preserve the unresolved status members, and apply the round cadence below. |
+| Terminal query failure | Leave the status wait with `rec=stop`, surface the failure, and end. |
+
+Read the table top-down. Conflict recovery outranks CI, terminal non-green
+required CI outranks the remaining merge states, and a documented GraphQL block
+prevents a merge goal. Carry-forward remains a separate pre-merge obligation
+driven by the fetched base tip, not by undocumented REST `mergeable_state`
+values.
+
+### Bounded status waiting
+
+*This section defines repository policy, not GitHub timing guarantees.*
+
+Every round attempts one current-head snapshot. When CI is a reviewer-dispatch
+prerequisite, pending, missing, rate-limited, or transient status enters the
+60-minute budget below; expiry publishes the status report and stops without
+dispatch. When CI may remain pending, record that status and continue the
+current review path. A known conflict, required CI completed without success,
+or terminal query failure still takes its transition.
+
+A reviewer-dispatch CI prerequisite spends up to a 60-minute status budget
+before dispatch. Every third round, and any merge or readiness goal, may use the
+same bound. Every sixth round uses that budget, but fresh green current-head
+`ci-required` and positive mergeability remain prerequisites for the next-block
+approval prompt. Measure the budget from the first scheduled wait and publish
+`status-deadline=<UTC>`.
+
+Arm at most one schedule at a time. Key it to its own ID plus the expected
+`head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself
+and exits before querying GitHub. A current run stops itself, clears the
+retained ID, obtains one snapshot, and may arm one successor only when the
+deadline still permits it. Retain `conflict-checked-base` with the wait state;
+each snapshot fetches the live base and locally tests it only when that exact
+tip has not already been checked for the expected head.
+
+For rate limits, never schedule before the query classification's
+retry-not-before time. GitHub documents `Retry-After` as authoritative,
+`x-ratelimit-reset` when the primary remaining count is zero, and at least a
+one-minute exponentially increasing delay for a secondary limit without
+either header. For pending or transient status without an authoritative time,
+choose a conservative delay and never schedule beyond the deadline. Do not use
+`gh run watch`, `gh pr checks --watch`, fixed-rate schedules, synchronous
+sleeps, or concurrent status requests.
+
+When the budget expires with status unresolved, obtain a final snapshot. Do not
+publish the report below unless its fetched live base equals
+`conflict-checked-base`; classify and surface a fetch or probe failure instead.
+Then clear `schedule`, keep the unresolved predicates, publish the report, set
+`rec=stop`, and end. This is an informational stop: it ends observation only
+and neither closes nor abandons the PR.
+
+### Status budget report
+
+Emit this report as visible session output, never inside an approval prompt:
 
 ```text
-core     used=10/5000     reset=2026-08-21T22:55:53Z
-graphql  used=335/5000    reset=2026-08-21T23:12:28Z
+Status not observed for PR <number> at round <n> after <mm> minutes.
+- Theme: <one-sentence session theme>.
+- Head: <40-character SHA>
+- Unresolved: <waiting predicates>
+- Last observation: ci-required=<state|not-observed>,
+  mergeable=<true|false|null|not-observed> at <datetime>.
+- Local conflict probe: base=<40-character SHA>, checked at <datetime>.
+- Cause: <rate-limit evidence, transient failure, or still running/queued>.
+- Snapshots: <count>, last at <datetime>.
+- This is not a CI result. No failing check was observed. GitHub documents
+  hosted-job execution limits up to 6 hours and self-hosted queue limits up to
+  24 hours, so this repository's 60-minute budget can expire first.
+- Effect: <next round not started | boundary approval withheld>.
+- Next: <what a later user or workflow turn should re-check>.
+Recommendation: stop (status budget exhausted); nothing is closed or abandoned.
 ```
 
-Read the reset, not just the remaining count. That sample looks like GraphQL has
-plenty left, but it was taken three minutes into a fresh window. Concurrent
-agents were burning roughly 77 points per minute, which projects to about 4,600
-of the 5,000 before it resets — consistent with two earlier readings that caught
-the same window late, at 4,077 and 4,287 consumed. REST core stayed at single
-digits throughout.
-
-So GraphQL is reliably contended and REST reliably is not, but a spot check
-early in a window will tell you the opposite.
-
-The cost models differ in the way that decides the rule. A REST call costs one
-request whatever it returns, so a wide question costs a call per object. A
-GraphQL query is priced by node count, but the floor dominates in practice: the
-routine status query at 101 nodes and a deliberately wide one at 701 nodes — PR
-fields, live base tip, 50 review threads with their comments, 50 reviews, 100
-check contexts — both cost **1 point**.
-
-GraphQL's value per point therefore rises with breadth, while REST's cost rises
-with it. Spend a point when you are buying breadth:
-
-- **Quick checks — REST.** Is this head mergeable, did `ci-required` pass. Two
-  calls, from a bucket with thousands to spare.
-- **Wide or graph-shaped reads — GraphQL.** The whole PR at one instant, review
-  threads with their comments, anything needing the live base tip beside other
-  fields. One point buys what would be five or ten REST calls.
-- **Either bucket near exhaustion — use the other**, whatever the question.
-
-### The REST pair
-
-The default for a routine status check. Two calls, the second pinned to the sha
-the first returned:
-
-```bash
-gh api repos/{owner}/{repo}/pulls/{n} \
-  --jq '{head:.head.sha,draft,mergeable,mergeable_state}'
-gh api "repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100" \
-  --jq '[.check_runs[]|select(.name=="ci-required")|{status,conclusion}]'
-```
-
-The pin is an advantage, not merely a second call: check state is read for an
-explicit commit rather than for whatever GitHub considers the latest one. The PR
-endpoint also triggers mergeability computation, which is why it resolves
-`UNKNOWN` when GraphQL does not.
-
-### The GraphQL query
-
-One request, one point, and one consistent snapshot. Prefer it when you need
-breadth — the live base tip that carry-forward reads, review threads, or the
-whole PR at a single instant — or when REST is the contended bucket.
-
-Return `headRefOid`, `baseRefOid`, `baseRef { target { oid } }`, `isDraft`,
-`mergeable`, `mergeStateStatus`, `statusCheckRollup` state and contexts with
-`pageInfo`, and the query's own `rateLimit` cost, remaining quota, and reset
-time. Request enough contexts for the normal check matrix; if
-`pageInfo.hasNextPage` is true and `ci-required` is absent, page before
-concluding that it is missing.
-
-### Reading either result
-
-Confirm the readiness conditions in [before merge, the PR is mergeable and
-green](../AGENTS.md#forming-a-candidate) against this result.
-
-Every status check re-reads the head and compares it. A run or check identifier
-is pinned to one commit and cannot detect a later push, so retain the expected
-head SHA locally. Do not scatter discovery beyond the pair or the single query;
-additional calls are for pagination and one-off details, after the head is
-confirmed.
-
-### Four traps in the result
-
-- **Green CI does not imply mergeable.** The two are independent; a PR can
-  report every check successful while GitHub reports `CONFLICTING`/`DIRTY`.
-  Read mergeability from the mergeability fields, never inferred from checks.
-- **`mergeStateStatus` is not check state.** It is a composite, and it reports
-  `CLEAN` for a PR with no checks at all — so `CLEAN` alone never establishes
-  that anything ran.
-- **A missing `ci-required` is inconclusive**, not green: the aggregate may not
-  have registered yet. No PR is green until its current-head `ci-required` has
-  completed with a `SUCCESS` conclusion.
-- **A skipped job is not evidence.** `COMPLETED`/`SKIPPED` does not block, but
-  never cite it as validation. If a change should have triggered a job that
-  skipped, the path filter is the bug.
-
-### Resolving `UNKNOWN`
-
-`UNKNOWN` means GitHub has not finished computing the merge, and it does not
-satisfy the zero-conflict gate. It is a GraphQL answer; the REST PR endpoint
-triggers the computation, so reaching for the REST pair often returns a definite
-result while GraphQL still says `UNKNOWN`.
-
-Accept it only when `head.sha` is the expected head. `mergeable: true` satisfies
-the mergeability half of the gate; `mergeable: false` blocks. A null result is
-still computing: yield five minutes with small random jitter, then ask again.
-Continue that self-recovery until GitHub returns a definite result. Do not ask
-the user to report CI or mergeability.
-
-### Cadence
-
-Status discovery must conserve the shared GitHub API budget. After every push,
-schedule one status check for five minutes later; do not hold a synchronous shell
-or agent turn open with `sleep`. That first check verifies the expected head and
-detects conflicts early.
-
-| First check says | Do this |
-| --- | --- |
-| `ci-required` failed or was cancelled | Stop polling. Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A settled red result is an answer, not something to wait out. |
-| `CONFLICTING` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule a new five-minute check. |
-| `MERGEABLE`, `ci-required` green at this head | **Done. Stop polling** and proceed to whatever waited on the answer. |
-| `UNKNOWN`, CI green | Ask REST, which triggers the computation; see [resolving `UNKNOWN`](#resolving-unknown). |
-| `UNKNOWN`, CI pending or missing | Follow up at 10 minutes plus jitter for documentation-only, or at the 35-minute mark otherwise. |
-| `MERGEABLE`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, wait 10 minutes plus jitter. |
-| `MERGEABLE`, not documentation-only | Expect CI at about 35 minutes from the push; schedule the next check about 30 minutes out. |
-
-Read the table top-down: the first matching row wins. A failed or cancelled
-check outranks every mergeability value, because `MERGEABLE` describes the merge
-path and never means green. The green row is the exit: every other row schedules
-another check, so polling stops only by reaching it or by leaving for a recovery
-transition.
-
-If both mergeability and CI remain unresolved, keep at least 10 minutes plus
-small random jitter between status checks. Switch to the five-minute cadence
-once CI is green and mergeability is the only unknown.
-
-If the bucket you are spending is near exhaustion, switch to the other one; if
-both are low, yield until the earlier reset rather than sleeping or continuing
-to query. These intervals are minimums, not targets: wait longer when no
-decision depends on an immediate result. Yield the session or schedule a delayed
-wake-up between checks. Do not use `gh run watch`, `gh pr checks --watch`, or a
-polling loop.
+Never describe an unobserved result as failure, red, or blocked. Cite the
+observed HTTP status and rate-limit headers rather than guessing the cause. At
+a six-round boundary, withhold the approval prompt until a later current-head
+snapshot satisfies the prerequisite. The duration context comes from
+[GitHub Actions limits](https://docs.github.com/en/actions/reference/limits).
 
 ## Running a round
 
+### Reviewer roster
+
+[How many reviewers, and from which models](../AGENTS.md#how-many-reviewers-and-from-which-models)
+states the binding tier table and roster name. Every non-trivial change gets one
+review seat; there is no second seat and no clean-count-based selection. Use
+[Agent model mapping](agent-models.md) to resolve the name to a dispatch ID.
+
+Select GPT-5.6 Sol by default. Use GPT-6 Astra for complex changes; GPT-5.6
+Terra or Luna may fill the seat for relatively simple changes that still
+require review. If the selected model is unavailable, choose another non-Fast
+GPT model sufficient for the change's complexity, report the substitution and
+its reasoning on the PR, and proceed without approval. Non-GPT models, Fast
+models or modes, and extra-high (`xhigh`) reasoning are prohibited when the
+harness advertises GPT models. This prohibition governs dispatch only; observe
+and use otherwise valid work returned by a mistakenly prohibited launch. One
+round evaluates one settled head with its required reviewer.
+
 ### Dispatch
 
-Give each reviewer the same self-contained prompt: exact base and head, design
-intent, relevant diff, concrete attack points, and required real-run evidence.
+Start every reviewer prompt with the complete contents of
+[`docs/adversarial-review-prompt.md`](adversarial-review-prompt.md).
+Read it directly before composing the prompt:
 
-State plainly that reporting CLEAN is an acceptable outcome. A prompt that only
-rewards findings will produce findings.
+```bash
+cat docs/adversarial-review-prompt.md
+```
+
+Do not summarize, paraphrase, reorder, or put candidate-specific instructions
+before the fixed prompt. Append the candidate's exact base and head, design
+intent, relevant diff, concrete properties under test, prior findings, and
+required real-run evidence. The appended material may narrow the review but
+must not weaken or broaden the prompt's trust model and finding-admission rules.
+It also records the user purpose, convention or best-practice baseline,
+intentional divergence, analogous implementation evidence, pathological or
+boundary case and gate, complexity basis, consumer, production-host adoption,
+and retirement plan, rendering strategy, current slice and residual work, and
+the demo with a neighboring case. Use `Not applicable — <reason>` only when
+the reason names the relevant change classification and exact-head evidence;
+cite the owning design's exact section when it defines the boundary.
+Agents that prefer a structured composition aid may instead fill the optional
+[`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
+which includes the same fixed prompt followed by candidate placeholders.
+
+Do not dispatch with a generic or incoherent frame. The prompt must name one
+normative owner and exact claim, the supported actor or caller, the controlled
+or variable input, the boundary through which it reaches the claim, trusted
+parties and excluded scenarios, the user purpose, baseline and any divergence,
+relevant analogous evidence, pathological case and gate, current slice,
+residual work, demo and neighboring case, the observable consequence, and the
+evidence that would falsify the claim. For an applicable architecture,
+capability, substrate, host, or broad rendering change, candidate formation
+must also supply the complexity basis, named consumer, focused issue, overall
+end-to-end tracker, enumerated production-host adoption path and total step
+count, any applicable existing-architecture retirement plan, any recorded
+single-consumer or single-host approval and its exact scope, and the rendering
+strategy. Host-neutral components still require the counted path to observable
+host behavior; test infrastructure may name its harness as the production
+host. Reviewers judge the visible design's consistency with those supplied
+facts; they do not grant approvals or invent roadmap decisions. State the facts
+directly in the self-contained prompt; links may support them but do not
+replace them. For a correctness review without an untrusted actor, name the
+ordinary supported caller and input instead. Candidate formation must make
+every non-applicability explanation judgeable from the normative owner,
+changed surfaces, and exact-head diff. If required fields cannot be filled or
+non-applicability cannot be established, return to design or scope
+clarification before spending a review round.
+
+Give the seat the completed prompt and its worktree path. State candidate
+facts rather than rewarding findings; the canonical prompt already makes
+reporting CLEAN an explicit successful outcome.
 
 Isolate every reviewer in a separate linked review worktree under the primary
 checkout's `.worktrees/` directory or an operating-system temporary directory;
@@ -190,6 +364,51 @@ Before acting on a blocking finding, reproduce it on a clean exact-head review
 worktree. A reviewer's own probe can be vacuous — an added rule clause that
 changes nothing for an already-entitled input looks green for the wrong reason —
 so reproduce the finding and measure it before accepting its severity.
+
+### Wording the prompt
+
+The canonical prompt requires a property description rather than an attack
+brief. An exploit-tutorial-style prompt can trip a model's content filter, and
+**that failure is silent**: the reviewer returns an empty or near-empty
+response with a clean worktree, which is indistinguishable from a broken model
+or a stalled harness.
+
+This has happened here and cost most of a day, so treat it as a live hazard
+rather than a theoretical one. The reviewer is refusing the prompt, not the
+work, and rewording it costs no surfaces, no required evidence, and no rigor.
+Keep prompts in terms of the property:
+
+- **Say what the property actually is.** If the gate enforces static-analysis
+  coverage, say that, and say the concern is unreviewed code rather than
+  attackers. Do not dress a correctness property as a security one for
+  emphasis.
+- **Name constructs structurally rather than quoting them.** Describing an
+  attribute by what a parser does with its contents asks for the same probe as a
+  literal string and reads as a specification. This is the load-bearing rule:
+  quoted strings are what draws the refusal.
+- **Use an inert marker in the required evidence.** Assigning a uniquely named
+  global proves a construct reached the output exactly as well as anything
+  active does, and it is also easier to grep for.
+- **Describe already-closed cases by name, not by spelling**, when listing the
+  floor a reviewer should push past.
+
+Apply the same discipline to notes, issues and documentation, including this
+page. A write-up that reproduces the strings in order to explain them becomes
+the hazard it is describing, for every agent that later reads it. Say what the
+construct was; do not reproduce it. For the same reason, describe an incident by
+what it teaches rather than by pointing at the pull request where it happened,
+so that following the reference is not itself the way to load the problem
+material.
+
+None of this softens the review. "Adversarial" describes the rigor, not a
+simulated attacker, and a reviewer that understands the invariant will find more
+than one handed a list of strings to retry.
+
+When a reviewer returns empty or near-empty, suspect the prompt before the
+model. Check the worktree for artifacts, then re-dispatch the same work to a
+different non-Fast GPT model: filters may differ, and one may state the reason
+where another fails silently. Do not propose repinning a roster seat on
+empty-response evidence alone.
 
 ### Reconciliation
 
@@ -213,7 +432,10 @@ prompt:
 
 ```text
 Round <n> is complete for PR <number>.
-- Review models <model-a> and <model-b> were used for adversarial review.
+- Theme: <one-sentence session theme>.
+- Review model <model> was used for adversarial review.
+- Design basis: normative owner <path#section> — <owned claim>; supporting
+  <path and role for each model, adjacent contract, constraint, or consumer>.
 - Review feedback is: [converging, diverging, neutral, clean].
 - Round start: <datetime>.
 - Round end: <datetime>.
@@ -221,7 +443,9 @@ Round <n> is complete for PR <number>.
 
 Reviews: <clean>/<required> clean — <status by reviewer>
 Blocked: <PR or issue numbers not yours to fix; omit when empty>
-Recommendation: [continue, wait, merge, approve next rounds, stop (reason)]
+Waiting: <comma-separated tool-evaluable predicates; omit when empty>
+Recommendation: [continue, wait, merge, split into focused successors,
+approve next rounds, stop (reason)]
 
 Fix description: <prose description of changes made in response to the round>.
 ```
@@ -230,30 +454,60 @@ Use `Fix description` to state the concrete review-driven changes.
 Classification must match the reviewer outcomes:
 
 - If every required reviewer returned no findings and the locked head remained
-  unchanged, use `clean`. Do not use `converging` as a generic positive label.
+  unchanged, use `clean`. The report's `Design basis` must restate the normative
+  owner and supporting-role map, confirming that review did not reveal ownership
+  drift. Do not use `converging` as a generic positive label.
 - If any reviewer returned a finding, use `converging`, `diverging`, or
   `neutral`, even when every finding was dismissed and the head stayed
   unchanged. Explain dismissals in the public reconciliation.
 
-`Reviews` records the dual-clean count that GitHub cannot observe. Every
+`Reviews` records the clean count that GitHub cannot observe. Every
 `Blocked` entry must be an existing PR or issue; file one before citing a new
-shared failure.
+shared failure. `Waiting` records one or more comma-separated predicates tooling
+can evaluate, such as `check:<name>`, `checks`, `merge`, or `review`; it is not
+a blocker, and it clears only when every listed predicate clears.
 
 - `continue` means the next round is inside the current authorized six-round
   block. Emit the report, then immediately begin the next candidate cycle. Do
   not ask, set `HELP`, or wait for user input.
-- `wait` requires a non-empty blocker list and means the agent will resume when
-  it clears.
+- `wait` requires a non-empty `Blocked` or `Waiting` field. A retained
+  `schedule` means the agent will check automatically; without one, the wait is
+  passive and resumes only when a later user or workflow turn re-enters it.
+- When a completed Markdown-only round is review-clean and no further
+  author or review round is needed, but `ci-required` remains pending or
+  missing, use `Waiting: check:ci-required` and `Recommendation: wait`. Use
+  `Waiting: check:ci-required,merge` when live mergeability is also unresolved.
+  A completed failure finishes the current round, then follows the final-gate
+  transition above; use `Recommendation: continue` only when the next round is
+  inside the authorized block.
+  An intermediate or fix-producing round reports `continue` without waiting for
+  CI only when the next round remains inside the current authorized block and
+  the status cadence permits it. At a six-round boundary, fresh green
+  current-head `ci-required` and positive mergeability are prerequisites for
+  an `approve next rounds` recommendation. If the status budget expires first,
+  publish the status budget report and withhold that approval prompt; the
+  checkpoint may still recommend split or judgment-stop on its own evidence.
+- `split into focused successors` is valid at round 12 and later six-round
+  boundaries after the required checkpoint. It requests the user's split
+  decision and follows the transition in
+  [Stop after six rounds](../AGENTS.md#stop-after-six-rounds).
 - `approve next rounds` is valid only after rounds 6, 12, 18, and so on, after
   the required architectural checkpoint. Never use it for an earlier round in
   the current block.
-- `merge`, `approve next rounds`, and `stop` request a user decision; `stop`
-  does not close anything until approved.
+- `merge`, `split into focused successors`, `approve next rounds`, and a
+  judgment `stop` request a user decision; judgment `stop` does not close
+  anything until approved. `stop (status budget exhausted)` is informational:
+  it requests no decision and leaves the PR and round state unchanged.
 
 When the recommendation needs approval, render the complete report first as
 normal session output. Then open a separate prompt containing only the concise
 decision question and answer labels. Do not repeat the report or its evidence
 inside the prompt.
+
+Before emitting the report or opening its approval prompt, synchronize the PR's
+`review-clean` label with
+[Keep the review-clean label current](../AGENTS.md#keep-the-review-clean-label-current).
+The label describes the state the report records; it must not lag behind it.
 
 The same report may also be posted on the PR; the public reconciliation may
 include more detail when the findings or fixes warrant it.
@@ -261,24 +515,160 @@ include more detail when the findings or fixes warrant it.
 ## Carry-forward after clean reviews
 
 [Clean reviews are not spent by main
-moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when this
-path applies and when it does not. This is the procedure once it does.
+moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when
+this path applies and how each landed-range classification resolves. It applies
+both to a review-clean head and to a head with a pending or approved
+trivial-interaction waiver. A carry-forward lineage is one immutable candidate
+head plus the ordered base tips analyzed against it. This is the procedure once
+the path applies.
 
-1. **Detect movement.** Compare the candidate's recorded base tip with the live
-   tip in `baseRef.target.oid`. `baseRefOid` is the base commit recorded for the
-   PR, not the live branch tip.
-2. **Inspect without integrating.** A non-mutating fetch is permitted solely to
-   read the exact landed range.
-3. **Report, then ask.** As normal session output, report which commits touch
-   files this change touches, which relied-on behavior they alter, and any
-   conflict a textual merge would resolve silently but wrongly. Say plainly
-   when nothing interacts. After that output is visible, open a separate prompt
-   that asks only whether to carry the clean reviews forward to the named tip.
-4. **Execute the rule's decision.** Exactly one of its outcomes runs here: when
-   it authorizes carry-forward, integrate that exact analyzed tip by SHA, not a
-   moving branch ref, and re-run the claimed validation and current-head CI.
-   Every other outcome — declined, interacting, or that re-run failing — returns
-   to the rule for its terminal action, which this document does not restate.
+1. **Detect movement without API spend.** Fetch the effective base
+   non-mutating, resolve its remote-tracking ref to an exact SHA, and compare
+   that SHA with the latest base tip recorded for this carry-forward lineage.
+   Do not spend GraphQL solely to read the live base tip. If a graph-shaped
+   query is already justified, the documented `baseRef.target.oid` identifies
+   the object currently pointed to by the base ref. Do not rely on undocumented
+   assumptions about `baseRefOid` freshness.
+2. **Inspect without integrating.** Read the exact landed range between the
+   recorded and fetched tips.
+3. **Classify and report.** As normal session output, report which commits
+   touch files this change touches, which relied-on behavior they alter, and
+   any conflict a textual merge would resolve silently but wrongly. State the
+   classification plainly: no interaction, trivial interaction, significant
+   interaction, or conflict requiring semantic resolution.
+4. **Act on the classification.**
+   - *No interaction:* do not integrate or push. Keep the candidate head
+     unchanged and record the analyzed tip as the lineage's new base tip. From
+     a review-clean head, keep `review-clean`; from a pending or approved waiver
+     head, keep it absent and carry the waiver forward. Preserve recorded merge
+     authorization and keep GitHub auto-merge unarmed. Start no new validation,
+     CI, review, or waiver decision; final preflight still observes the existing
+     current-head gate.
+   - *Trivial interaction:* if the PR remains open, expire merge authorization,
+     disable any armed auto-merge first, and handle an already-merged result as
+     terminal. Then remove `review-clean`, integrate the exact analyzed tip,
+     resolve every overlap mechanically as classified, run affected focused
+     gates, and push. Follow the waiver procedure below before dispatching
+     replacement reviewers.
+   - *Significant interaction, no conflict:* if the PR remains open, expire
+     merge authorization, disable any armed auto-merge first, and handle an
+     already-merged result as terminal. Then remove `review-clean`, integrate
+     the tip, re-run the claimed validation, push, obtain current-head CI, and
+     re-dispatch the required reviewers at the new head as a normal round.
+   - *Conflict requiring semantic resolution:* expire merge authorization,
+     disable any armed auto-merge first, and handle an already-merged result as
+     terminal. Then remove `review-clean` and resolve it as an author change under
+     [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
+     the required reviewers at the new head.
 
-For an approved carry-forward, record the reviewed head, the old and approved
-new tips, the non-interaction analysis, and the user's decision on the PR.
+For a no-interaction carry-forward, record the unchanged candidate head, the
+old and newly analyzed tips, the non-interaction analysis, and the preserved
+review or waiver state on the PR. For every other outcome, record the
+classification and the action taken. An ordinary replacement review produces
+the resulting round's normal
+[round report](#the-round-report); an approved trivial-interaction waiver does
+not start or spend a replacement round.
+
+### Trivial-interaction re-review waiver
+
+The binding criteria and evidentiary limits live in
+[Standing adjustments](#standing-adjustments). Approval covers one
+exact integration head and its mechanically resolved interaction at the named
+base tip; later no-interaction tips extend that lineage without changing the
+head. After the integration head is pushed, publish this evidence before
+asking:
+
+- the immutable reviewed head and its recorded base, the prior integration
+  head/base when renewing, and the new integration head/base;
+- every overlapping file and the mechanical resolution applied;
+- a comparison proving the cumulative resulting PR diff is a subset of the
+  original reviewed diff;
+- why removed or base-side changes do not alter the surviving reviewed claims,
+  contracts, or behavior; and
+- the affected focused-gate results and current status observation.
+
+Do not dispatch replacement reviewers while the waiver decision is pending. If
+the user has not already approved the adjustment, open a separate prompt only
+after the evidence appears in normal session output. Ask whether to skip
+re-review for the exact integration head; keep the prompt itself concise.
+
+On approval, record the immutable reviewed head/base, the approved exact
+integration head/base, and the waiver's evidentiary consequence on the PR.
+Keep `review-clean` absent because the new head was not reviewed, and continue
+to current-head CI, live mergeability, and merge authorization.
+Without approval, do not waive review; resume the ordinary replacement
+workflow when work continues. A resolution that no longer satisfies the
+criteria requires ordinary re-review. Later base movement requires
+carry-forward classification: no interaction extends the pending or approved
+waiver and recorded merge authorization to the newly analyzed tip without
+another integration or decision; if observed while the PR remains open, any
+other interaction invalidates both. Any head movement also invalidates both.
+
+## Block boundaries and splitting
+
+[Stop after six rounds](../AGENTS.md#stop-after-six-rounds) states the binding
+rules: rounds 1-6 run without approval, approval is required only before
+rounds 7, 13, 19, and so on, and round 12 (and every six-round boundary after
+it) carries a presumption to split remaining work into focused successors.
+This section owns the checkpoint procedure and the split mechanics.
+
+### The block-approval checkpoint
+
+Before requesting another block, answer:
+
+1. **What changed?** Summarize product, architecture, and test improvements,
+   findings retired, and confidence gained. Separate durable progress from
+   churn.
+2. **Are reviews converging?** Cite clean counts and repeated versus new finding
+   categories. State why a clean round is or is not likely in the next block.
+3. **Are the foundations sound?** Classify remaining findings as architectural,
+   coverage gaps, contract expansion, or harness-only concerns.
+4. **Should implementation pause for a docs-only design PR?** Recommend it when
+   contracts, ownership, or architecture need direct repository-owner
+   engagement.
+5. **If design work was skipped last block, why skip it again?** The prior
+   decision is not standing authorization; identify the new evidence that makes
+   implementation rounds the better investment.
+
+Publish the complete checkpoint as normal session output before opening the
+approval prompt. The prompt asks only which recommended action to authorize; it
+must not contain the checkpoint itself.
+
+### Round 12 and later six-round boundaries
+
+At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
+
+1. **Would a design doc better define the design space?** Foundational APIs
+   weigh heavily toward yes.
+2. **Can hardening move to followups?** State whether deferring remaining
+   hardening to followup work would unlock this PR's value for other agent
+   work sooner.
+
+Split the remaining work into focused successors unless the checkpoint
+establishes a strong reason to keep the PR intact and the user explicitly
+approves that exception. The strong reason must explain why the remaining
+claims cannot become independently reviewable successors, why the reviews are
+still converging, and why continuing the same PR is safer than splitting it.
+Reviewer familiarity, sunk cost, or the inconvenience of restacking are not
+strong reasons. Sprawling changes accumulated across review comments are
+themselves a sign that the remaining work should be split.
+
+State the proposed remedy and end with one recommendation: split into focused
+successors, approve the next implementation block under the strong-reason
+exception, switch to a docs-only design PR, or stop. If consecutive rounds only
+strengthen the harness while the product goes unchallenged, report that count
+and recommend splitting or stopping rather than continuing by reflex.
+
+### Executing a split
+
+After round 12 or a later six-round boundary closes, the split recommendation
+puts the completed head in an immutable decision hold while the user decides.
+This is not a round lock; do not mutate the head or dispatch another round
+during the hold, including for conflict recovery.
+
+If approved, publicly assign every current change, claim, and finding —
+including resolved or dismissed findings and their resulting changes or
+rationale — to a focused successor, or explicitly record why an item is being
+dropped. Close the current PR as superseded without merging it, and open the
+successors from their effective base. Each successor starts at round 1;
+reviews, round counts, and authorization blocks do not carry forward.

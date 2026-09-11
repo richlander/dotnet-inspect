@@ -2,7 +2,7 @@ using System.Text.Json;
 
 using DotnetInspector.Core;
 using DotnetInspector.Services;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.DecompilerHarness;
@@ -83,7 +83,7 @@ static class AuthoredCorpusDrift
 
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         using var httpClient = HttpClientFactory.CreateClient();
-        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(HttpClientFactory.SharedUntrustedFetch);
 
         var results = new List<RowResult>();
         var matchedGroups = new HashSet<string>(StringComparer.Ordinal);
@@ -104,11 +104,8 @@ static class AuthoredCorpusDrift
                 foreach (var record in group)
                     results.Add(await EvaluateRowAsync(source, record, fetcher, repositoryPaths));
             }
-            catch (Exception ex) when (ex is IOException
-                or InvalidOperationException
-                or BadImageFormatException
-                or HttpRequestException
-                or TaskCanceledException)
+            catch (Exception ex) when (
+                AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
             {
                 // The assembly's SourceLink PDB could not be opened or acquired, so
                 // no row for it can be verified. Surface every row as Unavailable
@@ -136,7 +133,7 @@ static class AuthoredCorpusDrift
     static async Task<RowResult> EvaluateRowAsync(
         SourceLinkService source,
         AuthoredSourceHarvest.CorpusRecord record,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         IReadOnlyList<string>? repositoryPaths)
     {
         var subject = new FindingSubject(
@@ -146,7 +143,7 @@ static class AuthoredCorpusDrift
         PdbMemberSourceInspection authored;
         try
         {
-            authored = await PdbSourceAcquisition.AcquireMemberAsync(
+            authored = await PdbSourceHouse.AcquireMemberAsync(
                 source,
                 record.MetadataToken,
                 record.Method,
@@ -164,14 +161,25 @@ static class AuthoredCorpusDrift
 
         if (authored.Text is not { } memberSource || memberSource.Length == 0)
             return new RowResult(record, Outcome.Unavailable, "acquire: no source text");
+        if (record.PrinterBody is not null
+            && record.PrinterBodyVersion
+                != AuthoredSourceOracleManifest.PrinterComparisonVersion)
+        {
+            return new RowResult(
+                record,
+                Outcome.Unavailable,
+                $"extract: Printer body version {record.PrinterBodyVersion?.ToString() ?? "<missing>"} "
+                    + $"is unsupported; expected {AuthoredSourceOracleManifest.PrinterComparisonVersion}");
+        }
 
         // Reduce the PDB line-span slice to the same disambiguated member body the
         // harvester stored, so the comparison is like-for-like.
-        if (!AuthoredRebuildFidelity.TryExtractTargetBody(
+        if (!AuthoredRebuildFidelity.TryExtractTargetBodies(
                 memberSource,
                 record.Method,
                 record.ParameterCount,
-                out string body)
+                out string body,
+                out string? printerBody)
             || body.Length == 0)
         {
             return new RowResult(record, Outcome.Unavailable, "extract: body slice failed");
@@ -181,9 +189,22 @@ static class AuthoredCorpusDrift
         // must not register as source drift (git cat-file and raw HTTP both return
         // the committed bytes, but the stored corpus body may have been harvested
         // with a different newline convention).
-        return NormalizeNewlines(body).Equals(NormalizeNewlines(record.AuthoredBody), StringComparison.Ordinal)
+        bool authoredMatches = NormalizeNewlines(body).Equals(
+            NormalizeNewlines(record.AuthoredBody),
+            StringComparison.Ordinal);
+        bool printerMatches = record.PrinterBody is null
+            || printerBody is not null
+                && NormalizeNewlines(printerBody).Equals(
+                    NormalizeNewlines(record.PrinterBody),
+                    StringComparison.Ordinal);
+        return authoredMatches && printerMatches
             ? new RowResult(record, Outcome.Verified, authored.Document?.ResolvedUrl)
-            : new RowResult(record, Outcome.Drifted, DescribeDrift(record.AuthoredBody, body));
+            : new RowResult(
+                record,
+                Outcome.Drifted,
+                authoredMatches
+                    ? "stored Printer body no longer matches the acquired block body"
+                    : DescribeDrift(record.AuthoredBody, body));
     }
 
     static string NormalizeNewlines(string text)

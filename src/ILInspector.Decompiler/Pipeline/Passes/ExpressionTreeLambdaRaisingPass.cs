@@ -355,7 +355,7 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
         {
             case LoadLocal { Index: var local } when indexByLocal.TryGetValue(local, out int index):
                 var parameter = parameters[index];
-                return new LoadArgument(index, parameter.Name, parameter.Type);
+                return new LoadArgument(index, parameter);
 
             case Call when TryArithmeticKind(node, out var kind, out var left, out var right):
                 if (RaiseBody(left, parameters, indexByLocal) is not { } raisedLeft

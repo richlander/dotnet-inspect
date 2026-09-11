@@ -4,6 +4,9 @@ This document describes the conceptual model for how dotnet-inspect commands con
 
 See also [Output Composition Model](output-composition.md) for how section
 selection, filtering, and writer capabilities compose end-to-end.
+The historical #4677 target proposed multi-item print projection; the
+[item-and-line composition](item-and-line-limits.md) records that focused L3
+ownership is still pending. Released behavior remains unary.
 
 ## Two Axes of Control
 
@@ -58,7 +61,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--value` | Scalar projection | Prints one scalar cell or field from a selected section; use `--row N\|first\|last` when multiple rows match |
 | `--urls` | URL projection | Prints URL-bearing selected-section rows as a URL list, JSONL rows, or a JSON array |
 | `--paths` | Path projection | Prints path-bearing selected-section rows as a path list, JSONL rows, or a JSON array |
-| `--print` | Row payload | Prints one document behind a selected printable section row; use `--row N\|first\|last` to choose the printable row when multiple printable rows exist |
+| `--print` | Row payload | Target: from exactly one selected row set, print one framed or structured result per row; unary `--bare`/unstructured `--out` remove that envelope |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
 
@@ -68,9 +71,14 @@ The package file sections all expose package-relative paths and uncompressed byt
 
 **Why `Package files` is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S "Package files"` file-resolution view is the correct entry point for structural exploration.
 
-### `api` Command
+### `type` and `member` Commands
 
-The `api` command extracts the public API surface from a library. Its default view is *type identity*: kind, modifiers, source URL, and member tables.
+The `type` command discovers types and inspects type identity. The `member`
+command inspects a type's members. Together they expose the public API surface
+of a library.
+
+When either route renders one resolved type, verbosity expands that type's
+identity and members:
 
 **Verbosity levels (identity):**
 
@@ -106,7 +114,17 @@ A mode-switch flag says "show me this aspect of the subject." It does not intera
 
 ### Each lens owns its own rendering
 
-The `--files` view renders a tree. The `--versions` view renders a list. `--print` projects one row of a selected printable section to the referenced document body; `--row N` chooses the Nth printable row, and multiple printable rows without `--row` produce a guidance error. `--jsonl` emits the printed row as one object. `member -S "Call Graph"` renders a Markdown edge table by default; `--tree` and `--mermaid` select standalone graph renderings, while `--markdown --mermaid` embeds the diagram in the composable Markdown document. These rendering choices are intrinsic to the lens, not controlled by verbosity. A lens may support its own sub-options (e.g. `--files --all` to include all files, not just DLLs) but those are scoped to that lens.
+The `--files` view renders a tree. The `--versions` view renders a list. In the
+multi-item target, `--print` requires one selected row set and projects every
+row to a framed document success or failure; `--row N` narrows that set to one
+stable address. `--jsonl`
+emits one complete success/failure object per selected row. `member -S "Call
+Graph"` renders a Markdown edge table by default; `--tree` and `--mermaid`
+select standalone graph renderings, while `--markdown --mermaid` embeds the
+diagram in the composable Markdown document. These rendering choices are
+intrinsic to the lens, not controlled by verbosity. A lens may support its own
+sub-options (e.g. `--files --all` to include all files, not just DLLs) but those
+are scoped to that lens.
 
 ### Default rendering should be the most useful
 
@@ -117,9 +135,8 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 | ------- | -------------------- | -------------------------- |
 | `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--path`, `-S "Package README file" --print`, `--versions`, `-S Signals` |
-| `project` | — | `-S Skills`, `-S Skills --print --row N` |
+| `project` | — | `-S Skills`, `-S Skills --paths`, `-S Skills --print` |
 | `type`/`member` | Type/member identity and sectioned evidence | `-S "Source Files" --print --row N`, `-S "Source Locations" --print --row N`, `-S "PDB Source" --print` |
-| `api` | Type fields, Members table | `--docs`, `--samples`, `--table`, `--tsv` |
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |

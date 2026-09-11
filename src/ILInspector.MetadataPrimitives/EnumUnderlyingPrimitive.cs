@@ -7,13 +7,20 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// Single width oracle for enum-typed custom-attribute arguments.
 ///
-/// SRM asks <c>ICustomAttributeTypeProvider.GetUnderlyingEnumType</c> for a
-/// name and then consumes that many value bytes. The pre-decode guard has to
-/// skip the same number of bytes or every later declared count is read from
-/// the wrong offset. Both callers therefore resolve a handle or serialized
-/// name to a local <see cref="TypeDefinition"/> the same way and apply the
-/// same <see cref="SignatureBlobGuard"/> fallback to
-/// <see cref="PrimitiveTypeCode.Int32"/>.
+/// The owned decoder resolves a handle or serialized name to a local
+/// <see cref="TypeDefinition"/> before consuming the enum value bytes. A local
+/// TypeDef wins over a caller-supplied resolver. If neither path resolves the
+/// width, the decoder uses <see cref="PrimitiveTypeCode.Int32"/> and its
+/// detailed result reports that fallback as defaulted. For a handle the decoder
+/// resolves the width directly from the definition; for a blob-authored
+/// SerString it strips the assembly qualification and restores reflection
+/// escapes before lookup. Both then <see cref="Normalize"/> the returned code
+/// so an assembly-qualified SerString or a non-fixed-width callback cannot
+/// select an unexpected width.
+/// <c>CustomAttributeValueDecoderTests</c>'s
+/// <c>EscapedNamedEnum_MalformedAssemblySuffix_SeesOverlappingHostileCount</c>
+/// and <c>EscapedNamedEnum_OverBudgetAssemblySuffix_SeesOverlappingHostileCount</c>
+/// gate that resolution.
 /// </summary>
 static class EnumUnderlyingPrimitive
 {
@@ -49,12 +56,98 @@ static class EnumUnderlyingPrimitive
         return PrimitiveTypeCode.Int32;
     }
 
+    public static bool TryFromEnumDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        out PrimitiveTypeCode code)
+    {
+        code = default;
+        try
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            if ((definition.Attributes & TypeAttributes.Sealed) == 0
+                || TypeResolver.GetTypeName(reader, definition.BaseType)
+                    != "System.Enum"
+                || definition.GetGenericParameters().Count != 0)
+            {
+                return false;
+            }
+
+            bool found = false;
+            foreach (FieldDefinitionHandle fieldHandle in definition.GetFields())
+            {
+                var field = reader.GetFieldDefinition(fieldHandle);
+                if ((field.Attributes & FieldAttributes.Static) != 0)
+                {
+                    // Every static field of an enum is one of its named
+                    // constants, so it must be a literal. Anything else is a
+                    // shape the CLI does not admit for an enum.
+                    if ((field.Attributes & FieldAttributes.Literal) == 0)
+                        return false;
+                    continue;
+                }
+                const FieldAttributes RequiredAttributes =
+                    FieldAttributes.SpecialName
+                    | FieldAttributes.RTSpecialName;
+                // `value__` holds the enum's value at runtime, so it is a real
+                // instance slot. Literal implies static in the CLI, and a
+                // literal instance field is a shape no valid enum can carry.
+                if (found
+                    || (field.Attributes & FieldAttributes.Literal) != 0
+                    || (field.Attributes & RequiredAttributes)
+                        != RequiredAttributes
+                    || (field.Attributes & FieldAttributes.FieldAccessMask)
+                        != FieldAttributes.Public
+                    || reader.GetString(field.Name) != "value__")
+                {
+                    return false;
+                }
+
+                PrimitiveTypeCode? candidate =
+                    SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        field.Signature,
+                        SignatureBlobGuard.Kind.Field)
+                        ? field.DecodeSignature(
+                            Provider.Instance,
+                            genericContext: null)
+                        : null;
+                if (candidate is not { } underlyingType
+                    || !IsEnumUnderlyingType(underlyingType))
+                {
+                    return false;
+                }
+
+                code = underlyingType;
+                found = true;
+            }
+
+            return found;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            code = default;
+            return false;
+        }
+    }
+
+    static bool IsEnumUnderlyingType(PrimitiveTypeCode code) => code is
+        PrimitiveTypeCode.SByte
+        or PrimitiveTypeCode.Byte
+        or PrimitiveTypeCode.Int16
+        or PrimitiveTypeCode.UInt16
+        or PrimitiveTypeCode.Int32
+        or PrimitiveTypeCode.UInt32
+        or PrimitiveTypeCode.Int64
+        or PrimitiveTypeCode.UInt64;
+
     /// <summary>
-    /// SRM casts the provider result to <c>SerializationTypeCode</c> and
-    /// consumes a SerString for <see cref="PrimitiveTypeCode.String"/>.
     /// Only fixed-width enum primitives stay; everything else, including
-    /// String, falls back to <see cref="PrimitiveTypeCode.Int32"/> so the
-    /// guard and decoder skip the same four bytes.
+    /// <see cref="PrimitiveTypeCode.String"/>, normalizes to
+    /// <see cref="PrimitiveTypeCode.Int32"/>. A caller-provided answer remains
+    /// resolved for defaulted-width reporting; normalization only constrains
+    /// the byte width.
     /// </summary>
     public static PrimitiveTypeCode Normalize(PrimitiveTypeCode code) => code switch
     {
@@ -72,17 +165,123 @@ static class EnumUnderlyingPrimitive
         if (handle.Kind == HandleKind.TypeDefinition)
             return FromDefinition(reader, (TypeDefinitionHandle)handle);
         if (handle.Kind == HandleKind.TypeReference
-            && TryFindDefinition(reader, (TypeReferenceHandle)handle, out var definition))
+            && TryFindDefinition(
+                reader,
+                (TypeReferenceHandle)handle,
+                work: null,
+                out var definition))
             return FromDefinition(reader, definition);
         return PrimitiveTypeCode.Int32;
     }
 
     /// <summary>
-    /// Matches <c>ArgTypeProvider.GetTypeFromSerializedName</c> (strip the
-    /// assembly suffix) and the metadata index key (nested types use
-    /// <c>.</c>, not the serialized <c>+</c>).
+    /// Resolves a signature-named type handle to the definition it denotes in
+    /// this reader, structurally: a definition handle denotes itself, and a
+    /// reference is matched by name and resolution scope rather than by its
+    /// rendered spelling. The guard and the decoder both ask this one question
+    /// about the same handle, so neither can select a different definition --
+    /// and therefore a different width -- than the other. A reference to a type
+    /// this reader does not define has no local definition and resolves
+    /// elsewhere.
+    /// </summary>
+    public static bool TryResolveDefinition(
+        MetadataReader reader,
+        EntityHandle handle,
+        out TypeDefinitionHandle definition)
+        => TryResolveDefinition(reader, handle, work: null, out definition);
+
+    internal static bool TryResolveDefinition(
+        MetadataReader reader,
+        EntityHandle handle,
+        CustomAttributeValueDecoder.EnumResolutionWork? work,
+        out TypeDefinitionHandle definition)
+    {
+        if (handle.Kind == HandleKind.TypeDefinition)
+        {
+            definition = (TypeDefinitionHandle)handle;
+            return true;
+        }
+
+        if (handle.Kind == HandleKind.TypeReference)
+        {
+            return TryFindDefinition(
+                reader,
+                (TypeReferenceHandle)handle,
+                work,
+                out definition);
+        }
+
+        definition = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Projects a reflection-serialized name to the exact metadata index key:
+    /// assembly qualification is removed, escaped metadata characters are
+    /// restored, and nested segments use <c>.</c>.
     /// </summary>
     public static string NormalizeSerializedName(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (!TryParse(name, out TypeName? parsed)
+            || !parsed.IsSimple)
+        {
+            return LegacyNormalize(name);
+        }
+
+        var segments = ImmutableArray.CreateBuilder<string>();
+        TypeName current = parsed;
+        while (true)
+        {
+            if (!current.IsSimple)
+                return LegacyNormalize(name);
+
+            segments.Add(TypeName.Unescape(current.Name));
+            if (!current.IsNested)
+                break;
+            current = current.DeclaringType;
+        }
+
+        var rootToLeaf = ImmutableArray.CreateBuilder<string>(segments.Count);
+        for (int i = segments.Count - 1; i >= 0; i--)
+            rootToLeaf.Add(segments[i]);
+
+        string typeName = string.Join(".", rootToLeaf);
+        string ns = TypeName.Unescape(current.Namespace);
+        return ns.Length == 0 ? typeName : ns + "." + typeName;
+    }
+
+    public static string WithoutAssemblyQualification(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (TryParse(name, out TypeName? parsed))
+            return parsed.FullName;
+
+        int comma = name.IndexOf(',');
+        return comma >= 0 ? name[..comma] : name;
+    }
+
+    static bool TryParse(
+        string name,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out TypeName? parsed)
+    {
+        if (name.Length > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            parsed = null;
+            return false;
+        }
+
+        return TypeName.TryParse(
+            name,
+            out parsed,
+            new TypeNameParseOptions
+            {
+                MaxNodes = MetadataSafetyPolicy.MaxRelationshipNodes,
+            });
+    }
+
+    static string LegacyNormalize(string name)
     {
         int comma = name.IndexOf(',');
         if (comma >= 0)
@@ -93,21 +292,48 @@ static class EnumUnderlyingPrimitive
     public static PrimitiveTypeCode FromSerializedName(
         MetadataReader reader,
         string name)
-    {
-        ReadOnlySpan<char> simple = NormalizeSerializedName(name).AsSpan();
-        return TryFindDefinition(reader, simple, out var definition)
-            ? FromDefinition(reader, definition)
+        => TryFromSerializedName(reader, name, out PrimitiveTypeCode code)
+            ? code
             : PrimitiveTypeCode.Int32;
+
+    /// <summary>
+    /// Resolves a serialized enum name to a local TypeDef's underlying
+    /// primitive. Returns <see langword="false"/> when the name is not a
+    /// TypeDef in <paramref name="reader"/>, including when it is defined
+    /// only in a referenced assembly.
+    /// </summary>
+    public static bool TryFromSerializedName(
+        MetadataReader reader,
+        string name,
+        out PrimitiveTypeCode code)
+    {
+        // A blob-authored name is a reflection type name, so its escapes are
+        // meaningful and must be resolved before lookup: `E\+Kind` names the
+        // metadata type `E+Kind`, not one spelled with a backslash. Only
+        // handle-derived names are matched by their exact metadata spelling,
+        // and those never reach this method.
+        ReadOnlySpan<char> simple = NormalizeSerializedName(name).AsSpan();
+        if (TryFindDefinition(reader, simple, out var definition))
+        {
+            code = FromDefinition(reader, definition);
+            return true;
+        }
+
+        code = default;
+        return false;
     }
 
     static bool TryFindDefinition(
         MetadataReader reader,
         TypeReferenceHandle handle,
+        CustomAttributeValueDecoder.EnumResolutionWork? work,
         out TypeDefinitionHandle definition)
     {
         foreach (var candidate in reader.TypeDefinitions)
         {
-            if (Matches(reader, handle, candidate))
+            if (work is not null)
+                work.VisitTypeDefinitionCandidate();
+            if (Matches(reader, handle, candidate, work))
             {
                 definition = candidate;
                 return true;
@@ -141,15 +367,41 @@ static class EnumUnderlyingPrimitive
         return false;
     }
 
+    /// <summary>
+    /// Caps <see cref="Matches"/> recursion. Each step walks outward along two
+    /// chains at once -- a reference's resolution scope and a definition's
+    /// declaring type -- and metadata is untrusted, so neither chain is
+    /// guaranteed to reach an end. A NestedClass table naming two types as each
+    /// other's declaring type, paired with two references naming each other as
+    /// resolution scope, otherwise recurses until the stack is exhausted, and a
+    /// stack overflow cannot be caught. Real nesting is orders of magnitude
+    /// shallower than this bound.
+    /// </summary>
+    const int MaxNestingDepth = 128;
+
     static bool Matches(
         MetadataReader reader,
         TypeReferenceHandle referenceHandle,
-        TypeDefinitionHandle definitionHandle)
+        TypeDefinitionHandle definitionHandle,
+        CustomAttributeValueDecoder.EnumResolutionWork? work = null,
+        int depth = 0)
     {
+        if (work is not null)
+            work.VisitStructuralMatchFrame();
+        if (depth > MaxNestingDepth)
+            return false;
+
         var comparer = reader.StringComparer;
         var reference = reader.GetTypeReference(referenceHandle);
         var definition = reader.GetTypeDefinition(definitionHandle);
-        if (!comparer.Equals(definition.Name, reader.GetString(reference.Name)))
+        if (work is not null)
+        {
+            work.VisitTypeReferenceMatchNameBytes(
+                reader.GetBlobReader(reference.Name).Length);
+        }
+        if (!comparer.Equals(
+                definition.Name,
+                reader.GetString(reference.Name)))
             return false;
 
         if (reference.ResolutionScope.Kind == HandleKind.TypeReference)
@@ -159,13 +411,21 @@ static class EnumUnderlyingPrimitive
                 && Matches(
                     reader,
                     (TypeReferenceHandle)reference.ResolutionScope,
-                    enclosing);
+                    enclosing,
+                    work,
+                    depth + 1);
         }
 
-        return definition.GetDeclaringType().IsNil
-            && comparer.Equals(
-                definition.Namespace,
-                reader.GetString(reference.Namespace));
+        if (!definition.GetDeclaringType().IsNil)
+            return false;
+        if (work is not null)
+        {
+            work.VisitTypeReferenceMatchNameBytes(
+                reader.GetBlobReader(reference.Namespace).Length);
+        }
+        return comparer.Equals(
+            definition.Namespace,
+            reader.GetString(reference.Namespace));
     }
 
     static ReadOnlySpan<char> LeafName(ReadOnlySpan<char> name)

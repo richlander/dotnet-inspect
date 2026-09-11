@@ -30,9 +30,33 @@ public static class HardenedJson
 
     /// <summary>Parses a <see cref="JsonDocument"/>, rejecting duplicate property names.</summary>
     /// <exception cref="JsonException">The input is malformed or contains a duplicate property name.</exception>
-    public static JsonDocument Parse(string json) => JsonDocument.Parse(json, DocumentOptions);
+    public static JsonDocument Parse(string json)
+    {
+        try
+        {
+            return JsonDocument.Parse(json, DocumentOptions);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new JsonException(
+                "The JSON contains invalid UTF-16 text.",
+                exception);
+        }
+    }
 
     /// <summary>Parses a <see cref="JsonDocument"/> from UTF-8 bytes, rejecting duplicate property names.</summary>
     /// <exception cref="JsonException">The input is malformed or contains a duplicate property name.</exception>
-    public static JsonDocument Parse(ReadOnlyMemory<byte> utf8Json) => JsonDocument.Parse(utf8Json, DocumentOptions);
+    public static JsonDocument Parse(ReadOnlyMemory<byte> utf8Json)
+    {
+        try
+        {
+            return JsonDocument.Parse(utf8Json, DocumentOptions);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new JsonException(
+                "The JSON contains invalid UTF-16 text.",
+                exception);
+        }
+    }
 }

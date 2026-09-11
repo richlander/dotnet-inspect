@@ -13,13 +13,23 @@ on:
           - census
           - package-sweep
           - authored-corpus
+          - platform-test
+          - inspect-web
           - nightly
           - all
   schedule:
-    # Daily release certification: full slow tests plus the decompiler corpus.
+    # Daily release certification: full slow tests, the decompiler corpus, and
+    # Windows/macOS/latest-Ubuntu compatibility.
     - cron: '0 6 * * *'
-    # Weekly discovery: current packages and the authored-corpus ratchet.
+    # Daily authored-corpus regression detection, separate from certification.
+    - cron: '0 9 * * *'
+    # Weekly discovery: current packages.
     - cron: '0 9 * * 1'
+
+# Least privilege by default. Jobs needing more declare it themselves; a
+# job-level block replaces this default rather than adding to it.
+permissions:
+  contents: read
 
 env:
   DOTNET_NOLOGO: true
@@ -38,16 +48,15 @@ jobs:
       inputs.lane == 'package-sweep'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-package-sweep-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -56,7 +65,7 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build managed tool
-        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+        run: dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 
       - name: Prepare top-package slice
         shell: bash
@@ -67,7 +76,7 @@ jobs:
           # evidence, so it wants what ships today, not the pinned pool the EVIL
           # corpus measures. The pin exists to make the corpus reproducible
           # (#3353); honoring it here would quietly turn discovery into a replay.
-          dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false \
+          dotnet run \
             eng/prepare-decompiler-package-sweep.cs -- \
             artifacts/package-sweep 1 10 --resolve-latest \
             | tee artifacts/package-sweep/acquisition.txt
@@ -102,16 +111,15 @@ jobs:
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -128,13 +136,13 @@ jobs:
         run: eng/restore-iltools.sh --rid linux-x64 >> "$GITHUB_PATH"
 
       - name: Run CLI tests (including slow integration)
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
 
       - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 
       - name: Run analysis tests (including slow)
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release
+        run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release
 
       - name: Restore vendored ILAssembler
         run: bash eng/restore-ilassembler.sh
@@ -152,6 +160,144 @@ jobs:
           echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm' step." >&2
           exit 1
 
+  platform-test:
+    name: Platform test (${{ matrix.rid }})
+    # The reduced platform suite runs daily rather than on every PR. Windows is
+    # materially slower than Linux, and platform-specific failures should be
+    # discovered by scheduled platform agents instead of holding the primary
+    # development fleet. macOS and Ubuntu 26.04 run the same suite for
+    # symmetric coverage across all three operating systems.
+    #
+    # The selected suites preserve the Windows-only failures recorded in
+    # #3445, #3496, #3509, #3519, #3526, and #3542 plus path-sensitive
+    # PluginDiscoveryTests. Slow decompiler gates, the corpus sensor, IL
+    # round-trip, and packaging remain with their owning daily or release jobs.
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'test' ||
+      inputs.lane == 'platform-test' ||
+      inputs.lane == 'all'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
+          - os: ubuntu-26.04
+            rid: linux-x64
+    runs-on: ${{ matrix.os }}
+    # Windows has measured as high as 57 minutes (#4350). The initial macOS
+    # lane gets the same larger budget until its runtime variance is known.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build
+        id: build
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      # GitHub's Windows image supplies Git Bash to workflow steps without
+      # exposing it to child .NET processes. Publish its native path so the
+      # activation tests invoke Git Bash rather than the WSL launcher.
+      #
+      # continue-on-error preserves the other platform results during a feed
+      # outage. The terminal check below still makes lost oracle coverage red.
+      - name: Install ilasm/ildasm/mdv
+        id: iltools
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            printf 'ILTOOLS_BASH=%s\n' "$(cygpath -w "$(command -v bash)")" >> "$GITHUB_ENV"
+          fi
+          eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv --native-paths >> "$GITHUB_PATH"
+
+      # Run every suite after a successful build even if an earlier suite
+      # fails. Platform breaks commonly share one fixture-level cause, and
+      # reporting every affected suite makes the scheduled failure actionable.
+      - name: Run CLI tests (all)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
+
+      - name: Run CSharpText tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/CSharpText.Tests -c Release
+
+      - name: Run artifact contract tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
+
+      - name: Run ecosystem registry tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
+
+      - name: Run ecosystem consumer tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
+
+      - name: Run decompiler unit tests (fast)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+
+      - name: Run NuGetFetch tests (offline)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+
+      - name: Run metadata tests
+        id: metadata
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          DOTNET_INSPECT_D3_REPORT: ${{ github.workspace }}/artifacts/custom-attribute-d3/result.json
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --long-running 60 --xunit-diagnostics on
+
+      - name: Upload custom-attribute D3 evidence
+        if: ${{ !cancelled() && (steps.metadata.outcome == 'success' || steps.metadata.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: custom-attribute-d3-${{ matrix.rid }}
+          path: artifacts/custom-attribute-d3/result.json
+          if-no-files-found: error
+
+      - name: Run services tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Services.Tests -c Release
+
+      - name: Run query tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
+
+      - name: Run presentation tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
+
+      - name: Run Research tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ILInspector.Research.Tests -c Release -- --fail-skips on
+
+      - name: Check ilasm/ildasm/mdv result
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}
+        shell: bash
+        run: |
+          echo "::error::Restoring ilasm/ildasm/mdv for ${{ matrix.rid }} failed or timed out, so oracle tests skipped." >&2
+          echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm/mdv' step." >&2
+          exit 1
+
   decompiler-corpus:
     name: Decompiler corpus lane
     # Split out of the test lane so the multi-hour corpus sweep gets its own
@@ -164,16 +310,15 @@ jobs:
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -184,11 +329,11 @@ jobs:
         run: dotnet build dotnet-inspect.slnx -c Release
 
       - name: Run decompiler corpus sweep
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate corpus
 
   release-certification:
     name: Release certification
-    needs: [test, decompiler-corpus]
+    needs: [test, platform-test, decompiler-corpus]
     if: >-
       always() &&
       (
@@ -201,32 +346,77 @@ jobs:
       - name: Certify slow validation
         env:
           TEST_RESULT: ${{ needs.test.result }}
+          PLATFORM_RESULT: ${{ needs.platform-test.result }}
           CORPUS_RESULT: ${{ needs.decompiler-corpus.result }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$TEST_RESULT" != success ] || [ "$CORPUS_RESULT" != success ]; then
-            echo "::error::Release certification requires successful test and decompiler-corpus jobs."
-            echo "test=$TEST_RESULT decompiler-corpus=$CORPUS_RESULT"
+          if [ "$TEST_RESULT" != success ] ||
+             [ "$PLATFORM_RESULT" != success ] ||
+             [ "$CORPUS_RESULT" != success ]; then
+            echo "::error::Release certification requires successful test, platform-test, and decompiler-corpus jobs."
+            echo "test=$TEST_RESULT platform-test=$PLATFORM_RESULT decompiler-corpus=$CORPUS_RESULT"
             exit 1
           fi
           echo "Release certification passed for $GITHUB_SHA"
+
+  inspect-web:
+    name: Inspect Web comprehensive
+    # Complete mutation and dual-runtime evidence runs daily and on demand.
+    # Ordinary PRs retain fast boundary coverage; direct changes to these
+    # harnesses or their owners select the same comprehensive modes in CI.
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'inspect-web' ||
+      inputs.lane == 'all'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
+      - name: Build browser frontend
+        working-directory: inspect-web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check complete generated facade contract
+        run: eng/generate-inspect-web-engine-facade.sh --check
+
+      - name: Test complete shared-runtime multi-facade canary
+        run: eng/test-inspect-web-multi-facade-canary.sh
+
+      - name: Test complete managed-operation bridge canary
+        run: eng/test-inspect-web-managed-operation-bridge-canary.sh
 
   census:
     name: Census lane
     if: inputs.lane == 'census' || inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -234,15 +424,31 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build managed tool
-        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+        run: dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 
       - name: Prepare real-world corpus
-        run: bash eng/prepare-decompiler-corpus.sh corpus-assemblies.txt
+        run: |
+          mkdir -p artifacts/deep-inspect
+          bash eng/prepare-decompiler-corpus.sh artifacts/deep-inspect/corpus-assemblies.txt
+
+      - name: Record independently selected native RTS cutover evidence
+        shell: bash
+        run: |
+          set -o pipefail
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
+          mkdir -p artifacts/deep-inspect
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --emit-corpus-snapshot artifacts/deep-inspect/rts-cutover-snapshot.json \
+            --compile-cap 0 \
+            --corpus-fidelity-cap 50 \
+            --corpus-fidelity-oracle rts-cutover \
+            --max-examples 10 \
+            2>&1 | tee artifacts/deep-inspect/rts-cutover.txt
 
       - name: Run real-world corpus sensor
         shell: bash
         run: |
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --emit-corpus-snapshot artifacts/deep-inspect/corpus-snapshot.json \
@@ -252,7 +458,7 @@ jobs:
             --max-examples 3
 
       - name: Build classic state-machine corpus fixture
-        run: dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
+        run: dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
 
       - name: Run classic state-machine corpus sensor
         shell: bash
@@ -269,7 +475,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --emit-return-address-snapshot artifacts/deep-inspect/return-address-snapshot.json \
@@ -281,7 +487,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --emit-not-my-type-snapshot artifacts/deep-inspect/not-my-type-snapshot.json \
@@ -305,7 +511,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --validity-predicate-scan \
@@ -316,7 +522,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --validity-check \
@@ -346,7 +552,7 @@ jobs:
         run: |
           mkdir -p artifacts/analysis-census
           dotnet run --project tools/AnalysisHarness -c Release -- \
-            --corpus-list corpus-assemblies.txt \
+            --corpus-list artifacts/deep-inspect/corpus-assemblies.txt \
             --emit-corpus-snapshot artifacts/analysis-census/analysis-corpus-snapshot.json \
             --diff-corpus-baseline tools/AnalysisHarness/corpus/analysis-baseline.json
 
@@ -378,7 +584,7 @@ jobs:
       DOTNET_ROOT: ${{ github.workspace }}/.dotnet-nightly
       DOTNET_DOTNETUP_DATA_DIR: ${{ github.workspace }}/artifacts/.dotnetup
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install nightly .NET SDK with dotnetup
         shell: bash
@@ -410,7 +616,7 @@ jobs:
           "$DOTNET_ROOT/dotnet" --info
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-nightly-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -485,7 +691,7 @@ jobs:
         run: dotnet build dotnet-inspect.slnx -c Release --no-restore
 
       - name: Run unsafe decompiler tests with nightly SDK
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
 
       - name: Gate net11 opt-in feature corpus
         shell: bash
@@ -540,7 +746,7 @@ jobs:
     #
     # Note what must NOT be done instead: merely omitting --ratchet-baseline selects the
     # historical perfection contract (invalid == 0), which this ~5,200-invalid corpus
-    # cannot satisfy, so the job would fail every week and file a scheduled-failure
+    # cannot satisfy, so the job would fail every night and file a scheduled-failure
     # issue every time. Permanently red reports exactly as much as permanently green.
     # --integrity-only, which this lane carried until the bootstrap was crossed, claims
     # only that the measurement was sound and declines to judge quality at all.
@@ -551,25 +757,23 @@ jobs:
     # than it claimed and a quality metric on such a run is meaningless. It also archives
     # the run JSON, which is the input to appending a trend-store row.
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '0 9 * * 1') ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 9 * * *') ||
       inputs.lane == 'authored-corpus' ||
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
-    # Extrapolated, not measured: a 60-row run takes ~16s locally, so 12,000 rows is
-    # roughly 45-60 minutes, plus the package sweep. The budget is deliberately loose
-    # because this job has never run in CI.
+    # The complete lane measured 59 minutes on main. The budget stays deliberately
+    # loose for restore and runner variance.
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -581,6 +785,21 @@ jobs:
 
       - name: Restore the vendored authored-source corpus
         run: bash eng/restore-authored-source-corpus.sh
+
+      - name: Prepare the source-oracle assembly pool
+        run: bash eng/prepare-authored-source-oracles.sh "$RUNNER_TEMP/source-oracle-assemblies.txt"
+
+      - name: Run the whole-file source-oracle gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/deep-inspect
+          mapfile -t oracle_assemblies < "$RUNNER_TEMP/source-oracle-assemblies.txt"
+          dotnet run --project tools/DecompilerHarness -c Release -- \
+            --benchmark-authored-corpus external/authored-source-corpus/oracle/corpus.jsonl \
+            --source-oracle-manifest external/authored-source-corpus/oracle/manifest.json \
+            --json "${oracle_assemblies[@]}" \
+            > artifacts/deep-inspect/source-oracle-run.json
 
       - name: Prepare the EVIL assembly pool
         run: bash eng/prepare-evil-corpus.sh "$RUNNER_TEMP/evil-pool"
@@ -599,10 +818,12 @@ jobs:
 
       - name: Upload the run JSON
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deep-inspect-authored-corpus
-          path: artifacts/deep-inspect/authored-corpus-run.json
+          path: |
+            artifacts/deep-inspect/authored-corpus-run.json
+            artifacts/deep-inspect/source-oracle-run.json
           if-no-files-found: warn
 
   report-scheduled-failure:
@@ -614,8 +835,10 @@ jobs:
     needs:
       - package-sweep
       - test
+      - platform-test
       - decompiler-corpus
       - release-certification
+      - inspect-web
       - authored-corpus-ratchet
     if: ${{ github.event_name == 'schedule' && failure() }}
     runs-on: ubuntu-26.04

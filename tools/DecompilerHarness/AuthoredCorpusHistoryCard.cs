@@ -9,7 +9,7 @@ namespace ILInspector.DecompilerHarness;
 /// <summary>
 /// Renders a Markout progress card over the committed EVIL authored-corpus trend
 /// store (<c>tools/DecompilerHarness/corpus/evil-runs/history.jsonl</c>, one
-/// summarized run per line, newest-last). The card shows every recorded run as a
+/// summarized run per line in append order). The card shows every recorded run as a
 /// trend table plus a movement table that pivots the most recent runs onto
 /// per-metric rows with goal (↑/↓) and per-step (✓/✗) glyphs.
 ///

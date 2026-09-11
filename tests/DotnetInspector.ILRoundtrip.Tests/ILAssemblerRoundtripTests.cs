@@ -392,6 +392,120 @@ public class ILAssemblerRoundtripTests
     }
 
     [Fact]
+    public void CanonicalArrayBounds_RoundtripWithSignatureBlobEquality()
+    {
+        string il = """
+            .assembly roundtrip { }
+            .class public auto ansi MiniArrayBounds
+            {
+              .method public hidebysig static void Unbounded(int32[...]) cil managed
+              {
+                .maxstack 1
+                ret
+              }
+
+              .method public hidebysig static void ExplicitZeroLowerBounds(int32[0...,0...]) cil managed
+              {
+                .maxstack 1
+                ret
+              }
+
+              .method public hidebysig static void PartiallySpecified(int32[0...,]) cil managed
+              {
+                .maxstack 1
+                ret
+              }
+
+              .method public hidebysig static void SizeOnly(int32[6]) cil managed
+              {
+                .maxstack 1
+                ret
+              }
+
+              .method public hidebysig static void LowerOnly(int32[-2...]) cil managed
+              {
+                .maxstack 1
+                ret
+              }
+
+              .method public hidebysig static void Mixed(int32[6,-2...3]) cil managed
+              {
+                .maxstack 1
+                ret
+              }
+            }
+            """;
+
+        var source = IlasmScaffold.Assemble(il);
+        Assert.True(source.Succeeded, $"Source assembly failed:\n{source.Describe()}\n--- input ---\n{il}");
+
+        var expectedParameterTypes = new Dictionary<string, string>
+        {
+            ["Unbounded"] = "int32[...]",
+            ["ExplicitZeroLowerBounds"] = "int32[0...,0...]",
+            ["PartiallySpecified"] = "int32[0...,]",
+            ["SizeOnly"] = "int32[6]",
+            ["LowerOnly"] = "int32[-2...]",
+            ["Mixed"] = "int32[6,-2...3]",
+        };
+
+        PEReader sourceImage = source.Image!;
+        MetadataReader sourceReader = sourceImage.GetMetadataReader();
+        MethodDefinition target =
+            IlasmScaffold.FindMethod(
+                sourceReader,
+                "MiniArrayBounds",
+                "Unbounded");
+
+        foreach ((string name, string expectedParameterType)
+                 in expectedParameterTypes)
+        {
+            MethodDefinition method =
+                IlasmScaffold.FindMethod(
+                    sourceReader,
+                    "MiniArrayBounds",
+                    name);
+            MethodSignature<string> signature =
+                method.DecodeSignature(
+                    ILSignatureTypeProvider.Instance,
+                    genericContext: null);
+            Assert.Equal(
+                expectedParameterType,
+                Assert.Single(signature.ParameterTypes));
+        }
+
+        string scaffold =
+            IlasmScaffold.BuildCompilationUnit(
+                sourceImage,
+                sourceReader,
+                target);
+        var roundtrip = IlasmScaffold.Assemble(scaffold);
+        Assert.True(
+            roundtrip.Succeeded,
+            $"Round-trip assembly failed:\n{roundtrip.Describe()}\n"
+                + $"--- input ---\n{scaffold}");
+
+        MetadataReader roundtripReader =
+            roundtrip.Image!.GetMetadataReader();
+        foreach (string name in expectedParameterTypes.Keys)
+        {
+            MethodDefinition sourceMethod =
+                IlasmScaffold.FindMethod(
+                    sourceReader,
+                    "MiniArrayBounds",
+                    name);
+            MethodDefinition roundtripMethod =
+                IlasmScaffold.FindMethod(
+                    roundtripReader,
+                    "MiniArrayBounds",
+                    name);
+            Assert.Equal(
+                sourceReader.GetBlobBytes(sourceMethod.Signature),
+                roundtripReader.GetBlobBytes(roundtripMethod.Signature));
+        }
+    }
+
+    [Fact]
     public void ParserErrors_AreDetectedByHarness()
     {
         // ILAssembler does not surface ANTLR syntax errors as diagnostics (upstream

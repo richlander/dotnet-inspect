@@ -1,3 +1,4 @@
+using System.Globalization;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -39,8 +40,126 @@ public static class CompilerGeneratedNames
 
     /// <summary>Source-authored local-function and lambda method bodies.</summary>
     internal static bool IsLocalFunctionOrLambda(string methodName)
-        => GeneratedNameGrammar.IsLocalFunctionMethodName(methodName)
-            || GeneratedNameGrammar.IsLambdaMethodName(methodName);
+        => TryGetLiftedOwnerName(methodName, out _);
+
+    internal static bool HasLiftedMethodMarker(string methodName)
+        => LastLiftedMethodMarker(methodName) >= 0;
+
+    internal static bool TryGetLiftedOwnerName(
+        string methodName,
+        out string ownerName)
+    {
+        string simpleName =
+            MetadataNameArity.StripFromSegment(methodName);
+        int close = LastLiftedMethodMarker(simpleName);
+        if (simpleName.Length < 4
+            || simpleName[0] != '<'
+            || close <= 1
+            || close + 4 >= simpleName.Length
+            || !HasCanonicalLiftedSuffix(
+                simpleName,
+                close))
+        {
+            ownerName = "";
+            return false;
+        }
+
+        ownerName = simpleName[1..close];
+        return true;
+    }
+
+    static bool HasCanonicalLiftedSuffix(
+        string methodName,
+        int marker)
+    {
+        bool localFunction = methodName.AsSpan(marker)
+            .StartsWith(
+                GeneratedNameGrammar.LocalFunctionInfix,
+                StringComparison.Ordinal);
+        ReadOnlySpan<char> suffix =
+            methodName.AsSpan(marker + 4);
+        if (localFunction)
+        {
+            int separator = suffix.IndexOf('|');
+            if (separator <= 0
+                || suffix[(separator + 1)..]
+                    .Contains('|'))
+            {
+                return false;
+            }
+            suffix = suffix[(separator + 1)..];
+        }
+
+        int underscore = suffix.IndexOf('_');
+        if (underscore < 0)
+            return IsCanonicalOrdinal(
+                suffix,
+                allowLegacyHex:
+                    !localFunction);
+        if (underscore == 0
+            || underscore == suffix.Length - 1
+            || suffix[(underscore + 1)..]
+                .Contains('_'))
+        {
+            return false;
+        }
+
+        return IsCanonicalOrdinal(
+                suffix[..underscore],
+                allowLegacyHex: false)
+            && IsCanonicalOrdinal(
+                suffix[(underscore + 1)..],
+                allowLegacyHex: false);
+    }
+
+    static bool IsCanonicalOrdinal(
+        ReadOnlySpan<char> value,
+        bool allowLegacyHex)
+    {
+        if (value.IsEmpty
+            || value.Length > 1 && value[0] == '0')
+        {
+            return false;
+        }
+
+        bool hasHexLetter = false;
+        foreach (char c in value)
+        {
+            if (char.IsAsciiDigit(c))
+                continue;
+            if (allowLegacyHex
+                && c is >= 'a' and <= 'f')
+            {
+                hasHexLetter = true;
+                continue;
+            }
+            return false;
+        }
+
+        if (hasHexLetter)
+        {
+            return uint.TryParse(
+                    value,
+                    NumberStyles.AllowHexSpecifier,
+                    CultureInfo.InvariantCulture,
+                    out uint ordinal)
+                && ordinal <= int.MaxValue;
+        }
+        return int.TryParse(
+            value,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out _);
+    }
+
+    static int LastLiftedMethodMarker(string methodName) =>
+        Math.Max(
+            methodName.LastIndexOf(
+                GeneratedNameGrammar.LocalFunctionInfix,
+                StringComparison.Ordinal),
+            methodName.LastIndexOf(
+                GeneratedNameGrammar.LambdaInfix,
+                StringComparison.Ordinal));
 
     /// <summary>
     /// Returns the qualified display name of the immediate containing type for
@@ -103,8 +222,77 @@ public static class CompilerGeneratedNames
 
     internal static bool RequiresDeclaredOwner(
         MethodIdentity method)
+        => RequiresDeclaredOwner(
+            method,
+            authenticatedStateMachineExecutionBody: false);
+
+    internal static bool RequiresDeclaredOwner(
+        MethodIdentity method,
+        bool authenticatedStateMachineExecutionBody)
         => IsLocalFunctionOrLambda(method.Name)
-            || method.Name == "MoveNext"
-                && GeneratedNameGrammar.IsStateMachineLeaf(
+            || (method.Name == "MoveNext"
+                    || authenticatedStateMachineExecutionBody)
+                && IsStateMachineLeaf(
                     LeafName(method.DeclaringType));
+
+    internal static bool IsMalformedLiftedStateMachineLeaf(
+        TypeRef declaringType)
+        => ClassifyLiftedStateMachineLeaf(
+            LeafName(declaringType))
+            == LiftedStateMachineLeafKind.Malformed;
+
+    static bool IsStateMachineLeaf(string leafName)
+    {
+        string simpleName =
+            MetadataNameArity.StripFromSegment(leafName);
+        return GeneratedNameGrammar.IsStateMachineLeaf(simpleName)
+            || ClassifyLiftedStateMachineLeaf(leafName)
+                != LiftedStateMachineLeafKind.None;
+    }
+
+    static LiftedStateMachineLeafKind
+        ClassifyLiftedStateMachineLeaf(string leafName)
+    {
+        string simpleName =
+            MetadataNameArity.StripFromSegment(leafName);
+        if (!simpleName.EndsWith(
+                ">d",
+                StringComparison.Ordinal))
+        {
+            int suffix = leafName.LastIndexOf(
+                ">d",
+                StringComparison.Ordinal);
+            if (suffix <= 0
+                || suffix + 2 >= leafName.Length
+                || leafName[suffix + 2] != '`')
+            {
+                return LiftedStateMachineLeafKind.None;
+            }
+
+            string malformedSource =
+                leafName[..suffix];
+            return malformedSource.StartsWith('<')
+                    && HasLiftedMethodMarker(
+                        malformedSource)
+                ? LiftedStateMachineLeafKind.Malformed
+                : LiftedStateMachineLeafKind.None;
+        }
+
+        string sourceName = simpleName[..^2];
+        if (!sourceName.StartsWith('<')
+            || !HasLiftedMethodMarker(sourceName))
+        {
+            return LiftedStateMachineLeafKind.None;
+        }
+        return IsLocalFunctionOrLambda(sourceName[1..])
+            ? LiftedStateMachineLeafKind.Canonical
+            : LiftedStateMachineLeafKind.Malformed;
+    }
+
+    enum LiftedStateMachineLeafKind
+    {
+        None,
+        Canonical,
+        Malformed,
+    }
 }

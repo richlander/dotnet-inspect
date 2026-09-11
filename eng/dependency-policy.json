@@ -1,0 +1,500 @@
+{
+  "schemaVersion": 1,
+  "solution": "dotnet-inspect.slnx",
+  "configuration": "Release",
+  "rules": [
+    {
+      "id": "dependency-free-contract-floors",
+      "source": "docs/overview.md, docs/design/inspection-layers.md, and docs/design/ts-jsexport.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "CSharpText",
+        "Inspector.Artifacts",
+        "Inspector.Resources",
+        "DotnetInspector.RowSelection",
+        "Inspector.Findings",
+        "ILInspector.MetadataPrimitives",
+        "InertText",
+        "TsJsExport.Contracts"
+      ],
+      "allowOnly": [
+        "$platform"
+      ]
+    },
+    {
+      "id": "engine-libraries-stay-below-tool-libraries",
+      "source": "docs/design/inspection-layers.md#seam-rules",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "CSharpText",
+        "ILInspector.*",
+        "InertText"
+      ],
+      "projectPaths": [
+        "src/*/*.csproj"
+      ],
+      "excludeTargets": [
+        "*.App",
+        "*.Tests",
+        "*Fixture*",
+        "ILInspector.Analysis.CallerGraph*"
+      ],
+      "deny": [
+        "DotnetInspector.*"
+      ]
+    },
+    {
+      "id": "network-access-stays-independent",
+      "source": "docs/design/library-family-boundaries.md#independent-domain-roots",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "NetworkAccess"
+      ],
+      "allowOnly": [
+        "$platform"
+      ]
+    },
+    {
+      "id": "networking-stays-below-core-and-hosts",
+      "source": "docs/design/library-family-boundaries.md#dotnetinspector-the-broader-net-ecosystem",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Networking"
+      ],
+      "allowOnly": [
+        "$platform",
+        "InertText",
+        "NetworkAccess"
+      ]
+    },
+    {
+      "id": "ecosystem-catalog-stays-in-approved-hosts",
+      "source": "docs/design/ecosystem-packs.md#dependency-boundary",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "*"
+      ],
+      "projectPaths": [
+        "src/*/*.csproj"
+      ],
+      "excludeTargets": [
+        "*.Tests",
+        "*Fixture*",
+        "dotnet-inspect",
+        "DotnetInspect.Cli"
+      ],
+      "deny": [
+        "DotnetInspector.Ecosystems"
+      ]
+    },
+    {
+      "id": "product-libraries-use-repository-and-platform-assemblies",
+      "source": "docs/dependency-policy.md#external-dependencies",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "CSharpText",
+        "DotnetInspector.*",
+        "ILInspector.*",
+        "Inspector.*",
+        "InertText",
+        "TsJsExport.Contracts"
+      ],
+      "projectPaths": [
+        "src/*/*.csproj"
+      ],
+      "excludeTargets": [
+        "*.App",
+        "*.Tests",
+        "*Fixture*",
+        "ILInspector.Analysis.CallerGraph*",
+        "DotnetInspector.MetadataRendering",
+        "DotnetInspector.Packages",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.Services"
+      ],
+      "allowOnly": [
+        "$platform",
+        "$repository"
+      ]
+    },
+    {
+      "id": "metadata-rendering-external-dependencies",
+      "source": "docs/design/inspection-layers.md#seam-rules",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.MetadataRendering"
+      ],
+      "allowOnly": [
+        "$platform",
+        "$repository",
+        "Markout"
+      ]
+    },
+    {
+      "id": "presentation-external-dependencies",
+      "source": "docs/architecture.md#query-and-current-lens-composition",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Presentation"
+      ],
+      "allowOnly": [
+        "$platform",
+        "$repository",
+        "Markout"
+      ]
+    },
+    {
+      "id": "presentation-stays-host-neutral",
+      "source": "docs/design/member-source-diff-presentation.md#result-and-host-boundary",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Presentation"
+      ],
+      "deny": [
+        "dotnet-inspect"
+      ]
+    },
+    {
+      "id": "package-library-external-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Packages"
+      ],
+      "allowOnly": [
+        "$platform",
+        "$repository",
+        "NuGet.Versioning",
+        "System.Security.Cryptography.ProtectedData"
+      ]
+    },
+    {
+      "id": "query-library-external-dependencies",
+      "source": "docs/design/inspection-layers.md#l1--dotnetinspectorqueries",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Queries"
+      ],
+      "allowOnly": [
+        "$platform",
+        "$repository",
+        "NuGet.Frameworks",
+        "NuGet.Versioning"
+      ]
+    },
+    {
+      "id": "service-library-external-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Services"
+      ],
+      "allowOnly": [
+        "$platform",
+        "$repository",
+        "MarkdownTable.Formatting",
+        "NuGet.Versioning"
+      ]
+    },
+    {
+      "id": "nuget-fetch-stays-independent",
+      "source": "docs/design/library-family-boundaries.md#independent-domain-roots",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "NuGetFetch"
+      ],
+      "allowOnly": [
+        "$platform",
+        "InertText",
+        "NetworkAccess",
+        "NuGet.Versioning",
+        "System.Security.Cryptography.Pkcs"
+      ]
+    },
+    {
+      "id": "dependency-policy-tool-dependencies",
+      "source": "docs/dependency-policy.md#evidence-model",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DependencyPolicy"
+      ],
+      "allowOnly": [
+        "$platform",
+        "$repository"
+      ]
+    },
+    {
+      "id": "control-flow-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.ControlFlow"
+      ],
+      "allowOnly": [
+        "$platform"
+      ]
+    },
+    {
+      "id": "text-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "Inspector.Text"
+      ],
+      "allowOnly": [
+        "$platform",
+        "Inspector.Findings"
+      ]
+    },
+    {
+      "id": "instruction-dependencies",
+      "source": "docs/design/instruction-substrate.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.Instructions"
+      ],
+      "allowOnly": [
+        "$platform",
+        "ILInspector.ControlFlow",
+        "ILInspector.MetadataPrimitives"
+      ]
+    },
+    {
+      "id": "metadata-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.Metadata"
+      ],
+      "allowOnly": [
+        "$platform",
+        "CSharpText",
+        "Inspector.Artifacts",
+        "Inspector.Findings",
+        "Inspector.Resources",
+        "ILInspector.MetadataPrimitives",
+        "InertText"
+      ]
+    },
+    {
+      "id": "csharp-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.CSharp"
+      ],
+      "allowOnly": [
+        "$platform",
+        "CSharpText",
+        "ILInspector.Metadata",
+        "ILInspector.MetadataPrimitives",
+        "Inspector.Text"
+      ]
+    },
+    {
+      "id": "il-diff-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.ILDiff"
+      ],
+      "allowOnly": [
+        "$platform",
+        "Inspector.Findings",
+        "ILInspector.Instructions",
+        "ILInspector.MetadataPrimitives",
+        "Inspector.Text"
+      ]
+    },
+    {
+      "id": "analysis-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.Analysis"
+      ],
+      "allowOnly": [
+        "$platform",
+        "CSharpText",
+        "ILInspector.ControlFlow",
+        "Inspector.Findings",
+        "ILInspector.Instructions",
+        "ILInspector.Metadata",
+        "ILInspector.MetadataPrimitives",
+        "InertText"
+      ]
+    },
+    {
+      "id": "call-graph-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.CallGraph"
+      ],
+      "allowOnly": [
+        "$platform",
+        "ILInspector.Analysis",
+        "ILInspector.Metadata"
+      ]
+    },
+    {
+      "id": "decompiler-dependencies",
+      "source": "docs/architecture.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.Decompiler"
+      ],
+      "allowOnly": [
+        "$platform",
+        "CSharpText",
+        "ILInspector.ControlFlow",
+        "ILInspector.CSharp",
+        "Inspector.Findings",
+        "ILInspector.ILDiff",
+        "ILInspector.Instructions",
+        "ILInspector.Metadata",
+        "ILInspector.MetadataPrimitives",
+        "Inspector.Text"
+      ]
+    },
+    {
+      "id": "source-link-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.SourceLink"
+      ],
+      "allowOnly": [
+        "$platform",
+        "Inspector.Findings",
+        "ILInspector.Metadata",
+        "ILInspector.MetadataPrimitives"
+      ]
+    },
+    {
+      "id": "research-dependencies",
+      "source": "docs/overview.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.Research"
+      ],
+      "allowOnly": [
+        "$platform",
+        "CSharpText",
+        "ILInspector.Analysis",
+        "ILInspector.Decompiler",
+        "Inspector.Findings",
+        "ILInspector.ILDiff",
+        "ILInspector.Instructions",
+        "ILInspector.Metadata",
+        "ILInspector.MetadataPrimitives",
+        "ILInspector.SourceLink",
+        "Inspector.Text"
+      ]
+    },
+    {
+      "id": "js-export-surface-dependencies",
+      "source": "docs/design/ts-jsexport.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.JsExportSurface"
+      ],
+      "allowOnly": [
+        "$platform",
+        "ILInspector.Analysis",
+        "ILInspector.Metadata",
+        "ILInspector.MetadataPrimitives"
+      ]
+    },
+    {
+      "id": "typescript-generation-dependencies",
+      "source": "docs/design/ts-jsexport.md",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.TypeScriptGeneration"
+      ],
+      "allowOnly": [
+        "$platform",
+        "CSharpText",
+        "ILInspector.Analysis",
+        "ILInspector.JsExportSurface",
+        "ILInspector.Metadata"
+      ]
+    }
+  ]
+}

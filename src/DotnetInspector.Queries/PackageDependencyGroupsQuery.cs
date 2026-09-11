@@ -6,7 +6,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries;
 
-/// <summary>The exact-target-framework selection outcome for declared dependency groups.</summary>
+/// <summary>The target-framework selection outcome for declared dependency groups.</summary>
 public enum PackageDependencyGroupSelectionStatus
 {
     Selected,
@@ -25,7 +25,7 @@ public sealed record DeclaredPackageDependencyGroup(
     ImmutableArray<DeclaredPackageDependency> Dependencies,
     bool IsImplicitManifestGroup = false);
 
-/// <summary>A package manifest's dependency groups and exact-framework selection outcome.</summary>
+/// <summary>A package manifest's dependency groups and target-framework selection outcome.</summary>
 public sealed record PackageDependencyGroups(
     ImmutableArray<DeclaredPackageDependencyGroup> Groups,
     string? RequestedTargetFramework,
@@ -133,7 +133,9 @@ public abstract record PackageDependencyGroupsResult
     public sealed record NoManifest : PackageDependencyGroupsResult;
 
     public sealed record Failed(
-        Exception Error) : PackageDependencyGroupsResult;
+        Exception Error,
+        PackageManifestFailure? ManifestFailure = null) :
+        PackageDependencyGroupsResult;
 }
 
 /// <summary>
@@ -157,7 +159,8 @@ public static class PackageDependencyGroupsQuery
         string packageId,
         string packageVersion,
         string? requestedTargetFramework = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowCompatibleFallbackForRequestedTfm = false)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -165,7 +168,8 @@ public static class PackageDependencyGroupsQuery
 
         try
         {
-            string? manifestPath = FindRootManifest(content);
+            string? manifestPath =
+                PackageManifestContent.FindRootManifest(content);
             if (manifestPath is null)
                 return new PackageDependencyGroupsResult.NoManifest();
 
@@ -198,7 +202,11 @@ public static class PackageDependencyGroupsQuery
                     manifestBytes,
                     coordinate);
             if (facts is PackageManifestFactsResult.Failed failed)
-                return new PackageDependencyGroupsResult.Failed(failed.Error);
+            {
+                return new PackageDependencyGroupsResult.Failed(
+                    new InvalidDataException(failed.Failure.Message),
+                    failed.Failure);
+            }
 
             string? requested = string.IsNullOrWhiteSpace(requestedTargetFramework)
                 ? null
@@ -206,7 +214,8 @@ public static class PackageDependencyGroupsQuery
             return new PackageDependencyGroupsResult.Available(
                 ProjectDependencyGroups(
                     ((PackageManifestFactsResult.Available)facts).Value,
-                    requested));
+                    requested,
+                    allowCompatibleFallbackForRequestedTfm));
         }
         catch (Exception ex) when (
             ex is IOException
@@ -218,51 +227,10 @@ public static class PackageDependencyGroupsQuery
         }
     }
 
-    static string? FindRootManifest(IPackageContent content)
-    {
-        string[] manifests =
-        [
-            .. content.EnumerateEntries()
-                .Where(path => path.EndsWith(
-                    ".nuspec",
-                    StringComparison.OrdinalIgnoreCase)),
-        ];
-        if (manifests.Any(path => path.Contains('\\')))
-        {
-            throw new InvalidDataException(
-                "Package manifest paths must use package-root separators.");
-        }
-
-        string[][] manifestSegments =
-        [
-            .. manifests.Select(path => path.Split('/')),
-        ];
-        if (manifestSegments.Any(segments =>
-            segments.Any(segment => !PackageEntryPath.IsSafeSegment(segment))))
-        {
-            throw new InvalidDataException(
-                "Package manifest paths must contain safe package-entry segments.");
-        }
-
-        string[] roots =
-        [
-            .. manifestSegments
-                .Where(segments => segments.Length == 1)
-                .Select(segments => segments[0]),
-        ];
-
-        return roots.Length switch
-        {
-            0 => null,
-            1 => roots[0],
-            _ => throw new InvalidDataException(
-                "Package content contains more than one root manifest."),
-        };
-    }
-
     internal static PackageDependencyGroups ProjectDependencyGroups(
         PackageManifestFacts facts,
-        string? requestedTargetFramework)
+        string? requestedTargetFramework,
+        bool allowCompatibleFallbackForRequestedTfm = false)
     {
         List<DependencyGroup> mutableGroups =
         [
@@ -287,10 +255,9 @@ public static class PackageDependencyGroupsQuery
             DependencyResolutionService.SelectDependencyGroup(
                 mutableGroups,
                 requestedTargetFramework,
-                allowCompatibleFallbackForRequestedTfm: false);
-        int? selectedGroupIndex = selection.Group is null
-            ? null
-            : mutableGroups?.IndexOf(selection.Group);
+                allowCompatibleFallbackForRequestedTfm);
+        int? selectedGroupIndex =
+            FindSelectedGroupIndex(mutableGroups, selection.Group);
         if (selection.Group is not null && selectedGroupIndex is not >= 0)
         {
             throw new InvalidOperationException(
@@ -315,5 +282,20 @@ public static class PackageDependencyGroupsQuery
                 _ => throw new InvalidOperationException(
                     "Unknown dependency-group selection status."),
             });
+    }
+
+    private static int? FindSelectedGroupIndex(
+        List<DependencyGroup> declaredGroups,
+        DependencyGroup? selectedGroup)
+    {
+        if (selectedGroup is null)
+            return null;
+
+        int index = declaredGroups.IndexOf(selectedGroup);
+        if (index >= 0 || !selectedGroup.IsImplicitManifestGroup)
+            return index;
+
+        return declaredGroups.FindIndex(group =>
+            group.IsImplicitManifestGroup);
     }
 }

@@ -1,6 +1,6 @@
 ---
 name: release
-description: Use when shipping a new dotnet-inspect version; coordinate certification, NuGet and GitHub publication, and the matching dotnet-inspect.net production deployment.
+description: Use when shipping a new dotnet-inspect version; coordinate certification, NuGet and GitHub publication, and matching production and CoreCLR site deployments.
 ---
 
 # Release dotnet-inspect
@@ -12,8 +12,8 @@ the release contract and failure handling. This skill is an operator playbook,
 not a substitute for that document or the workflows.
 
 A release is one exact `(commit SHA, VersionPrefix)` pair shared by the NuGet
-packages, GitHub release, and `https://dotnet-inspect.net`. Never advance only
-the packages or only the site.
+packages, GitHub release, `https://dotnet-inspect.net`, and the CoreCLR
+comparison site. Never advance only the packages or only one site.
 
 ## Collect the release evidence
 
@@ -71,6 +71,25 @@ Confirm that the release commit contains the intended `VersionPrefix`, release
 notes, package `README.md`, and embedded product skills. Record the documentation
 checkpoint even when no edits were required.
 
+When reconciling the shipped skill corpus (`skills/*/SKILL.md`, embedded in the
+tool binary and registered in `SkillCommand.Skills`), check scope as well as
+accuracy: each shipped skill must describe a genuine end-user capability of the
+published tool, not a repository-internal process, CI/certification harness, or
+maintainer workflow (that content belongs under `.github/skills/` instead, and
+is never embedded or registered). Adding a new skill to the shipped corpus, or
+moving a skill into or out of it, is a product-surface change and needs the
+repository owner's explicit approval before landing — do not add or relocate a
+shipped skill unilaterally while doing routine release reconciliation.
+
+Reconcile the bootstrap skill in the peer `richlander/dotnet-skills` repository
+against the release's `VersionPrefix` and generated `dotnet-inspect skill list`.
+Keep it at or below 60 lines: explain the basic command UX and advertise every
+embedded focused skill, while deferring detailed guidance to the version-matched
+tool. When content or version changes, set every peer skill and plugin manifest
+version to the release version and publish that repository's update. If the
+peer repository is already current and no files change, do not make a no-op
+peer release.
+
 ## Publish package and site together
 
 Open `release.yml` and `promote-inspect-web.yml` together:
@@ -87,13 +106,16 @@ Open `release.yml` and `promote-inspect-web.yml` together:
 5. Wait for the package workflow and GitHub release to succeed, then approve
    the production-site environment. Never promote the site first.
 
-Do not substitute a newer run after the SHA comparison. The release is complete
-only when both workflows succeed.
+Do not substitute a newer run after the SHA comparison. Production promotion
+automatically invokes the CoreCLR deployment with the resolved SHA, staging run
+ID, and artifact ID. The release is complete only when both top-level workflows
+and the nested CoreCLR deployment succeed.
 
 ## Verify and recover
 
 Verify the package version and commit in NuGet and the GitHub release. Then
-check the production site's status bar for the same version and linked commit.
+check the production and CoreCLR sites' data bars for the same version and
+linked commit.
 
 If the package workflow fails, leave site production unapproved and retry with
 the same CI and certification run IDs. Package retries tolerate
@@ -101,6 +123,10 @@ already-published artifacts with `--skip-duplicate`. If site promotion fails
 after package publication, retry with the same staging run ID; site retries
 revalidate and promote the same staged artifact. A different SHA, ancestry-only
 relationship, or matching version string is not a valid substitute.
+
+If the CoreCLR deployment fails after production promotion, rerun the failed
+jobs in that promotion run. Do not dispatch a new promotion or substitute a
+newer staging run; the nested deployment retains the exact promoted identity.
 
 If a newer `main` push cancels the release commit's staging run, wait for active
 staging work to finish and rerun the original push-triggered run:

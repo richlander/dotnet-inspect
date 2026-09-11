@@ -60,6 +60,7 @@ public sealed class MetadataContext : IDisposable
         AssemblyAcquisitionRegistration,
         Lazy<OpenedAssembly?>> _openedRegistrations =
             new(ReferenceEqualityComparer.Instance);
+    readonly object _typeResolutionGenerationGate = new();
     readonly TypeResolutionCatalog _typeResolutionCatalog = new();
     readonly IAssemblyBindingPolicy _bindingPolicy;
     readonly IAssemblyReferenceResolver? _resolver;
@@ -160,12 +161,49 @@ public sealed class MetadataContext : IDisposable
         ResolvedAssemblyReference root,
         TypeResolutionRequest request)
     {
-        using TypeResolutionContext context =
-            _typeResolutionCatalog.CreateContext(
-                _bindingPolicy,
-                [root],
-                [request]);
-        return context.Resolve(request);
+        lock (_typeResolutionGenerationGate)
+        {
+            using TypeResolutionContext context =
+                _typeResolutionCatalog.CreateContext(
+                    _bindingPolicy,
+                    [root],
+                    [request]);
+            return context.Resolve(request);
+        }
+    }
+
+    /// <summary>
+    /// Resolves both requests in one frozen catalog generation and accepts only
+    /// exact catalog-issued correspondence. Duplicate artifacts remain
+    /// indeterminate and therefore do not compare equal.
+    /// <c>ConcurrentResolution_DoesNotInvalidateDefinitionCorrespondence</c>
+    /// and <c>DistinctSignatureTypeDefinitions_DoNotCorrespond</c> gate both
+    /// boundaries.
+    /// </summary>
+    internal bool ResolveToSameDefinition(
+        ResolvedAssemblyReference leftRoot,
+        TypeResolutionRequest leftRequest,
+        ResolvedAssemblyReference rightRoot,
+        TypeResolutionRequest rightRequest)
+    {
+        lock (_typeResolutionGenerationGate)
+        {
+            using TypeResolutionContext context =
+                _typeResolutionCatalog.CreateContext(
+                    _bindingPolicy,
+                    [leftRoot, rightRoot],
+                    [leftRequest, rightRequest]);
+            TypeResolutionOutcome leftOutcome =
+                context.Resolve(leftRequest);
+            TypeResolutionOutcome rightOutcome =
+                context.Resolve(rightRequest);
+            return leftOutcome is TypeResolutionOutcome.Resolved left
+                && rightOutcome is TypeResolutionOutcome.Resolved right
+                && _typeResolutionCatalog.Compare(
+                    left.Definition.Key,
+                    right.Definition.Key)
+                    is DefinitionCorrespondence.Same;
+        }
     }
 
     internal ResolvedTypeDefinition? ResolveCoreLibraryDefinition(
@@ -215,6 +253,7 @@ internal sealed class OpenedAssembly : IDisposable
 {
     readonly Stream _stream;
     readonly PEReader _pe;
+    readonly Lazy<MemorySafetyMetadataIndex> _memorySafety;
     volatile Dictionary<string, TypeDefinitionHandle>? _byFullName;
     readonly object _indexLock = new();
 
@@ -223,9 +262,13 @@ internal sealed class OpenedAssembly : IDisposable
         _stream = stream;
         _pe = pe;
         Reader = reader;
+        _memorySafety = new(
+            () => MemorySafetyMetadataIndex.Create(reader),
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public MetadataReader Reader { get; }
+    internal MemorySafetyMetadataIndex MemorySafety => _memorySafety.Value;
 
     /// <summary>
     /// Opens an assembly for reading, or returns null when the file is missing,

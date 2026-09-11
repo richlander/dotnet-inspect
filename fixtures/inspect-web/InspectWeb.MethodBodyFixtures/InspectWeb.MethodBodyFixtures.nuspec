@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <metadata>
+    <id>InspectWeb.MethodBodyFixtures</id>
+    <version>1.0.0</version>
+    <authors>dotnet-inspect</authors>
+    <description>Compiled method-pair, bodyless, accessor, and reference-token fixtures.</description>
+  </metadata>
+</package>

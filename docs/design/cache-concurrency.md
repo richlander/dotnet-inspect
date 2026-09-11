@@ -70,16 +70,21 @@ by the package id's winning package-source-mapping pattern when mapping is
 enabled, and, for a discovered coordinate, reported the selected version. See the
 [package source model](package-source-model.md) for the end-to-end contract.
 
-A source is identified by a digest of its canonical URL, and canonicalization is
-shared with the credential scope's `IsSameEndpoint` rather than reimplemented, so
-one URL cannot mean two things in one tool. Scheme, host, default port,
-percent-escape casing, and an empty root path versus `/` fold because the URI
-grammar defines them as equivalent. Path and query case do not fold:
-`/FeedA` and `/feeda` can name different resources. Exactly one optional trailing
-path slash folds, while repeated trailing slashes and fragments remain distinct.
-The digest keeps source URLs out of cache paths and makes every identity a
-valid path segment. It is a path-safe identifier, not a security boundary;
-source authorization comes from the source policy, not from hiding cache keys.
+An HTTP source is identified by a digest of the canonical endpoint shared with
+the credential scope's `IsSameEndpoint`. Scheme, host, default port,
+percent-escape casing, and one optional trailing path slash fold; path and query
+case, repeated trailing slashes, and fragments remain distinct.
+
+A local source instead consumes the canonical path from
+[Local package source identity](local-package-source-identity.md). Path and
+`file://` spellings share one key, Windows path case folds, Unix path case does
+not, roots remain intact, and symbolic links are not resolved. The cache never
+reimplements those rules.
+
+The digest keeps endpoint and path text out of cache paths and makes every
+identity a valid path segment. It is a path-safe identifier, not a security
+boundary; source authorization comes from the source policy, not from hiding
+cache keys.
 
 ## Guarantees
 
@@ -87,8 +92,8 @@ The cache model provides:
 
 - content scoped to the source that supplied it;
 - producer-feed and payload-location provenance on every opened package;
-- one shared acquisition task per exact coordinate, authorized-producer set,
-  cache root, and acquisition policy within a process;
+- one registry-selected acquisition task per exact coordinate,
+  authorized-producer set, cache root, and acquisition policy within a process;
 - complete-tree visibility through marked, atomic directory publication;
 - convergence on one valid winner when processes publish concurrently; and
 - no lock ordering between package coordinates.
@@ -96,6 +101,29 @@ The cache model provides:
 It does not guarantee globally unique work. Separate processes may download and
 extract the same immutable coordinate concurrently. It also does not provide a
 power-loss-durable filesystem transaction.
+
+### Executable interaction model
+
+The
+[package cache publication TLA+ model](models/package-cache-publication/README.md)
+is the executable companion to this design. It models one exact acquisition
+key, process-local task joining and eviction, independent cross-process
+publishers, validity probe and recheck races, staging, atomic rename, loser
+convergence, the removal/completion overlap, caller and factory cancellation,
+retry, and process crash.
+
+The full safety and quiet liveness configurations check two processes, three
+callers per process, and two attempts per process. A reduced two-caller
+configuration checks tolerant liveness properties with injected failure,
+factory and caller cancellation, crash, rename failure, and invalid initial
+state enabled. The model records its filesystem and fairness assumptions,
+checked safety and liveness properties, bounds, action coverage, and adversarial
+negative controls alongside the executable specification. Its results are
+evidence about the model, not the implementation. The model's
+[implementation correspondence](models/package-cache-publication/README.md#implementation-correspondence)
+maps selected observable outcomes to Release gates while leaving formal
+equivalence, exact runtime traces, crash behavior, and the filesystem's atomic
+rename premise unverified.
 
 ## Precedents
 
@@ -135,9 +163,13 @@ revalidates the returned producer. The current ordered-source-list key must
 migrate with the broader source-policy work in
 [#3752](https://github.com/richlander/dotnet-inspect/issues/3752).
 
-The registry entry is removed after completion, whether acquisition succeeds
-or fails, because the committed filesystem entry remains authoritative and is
-revalidated by later requests.
+The value factory settles before the registry entry is removed, and the outer
+shared task becomes observable as completed only after removal. A replacement
+request can therefore start in the short interval between removal and old
+waiters observing completion. Existing waiters retain their original task and
+observe its outcome; replacement callers use the new task. This overlap does
+not duplicate a still-running value factory, and the committed filesystem entry
+remains authoritative and is revalidated by every replacement request.
 
 The acquisition factory only downloads, extracts, validates, and commits its
 own coordinate. It does not resolve dependencies or wait on another registry
@@ -169,6 +201,15 @@ The versioned `package-content-v5` and `packs-v2` namespaces fence these
 transactions from older direct-copy writers, earlier layouts that did not
 scope entries by source, and payloads previously misattributed by a
 noncanonical NuGet.org URL shortcut.
+
+Configured-authority acquisition reuses this publication mechanism with a
+separate `package-authority-content-v1` slot family. Its authority key and
+producer evidence are distinct; HTTP authorities without durable identity
+instead publish into caller-owned temporary storage. The
+[package source model](package-source-model.md#caller-pinned-payload-acquisition)
+owns authorization and adoption. The legacy `package-content-v5` family
+remains active for unmigrated callers rather than being relabeled or retired
+by this additive namespace.
 
 ## Versioned cache retirement
 
@@ -218,10 +259,12 @@ cache-coherency guarantees.
 ## Overlapping dependency work
 
 Two in-process dependency graphs that overlap on a package either await the
-same task for that exact coordinate or perform independent manifest reads.
-Tasks for different coordinates do not wait on one another, so they cannot form
-a wait cycle. Dependency traversal fetches only dependency nuspecs and uses a
-traversal-local seen set to terminate dependency cycles.
+same task under the full process-local acquisition key or perform independent
+manifest reads. Tasks under different acquisition keys do not wait on one
+another, so they cannot form a wait cycle. The target
+[package dependency traversal](package-dependency-traversal.md) uses
+root-relative source-projection identity to terminate dependency cycles; it
+must not introduce a coordinate-only single-flight key above this registry.
 
 Across processes there is no coordination wait. Publishers use unique staging
 directories, and the final rename succeeds or reports a conflict without

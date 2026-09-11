@@ -355,6 +355,15 @@ actually used rather than accepting a caller assertion. Acquisition-aware call
 receipts make the document session-bound even when their logical endpoint
 subjects have portable detached identities.
 
+The Integration Census adapter uses graph subject variants that wrap its exact
+candidate-source, resolved-Type, and participant identities. Those variants
+remain session-bound even when the participant carries a realized coordinate:
+the admitted occurrence retains an
+`IntegrationCandidateAttemptAddress`, whose binding-context identity has no
+portable contract. This bridge preserves the Integration owner's currency
+without inventing an acquisition registration or treating display text as
+identity; it does not settle the deferred general portable Type-subject design.
+
 ### Nodes and groups
 
 Package and type are both subject kinds and grouping lenses.
@@ -813,9 +822,12 @@ Projection assigns new dense document-local ids while retaining semantic
 subjects, relationship descriptors, occurrence evidence and occurrence
 identity. Failures from requested relationship producers and their required
 composition prerequisites remain visible even when their target is outside
-healthy reached topology. A typed `queries.neighborhood-depth-bound` limit
-records the requested bound, including depth zero. An admissible owner-issued
-seed remains bound even when selected producers emit no relationship evidence.
+healthy reached topology, subject to producer-specific admission policies.
+Explicit Integration induced sets apply the out-of-context `BindingMissing`
+policy owned by [Integrations](integrations.md) before failure-target retention.
+A typed `queries.neighborhood-depth-bound` limit records the requested bound,
+including depth zero. An admissible owner-issued seed remains bound even when
+selected producers emit no relationship evidence.
 For peer requests, the same bound is targeted at every equal seed so no peer's
 completeness is inferred from another's topology.
 `Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
