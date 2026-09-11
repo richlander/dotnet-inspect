@@ -37,16 +37,33 @@ internal static class CliRowSelectionRouterPreflight
         return CliRowSelectionRouteEnvelope.Evaluate(arguments, candidates);
     }
 
-    public static bool HasActiveAdoption(
+    public static bool ShouldDeferLegacyWindow(
         string[] arguments,
         IReadOnlyList<Command> commands)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(commands);
-        return commands.Any(command =>
-            CliRowSelectionCommandRegistry.TryGetActiveAdoption(
-                command.Parse(arguments),
-                out _));
+        if (commands.Any(command =>
+                CliRowSelectionCommandRegistry.TryGetActiveAdoption(
+                    command.Parse(arguments),
+                    out _)))
+        {
+            return false;
+        }
+
+        foreach (string argument in arguments)
+        {
+            if (argument == "--")
+                return false;
+            if (argument.Equals("--rows", StringComparison.Ordinal)
+                || argument.StartsWith("--rows=", StringComparison.Ordinal)
+                || argument.StartsWith("--rows:", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static string? FindCommonOptionValueError(

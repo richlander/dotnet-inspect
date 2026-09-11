@@ -350,7 +350,7 @@ public static class RouterCommandDefinition
                 tokens,
                 rootCommand,
                 rowSelectionCommands);
-        if (!CliRowSelectionRouterPreflight.HasActiveAdoption(
+        if (CliRowSelectionRouterPreflight.ShouldDeferLegacyWindow(
                 tokens,
                 rowSelectionCandidates))
         {
