@@ -109,6 +109,49 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
     }
 
     [Fact]
+    public async Task LongFormDependencyFramework_MatchesSelectedShortTfm()
+    {
+        TestSide before = CreateForwardedSide(
+            "1.0.0",
+            methodResult: 1,
+            targetFramework: "netstandard2.0",
+            dependencyGroupFramework:
+                ".NETStandard2.0");
+        TestSide after = CreateForwardedSide(
+            "2.0.0",
+            methodResult: 2,
+            targetFramework: "netstandard2.0",
+            dependencyGroupFramework:
+                ".NETStandard2.0");
+
+        WorkspaceImplementationComparisonResult result =
+            await WorkspaceImplementationComparisonRunner.ExecuteAsync(
+                before.AssemblySet,
+                after.AssemblySet,
+                Facade,
+                TypeName,
+                MemberTargetSelector.Parse("Value"),
+                new HttpClient(),
+                new NuGetSourceOptions
+                {
+                    Sources = [_root],
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var published =
+            Assert.IsType<
+                WorkspaceImplementationComparisonResult.Published>(
+                result).Publication;
+        Assert.Equal(
+            new Version(1, 0, 0, 0),
+            TerminalIdentity(published.Before).Version);
+        Assert.Equal(
+            new Version(2, 0, 0, 0),
+            TerminalIdentity(published.After).Version);
+    }
+
+    [Fact]
     public async Task DirectPackageTargets_DoNotInventForwarderRows()
     {
         TestSide before = CreateDirectSide(
@@ -266,7 +309,9 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         string version,
         int methodResult,
         bool writeTerminalPackage = true,
-        string terminalName = Terminal)
+        string terminalName = Terminal,
+        string targetFramework = Framework,
+        string? dependencyGroupFramework = null)
     {
         byte[] terminal = BuildAssembly(
             terminalName,
@@ -285,13 +330,16 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                 terminalName,
                 version,
                 terminal,
-                dependencies: null);
+                dependencies: null,
+                targetFramework);
         }
         return CreateSide(
             version,
             facade,
             dependencies:
-                $"<dependency id=\"{terminalName}\" version=\"{version}\" />");
+                $"<dependency id=\"{terminalName}\" version=\"{version}\" />",
+            targetFramework,
+            dependencyGroupFramework);
     }
 
     TestSide CreateDirectSide(
@@ -308,7 +356,9 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
     TestSide CreateSide(
         string version,
         byte[] assembly,
-        string? dependencies)
+        string? dependencies,
+        string targetFramework = Framework,
+        string? dependencyGroupFramework = null)
     {
         string directory = Path.Combine(
             _root,
@@ -316,7 +366,7 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         string lib = Path.Combine(
             directory,
             "lib",
-            Framework);
+            targetFramework);
         Directory.CreateDirectory(lib);
         string assemblyPath = Path.Combine(
             lib,
@@ -331,7 +381,9 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             Nuspec(
                 Facade,
                 version,
-                dependencies));
+                dependencies,
+                dependencyGroupFramework
+                    ?? targetFramework));
         return new(
             new AssemblySet(
                 [
@@ -340,7 +392,7 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                         Facade,
                         version,
                         AssemblySetSourceKind.Package,
-                        Framework),
+                        targetFramework),
                 ],
                 [],
                 []));
@@ -350,7 +402,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         string id,
         string version,
         byte[] assembly,
-        string? dependencies)
+        string? dependencies,
+        string targetFramework = Framework)
     {
         string path = Path.Combine(
             _root,
@@ -364,9 +417,10 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             Nuspec(
                 id,
                 version,
-                dependencies));
+                dependencies,
+                targetFramework));
         ZipArchiveEntry library = archive.CreateEntry(
-            $"lib/{Framework}/{id}.dll");
+            $"lib/{targetFramework}/{id}.dll");
         using Stream stream = library.Open();
         stream.Write(assembly);
     }
@@ -384,7 +438,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
     static string Nuspec(
         string id,
         string version,
-        string? dependencies)
+        string? dependencies,
+        string targetFramework)
         => $"""
             <?xml version="1.0"?>
             <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
@@ -393,7 +448,7 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                 <version>{version}</version>
                 <authors>dotnet-inspect tests</authors>
                 <description>Forwarded diff fixture.</description>
-                {(dependencies is null ? "" : $"<dependencies><group targetFramework=\"{Framework}\">{dependencies}</group></dependencies>")}
+                {(dependencies is null ? "" : $"<dependencies><group targetFramework=\"{targetFramework}\">{dependencies}</group></dependencies>")}
               </metadata>
             </package>
             """;

@@ -278,8 +278,10 @@ internal static class WorkspaceImplementationComparisonRunner
         [
             .. groups.Where(group =>
                 group.IsImplicitManifestGroup
-                || group.TargetFramework.Equals(
-                    targetFramework,
+                || TfmSelector.NormalizeTfm(
+                    group.TargetFramework).Equals(
+                    TfmSelector.NormalizeTfm(
+                        targetFramework),
                     StringComparison.OrdinalIgnoreCase)),
         ];
         string[] versions =

@@ -2508,9 +2508,21 @@ public class DiffCommand
             return null;
         }
 
-        string typeName = options.TypeFilter.Single();
+        string typeSelector = options.TypeFilter.Single();
+        string? selectedTypeName =
+            ResolveWorkspaceImplementationTypeName(
+                inputs.FromSurface,
+                inputs.ToSurface,
+                typeSelector);
+        string typeName = selectedTypeName
+            ?? typeSelector;
         if (MetadataTypeDefinitionName.ParseSerialized(typeName)
             is not MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            return null;
+        }
+        if (selectedTypeName is null
+            && valid.Name.Namespace.Length == 0)
         {
             return null;
         }
@@ -2521,6 +2533,35 @@ public class DiffCommand
             valid.Name,
             selector,
             $"{typeName}.{selector.RequestedText}");
+    }
+
+    internal static string?
+        ResolveWorkspaceImplementationTypeName(
+            ApiSurface fromSurface,
+            ApiSurface toSurface,
+            string query)
+    {
+        string? oldTypeName = SelectTypeName(
+            fromSurface,
+            query,
+            out string? oldError);
+        string? newTypeName = SelectTypeName(
+            toSurface,
+            query,
+            out string? newError);
+        if (oldError is not null
+            || newError is not null
+            || oldTypeName is not null
+                && newTypeName is not null
+                && !oldTypeName.Equals(
+                    newTypeName,
+                    StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return oldTypeName
+            ?? newTypeName;
     }
 
     static bool IsFatalTargetDiagnostic(MemberTargetDiagnosticKind kind)

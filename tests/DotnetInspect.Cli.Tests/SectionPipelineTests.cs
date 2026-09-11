@@ -2205,6 +2205,42 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void DiffCommand_WorkspaceTypeSelectionPreservesShortSelectorSemantics()
+    {
+        var before = new ApiSurface
+        {
+            Types =
+            [
+                new()
+                {
+                    Namespace =
+                        "Microsoft.Extensions.DependencyInjection",
+                    Name = "ServiceCollection",
+                },
+            ],
+        };
+        var after = new ApiSurface
+        {
+            Types =
+            [
+                new()
+                {
+                    Namespace =
+                        "Microsoft.Extensions.DependencyInjection",
+                    Name = "ServiceCollection",
+                },
+            ],
+        };
+
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.ServiceCollection",
+            DiffCommand.ResolveWorkspaceImplementationTypeName(
+                before,
+                after,
+                "ServiceCollection"));
+    }
+
+    [Fact]
     public async Task PackageIntegrityExitCode_FailsForMismatchesAndAuditFailures()
     {
         var clean = new InspectionResult
