@@ -15,7 +15,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using CoreHttpClientFactory =
-    DotnetInspector.Core.HttpClientFactory;
+    DotnetInspector.Networking.HttpClientFactory;
 
 namespace DotnetInspect.Cli.Tests;
 
