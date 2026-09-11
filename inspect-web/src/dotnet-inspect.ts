@@ -439,12 +439,7 @@ import {
   createPackageComparisonTargets,
   renderPackageComparisonTargets,
 } from "./package-comparison-targets.ts";
-import {
-  AGENT_SKILL_URL,
-  CLI_TOOL_URL,
-  dataBarHtml,
-  fmtBytes,
-} from "./data-bar.ts";
+import { dataBarHtml, fmtBytes } from "./data-bar.ts";
 import {
   DIAGNOSTICS_PATH,
   diagnosticsHistoryState,
@@ -10176,7 +10171,7 @@ async function copyText(value: string, confirmation: string) {
 // (shared #spotlight-input / #spotlight-chips / #spotlight-results ids), so results, scope
 // chips, NuGet discovery, and result picking all behave exactly like the modal Spotlight.
 function renderHomeView() {
-  document.title = "dotnet-inspect -- Inspect any NuGet package: types, methods, metadata, decompilation.";
+  document.title = "dotnet-inspect -- Inspect .NET packages in your browser.";
   const enginePending = !state.engineReady;
   const showReadyGlint = state.engineReady && homeReadyGlintPending;
   if (showReadyGlint) homeReadyGlintPending = false;
@@ -10207,8 +10202,11 @@ function renderHomeView() {
       <main class="home-hero">
         <div class="home-copy">
           <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
-          <h1 class="home-title">Inspect any NuGet package: types, methods, metadata, decompilation.</h1>
-          <p class="home-lede">Explore NuGet packages and the .NET platform — types, members, public API surface, dependencies, call graphs, and decompiled C# — all computed locally in your browser. Nothing to install, nothing uploaded.</p>
+          <h1 class="home-title">Inspect .NET packages in your browser.</h1>
+          <p class="home-lede">
+            <span class="home-lede-wide">Search a package, type, or member. Explore APIs, metadata, dependencies, call graphs, and decompiled C# — computed locally in this tab.</span>
+            <span class="home-lede-narrow">Search packages, types, and members, then explore APIs, metadata, dependencies, and decompiled C#.</span>
+          </p>
           <div class="home-search ${enginePending ? "engine-pending" : ""}" role="search" aria-busy="${enginePending}">
             ${spotlight.inlineHtml(enginePending, showReadyGlint)}
             ${enginePending
@@ -10218,10 +10216,11 @@ function renderHomeView() {
                 </div>`
               : ""}
           </div>
-          <p class="home-availability">Also available as a <a href="${CLI_TOOL_URL}" target="_blank" rel="noopener noreferrer">CLI tool</a> and <a href="${AGENT_SKILL_URL}" target="_blank" rel="noopener noreferrer">agent skill</a>.</p>
-          <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
-            <span class="home-demos-label">Explore product demos</span>
+            <div class="home-demos-copy">
+              <strong>Product demos</strong>
+              <span>Start from a curated package query.</span>
+            </div>
             <div class="home-demo-row" aria-busy="${enginePending}">
               ${homeDemosEntryHtml(
                 enginePending,
@@ -10229,8 +10228,12 @@ function renderHomeView() {
                 escapeHtml)}
             </div>
           </div>
+          <p class="home-trust">Nothing to install. Package content stays in your browser.</p>
         </div>
-        <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">${homeArtSvg()}</aside>
+        <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">
+          ${homeArtSvg()}
+          <p class="home-art-caption">Types, methods, metadata, dependencies, source, analysis, and diffs.</p>
+        </aside>
       </main>
       ${dataBarHtml({
         buildIdentity: state.buildIdentity,
@@ -10254,7 +10257,6 @@ function homeArtSvg() {
 const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: dismissQueryNotice,
   onOpenDemos: openProductDemos,
-  onOpenCredits: openCredits,
   onToggleTheme: toggleTheme,
 };
 

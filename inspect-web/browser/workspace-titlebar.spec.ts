@@ -133,7 +133,7 @@ test("the data bar occupies its fixed row when the notice stack is empty", async
   await expect(page.locator(".notice-stack")).toBeHidden();
   await expect(page.locator(".data-bar")).toContainText(
     "dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · "
-      + "Package source: NuGet.org · CLI tool · Agent skill");
+      + "Package source: NuGet.org · CLI tool · Agent skill · Credits");
   await expect(page.locator(
     ".data-bar button, .data-bar [aria-expanded], "
       + ".data-bar [data-status-bar-toggle]",
@@ -166,8 +166,8 @@ test("the narrow data bar keeps every item in one horizontal scroll lane", async
   });
   await expect.poll(() => dataBar.evaluate(element => element.scrollLeft))
     .toBeGreaterThan(0);
-  const skillEnd = await box(page, ".data-bar-action:last-child");
-  expect(skillEnd.x + skillEnd.width)
+  const creditsEnd = await box(page, ".data-bar-action:last-child");
+  expect(creditsEnd.x + creditsEnd.width)
     .toBeLessThanOrEqual(dataBarBox.x + dataBarBox.width);
 
   const scrollLeft = await dataBar.evaluate(element => element.scrollLeft);

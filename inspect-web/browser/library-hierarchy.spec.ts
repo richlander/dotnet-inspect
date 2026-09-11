@@ -775,6 +775,91 @@ async function installDiagnosticsFacades(
     diagnostics);
 }
 
+test("Home keeps Search and curated demos ahead of artwork", async ({
+  page,
+}, testInfo) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    {
+      catalog: [{
+        id: "system-text-json-api",
+        title: "System.Text.Json API",
+        summary: "Browse a real package API",
+      }],
+      results: {},
+    });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+  await expect(page.locator(".home-title"))
+    .toHaveText("Inspect .NET packages in your browser.");
+  await expect(page.locator(".home-lede-wide")).toBeVisible();
+  await expect(page.locator(".home-lede-narrow")).toBeHidden();
+  await expect(page.locator(".home-demos-copy"))
+    .toContainText("Start from a curated package query.");
+  await expect(page.locator(".data-bar"))
+    .toContainText("CLI tool · Agent skill · Credits");
+
+  const wideSearch = await page.locator(".home-search").boundingBox();
+  const wideDemos = await page.locator(".home-demos").boundingBox();
+  const wideDataBar = await page.locator(".data-bar").boundingBox();
+  if (!wideSearch || !wideDemos || !wideDataBar) {
+    throw new Error("The wide Home composition did not render.");
+  }
+  expect(wideSearch.y + wideSearch.height).toBeLessThan(wideDemos.y);
+  expect(wideDemos.y + wideDemos.height).toBeLessThan(wideDataBar.y);
+  await page.screenshot({
+    path: testInfo.outputPath("home-wide.png"),
+    fullPage: false,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(".home-lede-wide")).toBeHidden();
+  await expect(page.locator(".home-lede-narrow")).toBeVisible();
+  await expect(page.locator(".home-demos-copy span")).toBeHidden();
+
+  const narrowSearch = await page.locator(".home-search").boundingBox();
+  const narrowDemos = await page.locator(".home-demos").boundingBox();
+  const narrowArt = await page.locator(".home-art").boundingBox();
+  const narrowDataBar = await page.locator(".data-bar").boundingBox();
+  if (!narrowSearch || !narrowDemos || !narrowArt || !narrowDataBar) {
+    throw new Error("The narrow Home composition did not render.");
+  }
+  expect(narrowSearch.y + narrowSearch.height).toBeLessThan(narrowDemos.y);
+  expect(narrowDemos.y + narrowDemos.height)
+    .toBeLessThanOrEqual(narrowDataBar.y);
+  expect(narrowArt.y).toBeGreaterThan(narrowDemos.y + narrowDemos.height);
+  expect(narrowDataBar.y + narrowDataBar.height).toBeCloseTo(844, 0);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    && document.body.scrollWidth <= document.body.clientWidth))
+    .toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("home-narrow.png"),
+    fullPage: false,
+  });
+
+  await page.getByRole("link", { name: "Credits" }).click();
+  await expect(page).toHaveURL("/credits");
+  await expect(page.getByRole("heading", { name: "Credits", level: 1 }))
+    .toBeVisible();
+
+  await page.goto(root);
+  await expect(page.locator("#inspector-panel h1"))
+    .toHaveText("Example.Package");
+  await page.getByRole("link", { name: "Credits" }).click();
+  await expect(page).toHaveURL("/credits");
+});
+
 test("Diagnostics opens from Settings and Spotlight without entering the Application menu", async ({
   page,
 }, testInfo) => {
