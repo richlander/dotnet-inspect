@@ -16,12 +16,70 @@ public static class InspectionGraphCommandDefinitions
             InspectionGraphCommand.Name,
             "Inspect typed relationships across an explicit workspace");
         var integrations = CreateIntegrationsCommand(opts);
+        var libraries = CreateLibrariesCommand(opts);
         command.Subcommands.Add(integrations);
+        command.Subcommands.Add(libraries);
         command.SetAction(_ =>
         {
             HelpWriter.WriteHelp(command);
             return 0;
         });
+        return command;
+    }
+
+    static Command CreateLibrariesCommand(SharedOptions opts)
+    {
+        var command = new Command(
+            LibraryCallUseCommand.Name,
+            "Show exact direct call use between two local libraries");
+        var libraryOption = new Option<string[]>("--library")
+        {
+            Description =
+                "Local managed library in the induced pair. Specify exactly twice.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        command.Options.Add(libraryOption);
+        command.Options.Add(opts.Json);
+        command.Options.Add(opts.Markdown);
+        command.Options.Add(opts.PlainText);
+        opts.AddTableOptionsTo(command);
+        opts.AddOutputOptionsTo(command);
+        command.Options.Add(opts.Columns);
+        command.Options.Add(opts.Fields);
+        opts.AddCountOptionTo(command);
+
+        command.SetAction(async (parseResult, cancellationToken) =>
+        {
+            string[] libraries =
+                parseResult.GetValue(libraryOption) ?? [];
+            if (libraries.Length != 2)
+            {
+                CommandError.Write(
+                    "Exactly two --library values are required.");
+                CommandError.WriteLine(
+                    "Run 'dotnet-inspect graph libraries --help' for usage.");
+                return 1;
+            }
+
+            return await LibraryCallUseCommand.ExecuteAsync(
+                new LibraryCallUseOptions
+                {
+                    Libraries = libraries,
+                    Format = opts.ResolveFormat(parseResult),
+                    Count = parseResult.GetValue(opts.Count),
+                    Rows = opts.ParseRows(parseResult),
+                    NoHeader =
+                        parseResult.GetValue(opts.NoHeaders),
+                    Verbose =
+                        parseResult.GetValue(opts.Verbose),
+                    Columns =
+                        opts.ParseColumns(parseResult),
+                    Fields =
+                        opts.ParseFields(parseResult),
+                },
+                cancellationToken);
+        });
+
         return command;
     }
 

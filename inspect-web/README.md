@@ -857,82 +857,21 @@ remain follow-on work under #5083. The owner is
 Diff baseline and Structural Clone Search Scope for the replacement Clone
 breadth and candidate discovery.
 
-## Method Body Diff
+## Comparison evidence
 
-Choose **Compare method bodies** for an explicitly selected method or accessor.
-The session-local dialog keeps that method as Before and offers the same
-implementation assembly's methods as After. Filtering and selecting do not run
-a comparison: choose **Compare** explicitly. Selecting the same method twice is
-valid, and bodyless methods remain available for native classification.
+The legacy Member actions **Compare method bodies** and
+**Compare authored source**, including their session-local dialogs, are
+retired. Diff and Clone belong to the unified Compare inspector described by
+[Inspect Web Compare Experience](../docs/design/inspect-web-compare-experience.md);
+Member **Explore** will open the appropriate immersive Omni experience.
 
-C# and IL have independent outcomes and typed evidence. A bodyless
-`NoApplicableInput` endpoint is not equality, and one unavailable mechanism
-does not erase the other's evidence. Changing After clears the old result;
-dismissal disposes the dialog's operation session. Ordinary member navigation
-and shared links do not acquire comparison state.
-
-The Source facade consumes the shared Queries result rather than CLI text or
-another comparison algorithm. Its Queries-owned address projection supplies
-the module association for a validated implementation token. A missing retained
-context, a wrong module, or a changed physical designation is visible
-non-success, not a request to reacquire or substitute another assembly.
-
-Execution follows the existing Source host and managed-operation bridge.
-The Worker binding remains a canary, not a migration of these retained
-workspaces. Logical cancellation suppresses stale publication; synchronous
-managed CPU work does not promise prompt physical cancellation.
-
-The focused contract and adoption boundaries live in
-[Inspect Web Method Body Comparison](../docs/design/inspect-web-method-body-comparison.md).
-The compiled fixture is registered as `FixtureCatalog.InspectWebMethodBodies`.
-An opt-in production-facade Browser case runs against the complete published
-Wasm site, not Vite's frontend-only build:
-
-```bash
-INSPECT_WEB_METHOD_BODY_URL=http://127.0.0.1:5199 \
-  npm run test:browser -- browser/method-body-production.spec.ts
-```
-
-Set `INSPECT_WEB_METHOD_BODY_FIXTURE` to that catalog fixture's `package`
-asset to include its compiled reference/implementation and accessor case.
-Only package acquisition is supplied with fixture bytes; comparison uses the
-published generated facade and product query.
-
-## Authored Source Diff
-
-Choose **Compare authored source** for a selected package method, enter the
-other version of the same package, and choose **Compare**. The launching
-version is Before; the entered version is After. Opening or editing the
-dialog does not fetch source, and comparing the same version is valid.
-
-The view uses checksum-accepted PDB source from each version, never a
-decompiled substitute. It distinguishes changed, unchanged, unavailable, and
-failed results. Native moved-line evidence retains both declaration-relative
-line numbers, including moves mixed with content edits. An available
-declaration and its provenance remain visible when the other endpoint has no
-source; that is not a deletion.
-
-The Source facade calls the shared paired query with two protected package
-contexts. The query resolves the logical member independently in each image.
-The browser receives structured native relations rather than CLI text or a
-second browser-computed diff.
-
-Like Method Body Diff, this is a session-local contextual dialog. Changing
-After clears the previous result; dismissal or replacement of the launching
-context disposes its operation. Normal navigation and shared links retain
-their existing meaning. Platform inputs, accessors that cannot designate a
-whole method, arbitrary cross-package comparison, and portable comparison
-links are outside this bounded feature.
-
-See [Inspect Web Source Comparison](../docs/design/inspect-web-source-comparison.md)
-for the contract and its S4/S5 adoption boundary.
-
-After publishing the engine to `artifacts/inspect-web-publish`, run
-`eng/test-inspect-web-source-comparison-gate.sh` from the repository root.
-It resolves the cataloged version-pair package and SourceLink bytes and drives
-the real dialog in Firefox. For optional live-package evidence, set
-`INSPECT_WEB_SOURCE_DIFF_URL` to a published site and run
-`npm run test:browser -- browser/source-comparison-production.spec.ts`.
+The generated Source facade continues to expose structured method-body and
+paired authored-Source comparison operations. They preserve exact endpoint
+identity, independent C#/IL outcomes, Source provenance, native line
+relations, typed non-success, and cancellation for reuse by Compare and Omni.
+The published-facade gates in `browser/method-body-production.spec.ts` and
+`browser/source-comparison-production.spec.ts` exercise those contracts
+without recreating the retired dialogs.
 
 ## Unsupported
 

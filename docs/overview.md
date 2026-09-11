@@ -359,10 +359,10 @@ substrates, and inspection producers that will extend that space.
   Compare-authored-source interaction with zero compatibility rather than
   adding a parallel Diff experience.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
-  owns explicit same-assembly pair interaction, the managed feature projection,
-  and typed Method Body Diff presentation. It consumes Queries comparison,
-  existing member resolution, modal behavior, and operation lifetime without
-  redefining those owners.
+  owns the retained same-assembly pair projection and generated-facade
+  evidence after retirement of the contextual Method Body Diff UI. It
+  consumes Queries comparison, existing member resolution, and operation
+  lifetime without redefining those owners.
 - [Inspect Web Source-diff Transport](design/inspect-web-source-diff-transport.md)
   owns the proposed member source-diff worker feature payload: admission,
   complete typed encoding, and bounded browser decoding. It consumes Queries
@@ -673,6 +673,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   preserving source identity, observed horizon, completion, and typed failure.
   Ecosystem scope, security meaning, report selection, cursors, leaf
   enrichment, and host adoption remain with their focused owners.
+- [GitHub NuGet advisory evidence](design/github-nuget-advisory-evidence.md):
+  bounded acquisition and exact-coordinate evaluation of current affected and
+  explicitly fixed evidence from GitHub-reviewed NuGet advisories. Package
+  release dates, security-release classification, historical transitions,
+  report selection, and presentation remain with their focused owners.
 - [NuGet Gallery discovery](design/nuget-gallery-discovery.md): proposed
   NuGetFetch-owned termless/type-filtered discovery, source ordering,
   search-selector catalog, typed metadata observations, and Gallery-specific

@@ -203,6 +203,233 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    public void ResolvedCallsEnumeratesExactPairWithoutTraversalBounds()
+    {
+        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        LibraryBodyIndex target = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        using CatalogCallGraphScope scope =
+            CatalogCallGraphTestExtensions.CreateScope(
+                caller,
+                [target]);
+
+        ImmutableArray<CatalogResolvedCallSite> calls =
+            scope.ResolvedCalls(caller, target);
+
+        Assert.Contains(
+            calls,
+            call => call.SourceMethod.Name == "Run"
+                && call.TargetMethod.Name == "Ping"
+                && call.Call.Kind == CallKind.Call);
+        Assert.Contains(
+            calls,
+            call => call.SourceMethod.Name == "CallBodiless"
+                && call.TargetMethod.Name == "Invoke"
+                && call.Call.Kind == CallKind.CallVirtual);
+        Assert.Contains(
+            calls,
+            call => call.SourceMethod.Name == "UseBox"
+                && call.TargetMethod.Name == ".ctor"
+                && call.Call.Kind == CallKind.NewObject);
+        Assert.All(
+            calls,
+            call =>
+            {
+                Assert.Same(caller, call.Source.Index);
+                Assert.Same(target, call.Target.Index);
+                Assert.Equal(
+                    call.SourceMethod.MetadataToken,
+                    call.Call.Caller.MetadataToken);
+            });
+        Assert.Empty(scope.ResolvedCalls(target, caller));
+    }
+
+    [Fact]
+    public void FallbackSignatureRequiresCompleteRetainedTypeIdentity()
+    {
+        var targetIdentity = new AssemblyReferenceIdentity(
+            "Provider",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        var dependencyV1 = new AssemblyReferenceIdentity(
+            "Dependency",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        var dependencyV2 = dependencyV1 with
+        {
+            Version = new Version(2, 0, 0, 0),
+        };
+        MetadataTypeDefinitionName providerTypeName =
+            TypeName("Provider", "Api");
+        MetadataTypeDefinitionName dependencyTypeName =
+            TypeName("Dependency", "Value");
+        TypeRef providerReference = TypeRef.Definition(
+            targetIdentity.Name,
+            providerTypeName.Namespace,
+            providerTypeName.Segments[0],
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    targetIdentity),
+                providerTypeName));
+        TypeRef providerDefinition = TypeRef.Definition(
+            targetIdentity.Name,
+            providerTypeName.Namespace,
+            providerTypeName.Segments[0],
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(
+                    targetIdentity),
+                providerTypeName));
+        TypeRef Dependency(AssemblyReferenceIdentity identity) =>
+            TypeRef.Definition(
+                identity.Name,
+                dependencyTypeName.Namespace,
+                dependencyTypeName.Segments[0],
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.AssemblyReference(
+                        identity),
+                    dependencyTypeName));
+        TypeRef retainedCoreLibraryVoid = TypeRef.Definition(
+            TypeRef.CoreLibrary,
+            "System",
+            "Void",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.IntrinsicCoreLibrary(),
+                TypeName("System", "Void")));
+        var untrustedSystemRuntime = new AssemblyReferenceIdentity(
+            "System.Runtime",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        TypeRef untrustedCoreLibraryVoid = TypeRef.Definition(
+            untrustedSystemRuntime.Name,
+            "System",
+            "Void",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    untrustedSystemRuntime),
+                TypeName("System", "Void")),
+            trustedFrameworkAssembly: false);
+        MetadataTypeDefinitionName literalNestedName =
+            TypeName("Dependency", "Outer+Inner");
+        MetadataTypeDefinitionName structuredNestedName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Dependency",
+                    ["Outer", "Inner"])).Name;
+        TypeRef StructuredDependency(
+            MetadataTypeDefinitionName typeName) =>
+            TypeRef.Definition(
+                dependencyV1.Name,
+                typeName.Namespace,
+                "Outer+Inner",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.AssemblyReference(
+                        dependencyV1),
+                    typeName));
+        MemberRef callSite = new(
+            providerReference,
+            "Use",
+            [Dependency(dependencyV1)],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = false,
+        };
+        MethodIdentity Definition(
+            AssemblyReferenceIdentity dependency,
+            TypeRef? returnType = null) =>
+            new(
+                targetIdentity.Name,
+                Guid.NewGuid(),
+                providerDefinition,
+                "Use",
+                [Dependency(dependency)],
+                returnType ?? TypeRef.CoreLib("System", "Void"),
+                0x06000001,
+                IsStatic: true);
+
+        Assert.Equal(
+            GraphNodeIdentity.FromMember(callSite),
+            GraphNodeIdentity.FromMethod(Definition(dependencyV2)));
+        MemberRef versionTwoCallSite = callSite with
+        {
+            ParameterTypes = [Dependency(dependencyV2)],
+        };
+        Assert.Equal(
+            GraphNodeIdentity.FromMember(callSite),
+            GraphNodeIdentity.FromMember(versionTwoCallSite));
+        Assert.NotEqual(
+            CatalogCallGraphScope.ExactPlanMemberIdentity(
+                callSite),
+            CatalogCallGraphScope.ExactPlanMemberIdentity(
+                versionTwoCallSite));
+        Assert.True(
+            CatalogCallGraphScope.ExactFallbackSignaturesMatch(
+                callSite,
+                Definition(dependencyV1)));
+        Assert.True(
+            CatalogCallGraphScope.ExactFallbackSignaturesMatch(
+                callSite,
+                Definition(
+                    dependencyV1,
+                    retainedCoreLibraryVoid)));
+        Assert.False(
+            CatalogCallGraphScope.ExactFallbackSignaturesMatch(
+                callSite,
+                Definition(dependencyV2)));
+        Assert.False(
+            CatalogCallGraphScope.ExactFallbackSignaturesMatch(
+                callSite,
+                Definition(
+                    dependencyV1,
+                    untrustedCoreLibraryVoid)));
+
+        MemberRef literalNestedCall = callSite with
+        {
+            ParameterTypes = [StructuredDependency(literalNestedName)],
+        };
+        MethodIdentity structuredNestedDefinition =
+            Definition(dependencyV1) with
+            {
+                ParameterTypes =
+                    [StructuredDependency(structuredNestedName)],
+            };
+        Assert.Equal(
+            GraphNodeIdentity.FromMember(literalNestedCall),
+            GraphNodeIdentity.FromMethod(
+                structuredNestedDefinition));
+        Assert.False(
+            CatalogCallGraphScope.ExactFallbackSignaturesMatch(
+                literalNestedCall,
+                structuredNestedDefinition));
+
+        MethodIdentity closedTarget = Definition(dependencyV1);
+        MethodIdentity openTarget = closedTarget with
+        {
+            IsVirtualDispatchOpen = true,
+        };
+        Assert.True(
+            CatalogCallGraphScope.IsResolvedExactTarget(
+                CallKind.Call,
+                openTarget));
+        Assert.True(
+            CatalogCallGraphScope.IsResolvedExactTarget(
+                CallKind.NewObject,
+                openTarget));
+        Assert.True(
+            CatalogCallGraphScope.IsResolvedExactTarget(
+                CallKind.CallVirtual,
+                closedTarget));
+        Assert.False(
+            CatalogCallGraphScope.IsResolvedExactTarget(
+                CallKind.CallVirtual,
+                openTarget));
+    }
+
+    [Fact]
     public void ExactVersionSkewedParticipantRetainsTypedConflictEvidence()
     {
         LibraryBodyIndex targetV2 = LibraryBodyIndex.Open(
@@ -504,6 +731,16 @@ public class CatalogCallGraphScopeTests
     public void PlanCacheIdentityPreservesRecursiveFunctionPointerPayload()
     {
         TypeRef owner = TypeRef.Definition("Owner", "", "Api");
+        var dependencyV1 = new AssemblyReferenceIdentity(
+            "Dependency",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: "0011223344556677");
+        var dependencyV2 = dependencyV1 with
+        {
+            Version = new Version(2, 0, 0, 0),
+            PublicKeyToken = "8899aabbccddeeff",
+        };
         TypeRef modifier = TypeRef.Definition(
             "System.Runtime",
             "System.Runtime.CompilerServices",
@@ -512,28 +749,42 @@ public class CatalogCallGraphScopeTests
         TypeRef text = TypeRef.CoreLib("System", "String");
         TypeRef voidType = TypeRef.CoreLib("System", "Void");
 
+        MemberRef Member(
+            SignatureCallingConvention convention,
+            TypeRef returnType,
+            TypeRef parameter) =>
+            new(
+                owner,
+                "Store",
+                [
+                    TypeRef.UnsupportedFunctionPointer(
+                        new MethodSignature<TypeRef>(
+                            new SignatureHeader(
+                                SignatureKind.Method,
+                                convention,
+                                SignatureAttributes.None),
+                            returnType,
+                            requiredParameterCount: 1,
+                            genericParameterCount: 0,
+                            [parameter])),
+                ],
+                voidType,
+                MemberKind.Method);
         GraphNodeIdentity Identity(
             SignatureCallingConvention convention,
             TypeRef returnType,
             TypeRef parameter) =>
             GraphNodeIdentity.FromMember(
-                new MemberRef(
-                    owner,
-                    "Store",
-                    [
-                        TypeRef.UnsupportedFunctionPointer(
-                            new MethodSignature<TypeRef>(
-                                new SignatureHeader(
-                                    SignatureKind.Method,
-                                    convention,
-                                    SignatureAttributes.None),
-                                returnType,
-                                requiredParameterCount: 1,
-                                genericParameterCount: 0,
-                                [parameter])),
-                    ],
-                    voidType,
-                    MemberKind.Method));
+                Member(convention, returnType, parameter));
+        TypeRef Dependency(AssemblyReferenceIdentity assembly) =>
+            TypeRef.Definition(
+                assembly.Name,
+                "Dependency",
+                "Value",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.AssemblyReference(
+                        assembly),
+                    TypeName("Dependency", "Value")));
 
         GraphNodeIdentity baseline = Identity(
             SignatureCallingConvention.CDecl,
@@ -588,6 +839,22 @@ public class CatalogCallGraphScopeTests
                     text,
                     isRequired: true),
                 integer));
+        MemberRef dependencyOne = Member(
+            SignatureCallingConvention.Default,
+            voidType,
+            Dependency(dependencyV1));
+        MemberRef dependencyTwo = Member(
+            SignatureCallingConvention.Default,
+            voidType,
+            Dependency(dependencyV2));
+        Assert.Equal(
+            GraphNodeIdentity.FromMember(dependencyOne),
+            GraphNodeIdentity.FromMember(dependencyTwo));
+        Assert.NotEqual(
+            CatalogCallGraphScope.ExactPlanMemberIdentity(
+                dependencyOne),
+            CatalogCallGraphScope.ExactPlanMemberIdentity(
+                dependencyTwo));
     }
 
     [Fact]
@@ -719,6 +986,14 @@ public class CatalogCallGraphScopeTests
             index.Path,
             AssemblyResolutionProvenance.Local(
                 "catalog call-graph test"));
+
+    static MetadataTypeDefinitionName TypeName(
+        string @namespace,
+        string name) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                [name])).Name;
 
     sealed class CountingGroupPolicy(
         ImmutableArray<ResolvedAssemblyReference> roots,

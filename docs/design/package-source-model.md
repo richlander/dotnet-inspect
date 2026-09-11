@@ -67,7 +67,9 @@ The lease carries the live authority to:
 
 - authorize and settle one caller-pinned package coordinate;
 - discover dependency versions across one explicit source authorization; and
-- acquire one exact manifest through a candidate issued by the same lease.
+- acquire one exact manifest through a candidate issued by the same lease; and
+- acquire one admitted retained payload through a candidate issued by the same
+  lease and caller-supplied authority-scoped package stores.
 
 One lease owns one candidate-issuer identity. It accepts only source results
 whose association and client identity match the exact configured authority
@@ -81,6 +83,15 @@ package stores, artifact content, or Workspace participants. Completed result
 values retain their existing evidence semantics after retirement; no
 PackageHouse receipt stores the live source-settlement lease.
 
+Candidate payload acquisition consults every authorized cache before cold
+acquisition, then tries the same stable local-before-HTTP authority order used
+for candidate manifests. The result preserves the serving configured authority,
+producer identity, retained-content generation, cache/download origin,
+not-found authorities, and attributed failures. The lease does not create or
+select stores: the caller supplies one store per configured authority and
+producer, preserving host choice between filesystem, in-memory Browser/Wasm,
+or another package-owned storage implementation.
+
 This ownership correction preserves the existing `IDisposable` lifetime and
 async operation shapes. It does not define borrowing or transfer across an
 `await` boundary; [#6544](https://github.com/richlander/dotnet-inspect/issues/6544)
@@ -88,10 +99,14 @@ owns that contract. Repository-wide absence of another issuer or the retired
 House-named API remains unverified by user choice.
 
 `PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient`
-and
+and `PackageSourceSettlementLeaseAcquiresPayloadAndRetiresWithoutDisposingClient`
+are the Release gates for lease retirement, caller-owned resources, retained
+generation, producer, and origin. Together with
 `PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation`
-are the Release gates for retirement, caller-owned resources, candidate
-identity, and exact source association.
+they gate candidate identity and exact source association. Existing
+`ConfiguredPayloadAcquisitionTests` remain the Release gates for cache/source
+ordering, failover, not-found evidence, and typed payload failures through the
+shared candidate-payload implementation.
 
 ## Identity roles
 

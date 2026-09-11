@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
@@ -103,6 +104,240 @@ public sealed class InspectionGraphCommandTests
         Assert.DoesNotContain(
             result.CommandResult.Command.Options,
             option => option.Name is "--depth" or "--direction");
+    }
+
+    [Fact]
+    public void LibrariesCommand_ExposesExactPairWithoutTraversal()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "graph",
+                "libraries",
+                "--library",
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+                "--library",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.DoesNotContain(
+            result.CommandResult.Command.Options,
+            option => option.Name is "--depth"
+                or "--direction"
+                or "--relationship");
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RequiresExactlyTwoLibraries()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains(
+            "Exactly two --library values are required.",
+            captured.Error);
+        Assert.DoesNotContain("Exception", captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_CountsExactCallSites()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--count",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.True(
+            int.Parse(captured.Output.Trim()) > 0);
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_AppliesOccurrenceRowWindowsToJsonLines()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--jsonl",
+                        "--rows",
+                        "1..2",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        string[] lines = captured.Output
+            .Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        Assert.All(
+            lines,
+            line =>
+            {
+                using JsonDocument row = JsonDocument.Parse(line);
+                Assert.True(
+                    row.RootElement.TryGetProperty(
+                        "source_member",
+                        out _));
+                Assert.True(
+                    row.RootElement.TryGetProperty(
+                        "target_member",
+                        out _));
+                Assert.Contains(
+                    "Version=",
+                    row.RootElement
+                        .GetProperty("source_library")
+                        .GetString(),
+                    StringComparison.Ordinal);
+                Assert.NotEqual(
+                    Guid.Empty,
+                    Guid.Parse(
+                        row.RootElement
+                            .GetProperty("source_mvid")
+                            .GetString()!));
+                Assert.StartsWith(
+                    "0x06",
+                    row.RootElement
+                        .GetProperty("source_token")
+                        .GetString(),
+                    StringComparison.Ordinal);
+                Assert.NotEqual(
+                    Guid.Empty,
+                    Guid.Parse(
+                        row.RootElement
+                            .GetProperty("target_mvid")
+                            .GetString()!));
+                Assert.StartsWith(
+                    "0x06",
+                    row.RootElement
+                        .GetProperty("target_token")
+                        .GetString(),
+                    StringComparison.Ordinal);
+                Assert.NotEqual(
+                    Guid.Empty,
+                    Guid.Parse(
+                        row.RootElement
+                            .GetProperty("evidence_mvid")
+                            .GetString()!));
+                Assert.StartsWith(
+                    "0x06",
+                    row.RootElement
+                        .GetProperty("evidence_token")
+                        .GetString(),
+                    StringComparison.Ordinal);
+                Assert.Equal(
+                    "yes",
+                    row.RootElement
+                        .GetProperty("exact_target")
+                        .GetString());
+            });
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_WindowsHumanSummaryAndRowsTogether()
+    {
+        async Task<(int ExitCode, string Output, string Error)> Execute(
+            string rows) =>
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.CreateRootCommand()
+                    .Parse(
+                        [
+                            "graph",
+                            "libraries",
+                            "--library",
+                            FixtureCatalog.AnalysisCallerGraphCaller
+                                .AssemblyPath(),
+                            "--library",
+                            FixtureCatalog.AnalysisCallerGraphTarget
+                                .AssemblyPath(),
+                            "--rows",
+                            rows,
+                        ])
+                    .InvokeAsync());
+
+        var partial = await Execute("1..2");
+        var empty = await Execute("999..1000");
+
+        Assert.Equal(0, partial.ExitCode);
+        Assert.Contains(
+            "Evidence Method",
+            partial.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "2 call sites.",
+            partial.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(0, empty.ExitCode);
+        Assert.Contains(
+            "No direct pair call use is selected by the row window.",
+            empty.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "source members",
+            empty.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(partial.Error);
+        Assert.Empty(empty.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ReportsPairRelevantVersionSkew()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTargetV2
+                            .AssemblyPath(),
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains(
+            "Pairwise call-use evidence is incomplete.",
+            captured.Error);
+        Assert.Contains(
+            "call sites name the other library",
+            captured.Error);
+        Assert.DoesNotContain("Exception", captured.Error);
     }
 
     [Fact]

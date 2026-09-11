@@ -536,10 +536,13 @@ consumer-owned bottom legend outside the transformed viewport, so zoom and pan
 cannot move, crop, or shrink its explanation. Call graph names its member and
 assembly roles plus platform lookup; Type relationships names inspected, base,
 interface, derived, and unavailable types; Package Dependencies names inspected,
-open, and load-on-selection packages. Legend rows wrap at narrow widths. Mermaid
-source follows the Call graph legend. Subject and context wrap completely rather
-than truncating or disappearing. Close and graph controls stay available without
-page-level horizontal overflow.
+open, and load-on-selection packages. Legend rows wrap at narrow widths and form
+the final interpretation row. Browser-specific Mermaid source remains internal
+to rendering rather than appearing as Call-graph-only inspection evidence. Any
+future source copy or graph export experience requires one deliberate contract
+across Call, Type, and Dependency graphs. Subject and context wrap completely
+rather than truncating or disappearing. Close and graph controls stay available
+without page-level horizontal overflow.
 
 This document owns that placement contract. The existing
 [shared modal semantics](inspect-web-shell-interaction.md#shared-menu-and-modal-semantics)
@@ -1178,8 +1181,10 @@ This browser-only placement is milestone 5 of the six-step adoption path in
 It has one consumer, the Member Diff working surface, and one focused tracker,
 [#5685](https://github.com/richlander/dotnet-inspect/issues/5685). It adds no
 comparison, transport, navigation, or viewer architecture. The existing
-cross-version `Compare authored source` dialog and Method Body Diff remain
-separate experiences; this placement does not retire or redefine either.
+cross-version `Compare authored source` and Method Body Diff contextual
+dialogs are retired under #6491. Their structured managed evidence remains
+available to an owner-issued immersive destination; this placement does not
+redefine that evidence.
 
 [VS Code](https://code.visualstudio.com/docs/sourcecontrol/overview) uses a
 dedicated side-by-side diff editor rather than embedding changed text in its
