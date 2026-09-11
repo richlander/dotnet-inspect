@@ -952,18 +952,37 @@ public class DiffCommand
 
         ApiDiff? changesDiff = null;
         DiffDetailedChangesView? changesView = null;
+        bool changesIncomplete = false;
         if (selected.Contains(DiffSections.Changes.Name))
         {
-            changesDiff = BuildApiDiff(
-                queryResults.Get(ApiComparisonQuery.Definition),
-                inputs.FromSurface,
-                inputs.ToSurface,
-                options);
-            changesView = DiffOutputFormatter.BuildDetailedChangesView(
-                inputs.Name,
-                ApplyFilters(changesDiff, options),
-                inputs.FromVersion,
-                inputs.ToVersion);
+            try
+            {
+                changesDiff = BuildApiDiff(
+                    queryResults.Get(ApiComparisonQuery.Definition),
+                    inputs.FromSurface,
+                    inputs.ToSurface,
+                    options);
+            }
+            catch (InvalidOperationException exception)
+                when (workspaceImplementation is not null
+                    && options.MemberFilter.Count > 0)
+            {
+                changesIncomplete = true;
+                changesView =
+                    DiffOutputFormatter.BuildDetailedChangesFailureView(
+                        inputs.Name,
+                        inputs.FromVersion,
+                        inputs.ToVersion,
+                        exception.Message);
+            }
+            if (changesDiff is not null)
+            {
+                changesView = DiffOutputFormatter.BuildDetailedChangesView(
+                    inputs.Name,
+                    ApplyFilters(changesDiff, options),
+                    inputs.FromVersion,
+                    inputs.ToVersion);
+            }
         }
 
         AnalysisDiffView? analysisView = null;
@@ -1048,13 +1067,15 @@ public class DiffCommand
         {
             Console.WriteLine(JsonSerializer.Serialize(view, DiffJsonContext.Default.DiffDocumentView));
             return inspectionFailures.Count > 0
-                || workspaceIncomplete;
+                || workspaceIncomplete
+                || changesIncomplete;
         }
 
         Console.WriteLine(DiffOutputFormatter.RenderDocumentView(
             view, OutputFormatter.CreateWindowedOptions(options.Rows)));
         return inspectionFailures.Count > 0
-            || workspaceIncomplete;
+            || workspaceIncomplete
+            || changesIncomplete;
     }
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
@@ -2527,8 +2548,13 @@ public class DiffCommand
             return null;
         }
 
+        string memberSelector =
+            LowerWorkspaceImplementationMemberSelector(
+                options.MemberFilter.Single(),
+                typeSelector,
+                typeName);
         MemberTargetSelector selector = MemberTargetSelector.Parse(
-            options.MemberFilter.Single());
+            memberSelector);
         return new(
             valid.Name,
             selector,
@@ -2541,11 +2567,11 @@ public class DiffCommand
             ApiSurface toSurface,
             string query)
     {
-        string? oldTypeName = SelectTypeName(
+        string? oldTypeName = SelectWorkspaceImplementationTypeName(
             fromSurface,
             query,
             out string? oldError);
-        string? newTypeName = SelectTypeName(
+        string? newTypeName = SelectWorkspaceImplementationTypeName(
             toSurface,
             query,
             out string? newError);
@@ -2562,6 +2588,67 @@ public class DiffCommand
 
         return oldTypeName
             ?? newTypeName;
+    }
+
+    static string? SelectWorkspaceImplementationTypeName(
+        ApiSurface surface,
+        string query,
+        out string? error)
+    {
+        string[] matches =
+        [
+            .. FindingTypeNames.EnumerateResolvable(surface)
+                .Concat(surface.TypeForwarders.Select(
+                    static forwarder =>
+                        forwarder.DefinitionName?.ToMetadataFullName()
+                        ?? forwarder.TypeName))
+                .Where(typeName =>
+                    TypeMatcher.MatchesTypeFilter(
+                        typeName,
+                        query))
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+        string? exact = matches.FirstOrDefault(typeName =>
+            typeName.Equals(
+                query,
+                StringComparison.Ordinal));
+        if (exact is not null)
+            matches = [exact];
+        if (matches.Length > 1)
+        {
+            error =
+                $"Type target '{query}' is ambiguous. Use one of: "
+                + $"{string.Join(", ", matches)}.";
+            return null;
+        }
+
+        error = null;
+        return matches.SingleOrDefault();
+    }
+
+    internal static string
+        LowerWorkspaceImplementationMemberSelector(
+            string memberSelector,
+            string typeSelector,
+            string selectedTypeName)
+    {
+        foreach (string typeName in
+            new[] { selectedTypeName, typeSelector }
+                .Distinct(StringComparer.Ordinal)
+                .OrderByDescending(static name =>
+                    name.Length))
+        {
+            string prefix = typeName + ".";
+            if (memberSelector.StartsWith(
+                    prefix,
+                    StringComparison.Ordinal))
+            {
+                return memberSelector[prefix.Length..];
+            }
+        }
+
+        return memberSelector;
     }
 
     static bool IsFatalTargetDiagnostic(MemberTargetDiagnosticKind kind)

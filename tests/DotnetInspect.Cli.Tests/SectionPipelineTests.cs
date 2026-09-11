@@ -2209,25 +2209,35 @@ public class SectionPipelineTests
     {
         var before = new ApiSurface
         {
-            Types =
+            TypeForwarders =
             [
-                new()
+                new TypeForwarder
                 {
-                    Namespace =
-                        "Microsoft.Extensions.DependencyInjection",
-                    Name = "ServiceCollection",
+                    DefinitionName =
+                        Assert.IsType<
+                            MetadataTypeDefinitionNameResult.Valid>(
+                            MetadataTypeDefinitionName.Create(
+                                "Microsoft.Extensions.DependencyInjection",
+                                ["ServiceCollection"])).Name,
+                    TypeName =
+                        "Microsoft.Extensions.DependencyInjection.ServiceCollection",
                 },
             ],
         };
         var after = new ApiSurface
         {
-            Types =
+            TypeForwarders =
             [
-                new()
+                new TypeForwarder
                 {
-                    Namespace =
-                        "Microsoft.Extensions.DependencyInjection",
-                    Name = "ServiceCollection",
+                    DefinitionName =
+                        Assert.IsType<
+                            MetadataTypeDefinitionNameResult.Valid>(
+                            MetadataTypeDefinitionName.Create(
+                                "Microsoft.Extensions.DependencyInjection",
+                                ["ServiceCollection"])).Name,
+                    TypeName =
+                        "Microsoft.Extensions.DependencyInjection.ServiceCollection",
                 },
             ],
         };
@@ -2238,6 +2248,12 @@ public class SectionPipelineTests
                 before,
                 after,
                 "ServiceCollection"));
+        Assert.Equal(
+            "Dispose",
+            DiffCommand.LowerWorkspaceImplementationMemberSelector(
+                "ServiceCollection.Dispose",
+                "ServiceCollection",
+                "Microsoft.Extensions.DependencyInjection.ServiceCollection"));
     }
 
     [Fact]

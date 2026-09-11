@@ -120,6 +120,18 @@ public static class DiffOutputFormatter
         };
     }
 
+    internal static DiffDetailedChangesView
+        BuildDetailedChangesFailureView(
+            string name,
+            string fromVersion,
+            string toVersion,
+            string detail)
+        => new(
+            DiffViewText.Field($"API Diff: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"),
+            DiffViewText.Field(
+                $"Changes selection is incomplete: {detail}"));
+
     public static DiffDocumentView BuildDocumentView(
         string name,
         string fromVersion,

@@ -1,8 +1,11 @@
 using System.IO.Compression;
+using System.Net;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Views;
@@ -11,15 +14,20 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using CoreHttpClientFactory =
+    DotnetInspector.Core.HttpClientFactory;
 
 namespace DotnetInspect.Cli.Tests;
 
+[Collection("Console")]
 public sealed class WorkspaceImplementationComparisonRunnerTests
     : IDisposable
 {
     const string Framework = "net10.0";
     const string Facade = "Forwarded.Diff.Facade";
     const string Terminal = "Forwarded.Diff.Terminal";
+    const string Feed =
+        "https://forwarded-diff.invalid/v3/index.json";
     static readonly MetadataTypeDefinitionName TypeName =
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create(
@@ -29,8 +37,23 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         "forwarded-diff-runner-").FullName;
 
     public WorkspaceImplementationComparisonRunnerTests()
-        => CoreCache.Initialize(
+    {
+        CoreCache.Initialize(
             "dotnet-inspect-test");
+        CoreHttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        CoreHttpClientFactory.ResetSharedForTesting();
+        CoreHttpClientFactory.SetAuthenticationDecorator(
+            null);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            null);
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            Path.Combine(
+                _root,
+                "cache"),
+            skipNuGetCache: true);
+    }
 
     [Fact]
     public async Task ForwardedPackageTargets_RetainRouteAndExactBodies()
@@ -298,6 +321,137 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                     == failed.Kind.ToString());
     }
 
+    [Fact]
+    public async Task PackageCommand_ShortForwardedTypeAndQualifiedMemberUseWorkspaceRoute()
+    {
+        _ = CreateForwardedSide(
+            "1.0.0",
+            methodResult: 1);
+        _ = CreateForwardedSide(
+            "2.0.0",
+            methodResult: 2);
+
+        var (exitCode, output, error) =
+            await RunPackageCommandAsync(
+                type: "Type",
+                member: "Type.Value",
+                sections:
+                    "Implementation Diff");
+
+        Assert.True(
+            exitCode == 0,
+            error);
+        Assert.True(
+            string.IsNullOrEmpty(error),
+            error);
+        Assert.Contains(
+            "N.Type.Value",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"mechanism\": \"Type Forwarder\"",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"mechanism\": \"IL\"",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PackageCommand_ComposedFailureRetainsWorkspaceQueryRow()
+    {
+        _ = CreateForwardedSide(
+            "1.0.0",
+            methodResult: 1);
+        _ = CreateForwardedSide(
+            "2.0.0",
+            methodResult: 2);
+
+        var (exitCode, output, error) =
+            await RunPackageCommandAsync(
+                type: "N.Type",
+                member: "Nonexistent",
+                sections:
+                    "Changes;Implementation Diff");
+
+        Assert.Equal(
+            1,
+            exitCode);
+        Assert.True(
+            string.IsNullOrEmpty(error),
+            error);
+        Assert.Contains(
+            "Changes selection is incomplete",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"mechanism\": \"Query\"",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TerminalAttemptUnavailable",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    Task<(int ExitCode, string Output, string Error)>
+        RunPackageCommandAsync(
+        string type,
+        string member,
+        string sections)
+    {
+        Dictionary<string, byte[]> packages =
+            PackagePayloads();
+        CoreHttpClientFactory.SetAuthenticationDecorator(
+            _ => new FixtureFeedHandler(
+                packages));
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            _ => new FixtureFeedHandler(
+                packages));
+        return ConsoleCapture.RunAsync(
+            async () =>
+            {
+                var parsed =
+                    CommandLineBuilder.CreateRootCommand().Parse(
+                        CommandLineBuilder.PreprocessArgs(
+                            [
+                                "diff",
+                                "--package",
+                                $"{Facade}@1.0.0..2.0.0",
+                                "--type",
+                                type,
+                                "--member",
+                                member,
+                                "-S",
+                                sections,
+                                "--json",
+                                "--source",
+                                Feed,
+                            ]));
+                Assert.Empty(parsed.Errors);
+                return await CommandLineBuilder.InvokeAsync(
+                    parsed);
+            });
+    }
+
+    Dictionary<string, byte[]> PackagePayloads()
+        => new(StringComparer.Ordinal)
+        {
+            [PackageUrl(Facade, "1.0.0")] =
+                File.ReadAllBytes(
+                    PackagePath(Facade, "1.0.0")),
+            [PackageUrl(Facade, "2.0.0")] =
+                File.ReadAllBytes(
+                    PackagePath(Facade, "2.0.0")),
+            [PackageUrl(Terminal, "1.0.0")] =
+                File.ReadAllBytes(
+                    PackagePath(Terminal, "1.0.0")),
+            [PackageUrl(Terminal, "2.0.0")] =
+                File.ReadAllBytes(
+                    PackagePath(Terminal, "2.0.0")),
+        };
+
     static AssemblyReferenceIdentity TerminalIdentity(
         WorkspaceResearchTargetCompositionReceipt receipt)
         => Assert.IsType<
@@ -324,6 +478,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             version,
             methodResult: null,
             terminalIdentity);
+        string dependencies =
+            $"<dependency id=\"{terminalName}\" version=\"{version}\" />";
         if (writeTerminalPackage)
         {
             WritePackage(
@@ -333,11 +489,17 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                 dependencies: null,
                 targetFramework);
         }
+        WritePackage(
+            Facade,
+            version,
+            facade,
+            dependencies,
+            targetFramework,
+            dependencyGroupFramework);
         return CreateSide(
             version,
             facade,
-            dependencies:
-                $"<dependency id=\"{terminalName}\" version=\"{version}\" />",
+            dependencies,
             targetFramework,
             dependencyGroupFramework);
     }
@@ -403,11 +565,12 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         string version,
         byte[] assembly,
         string? dependencies,
-        string targetFramework = Framework)
+        string targetFramework = Framework,
+        string? dependencyGroupFramework = null)
     {
-        string path = Path.Combine(
-            _root,
-            $"{id}.{version}.nupkg");
+        string path = PackagePath(
+            id,
+            version);
         using var archive = ZipFile.Open(
             path,
             ZipArchiveMode.Create);
@@ -418,12 +581,30 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                 id,
                 version,
                 dependencies,
-                targetFramework));
+                dependencyGroupFramework
+                    ?? targetFramework));
         ZipArchiveEntry library = archive.CreateEntry(
             $"lib/{targetFramework}/{id}.dll");
         using Stream stream = library.Open();
         stream.Write(assembly);
     }
+
+    string PackagePath(
+        string id,
+        string version)
+        => Path.Combine(
+            _root,
+            $"{id.ToLowerInvariant()}.{version}.nupkg");
+
+    static string PackageUrl(
+        string id,
+        string version)
+        => new Uri(
+            new Uri(
+                Feed),
+            $"flat2/{id.ToLowerInvariant()}/{version}/"
+                + $"{id.ToLowerInvariant()}.{version}.nupkg")
+            .AbsoluteUri;
 
     static void Write(
         ZipArchive archive,
@@ -570,10 +751,68 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
 
     public void Dispose()
     {
+        CoreHttpClientFactory.SetAuthenticationDecorator(
+            null);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            null);
+        CoreHttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        CoreHttpClientFactory.ResetSharedForTesting();
+        NuGetCache.Initialize(
+            "dotnet-inspect");
         Directory.Delete(
             _root,
             recursive: true);
     }
 
     sealed record TestSide(AssemblySet AssemblySet);
+
+    sealed class FixtureFeedHandler(
+        IReadOnlyDictionary<string, byte[]> packages)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string url = request.RequestUri!.AbsoluteUri;
+            HttpResponseMessage response;
+            if (url == Feed)
+            {
+                string flat = new Uri(
+                    new Uri(Feed),
+                    "flat2/").AbsoluteUri;
+                response = new(
+                    HttpStatusCode.OK)
+                {
+                    Content = new StringContent($$"""
+                        {"version":"3.0.0","resources":[
+                          {"@id":"{{flat}}","@type":"PackageBaseAddress/3.0.0"}
+                        ]}
+                        """),
+                };
+            }
+            else if (packages.TryGetValue(
+                url,
+                out byte[]? package))
+            {
+                response = new(
+                    HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(
+                        package),
+                };
+            }
+            else
+            {
+                response = new(
+                    HttpStatusCode.NotFound);
+            }
+
+            response.RequestMessage = request;
+            return Task.FromResult(
+                response);
+        }
+    }
 }

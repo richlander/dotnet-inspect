@@ -505,7 +505,10 @@ and typed missing-terminal failure.
 proves that the adopted plan omits the legacy comparison query. The Queries
 owner's Release `WorkspaceImplementationComparisonQueryTests` gate enforces
 root-to-terminal identity, closed-world execution, correspondence, and typed
-composition and producer outcomes.
+composition and producer outcomes. Facade-shaped command cases in
+`WorkspaceImplementationComparisonRunnerTests` additionally gate short
+forwarded type selection, type-qualified member lowering, and preservation of
+typed workspace failures in composed JSON and Markdown output.
 
 ### Integration ecosystem queries
 
