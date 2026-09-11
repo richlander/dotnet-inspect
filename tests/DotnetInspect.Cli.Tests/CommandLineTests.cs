@@ -844,13 +844,13 @@ public class CommandLineTests
     public void ParsedLineWindow_UsesActiveCommandOptionArity()
     {
         PreprocessAndApplyLineWindow(
-            ["implements", "--platform", "-n1", "JsonSerializer"]);
+            ["extensions", "--platform", "-n1", "HttpClient"]);
         Assert.Equal(1, CommandLineBuilder.HeadLines);
 
         string[] shorthand = PreprocessAndApplyLineWindow(
-            ["implements", "--platform", "-1", "JsonSerializer"]);
+            ["extensions", "--platform", "-1", "HttpClient"]);
         Assert.Equal(
-            ["implements", "--platform", "-n", "1", "JsonSerializer"],
+            ["extensions", "--platform", "-n", "1", "HttpClient"],
             shorthand);
         Assert.Equal(1, CommandLineBuilder.HeadLines);
 
