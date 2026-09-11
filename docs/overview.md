@@ -40,10 +40,16 @@ substrates, and inspection producers that will extend that space.
   `--share` gesture that projects an inspection command's effective resolved
   source, context, subject, facet, and query state to a canonical Workspace
   packet or Inspect Web URL without a second construction grammar.
+  [Inspection Plan Projections](design/inspection-plan-projections.md) owns the
+  shared resolved basis and closed terminal-purpose split among section
+  execution, effective-section discovery, and portable sharing.
   Its
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
   operation-intent lowering at the L3 boundary. Its
+  [CLI execution-bound grammar](design/cli-execution-bounds.md) separately
+  owns L3 classification, spelling, validation, and typed lowering for explicit
+  owner-dimensioned limits on upstream work. Its
   [search scope resolution](design/search-scope-resolution.md) owns default
   activation,
   explicit-source suppression, and named platform/package scope expansion. Its
@@ -145,6 +151,15 @@ substrates, and inspection producers that will extend that space.
 - `src/Inspector.Text/` provides the reusable
   `TextFindings` API for exact, ordered line inspection and generic text
   comparison on the shared Finding spine, plus deterministic LF construction.
+- [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md)
+  is the host-neutral resource protocol for service-issued leases, explicit
+  transfer, direct and snapshot-callback borrowing, resource-free references
+  and receipts, C# representation, the residual enforcement overhang before
+  compiler ownership, and the declaration boundary consumed by Analysis.
+  Resource issuers retain their acquisition and cleanup semantics; Analysis
+  retains IL interpretation and Finding semantics; Houses compose and settle
+  scenarios without issuing adjacent-owner leases. Adoption and retirement are
+  tracked by #6544.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its
@@ -220,8 +235,10 @@ substrates, and inspection producers that will extend that space.
   not reference it. The
   [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md)
   is the focused one-way projection from a selected application pack and the
-  authored product-default sequence into lower immutable declarations; it does
-  not move catalog identity, display actions, or source execution downward.
+  Ecosystems-owned curated manifest into lower immutable declarations and one
+  newly constructed Workspace. Workspace construction itself remains empty and
+  has no curated option; the handoff does not move catalog identity, display
+  actions, or source execution downward.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -262,9 +279,14 @@ substrates, and inspection producers that will extend that space.
   typed transport outcomes. `PdbSourceHouse` retains local, repository, and
   remote ordering, PDB checksum verification, decoding, and settled
   PDB-source outcomes.
+- `src/NetworkAccess/` owns the shared network-destination admission policy
+  used by Core HTTP composition and NuGet feed transports. Its project and
+  compiled assembly dependencies are restricted to the platform by
+  `network-access-stays-independent`.
 - `src/DotnetInspector.Core/` is a transitional runtime bucket beneath
-  Packages, Services, and the CLI. Its cache, networking, untrusted-document,
-  CLI telemetry, and single-consumer helpers move to subject owners under
+  Packages, Services, and the CLI. Its cache, remaining HTTP composition and
+  telemetry, untrusted-document, CLI telemetry, and single-consumer helpers
+  move to subject owners under
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
@@ -278,7 +300,7 @@ substrates, and inspection producers that will extend that space.
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind
   vocabulary, and keeps unanchored facts visible without inventing coordinates.
-- `prototypes/inspect-web/` is the browser/Wasm product host. Its
+- `inspect-web/` is the browser/Wasm product host. Its
   [UI design](design/inspect-web-ui.md) composes the website's shared
   presentation language, reusable
   [SlideStrip](design/inspect-web-slide-strip.md), navigation rendering,
@@ -295,8 +317,9 @@ substrates, and inspection producers that will extend that space.
 - [Workspace registration and call-graph focal
   length](design/workspace-registration-and-call-graph-scope.md) is the
   operator-approved cross-owner target experience for inert registration,
-  shared fresh-Workspace ecosystem defaults, and consumer-selected call-graph
-  breadth. It retires traversal approval and permission semantics. Its
+  neutral empty Workspace construction, one Ecosystems-owned curated
+  composition, and consumer-selected call-graph breadth. It retires traversal
+  approval and permission semantics. Its
   owner-issued route prerequisite is the
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md);
   its catalog boundary is the
@@ -464,6 +487,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md):
   proposed separation of type/member intent, section resolution, producer
   authorization, shared declaration validation, and C# representability.
+- [Inspection plan projections](design/inspection-plan-projections.md):
+  composition of one resolved inspection basis into distinct section-execution,
+  effective-discovery, or portable-share plans.
 - [Inspection graph document](design/inspection-graph-document.md): typed
   multi-subject graph projection for calls, metadata relationships,
   integrations, Findings, characteristics, and package/type lenses.
@@ -511,6 +537,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Item and line selection composition](design/item-and-line-limits.md):
   cross-component sequencing and typed handoffs for focused semantic
   selection, L2, source-execution, CLI, payload, and presentation designs.
+- [CLI execution bounds](design/cli-execution-bounds.md): L3 distinction
+  between semantic selection and explicit owner-dimensioned work limits,
+  including `--take` eligibility and typed lowering.
 - [Semantic row selection](design/semantic-row-selection.md): typed
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.
@@ -538,7 +567,8 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md):
   explicit application-pack correspondence, lower immutable retrieval,
   population, and Integration contributions, typed projection outcomes, and
-  one shared Platform/ASP.NET Core/Microsoft.Extensions default sequence.
+  Ecosystems-owned construction of the one curated
+  Platform/ASP.NET Core/Microsoft.Extensions Workspace.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
@@ -634,6 +664,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   preserving source identity, observed horizon, completion, and typed failure.
   Ecosystem scope, security meaning, report selection, cursors, leaf
   enrichment, and host adoption remain with their focused owners.
+- [GitHub NuGet advisory evidence](design/github-nuget-advisory-evidence.md):
+  bounded acquisition and exact-coordinate evaluation of current affected and
+  explicitly fixed evidence from GitHub-reviewed NuGet advisories. Package
+  release dates, security-release classification, historical transitions,
+  report selection, and presentation remain with their focused owners.
 - [NuGet Gallery discovery](design/nuget-gallery-discovery.md): proposed
   NuGetFetch-owned termless/type-filtered discovery, source ordering,
   search-selector catalog, typed metadata observations, and Gallery-specific

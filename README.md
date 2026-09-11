@@ -178,6 +178,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
+| `graph libraries` | Show exact resolved `call`, `callvirt`, and `newobj` occurrences crossing between two explicit local libraries. |
 | `depends X` | Walk type, package, or library dependency graphs with lossless shared edges; emit tree, Mermaid, table, TSV, JSONL, JSON, or edge-count output. |
 | `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -551,6 +552,9 @@ dotnet-inspect graph integrations \
   --package Microsoft.Extensions.Http@10.0.0 \
   --tfm net10.0 \
   --relationship integration.observed
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll
 ```
 
 ### Workspace sharing and built-in guidance
@@ -564,7 +568,11 @@ dotnet-inspect member JsonConvert \
   --package Newtonsoft.Json@13.0.4 \
   SerializeObject:1 \
   --tfm net6.0 \
-  --share url
+  --share
+dotnet-inspect depends \
+  --package Newtonsoft.Json \
+  --tfm net6.0 \
+  --share
 dotnet-inspect skill list
 dotnet-inspect demo list
 dotnet-inspect demo list -n 3 --json
@@ -575,12 +583,26 @@ for the existing share-packet JSON shape. Packet-only output remains the default
 This is not an encoder for `workspace --json` inventory output. The packet's
 existing limits and the browser's supported restoration shapes still apply.
 
-`member --share packet|url` projects one explicitly selected public member
+Bare `--share` emits a complete Inspect Web URL; `--share url` spells that
+default explicitly, while `--share packet` emits only the canonical packet.
+
+`member --share[=url|packet]` projects one explicitly selected public member
 overload from an exact NuGet.org package version and target framework. The URL
 opens that member's API Overview in the published browser. Select an overload
 with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
 private-feed, non-public, multi-library, and other rendering or analysis modes
 fail visibly rather than producing a link the browser cannot restore.
+
+`depends --package <id>[@<version>] --tfm <tfm> --share[=url|packet]`
+projects the package Dependencies view without acquiring the package or
+traversing the graph in the CLI. An omitted version or `latest` is resolved
+from NuGet.org and pinned before emission; the published browser then acquires
+that exact coordinate and lazily computes the dependency graph for the
+selected target framework. Local archives, effective source policies that do
+not authorize exactly one NuGet.org source, wildcard, range, or build-metadata
+versions, omitted frameworks, the Browser-reserved `Microsoft.NETCore.App`
+Platform id, row windows, counts, and other rendering formats fail visibly
+rather than producing a non-reproducible link.
 
 ## Requirements
 

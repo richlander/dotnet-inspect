@@ -17,6 +17,16 @@ public class TypedConstantsPassTests
         return function!;
     }
 
+    static IrFunction Raised(string typeName, string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        function!.CheckInvariant();
+        return function!;
+    }
+
     [Fact]
     public void BoolStoredThroughByRef_RetypesConstantToBool()
     {
@@ -52,6 +62,110 @@ public class TypedConstantsPassTests
         Assert.Contains("return S_256[index] ? 1 : 0;", output);
         Assert.DoesNotContain("visited[index] = 1;", output);
         Assert.DoesNotContain("visited[index] == 0", output);
+    }
+
+    [Fact]
+    public void GenericNestedEnumCallArgument_RendersNamedMember()
+    {
+        var function = Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            nameof(CfgGenericNestedEnumSink<int>.Set));
+
+        var call = Assert.Single(function.Descendants.OfType<Call>());
+        var constant = Assert.IsType<Constant>(Assert.Single(call.Arguments.Skip(1)));
+        var parameterType = call.Callee.ParameterTypes[0];
+        Assert.Equal(TypeRefKind.GenericInstance, parameterType.Kind);
+        Assert.Equal(TypeShape.Enum, function.TypeShapes.GetValueOrDefault(parameterType.ElementType!));
+        Assert.Equal(call.Callee.ParameterTypes[0], constant.Type);
+        Assert.Contains("Complete(CompletionPart.Attributes);", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void GenericNestedIntegerCallArgument_RemainsInteger()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            nameof(CfgGenericNestedEnumSink<int>.SetInteger))).Output!;
+
+        Assert.Contains("CompleteInteger(4);", output);
+    }
+
+    [Fact]
+    public void GenericNestedUnnamedEnumCallArgument_RendersCast()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            nameof(CfgGenericNestedEnumSink<int>.SetUnnamed))).Output!;
+
+        Assert.Contains("Complete((CompletionPart)3);", output);
+        Assert.DoesNotContain("Complete(3);", output);
+    }
+
+    [Fact]
+    public void GenericNestedEnumArrayStore_RendersNamedMember()
+    {
+        var function = Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            "StoreNamed");
+        var store = Assert.Single(function.Descendants.OfType<StoreElement>());
+        var elementType = store.Array.ResultType!.ElementType!;
+
+        Assert.Equal(TypeRefKind.GenericInstance, elementType.Kind);
+        Assert.Equal(elementType, CoercionSinks.StoreElementTarget(store, function.TypeShapes));
+        Assert.Contains("values[0] = CompletionPart.Attributes;", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void GenericNestedUnnamedEnumArrayStore_RendersCast()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            "StoreUnnamed")).Output!;
+
+        Assert.Contains("values[0] = (CompletionPart)3;", output);
+        Assert.DoesNotContain("values[0] = 3;", output);
+    }
+
+    [Fact]
+    public void GenericNestedEnumConditionalArgument_RetainsEnumIdentity()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            "SetConditional")).Output!;
+
+        Assert.Contains("CompletionPart.Attributes", output);
+        Assert.DoesNotContain("? 4", output);
+        Assert.DoesNotContain(": 4", output);
+    }
+
+    [Fact]
+    public void GenericNestedFlagsAccumulator_RetainsEnumTyping()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            "Accumulate")).Output!;
+
+        Assert.Contains("FlagCaps64.Protocol", output);
+        Assert.Contains("FlagCaps64.Secure", output);
+        Assert.Contains("FlagCaps64.MultiStatements", output);
+        Assert.Contains("FlagCaps64.MultiResults", output);
+        Assert.DoesNotContain("long S_", output);
+        Assert.DoesNotContain("| (long)", output);
+    }
+
+    [Fact]
+    public void GenericNestedEnumSwitch_RestoresGoverningValueAndNamesLabels()
+    {
+        string output = CSharpPrinter.Print(Raised(
+            typeof(CfgGenericNestedEnumSink<>).FullName!,
+            "Switch")).Output!;
+
+        Assert.Contains("part switch", output);
+        Assert.Contains("CompletionPart.Attributes => 1", output);
+        Assert.Contains("CompletionPart.Decoded => 2", output);
+        Assert.Contains("CompletionPart.Complete => 3", output);
+        Assert.DoesNotContain("part - 4", output);
+        Assert.DoesNotContain("4 => 1", output);
     }
 
     // --- Slice 2 (value-typed-emission.md): Convert folding, semantic element

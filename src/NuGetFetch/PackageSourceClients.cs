@@ -6,8 +6,8 @@ using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using DotnetInspector.Networking;
 using InertText;
+using NetworkAccess;
 using NuGetFetch.Plugins;
 using NuGet.Versioning;
 

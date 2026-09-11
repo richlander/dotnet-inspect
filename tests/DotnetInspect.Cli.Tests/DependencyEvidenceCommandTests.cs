@@ -2306,8 +2306,8 @@ public sealed class DependencyEvidenceCommandTests
                 Nuspecs = [NuspecFixture],
             },
             authorization: new UniformPackageSourceAuthorization([StubFeed]),
-            discoverVersions: (_, _, _) => Task.FromResult(
-                DiscoveryResult(state, version)));
+            discoverVersions: (packageId, _, _) => Task.FromResult(
+                DiscoveryResult(packageId, state, version)));
 
         Assert.Single(projection.Roots);
         DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
@@ -2352,6 +2352,7 @@ public sealed class DependencyEvidenceCommandTests
                     calls++;
                     return Task.FromResult(
                         DiscoveryResult(
+                            StubFeedHandler.PackageId,
                             PackageVersionDiscoveryState.Authoritative,
                             "3.0.0"));
                 },
@@ -2611,9 +2612,11 @@ public sealed class DependencyEvidenceCommandTests
     /// what this command did with a partial, failed, or authoritatively empty aggregate.
     /// </summary>
     private static PackageVersionDiscoveryResult DiscoveryResult(
+        string packageId,
         PackageVersionDiscoveryState state,
         string? version) =>
         new(
+            packageId,
             state,
             version is null
                 ? []
