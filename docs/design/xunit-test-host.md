@@ -263,6 +263,12 @@ pinned outcome-level host gate without changing the suite's fixture identity,
 registration, grouping, artifact resolution, source and sidecar paths,
 boundary-axis, or cross-assembly relationship evidence.
 
+`InertText.Tests` is the nineteenth migrated adopter. Its required PR and
+developer commands remain unfiltered. These paths reuse the pinned
+outcome-level host gate without changing the suite's text-policy, containment,
+lossless and injective encoding, visual-form, truncation, composition, URL
+redaction, or public-surface evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

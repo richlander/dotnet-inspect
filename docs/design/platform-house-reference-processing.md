@@ -1231,7 +1231,7 @@ step 5 is staged by
 Step 5a adds package-backed target discovery, reference-pack realization, and
 the package PlatformHouse adapter. Step 5b adds RID-specific runtime-pack
 acquisition and manifest-defined implementation closure through the same
-adapter. The two sub-slices preserve the eleven-step count; step 6 follows
+adapter. The two sub-slices preserve the ten-step count; step 6 follows
 after both are implemented.
 
 No CLI flag is retained solely for compatibility. User-facing platform

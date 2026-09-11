@@ -844,7 +844,7 @@ public static class MemberCommand
                         new SourcePolicyPackageSourceAuthorization(
                             effectiveOptions.SourceOptions),
                         new SourceFetch(
-                            DotnetInspector.Core.HttpClientFactory
+                            DotnetInspector.Networking.HttpClientFactory
                                 .SharedUntrustedFetch))
                     {
                         RepositoryPaths =

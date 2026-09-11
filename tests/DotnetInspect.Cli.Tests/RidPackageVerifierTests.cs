@@ -257,7 +257,7 @@ public class RidPackageVerifierTests
             ],
         };
 
-        DotnetInspector.Core.HttpClientFactory.Initialize(
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
             new HttpClientFactoryOptions { Offline = true });
         try
         {
@@ -280,7 +280,7 @@ public class RidPackageVerifierTests
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.Initialize(
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
                 new HttpClientFactoryOptions());
         }
     }

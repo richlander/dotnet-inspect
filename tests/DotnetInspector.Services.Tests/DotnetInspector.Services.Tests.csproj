@@ -24,12 +24,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="DotnetInspector.Networking" />
     <Using Include="Xunit" />
     <Using Include="ILInspector.SourceLink" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Consumer\DotnetInspector.Services.RouteLearning.Consumer.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Unrelated\DotnetInspector.Services.RouteLearning.Unrelated.csproj" ReferenceOutputAssembly="false" />

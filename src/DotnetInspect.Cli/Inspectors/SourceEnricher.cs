@@ -314,7 +314,7 @@ internal static class SourceEnricher
 
         logger.Log($"Phase 1: Resolved {typeSourceInfo.Count} types, {allSourcesToFetch.Count} unique source documents ({stopwatch.ElapsedMilliseconds}ms)");
 
-        var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch);
         var fetchList = allSourcesToFetch
             .OrderBy(entry => entry.Key, StringComparer.Ordinal)
             .Select(entry => entry.Value)
@@ -837,7 +837,7 @@ internal static class SourceEnricher
         }
 
         var fetcher = new SourceFetch(
-            DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+            DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch);
         var parser = new DocCommentParser();
         List<(string Url, string FilePath, string? Algorithm, byte[]? Checksum)> sourceFilesToFetch =
         [
