@@ -816,6 +816,21 @@ test("type metadata signature distinguishes exact Platform Libraries", () => {
       '["aspnetcore.app","System.Text.Json.dll"]'));
 });
 
+test("type metadata signature distinguishes Workspace dependency populations", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  assert.notEqual(
+    typeMetadataSignature(
+      jsonSerializer,
+      packageContext,
+      "",
+      '[{"package":"System.Text.Json","version":"9.0.0","framework":"net9.0"}]'),
+    typeMetadataSignature(
+      jsonSerializer,
+      packageContext,
+      "",
+      '[{"package":"System.Data.Common","version":"9.0.0","framework":"net9.0"},{"package":"System.Text.Json","version":"9.0.0","framework":"net9.0"}]'));
+});
+
 test("type source signature routes through the shared decompiler-taste-aware key", () => {
   const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
   const calls: {
