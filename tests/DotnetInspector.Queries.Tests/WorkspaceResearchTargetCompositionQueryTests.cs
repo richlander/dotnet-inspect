@@ -250,7 +250,7 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         ResearchTargetDomain original = plan.Scope.Domains[0];
         var crossed = new ResearchTargetDomain(original.Id, original.Key,
             original.Inputs, original.ConflictingInputs, otherDomain.Requests, otherDomain.Attempts);
-        var crossedScope = new ResearchTargetScope(plan.Scope.Id, plan.Scope.DeclaringTypeFullName,
+        var crossedScope = new ResearchTargetScope(plan.Scope.Id, plan.Scope.DeclaringType,
             plan.Scope.Selector, plan.Scope.Kind, plan.Scope.Domains.Replace(original, crossed));
         var crossedResolution = new ResearchTargetResolution(plan.Resolution.Operation, [crossedScope]);
         var crossedCensus = crossedResolution.Censuses.Single(census =>
@@ -313,7 +313,7 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         // Keep the original operation, selected scope, and census valid, but append
         // a foreign domain inside that scope. A narrow selected census cannot hide it.
         var broadenedScope = new ResearchTargetScope(narrow.Scope.Id,
-            narrow.Scope.DeclaringTypeFullName, narrow.Scope.Selector, narrow.Scope.Kind,
+            narrow.Scope.DeclaringType, narrow.Scope.Selector, narrow.Scope.Kind,
             narrow.Scope.Domains.Add(broader.Scope.Domains[1]));
         var broadened = new ResearchTargetResolution(narrow.Resolution.Operation, [broadenedScope]);
         AssertPreQueryRejected(fixture, narrow.Request(fixture, group: group, resolution: broadened,
@@ -430,7 +430,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         var failed = Assert.IsType<ResearchTargetPlanningOutcome.Rejected>(ResearchTargetResolver.Resolve(
             new(plan.Projected.Admission, [],
                 [new ResearchCarriedMemberSelection(
-                    plan.Projected.Receipt.Questions[plan.Population.Question], "N.Type", Selector)]),
+                    plan.Projected.Receipt.Questions[plan.Population.Question],
+                    WorkspaceResearchTargetFixture.TypeName,
+                    Selector)]),
             TestContext.Current.CancellationToken));
         Assert.Equal(ResearchTargetPlanningRejectionKind.MissingInputRole, failed.Rejection.Kind);
         // The public facade always supplies total implementation roles and one valid
