@@ -166,7 +166,7 @@ shapes are:
 | `IArtifactAcquisitionLease` and artifact-session disposal | `IAsyncDisposable` exposes required asynchronous cleanup and quiescence. | Current C# does not prevent dropping the returned awaitable or treating retirement as completed settlement. |
 | `AssemblyContextGroup` owned-resource registration | One aggregate tracks child `IDisposable` values, releases them before snapshots, and preserves cleanup failures. | Registration, transfer, release ordering, and transitive child cleanup are manually maintained. `IDisposable` supplies no ownership metadata. |
 | `ArtifactContentReference` and assembly openers | Identity, registration, provenance, and usable retained content remain associated. | Some heap-escapable references and delegates close over live access authority, so identity and ownership are not consistently separate. |
-| `PackageSourceSettlementLease` | The Package Source Model service issues a resource-named root lease; current disposal retires settlement without disposing caller-owned clients or retained content. | #6619 stages awaited root quiescence, revocable operation authorization, operation-scoped child leases, and async work-child effects; current C# still permits unsupported aliases. |
+| `PackageSourceSettlementLease` | The Package Source Model service issues a resource-named root lease; current disposal retires settlement without disposing caller-owned clients or retained content. | #6619 stages awaited root quiescence, directly issued operation leases, and async state-machine ownership effects; current C# still permits unsupported aliases. |
 | `ArrayPoolOwnershipFlow` and Resource Triage | Analysis already follows return, storage, caller transfer, forwarding, and exception-path leakage with explicit incompleteness. | The model is API-specific and cannot yet consume repository resource declarations. |
 
 The target does not merely rename these values. It simplifies their shared
@@ -916,8 +916,8 @@ end-to-end tracker. Its current total is 18 steps:
    Library consumers;
 11. adopt the protocol in the package-source owner: step 11a issues the
     resource-named root lease, completed by #6548; step 11b, tracked by #6619,
-    declares awaited root settlement, revocable operation authorization,
-    operation-scoped leases, and private async work-child effects;
+    declares awaited root settlement, directly issued operation-scoped leases,
+    and async state-machine ownership effects;
 12. adopt Package Source ownership in PackageHouse: step 12a retires the
     House-issued root predecessor, completed by #6548; step 12b consumes and
     settles one Package Source operation lease per House execution, tracked by

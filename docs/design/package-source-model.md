@@ -92,43 +92,27 @@ protocol, because no borrow crosses `await`.
 The adopted contract preserves the root lease's issuer and candidate identity
 while separating long-lived settlement lifetime from one asynchronous use.
 
-### Root lease and operation authorization
+### Root lease and operation issuance
 
 `PackageSourceSettlementLease` is a declared asynchronous resource. Its caller
 owns the lease and must observe successful settlement before disposing the
-caller-owned source clients that back it. A synchronous borrow of the live
-lease may create one resource-free `PackageSourceSettlementAuthorization`.
-The authorization:
+caller-owned source clients that back it. A synchronous borrow of the live root
+issues one `PackageSourceOperationLease` directly. Host composition owns the
+root, issues an operation lease at each supported operation boundary, and
+transfers that lease to PackageHouse, package-backed Platform, or a direct
+Package Source consumer. Long-lived adapters do not retain the root or a
+delegate, wrapper, or authorization that captures its live settlement
+authority.
 
-- identifies the exact root settlement generation and candidate issuer;
-- permits the Package Source service to issue operation leases while that root
-  remains live;
-- contains no release obligation and does not keep a retired root usable;
-- may be retained by host composition and adapters that issue a fresh
-  operation lease for each supported call; and
-- never enters a candidate, package result, House receipt, Platform
-  contribution, or other durable evidence.
+No separate package-source operation-authorization type is required.
+`IPackageSourceAuthorization` remains the distinct package-ID policy that
+selects eligible configured authorities; it does not issue resource leases.
 
-This authorization is separate from `IPackageSourceAuthorization`, which
-selects the configured authorities eligible for one package ID. Only
-`PackageSourceSettlementService` issues the root or operation leases. A host
-adapter may hold the operation authorization and request a lease, but does not
-mint, rename, wrap, or reinterpret either resource. PackageHouse and
-package-backed Platform operations receive an already issued operation lease
-by ownership transfer.
-
-This follows the Artifact generation pattern of retaining a resource-free,
-revocable authorization while an owner-issued lease carries the release
-obligation. It differs where the resource requires it: root release is awaited
-settlement, and each package operation owns a lower-level deadline context plus
-private work children.
-
-Invoking root settlement revokes its operation authorization and rejects new
-operation leases and direct root settlement. Authorization validation,
-operation registration, and the transition to settling are one atomic
-issuer-owned decision: an operation is either rejected or registered before
-settlement can observe quiescence. Settlement then waits for every registered
-operation lease to release.
+Invoking root settlement rejects new operation leases and direct root
+settlement. Root-state validation, operation registration, and the transition
+to settling are one atomic issuer-owned decision: an operation is either
+rejected or registered before settlement can observe quiescence. Settlement
+then waits for every registered operation lease to release.
 
 An operation lease issued before retirement remains independently owned and
 may finish, including issuing or using candidates through the retained
@@ -173,27 +157,27 @@ direct Package Source consumer may own the lease lexically for one operation.
 
 ### Awaited work
 
-Borrowing an operation lease is synchronous. Each asynchronous Package Source
-method uses that borrow only to validate inputs and issue one private child work
-lease. The asynchronous state machine owns the child across suspension and
-releases it in its terminal cleanup; it does not capture a borrow of the parent
-operation lease.
+Borrowing an operation lease is synchronous. Asynchronous Package Source work
+must instead transfer an active-work ownership obligation into its state
+machine before the first suspension and release that obligation in terminal
+cleanup. The state machine does not capture a borrow of the operation lease.
 
-One operation lease has at most one live child work lease. Its owner awaits the
-current step before reuse or release. Package Source payload acquisition
+This contract requires the ownership effect, not a distinct public or private
+child-lease type. The implementation may use an internal registration, token,
+or equivalent state so long as acquisition, parent retention, transfer into
+the asynchronous state machine, release, and exceptional cleanup remain
+metadata-visible to Resource Lifecycle Analysis.
+
+One operation lease has at most one active asynchronous source step. Its owner
+awaits that step before reuse or release. Package Source payload acquisition
 consumes lower-level response streams into caller-owned retained package
-content before the child settles, so no returned package result requires the
-operation or child lease to remain live.
+content before the work obligation ends, so no returned package result
+requires the operation lease to remain live.
 
-An attempted operation-lease release while a child remains active fails
-visibly and leaves the root registration intact. The supported lexical and
-transferred-owner paths await the source step before release; an idempotent
+An attempted operation-lease release while asynchronous work remains active
+fails visibly and leaves the root registration intact. The supported lexical
+and transferred-owner paths await the source step before release; an idempotent
 second `Dispose` does not create another valid release obligation.
-
-The private child is implementation and Analysis evidence, not another public
-consumer capability. Its acquisition, parent-retention, transfer into the
-asynchronous state machine, release, and exceptional cleanup remain
-metadata-visible through the package-source ownership model.
 
 ### Results and retirement
 
@@ -217,29 +201,29 @@ or another package-owned storage implementation.
 
 The adopted operation lease uses the shared marker defaults for direct
 construction, return transfer, ordinary resource parameters, and synchronous
-`Dispose`. The root lease's required `DisposeAsync`, operation authorization,
-root-to-operation registration, private-child effects, and caller-owned client
-release ordering require the Package Source external ownership model until
-dedicated metadata roles are separately justified. Current C# does not prevent
-aliasing, use after transfer, or unobserved async settlement; focused Release
-gates and generalized Resource Lifecycle Analysis cover the supported flow set
-and report unsupported flow as incomplete.
+`Dispose`. The root lease's required `DisposeAsync`, root-to-operation
+registration, asynchronous state-machine ownership effect, and caller-owned
+client release ordering require the Package Source external ownership model
+until dedicated metadata roles are separately justified. Current C# does not
+prevent aliasing, use after transfer, or unobserved async settlement; focused
+Release gates and generalized Resource Lifecycle Analysis cover the supported
+flow set and report unsupported flow as incomplete.
 
 Repository-wide absence of another issuer or the retired House-named API
 remains unverified by user choice.
 
 `PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient`,
 `PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation`,
-`PackageSourceSettlementLeaseRetirementRevokesAuthorizationButAllowsIssuedOperation`,
+`PackageSourceSettlementLeaseRetirementRejectsNewButAllowsIssuedOperation`,
 `PackageSourceSettlementLeaseIssuanceCannotRacePastSettlement`,
 `PackageSourceSettlementLeaseSettlementWaitsForIssuedOperations`,
 `PackageSourceSettlementLeaseSettlementLeavesClientsCallerOwnedAfterQuiescence`,
 `PackageSourceOperationLeaseOwnsOneContextAcrossSequentialSteps`,
 `PackageSourceOperationLeaseRejectsForeignGenerationEvidence`,
-`PackageSourceOperationAsyncStateOwnsChildInsteadOfLeaseBorrow`,
-`PackageSourceOperationLeaseRejectsReleaseWhileChildIsActive`,
-`PackageSourceOperationLeaseCancellationSettlesChildBeforeRelease`, and
-`PackageSourceOperationLeaseFailureSettlesChildBeforeRelease` are the Release
+`PackageSourceOperationAsyncStateOwnsAuthorityWithoutBorrowEscape`,
+`PackageSourceOperationLeaseRejectsReleaseWhileAsyncWorkIsActive`,
+`PackageSourceOperationLeaseCancellationSettlesWorkBeforeRelease`, and
+`PackageSourceOperationLeaseFailureSettlesWorkBeforeRelease` are the Release
 gates for root settlement, caller-owned resources, operation ownership,
 candidate identity, exact source association, discovery completeness, and
 payload settlement. The PackageHouse and Platform owners add their own
@@ -594,17 +578,16 @@ Caller cancellation remains cancellation carrying the original caller token.
 It does not become a source failure, partial result, or operation timeout.
 
 Lower source clients may return a payload stream under the shared context. The
-package-source child work lease owns that stream and consumes or disposes it
-before the child settles. A successful package payload result contains
-caller-owned retained content, not the response stream or operation context.
-Releasing the parent operation lease disposes its context only after the
-current child has settled.
+asynchronous work owner consumes or disposes that stream before its obligation
+ends. A successful package payload result contains caller-owned retained
+content, not the response stream or operation context. Releasing the operation
+lease disposes its context only after current work has settled.
 
 The gates are
 `OperationContext_RequestTimeoutMayFailOverWithinRemainingCeiling`,
 `OperationContext_OperationTimeoutIsTerminalAcrossAuthorities`,
 `OperationContext_CallerCancellationRetainsOriginalIdentity`, and
-`PayloadLifetime_ChildWorkLeaseSettlesStreamBeforeOperationRelease`.
+`PayloadLifetime_AsyncWorkSettlesStreamBeforeOperationRelease`.
 
 ## Candidate and payload stores
 
