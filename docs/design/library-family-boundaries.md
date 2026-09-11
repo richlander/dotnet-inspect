@@ -316,6 +316,8 @@ components move to the
 to the independent `SourceFetch` root, PDB-specific source composition to the
 current `PdbSourceHouse` owner and then the target
 [SourceHouse](source-house.md) composition under #6512, and
+compiled and authored-source documentation composition to
+[DocumentationHouse](documentation-house.md) under #6579, and
 assembly-set or dependency-resolution components to their workspace or
 assembly-resolution owner. `House` remains reserved for the accepted
 clearing-house scenarios and does not become an assembly bucket.

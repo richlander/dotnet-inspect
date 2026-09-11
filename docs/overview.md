@@ -204,11 +204,10 @@ substrates, and inspection producers that will extend that space.
   populations lower through their retained platform-family declarations into
   independent runtime and ASP.NET Core House target demands; package-prefix
   contributions remain package-domain work. The House also settles
-  independent reference-view XML and implementation-view PDB/SourceLink
-  documentation evidence against the same target and view correspondence.
-  XML, PDB, SourceLink, and source-comment algorithms, Workspace admission,
-  the assembly-reference ladder, and host presentation remain with their
-  focused owners.
+  target, source, reference, implementation, and forwarding evidence needed by
+  downstream source and documentation adapters. Documentation settlement,
+  Workspace admission, the assembly-reference ladder, and host presentation
+  remain with their focused owners.
 - The target [SourceHouse Composition](design/source-house.md) owner defines
   the sole host-neutral source settlement facade over one exact target and one
   owner-issued content-backed library representation. It composes
@@ -218,6 +217,16 @@ substrates, and inspection producers that will extend that space.
   provenance. PackageHouse, PlatformHouse, and direct-library adapters produce
   the shared representation; SourceLink, Decompiler, artifact lifetime,
   documentation, and host presentation remain with their focused owners.
+- The target
+  [DocumentationHouse Composition](design/documentation-house.md) owner defines
+  the sole host-neutral documentation settlement facade over one exact
+  library-scoped type or member subject. It composes owner-issued compiled XML
+  contributions and SourceHouse-authored source through CSharpText mechanics,
+  preserves independent channel attempts and field-level provenance, and
+  retains conflicts instead of overwriting one source. PackageHouse,
+  PlatformHouse, and direct-library adapters construct documentation-ready
+  contributions; Metadata, CSharpText, SourceHouse, artifact lifetime, and host
+  presentation retain their focused authority.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,
