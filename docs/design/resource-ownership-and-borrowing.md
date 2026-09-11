@@ -207,7 +207,7 @@ manual mechanics.
 | Authorization | Issuer-provided permission to request or issue a lease. It is not itself temporary use of the resource. | Yes |
 | Lease | The uniquely owned value carrying temporary authority and the obligation to release or settle it. | Yes |
 | Borrow | Temporary non-owning access whose lifetime is bounded by a live owner or lease. | Yes, but never independently |
-| Snapshot callback | One synchronous read-only borrow whose scoped view is available only during an owner-controlled callback. The callback result is the snapshot; no prior copy or retained generation is implied. | Only during the callback |
+| Snapshot callback | One synchronous read-only borrow whose scoped view is available only during an owner-controlled callback. The callback result is the snapshot; the owner neither copies the complete source before the callback nor substitutes another result afterward. | Only during the callback |
 | Reference | Resource identity and correspondence used to address a resource under separately supplied authority. | No |
 | Receipt | Durable evidence of a completed decision, transfer, or settlement. | No |
 | Transfer | Movement of the release obligation from one owner to another. | Yes |
@@ -512,20 +512,27 @@ The current-C# contract floor uses:
 
 The contract is:
 
-1. the owner begins one synchronous read-only borrow;
+1. the owner begins one synchronous read-only borrow over the live resource
+   without first materializing an independent complete representation;
 2. the owner constructs a ref-like snapshot view and invokes the callback
    exactly once;
 3. the snapshot view exposes the borrowed resource only inside that callback;
 4. the callback completes synchronously and returns one result;
-5. the owner ends the borrow before returning that result; and
+5. the owner ends the borrow before returning that result directly—preserving
+   object identity for reference results and ordinary return-value transport
+   for value results, with no second producer, clone, or projection; and
 6. exceptional callback completion also ends the borrow before propagating the
    failure.
 
 The callback result is the snapshot. The owner does not first copy the complete
 resource, retain a point-in-time generation, or create a heap-escapable snapshot
-object. A string produced by synchronous serialization is one detached result;
-an immutable projection, hash, count, or independently owned value may be
-another.
+object. It also does not create a replacement for the callback result after the
+borrow ends. A string produced by synchronous serialization is one detached
+result; an immutable projection, hash, count, or independently owned value may
+be another.
+These are purpose-preserving correctness requirements, not optional
+performance guidance. Violating either may conserve every ownership obligation
+while still invalidating the snapshot contract.
 
 The generic result channel is necessary for those useful results. It also makes
 the current enforcement limit visible: when the borrowed resource is a class,
@@ -722,6 +729,10 @@ in metadata and IL. The first Analysis adoption must be able to classify:
 - use, borrow, release, or transfer after release;
 - use, borrow, release, or transfer after ownership moved;
 - an owning copy or alias where the declaration requires uniqueness;
+- a declared non-materializing snapshot borrow that first copies the complete
+  source resource;
+- a declared identity-preserving snapshot return that invokes another
+  producer, clones, re-projects, or otherwise substitutes the callback result;
 - a child obligation lost, duplicated, or released incorrectly during
   aggregate acceptance or transfer;
 - a borrow escaping its owner-supported lifetime;
@@ -943,6 +954,10 @@ Each resource-issuer adoption must gate:
 - transfer invalidating the prior owner in the supported Analysis model;
 - scoped borrows not escaping;
 - snapshot callback results not retaining owner-derived resources;
+- snapshot callbacks borrowing the live resource without an independent full
+  source materialization;
+- snapshot operations returning the exact callback result without
+  substitution;
 - release on success, failure, and cancellation;
 - required asynchronous quiescence being awaited;
 - references and receipts carrying no hidden lease; and

@@ -15,10 +15,10 @@ Its exact claim is:
 
 > Resource API declarations from compiled attributes, shipped mappings,
 > external JSON, and future compiler metadata can describe their lifecycle
-> semantics using one bounded effect language, and equivalent declarations
-> normalize to the same Analysis input. Independently declared resource
-> domains compose in one catalog and one flow without selecting
-> resource-specific engine behavior.
+> semantics and bounded direct-access and exact-forwarding invariants using
+> one effect language, and equivalent declarations normalize to the same
+> Analysis input. Independently declared resource domains compose in one
+> catalog and one flow without selecting resource-specific engine behavior.
 
 [Resource ownership and borrowing](resource-ownership-and-borrowing.md) owns
 the lifecycle semantics described by the language. `ILInspector.Analysis` owns
@@ -65,7 +65,7 @@ compiled attributes     shipped mappings     future external JSON
                   one lifecycle flow engine
                               |
                               v
-          lifecycle evidence or explicit incompleteness
+     lifecycle or conformance evidence, or explicit incompleteness
 ```
 
 The language describes what an API operation means. It does not encode an IL
@@ -383,6 +383,12 @@ Creates read-only or mutable access derived from a live owner for one declared
 scope. A borrow does not transfer the obligation. The first scopes are
 `call` and `callback[N]`; neither can cross an asynchronous suspension.
 
+`materialization=none` additionally requires direct access to the source
+resource. A scoped view or other non-owning carrier may mediate that access,
+but the operation must not first construct an independent full representation
+of the resource. Creating that representation is a contract-conformance
+violation even when ownership obligations remain balanced.
+
 ### `derive`
 
 Declares that a target value retains an alias, borrow, or owner-derived
@@ -401,6 +407,12 @@ Declares that an operation forwards the exact value relationship from one
 location to another without changing ownership. It maps ordinary state and
 generic callback results without pretending they are newly acquired or
 owner-derived.
+
+`identity=preserve` additionally requires the target to be the source result,
+not a copied, cloned, serialized, re-projected, or otherwise substituted
+replacement. Reference-typed values preserve object identity. Ordinary
+value-type transport is not itself a materialization, but invoking another
+producer or clone to create the target violates the declaration.
 
 Any tracked resource passed through this relationship still requires an
 explicit consume, move, or borrow effect. Otherwise the operation is
@@ -423,8 +435,10 @@ supports exactly-once synchronous callbacks whose target can be resolved
 without reflection or dynamic dispatch. Other shapes are incomplete.
 
 Result independence is the declaration needed for snapshot callbacks. It does
-not claim that the owner avoids a defensive copy or returns the same result
-object; those are runtime implementation properties gated by the owner.
+not alone claim that the owner avoids a defensive copy or returns the same
+result object. A snapshot combines `borrow(materialization=none)` with
+`pass(identity=preserve)` to make those purpose-preserving requirements part
+of its declared contract.
 
 ### `accept`
 
@@ -514,11 +528,13 @@ the same obligation twice or arranging for two aliases to release it. The
 analyzer therefore distinguishes ordinary aliasing from **ownership
 duplication**.
 
-A second physical materialization of detached data is different. It may be a
-performance or identity defect, but it is not a lifecycle violation unless the
-copy duplicates or loses a tracked obligation. The snapshot runtime gate owns
-the no-double-materialization property; the effect engine does not report
-arbitrary extra data copies as resource Findings.
+A second physical materialization of detached data is different from
+ownership duplication, but it can still violate a declared resource contract.
+The effect engine does not report arbitrary extra data copies. It does report
+a copy when an operation declares a non-materializing borrow or
+identity-preserving pass. For a snapshot, those requirements are correctness
+properties: its purpose collapses if it copies the complete source before the
+callback or copies or substitutes the callback result afterward.
 
 The initial derived lifecycle outcomes are:
 
@@ -536,12 +552,22 @@ The initial derived lifecycle outcomes are:
 | Unobserved settlement | An asynchronous release attempt is not observed to complete successfully. |
 | Incomplete | Declaration, metadata, alias, dispatch, state-machine, or control-flow evidence exceeds the supported proof set. |
 
-Proven violations become `analysis.resource-lifecycle` Findings with resource
-kind, obligation identity, acquisition coordinate, violating operation, and
-supporting path evidence. Incomplete proof becomes a typed incomplete or failed
-inspection, not a violation and never a clean empty census. Exact
-presentation, severity, confidence, and remediation remain Analysis and
-Resource Triage concerns rather than language terms.
+The initial derived declaration-conformance outcomes are:
+
+| Outcome | Derived condition |
+| ------- | ----------------- |
+| Unexpected materialization | An operation declared with `materialization=none` constructs an independent full representation before providing access. |
+| Identity substitution | An operation declared with `identity=preserve` returns a copied, cloned, transformed, or otherwise different result. |
+
+Proven lifecycle violations become `analysis.resource-lifecycle` Findings
+with resource kind, obligation identity, acquisition coordinate, violating
+operation, and supporting path evidence. Proven provider mismatches become
+`analysis.resource-effect-conformance` Findings with the declaration,
+implementation operation, and materialization or substitution evidence.
+Incomplete proof becomes a typed incomplete or failed inspection, not a
+violation and never a clean empty census. Exact presentation, severity,
+confidence, and remediation remain Analysis and Resource Triage concerns
+rather than language terms.
 
 ## String statement encoding
 
@@ -813,10 +839,10 @@ attribute model and equivalent JSON operation:
 callback(delegate=parameter[1],scope=callback[1],
   execution=synchronous,cardinality=exactly-once)
 borrow(source=receiver,target=callback[1].parameter[0],
-  access=read,scope=callback[1])
+  access=read,scope=callback[1],materialization=none)
 pass(source=parameter[0],target=callback[1].parameter[1])
 independent(source=receiver,target=callback[1].return)
-pass(source=callback[1].return,target=return)
+pass(source=callback[1].return,target=return,identity=preserve)
 move(source=callback[1].return,target=return,when=normal-return)
 ```
 
@@ -983,10 +1009,11 @@ AssemblyInspectionSession.MetadataTables
 
 AssemblyInspectionSession.Snapshot
   declare callback parameter 1 as one exactly-once synchronous scope
-  borrow the receiver into callback[1].parameter[0] as read-only
+  borrow the receiver into callback[1].parameter[0] as read-only without
+    materializing an independent source representation
   pass parameter 0 to callback[1].parameter[1]
   require callback[1].return independent from the receiver
-  pass callback[1].return to the operation return
+  pass callback[1].return to the operation return while preserving identity
 
 ReadOnlyResourceSnapshotView<T>.get_Value
   derive the borrowed T from the view receiver
@@ -1022,8 +1049,10 @@ the callback return to the operation return.
 The runtime snapshot interface, delegate, and ref-like view remain useful
 current-C# helpers. Their operation tests prove exact live-owner identity,
 single materialization, exact result-object propagation, callback cardinality,
-and post-release rejection. The effect language proves none of those runtime
-implementation properties by declaration alone.
+and post-release rejection. The declaration makes non-materializing access and
+result identity conformance requirements; the operation tests are their
+current enforcing gate. A declaration alone still does not prove that an
+implementation conforms.
 
 ## Worked examples
 
@@ -1095,9 +1124,9 @@ borrow(kind=dotnet-inspect.assembly-session,source=receiver,
 callback(delegate=parameter[1],scope=callback[1],
   execution=synchronous,cardinality=exactly-once)
 borrow(source=receiver,target=callback[1].parameter[0],
-  access=read,scope=callback[1])
+  access=read,scope=callback[1],materialization=none)
 independent(source=receiver,target=callback[1].return)
-pass(source=callback[1].return,target=return)
+pass(source=callback[1].return,target=return,identity=preserve)
 ```
 
 The intended path returns a detached projection:
@@ -1117,14 +1146,22 @@ The normalized flow is:
 
 1. `Open` creates one session obligation `S1`.
 2. `Snapshot` creates read-only callback borrow `R1` from `S1`.
-3. `snapshot.Value` derives the live borrowed session value. `MetadataTables`
-   is one of the declared read-only operations, so its use is compatible with
-   `R1`.
+3. The non-materializing borrow requires `snapshot.Value` to expose the live
+   session rather than a copied session graph. `MetadataTables` is one of the
+   declared read-only operations, so its use is compatible with `R1`.
 4. The callback returns a detached `MetadataTableProjection`. The
    `independent` declaration requires Analysis to prove that the result does
-   not carry `S1` or `R1`.
+   not carry `S1` or `R1`; the identity-preserving pass requires the operation
+   to return that exact projection object without copying or substituting it.
 5. The callback ends `R1`, and the generated `using` cleanup releases `S1`.
-   No lifecycle Finding is produced.
+   No lifecycle or conformance Finding is produced.
+
+If `Snapshot` first constructed a complete independent session
+representation for the callback, Analysis would derive **unexpected
+materialization**. If it cloned or re-projected the callback's
+`MetadataTableProjection` before returning, Analysis would derive **identity
+substitution**. Both are snapshot contract violations even though neither
+necessarily leaks or duplicates an ownership obligation.
 
 Now consider a duplicated terminal responsibility:
 
@@ -1191,6 +1228,14 @@ missing release, use after release, double release, use after move, borrow
 escape, incompatible borrowed access, and unobserved asynchronous settlement.
 Resource-specific consumers may then add actionability without changing the
 underlying occurrence.
+
+The same normalized declarations drive provider-conformance analysis for
+operation bodies that are available to Analysis. A non-materializing borrow
+that creates a replacement resource produces unexpected-materialization
+evidence. An identity-preserving pass that returns a replacement produces
+identity-substitution evidence. When the implementation body or required value
+flow is unavailable or unsupported, conformance is incomplete rather than
+assumed.
 
 `LibraryBodyIndex.LeakTriage`, `LeakTriageAnalyzer`, and the corpus sensor are
 also direct consumers of the current engine. Their adoption either consumes
@@ -1322,7 +1367,9 @@ The language and normalization gates must establish:
 - distinction between an ordinary array and a matching acquired pooled buffer;
 - authority association for supported `ArrayPool<T>.Shared` flows;
 - generic derive propagation through the currently supported Span and Memory
-  wrappers; and
+  wrappers;
+- validation and normalization of `materialization=none` and
+  `identity=preserve`; and
 - non-vacuity by removing one required effect from each witness model.
 
 The generic engine gates must preserve:
@@ -1342,6 +1389,9 @@ The generic engine gates must preserve:
   intentional difference reviewed as a contract correction;
 - separately compiled `AssemblyInspectionSession` acquisition, release,
   read-only receiver, snapshot result, escape, and incompatible-access cases;
+- a conforming snapshot that borrows the exact live resource and returns the
+  exact callback result, plus source-materialization and result-substitution
+  violations;
 - release on supported normal and exceptional exits;
 - required asynchronous settlement being successfully observed; and
 - typed incompleteness for every declared unsupported flow category.
@@ -1394,8 +1444,9 @@ This design does not claim:
 - that every `*Lease`, `*Session`, or `IDisposable` is a resource;
 - that an API name implies an effect;
 - that the runtime snapshot helpers are required by another repository;
-- that a snapshot declaration proves read-only implementation, no-copy
-  behavior, thread safety, or result detachment;
+- that parsing a snapshot declaration proves read-only implementation,
+  non-materializing access, identity-preserving return, thread safety, or
+  result detachment without its named Analysis or runtime conformance gate;
 - that Resource Triage actionability becomes resource-neutral in the first
   engine migration;
 - that caller-supplied JSON is accepted by the current CLI or browser;
