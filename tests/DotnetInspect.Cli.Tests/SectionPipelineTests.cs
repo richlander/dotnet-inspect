@@ -2158,6 +2158,19 @@ public class SectionPipelineTests
                         DiffSections.ImplementationDiff.Name,
                     },
                 });
+        CompiledInspectionPlan<DiffQueryContext>
+            workspaceImplementationOnly =
+                DiffCommand.GetRequestedQueryPlan(
+                    catalog,
+                    new DiffOptions
+                    {
+                        IncludeSections = new HashSet<string>(
+                            StringComparer.OrdinalIgnoreCase)
+                        {
+                            DiffSections.ImplementationDiff.Name,
+                        },
+                    },
+                    workspaceImplementation: true);
         CompiledInspectionPlan<DiffQueryContext> findingTransitionsOnly =
             DiffCommand.GetRequestedQueryPlan(
                 catalog,
@@ -2179,6 +2192,8 @@ public class SectionPipelineTests
         Assert.Equal(
             [ImplementationComparisonQuery.Definition],
             implementationOnly.QueryPlan.Queries);
+        Assert.Empty(
+            workspaceImplementationOnly.QueryPlan.Queries);
         Assert.Equal(
             [
                 ApiComparisonQuery.Definition,

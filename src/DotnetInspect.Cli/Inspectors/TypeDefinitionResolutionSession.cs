@@ -172,7 +172,9 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
         string? platformFramework = null,
         string? packageDirectory = null,
         NuGetSourceOptions? sourceOptions = null,
-        bool usePackageSourcePolicy = false)
+        bool usePackageSourcePolicy = false,
+        bool allowPlatformAssemblyVersionRollForward = true,
+        IReadOnlyList<string>? corpusAssemblyPaths = null)
         : this(
             ResolvedAssemblyReference.CreateFromPath(
                 assemblyPath,
@@ -189,7 +191,9 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
             platformFramework,
             packageDirectory,
             sourceOptions,
-            usePackageSourcePolicy)
+            usePackageSourcePolicy,
+            allowPlatformAssemblyVersionRollForward,
+            corpusAssemblyPaths)
     {
     }
 
@@ -201,7 +205,9 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
         string? platformFramework = null,
         string? packageDirectory = null,
         NuGetSourceOptions? sourceOptions = null,
-        bool usePackageSourcePolicy = false)
+        bool usePackageSourcePolicy = false,
+        bool allowPlatformAssemblyVersionRollForward = true,
+        IReadOnlyList<string>? corpusAssemblyPaths = null)
     {
         ArgumentNullException.ThrowIfNull(root);
         if (root.Path is not { } assemblyPath)
@@ -216,6 +222,7 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
                 ProjectAssetsPath = projectAssetsPath,
                 TargetFramework = targetFramework,
                 RootPackageDirectory = packageDirectory,
+                CorpusAssemblyPaths = corpusAssemblyPaths,
                 PackageSourceOptions = sourceOptions,
                 UsePackageSourcePolicy = usePackageSourcePolicy,
                 IncludeDepsJsonAssets = false,
@@ -225,7 +232,8 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
                         "aspnetcore",
                         StringComparison.OrdinalIgnoreCase),
                 PreferImplementationAssemblies = true,
-                AllowPlatformAssemblyVersionRollForward = true,
+                AllowPlatformAssemblyVersionRollForward =
+                    allowPlatformAssemblyVersionRollForward,
             });
         _policy = resolver;
     }

@@ -159,8 +159,6 @@ public class DiffCommand
             }
         }
 
-        CompiledInspectionPlan<DiffQueryContext> queryPlan =
-            GetRequestedQueryPlan(catalog, options);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -201,6 +199,15 @@ public class DiffCommand
 
             try
             {
+                WorkspaceImplementationTarget? workspaceTarget =
+                    TryCreateWorkspaceImplementationTarget(
+                        inputs,
+                        options);
+                CompiledInspectionPlan<DiffQueryContext> queryPlan =
+                    GetRequestedQueryPlan(
+                        catalog,
+                        options,
+                        workspaceTarget is not null);
                 InspectionQueryResults queryResults = queryPlan.Run(
                     new DiffQueryContext(
                         inputs.FromSurface,
@@ -209,6 +216,19 @@ public class DiffCommand
                         () => CreateImplementationComparisonInput(
                             inputs,
                             options)));
+                WorkspaceImplementationComparisonResult? workspaceImplementation =
+                    workspaceTarget is null
+                        ? null
+                        : await WorkspaceImplementationComparisonRunner.ExecuteAsync(
+                            inputs.From.AssemblySet,
+                            inputs.To.AssemblySet,
+                            inputs.Name,
+                            workspaceTarget.DeclaringType,
+                            workspaceTarget.Selector,
+                            context.HttpClient,
+                            options.SourceOptions,
+                            context.CreatePackageSourceComposition,
+                            logger.Log);
                 IReadOnlyList<ApiDiffInspectionFailure>
                     inspectionFailures =
                         ApiDiffAnalyzer.ProjectInspectionFailures(
@@ -224,7 +244,9 @@ public class DiffCommand
                         queryResults,
                         context.HttpClient,
                         logger,
-                        inspectionFailures);
+                        inspectionFailures,
+                        workspaceImplementation,
+                        workspaceTarget?.Display);
                     return inspectionIncomplete ? 1 : 0;
                 }
 
@@ -281,24 +303,44 @@ public class DiffCommand
 
                 if (SelectsImplementationDiff(options) && !SelectsAnalysisDiff(options))
                 {
-                    var implementation = await BuildImplementationDiffWithSourceAsync(
-                        queryResults.Get(
-                            ImplementationComparisonQuery.Definition),
-                        inputs.FromPaths,
-                        inputs.ToPaths,
-                        options,
-                        context.HttpClient,
-                        logger,
-                        inputs.FromSurface,
-                        inputs.ToSurface,
-                        inputs.From.AssemblySet.Assemblies.FirstOrDefault(),
-                        inputs.To.AssemblySet.Assemblies.FirstOrDefault());
-                    var view = DiffOutputFormatter.BuildImplementationDiffView(
-                        inputs.Name,
-                        implementation.Local,
-                        inputs.FromVersion,
-                        inputs.ToVersion,
-                        implementation.SelectedSource);
+                    bool workspaceIncomplete =
+                        workspaceImplementation is not null
+                        && DiffOutputFormatter.IsIncomplete(
+                            workspaceImplementation);
+                    ImplementationDiffView view;
+                    if (workspaceImplementation is not null)
+                    {
+                        view =
+                            DiffOutputFormatter
+                                .BuildWorkspaceImplementationDiffView(
+                                    inputs.Name,
+                                    workspaceTarget!.Display,
+                                    workspaceImplementation,
+                                    inputs.FromVersion,
+                                    inputs.ToVersion);
+                    }
+                    else
+                    {
+                        var implementation =
+                            await BuildImplementationDiffWithSourceAsync(
+                                queryResults.Get(
+                                    ImplementationComparisonQuery.Definition),
+                                inputs.FromPaths,
+                                inputs.ToPaths,
+                                options,
+                                context.HttpClient,
+                                logger,
+                                inputs.FromSurface,
+                                inputs.ToSurface,
+                                inputs.From.AssemblySet.Assemblies.FirstOrDefault(),
+                                inputs.To.AssemblySet.Assemblies.FirstOrDefault());
+                        view = DiffOutputFormatter.BuildImplementationDiffView(
+                            inputs.Name,
+                            implementation.Local,
+                            inputs.FromVersion,
+                            inputs.ToVersion,
+                            implementation.SelectedSource);
+                    }
                     if (options.Tabular)
                     {
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
@@ -335,7 +377,10 @@ public class DiffCommand
                         WriteIncompleteComparisonDiagnostic(
                             inspectionFailures);
                     }
-                    return inspectionFailures.Count > 0 ? 1 : 0;
+                    return inspectionFailures.Count > 0
+                        || workspaceIncomplete
+                            ? 1
+                            : 0;
                 }
 
                 if (SelectsAnalysisDiff(options))
@@ -813,7 +858,8 @@ public class DiffCommand
 
     internal static CompiledInspectionPlan<DiffQueryContext> GetRequestedQueryPlan(
         DiffSectionCatalog catalog,
-        DiffOptions options)
+        DiffOptions options,
+        bool workspaceImplementation = false)
     {
         bool writesDocument =
             options.JsonOutput
@@ -855,9 +901,33 @@ public class DiffCommand
             };
         }
 
-        return catalog.Lens.Plan(
-            Verbosity.Minimal,
-            querySections);
+        CompiledInspectionPlan<DiffQueryContext> plan =
+            catalog.Lens.Plan(
+                Verbosity.Minimal,
+                querySections);
+        if (!workspaceImplementation)
+            return plan;
+
+        ImmutableArray<InspectionQueryDefinition> queries =
+            [
+                .. plan.RequestedQueries.Where(
+                    query => query
+                        != ImplementationComparisonQuery.Definition),
+            ];
+        ImmutableArray<SectionQueryDemand> demands =
+            [
+                .. plan.SectionDemand.Where(
+                    demand => demand.Query
+                        != ImplementationComparisonQuery.Definition),
+            ];
+        var sectionPlan = new SectionQueryPlan(
+            queries,
+            demands);
+        return new(
+            sectionPlan,
+            plan.HostDemand,
+            queries,
+            catalog.QueryCatalog.Plan(queries));
     }
 
     private static async Task<bool> WriteSelectedDocumentAsync(
@@ -867,7 +937,10 @@ public class DiffCommand
         HttpClient httpClient,
         VerboseLogger logger,
         IReadOnlyList<ApiDiffInspectionFailure>
-            inspectionFailures)
+            inspectionFailures,
+        WorkspaceImplementationComparisonResult?
+            workspaceImplementation = null,
+        string? workspaceTargetDisplay = null)
     {
         var selected = options.IncludeSections
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -911,23 +984,39 @@ public class DiffCommand
         ImplementationDiffView? implementationView = null;
         if (selected.Contains(DiffSections.ImplementationDiff.Name))
         {
-            var implementation = await BuildImplementationDiffWithSourceAsync(
-                queryResults.Get(ImplementationComparisonQuery.Definition),
-                inputs.FromPaths,
-                inputs.ToPaths,
-                options,
-                httpClient,
-                logger,
-                inputs.FromSurface,
-                inputs.ToSurface,
-                inputs.From.AssemblySet.Assemblies.FirstOrDefault(),
-                inputs.To.AssemblySet.Assemblies.FirstOrDefault());
-            implementationView = DiffOutputFormatter.BuildImplementationDiffView(
-                inputs.Name,
-                implementation.Local,
-                inputs.FromVersion,
-                inputs.ToVersion,
-                implementation.SelectedSource);
+            if (workspaceImplementation is not null)
+            {
+                implementationView =
+                    DiffOutputFormatter.BuildWorkspaceImplementationDiffView(
+                        inputs.Name,
+                        workspaceTargetDisplay!,
+                        workspaceImplementation,
+                        inputs.FromVersion,
+                        inputs.ToVersion);
+            }
+            else
+            {
+                var implementation =
+                    await BuildImplementationDiffWithSourceAsync(
+                        queryResults.Get(
+                            ImplementationComparisonQuery.Definition),
+                        inputs.FromPaths,
+                        inputs.ToPaths,
+                        options,
+                        httpClient,
+                        logger,
+                        inputs.FromSurface,
+                        inputs.ToSurface,
+                        inputs.From.AssemblySet.Assemblies.FirstOrDefault(),
+                        inputs.To.AssemblySet.Assemblies.FirstOrDefault());
+                implementationView =
+                    DiffOutputFormatter.BuildImplementationDiffView(
+                        inputs.Name,
+                        implementation.Local,
+                        inputs.FromVersion,
+                        inputs.ToVersion,
+                        implementation.SelectedSource);
+            }
         }
 
         FindingTransitionsView? findingTransitionsView = null;
@@ -951,15 +1040,21 @@ public class DiffCommand
             findingTransitionsView,
             inspectionFailures);
 
+        bool workspaceIncomplete =
+            workspaceImplementation is not null
+            && DiffOutputFormatter.IsIncomplete(
+                workspaceImplementation);
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(view, DiffJsonContext.Default.DiffDocumentView));
-            return inspectionFailures.Count > 0;
+            return inspectionFailures.Count > 0
+                || workspaceIncomplete;
         }
 
         Console.WriteLine(DiffOutputFormatter.RenderDocumentView(
             view, OutputFormatter.CreateWindowedOptions(options.Rows)));
-        return inspectionFailures.Count > 0;
+        return inspectionFailures.Count > 0
+            || workspaceIncomplete;
     }
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
@@ -2393,10 +2488,50 @@ public class DiffCommand
     internal static bool AddResearchBodyIdentity(ResolvedMemberTarget target, HashSet<string> identities)
         => ResearchMemberIdentity.TryAddTargetIdentity(target, identities);
 
+    static WorkspaceImplementationTarget?
+        TryCreateWorkspaceImplementationTarget(
+            DiffInputs inputs,
+            DiffOptions options)
+    {
+        if (options.PackageVersionRange is null
+            || !SelectsImplementationDiff(options)
+            || options.MemberFilter.Count != 1
+            || options.TypeFilter.Count != 1
+            || options.IncludePdbSource
+            || !WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
+                inputs.From.AssemblySet,
+                inputs.Name)
+            || !WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
+                inputs.To.AssemblySet,
+                inputs.Name))
+        {
+            return null;
+        }
+
+        string typeName = options.TypeFilter.Single();
+        if (MetadataTypeDefinitionName.ParseSerialized(typeName)
+            is not MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            return null;
+        }
+
+        MemberTargetSelector selector = MemberTargetSelector.Parse(
+            options.MemberFilter.Single());
+        return new(
+            valid.Name,
+            selector,
+            $"{typeName}.{selector.RequestedText}");
+    }
+
     static bool IsFatalTargetDiagnostic(MemberTargetDiagnosticKind kind)
         => kind is MemberTargetDiagnosticKind.AmbiguousMember
             or MemberTargetDiagnosticKind.DigestAmbiguous
             or MemberTargetDiagnosticKind.ConflictingSelectors;
+
+    sealed record WorkspaceImplementationTarget(
+        MetadataTypeDefinitionName DeclaringType,
+        MemberTargetSelector Selector,
+        string Display);
 
     sealed record ParsedDiffMemberTarget(string TypeName, MemberTargetSelector Selector);
 

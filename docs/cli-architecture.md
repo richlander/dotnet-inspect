@@ -468,6 +468,45 @@ remain with `InspectionQueryCatalog<TContext>`. It does not derive section
 demand by inspecting rendered rows; those declarations remain with the
 section pipeline.
 
+### Targeted package implementation comparison
+
+`diff --package` is the first CLI consumer of workspace implementation
+comparison. The focused route applies only when Implementation Diff is
+selected with one explicit `--type`, one explicit `--member`, no PDB Source
+request, and exactly one package-root assembly on each side. The CLI removes
+the legacy path-based `ImplementationComparisonQuery` demand for that route;
+all broader, library, platform, PDB Source, and untargeted comparisons retain
+their existing behavior.
+
+The host precomposes each selected package root before invoking
+`WorkspaceImplementationComparisonQuery`. A direct definition needs no
+additional package. When root metadata identifies one forwarded assembly and
+the root package's selected TFM dependency group declares exactly one
+same-named dependency minimum, the host acquires that exact package coordinate
+through the existing configured-authority composition and selects its matching
+package asset. This is target-specific realization of an already observed
+forwarding edge, not generalized package-role inference: an absent, ambiguous,
+or differently named dependency is not searched or guessed.
+
+The host then retains only the observed root-to-terminal occurrences and
+replays them through an acquisition-free closed-world policy. The query owns
+composition, correspondence, and C#/IL producer execution. The CLI lowers its
+native Type Forwarder Findings, exact effective assembly/MVID/token endpoints,
+and producer evidence into the existing Implementation Diff view. A
+composition or producer non-success remains typed, is rendered as a Query or
+producer row, and causes a nonzero command result; the host neither falls back
+to the legacy comparison nor turns it into an empty success.
+
+The Release `WorkspaceImplementationComparisonRunnerTests` gate covers
+forwarded and direct local-package targets, exact terminal versions and MVIDs,
+native forwarder rows, C#/IL evidence, configured local-authority acquisition,
+and typed missing-terminal failure.
+`SectionPipelineTests.DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges`
+proves that the adopted plan omits the legacy comparison query. The Queries
+owner's Release `WorkspaceImplementationComparisonQueryTests` gate enforces
+root-to-terminal identity, closed-world execution, correspondence, and typed
+composition and producer outcomes.
+
 ### Integration ecosystem queries
 
 `library --where "ecosystem=ecosystem.aspire"` narrows ordinary Integration
