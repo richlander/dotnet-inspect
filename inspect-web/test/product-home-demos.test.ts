@@ -157,13 +157,13 @@ test("package activation retains a non-first exact focus", () => {
 test("Platform activation merges one exact target around its non-first focus", () => {
   const peer = surface(
     "Microsoft.NETCore.App",
-    "10.0.11",
+    "10.0.12",
     "net10.0",
     "System.Runtime",
     "netcore.app");
   const focus = surface(
     "Microsoft.NETCore.App",
-    "10.0.11",
+    "10.0.12",
     "net10.0",
     "System.Text.Json",
     "netcore.app");
@@ -171,7 +171,7 @@ test("Platform activation merges one exact target around its non-first focus", (
     result(
       "platform",
       "runtime",
-      "10.0.11",
+      "10.0.12",
       "net10.0",
       "System.Text.Json",
       [peer, focus]));
@@ -188,7 +188,7 @@ test("Platform activation merges one exact target around its non-first focus", (
 test("Platform activation rejects mixed exact targets before model installation", () => {
   const focus = surface(
     "Microsoft.NETCore.App",
-    "10.0.11",
+    "10.0.12",
     "net10.0",
     "System.Text.Json",
     "netcore.app");
@@ -203,7 +203,7 @@ test("Platform activation rejects mixed exact targets before model installation"
       result(
         "platform",
         "runtime",
-        "10.0.11",
+        "10.0.12",
         "net10.0",
         "System.Text.Json",
         [focus, peer])),
@@ -213,7 +213,7 @@ test("Platform activation rejects mixed exact targets before model installation"
 test("Platform activation requires one exact focus descriptor and family", () => {
   const focus = surface(
     "Microsoft.NETCore.App",
-    "10.0.11",
+    "10.0.12",
     "net10.0",
     "System.Text.Json");
   assert.throws(
@@ -221,7 +221,7 @@ test("Platform activation requires one exact focus descriptor and family", () =>
       result(
         "platform",
         "runtime",
-        "10.0.11",
+        "10.0.12",
         "net10.0",
         "System.Text.Json",
         [focus])),
@@ -231,7 +231,7 @@ test("Platform activation requires one exact focus descriptor and family", () =>
       result(
         "platform",
         "runtime",
-        "10.0.11",
+        "10.0.12",
         "net10.0",
         "System.Text.Json",
         [
@@ -244,7 +244,7 @@ test("Platform activation requires one exact focus descriptor and family", () =>
 test("Platform activation requires its source family to match the focus pack", () => {
   const focus = surface(
     "Microsoft.NETCore.App",
-    "10.0.11",
+    "10.0.12",
     "net10.0",
     "System.Text.Json",
     "netcore.app");
@@ -253,7 +253,7 @@ test("Platform activation requires its source family to match the focus pack", (
       result(
         "platform",
         "aspnetcore",
-        "10.0.11",
+        "10.0.12",
         "net10.0",
         "System.Text.Json",
         [focus])),
@@ -263,7 +263,7 @@ test("Platform activation requires its source family to match the focus pack", (
       result(
         "platform",
         "netstandard",
-        "10.0.11",
+        "10.0.12",
         "net10.0",
         "System.Text.Json",
         [focus])),

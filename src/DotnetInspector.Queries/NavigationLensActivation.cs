@@ -267,16 +267,5 @@ public static class NavigationLensActivation
     }
 
     static ViewFacetTarget Target(StructuralSubjectIdentity subject) =>
-        subject switch
-        {
-            StructuralSubjectIdentity.RootSubject root =>
-                ViewFacetTarget.ForRoot(root),
-            StructuralSubjectIdentity.AllLibrariesSubject
-                or StructuralSubjectIdentity.LibrarySubject
-                or StructuralSubjectIdentity.TypeSubject
-                or StructuralSubjectIdentity.MemberSubject =>
-                ViewFacetTarget.ForSubject(subject),
-            _ => throw new InvalidOperationException(
-                "Unknown structural subject kind."),
-        };
+        ViewFacetTarget.ForSubject(subject);
 }

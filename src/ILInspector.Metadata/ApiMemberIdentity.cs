@@ -2408,35 +2408,126 @@ public static class ApiMemberIdentity
     static string ExtractParamType(string param)
         => XmlDocumentationNotation.ExtractSignatureParameterType(param);
 
-    public static bool TryGetXmlDocMemberIdentity(ApiType type, ApiMember member, out XmlDocMemberIdentity identity)
+    public static bool TryGetXmlDocTypeIdentity(
+        ApiType type,
+        out XmlDocMemberIdentity identity)
     {
-        var prefix = member.Kind switch
+        ArgumentNullException.ThrowIfNull(type);
+        if (type.DefinitionName is not { } definitionName)
         {
-            "property" => "P",
-            "field" => "F",
-            "event" => "E",
-            _ => "M"
-        };
-
-        if (member.SignatureModel is not { } signature)
-        {
-            identity = new XmlDocMemberIdentity("", []);
+            identity = null!;
             return false;
         }
 
-        var conversionReturnType = IsConversionOperator(member.Name)
-            && !string.IsNullOrWhiteSpace(signature.EffectiveCanonicalReturnType)
-            ? signature.EffectiveCanonicalReturnType
-            : null;
+        identity = XmlDocumentationNotation.CreateTypeIdentity(
+            definitionName.Namespace,
+            definitionName.Segments);
+        return true;
+    }
+
+    public static bool TryGetXmlDocMemberIdentity(
+        ApiType type,
+        ApiMember member,
+        out XmlDocMemberIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        if (member.SignatureDecodeStatus == SignatureDecodeStatus.Degraded)
+        {
+            identity = null!;
+            return false;
+        }
+
+        MetadataTypeDefinitionName? declaringType =
+            member.DeclaringTypeDefinitionName ?? type.DefinitionName;
+        if (declaringType is null)
+        {
+            identity = null!;
+            return false;
+        }
+
+        string prefix;
+        IReadOnlyList<string> parameters;
+        string? conversionReturnType = null;
+        int methodGenericArity = 0;
+        switch (member.Kind)
+        {
+            case "field":
+                prefix = "F";
+                parameters = [];
+                break;
+            case "event":
+                prefix = "E";
+                parameters = [];
+                break;
+            case "property"
+                when member.SignatureModel?.XmlDocumentationParameterTypes
+                    is { } propertyParameters:
+                prefix = "P";
+                parameters = propertyParameters;
+                break;
+            case "method":
+            case "constructor":
+            case "finalizer":
+            case "operator":
+            case "explicit-interface-implementation":
+            case "extension-method":
+                if (member.SignatureModel?.XmlDocumentationParameterTypes
+                    is not { } methodParameters)
+                {
+                    identity = null!;
+                    return false;
+                }
+                prefix = "M";
+                parameters = methodParameters;
+                methodGenericArity = member.GenericArity;
+                if (IsConversionOperator(member.Name))
+                {
+                    conversionReturnType =
+                        member.SignatureModel.XmlDocumentationReturnType;
+                    if (conversionReturnType is null)
+                    {
+                        identity = null!;
+                        return false;
+                    }
+                }
+                break;
+            default:
+                identity = null!;
+                return false;
+        }
+
         identity = XmlDocumentationNotation.CreateMemberIdentity(
             prefix,
-            type.FullName,
+            declaringType.Namespace,
+            declaringType.Segments,
             member.Name,
-            signature.Parameters.Select(parameter => parameter.CanonicalTypeWithModifier).ToList(),
-            type.TypeParameters.Select(parameter => parameter.Name).ToList(),
-            signature.MemberName,
-            conversionReturnType);
+            parameters,
+            methodGenericArity,
+            conversionReturnType,
+            member.SignatureModel?.XmlDocumentationIsVararg == true);
         return true;
+    }
+
+    public static bool TryGetXmlDocMemberIdentity(
+        ApiMemberHandle member,
+        out XmlDocMemberIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return TryGetXmlDocMemberIdentity(
+            member.Type,
+            member.Member,
+            out identity);
+    }
+
+    public static bool TryGetXmlDocMemberIdentity(
+        ResolvedMemberTarget target,
+        out XmlDocMemberIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return TryGetXmlDocMemberIdentity(
+            target.ApiMember,
+            out identity);
     }
 
     public static bool IsConversionOperator(string memberName)

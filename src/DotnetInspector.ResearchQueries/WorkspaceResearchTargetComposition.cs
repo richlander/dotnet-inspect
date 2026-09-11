@@ -459,8 +459,7 @@ internal static class WorkspaceResearchTargetCompositionValidator
             || resolution.Scopes.Count(scope => ReferenceEquals(scope, request.Scope)) != 1
             || !ReferenceEquals(request.Scope.Question, question)
             || !ReferenceEquals(request.Scope.Id.Operation, resolution.Operation)
-            || !string.Equals(request.Scope.DeclaringTypeFullName,
-                request.DeclaringType.ToMetadataFullName(), StringComparison.Ordinal)
+            || !request.Scope.DeclaringType.Equals(request.DeclaringType)
             || request.Scope.Domains.Count(domain => ReferenceEquals(domain, request.Domain)) != 1
             || !ReferenceEquals(request.Domain.Scope, request.Scope.Id)
             || !ReferenceEquals(request.Census.Domain, request.Domain)
@@ -512,7 +511,7 @@ internal static class WorkspaceResearchTargetCompositionValidator
                         || !ReferenceEquals(target.Input.Question, question)
                         || target.Side != target.Input.Side
                         || target.Kind != scope.Kind
-                        || target.DeclaringTypeFullName != scope.DeclaringTypeFullName
+                        || !ReferenceEquals(target.DeclaringType, scope.DeclaringType)
                         || target.Selector != scope.Selector
                         || !domain.Inputs.Any(input => ReferenceEquals(input.Input, target.Input)))
                         return false;

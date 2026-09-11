@@ -41,8 +41,10 @@ public sealed record ViewFacetId
             return false;
 
         ReadOnlySpan<char> prefix = value.AsSpan(0, dot);
-        if (prefix.SequenceEqual("root"))
-            kind = StructuralSubjectKind.Root;
+        if (prefix.SequenceEqual("workspace"))
+            kind = StructuralSubjectKind.Workspace;
+        else if (prefix.SequenceEqual("package"))
+            kind = StructuralSubjectKind.Package;
         else if (prefix.SequenceEqual("library"))
             kind = StructuralSubjectKind.Library;
         else if (prefix.SequenceEqual("type"))
@@ -90,8 +92,8 @@ public sealed record ViewFacetId
 /// <summary>Semantic roles consumed by adjacent product policy.</summary>
 public enum ViewFacetRole
 {
+    WorkspaceOverview,
     PackageOverview,
-    RootOverview,
     LibraryReferences,
     TypeApi,
     MemberOverview,
@@ -280,56 +282,21 @@ public sealed class ViewFacetAvailabilitySnapshot :
     }
 }
 
-/// <summary>Typed Root facts used only for Root-facet applicability.</summary>
-public enum ViewFacetRootKind
-{
-    PackageCapable,
-    NonPackage,
-}
-
-/// <summary>One exact structural subject plus applicability facts.</summary>
+/// <summary>One exact structural subject used for applicability.</summary>
 public sealed record ViewFacetTarget
 {
-    ViewFacetTarget(
-        StructuralSubjectIdentity subject,
-        ViewFacetRootKind? rootKind)
+    ViewFacetTarget(StructuralSubjectIdentity subject)
     {
         Subject = subject;
-        RootKind = rootKind;
     }
 
     public StructuralSubjectIdentity Subject { get; }
-    public ViewFacetRootKind? RootKind { get; }
-
-    public static ViewFacetTarget ForRoot(
-        StructuralSubjectIdentity.RootSubject subject)
-    {
-        ArgumentNullException.ThrowIfNull(subject);
-        ViewFacetRootKind rootKind = subject.Coordinate switch
-        {
-            RealizedMemberCoordinate.Package =>
-                ViewFacetRootKind.PackageCapable,
-            RealizedMemberCoordinate.Platform
-                or RealizedMemberCoordinate.Embedded =>
-                ViewFacetRootKind.NonPackage,
-            _ => throw new InvalidOperationException(
-                "Unknown realized coordinate kind."),
-        };
-        return new(subject, rootKind);
-    }
 
     public static ViewFacetTarget ForSubject(
         StructuralSubjectIdentity subject)
     {
         ArgumentNullException.ThrowIfNull(subject);
-        if (subject.Kind == StructuralSubjectKind.Root)
-        {
-            throw new ArgumentException(
-                "Root targets require an explicit typed Root kind.",
-                nameof(subject));
-        }
-
-        return new(subject, rootKind: null);
+        return new(subject);
     }
 }
 
