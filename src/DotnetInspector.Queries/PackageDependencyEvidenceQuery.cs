@@ -25,6 +25,7 @@ public enum PackageDependencyEvidenceAcquisitionForm
     ProjectAssets,
     ProjectLocator,
     ProjectXml,
+    RuntimeDependencyManifest,
 }
 
 /// <summary>The fidelity basis claimed by one root's declaration phase.</summary>
@@ -86,6 +87,12 @@ public abstract record PackageDependencyEvidenceInput
         AuthoredProjectDependencyFactsResult Result,
         PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         InertString? SourceLabel = null) : PackageDependencyEvidenceInput;
+
+    /// <summary>Runtime dependency facts, including failed provider outcomes.</summary>
+    public sealed record RuntimeDependencyManifest(
+        RuntimeDependencyFactsResult Result,
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
+        InertString? SourceLabel = null) : PackageDependencyEvidenceInput;
 }
 
 /// <summary>One typed upstream failure for a root that could not be admitted.</summary>
@@ -109,6 +116,11 @@ public abstract record PackageDependencyEvidenceRootFailure
     public sealed record AuthoredProject(
         PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         AuthoredProjectDependencyFactsFailure Failure,
+        InertString? SourceLabel = null) : PackageDependencyEvidenceRootFailure;
+
+    public sealed record RuntimeDependencyManifest(
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
+        RuntimeDependencyFailure Failure,
         InertString? SourceLabel = null) : PackageDependencyEvidenceRootFailure;
 
     public sealed record PackageProfile(
@@ -221,7 +233,7 @@ public sealed record PackageDependencyEvidenceRequest
         PackagePrefixCompletion { get; }
 }
 
-/// <summary>Stable identity for one admitted package or restored-project root.</summary>
+/// <summary>Stable owner-issued identity for one admitted package input root.</summary>
 public abstract record PackageDependencyEvidenceRootIdentity
 {
     private PackageDependencyEvidenceRootIdentity()
@@ -235,6 +247,10 @@ public abstract record PackageDependencyEvidenceRootIdentity
         PackageDependencyEvidenceRootIdentity;
 
     public sealed record AuthoredProject(AuthoredProjectIdentity Identity) :
+        PackageDependencyEvidenceRootIdentity;
+
+    public sealed record RuntimeDependencyManifest(
+        RuntimeDependencyRootIdentity Identity) :
         PackageDependencyEvidenceRootIdentity;
 }
 
@@ -265,6 +281,11 @@ public abstract record PackageDependencyEvidenceRootProvenance
     public sealed record AuthoredProject(
         PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         AuthoredProjectContentProvenance ContentProvenance,
+        InertString? SourceLabel) : PackageDependencyEvidenceRootProvenance;
+
+    public sealed record RuntimeDependencyManifest(
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
+        RuntimeDependencyContentProvenance ContentProvenance,
         InertString? SourceLabel) : PackageDependencyEvidenceRootProvenance;
 }
 
@@ -536,6 +557,10 @@ public abstract record PackageDependencyEvidencePackageIdentity
     public sealed record RestoredProject(
         RestoredProjectPackageNodeIdentity Identity) :
         PackageDependencyEvidencePackageIdentity;
+
+    public sealed record RuntimeDependencyManifest(
+        RuntimeDependencyPackageNodeIdentity Identity) :
+        PackageDependencyEvidencePackageIdentity;
 }
 
 /// <summary>The closed parent identity of one produced package relationship.</summary>
@@ -553,6 +578,10 @@ public abstract record PackageDependencyEvidenceRelationshipParentIdentity
 
     public sealed record Project(RestoredProjectProjectNodeIdentity Identity) :
         PackageDependencyEvidenceRelationshipParentIdentity;
+
+    public sealed record RuntimeDependencyLibrary(
+        RuntimeDependencyLibraryNodeIdentity Identity) :
+        PackageDependencyEvidenceRelationshipParentIdentity;
 }
 
 /// <summary>Stable provider-issued identity for one produced relationship.</summary>
@@ -563,6 +592,10 @@ public abstract record PackageDependencyEvidenceRelationshipIdentity
     }
 
     public sealed record RestoredProject(RestoredProjectEdgeIdentity Identity) :
+        PackageDependencyEvidenceRelationshipIdentity;
+
+    public sealed record RuntimeDependencyManifest(
+        RuntimeDependencyEdgeIdentity Identity) :
         PackageDependencyEvidenceRelationshipIdentity;
 }
 
@@ -599,6 +632,10 @@ public abstract record PackageDependencyEvidenceRelationshipFailure
     }
 
     public sealed record RestoredProject(RestoredProjectGraphFailure Failure) :
+        PackageDependencyEvidenceRelationshipFailure;
+
+    public sealed record RuntimeDependencyManifest(
+        RuntimeDependencyGraphFailure Failure) :
         PackageDependencyEvidenceRelationshipFailure;
 }
 
@@ -737,7 +774,8 @@ public sealed record PackageDependencyEvidenceRoot(
     PackageDependencyEvidenceSelection Selection,
     RestoredProjectSelectedTarget? RestoredTarget,
     PackageDependencyEvidenceRelationshipResult Relationships,
-    PackageDependencyEvidenceProcessingResult Processing)
+    PackageDependencyEvidenceProcessingResult Processing,
+    RuntimeDependencyTarget? RuntimeTarget = null)
 {
     public PackageDependencyEvidenceRootIdentity Identity { get; } =
         Identity ?? throw new ArgumentNullException(nameof(Identity));
@@ -753,6 +791,10 @@ public sealed record PackageDependencyEvidenceRoot(
                     Provenance,
             (PackageDependencyEvidenceRootIdentity.AuthoredProject _,
                 PackageDependencyEvidenceRootProvenance.AuthoredProject _) =>
+                    Provenance,
+            (PackageDependencyEvidenceRootIdentity.RuntimeDependencyManifest _,
+                PackageDependencyEvidenceRootProvenance
+                    .RuntimeDependencyManifest _) =>
                     Provenance,
             _ => throw new ArgumentException(
                 "Root identity and provenance must describe the same semantic input.",
@@ -771,6 +813,11 @@ public sealed record PackageDependencyEvidenceRoot(
             (PackageDependencyEvidenceRootIdentity.AuthoredProject _,
                 PackageDependencyEvidenceRootProvenance.AuthoredProject _) =>
                     PackageDependencyEvidenceInputKind.AuthoredProject,
+            (PackageDependencyEvidenceRootIdentity.RuntimeDependencyManifest _,
+                PackageDependencyEvidenceRootProvenance
+                    .RuntimeDependencyManifest _) =>
+                    PackageDependencyEvidenceInputKind
+                        .RuntimeDependencyManifest,
             _ => throw new ArgumentException(
                 "Root identity and provenance must describe the same semantic input kind.",
                 nameof(Provenance)),
@@ -789,10 +836,54 @@ public sealed record PackageDependencyEvidenceRoot(
                 PackageDependencyEvidenceRootProvenance.AuthoredProject _) =>
                     PackageDependencyEvidenceDeclarationBasis
                         .AuthoredProjectSyntax,
+            (PackageDependencyEvidenceRootIdentity.RuntimeDependencyManifest _,
+                PackageDependencyEvidenceRootProvenance
+                    .RuntimeDependencyManifest _) =>
+                    PackageDependencyEvidenceDeclarationBasis.NotApplicable,
             _ => throw new ArgumentException(
                 "Root identity and provenance must describe the same declaration basis.",
                 nameof(Provenance)),
         };
+
+    public RestoredProjectSelectedTarget? RestoredTarget { get; } =
+        (Identity, RestoredTarget) switch
+        {
+            (PackageDependencyEvidenceRootIdentity.RestoredProject restored,
+                { } target)
+                when RestoredTargetIdentity(target)
+                    == restored.Identity.Selection.TargetIdentity =>
+                    target,
+            (PackageDependencyEvidenceRootIdentity.RestoredProject _, null) =>
+                null,
+            (_, null) => null,
+            _ => throw new ArgumentException(
+                "Only the matching restored-project root can carry a restored target.",
+                nameof(RestoredTarget)),
+        };
+
+    public RuntimeDependencyTarget? RuntimeTarget { get; } =
+        (Identity, RuntimeTarget) switch
+        {
+            (PackageDependencyEvidenceRootIdentity.RuntimeDependencyManifest
+                runtime, { } target)
+                when target.Identity
+                    == runtime.Identity.Manifest.TargetIdentity =>
+                    target,
+            (PackageDependencyEvidenceRootIdentity.RuntimeDependencyManifest _,
+                null) => throw new ArgumentNullException(
+                    nameof(RuntimeTarget),
+                    "A runtime dependency root requires its selected target."),
+            (_, null) => null,
+            _ => throw new ArgumentException(
+                "Only a runtime dependency root can carry a runtime target.",
+                nameof(RuntimeTarget)),
+        };
+
+    private static string RestoredTargetIdentity(
+        RestoredProjectSelectedTarget target) =>
+        target.RuntimeIdentifierIdentity is null
+            ? target.FrameworkIdentity
+            : $"{target.FrameworkIdentity}/{target.RuntimeIdentifierIdentity}";
 }
 
 /// <summary>Root-set admission accounting kept independent from per-root phase completion.</summary>
@@ -829,6 +920,7 @@ public sealed record PackageDependencyEvidenceOutcome(
 /// <summary>Why two declaration projections cannot truthfully be compared.</summary>
 public enum PackageDependencyEvidenceNotComparableReason
 {
+    DeclarationNotApplicable,
     DeclarationProjectionIncomplete,
     FrameworkScope,
     SelectionStatusUnavailable,
@@ -858,8 +950,7 @@ public sealed record PackageDependencyEvidenceComparison(
     PackageDependencyEvidenceComparisonResult SelectedScoped);
 
 /// <summary>
-/// Composes existing package-manifest/group and restored-project facts into one host-neutral
-/// dependency-evidence result.
+/// Composes owner-issued package-input facts into one host-neutral dependency-evidence result.
 /// </summary>
 public static class PackageDependencyEvidenceQuery
 {
@@ -942,6 +1033,23 @@ public static class PackageDependencyEvidenceQuery
         ArgumentNullException.ThrowIfNull(result);
         RequireAuthoredProjectAcquisitionForm(acquisitionForm);
         return new PackageDependencyEvidenceInput.AuthoredProject(
+            result,
+            acquisitionForm,
+            sourceLabel);
+    }
+
+    /// <summary>Builds a runtime dependency input from one complete provider outcome.</summary>
+    public static PackageDependencyEvidenceInput.RuntimeDependencyManifest
+        CreateRuntimeDependencyManifestInput(
+            RuntimeDependencyFactsResult result,
+            PackageDependencyEvidenceAcquisitionForm acquisitionForm =
+                PackageDependencyEvidenceAcquisitionForm
+                    .RuntimeDependencyManifest,
+            InertString? sourceLabel = null)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        RequireRuntimeDependencyAcquisitionForm(acquisitionForm);
+        return new PackageDependencyEvidenceInput.RuntimeDependencyManifest(
             result,
             acquisitionForm,
             sourceLabel);
@@ -1032,6 +1140,12 @@ public static class PackageDependencyEvidenceQuery
                         authored.AcquisitionForm);
                     ArgumentNullException.ThrowIfNull(authored.Failure);
                     break;
+                case PackageDependencyEvidenceRootFailure
+                    .RuntimeDependencyManifest runtime:
+                    RequireRuntimeDependencyAcquisitionForm(
+                        runtime.AcquisitionForm);
+                    ArgumentNullException.ThrowIfNull(runtime.Failure);
+                    break;
                 case PackageDependencyEvidenceRootFailure.PackageProfile profile:
                     if (profile.Kind is PackageProfileFailureKind.Search
                             or PackageProfileFailureKind.SearchContract
@@ -1077,6 +1191,23 @@ public static class PackageDependencyEvidenceQuery
                 continue;
             }
 
+            if (input is PackageDependencyEvidenceInput.RuntimeDependencyManifest
+                {
+                    Result: RuntimeDependencyFactsResult.Failed runtimeFailed,
+                } runtime)
+            {
+                RequireRuntimeDependencyAcquisitionForm(
+                    runtime.AcquisitionForm);
+                ArgumentNullException.ThrowIfNull(runtimeFailed.Failure);
+                failedRoots.Add(
+                    new PackageDependencyEvidenceRootFailure
+                        .RuntimeDependencyManifest(
+                            runtime.AcquisitionForm,
+                            runtimeFailed.Failure,
+                            runtime.SourceLabel));
+                continue;
+            }
+
             roots.Add(ProjectRoot(input));
         }
 
@@ -1110,6 +1241,22 @@ public static class PackageDependencyEvidenceQuery
     {
         ArgumentNullException.ThrowIfNull(left);
         ArgumentNullException.ThrowIfNull(right);
+
+        if (left.Declaration
+                is PackageDependencyEvidenceDeclarationResult.NotApplicable
+            || right.Declaration
+                is PackageDependencyEvidenceDeclarationResult.NotApplicable)
+        {
+            PackageDependencyEvidenceComparisonResult notComparable =
+                new PackageDependencyEvidenceComparisonResult.NotComparable(
+                    PackageDependencyEvidenceNotComparableReason
+                        .DeclarationNotApplicable);
+            return new PackageDependencyEvidenceComparison(
+                notComparable,
+                notComparable,
+                notComparable,
+                notComparable);
+        }
 
         if (left.Declaration is not PackageDependencyEvidenceDeclarationResult.Available
                 { IsComplete: true } leftDeclaration
@@ -1155,6 +1302,8 @@ public static class PackageDependencyEvidenceQuery
                 ProjectRestoredProject(restored),
             PackageDependencyEvidenceInput.AuthoredProject authored =>
                 ProjectAuthoredProject(authored),
+            PackageDependencyEvidenceInput.RuntimeDependencyManifest runtime =>
+                ProjectRuntimeDependencyManifest(runtime),
             _ => throw new InvalidOperationException(
                 "Unknown package dependency evidence input."),
         };
@@ -1189,6 +1338,57 @@ public static class PackageDependencyEvidenceQuery
             null,
             new PackageDependencyEvidenceRelationshipResult.NotApplicable(),
             new PackageDependencyEvidenceProcessingResult.NotApplicable());
+    }
+
+    private static PackageDependencyEvidenceRoot
+        ProjectRuntimeDependencyManifest(
+            PackageDependencyEvidenceInput.RuntimeDependencyManifest input)
+    {
+        ArgumentNullException.ThrowIfNull(input.Result);
+        RequireRuntimeDependencyAcquisitionForm(input.AcquisitionForm);
+        RuntimeDependencyFacts facts = input.Result switch
+        {
+            RuntimeDependencyFactsResult.Available available =>
+                available.Value,
+            RuntimeDependencyFactsResult.Failed =>
+                throw new InvalidOperationException(
+                    "Failed runtime dependency facts must be projected as a failed root."),
+            _ => throw new InvalidOperationException(
+                "Unknown runtime dependency facts result."),
+        };
+        ArgumentNullException.ThrowIfNull(facts);
+
+        var rootIdentity =
+            new PackageDependencyEvidenceRootIdentity
+                .RuntimeDependencyManifest(facts.Root);
+        return new PackageDependencyEvidenceRoot(
+            rootIdentity,
+            new PackageDependencyEvidenceRootProvenance
+                .RuntimeDependencyManifest(
+                    input.AcquisitionForm,
+                    facts.ContentProvenance,
+                    input.SourceLabel),
+            input.SourceLabel
+                ?? new InertString(
+                    TextPolicy.Prose,
+                    "Runtime dependency manifest"),
+            new PackageDependencyEvidenceDeclarationResult.NotApplicable(),
+            new PackageDependencyEvidenceSelection(
+                PackageDependencyEvidenceSelectionStatus.Unavailable,
+                null,
+                null,
+                null,
+                null),
+            null,
+            ProjectRuntimeDependencyRelationships(facts),
+            new PackageDependencyEvidenceProcessingResult.Available(
+                [
+                    PackageDependencyEvidenceProcessingObservation
+                        .RuntimeDependencyProjection,
+                ],
+                [],
+                PackageDependencyEvidencePhaseCompletion.Complete),
+            facts.Target);
     }
 
     private static PackageDependencyEvidenceRoot ProjectRestoredProject(
@@ -1937,6 +2137,62 @@ public static class PackageDependencyEvidenceQuery
                 "Unknown restored-project graph result."),
         };
 
+    private static PackageDependencyEvidenceRelationshipResult.Available
+        ProjectRuntimeDependencyRelationships(RuntimeDependencyFacts facts) =>
+        new(
+            [
+                .. facts.Graph.Packages.Select(package =>
+                    new PackageDependencyEvidenceResolvedPackage(
+                        new PackageDependencyEvidencePackageIdentity
+                            .RuntimeDependencyManifest(package.Identity),
+                        package.Identity.Coordinate,
+                        null)),
+            ],
+            [
+                .. facts.Graph.Edges.Select(edge =>
+                    new PackageDependencyEvidenceRelationship(
+                        new PackageDependencyEvidenceRelationshipIdentity
+                            .RuntimeDependencyManifest(edge.Identity),
+                        ProjectRuntimeDependencyParent(edge.Parent),
+                        new PackageDependencyEvidencePackageIdentity
+                            .RuntimeDependencyManifest(edge.Dependency),
+                        null,
+                        null,
+                        edge.Dependency.Coordinate,
+                        null,
+                        edge.Parent
+                            is RuntimeDependencyGraphParentIdentity.Package
+                                ? PackageDependencyEvidenceAuthorship
+                                    .LibraryDeclared
+                                : PackageDependencyEvidenceAuthorship
+                                    .Unattributed,
+                        null)),
+            ],
+            [
+                .. facts.Graph.Failures.Select(failure =>
+                    new PackageDependencyEvidenceRelationshipFailure
+                        .RuntimeDependencyManifest(failure)),
+            ],
+            facts.Graph.IsComplete
+                ? PackageDependencyEvidencePhaseCompletion.Complete
+                : PackageDependencyEvidencePhaseCompletion.Incomplete);
+
+    private static PackageDependencyEvidenceRelationshipParentIdentity
+        ProjectRuntimeDependencyParent(
+            RuntimeDependencyGraphParentIdentity parent) =>
+        parent switch
+        {
+            RuntimeDependencyGraphParentIdentity.Package package =>
+                new PackageDependencyEvidenceRelationshipParentIdentity.Package(
+                    new PackageDependencyEvidencePackageIdentity
+                        .RuntimeDependencyManifest(package.Identity)),
+            RuntimeDependencyGraphParentIdentity.Library library =>
+                new PackageDependencyEvidenceRelationshipParentIdentity
+                    .RuntimeDependencyLibrary(library.Identity),
+            _ => throw new InvalidOperationException(
+                "Unknown runtime dependency relationship parent."),
+        };
+
     private static PackageDependencyEvidenceRelationshipParentIdentity
         ProjectRelationshipParent(
             PackageDependencyEvidenceRootIdentity.RestoredProject root,
@@ -2228,6 +2484,19 @@ public static class PackageDependencyEvidenceQuery
         {
             throw new ArgumentException(
                 "An authored-project root requires direct project-XML provenance.",
+                nameof(acquisitionForm));
+        }
+    }
+
+    private static void RequireRuntimeDependencyAcquisitionForm(
+        PackageDependencyEvidenceAcquisitionForm acquisitionForm)
+    {
+        if (acquisitionForm
+            != PackageDependencyEvidenceAcquisitionForm
+                .RuntimeDependencyManifest)
+        {
+            throw new ArgumentException(
+                "A runtime dependency root requires runtime-manifest provenance.",
                 nameof(acquisitionForm));
         }
     }
