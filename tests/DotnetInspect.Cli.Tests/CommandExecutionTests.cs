@@ -15790,7 +15790,7 @@ public partial class CommandExecutionTests
             $"dotnet-inspect-fetch-failure-{Guid.NewGuid():N}");
         try
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
@@ -15804,7 +15804,7 @@ public partial class CommandExecutionTests
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(null);
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(cacheDir))
                 Directory.Delete(cacheDir, recursive: true);
@@ -15824,7 +15824,7 @@ public partial class CommandExecutionTests
             $"dotnet-inspect-fetch-failure-json-{Guid.NewGuid():N}");
         try
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
@@ -15837,7 +15837,7 @@ public partial class CommandExecutionTests
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(null);
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(cacheDir))
                 Directory.Delete(cacheDir, recursive: true);
@@ -15855,7 +15855,7 @@ public partial class CommandExecutionTests
             $"dotnet-inspect-cross-origin-source-{Guid.NewGuid():N}");
         try
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
@@ -15868,7 +15868,7 @@ public partial class CommandExecutionTests
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(null);
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(cacheDir))
                 Directory.Delete(cacheDir, recursive: true);
@@ -15885,7 +15885,7 @@ public partial class CommandExecutionTests
             $"dotnet-inspect-source-checksum-{Guid.NewGuid():N}");
         try
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
@@ -15897,7 +15897,7 @@ public partial class CommandExecutionTests
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(null);
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(cacheDir))
                 Directory.Delete(cacheDir, recursive: true);

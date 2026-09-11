@@ -35,8 +35,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
     public SourceScopedRoutingTests()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions { Offline = true });
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions { Offline = true });
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         NuGetCache.Initialize(
             "dotnet-inspect-test",
             Path.Combine(_testRoot, "cache"),
@@ -48,8 +48,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
     public void Dispose()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         NuGetCache.Initialize("dotnet-inspect");
         if (Directory.Exists(_testRoot))
             Directory.Delete(_testRoot, recursive: true);
@@ -98,10 +98,10 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string packageName = $"System.QueryScope{Guid.NewGuid():N}";
         var requests = new ConcurrentQueue<string>();
 
-        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+        DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(
             innerHandler => new RouterFeedHandler(packageName, requests, innerHandler));
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         try
         {
             var observations = await RunAppAsync(
@@ -127,9 +127,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(null);
-            DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions { Offline = true });
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(null);
+            DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
     }
 
@@ -1414,10 +1414,10 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string expected)
     {
         bool transportCreated = false;
-        DotnetInspector.Core.HttpClientFactory.Initialize(
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
             new HttpClientFactoryOptions());
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
-        DotnetInspector.Core.HttpClientFactory.SetPackageSourceHandlerForTesting(
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.SetPackageSourceHandlerForTesting(
             _ =>
             {
                 transportCreated = true;
@@ -1461,9 +1461,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.Initialize(
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
                 new HttpClientFactoryOptions { Offline = true });
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
     }
 
@@ -1517,10 +1517,10 @@ public sealed class SourceScopedRoutingTests : IDisposable
     {
         string packageName = $"UnusableSetup{Guid.NewGuid():N}";
         bool invalidTransportCreated = false;
-        DotnetInspector.Core.HttpClientFactory.Initialize(
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
             new HttpClientFactoryOptions());
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
-        DotnetInspector.Core.HttpClientFactory.SetPackageSourceHandlerForTesting(
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.SetPackageSourceHandlerForTesting(
             sourceUrl =>
             {
                 if (sourceUrl == unusableSource)
@@ -1564,9 +1564,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.Initialize(
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
                 new HttpClientFactoryOptions { Offline = true });
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
     }
 
@@ -1719,10 +1719,10 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string localSource = Path.Combine(_testRoot, "local-source");
         WriteLocalPackage(localSource, packageName, "1.0.0", hierarchical: fileUri);
         bool transportCreated = false;
-        DotnetInspector.Core.HttpClientFactory.Initialize(
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
             new HttpClientFactoryOptions());
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
-        DotnetInspector.Core.HttpClientFactory.SetPackageSourceHandlerForTesting(
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.SetPackageSourceHandlerForTesting(
             _ =>
             {
                 transportCreated = true;
@@ -1748,9 +1748,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.Initialize(
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
                 new HttpClientFactoryOptions { Offline = true });
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
     }
 
@@ -1776,7 +1776,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string source = Path.Combine(_testRoot, "zero-arity-source");
         foreach (string version in new[] { "1.0.0", "2.0.0", "3.0.0" })
             WriteLocalPackage(source, packageName, version);
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
 
         var (exit, output, error) = await RunCommandAsync(
             [
@@ -2027,9 +2027,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
     public async Task MissingPinnedVersion_RemainsAbsentWhenOnlyListingStatusFails()
     {
         string packageName = $"RegistrationFailure{Guid.NewGuid():N}";
-        DotnetInspector.Core.HttpClientFactory.Initialize(
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
             new HttpClientFactoryOptions());
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         using var client = new HttpClient();
         var context = new CommandContext(false, client, () =>
             new DesktopPackageSourceComposition(
@@ -2060,9 +2060,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.Initialize(
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
                 new HttpClientFactoryOptions { Offline = true });
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
     }
 
@@ -2070,9 +2070,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
     public async Task PackageRange_DoesNotDeclareAbsenceWhenListingStatusIsUnavailable()
     {
         string packageName = $"RangeRegistrationFailure{Guid.NewGuid():N}";
-        DotnetInspector.Core.HttpClientFactory.Initialize(
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
             new HttpClientFactoryOptions());
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         using var client = new HttpClient();
         var context = new CommandContext(false, client, () =>
             new DesktopPackageSourceComposition(
@@ -2105,9 +2105,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.Initialize(
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
                 new HttpClientFactoryOptions { Offline = true });
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
     }
 
@@ -2407,7 +2407,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             "range" => "@3.0.0..1.0.0",
             _ => "",
         };
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
             PackageCommand.ExecuteAsync(new InspectionOptions
             {
@@ -2563,7 +2563,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             bool requireAuthorization = false)
     {
         var requests = new ConcurrentQueue<string>();
-        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+        DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(
             innerHandler => new VersionFeedHandler(
                 SecondSource,
                 packageName,
@@ -2572,9 +2572,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 requireAuthorization,
                 requests,
                 innerHandler));
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
-        DotnetInspector.Core.HttpClientFactory.SetPackageSourceHandlerForTesting(
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.SetPackageSourceHandlerForTesting(
             _ => new VersionFeedHandler(
                 SecondSource,
                 packageName,
@@ -2594,11 +2594,11 @@ public sealed class SourceScopedRoutingTests : IDisposable
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(
                 null);
-            DotnetInspector.Core.HttpClientFactory.Initialize(
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
                 new HttpClientFactoryOptions { Offline = true });
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
     }
 

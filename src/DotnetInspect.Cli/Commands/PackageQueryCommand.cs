@@ -20,7 +20,7 @@ internal static class PackageQueryCommand
             NuGetFetchOptions.FromRequestTimeout(context.HttpClient.Timeout);
         using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
             PackageSourceAssociation.Create(),
-            DotnetInspector.Core.HttpClientFactory.CreateCredentialFreeHandler(),
+            DotnetInspector.Networking.HttpClientFactory.CreateCredentialFreeHandler(),
             fetchOptions);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(fetchOptions.OperationTimeout);

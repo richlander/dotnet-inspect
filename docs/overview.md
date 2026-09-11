@@ -178,7 +178,10 @@ substrates, and inspection producers that will extend that space.
   [Platform Library Population Declaration](design/platform-library-population-declaration.md)
   additionally owns resource-free platform-population relevance over the
   lower owner-issued family without target, view, source, or acquisition
-  policy. Host adapter adoption remains staged under #5602 and #6012;
+  policy. Its
+  [Exact Library Source Coordinate](design/exact-library-source-coordinate.md)
+  owns the corresponding exact package/Platform Library value over retained
+  source identity and Metadata assembly identity before realization. Host adapter adoption remains staged under #5602 and #6012;
   package-set identities remain in the application catalog.
 - Target `src/DotnetInspector.Platforms/` owns the
   [Platform Target Currency](design/platform-target-currency.md): shared
@@ -289,12 +292,17 @@ substrates, and inspection producers that will extend that space.
   remote ordering, PDB checksum verification, decoding, and settled
   PDB-source outcomes.
 - `src/NetworkAccess/` owns the shared network-destination admission policy
-  used by Core HTTP composition and NuGet feed transports. Its project and
+  used by product HTTP composition and NuGet feed transports. Its project and
   compiled assembly dependencies are restricted to the platform by
   `network-access-stays-independent`.
+- `src/DotnetInspector.Networking/` owns cross-host HTTP composition, request
+  currency and breadcrumbs, traffic policy, observations, and network
+  diagnostics. Its project and compiled assembly dependencies are restricted
+  to the platform, `InertText`, and `NetworkAccess` by
+  `networking-stays-below-core-and-hosts`.
 - `src/DotnetInspector.Core/` is a transitional runtime bucket beneath
-  Packages, Services, and the CLI. Its cache, remaining HTTP composition and
-  telemetry, untrusted-document, CLI telemetry, and single-consumer helpers
+  Packages, Services, and the CLI. Its cache and combined request/cache
+  diagnostics, untrusted-document, CLI telemetry, and single-consumer helpers
   move to subject owners under
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.

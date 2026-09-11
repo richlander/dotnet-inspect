@@ -7,7 +7,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.CommandLine;
-using CoreFactory = DotnetInspector.Core.HttpClientFactory;
+using CoreFactory = DotnetInspector.Networking.HttpClientFactory;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Views;
 using ILInspector.Research;

@@ -13,15 +13,15 @@ public sealed class PackageExtractorOfflineTests : IDisposable
 
     public PackageExtractorOfflineTests()
     {
-        Core.HttpClientFactory.Initialize(new Core.HttpClientFactoryOptions { Offline = true });
-        Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = true });
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         NuGetCache.Initialize("dotnet-inspect-test", _cacheDir, skipNuGetCache: true);
     }
 
     public void Dispose()
     {
-        Core.HttpClientFactory.Initialize(new Core.HttpClientFactoryOptions());
-        Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new DotnetInspector.Networking.HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         if (Directory.Exists(_cacheDir))
             Directory.Delete(_cacheDir, recursive: true);
     }
@@ -31,7 +31,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
     {
         var packageName = $"Definitely.Uncached.{Guid.NewGuid():N}";
 
-        var outcome = await PackageExtractor.ExtractPackageAsync(Core.HttpClientFactory.Shared, packageName);
+        var outcome = await PackageExtractor.ExtractPackageAsync(DotnetInspector.Networking.HttpClientFactory.Shared, packageName);
 
         Assert.False(outcome.IsSuccess);
         Assert.Contains("not available offline", outcome.ErrorMessage);
@@ -43,7 +43,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
     public async Task ExtractPackageAsync_OfflineMalformedBarePackage_ReportsCacheMiss()
     {
         var outcome = await PackageExtractor.ExtractPackageAsync(
-            Core.HttpClientFactory.Shared,
+            DotnetInspector.Networking.HttpClientFactory.Shared,
             "some/pkg");
 
         Assert.False(outcome.IsSuccess);
@@ -56,7 +56,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
     {
         var packageName = $"Definitely.Uncached.{Guid.NewGuid():N}";
 
-        var outcome = await PackageExtractor.ExtractPackageAsync(Core.HttpClientFactory.Shared, packageName, version: "1.0.0");
+        var outcome = await PackageExtractor.ExtractPackageAsync(DotnetInspector.Networking.HttpClientFactory.Shared, packageName, version: "1.0.0");
 
         Assert.False(outcome.IsSuccess);
         Assert.Contains("not available offline", outcome.ErrorMessage);
@@ -72,7 +72,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
 
         PackageDependencyGraphResult result =
             await DependencyGraphService.BuildPackageDependencyTreeAsync(
-                Core.HttpClientFactory.Shared,
+                DotnetInspector.Networking.HttpClientFactory.Shared,
                 $"{packageName}@1.0.0",
                 requestedTfm: null,
                 sourceOptions: null,
@@ -105,7 +105,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
 
         PackageExtractionOutcome outcome =
             await PackageExtractor.ExtractPackageAsync(
-                Core.HttpClientFactory.Shared,
+                DotnetInspector.Networking.HttpClientFactory.Shared,
                 packageName,
                 sourceOptions: new NuGetSourceOptions
                 {
@@ -129,7 +129,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
 
         PackageExtractionOutcome outcome =
             await PackageExtractor.ExtractPackageAsync(
-                Core.HttpClientFactory.Shared,
+                DotnetInspector.Networking.HttpClientFactory.Shared,
                 packageName,
                 sourceOptions: new NuGetSourceOptions
                 {
@@ -152,7 +152,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
 
         PackageExtractionOutcome outcome =
             await PackageExtractor.ExtractPackageAsync(
-                Core.HttpClientFactory.Shared,
+                DotnetInspector.Networking.HttpClientFactory.Shared,
                 packageName,
                 sourceOptions: new NuGetSourceOptions
                 {
@@ -259,7 +259,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
         }
 
         var outcome = await PackageExtractor.ExtractPackageAsync(
-            Core.HttpClientFactory.Shared,
+            DotnetInspector.Networking.HttpClientFactory.Shared,
             packageName);
 
         Assert.False(outcome.IsSuccess);

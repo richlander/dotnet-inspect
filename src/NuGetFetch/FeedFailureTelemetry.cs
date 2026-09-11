@@ -1,7 +1,7 @@
 using System.Net;
 using InertText;
 
-namespace DotnetInspector.Core;
+namespace NuGetFetch;
 
 /// <summary>
 /// Why a source could not answer, as opposed to answering that a package is absent.
@@ -23,8 +23,11 @@ public enum FeedFailureKind
 /// </summary>
 /// <param name="Url">The request URL that failed, redacted of userinfo and sensitive query values.</param>
 /// <param name="Status">The status the source returned, if a response arrived at all.</param>
-/// <param name="Phase">The traffic kind in flight, which names what was being attempted.</param>
-public readonly record struct FeedFailure(InertString Url, HttpStatusCode? Status, NetworkTrafficKind Phase)
+/// <param name="Phase">The NuGet operation that was being attempted.</param>
+public readonly record struct FeedFailure(
+    InertString Url,
+    HttpStatusCode? Status,
+    FeedFailurePhase Phase)
 {
     /// <summary>Classifies the failure for message selection.</summary>
     public FeedFailureKind Kind => Status switch
@@ -42,14 +45,26 @@ public readonly record struct FeedFailure(InertString Url, HttpStatusCode? Statu
     /// <summary>A short description of what was being attempted, for use mid-sentence.</summary>
     public string PhaseText => Phase switch
     {
-        NetworkTrafficKind.PackageVersionList => "listing versions",
-        NetworkTrafficKind.PackageSourceDiscovery => "reading the service index",
-        NetworkTrafficKind.PackageDownload => "downloading the package",
-        NetworkTrafficKind.PackageManifest => "reading the manifest",
-        NetworkTrafficKind.PackageMetadata => "reading package metadata",
-        NetworkTrafficKind.PackageSearch => "searching",
+        FeedFailurePhase.PackageVersionList => "listing versions",
+        FeedFailurePhase.PackageSourceDiscovery => "reading the service index",
+        FeedFailurePhase.PackageDownload => "downloading the package",
+        FeedFailurePhase.PackageManifest => "reading the manifest",
+        FeedFailurePhase.PackageMetadata => "reading package metadata",
+        FeedFailurePhase.PackageSearch => "searching",
         _ => "reading the source"
     };
+}
+
+/// <summary>The NuGet operation that was in flight when a source failed.</summary>
+public enum FeedFailurePhase
+{
+    Unknown = 0,
+    PackageDownload,
+    PackageManifest,
+    PackageMetadata,
+    PackageSearch,
+    PackageSourceDiscovery,
+    PackageVersionList
 }
 
 /// <summary>
@@ -59,8 +74,8 @@ public readonly record struct FeedFailure(InertString Url, HttpStatusCode? Statu
 /// <remarks>
 /// The status is known deep inside the HTTP helpers, but the signatures between there and the
 /// caller return <c>string?</c> and <c>List&lt;string&gt;?</c>, so it cannot be returned. This
-/// follows the ambient-scope shape already used by <see cref="NetworkTelemetry"/>: the scope
-/// installs one collector that nested async work mutates in place.
+/// uses an ambient scope: the scope installs one collector that nested async
+/// work mutates in place.
 /// </remarks>
 public static class FeedFailureTelemetry
 {
@@ -109,12 +124,15 @@ public static class FeedFailureTelemetry
     /// </remarks>
     /// <param name="url">The request URL that failed.</param>
     /// <param name="status">The status returned, or null when no response arrived.</param>
-    public static void Record(string url, HttpStatusCode? status)
+    public static void Record(
+        string url,
+        HttpStatusCode? status,
+        FeedFailurePhase phase)
     {
         CurrentValue.Value?.Add(new FeedFailure(
-            NetworkRequestObservation.RedactSensitiveUrlText(url),
+            UrlRedaction.ForDiagnostics(url),
             status,
-            NetworkTelemetry.CurrentTrafficKind));
+            phase));
     }
 
     /// <summary>
@@ -122,12 +140,17 @@ public static class FeedFailureTelemetry
     /// </summary>
     /// <param name="url">The effective request URI that failed.</param>
     /// <param name="status">The status returned, or null when no response arrived.</param>
-    public static void Record(Uri url, HttpStatusCode? status)
+    public static void Record(
+        Uri url,
+        HttpStatusCode? status,
+        FeedFailurePhase phase)
     {
         CurrentValue.Value?.Add(new FeedFailure(
-            NetworkRequestObservation.RedactSensitiveUrl(url),
+            UrlRedaction.ForDiagnostics(url)
+                ?? throw new InvalidOperationException(
+                    "A supplied feed failure URI must have a diagnostic representation."),
             status,
-            NetworkTelemetry.CurrentTrafficKind));
+            phase));
     }
 
     private sealed class CollectorScope(

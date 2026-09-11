@@ -490,7 +490,7 @@ public class FindCommand
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
                 PackageSourceAssociation.Create(),
-                DotnetInspector.Core.HttpClientFactory
+                DotnetInspector.Networking.HttpClientFactory
                     .CreateCredentialFreeHandler(),
                 fetchOptions);
         using var operationContext = new NuGetOperationContext(
