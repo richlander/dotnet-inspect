@@ -62,7 +62,11 @@ internal static class MemberSearchService
                     cancellationToken);
             if (configured is null)
                 MarkFailure();
-            return new(configuredResults, hasFailures);
+            return new(configuredResults, hasFailures)
+            {
+                SourceSelectionIncomplete =
+                    options.PackagePrefixLimitReached,
+            };
         }
 
         using var workspace = new AssemblySetInspectionWorkspace();
@@ -74,7 +78,11 @@ internal static class MemberSearchService
                 httpClient,
                 workspace,
                 MarkFailure),
-            hasFailures);
+            hasFailures)
+        {
+            SourceSelectionIncomplete =
+                options.PackagePrefixLimitReached,
+        };
     }
 
     /// <summary>

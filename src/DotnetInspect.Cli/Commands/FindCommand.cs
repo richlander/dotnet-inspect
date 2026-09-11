@@ -167,7 +167,12 @@ public class FindCommand
             // with the full unprojected result set.
             if (options.Count)
             {
-                if (search.HasFailures)
+                if (search.HasFailures
+                    || !CliSemanticRowSelection.ProvidesExactCount(
+                        options.RowSelection,
+                        results.Count,
+                        sourceComplete:
+                            !search.SourceSelectionIncomplete))
                 {
                     CommandError.Write(
                         "Cannot count type rows because one or more search sources were incomplete.");
@@ -734,7 +739,12 @@ public class FindCommand
 
         if (options.Count)
         {
-            if (search.HasFailures)
+            if (search.HasFailures
+                || !CliSemanticRowSelection.ProvidesExactCount(
+                    options.RowSelection,
+                    results.Count,
+                    sourceComplete:
+                        !search.SourceSelectionIncomplete))
             {
                 CommandError.Write(
                     "Cannot count member rows because one or more search sources were incomplete.");

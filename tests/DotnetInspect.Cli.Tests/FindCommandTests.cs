@@ -1413,6 +1413,31 @@ public class FindCommandIntegrationTests
     }
 
     [Fact]
+    public void PackageProfileDashPrefixedMalformedTake_PreservesValueFailureOrdering()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Contoso.",
+                "--rows",
+                "bad",
+                "--take",
+                "-1.5",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            error);
+        Assert.DoesNotContain(
+            "--take requires a value.",
+            error);
+    }
+
+    [Fact]
     public void PackageProfileRepeatedTake_UsesComposedConflictDiagnostic()
     {
         var (exit, output, error) = RunCli(
@@ -2761,6 +2786,61 @@ public class FindCommandIntegrationTests
             + "search sources were incomplete.",
             error);
         Assert.Contains("Directory not found", error);
+    }
+
+    [Theory]
+    [InlineData(false, "JsonSerializer", "type")]
+    [InlineData(true, "Serialize", "member")]
+    public async Task FindCount_PackagePrefixLimitDoesNotPublishANumber(
+        bool members,
+        string pattern,
+        string rowKind)
+    {
+        var options = new FindOptions
+        {
+            Pattern = pattern,
+            Members = members,
+            PlatformAssemblies = ["System.Text.Json"],
+            Count = true,
+            PackagePrefixLimitReached = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Cannot count {rowKind} rows because one or more "
+            + "search sources were incomplete.",
+            error);
+    }
+
+    [Theory]
+    [InlineData(false, "JsonSerializer")]
+    [InlineData(true, "Serialize")]
+    public async Task FindCount_PackagePrefixLimitAllowsSatisfiedHeadWitness(
+        bool members,
+        string pattern)
+    {
+        var options = new FindOptions
+        {
+            Pattern = pattern,
+            Members = members,
+            PlatformAssemblies = ["System.Text.Json"],
+            Count = true,
+            PackagePrefixLimitReached = true,
+            RowSelection =
+                RowSelectionIntent<string>.Create(
+                    [RowSelectionIntentOperation<string>.Head(1)]),
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
     }
 
     [Theory]

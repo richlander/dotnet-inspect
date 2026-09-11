@@ -32,9 +32,16 @@ public class SearchSourceAdapterTests
         var intent = DeclareSources(command, [.. args]);
         using var client = new HttpClient();
         var sourceOptions = new NuGetSourceOptions { Sources = ["https://source.example/v3/index.json"] };
-        var (selection, request) = await SearchSourceAdapter.BindAsync(intent, client, false, sourceOptions);
+        SearchSourceBinding binding =
+            await SearchSourceAdapter.BindAsync(
+                intent,
+                client,
+                false,
+                sourceOptions);
+        var (selection, request) = binding;
 
         Assert.Same(intent, selection.Intent);
+        Assert.False(binding.PackagePrefixLimitReached);
         Assert.False(selection.UsesImplicitPlatform);
         Assert.Equal(packages, request.Packages);
         Assert.Equal(["relative library.dll"], request.Assemblies);
@@ -75,9 +82,12 @@ public class SearchSourceAdapterTests
 
         var (_, output, error) = await ConsoleCapture.RunAsync(async () =>
         {
-            var (selection, request) = await SearchSourceAdapter.BindAsync(
+            SearchSourceBinding binding =
+                await SearchSourceAdapter.BindAsync(
                 intent, client, false, handler.SourceOptions);
+            var (selection, request) = binding;
             Assert.Same(intent, selection.Intent);
+            Assert.True(binding.PackagePrefixLimitReached);
             Assert.Equal(4, intent.Selectors.Count);
             Assert.Same(prefix, Assert.Single(selection.OtherSources));
             Assert.Equal(["Contoso.Other", "Contoso.First@1.0.0", "Contoso.Core", "Contoso.First", "Group.Remaining"],

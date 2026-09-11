@@ -50,12 +50,8 @@ internal static class CliOptionValueValidation
         }
 
         ParsedArgument[] mapped = MapArguments(parseResult, arguments);
-        IReadOnlyList<OptionResult> options = GetOptionResults(parseResult);
-        var optionValueOwners =
-            new Dictionary<Token, Option>(ReferenceEqualityComparer.Instance);
-        foreach (OptionResult option in options)
-        foreach (Token token in option.Tokens)
-            optionValueOwners.Add(token, option.Option);
+        IReadOnlyDictionary<Token, Option> optionValueOwners =
+            GetOptionValueOwners(parseResult);
         var scopes = new List<CommandResult>();
         for (CommandResult? scope = parseResult.CommandResult;
             scope is not null;

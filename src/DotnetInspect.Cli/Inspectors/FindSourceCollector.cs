@@ -7,7 +7,10 @@ namespace DotnetInspect.Cli.Inspectors;
 internal sealed record FindSearchResult<T>(
     List<T> Rows,
     bool HasFailures,
-    IReadOnlyList<string>? UnmatchedPatterns = null);
+    IReadOnlyList<string>? UnmatchedPatterns = null)
+{
+    public bool SourceSelectionIncomplete { get; init; }
+}
 
 /// <summary>
 /// Shared source-request construction for the <c>find</c> command's

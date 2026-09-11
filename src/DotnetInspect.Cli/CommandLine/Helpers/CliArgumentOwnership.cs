@@ -22,6 +22,17 @@ internal static class CliArgumentOwnership
         return results;
     }
 
+    public static IReadOnlyDictionary<Token, Option> GetOptionValueOwners(
+        ParseResult parseResult)
+    {
+        var owners =
+            new Dictionary<Token, Option>(ReferenceEqualityComparer.Instance);
+        foreach (OptionResult option in GetOptionResults(parseResult))
+        foreach (Token token in option.Tokens)
+            owners.Add(token, option.Option);
+        return owners;
+    }
+
     public static Option? FindOption(
         CommandResult scope,
         string alias)

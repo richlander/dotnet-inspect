@@ -12,6 +12,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 {
     internal SearchSourceSelection? SourceSelection { get; init; }
 
+    internal bool PackagePrefixLimitReached { get; init; }
+
     /// <summary>
     /// Type name or glob pattern (positional argument). Comma-separated for multiple.
     /// </summary>

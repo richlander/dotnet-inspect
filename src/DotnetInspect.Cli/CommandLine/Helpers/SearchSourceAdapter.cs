@@ -10,6 +10,17 @@ namespace DotnetInspect.Cli.CommandLine;
 
 internal sealed class SearchSourceValidationException(string message) : Exception(message);
 
+internal sealed record SearchSourceBinding(
+    SearchSourceSelection Selection,
+    AssemblySetRequest Request,
+    bool PackagePrefixLimitReached)
+{
+    public void Deconstruct(
+        out SearchSourceSelection selection,
+        out AssemblySetRequest request) =>
+        (selection, request) = (Selection, Request);
+}
+
 internal static class SearchSourceAdapter
 {
     internal static SourceIntent Declare(
@@ -83,7 +94,7 @@ internal static class SearchSourceAdapter
         return new SourceSelector.PackageReference(name, version);
     }
 
-    internal static async Task<(SearchSourceSelection Selection, AssemblySetRequest Request)> BindAsync(
+    internal static async Task<SearchSourceBinding> BindAsync(
         SourceIntent intent,
         HttpClient client,
         bool verbose,
@@ -91,10 +102,13 @@ internal static class SearchSourceAdapter
     {
         SearchSourceSelection selection = SearchSourceNormalizer.Normalize(intent);
         List<SourceSelector>? expanded = null;
+        bool packagePrefixLimitReached = false;
         foreach (var prefix in selection.OtherSources.OfType<SourceSelector.PackagePrefix>())
         {
             SourceSelector.PackageReference[] packages = await CommandLineHelpers.ResolvePrefixPackagesAsync(
                 prefix.Request, client, verbose, sourceOptions);
+            packagePrefixLimitReached |=
+                packages.Length >= prefix.Request.MaxPackages;
             expanded ??= [.. intent.Selectors];
             expanded.AddRange(packages);
         }
@@ -124,7 +138,10 @@ internal static class SearchSourceAdapter
             }).ToArray(),
             SourceOptions = sourceOptions,
         };
-        return (selection, request);
+        return new(
+            selection,
+            request,
+            packagePrefixLimitReached);
     }
 
     private static string PackageArgument(SourceSelector.PackageSource source) => source switch

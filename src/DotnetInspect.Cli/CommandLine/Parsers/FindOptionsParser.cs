@@ -163,6 +163,7 @@ public static class FindOptionsParser
         AssemblySetRequest sources;
         SearchSourceSelection? selection = null;
         bool profileHasGroupScope = false;
+        bool packagePrefixLimitReached = false;
         if (literal is not null || string.IsNullOrEmpty(pattern))
         {
             // Profiles have their own grammar and reject API scopes before acquisition.
@@ -188,8 +189,12 @@ public static class FindOptionsParser
                 parseResult, args.PackageOption, args.AssemblyOption, args.ProjectOption,
                 args.PlatformOption, args.PlatformLibraryOption, args.ExtensionsOption,
                 args.AspNetCoreOption, args.BinOption, args.PackagePrefixOption);
-            (selection, sources) = await SearchSourceAdapter.BindAsync(
+            SearchSourceBinding binding = await SearchSourceAdapter.BindAsync(
                 intent, HttpClientFactory.Shared, parseResult.GetValue(opts.Verbose), sourceOptions);
+            selection = binding.Selection;
+            sources = binding.Request;
+            packagePrefixLimitReached =
+                binding.PackagePrefixLimitReached;
         }
 
         var verbosity = opts.ParseVerbosity(parseResult);
@@ -198,6 +203,7 @@ public static class FindOptionsParser
             Pattern = pattern ?? "",
             Literal = literal,
             SourceSelection = selection,
+            PackagePrefixLimitReached = packagePrefixLimitReached,
             Packages = [.. sources.Packages],
             Assemblies = [.. sources.Assemblies],
             PlatformAssemblies = [.. sources.PlatformAssemblies],

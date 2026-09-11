@@ -71,7 +71,8 @@ internal static class TypeSearchService
                         cancellationToken));
             return CreateSearchResult(
                 configuredResults,
-                hasFailures);
+                hasFailures,
+                options.PackagePrefixLimitReached);
         }
 
         using var workspace = new AssemblySetInspectionWorkspace();
@@ -92,7 +93,8 @@ internal static class TypeSearchService
                 patterns[0],
                 options,
                 Collect),
-                hasFailures);
+                hasFailures,
+                options.PackagePrefixLimitReached);
         }
 
         // Multi-pattern or tabular output: collect all types, then match each pattern
@@ -101,12 +103,14 @@ internal static class TypeSearchService
                 patterns,
                 options,
                 Collect),
-            hasFailures);
+            hasFailures,
+            options.PackagePrefixLimitReached);
     }
 
     private static FindSearchResult<TypeFindResult> CreateSearchResult(
         List<TypeFindResult> results,
-        bool hasFailures)
+        bool hasFailures,
+        bool sourceSelectionIncomplete)
     {
         string[] unmatchedPatterns =
         [
@@ -121,7 +125,11 @@ internal static class TypeSearchService
                     result.Match != MatchKind.NotFound),
             ],
             hasFailures,
-            unmatchedPatterns);
+            unmatchedPatterns)
+        {
+            SourceSelectionIncomplete =
+                sourceSelectionIncomplete,
+        };
     }
 
     private static async Task<List<TypeFindResult>> FindMultiPatternAsync(

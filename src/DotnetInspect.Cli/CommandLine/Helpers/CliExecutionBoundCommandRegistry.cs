@@ -90,6 +90,8 @@ internal static class CliExecutionBoundCommandRegistry
             CliArgumentOwnership.MapArguments(
                 parseResult,
                 arguments);
+        IReadOnlyDictionary<Token, Option> optionValueOwners =
+            CliArgumentOwnership.GetOptionValueOwners(parseResult);
         string optionName = adoption.Option.Name;
         var occurrences =
             new List<(int Position, string? Value, bool MissingValue)>();
@@ -115,9 +117,20 @@ internal static class CliExecutionBoundCommandRegistry
                     index + 1 < arguments.Count
                         ? arguments[index + 1]
                         : null;
+                bool parserOwnsValue =
+                    value is not null
+                    && mapped[index + 1].Tokens.Any(
+                        token =>
+                            optionValueOwners.TryGetValue(
+                                token,
+                                out Option? owner)
+                            && ReferenceEquals(
+                                owner,
+                                adoption.Option));
                 bool missingValue =
                     value is null
-                    || IsOptionToken(value);
+                    || (IsOptionToken(value)
+                        && !parserOwnsValue);
                 occurrences.Add(
                     (
                         argumentPositions?[index] ?? index,
