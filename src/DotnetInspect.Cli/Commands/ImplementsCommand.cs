@@ -131,7 +131,9 @@ public class ImplementsCommand
                 .Select(g => g.First())
                 .ToList();
 
-            if (options.RowSelection is not null)
+            bool hasSemanticRowSelection =
+                options.RowSelection?.Operations.Count > 0;
+            if (hasSemanticRowSelection)
             {
                 results = results
                     .OrderBy(r => r.TypeName, StringComparer.Ordinal)
@@ -146,8 +148,10 @@ public class ImplementsCommand
                 results = results.Take(options.Limit.Value).ToList();
             }
 
-            RowWindow? outputRows = options.RowSelection is null ? options.Rows : null;
-            if (options.RowSelection is { } rowSelection)
+            RowWindow? outputRows =
+                hasSemanticRowSelection ? null : options.Rows;
+            if (hasSemanticRowSelection
+                && options.RowSelection is { } rowSelection)
             {
                 RowsCohortResult<string, ImplementerResult> selected =
                     RowsCohortExecutor.ApplyUnordered(

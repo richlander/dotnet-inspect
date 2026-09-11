@@ -129,6 +129,49 @@ public sealed class ImplementsCommandTests
     }
 
     [Fact]
+    public async Task CommandLine_DefaultJsonPreservesDiscoveryOrderWithoutSemanticSelection()
+    {
+        string assembly = typeof(ImplementsCommandTests).Assembly.Location;
+        var result = await ExecuteCommandLineAsync(
+            "implements",
+            typeof(ILegacyRenderedOrderingMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            [
+                typeof(LegacyRenderedZ).FullName!,
+                typeof(LegacyRenderedA).FullName!,
+            ],
+            ReadJsonTypes(result.Output));
+    }
+
+    [Fact]
+    public async Task CommandLine_TypeLimitPreservesDiscoveryOrderWithoutSemanticSelection()
+    {
+        string assembly = typeof(ImplementsCommandTests).Assembly.Location;
+        var result = await ExecuteCommandLineAsync(
+            "implements",
+            typeof(ILegacyRenderedOrderingMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "--json",
+            "-t",
+            "1");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            [typeof(LegacyRenderedZ).FullName!],
+            ReadJsonTypes(result.Output));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_LegacyRowsFallbackWindowsCountOnce()
     {
         var options = new ImplementsOptions
