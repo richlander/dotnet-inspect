@@ -1294,11 +1294,13 @@ public static class ResourceEffectCatalogBuilder
         TerminalEffect? right = Terminal(second);
         if (left is null || right is null)
             return false;
-        if (left.Source != right.Source || !KindsOverlap(left.Kind, right.Kind))
+        if (!LocationsCanOverlap(left.Source, right.Source)
+            || !KindsOverlap(left.Kind, right.Kind))
             return false;
         if (!CompletionsOverlap(left.When, right.When))
             return false;
-        return left.Transition != right.Transition;
+        return left.Transition != right.Transition
+            || left.When != right.When;
     }
 
     static TerminalEffect? Terminal(ResourceEffect effect)
@@ -1348,7 +1350,8 @@ public static class ResourceEffectCatalogBuilder
         EntryEffect? right = Entry(second);
         if (left is null || right is null)
             return false;
-        if (left.Source != right.Source || !KindsOverlap(left.Kind, right.Kind))
+        if (!LocationsCanOverlap(left.Source, right.Source)
+            || !KindsOverlap(left.Kind, right.Kind))
             return false;
         if (left.IsBorrow || right.IsBorrow)
             return left.IsBorrow != right.IsBorrow;
@@ -1447,6 +1450,22 @@ public static class ResourceEffectCatalogBuilder
             || (first.Identity == second.Identity
                 && first.Arguments.Length == second.Arguments.Length);
 
+    static bool LocationsCanOverlap(
+        ResourceEffectLocation first,
+        ResourceEffectLocation second)
+    {
+        if (first == second)
+            return true;
+        return (first, second) switch
+        {
+            (ResourceEffectLocation.ResolvedField left,
+                ResourceEffectLocation.ResolvedField right) =>
+                LocationsCanOverlap(left.Root, right.Root)
+                && MembersCanOverlap(left.Selector, right.Selector),
+            _ => false,
+        };
+    }
+
     static bool CompletionsOverlap(
         ResourceEffectCompletion first,
         ResourceEffectCompletion second)
@@ -1486,10 +1505,10 @@ public static class ResourceEffectCatalogBuilder
                 left.Value != right.Value,
             (ResourceEffectOutcomeTest.Null, ResourceEffectOutcomeTest.NonNull)
                 or (ResourceEffectOutcomeTest.NonNull, ResourceEffectOutcomeTest.Null) => true,
-            (ResourceEffectOutcomeTest.Enum left, ResourceEffectOutcomeTest.Enum right) =>
-                left.Value != right.Value,
             (ResourceEffectOutcomeTest.ExactType left, ResourceEffectOutcomeTest.ExactType right) =>
                 left.Selector != right.Selector,
+            (ResourceEffectOutcomeTest.Null, ResourceEffectOutcomeTest.ExactType)
+                or (ResourceEffectOutcomeTest.ExactType, ResourceEffectOutcomeTest.Null) => true,
             _ => false,
         };
     }

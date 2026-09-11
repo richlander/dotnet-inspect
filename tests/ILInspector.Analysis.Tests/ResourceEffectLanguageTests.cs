@@ -1273,6 +1273,148 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void Catalog_ConflictsAcrossCompatibleResolvedFieldSelectors()
+    {
+        ResourceEffectModelIdentity releaseModel =
+            new("example.field-version-overlap.release");
+        ResourceEffectModelIdentity moveModel =
+            new("example.field-version-overlap.move");
+
+        AssertConflict(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    FieldPolicyTerminalModel(
+                        releaseModel,
+                        ResourceAssemblyVersionPolicy.Any,
+                        "release(source=receiver.field[child],when=normal-return)"),
+                    FieldPolicyTerminalModel(
+                        moveModel,
+                        ResourceAssemblyVersionPolicy.Exact(new Version(1, 0, 0, 0)),
+                        "move(source=receiver.field[child],target=return,when=normal-return)"),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_AllowsTerminalEffectsOnProvenDisjointResolvedFields()
+    {
+        ResourceEffectModelIdentity releaseModel =
+            new("example.field-version-disjoint.release");
+        ResourceEffectModelIdentity moveModel =
+            new("example.field-version-disjoint.move");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    FieldPolicyTerminalModel(
+                        releaseModel,
+                        ResourceAssemblyVersionPolicy.Exact(new Version(1, 0, 0, 0)),
+                        "release(source=receiver.field[child],when=normal-return)"),
+                    FieldPolicyTerminalModel(
+                        moveModel,
+                        ResourceAssemblyVersionPolicy.Exact(new Version(2, 0, 0, 0)),
+                        "move(source=receiver.field[child],target=return,when=normal-return)"),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_DoesNotAssumeDistinctEnumNamesAreDisjoint()
+    {
+        ResourceEffectModelIdentity model = new("example.enum-alias");
+
+        AssertConflict(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        model,
+                        SimpleOperationTarget(),
+                        [
+                            "outcome(id=first,source=return,test=enum[Example.Disposition.Accepted])",
+                            "outcome(id=second,source=return,test=enum[Example.Disposition.Success])",
+                            "release(source=parameter[0],when=outcome[first])",
+                            "move(source=parameter[0],target=return,when=outcome[second])",
+                        ]),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_RejectsRepeatedTerminalReleaseAcrossCompletionPoints()
+    {
+        ResourceEffectModelIdentity model = new("example.repeated-release");
+
+        AssertConflict(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        model,
+                        SimpleOperationTarget(),
+                        [
+                            "release(source=parameter[0],when=entry)",
+                            "release(source=parameter[0],when=normal-return)",
+                        ]),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_CoalescesEquivalentReleaseAtOneCompletionPoint()
+    {
+        ResourceEffectModelIdentity first = new("example.release.first");
+        ResourceEffectModelIdentity second = new("example.release.second");
+        ResourceEffectCatalog catalog = Build(
+            Model(
+                first,
+                SimpleOperationTarget(),
+                ["release(source=parameter[0],when=normal-return)"]),
+            Model(
+                second,
+                SimpleOperationTarget(),
+                ["release(source=parameter[0],when=normal-return)"]));
+
+        NormalizedResourceEffectDeclaration declaration =
+            Assert.Single(catalog.Declarations);
+        Assert.Equal(2, declaration.Provenances.Length);
+    }
+
+    [Fact]
+    public void Catalog_ComposesNullAndExactTypeOutcomes()
+    {
+        ResourceEffectModelIdentity model = new("example.null-exact-type");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        model,
+                        SimpleOperationTarget(),
+                        [
+                            "outcome(id=none,source=return,test=null)",
+                            "outcome(id=some,source=return,test=type[Example.Result])",
+                            "release(source=parameter[0],when=outcome[none])",
+                            "move(source=parameter[0],target=return,when=outcome[some])",
+                        ]),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_ComposesNullAndNonNullOutcomes()
+    {
+        ResourceEffectModelIdentity model = new("example.null-non-null");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        model,
+                        SimpleOperationTarget(),
+                        [
+                            "outcome(id=none,source=return,test=null)",
+                            "outcome(id=some,source=return,test=non-null)",
+                            "release(source=parameter[0],when=outcome[none])",
+                            "move(source=parameter[0],target=return,when=outcome[some])",
+                        ]),
+                ]));
+    }
+
+    [Fact]
     public void Catalog_RevalidatesParsedResolvedFieldVariablesAgainstOuterTarget()
     {
         ResourceEffectModelIdentity invalidModel = new("example.parsed-field-unbound");
@@ -1407,6 +1549,29 @@ public class ResourceEffectLanguageTests
                             model.Value,
                             0,
                             $"resource(kind=example.field-resource,value=declared-field,selector={selector})"),
+                    ]),
+                new ResourceEffectTargetDeclaration(
+                    SimpleOperationTarget(),
+                    [Source(model, model.Value, 1, terminal)]),
+            ]);
+
+    static ResourceEffectModelDefinition FieldPolicyTerminalModel(
+        ResourceEffectModelIdentity model,
+        ResourceAssemblyVersionPolicy fieldVersion,
+        string terminal)
+        => new(
+            ResourceEffectLanguageIdentity.Version1,
+            model,
+            [],
+            [
+                new ResourceEffectTargetDeclaration(
+                    FieldTarget("Child", fieldVersion),
+                    [
+                        Source(
+                            model,
+                            model.Value,
+                            0,
+                            "resource(kind=example.field-resource,value=declared-field,selector=child)"),
                     ]),
                 new ResourceEffectTargetDeclaration(
                     SimpleOperationTarget(),
@@ -1813,9 +1978,17 @@ public class ResourceEffectLanguageTests
             Named("Object"));
 
     static ResourceEffectTargetSelector FieldTarget(string name)
+        => FieldTarget(name, ResourceAssemblyVersionPolicy.Any);
+
+    static ResourceEffectTargetSelector FieldTarget(
+        string name,
+        ResourceAssemblyVersionPolicy version)
         => new ResourceEffectTargetSelector.Member(
             new ResourceEffectMemberSelector(
-                Named("Owner"),
+                Named(
+                    Assembly(publicKeyToken: null, version),
+                    "Example",
+                    "Owner"),
                 name,
                 ResourceEffectMemberKind.Field,
                 isStatic: false,
@@ -1824,7 +1997,10 @@ public class ResourceEffectLanguageTests
                 hasThis: false,
                 explicitThis: false,
                 [],
-                Named("Object")));
+                Named(
+                    Assembly(publicKeyToken: null, version),
+                    "Example",
+                    "Object")));
 
     static ResourceTypeExpression.Named Named(string name)
         => Named("Example", name);

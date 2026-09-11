@@ -897,13 +897,16 @@ The finite guard and outcome domains also define effect overlap. Every
 predicate retains its canonical resolved subject location and tested literal
 or type. The validator computes whether two effects can apply to the same
 operation occurrence. Normal and exceptional completion are disjoint.
-Opposite boolean or null tests, distinct enum literals, distinct exact
-constructed types, and distinct exact-runtime-type expectations are disjoint
-only when they constrain the same canonical subject value. Predicates over
-different subject values overlap unless their conjunction is otherwise proven
-unsatisfiable. Unconditional normal completion, `non-null`, and matching exact
-cases overlap where their conjunction is satisfiable. Unknown disjointness is
-treated as overlap.
+Opposite boolean or null tests, null versus an exact constructed type, distinct
+resolved enum constants, distinct exact constructed types, and distinct
+exact-runtime-type expectations are disjoint only when they constrain the same
+canonical subject value. An enum member spelling alone does not establish a
+distinct constant because multiple members may share one underlying value;
+until metadata resolution supplies that value and enum identity, enum tests
+overlap conservatively. Predicates over different subject values overlap unless
+their conjunction is otherwise proven unsatisfiable. Unconditional normal
+completion, `non-null`, and matching exact cases overlap where their
+conjunction is satisfiable. Unknown disjointness is treated as overlap.
 
 After structural resolution:
 
@@ -912,7 +915,8 @@ After structural resolution:
 - disjoint effects compose;
 - contradictory terminal effects whose finite applicability predicates
   overlap reject the catalog, including two transfers of one obligation to
-  different targets or release combined with transfer on the same path;
+  different targets, release combined with transfer on the same path, or the
+  same terminal transition repeated at distinct completion points on one path;
 - an `entry` consume followed by one terminal release or transfer is an
   ordered lifecycle, not a conflict;
 - no source silently overrides another source; and
