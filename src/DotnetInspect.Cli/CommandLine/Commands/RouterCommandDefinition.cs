@@ -350,12 +350,10 @@ public static class RouterCommandDefinition
                 tokens,
                 rootCommand,
                 rowSelectionCommands);
-        if (CliRowSelectionRouterPreflight.ShouldDeferLegacyWindow(
+        bool deferLegacyWindow =
+            CliRowSelectionRouterPreflight.ShouldDeferLegacyWindow(
                 tokens,
-                rowSelectionCandidates))
-        {
-            return false;
-        }
+                rowSelectionCandidates);
 
         if (CliRowSelectionRouterPreflight.FindCommonOptionValueError(
                 tokens,
@@ -368,7 +366,14 @@ public static class RouterCommandDefinition
         CliRowSelectionRouteEnvelopeResult rowSelection =
             CliRowSelectionRouterPreflight.Evaluate(
                 tokens,
-                rowSelectionCandidates);
+                rowSelectionCandidates,
+                deferLegacyWindow);
+        if (deferLegacyWindow
+            && rowSelection.Outcome
+                == CliRowSelectionRouteEnvelopeOutcome.NoRequest)
+        {
+            return false;
+        }
         RequestTelemetry.Breadcrumb(
             "router-row-selection",
             rowSelection.Outcome.ToString());

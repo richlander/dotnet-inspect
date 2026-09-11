@@ -18,7 +18,8 @@ internal static class CliRowSelectionRouterPreflight
 
     public static CliRowSelectionRouteEnvelopeResult Evaluate(
         string[] arguments,
-        IReadOnlyList<Command> commands)
+        IReadOnlyList<Command> commands,
+        bool deferLegacyWindow = false)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(commands);
@@ -34,7 +35,10 @@ internal static class CliRowSelectionRouterPreflight
             .. commands.Select(command =>
                 CreateCandidate(arguments, command)),
         ];
-        return CliRowSelectionRouteEnvelope.Evaluate(arguments, candidates);
+        return CliRowSelectionRouteEnvelope.Evaluate(
+            arguments,
+            candidates,
+            deferLegacyWindow);
     }
 
     public static bool ShouldDeferLegacyWindow(

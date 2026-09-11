@@ -45,7 +45,9 @@ public class FindCommand
                         json: options.JsonOutput,
                         tsv: options.Tsv,
                         jsonl: options.Jsonl,
-                        projection: options);
+                        projection: options,
+                        semanticRowSelection: options.RowSelection,
+                        semanticSelectionName: "Find");
                 }
 
                 if (options.IsPackageProfile)
@@ -61,7 +63,9 @@ public class FindCommand
                             jsonl: options.Jsonl,
                             sectionCostAnnotations: PackageQuerySections.Catalog.Pipeline.GetCostAnnotations(),
                             sectionCategories: PackageQuerySections.Catalog.SelectionCategoryMap,
-                            projection: options);
+                            projection: options,
+                            semanticRowSelection: options.RowSelection,
+                            semanticSelectionName: "Find");
                     }
                     PackageProfileSectionCatalog catalog =
                         PackageProfileSections.CreateCatalog();
@@ -78,7 +82,9 @@ public class FindCommand
                             pipeline.GetCostAnnotations(),
                         sectionCategories:
                             catalog.Sections.SelectionCategoryMap,
-                        projection: options);
+                        projection: options,
+                        semanticRowSelection: options.RowSelection,
+                        semanticSelectionName: "Find");
                 }
 
                 var schema = options.Members
@@ -88,7 +94,9 @@ public class FindCommand
                         .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
                 return DiscoverOutput.Execute(options.Discover, schema,
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl,
-                    projection: options);
+                    projection: options,
+                    semanticRowSelection: options.RowSelection,
+                    semanticSelectionName: "Find");
             }
 
             if (options.Literal is not null)

@@ -5,6 +5,10 @@ using static DotnetInspect.Cli.CommandLine.CliArgumentOwnership;
 
 namespace DotnetInspect.Cli.CommandLine;
 
+internal sealed record CliOptionValueFailure(
+    string Error,
+    int Position);
+
 internal static class CliOptionValueValidation
 {
     private static readonly ConditionalWeakTable<Argument, Func<ParseResult, int>> Capacities = new();
@@ -19,7 +23,25 @@ internal static class CliOptionValueValidation
         ParseResult parseResult,
         IReadOnlyList<string> arguments,
         IReadOnlyList<Option>? presenceOptions = null)
+        => FindFailure(
+            parseResult,
+            arguments,
+            presenceOptions)?.Error;
+
+    public static CliOptionValueFailure? FindFailure(
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<Option>? presenceOptions = null,
+        IReadOnlyList<int>? argumentPositions = null)
     {
+        if (argumentPositions is not null
+            && argumentPositions.Count != arguments.Count)
+        {
+            throw new ArgumentException(
+                "Every argument must have one source position.",
+                nameof(argumentPositions));
+        }
+
         ParsedArgument[] mapped = MapArguments(parseResult, arguments);
         IReadOnlyList<OptionResult> options = GetOptionResults(parseResult);
         var optionValues = new HashSet<Token>(
@@ -61,7 +83,11 @@ internal static class CliOptionValueValidation
                             || presenceOptions?.Contains(option) == true))
                     {
                         if (ReferenceEquals(mapped[index].AttachedOption, token))
-                            return DoesNotAcceptValue(option.Name);
+                        {
+                            return new(
+                                DoesNotAcceptValue(option.Name),
+                                argumentPositions?[index] ?? index);
+                        }
                         flag = option;
                     }
                 }
@@ -74,7 +100,11 @@ internal static class CliOptionValueValidation
                             ? getCapacity(parseResult)
                             : argument.Arity.MaximumNumberOfValues));
                     if (count >= capacity && precedingFlag is not null)
-                        return DoesNotAcceptValue(precedingFlag.Name);
+                    {
+                        return new(
+                            DoesNotAcceptValue(precedingFlag.Name),
+                            argumentPositions?[index] ?? index);
+                    }
                     positionalCounts[owner] = count + 1;
                 }
             }

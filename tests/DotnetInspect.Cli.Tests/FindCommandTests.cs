@@ -1494,6 +1494,94 @@ public class FindCommandIntegrationTests
         Assert.DoesNotContain("--rows requires", error);
     }
 
+    [Theory]
+    [InlineData("--head=true")]
+    [InlineData("--unknown")]
+    public void PackageProfileMissingTakeValue_PrecedesLaterTokenArityFailure(
+        string laterFailure)
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Contoso.",
+                "--take",
+                "--take",
+                "1",
+                laterFailure,
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--take requires a value.", error);
+    }
+
+    [Fact]
+    public void PackageProfileMissingTakeValue_PrecedesDuplicatedPositionalFailure()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Contoso.",
+                "--take",
+                "--take",
+                "1",
+                "Contoso.",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--take requires a value.", error);
+    }
+
+    [Fact]
+    public void PackageProfileEarlierTokenArityFailure_PrecedesMissingTakeValue()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Contoso.",
+                "--head=true",
+                "--take",
+                "--take",
+                "1",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--head does not accept a value.", error);
+        Assert.DoesNotContain("--take requires a value.", error);
+    }
+
+    [Fact]
+    public void LiteralTakeCapability_PrecedesPackagePlanningResolution()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--literal",
+                "Json",
+                "--take",
+                "1",
+                "--package",
+                "UnpinnedName",
+                "--tfm",
+                "net10.0",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--take is available only with patternless find --package-prefix.",
+            error);
+        Assert.DoesNotContain(
+            "exact ID@VERSION",
+            error);
+    }
+
     [Fact]
     public void PackageContentTakeMaximum_ParticipatesInComposedDiagnostics()
     {

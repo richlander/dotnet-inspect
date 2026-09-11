@@ -397,6 +397,44 @@ public class QueryDiscoveryTests
     }
 
     [Fact]
+    public async Task FindQueryDiscovery_AppliesSemanticSelectionStages()
+    {
+        var result = await Run(
+            "find",
+            "-Q",
+            "Packages",
+            "-n",
+            "1",
+            "--rows",
+            "2..2",
+            "--count");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Find row selection stage 2 requires query facet row 2, "
+                + "but only 1 query facet rows are available.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task FindSchemaDiscovery_CountsSelectedSemanticRows()
+    {
+        var result = await Run(
+            "find",
+            "JsonDocument",
+            "-D",
+            "Results",
+            "-n",
+            "1",
+            "--count");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task MultiSectionStreams_AreRejectedRatherThanFlattened()
     {
         var result = await Run("type", "-Q", "Performance Triage,Body Shapes", "--jsonl");

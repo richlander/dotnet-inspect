@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
@@ -260,25 +261,66 @@ public static class CommandLineBuilder
             return 1;
         }
 
-        if (CliOptionValueValidation.FindError(
+        CliOptionValueFailure? optionValueFailure =
+            CliOptionValueValidation.FindFailure(
                 parseResult,
                 effectiveArguments,
-                rowSelection.PresenceOptions) is { } optionValueError)
-        {
-            CommandError.Write(optionValueError);
-            return 1;
-        }
-
-        if (WriteParseErrors(parseResult))
-            return 1;
-
-        string? preparedError =
-            SelectPreparedError(
+                rowSelection.PresenceOptions,
+                rowSelection.ArgumentPositions);
+        PreparedFailure? preparedFailure =
+            SelectPreparedFailure(
                 rowSelection,
                 executionBound);
-        if (preparedError is not null)
+        ParseFailure? parseFailure =
+            FindFirstParseFailure(
+                parseResult,
+                effectiveArguments,
+                rowSelection.ArgumentPositions);
+
+        if (preparedFailure?.Category
+                == CliSelectionFailureCategory.Arity)
         {
-            CommandError.Write(preparedError);
+            int competingPosition =
+                Math.Min(
+                    optionValueFailure?.Position
+                        ?? int.MaxValue,
+                    parseFailure?.Position
+                        ?? int.MaxValue);
+            if (preparedFailure.Position <= competingPosition)
+            {
+                CommandError.Write(preparedFailure.Error);
+                return 1;
+            }
+
+            if (optionValueFailure is not null
+                && optionValueFailure.Position
+                    <= (parseFailure?.Position ?? int.MaxValue))
+            {
+                CommandError.Write(optionValueFailure.Error);
+                return 1;
+            }
+
+            if (parseFailure is not null)
+            {
+                CommandError.Write(parseFailure.Error);
+                return 1;
+            }
+        }
+        else
+        {
+            if (optionValueFailure is not null)
+            {
+                CommandError.Write(optionValueFailure.Error);
+                return 1;
+            }
+
+            if (WriteParseErrors(parseResult))
+                return 1;
+        }
+
+        if (preparedFailure is not null)
+        {
+            CommandError.Write(preparedFailure.Error);
             return 1;
         }
 
@@ -348,14 +390,39 @@ public static class CommandLineBuilder
         }
     }
 
-    private static string? SelectPreparedError(
+    private sealed record PreparedFailure(
+        string Error,
+        int Position,
+        CliSelectionFailureCategory Category);
+
+    private sealed record ParseFailure(
+        string Error,
+        int Position);
+
+    private static PreparedFailure? SelectPreparedFailure(
         CliRowSelectionPreparation rowSelection,
         CliExecutionBoundPreparation executionBound)
     {
         if (rowSelection.Error is null)
-            return executionBound.Error;
+        {
+            return executionBound.Error is null
+                ? null
+                : new(
+                    executionBound.Error,
+                    executionBound.ErrorPosition
+                        ?? int.MaxValue,
+                    executionBound.ErrorCategory
+                        ?? CliSelectionFailureCategory.Resolution);
+        }
         if (executionBound.Error is null)
-            return rowSelection.Error;
+        {
+            return new(
+                rowSelection.Error,
+                rowSelection.ErrorComparisonPosition
+                    ?? int.MaxValue,
+                rowSelection.ErrorCategory
+                    ?? CliSelectionFailureCategory.Resolution);
+        }
 
         CliSelectionFailureCategory rowCategory =
             rowSelection.ErrorCategory
@@ -366,14 +433,126 @@ public static class CommandLineBuilder
         if (rowCategory != boundCategory)
         {
             return rowCategory < boundCategory
-                ? rowSelection.Error
-                : executionBound.Error;
+                ? new(
+                    rowSelection.Error,
+                    rowSelection.ErrorComparisonPosition
+                        ?? int.MaxValue,
+                    rowCategory)
+                : new(
+                    executionBound.Error,
+                    executionBound.ErrorPosition
+                        ?? int.MaxValue,
+                    boundCategory);
         }
 
         return rowSelection.ErrorComparisonPosition
             <= executionBound.ErrorPosition
-                ? rowSelection.Error
-                : executionBound.Error;
+                ? new(
+                    rowSelection.Error,
+                    rowSelection.ErrorComparisonPosition
+                        ?? int.MaxValue,
+                    rowCategory)
+                : new(
+                    executionBound.Error,
+                    executionBound.ErrorPosition
+                        ?? int.MaxValue,
+                    boundCategory);
+    }
+
+    private static ParseFailure? FindFirstParseFailure(
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<int>? argumentPositions)
+    {
+        if (parseResult.Errors.Count == 0)
+            return null;
+
+        CliArgumentOwnership.ParsedArgument[] mapped =
+            CliArgumentOwnership.MapArguments(
+                parseResult,
+                arguments);
+        return parseResult.Errors
+            .Select((error, order) => new
+            {
+                Error = FormatParseError(error.Message),
+                Position = FindParseErrorPosition(
+                    error,
+                    parseResult,
+                    arguments,
+                    argumentPositions,
+                    mapped),
+                Order = order,
+            })
+            .OrderBy(failure => failure.Position)
+            .ThenBy(failure => failure.Order)
+            .Select(failure => new ParseFailure(
+                failure.Error,
+                failure.Position))
+            .First();
+    }
+
+    private static int FindParseErrorPosition(
+        ParseError error,
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<int>? argumentPositions,
+        IReadOnlyList<CliArgumentOwnership.ParsedArgument> mapped)
+    {
+        IReadOnlyList<Token> errorTokens =
+            error.SymbolResult?.Tokens
+                ?? [];
+        int[] tokenMatches =
+        [
+            .. Enumerable.Range(0, mapped.Count)
+                .Where(index =>
+                    mapped[index].Tokens.Any(mappedToken =>
+                        errorTokens.Any(errorToken =>
+                            ReferenceEquals(
+                                mappedToken,
+                                errorToken)))),
+        ];
+        if (tokenMatches.Length == 1)
+        {
+            int index = tokenMatches[0];
+            return argumentPositions?[index] ?? index;
+        }
+
+        int[] messageMatches =
+        [
+            .. Enumerable.Range(0, arguments.Count)
+                .Where(index =>
+                    arguments[index].Length > 0
+                    && error.Message.Contains(
+                        $"'{arguments[index]}'",
+                        StringComparison.Ordinal)),
+        ];
+        if (messageMatches.Length == 1)
+        {
+            int index = messageMatches[0];
+            return argumentPositions?[index] ?? index;
+        }
+
+        foreach (string unmatched in parseResult.UnmatchedTokens)
+        {
+            if (!error.Message.Contains(
+                    unmatched,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            for (int index = 0; index < arguments.Count; index++)
+            {
+                if (arguments[index].Equals(
+                        unmatched,
+                        StringComparison.Ordinal))
+                {
+                    return argumentPositions?[index] ?? index;
+                }
+            }
+        }
+
+        return int.MaxValue;
     }
 
     private static async Task<int> InvokeCoreAsync(ParseResult parseResult)

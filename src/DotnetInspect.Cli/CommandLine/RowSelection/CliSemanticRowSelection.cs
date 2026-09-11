@@ -6,6 +6,30 @@ namespace DotnetInspect.Cli.CommandLine;
 
 internal static class CliSemanticRowSelection
 {
+    public static bool TrySelectOrApplyLegacy<T>(
+        RowSelectionIntent<string>? intent,
+        RowWindow? legacyWindow,
+        IReadOnlyList<T> rows,
+        string sequenceName,
+        Func<RowsCohortSemanticFailure<string>, string> formatFailure,
+        out IReadOnlyList<T> selected)
+    {
+        if (intent is not null)
+        {
+            return TrySelect(
+                intent,
+                rows,
+                sequenceName,
+                formatFailure,
+                out selected);
+        }
+
+        selected = RowWindow.Apply(
+            legacyWindow,
+            rows);
+        return true;
+    }
+
     public static bool TrySelect<T>(
         RowSelectionIntent<string>? intent,
         IReadOnlyList<T> rows,

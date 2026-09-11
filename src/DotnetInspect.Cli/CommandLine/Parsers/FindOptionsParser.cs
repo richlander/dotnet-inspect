@@ -129,17 +129,6 @@ public static class FindOptionsParser
             return new Invalid();
         }
 
-        if (literal is not null
-            && !ValidateLiteralQuery(
-                parseResult,
-                opts,
-                args,
-                pattern,
-                literal))
-        {
-            return new Invalid();
-        }
-
         bool isPackageProfile =
             literal is null
             && string.IsNullOrEmpty(pattern)
@@ -148,6 +137,16 @@ public static class FindOptionsParser
         {
             CommandError.Write(
                 "--take is available only with patternless find --package-prefix.");
+            return new Invalid();
+        }
+        if (literal is not null
+            && !ValidateLiteralQuery(
+                parseResult,
+                opts,
+                args,
+                pattern,
+                literal))
+        {
             return new Invalid();
         }
         if (isPackageProfile
