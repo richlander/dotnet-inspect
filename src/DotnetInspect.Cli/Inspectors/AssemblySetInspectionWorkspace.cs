@@ -148,7 +148,7 @@ internal sealed class AssemblySetInspectionWorkspace : IDisposable
         }
     }
 
-    private static AssemblyResolutionProvenance ProvenanceFor(
+    internal static AssemblyResolutionProvenance ProvenanceFor(
         AssemblySetEntry entry)
         => entry.SourceKind switch
         {

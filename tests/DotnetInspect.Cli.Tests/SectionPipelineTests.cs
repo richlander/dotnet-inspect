@@ -2158,6 +2158,34 @@ public class SectionPipelineTests
                         DiffSections.ImplementationDiff.Name,
                     },
                 });
+        CompiledInspectionPlan<DiffQueryContext>
+            workspaceImplementationOnly =
+                DiffCommand.GetRequestedQueryPlan(
+                    catalog,
+                    new DiffOptions
+                    {
+                        IncludeSections = new HashSet<string>(
+                            StringComparer.OrdinalIgnoreCase)
+                        {
+                            DiffSections.ImplementationDiff.Name,
+                        },
+                    },
+                    workspaceImplementation: true);
+        CompiledInspectionPlan<DiffQueryContext>
+            workspaceComposedDocument =
+                DiffCommand.GetRequestedQueryPlan(
+                    catalog,
+                    new DiffOptions
+                    {
+                        IncludeSections = new HashSet<string>(
+                            StringComparer.OrdinalIgnoreCase)
+                        {
+                            DiffSections.Changes.Name,
+                            DiffSections.AnalysisDiff.Name,
+                            DiffSections.ImplementationDiff.Name,
+                        },
+                    },
+                    workspaceImplementation: true);
         CompiledInspectionPlan<DiffQueryContext> findingTransitionsOnly =
             DiffCommand.GetRequestedQueryPlan(
                 catalog,
@@ -2179,14 +2207,123 @@ public class SectionPipelineTests
         Assert.Equal(
             [ImplementationComparisonQuery.Definition],
             implementationOnly.QueryPlan.Queries);
+        Assert.Empty(
+            workspaceImplementationOnly.QueryPlan.Queries);
         Assert.Equal(
             [
                 ApiComparisonQuery.Definition,
                 BodySignalComparisonQuery.Definition,
             ],
             composedDocument.QueryPlan.Queries);
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            workspaceComposedDocument.QueryPlan.Queries);
         Assert.Empty(findingTransitionsOnly.RequestedQueries);
         Assert.Empty(findingTransitionsOnly.QueryPlan.Queries);
+    }
+
+    [Fact]
+    public void DiffCommand_WorkspaceTypeSelectionPreservesShortSelectorSemantics()
+    {
+        var before = new ApiSurface
+        {
+            TypeForwarders =
+            [
+                new TypeForwarder
+                {
+                    DefinitionName =
+                        Assert.IsType<
+                            MetadataTypeDefinitionNameResult.Valid>(
+                            MetadataTypeDefinitionName.Create(
+                                "Microsoft.Extensions.DependencyInjection",
+                                ["ServiceCollection"])).Name,
+                    TypeName =
+                        "Microsoft.Extensions.DependencyInjection.ServiceCollection",
+                },
+            ],
+        };
+        var after = new ApiSurface
+        {
+            TypeForwarders =
+            [
+                new TypeForwarder
+                {
+                    DefinitionName =
+                        Assert.IsType<
+                            MetadataTypeDefinitionNameResult.Valid>(
+                            MetadataTypeDefinitionName.Create(
+                                "Microsoft.Extensions.DependencyInjection",
+                                ["ServiceCollection"])).Name,
+                    TypeName =
+                        "Microsoft.Extensions.DependencyInjection.ServiceCollection",
+                },
+            ],
+        };
+
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.ServiceCollection",
+            DiffCommand.ResolveWorkspaceImplementationTypeName(
+                before,
+                after,
+                "ServiceCollection")?.DisplayName);
+        Assert.Equal(
+            "Dispose",
+            DiffCommand.LowerWorkspaceImplementationMemberSelector(
+                "ServiceCollection.Dispose",
+                "ServiceCollection",
+                "Microsoft.Extensions.DependencyInjection.ServiceCollection"));
+        Assert.Equal(
+            "Dispose",
+            DiffCommand.LowerWorkspaceImplementationMemberSelector(
+                "ServiceCollection.Dispose",
+                "Microsoft.Extensions.DependencyInjection.ServiceCollection",
+                "Microsoft.Extensions.DependencyInjection.ServiceCollection"));
+        Assert.Equal(
+            "Dispose",
+            DiffCommand.LowerWorkspaceImplementationMemberSelector(
+                "OptionsMonitor<TOptions>.Dispose",
+                "Microsoft.Extensions.Options.OptionsMonitor<TOptions>",
+                "Microsoft.Extensions.Options.OptionsMonitor`1"));
+        Assert.Equal(
+            "MoveNext",
+            DiffCommand.LowerWorkspaceImplementationMemberSelector(
+                "ObjectEnumerator.MoveNext",
+                "System.Text.Json.JsonElement+ObjectEnumerator",
+                "System.Text.Json.JsonElement+ObjectEnumerator"));
+    }
+
+    [Fact]
+    public void DiffCommand_WorkspaceTypeSelectionRetainsNestedIdentity()
+    {
+        MetadataTypeDefinitionName nestedName =
+            Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["Outer", "Inner"])).Name;
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "Outer.Inner",
+                    MetadataName = "Outer+Inner",
+                    DefinitionName = nestedName,
+                },
+            ],
+        };
+
+        DiffCommand.WorkspaceImplementationTypeSelection? selected =
+            DiffCommand.ResolveWorkspaceImplementationTypeName(
+                surface,
+                surface,
+                "N.Outer+Inner");
+
+        Assert.NotNull(selected);
+        Assert.Equal(nestedName, selected.DefinitionName);
+        Assert.Equal("N.Outer+Inner", selected.DisplayName);
     }
 
     [Fact]

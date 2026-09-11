@@ -6,7 +6,11 @@ This is the target design for
 [#5676](https://github.com/richlander/dotnet-inspect/issues/5676).
 The host-neutral composition, public planning facade, capability-free
 projections, correspondence handoff, and public file-based demo are
-implemented. The named Release gates in
+implemented. The targeted implementation-comparison adoption tracked by
+[#6429](https://github.com/richlander/dotnet-inspect/issues/6429) now composes
+both selected workspace roots, retains followed-forwarder Findings, and runs
+the existing Research producer session over the exact terminal pair. The named
+Release gates in
 [Implementation sequence and gates](#implementation-sequence-and-gates)
 verify this owner claim. CLI and inspect-web adoption remain later host-owned
 slices.
@@ -52,9 +56,10 @@ construction, identity, lifetime, validation, or failure semantics.
 
 ## Consumers and end-to-end plan
 
-The immediate consumer is the targeted direct-member comparison adapter in
+The first consumer is the #6429 targeted implementation-comparison query in
 the #4706 Implementation Diff sequence. It needs the physical MethodDef
-selected through a facade without treating the facade image as the body owner.
+selected through a facade without treating the facade image as the body owner,
+and it must preserve the Metadata declaration that explains the substitution.
 
 The host-neutral composition is planned for both current product hosts:
 
@@ -65,6 +70,23 @@ The host-neutral composition is planned for both current product hosts:
 
 Neither host reimplements endpoint choice. Their later efforts own request
 lowering, presentation, cancellation, and user interaction.
+
+### Real asset basis
+
+`Microsoft.Extensions.DependencyInjection` 10.0.0 is the motivating NuGet
+facade. Its `lib/net10.0/Microsoft.Extensions.DependencyInjection.dll`
+forwards
+`Microsoft.Extensions.DependencyInjection.ServiceCollection` to
+`Microsoft.Extensions.DependencyInjection.Abstractions`, matching the
+root-to-terminal shape this composition preserves. The corresponding
+declaration is visible in the
+[dotnet/runtime source at the inspected lineage](https://github.com/dotnet/runtime/blob/dc71a6daaf7bf6b7f8105fbbb12f1b7b38b67da1/src/libraries/Microsoft.Extensions.DependencyInjection/src/Properties/TypeForwards.cs).
+
+The deterministic gates build the same supported metadata shape in memory so
+they can independently vary before/after MVIDs, method bodies, duplicate rows,
+missing participants, and binding outcomes. They do not replace the real
+facade as the product basis; they isolate the exact association and failure
+properties that the package alone cannot vary reproducibly.
 
 ## Baseline behavior
 
@@ -99,8 +121,10 @@ One side-local composition request contains:
   participant offered to Research for that side;
 - the exact Queries-to-Research population receipt for that population;
 - one complete `ResearchTargetResolution`;
-- one exact question, side, carried selection scope, declaring-type intent,
-  terminal domain, and domain-side census within that resolution; and
+- one exact question, side, carried selection scope, and declaring-type intent;
+- either an exact caller-selected terminal domain and domain-side census within
+  that resolution, or the Queries-owned instruction to derive both only after
+  Metadata resolves the terminal participant; and
 - the requested `AssemblyResolutionScope`.
 
 The group, population, receipt, and Research result all belong to the same
@@ -137,6 +161,16 @@ This contract applies only to `ResearchTargetRequestKind.Carried`. An
 `ExactAddress` request already designates one physical input and MethodDef
 address; another input's disposition is `NotRequested`, so forwarding
 composition would contradict that request identity rather than repair it.
+
+The public production adopter uses derived-terminal mode. Metadata first
+resolves the designated root against the realized group. Queries then locates
+the one existing Research attempt whose admitted input contains that exact
+terminal acquisition registration, takes the attempt's owner-issued domain,
+and selects that domain's census for the requested side. It does not try
+candidate domains, repeat Metadata resolution, or use rejection as search.
+The exact-domain overload remains available for callers that already possess
+the owner-issued terminal domain and census; its pre-query mismatch checks are
+unchanged.
 
 ## Endpoint join currency
 
@@ -609,12 +643,71 @@ The facade domain may remain blocked by its
 healthy implementation domain, but it also does not authorize Queries to
 manufacture correspondence across domains.
 
-The current executable model is side-local and proves neither later two-sided
-handoff. `WorkspaceResearchTarget_DivergentTerminalDomainsDoNotPair` supplies
-the implementation evidence that ordinary correspondence preserves separate
-`BeforeOnly` and `AfterOnly` outcomes and creates no work item. Designated-pair
-handoff remains **unverified** under #5877 and the direct-member adapter's
-outcome gates.
+The current executable model is side-local and does not model either
+two-sided handoff. `WorkspaceResearchTarget_DivergentTerminalDomainsDoNotPair`
+supplies the implementation evidence that ordinary correspondence preserves
+separate `BeforeOnly` and `AfterOnly` outcomes and creates no work item.
+Research's designated-pair gates and the direct-member adapter's outcome gates
+provide the corresponding implementation evidence for explicit designation.
+
+## Targeted implementation-comparison adoption
+
+`WorkspaceImplementationComparisonQuery` is the first correspondence-driven
+consumer of both side-local receipts. Its request supplies two exact realized
+groups, one designated root per side, a complete one-to-one binding inventory
+for each group's participants, one carried declaring type and member selector,
+and a nonempty distinct set of existing Research producers.
+
+Before population sealing, Queries retains one snapshot-backed assembly
+reference for every supplied binding through its owning group. A typed
+`ParticipantImageUnavailable` result identifies the side, participant, and
+`CandidateOpenFailure` when this initial realization cannot complete. All
+later Metadata, Research planning, forwarding composition, Finding projection,
+and producer execution consume those immutable references; they do not reopen
+the original source.
+
+Both roots compose in derived-terminal mode. Queries then offers only the
+existing Research correspondence outcomes belonging to either effective
+terminal domain to `WorkspaceResearchTargetHandoff`. Exactly one
+`ResearchTargetCorrespondenceOutcome.Paired` must bind both effective attempt
+ids. Divergent domains, blocked domains, selection drift, and every other
+non-paired outcome publish typed handoff failure and do not run producers.
+
+On success, the query runs the existing `ResearchProducerSession` over the
+complete original resolution and verifies that its completion contains one
+work item per requested producer for the exact paired correspondence. The
+native Research outcome remains intact; Queries does not wrap C# or IL
+producer results in a new comparison vocabulary.
+
+Forwarding evidence has two distinct layers:
+
+- each followed declaration remains Metadata's native one-version
+  `Finding<TypeForwarderInfo>` with descriptor
+  `metadata.type-forwarder`; and
+- `WorkspaceTypeForwarderUse` records that this invocation consumed that
+  Finding at one ordered side-local hop, keyed by side, hop index, and exact
+  source Queries input id.
+
+The query issues no `diff.followed-forwarder` descriptor. A direct definition
+has no synthetic forwarding Finding. Resolution failures remain typed
+operation outcomes rather than Findings. When one side fails after the other
+has composed, or when the two terminal domains do not pair, the result retains
+all native forwarding Findings already established by the available Metadata
+evidence plus the completed side receipt.
+
+The Finding/use projection has its own full structural absence gate,
+`WorkspaceTypeForwarderUse_RetainsOnlyNativeFindingValues`. The gate allows
+only the exact native Finding spine, sealed `TypeForwarderInfo` payload,
+Queries ids, and immutable value containers. It does not broaden the
+capability allow list for the composition receipt or claim that the native
+Research producer completion is capability-free.
+
+No additional TLA+ state machine is required for this adopter. The existing
+composition model owns the stateful root-to-terminal association and binding
+currency; Research owns correspondence and producer-session termination. The
+adopter performs a synchronous, immutable join over those already closed
+outcomes. The two-sided implementation gates below are the enforcing evidence
+for the join and Finding/use relation.
 
 ## Workspace and acquisition boundary
 
@@ -790,6 +883,17 @@ Effective-attempt pair: none
 Comparison work item: none
 ```
 
+The same app also invokes the targeted implementation-comparison query over
+two forwarded implementations whose method bodies differ:
+
+```text
+Forwarder use: Before hop 0 metadata.type-forwarder N.Type -> ContractsImplementation
+Forwarder use: After hop 0 metadata.type-forwarder N.Type -> ContractsImplementation
+C# body exact: False
+IL body exact: False
+Supplemental acquisition requests: 0
+```
+
 The demo uses the public workspace and query surfaces. It does not construct
 Research inputs from file paths or replace a typed outcome with display text.
 
@@ -807,8 +911,10 @@ Research inputs from file paths or replace a typed outcome with display text.
 4. **Complete:** `eng/demo-workspace-target-composition.cs` exercises the
    public API, and the focused Release gates cover the contract and full
    structural absence claim.
-5. **Remaining:** later #4706 direct-member and publication efforts consume
-   the inert effective-target receipt.
+5. **Complete:** the #6429 targeted implementation-comparison query derives
+   terminal domains after Metadata resolution, validates the exact Research
+   pair, retains native followed-forwarder Findings and ordered use evidence,
+   and invokes the existing C#/IL producer session.
 6. **Remaining:** CLI and inspect-web wire the shared query in host-owned
    slices.
 
@@ -857,6 +963,27 @@ publication trace. After the sweep begins, it permits exactly one
 Metadata, or caller-callback access; after the last version read, it rejects
 every live access. The success case still publishes from the already
 materialized inert locals.
+
+`WorkspaceResearchTarget_DerivesDirectTerminalDomain` and
+`WorkspaceResearchTarget_DerivesForwardedTerminalDomain` prove that the public
+production overload selects the exact existing root or terminal Research
+domain and side census only after Metadata resolution. The established
+exact-domain fixtures continue to gate caller-supplied mismatch rejection.
+
+`ForwardedDefinitions_CompareExactTerminalBodiesAndRetainNativeFindings`
+proves that distinct terminal MVIDs with the same MethodDef token produce the
+native non-exact C# and IL comparisons, keep both facade attempts
+`Unavailable/DeclaringTypeForwarded`, retain one native
+`metadata.type-forwarder` Finding per side, and open each original participant
+source exactly once for snapshot retention. The direct, missing-terminal,
+divergent-domain, multi-hop, participant-image-failure, and cancellation
+neighbors are gated by the remaining
+`WorkspaceImplementationComparisonQueryTests`.
+
+`DuplicateForwardersToSameTarget_PublishExactTerminalComparisonAndEveryNativeFinding`
+proves that Metadata's one coalesced forwarding hop still publishes the exact
+terminal comparison while the Finding/use projection retains every native
+same-target declaration on both sides at that hop.
 
 - `WorkspaceResearchTarget_DirectDefinitionRetainsRootAttempt`
 - `WorkspaceResearchTarget_ForwardedDefinitionSelectsExactTerminalAttempt`
