@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 
 using DotnetInspector.SourceSelection;
 
@@ -69,6 +70,11 @@ public record ExtensionsOptions : IAssemblySourceOptions, IProjectionOptions
     /// Limit data rows per rendered table.
     /// </summary>
     public RowWindow? Rows { get; init; }
+
+    /// <summary>
+    /// Prepared semantic row selection for the CLI invocation.
+    /// </summary>
+    public RowSelectionIntent<string>? RowSelection { get; init; }
 
     /// <summary>
     /// Output the number of rendered result rows.

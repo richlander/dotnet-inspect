@@ -451,7 +451,9 @@ public static class SearchCommandDefinitions
         extCommand.Options.Add(opts.Columns);
         extCommand.Options.Add(opts.Fields);
         opts.AddCountOptionTo(extCommand);
-        opts.AddOutputOptionsTo(extCommand);
+        opts.AddOutputOptionsTo(
+            extCommand,
+            validateLegacyRowWindow: static _ => false);
         opts.AddNuGetOptionsTo(extCommand);
 
         extCommand.SetAction(async (parseResult, ct) =>
@@ -478,6 +480,15 @@ public static class SearchCommandDefinitions
                 prefixOption: packagePrefixOption);
             var (selection, sources) = await SearchSourceAdapter.BindAsync(
                 intent, HttpClientFactory.Shared, parseResult.GetValue(opts.Verbose), sourceOptions);
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Extensions",
+                    out RowSelectionIntent<string>? rowSelection,
+                    out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
 
             var options = new ExtensionsOptions
             {
@@ -493,7 +504,8 @@ public static class SearchCommandDefinitions
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
-                Rows = opts.ParseRows(parseResult),
+                Rows = rowSelection is null ? opts.ParseRows(parseResult) : null,
+                RowSelection = rowSelection,
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
@@ -511,6 +523,23 @@ public static class SearchCommandDefinitions
 
             return await ExtensionsCommand.ExecuteAsync(options, ct);
         });
+
+        var linesOption = new Option<bool>("--lines");
+        var tailLinesOption = new Option<bool>("--tail-lines");
+        CliRowSelectionCommandRegistry.Register(
+            extCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                linesOption,
+                tailLinesOption),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window,
+            isActive: static _ => true);
 
         return extCommand;
     }

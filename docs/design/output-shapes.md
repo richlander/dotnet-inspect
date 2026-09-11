@@ -216,6 +216,31 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
+### Approved `extensions --json` compatibility boundary
+
+The CLI host's `extensions --json` path is an approved bounded exception to
+the ordinary Markout lowering rule. Its typed input is the final
+`List<ExtensionMethodResult>` produced by the extension query, and its lowering
+boundary is the generated `ExtensionMethodJsonResult` contract in
+`ExtensionsJsonContext` / `ExtensionsCompactJsonContext`. The visible result
+is a bare JSON array with the established `method`, `class`, `extended_type`,
+`library`, `signature`, `signatures`, numeric `overloads`, `kind`, source, and
+reachable-path fields; null values remain omitted and `--compact` remains a
+whitespace-only modifier.
+
+This boundary exists to preserve an established machine contract that the
+current lowered Markout formatter cannot represent without changing the
+top-level array shape and converting typed numeric/list values to string table
+cells. It is limited to this CLI host and this plain `--json` output; Markdown,
+table, TSV, JSONL, count, and semantic row selection remain on the normal typed
+view/Markout path. The Release gates are
+`SearchJsonResultTests.ExtensionResult_PreservesPublicJsonFieldNames`,
+`ExtensionsCommandTests.ExecuteAsync_CompactJsonPreservesTypedArrayContract`,
+and the extension JSON cases in `CommandExecutionTests`. The exception is
+owned by the `extensions` adoption tracked in
+[#6697](https://github.com/richlander/dotnet-inspect/issues/6697) and should be
+retired only when a compatible Markout typed-JSON lowering is available.
+
 The current `CountProjectionFormatter` establishes cardinality by intercepting
 structured Markout rows without writing them. Under the target
 [section-row-shaping contract](section-row-shaping.md#result-binding-and-failure),
