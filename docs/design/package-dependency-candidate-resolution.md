@@ -138,11 +138,11 @@ Range selection uses one package-owned discovery contract:
 
 Listing-state interpretation remains owned by
 [Package source model](package-source-model.md#metadata-only-version-queries).
-Gallery discovery must complete its registration listing-state join before
-the result can be authoritative. Local and generic V3 sources that do not
-provide authoritative listing metadata retain the existing visible-candidate
-convention; this query does not invent stronger listing evidence than the
-source model supplies.
+The NuGet Gallery source must complete its Registration listing-state join
+before a version result can be authoritative. Local and generic V3 sources
+that do not provide authoritative listing metadata retain the existing
+visible-candidate convention; this query does not invent stronger listing
+evidence than the source model supplies.
 
 `PackageVersionDiscoveryResult` retains that complete contract. The query
 rejects a result produced under another contract rather than treating

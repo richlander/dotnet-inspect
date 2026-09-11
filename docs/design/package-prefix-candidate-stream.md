@@ -11,20 +11,18 @@ result construction, transport, and request deadlines.
 The production consumer is `PackageProfileQuery`, used by CLI
 `find --package-prefix` and the shared Package Query prefix path. End-to-end tracker
 [#5816](https://github.com/richlander/dotnet-inspect/issues/5816) records the broader
-responsiveness work. The website switched to a separate Gallery discovery input
-in #6022; its renewed package-ID/prefix adoption is tracked in
-[#6070](https://github.com/richlander/dotnet-inspect/issues/6070), rather than
-silently restoring the older website behavior during source integration.
+responsiveness work. Website package-ID/prefix adoption is tracked in
+[#6070](https://github.com/richlander/dotnet-inspect/issues/6070).
 The source-to-host path has three adoption steps:
 
 1. Add ordered, pull-driven prefix pages to the source contract and Gallery.
 2. Have `PackageProfileQuery` evaluate each page's exact manifests before asking
    for another page, replacing its full-prefix materialization barrier.
 3. Adopt that query through the website's explicit prefix input in #6070,
-   alongside its exact-ID input and explicit discovery gesture. The Browser
-   already supplies match credit; the CLI retains its materialized presentation
-   and shared operation context. The first two steps land in this source slice;
-   the Browser adoption is a focused successor, not a current website claim.
+   alongside its exact-ID input. The Browser already supplies match credit; the
+   CLI retains its materialized presentation and shared operation context. The
+   first two steps land in this source slice; the Browser adoption is a focused
+   successor, not a current website claim.
 
 No host-specific search implementation or new rendering path is introduced.
 The materialized source API remains useful to callers requiring one aggregate;
