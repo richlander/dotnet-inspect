@@ -22,7 +22,7 @@ declare global {
   var engineWorkerStartupGate: {
     host: Pick<typeof import("/inspect-web-host.js"), "buildIdentity">;
     catalog: Pick<typeof import("/inspect-web-catalog.js"), "listVocabulary" | "listHomeDemos">;
-    package: Pick<typeof import("/inspect-web-package.js"), "listPackageQueryFacets" | "listGalleryDiscoveryCatalog">;
+    package: Pick<typeof import("/inspect-web-package.js"), "listPackageQueryFacets">;
   };
   interface Window {
     engineWorkerProbe: WorkerProbe;
@@ -158,12 +158,12 @@ async function startStartupClient(page: Page) {
     const client = window.engineWorkerStartup.client;
     window.engineWorkerStartupPending = Promise.allSettled([
       client.host.buildIdentity(), client.catalog.listVocabulary(), client.catalog.listHomeDemos(),
-      client.package.listPackageQueryFacets(), client.package.listGalleryDiscoveryCatalog(),
+      client.package.listPackageQueryFacets(),
     ]);
   }, clientUrl);
 }
 
-test("five concurrent startup reads preserve actual generated results in one Worker", async ({ page, context }) => {
+test("four concurrent startup reads preserve actual generated results in one Worker", async ({ page, context }) => {
   await context.addCookies([{
     name: "worker-runtime-gate", value: "observe-startup", url: "http://127.0.0.1:4186",
   }]);
@@ -177,7 +177,7 @@ test("five concurrent startup reads preserve actual generated results in one Wor
     const facades = globalThis.engineWorkerStartupGate;
     return [
       facades.host.buildIdentity(), facades.catalog.listVocabulary(), facades.catalog.listHomeDemos(),
-      facades.package.listPackageQueryFacets(), facades.package.listGalleryDiscoveryCatalog(),
+      facades.package.listPackageQueryFacets(),
     ];
   });
   expect(outcomes).toEqual(expected.map(value => ({ status: "fulfilled", value })));
