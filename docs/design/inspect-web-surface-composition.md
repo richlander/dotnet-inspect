@@ -1181,8 +1181,10 @@ This browser-only placement is milestone 5 of the six-step adoption path in
 It has one consumer, the Member Diff working surface, and one focused tracker,
 [#5685](https://github.com/richlander/dotnet-inspect/issues/5685). It adds no
 comparison, transport, navigation, or viewer architecture. The existing
-cross-version `Compare authored source` dialog and Method Body Diff remain
-separate experiences; this placement does not retire or redefine either.
+cross-version `Compare authored source` and Method Body Diff contextual
+dialogs are retired under #6491. Their structured managed evidence remains
+available to an owner-issued immersive destination; this placement does not
+redefine that evidence.
 
 [VS Code](https://code.visualstudio.com/docs/sourcecontrol/overview) uses a
 dedicated side-by-side diff editor rather than embedding changed text in its
