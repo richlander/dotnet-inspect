@@ -329,6 +329,36 @@ public sealed class InspectionGraphCommandTests
         Assert.Empty(captured.Output);
     }
 
+    [Theory]
+    [InlineData(",")]
+    [InlineData(";")]
+    public async Task LibrariesCommand_RejectsSeparatorOnlySelection(string selection)
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "-S",
+                        selection,
+                        "--json",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains(
+            "--select requires at least one name.",
+            captured.Error);
+        Assert.DoesNotContain(
+            "Exactly two --library values are required.",
+            captured.Error);
+        Assert.DoesNotContain(
+            "Exception",
+            captured.Error);
+        Assert.Empty(captured.Output);
+    }
+
     [Fact]
     public async Task LibrariesCommand_CountsSelectedSummaryRows()
     {

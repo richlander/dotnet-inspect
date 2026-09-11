@@ -347,6 +347,14 @@ public static class LibraryCallUseCommand
             return true;
         }
 
+        if (options.Select is { Length: 0 })
+        {
+            CommandError.Write(
+                "--select requires at least one name.");
+            selectedNames = [];
+            return false;
+        }
+
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
             options.Select,
             SectionOrder,
