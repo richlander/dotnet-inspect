@@ -51,20 +51,51 @@ public class InstalledPlatformPruneSourceTests
     public void ComposesTheFamiliesOneTargetReferences()
     {
         // A web app references both, and its inventory is their union. This is the composition
-        // the console/web distinction turns on.
+        // the console/web distinction turns on. `Compose` itself is pinned on synthetic data in
+        // PlatformPruneInventoryTests; what this adds is that the two installed families this
+        // source reads are actually composable.
         PlatformPruneInventory core =
             Assert.IsType<PlatformPruneInventory>(InstalledPlatformPruneSource.Read("runtime").Inventory);
         PlatformPruneInventory web =
             Assert.IsType<PlatformPruneInventory>(InstalledPlatformPruneSource.Read("aspnetcore").Inventory);
 
-        if (!string.Equals(core.TargetFramework, web.TargetFramework, StringComparison.OrdinalIgnoreCase))
-        {
-            return; // Different installed targets cannot compose; that is asserted elsewhere.
-        }
+        // Different installed targets describe no one framework and cannot compose. Skip rather
+        // than pass, so a machine that proves nothing here does not read as evidence.
+        Assert.SkipUnless(
+            string.Equals(core.TargetFramework, web.TargetFramework, StringComparison.OrdinalIgnoreCase),
+            $"the installed runtime ({core.TargetFramework}) and ASP.NET Core "
+            + $"({web.TargetFramework}) packs target different frameworks");
 
         PlatformPruneInventory composed = PlatformPruneInventory.Compose([core, web]);
         Assert.Equal(2, composed.Families.Count());
         Assert.True(composed.Entries.Count() >= core.Entries.Count());
+    }
+
+    [Fact]
+    public void EveryFrameworkTheResolverMapsNamesAKnownSharedFramework()
+    {
+        // The family name is derived from the resolver's own pack mapping, so a framework it
+        // learns to resolve cannot become a pack this source then refuses to name.
+        int resolved = 0;
+        foreach (string frameworkName in PlatformResolver.FrameworkMappings.Keys)
+        {
+            (string? refPath, _, string? resolveError) =
+                PlatformResolver.ResolveFramework(frameworkName);
+            if (resolveError is not null || refPath is null)
+            {
+                continue; // Not installed here, so there is nothing for this source to read.
+            }
+
+            resolved++;
+            InstalledPlatformPruneSource.Result result =
+                InstalledPlatformPruneSource.Read(frameworkName);
+            Assert.Null(result.Error);
+            Assert.NotNull(result.Inventory);
+        }
+
+        Assert.True(
+            resolved > 0,
+            "no mapped framework resolved on this machine, so this pins nothing");
     }
 
     [Fact]

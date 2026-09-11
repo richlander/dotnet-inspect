@@ -19,14 +19,8 @@ namespace DotnetInspector.Services;
 /// </remarks>
 public static class InstalledPlatformPruneSource
 {
-    /// <summary>The shared-framework family each reference pack publishes entries for.</summary>
-    static readonly Dictionary<string, string> FamilyByRefPack =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Microsoft.NETCore.App.Ref"] = "Microsoft.NETCore.App",
-            ["Microsoft.AspNetCore.App.Ref"] = "Microsoft.AspNetCore.App",
-            ["NETStandard.Library.Ref"] = "NETStandard.Library",
-        };
+    /// <summary>The suffix every reference pack adds to its shared-framework family name.</summary>
+    const string ReferencePackSuffix = ".Ref";
 
     /// <summary>The outcome of reading one installed family's inventory.</summary>
     /// <param name="Inventory">The inventory, or null when it could not be read.</param>
@@ -62,12 +56,18 @@ public static class InstalledPlatformPruneSource
             return new Result(null, $"Unexpected reference pack layout at '{refAssemblyPath}'.");
         }
 
-        if (!FamilyByRefPack.TryGetValue(packDirectory.Name, out string? family))
+        // The family is the pack name without its `.Ref` suffix. Deriving it from the resolver's
+        // own mapping keeps one table: a framework the resolver learns to resolve cannot become a
+        // pack this source then refuses to name.
+        if (!PlatformResolver.ReverseFrameworkMappings.ContainsKey(packDirectory.Name)
+            || !packDirectory.Name.EndsWith(ReferencePackSuffix, StringComparison.Ordinal))
         {
             return new Result(
                 null,
                 $"Reference pack '{packDirectory.Name}' publishes no known shared framework.");
         }
+
+        string family = packDirectory.Name[..^ReferencePackSuffix.Length];
 
         if (!NuGetVersion.TryParse(version, out NuGetVersion? packVersion))
         {
@@ -80,8 +80,10 @@ public static class InstalledPlatformPruneSource
         string overrides = Path.Combine(versionDirectory.FullName, "data", "PackageOverrides.txt");
         if (!File.Exists(overrides))
         {
-            // The pack ships no prune data, so this target subsumes nothing. That is an answer.
-            return new Result(PlatformPruneInventory.None(targetFramework), null);
+            // The pack ships no prune data, so this target subsumes nothing. That is an answer,
+            // and it is still this family's answer: an inventory read exactly from this pack with
+            // no entries, not the no-platform inventory, which would drop the family entirely.
+            return new Result(PlatformPruneInventory.FromExactFamily(target, []), null);
         }
 
         try
@@ -90,7 +92,10 @@ public static class InstalledPlatformPruneSource
                 PlatformPruneInventory.FromExactFamily(target, File.ReadLines(overrides)),
                 null);
         }
-        catch (Exception exception) when (exception is FormatException or IOException)
+        catch (Exception exception)
+            when (exception is FormatException
+                or IOException
+                or UnauthorizedAccessException)
         {
             return new Result(null, $"Could not read '{overrides}': {exception.Message}");
         }
