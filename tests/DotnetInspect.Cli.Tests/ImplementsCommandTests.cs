@@ -2,6 +2,7 @@ using System.Text.Json;
 using DotnetInspect.Cli;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -66,6 +67,57 @@ public sealed class ImplementsCommandTests
         {
             File.Delete(path);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_LegacyRowsFallbackWindowsRenderedOutputOnce(
+        bool tabular)
+    {
+        var options = new ImplementsOptions
+        {
+            TargetType = typeof(IWorkspaceImplementationMarker).FullName!,
+            Assemblies = [typeof(ImplementsCommandTests).Assembly.Location],
+            IncludeAll = true,
+            Rows = RowWindow.Range(2, 3),
+            Tabular = tabular,
+        };
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => ImplementsCommand.ExecuteAsync(
+                    options,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal(
+            2,
+            CountRenderedWorkspaceImplementationRows(output));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_LegacyRowsFallbackWindowsCountOnce()
+    {
+        var options = new ImplementsOptions
+        {
+            TargetType = typeof(IWorkspaceImplementationMarker).FullName!,
+            Assemblies = [typeof(ImplementsCommandTests).Assembly.Location],
+            IncludeAll = true,
+            Rows = RowWindow.Range(2, 3),
+            Count = true,
+        };
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => ImplementsCommand.ExecuteAsync(
+                    options,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal("2", output.Trim());
     }
 
     [Fact]
@@ -180,6 +232,17 @@ public sealed class ImplementsCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("--rows requires N..M", result.Error);
+    }
+
+    private static int CountRenderedWorkspaceImplementationRows(string output)
+    {
+        const string implementationPrefix =
+            "DotnetInspect.Cli.Tests.WorkspaceImplementation";
+        return output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Count(line => line.Contains(
+                implementationPrefix,
+                StringComparison.Ordinal));
     }
 }
 

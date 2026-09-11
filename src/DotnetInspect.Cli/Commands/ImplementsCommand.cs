@@ -146,6 +146,7 @@ public class ImplementsCommand
                 results = results.Take(options.Limit.Value).ToList();
             }
 
+            RowWindow? outputRows = options.RowSelection is null ? options.Rows : null;
             if (options.RowSelection is { } rowSelection)
             {
                 RowsCohortResult<string, ImplementerResult> selected =
@@ -171,9 +172,10 @@ public class ImplementsCommand
 
                 results = selected.RowSets[0].Values.ToList();
             }
-            else if (options.Rows is { } legacyRows)
+            else if (outputRows is { } legacyRows)
             {
                 results = RowWindow.Apply(legacyRows, results).ToList();
+                outputRows = null;
             }
 
             if (results.Count == 0)
@@ -185,7 +187,7 @@ public class ImplementsCommand
             // with the full unprojected result set.
             if (options.Count)
             {
-                if (!WriteCount(targetType, results, options))
+                if (!WriteCount(targetType, results, options, outputRows))
                     return 1;
             }
             else if (options.JsonOutput)
@@ -197,7 +199,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.Tabular, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, options.Rows);
+                WriteMarkoutOutput(targetType, results, options.Tabular, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, outputRows);
             }
 
             return 0;
@@ -260,7 +262,8 @@ public class ImplementsCommand
     private static bool WriteCount(
         string targetType,
         List<ImplementerResult> results,
-        ImplementsOptions options)
+        ImplementsOptions options,
+        RowWindow? rows)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
         return CountOutput.TryWriteProjected(
@@ -269,7 +272,7 @@ public class ImplementsCommand
             "Implementers",
             options.Columns,
             options.Fields,
-            options.Rows);
+            rows);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows)
