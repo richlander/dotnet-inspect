@@ -166,7 +166,7 @@ shapes are:
 | `IArtifactAcquisitionLease` and artifact-session disposal | `IAsyncDisposable` exposes required asynchronous cleanup and quiescence. | Current C# does not prevent dropping the returned awaitable or treating retirement as completed settlement. |
 | `AssemblyContextGroup` owned-resource registration | One aggregate tracks child `IDisposable` values, releases them before snapshots, and preserves cleanup failures. | Registration, transfer, release ordering, and transitive child cleanup are manually maintained. `IDisposable` supplies no ownership metadata. |
 | `ArtifactContentReference` and assembly openers | Identity, registration, provenance, and usable retained content remain associated. | Some heap-escapable references and delegates close over live access authority, so identity and ownership are not consistently separate. |
-| `PackageSourceSettlementLease` | The Package Source Model service issues a resource-named lease; disposal retires settlement without disposing caller-owned clients or contexts. | It remains an ordinary aliasable `IDisposable` value and does not yet declare transfer, borrowing, or async-spanning effects to generalized Analysis. |
+| `PackageSourceSettlementLease` | The Package Source Model service issues a resource-named root lease; current disposal retires settlement without disposing caller-owned clients or retained content. | #6619 stages awaited root quiescence, directly issued operation leases, and async state-machine ownership effects; current C# still permits unsupported aliases. |
 | `ArrayPoolOwnershipFlow` and Resource Triage | Analysis already follows return, storage, caller transfer, forwarding, and exception-path leakage with explicit incompleteness. | The model is API-specific and cannot yet consume repository resource declarations. |
 
 The target does not merely rename these values. It simplifies their shared
@@ -914,10 +914,14 @@ end-to-end tracker. Its current total is 18 steps:
 10. define the shared Library ownership and borrowing contract used by
    PackageHouse, PlatformHouse, direct-library adapters, Workspace, and
    Library consumers;
-11. adopt the protocol in the package-source owner and issue a resource-named
-    package-source lease, completed by #6548;
-12. adopt that package-source lease in PackageHouse and retire the House-issued
-    predecessor, completed by #6548;
+11. adopt the protocol in the package-source owner: step 11a issues the
+    resource-named root lease, completed by #6548; step 11b, tracked by #6619,
+    declares awaited root settlement, directly issued operation-scoped leases,
+    and async state-machine ownership effects;
+12. adopt Package Source ownership in PackageHouse: step 12a retires the
+    House-issued root predecessor, completed by #6548; step 12b consumes and
+    settles one Package Source operation lease per House execution, tracked by
+    #6622;
 13. adopt the Library ownership contract in PackageHouse;
 14. adopt the Library ownership contract in PlatformHouse;
 15. adopt the Library ownership contract in Workspace and its Workspace-owned
@@ -934,6 +938,10 @@ Each implementation step changes one owner. Step 10 replaces the
 consumer-specific "source-ready library representation" direction in
 SourceHouse step 2; the SourceHouse tracker and owner document are corrected
 in that focused adoption effort rather than normatively changed here.
+
+The 11a/11b and 12a/12b sub-slices preserve the 18-step count. Step 11b is
+Package Source-owned. Step 12b is a separately reviewed PackageHouse adoption;
+neither is folded into package-backed Platform implementation.
 
 The dogfood step may discover another independently owned public lease
 contract. Adding its focused adoption requires an explicit tracker and count

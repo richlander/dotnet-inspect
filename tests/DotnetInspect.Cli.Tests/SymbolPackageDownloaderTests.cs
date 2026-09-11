@@ -1,6 +1,7 @@
 using System.Net;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
 

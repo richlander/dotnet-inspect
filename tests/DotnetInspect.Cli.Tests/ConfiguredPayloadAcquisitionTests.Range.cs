@@ -4,7 +4,7 @@ using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
-using CoreHttpClientFactory = DotnetInspector.Core.HttpClientFactory;
+using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 using DesktopPackageExtractor = DotnetInspector.Packages.PackageExtractor;
 
 namespace DotnetInspect.Cli.Tests;

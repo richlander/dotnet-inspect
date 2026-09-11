@@ -212,7 +212,7 @@ public sealed class MatchDiscoveryTests
         string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
         string staged = Path.Combine(root, "staged");
         string originalWorkingDirectory = Directory.GetCurrentDirectory();
-        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
         Directory.CreateDirectory(sourceDirectory);
         Directory.CreateDirectory(replayDirectory);
 
@@ -240,9 +240,9 @@ public sealed class MatchDiscoveryTests
                 packageName,
                 version,
                 NuGetCache.GetSourceKey(source));
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = true });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
 
             string[] discoveryArguments =
             [
@@ -305,9 +305,9 @@ public sealed class MatchDiscoveryTests
         finally
         {
             Directory.SetCurrentDirectory(originalWorkingDirectory);
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = wasOffline });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = wasOffline });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
@@ -429,7 +429,7 @@ public sealed class MatchDiscoveryTests
         string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
         string staged = Path.Combine(root, "staged");
         string originalWorkingDirectory = Directory.GetCurrentDirectory();
-        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
         Directory.CreateDirectory(discoveryDirectory);
         Directory.CreateDirectory(replayDirectory);
 
@@ -468,9 +468,9 @@ public sealed class MatchDiscoveryTests
                 packageName,
                 version,
                 NuGetCache.GetSourceKey(source));
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = true });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
 
             Directory.SetCurrentDirectory(discoveryDirectory);
             string configDirectory = Directory.GetCurrentDirectory();
@@ -537,9 +537,9 @@ public sealed class MatchDiscoveryTests
         finally
         {
             Directory.SetCurrentDirectory(originalWorkingDirectory);
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = wasOffline });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = wasOffline });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
@@ -1845,7 +1845,7 @@ public sealed class MatchDiscoveryTests
         string? previousNuGetPackages =
             Environment.GetEnvironmentVariable("NUGET_PACKAGES");
         string originalWorkingDirectory = Directory.GetCurrentDirectory();
-        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
         Directory.CreateDirectory(Path.GetDirectoryName(directFacade)!);
         Directory.CreateDirectory(discoveryDirectory);
         Directory.CreateDirectory(replayDirectory);
@@ -1924,9 +1924,9 @@ public sealed class MatchDiscoveryTests
                 "dotnet-inspect-match-ambient-forwarding-replay",
                 appCache,
                 skipNuGetCache: false);
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = true });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             Directory.SetCurrentDirectory(discoveryDirectory);
             string configDirectory = Directory.GetCurrentDirectory();
             string[] directArguments =
@@ -2058,9 +2058,9 @@ public sealed class MatchDiscoveryTests
             Environment.SetEnvironmentVariable(
                 "NUGET_PACKAGES",
                 previousNuGetPackages);
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = wasOffline });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = wasOffline });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
@@ -2176,7 +2176,7 @@ public sealed class MatchDiscoveryTests
         string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
         string nupkg = Path.Combine(cacheDirectory, $"{packageName}.{version}.nupkg");
         string staged = Path.Combine(cacheDirectory, "staged");
-        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
 
         Directory.CreateDirectory(cacheDirectory);
         try
@@ -2202,9 +2202,9 @@ public sealed class MatchDiscoveryTests
             }
 
             ZipFile.ExtractToDirectory(nupkg, staged);
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = true });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize(
                 "dotnet-inspect-match-source-replay",
                 cacheDirectory,
@@ -2269,9 +2269,9 @@ public sealed class MatchDiscoveryTests
         }
         finally
         {
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = wasOffline });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = wasOffline });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(cacheDirectory))
                 Directory.Delete(cacheDirectory, recursive: true);
@@ -2325,13 +2325,13 @@ public sealed class MatchDiscoveryTests
                 </configuration>
                 """);
         }
-        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
 
         try
         {
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = false });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = false });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize(
                 "dotnet-inspect-match-range-source-replay",
                 cacheRoot,
@@ -2453,9 +2453,9 @@ public sealed class MatchDiscoveryTests
         }
         finally
         {
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = wasOffline });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = wasOffline });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
@@ -2477,7 +2477,7 @@ public sealed class MatchDiscoveryTests
         const string version = "1.0.0";
         string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
         string originalWorkingDirectory = Directory.GetCurrentDirectory();
-        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
         Directory.CreateDirectory(discoveryDirectory);
         Directory.CreateDirectory(replayDirectory);
         using var feed = new RangeReplayFeed(packageName, version);
@@ -2510,9 +2510,9 @@ public sealed class MatchDiscoveryTests
                   </packageSourceMapping>
                 </configuration>
                 """);
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = false });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = false });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize(
                 "dotnet-inspect-match-selected-version-ambient-config",
                 cacheRoot,
@@ -2583,9 +2583,9 @@ public sealed class MatchDiscoveryTests
 
             if (!retainedRange)
             {
-                Core.HttpClientFactory.Initialize(
-                    new Core.HttpClientFactoryOptions { Offline = true });
-                Core.HttpClientFactory.ResetSharedForTesting();
+                DotnetInspector.Networking.HttpClientFactory.Initialize(
+                    new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = true });
+                DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             }
             Directory.SetCurrentDirectory(replayDirectory);
             string[] replayArguments =
@@ -2625,9 +2625,9 @@ public sealed class MatchDiscoveryTests
         finally
         {
             Directory.SetCurrentDirectory(originalWorkingDirectory);
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = wasOffline });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = wasOffline });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
@@ -2649,7 +2649,7 @@ public sealed class MatchDiscoveryTests
         const string asset = "lib/net10.0/Replay.Target.dll";
         const string seed = "Replay.Target.Seed";
         string originalWorkingDirectory = Directory.GetCurrentDirectory();
-        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
         Directory.CreateDirectory(feedDirectory);
         Directory.CreateDirectory(otherFeedDirectory);
         Directory.CreateDirectory(replayDirectory);
@@ -2668,9 +2668,9 @@ public sealed class MatchDiscoveryTests
             string otherSelectedPackage = CreatePackageArchive(
                 otherFeedDirectory, $"{packageName}.2.0.0", packageName, "2.0.0", asset, otherAssembly);
 
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = false });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = false });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize(
                 "dotnet-inspect-match-local-range-replay",
                 Path.Combine(root, "discovery-cache"),
@@ -2730,9 +2730,9 @@ public sealed class MatchDiscoveryTests
         finally
         {
             Directory.SetCurrentDirectory(originalWorkingDirectory);
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = wasOffline });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = wasOffline });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize("dotnet-inspect");
             Directory.Delete(root, recursive: true);
         }
@@ -2751,7 +2751,7 @@ public sealed class MatchDiscoveryTests
         Directory.CreateDirectory(root);
         using var feed = new RangeReplayFeed(packageName, version, queryDistinctSources: true);
         string configFile = Path.Combine(root, "NuGet.Config");
-        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
 
         try
         {
@@ -2775,9 +2775,9 @@ public sealed class MatchDiscoveryTests
                 root, "package", packageName, version, asset,
                 BuildMatchTargetAssembly("Replay.Target", "Replay", "Target"));
             feed.AddPackage(feed.SourceB, packageName, version, package);
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = false });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = false });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize(
                 "dotnet-inspect-match-query-replay", Path.Combine(root, "cache"), skipNuGetCache: true);
 
@@ -2814,9 +2814,9 @@ public sealed class MatchDiscoveryTests
         }
         finally
         {
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = wasOffline });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = wasOffline });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize("dotnet-inspect");
             Directory.Delete(root, recursive: true);
         }
@@ -2837,13 +2837,13 @@ public sealed class MatchDiscoveryTests
         using var feed = new RangeReplayFeed(wrapperName, version);
         string sourceA = feed.SourceA;
         string sourceB = feed.SourceB;
-        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
 
         try
         {
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = false });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = false });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize(
                 "dotnet-inspect-match-wrapper-source-replay",
                 cacheRoot,
@@ -2925,9 +2925,9 @@ public sealed class MatchDiscoveryTests
         }
         finally
         {
-            Core.HttpClientFactory.Initialize(
-                new Core.HttpClientFactoryOptions { Offline = wasOffline });
-            Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = wasOffline });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             NuGetCache.Initialize("dotnet-inspect");
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
