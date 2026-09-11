@@ -31,7 +31,8 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
 | [Library Family Boundaries](design/library-family-boundaries.md) | Meaning of the `Inspector`, `ILInspector`, `DotnetInspector`, independent-domain, and host namespace families, independent of dependency altitude and component role. |
-| [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md) | Host-neutral resource protocol for service-issued leases, transfer, direct and snapshot-callback borrowing, release, analyzable declarations, and current-versus-future enforcement. |
+| [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md) | Host-neutral lifecycle semantics for service-issued leases, transfer, direct and snapshot-callback borrowing, release, and current-versus-future enforcement. |
+| [Resource Effect Language](design/resource-effect-language.md) | Portable attribute and JSON language that normalizes resource API effects for one lifecycle Analysis engine, including the ArrayPool compatibility oracle. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [CLI Workspace Sharing](design/cli-workspace-sharing.md) | Common `--share` projection of an inspection command's effective resolved state to a canonical Workspace packet or Inspect Web URL, without a second Workspace-construction grammar. |
 | [Inspection Plan Projections](design/inspection-plan-projections.md) | Shared resolved inspection basis with distinct typed plans for section execution, effective-section discovery, and portable sharing. |
