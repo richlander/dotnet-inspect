@@ -166,15 +166,23 @@ public sealed class TypeDependencyPopulationResult
 {
     internal TypeDependencyPopulationResult(
         TypeDependencyResult dependency,
-        ImmutableArray<TypeDependencyCandidateOutcome> candidates)
+        ImmutableArray<TypeDependencyCandidateOutcome> candidates,
+        AssemblyAcquisitionRegistration? matchedRegistration)
     {
         ArgumentNullException.ThrowIfNull(dependency);
         Dependency = dependency;
         Candidates = candidates;
+        MatchedRegistration = matchedRegistration;
     }
 
     public TypeDependencyResult Dependency { get; }
     public ImmutableArray<TypeDependencyCandidateOutcome> Candidates { get; }
+
+    /// <summary>
+    /// The acquisition registration that contributed the selected root, or
+    /// <see langword="null"/> when the target was not found.
+    /// </summary>
+    public AssemblyAcquisitionRegistration? MatchedRegistration { get; }
 
     /// <summary>
     /// Whether at least one candidate contributed its complete staged rows.
@@ -356,9 +364,13 @@ public static class TypeDependencyScanner
                     invalidImageCauses);
             }
 
-            TypeDependencyResult dependency =
-                BuildGraph(targetType, typeIndex, maximumDepth);
-            return dependency with
+            DependencyGraphBuild graph =
+                BuildGraph(
+                    targetType,
+                    typeIndex,
+                    requireExactMatch: false,
+                    maximumDepth);
+            return graph.Dependency with
             {
                 Rejections = rejections,
             };
@@ -377,7 +389,34 @@ public static class TypeDependencyScanner
     public static TypeDependencyPopulationResult BuildDependencyPopulation(
         string targetType,
         IReadOnlyList<ResolvedAssemblyReference> assemblies,
-        int? maximumDepth = null)
+        int? maximumDepth = null) =>
+        BuildDependencyPopulationCore(
+            targetType,
+            assemblies,
+            requireExactMatch: false,
+            maximumDepth);
+
+    /// <summary>
+    /// Builds dependency graph facts only when the target resolves by its exact
+    /// normalized type name.
+    /// </summary>
+    public static TypeDependencyPopulationResult
+        BuildExactDependencyPopulation(
+            string targetType,
+            IReadOnlyList<ResolvedAssemblyReference> assemblies,
+            int? maximumDepth = null) =>
+        BuildDependencyPopulationCore(
+            targetType,
+            assemblies,
+            requireExactMatch: true,
+            maximumDepth);
+
+    private static TypeDependencyPopulationResult
+        BuildDependencyPopulationCore(
+            string targetType,
+            IReadOnlyList<ResolvedAssemblyReference> assemblies,
+            bool requireExactMatch,
+            int? maximumDepth)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetType);
         ArgumentNullException.ThrowIfNull(assemblies);
@@ -504,9 +543,16 @@ public static class TypeDependencyScanner
 
             ImmutableArray<TypeDependencyCandidateOutcome> candidates =
                 outcomes.MoveToImmutable();
+            DependencyGraphBuild graph =
+                BuildGraph(
+                    targetType,
+                    typeIndex,
+                    requireExactMatch,
+                    maximumDepth);
             TypeDependencyPopulationResult result = new(
-                BuildGraph(targetType, typeIndex, maximumDepth),
-                candidates);
+                graph.Dependency,
+                candidates,
+                graph.MatchedRegistration);
             DisposeAll(images);
             return result;
         }
@@ -586,7 +632,10 @@ public static class TypeDependencyScanner
             ValidateRelationships(reader, definition);
             staged.TryAdd(
                 fullName,
-                new IndexedType(reader, definition));
+                new IndexedType(
+                    reader,
+                    definition,
+                    descriptor?.Registration));
         }
 
         return new CandidateStage(staged);
@@ -600,9 +649,10 @@ public static class TypeDependencyScanner
             typeIndex.TryAdd(name, type);
     }
 
-    private static TypeDependencyResult BuildGraph(
+    private static DependencyGraphBuild BuildGraph(
         string targetType,
         Dictionary<string, IndexedType> typeIndex,
+        bool requireExactMatch,
         int? maximumDepth)
     {
         string normalizedTarget =
@@ -611,10 +661,14 @@ public static class TypeDependencyScanner
         // identity when metadata contains case-distinct type names.
         string? matchKey = typeIndex.ContainsKey(normalizedTarget)
             ? normalizedTarget
-            : typeIndex.Keys.FirstOrDefault(key =>
-                TypeMatcher.Matches(key, normalizedTarget));
+            : requireExactMatch
+                ? null
+                : typeIndex.Keys.FirstOrDefault(key =>
+                    TypeMatcher.Matches(key, normalizedTarget));
         if (matchKey is null)
-            return new TypeDependencyResult(null, []);
+            return new(
+                new TypeDependencyResult(null, []),
+                MatchedRegistration: null);
 
         IndexedType match = typeIndex[matchKey];
         var treeExpansionBudgets =
@@ -652,16 +706,18 @@ public static class TypeDependencyScanner
             collectRelationships: true,
             currentDepth: 0,
             maximumDepth);
-        return new TypeDependencyResult(matchedType, tree)
-        {
-            Relationships = relationships,
-            DepthBoundaries =
-            [
-                .. depthBoundaries.Values.OrderBy(
-                    static boundary => boundary.TypeName,
-                    StringComparer.Ordinal),
-            ],
-        };
+        return new(
+            new TypeDependencyResult(matchedType, tree)
+            {
+                Relationships = relationships,
+                DepthBoundaries =
+                [
+                    .. depthBoundaries.Values.OrderBy(
+                        static boundary => boundary.TypeName,
+                        StringComparer.Ordinal),
+                ],
+            },
+            match.Registration);
     }
 
     private static void ValidateMaximumDepth(int? maximumDepth)
@@ -1134,7 +1190,12 @@ public static class TypeDependencyScanner
 
     private sealed record IndexedType(
         MetadataReader Reader,
-        TypeDefinition Definition);
+        TypeDefinition Definition,
+        AssemblyAcquisitionRegistration? Registration);
+
+    private sealed record DependencyGraphBuild(
+        TypeDependencyResult Dependency,
+        AssemblyAcquisitionRegistration? MatchedRegistration);
 
     private sealed class CandidateStage
     {

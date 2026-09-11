@@ -301,7 +301,7 @@ type $ManagedExports = {
             readonly "QueryPlatformHeapEntries.649160465": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, heap: string) => Promise<string>;
             readonly "QueryPlatformMetadata.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformMetadataTable.1945598111": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
-            readonly "QueryTypeProjection.1330709314": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string) => Promise<string>;
+            readonly "QueryTypeProjection.649160465": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string, workspaceJson: string) => Promise<string>;
           };
         };
       };
@@ -442,9 +442,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryTypeProjection.1330709314");
+    value = $ownDataProperty(value, "QueryTypeProjection.649160465");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.1330709314\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.649160465\u0027 is not callable.");
     }
   }
 }
@@ -526,8 +526,8 @@ export async function queryPlatformMetadataTable(targetFramework: string, platfo
   return $parsed as BrowserMetadataWindow;
 }
 
-export async function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string): Promise<BrowserTypeMetadata> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.1330709314"](packageId, version, targetFramework, assemblyName, typeId);
+export async function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string, workspaceJson: string): Promise<BrowserTypeMetadata> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.649160465"](packageId, version, targetFramework, assemblyName, typeId, workspaceJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMetadata;
 }

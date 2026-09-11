@@ -122,9 +122,9 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Metadata");
         value = $ownDataProperty(value, "MetadataExports");
-        value = $ownDataProperty(value, "QueryTypeProjection.1330709314");
+        value = $ownDataProperty(value, "QueryTypeProjection.649160465");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.1330709314\u0027 is not callable.");
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.649160465\u0027 is not callable.");
         }
     }
 }
@@ -187,8 +187,8 @@ export async function queryPlatformMetadataTable(targetFramework, platformVersio
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryTypeProjection(packageId, version, targetFramework, assemblyName, typeId) {
-    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.1330709314"](packageId, version, targetFramework, assemblyName, typeId);
+export async function queryTypeProjection(packageId, version, targetFramework, assemblyName, typeId, workspaceJson) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.649160465"](packageId, version, targetFramework, assemblyName, typeId, workspaceJson);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
