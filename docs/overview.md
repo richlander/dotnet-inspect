@@ -362,6 +362,14 @@ substrates, and inspection producers that will extend that space.
   contract. It consumes owner-backed edit-save completion and existing
   navigation outcomes; it does not own admission, persistence, history,
   focus, or layout.
+- [Inspect Web Spotlight Destination
+  Activation](design/inspect-web-spotlight-destination-activation.md) owns
+  exact-candidate classification and Browser activation settlement across
+  already admitted subjects, registration-covered current-Workspace
+  destinations, host-local Platform Libraries, and uncovered packages that
+  require a fresh curated Workspace. It consumes Scope, registration,
+  Navigation, Platform, source, and host-publication outcomes without
+  redefining them.
 - [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
   session-local Package Diff baseline, inheritance during subject navigation,
   and target-setting controls. Clone candidate scope has transferred to the
@@ -608,6 +616,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
   reconciliation, and model-checked retained-session authority.
+- [Inspect Web Spotlight destination
+  activation](design/inspect-web-spotlight-destination-activation.md):
+  Browser-specific classification and settlement for current-Workspace versus
+  fresh-Workspace Spotlight destinations, including exact registration
+  coverage, partial committed membership, Platform delegation, and consumption
+  of the Definitions-owned non-install cleanup boundary.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
   redesign, linking
   [presentation language](design/inspect-web-presentation-language.md),

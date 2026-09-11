@@ -1498,7 +1498,11 @@ Each Workspace is constructed solely from its own definition; no other
 Workspace or Workspace definition participates.
 
 This rule applies to saved definitions, share packets, Browser history,
-product demos, external-package Spotlight selection, and CLI canonical replay.
+product demos, Spotlight package selections classified as
+`RestoreExternalPackageWorkspace` by the
+[Spotlight destination-activation
+owner](inspect-web-spotlight-destination-activation.md), and CLI canonical
+replay.
 Selecting a subject already loaded in the active Workspace is ordinary
 Navigation and does not invoke restoration.
 

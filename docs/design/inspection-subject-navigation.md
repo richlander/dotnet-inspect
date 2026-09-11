@@ -1225,12 +1225,15 @@ current-authority collection publication and active-identity selection.
 Navigation owns only the new Workspace's
 internally complete current snapshot.
 
-Selecting a loaded coordinate, Library, Type, or Member in Spotlight uses
-ordinary Navigation inside the active Workspace and never enters this
-construction path. Selecting an external package creates a fresh one-package
-Workspace; the full Workspace editor may create a Workspace with multiple
-explicit package Roots. In either case, subject focus remains independent from
-membership, and traversal-derived libraries do not become explicit Roots.
+Selecting an already admitted coordinate, Library, Type, or Member in
+Spotlight uses ordinary Navigation inside the active Workspace and never
+enters this construction path. The
+[Spotlight destination-activation
+owner](inspect-web-spotlight-destination-activation.md) separately classifies
+registration-covered and uncovered destinations and consumes Navigation only
+through owner-issued actions and initialization inputs. This document does not
+define that Spotlight orchestration. Covered Platform Libraries remain outside
+this shared grammar because this version has no Platform structural subject.
 
 The current version-2 shape cannot yet represent an explicitly selected
 Workspace or carry an optional retained occurrence and descendant context
