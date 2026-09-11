@@ -44,9 +44,6 @@ export interface BrowserPackageQueryEngine {
     includePrerelease: boolean,
     initialMatchCredit: number,
     eventSink: unknown,
-    packageType: string | null,
-    sourceOrderId: string | null,
-    discovery: boolean,
   ): Promise<BrowserPackageQueryResult>;
   runAssembly?(
     operationId: string,
@@ -229,10 +226,7 @@ export function createBrowserPackageQueryDataSource(
               request.requestedMatchLimit,
               request.includePrerelease,
               PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-              eventSink,
-              request.packageType,
-              request.sourceOrderId,
-              request.inputKind === "gallery");
+              eventSink);
         flushEvents();
         let unexpectedFailure: Error | null = null;
         if (result.version === 1
@@ -602,9 +596,6 @@ function parseCompletion(value: unknown): BrowserPackageQueryCompletionPayload {
     sourceCandidates: nullableNumberValue(
       completion.sourceCandidates,
       "package-query source candidate count"),
-    estimatedTotalHits: nullableNumberValue(
-      completion.estimatedTotalHits,
-      "package-query estimated total hits"),
     semanticMisses: optionalNullableNumberValue(
       completion.semanticMisses,
       "package-query semantic miss count"),
@@ -658,7 +649,6 @@ function completionKindValue(
     case "CandidateLimitReached":
     case "SourcePageLimitReached":
     case "ClientPageLimitReached":
-    case "GalleryResponseComplete":
     case "ExactPackageComplete":
     case "ExplicitCandidatesComplete":
     case "Failed":
@@ -858,12 +848,6 @@ function toTerminalCompletion(
     case "Exhausted":
       return { kind: "exhausted" };
     case "MatchLimitReached":
-      if (completion.sourceCandidates !== null) {
-        return {
-          kind: "bounded",
-          reason: galleryCompletionReason(completion),
-        };
-      }
       return {
         kind: "bounded",
         reason: `first ${completion.matchLimit.toLocaleString()} matches`,
@@ -883,11 +867,6 @@ function toTerminalCompletion(
       return {
         kind: "bounded",
         reason: "the client page limit",
-      };
-    case "GalleryResponseComplete":
-      return {
-        kind: "bounded",
-        reason: galleryCompletionReason(completion),
       };
     case "ExactPackageComplete":
       return { kind: "exact" };
@@ -958,20 +937,4 @@ function countWithLabel(
   plural = `${singular}s`,
 ): string {
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
-}
-
-function galleryCompletionReason(
-  completion: BrowserPackageQueryCompletionPayload,
-): string {
-  if (completion.sourceCandidates === null) {
-    throw new TypeError(
-      "A Gallery package-query completion contained no source candidate count.");
-  }
-  const matchLimit = completion.kind === "MatchLimitReached"
-    ? `; local match limit ${completion.matchLimit.toLocaleString()} reached`
-    : "";
-  const estimate = completion.estimatedTotalHits === null
-    ? "unavailable"
-    : `${completion.estimatedTotalHits.toLocaleString()} (estimate only)`;
-  return `one finite Gallery response (capacity ${completion.candidateLimit.toLocaleString()} candidates); acquired ${completion.sourceCandidates.toLocaleString()} candidates${matchLimit}; estimated total hits: ${estimate}`;
 }

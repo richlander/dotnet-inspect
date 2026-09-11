@@ -669,7 +669,6 @@ public sealed class PackageSourceOperationResult<T>
     {
         PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
         if (typeof(T) != typeof(PackageSearchResult)
-            && typeof(T) != typeof(NuGetGalleryDiscoveryResult)
             && typeof(T) != typeof(NuGetCatalogPage)
             && typeof(T) != typeof(PackageVersionResult)
             && typeof(T) != typeof(PackageSourceManifest)
@@ -1402,21 +1401,6 @@ public sealed partial class PackageSourceResultFactory
 
 internal static class PackageSourceOperation
 {
-    public static Task<PackageSourceOperationResult<NuGetGalleryDiscoveryResult>>
-        CaptureGalleryDiscoveryAsync(
-            PackageSourceResultFactory factory,
-            Func<Task<NuGetGalleryDiscoveryResult>> operation,
-            CancellationToken cancellationToken,
-            NuGetOperationContext? operationContext,
-            NuGetOperationDeadline operationDeadline) =>
-        CaptureAsync(
-            operation,
-            value => factory.SucceededGalleryDiscovery(value, operationDeadline),
-            factory.FailedGalleryDiscovery,
-            allowNotFound: false,
-            cancellationToken,
-            operationContext);
-
     public static Task<PackageSourceOperationResult<PackageSearchResult>>
         CaptureSearchAsync(
             PackageSourceResultFactory factory,

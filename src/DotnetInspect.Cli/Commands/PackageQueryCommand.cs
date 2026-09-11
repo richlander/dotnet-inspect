@@ -68,7 +68,6 @@ internal static class PackageQueryCommand
         }
         bool sourceComplete = summary.Completion is
             PackageQueryCompletionKind.Exhausted
-            or PackageQueryCompletionKind.GalleryResponseComplete
             or PackageQueryCompletionKind.ExactPackageComplete;
         if (options.Count
             && (summary.Failures > 0
@@ -112,7 +111,7 @@ internal static class PackageQueryCommand
                 $"Package Query completion: {summary.Completion}; "
                 + $"{summary.Candidates}/{summary.CandidateLimit} candidates, "
                 + $"{matchProgress}. "
-                + "These results are not an exhaustive Gallery total.");
+                + "These results do not exhaust the requested package-ID scope.");
         }
     }
 

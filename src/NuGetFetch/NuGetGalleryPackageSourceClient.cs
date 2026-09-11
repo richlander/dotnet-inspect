@@ -4,7 +4,7 @@ using System.Runtime.ExceptionServices;
 
 namespace NuGetFetch;
 
-internal sealed class NuGetGalleryPackageSourceClient : INuGetGalleryPackageSourceClient
+internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
 {
     private const string SearchEndpoint =
         "https://azuresearch-usnc.nuget.org/query";
@@ -51,42 +51,6 @@ internal sealed class NuGetGalleryPackageSourceClient : INuGetGalleryPackageSour
         | PackageSourceCapabilities.Manifest
         | PackageSourceCapabilities.PackagePayload
         | PackageSourceCapabilities.SymbolPayload;
-
-    public async Task<PackageSourceOperationResult<NuGetGalleryDiscoveryResult>>
-        DiscoverAsync(
-            NuGetGalleryDiscoveryRequest request,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        using NuGetOperationDeadline operation =
-            CreateOperation(cancellationToken, operationContext);
-        return await PackageSourceOperation.CaptureGalleryDiscoveryAsync(
-            _results,
-            () => NuGetHttpRetry.RunRequestAsync(
-                operation,
-                async requestToken =>
-                {
-                    using HttpRequestMessage message =
-                        NuGetHttpRequest.CreateGet(
-                            NuGetGalleryDiscoveryReader.RequestUrl(request));
-                    using HttpResponseMessage response = await _client.SendAsync(
-                        message,
-                        HttpCompletionOption.ResponseHeadersRead,
-                        requestToken).ConfigureAwait(false);
-                    response.EnsureSuccessStatusCode();
-                    return await NuGetMetadataReader.ReadResponseAsync(
-                        response,
-                        (stream, token) => NuGetGalleryDiscoveryReader.ReadAsync(
-                            stream, request, _results, operation, token),
-                        _options,
-                        operation.RequestTimeout,
-                        requestToken).ConfigureAwait(false);
-                }),
-            cancellationToken,
-            operationContext,
-            operation).ConfigureAwait(false);
-    }
 
     public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
         string query,
@@ -193,7 +157,7 @@ internal sealed class NuGetGalleryPackageSourceClient : INuGetGalleryPackageSour
         cancellationToken = operationContext?.ResolveInvocationToken(
             cancellationToken) ?? cancellationToken;
         SearchService.PrefixSearchCursor cursor =
-            _search.CreatePrefixSearchCursor(
+            _search.CreatePrefixCandidateCursor(
                 prefix, take, prerelease, auth: null, MaximumSearchSkip);
         TimeSpan remaining = _options.OperationTimeout;
         while (!cursor.IsCompleted)

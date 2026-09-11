@@ -110,18 +110,6 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "ListGalleryDiscoveryCatalog.1310674786");
-        if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListGalleryDiscoveryCatalog.1310674786\u0027 is not callable.");
-        }
-    }
-    {
-        let value = exports;
-        value = $ownDataProperty(value, "DotnetInspect");
-        value = $ownDataProperty(value, "Web");
-        value = $ownDataProperty(value, "Interop");
-        value = $ownDataProperty(value, "Package");
-        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "ListPackageAssemblyQueryPatterns.1310674786");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageAssemblyQueryPatterns.1310674786\u0027 is not callable.");
@@ -314,9 +302,9 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "RunPackageQuery.58011863");
+        value = $ownDataProperty(value, "RunPackageQuery.52840355");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.58011863\u0027 is not callable.");
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.52840355\u0027 is not callable.");
         }
     }
     {
@@ -381,11 +369,6 @@ export async function getPlatformCatalog(targetFramework, platformVersion) {
 }
 export async function getPlatformVersions(targetFramework) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["GetPlatformVersions.976702342"](targetFramework);
-    const $parsed = JSON.parse($result);
-    return $parsed;
-}
-export function listGalleryDiscoveryCatalog() {
-    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListGalleryDiscoveryCatalog.1310674786"]();
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -461,8 +444,8 @@ export async function runPackageAssemblyQuery(operationId, patternId, operand, p
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function runPackageQuery(operationId, prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink, packageType, sourceOrderId, discovery) {
-    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.58011863"](operationId, prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink, packageType, sourceOrderId, discovery);
+export async function runPackageQuery(operationId, prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.52840355"](operationId, prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

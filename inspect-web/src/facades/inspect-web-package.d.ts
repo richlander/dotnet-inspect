@@ -3,7 +3,7 @@ export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Am
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
 export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
 export type BrowserPackageQueryCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
-export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "GalleryResponseComplete" | "ExactPackageComplete" | "ExplicitCandidatesComplete" | number;
+export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "ExactPackageComplete" | "ExplicitCandidatesComplete" | number;
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | "Assessment" | number;
 export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
 export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | "SearchMetadata" | "Assembly" | number;
@@ -58,25 +58,6 @@ export interface BrowserDependencyCoordinateMatch {
 export interface BrowserExceptionSurface {
     readonly type: string;
     readonly description: string;
-}
-export interface BrowserGalleryDiscoveryCatalog {
-    readonly packageType: BrowserGalleryPackageTypeFacet;
-    readonly orders: ReadonlyArray<BrowserGalleryDiscoveryOrder>;
-}
-export interface BrowserGalleryDiscoveryOrder {
-    readonly id: string;
-    readonly label: string;
-    readonly summary: string;
-}
-export interface BrowserGalleryPackageTypeFacet {
-    readonly id: string;
-    readonly label: string;
-    readonly summary: string;
-    readonly suggestions: ReadonlyArray<BrowserGalleryPackageTypeSuggestion>;
-}
-export interface BrowserGalleryPackageTypeSuggestion {
-    readonly value: string;
-    readonly label: string;
 }
 export interface BrowserMemberBodySelector {
     readonly token: number;
@@ -187,7 +168,6 @@ export interface BrowserPackageQueryCompletion {
     readonly failures: number;
     readonly kind: BrowserPackageQueryCompletionKind;
     readonly sourceCandidates: number | null;
-    readonly estimatedTotalHits: number | null;
     readonly semanticMisses: number | null;
     readonly notApplicable: number | null;
     readonly scope: string | null;
@@ -370,7 +350,6 @@ export declare function clearWorkspacePackageOccurrences(): void;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function getPlatformCatalog(targetFramework: string, platformVersion: string): Promise<BrowserPlatformCatalog>;
 export declare function getPlatformVersions(targetFramework: string): Promise<ReadonlyArray<string>>;
-export declare function listGalleryDiscoveryCatalog(): BrowserGalleryDiscoveryCatalog;
 export declare function listPackageAssemblyQueryPatterns(): ReadonlyArray<BrowserPackageAssemblyQueryPattern>;
 export declare function listPackageQueryFacets(): BrowserPackageQueryFacetCatalog;
 export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
@@ -387,5 +366,5 @@ export declare function queryWorkspacePackageOccurrences(workspaceJson: string):
 export declare function requestPackageQueryMatches(operationId: string, additionalMatchCredit: number): BrowserPackageQueryMatchCreditResponse;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
 export declare function runPackageAssemblyQuery(operationId: string, patternId: string, operand: string, packageCoordinatesJson: string, targetFramework: string, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
-export declare function runPackageQuery(operationId: string, prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null, discovery: boolean): Promise<BrowserPackageQueryResult>;
+export declare function runPackageQuery(operationId: string, prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;

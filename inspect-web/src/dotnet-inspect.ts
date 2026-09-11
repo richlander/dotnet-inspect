@@ -451,7 +451,6 @@ import {
   shouldExecuteQuery,
   toggleFacet,
   withEditorDraft,
-  withInputKind,
   withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
@@ -1845,9 +1844,6 @@ const packageQueryController = createPackageQueryController(
       includePrerelease,
       initialMatchCredit,
       eventSink,
-      packageType,
-      sourceOrderId,
-      discovery,
     ) => inspectRunPackageQuery(
       operationId,
       prefix,
@@ -1856,10 +1852,7 @@ const packageQueryController = createPackageQueryController(
       maximumMatches,
       includePrerelease,
       initialMatchCredit,
-      eventSink,
-      packageType,
-      sourceOrderId,
-      discovery),
+      eventSink),
   }, {
     reportUnexpectedFailure: (operationId, error, diagnostic) => {
       console.error(
@@ -10926,7 +10919,7 @@ function preparePackageQueryRequest(
   const request = state.packageQueryState.request
     ? withScopeQuery(state.packageQueryState.request, validText)
     : createQueryRequest(validText);
-  return withInputKind(request, "package");
+  return request;
 }
 
 function submitPackageQueryRequest(request: QueryRequest) {

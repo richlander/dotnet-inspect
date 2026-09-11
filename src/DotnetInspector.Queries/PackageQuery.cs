@@ -70,7 +70,6 @@ public enum PackageQueryRequestFailureReason
     DuplicateFacet,
     IncompatibleFacets,
     PackageContentCandidateLimitExceeded,
-    InvalidSearchText,
     InvalidPackageInput,
 }
 
@@ -98,8 +97,6 @@ public sealed record PackageQueryRequestFailure
     {
         PackageQueryRequestFailureReason.InvalidPrefix =>
             "The package-query prefix is invalid.",
-        PackageQueryRequestFailureReason.InvalidSearchText =>
-            "The Gallery search text is invalid.",
         PackageQueryRequestFailureReason.InvalidPackageInput =>
             "Enter a package ID or a literal package-ID prefix followed by one '*'.",
         PackageQueryRequestFailureReason.InvalidCandidateLimit =>
@@ -146,7 +143,6 @@ public sealed class PackageQueryPlan
         int maximumCandidates,
         int? maximumMatches,
         bool includePrerelease,
-        NuGetGalleryDiscoveryRequest? galleryRequest = null,
         SourceSelector? packageInput = null)
     {
         Prefix = prefix;
@@ -156,7 +152,6 @@ public sealed class PackageQueryPlan
         MaximumCandidates = maximumCandidates;
         MaximumMatches = maximumMatches;
         IncludePrerelease = includePrerelease;
-        GalleryRequest = galleryRequest;
         PackageInput = packageInput;
     }
 
@@ -165,7 +160,6 @@ public sealed class PackageQueryPlan
     public int MaximumCandidates { get; }
     public int? MaximumMatches { get; }
     public bool IncludePrerelease { get; }
-    public NuGetGalleryDiscoveryRequest? GalleryRequest { get; }
     public SourceSelector? PackageInput { get; }
 
     internal InertString PrefixEvidence { get; }
@@ -239,7 +233,6 @@ public enum PackageQueryCompletionKind
     SourcePageLimitReached,
     ClientPageLimitReached,
     Failed,
-    GalleryResponseComplete,
     ExactPackageComplete,
 }
 
@@ -255,7 +248,6 @@ public sealed record PackageQuerySummary(
     PackageQueryCompletionKind Completion)
 {
     public int? SourceCandidates { get; init; }
-    public long? EstimatedTotalHits { get; init; }
 }
 
 /// <summary>A bounded checkpoint in package-query work.</summary>
@@ -528,7 +520,6 @@ public static partial class PackageQuery
         int maximumCandidates,
         int? maximumMatches,
         bool includePrerelease,
-        NuGetGalleryDiscoveryRequest? galleryRequest = null,
         SourceSelector? packageInput = null)
     {
         if (maximumMatches is int presentMatchLimit
@@ -620,7 +611,6 @@ public static partial class PackageQuery
                 maximumCandidates,
                 maximumMatches,
                 includePrerelease,
-                galleryRequest,
                 packageInput));
     }
 
@@ -701,7 +691,6 @@ public static partial class PackageQuery
         int failures = 0;
         int packageContentCompleted = 0;
         int? sourceCandidates = null;
-        long? estimatedTotalHits = null;
         bool searchOutcomeObserved = false;
         bool sourceSearchFailed = false;
         cancellationToken.ThrowIfCancellationRequested();
@@ -717,7 +706,6 @@ public static partial class PackageQuery
             if (inputEvent is PackageQueryInputEvent.Acquired acquired)
             {
                 sourceCandidates = acquired.Count;
-                estimatedTotalHits = acquired.EstimatedTotalHits;
                 searchOutcomeObserved = true;
                 yield return Progress(
                     PackageQueryProgressPhase.Search, completed: 1, limit: 1);
@@ -868,11 +856,8 @@ public static partial class PackageQuery
                             failures,
                             plan.PackageInput is SourceSelector.Package
                                 ? PackageQueryCompletionKind.ExactPackageComplete
-                                : sourceCandidates == candidates
-                                ? PackageQueryCompletionKind.GalleryResponseComplete
                                 : PackageQueryCompletionKind.MatchLimitReached,
-                            sourceCandidates,
-                            estimatedTotalHits);
+                            sourceCandidates);
                         yield break;
                     }
                     break;
@@ -901,8 +886,7 @@ public static partial class PackageQuery
                         sourceSearchFailed
                             ? PackageQueryCompletionKind.Failed
                             : completed.Completion,
-                        sourceCandidates,
-                        estimatedTotalHits);
+                        sourceCandidates);
                     yield break;
             }
         }
@@ -1221,8 +1205,7 @@ public static partial class PackageQuery
         int matches,
         int failures,
         PackageQueryCompletionKind completion,
-        int? sourceCandidates = null,
-        long? estimatedTotalHits = null) =>
+        int? sourceCandidates = null) =>
         new(
             new PackageQuerySummary(
                 plan.Prefix,
@@ -1235,7 +1218,6 @@ public static partial class PackageQuery
                 completion)
             {
                 SourceCandidates = sourceCandidates,
-                EstimatedTotalHits = estimatedTotalHits,
             });
 
     static PackageQueryCompletionKind MapCompletion(
