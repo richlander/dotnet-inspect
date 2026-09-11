@@ -225,8 +225,13 @@ return.field[selector]
 ordinary call result. `constructed` means the object produced by `newobj` or
 the storage initialized by an in-place constructor call. `operation[N]` is a
 model-declared logical ownership slot held by the callee after a consume
-effect; it is not an IL local. Field selectors are always rooted in another
-location.
+effect; it is not an IL local or a catalog-global number. Normalization resolves
+the model-local slot through its defining consume source and resource kind.
+Equivalent consume relationships therefore normalize equally even when their
+models use different local numbers, while independent resource domains may
+reuse the same number without colliding. Inconsistent or cyclic definitions of
+one model-local slot reject the atomic model. Field selectors are always rooted
+in another location.
 
 A callback location is valid in any effect associated with a callback
 declaration for that delegate parameter. It cannot appear in an unrelated
@@ -243,6 +248,12 @@ fact belongs to Analysis.
 A **normalized declaration** is the typed, source-independent result of
 parsing and validating a model. Attribute, JSON, shipped, and future compiler
 sources that state the same contract produce equal normalized declarations.
+Model-local field and operation aliases do not survive this boundary. A
+normalized field resource retains `value=declared-field` on its structural field
+target but no longer retains the local selector spelling. A normalized consume
+target retains the exact resolved source and resource kind that identify its
+logical operation slot. The typed boundary rejects any retained local alias or
+resolved consume target inconsistent with that consume's source and kind.
 
 ## Cross-resource composition
 

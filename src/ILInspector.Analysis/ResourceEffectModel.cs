@@ -525,6 +525,21 @@ public abstract record ResourceEffectLocation
         public int Index { get; }
     }
 
+    public sealed record ResolvedOperation : ResourceEffectLocation
+    {
+        public ResolvedOperation(
+            ResourceEffectLocation source,
+            ResourceKindReference? kind)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            Source = source;
+            Kind = kind;
+        }
+
+        public ResourceEffectLocation Source { get; }
+        public ResourceKindReference? Kind { get; }
+    }
+
     public sealed record CallbackParameter : ResourceEffectLocation
     {
         public CallbackParameter(int callbackIndex, int parameterIndex)
@@ -873,13 +888,13 @@ public abstract record ResourceEffect
 
     public sealed record Consume(
         ResourceEffectLocation Source,
-        ResourceEffectLocation.Operation Target,
+        ResourceEffectLocation Target,
         ResourceKindReference? Kind)
         : ResourceEffect
     {
         public ResourceEffectLocation Source { get; } =
             Source ?? throw new ArgumentNullException(nameof(Source));
-        public ResourceEffectLocation.Operation Target { get; } =
+        public ResourceEffectLocation Target { get; } =
             Target ?? throw new ArgumentNullException(nameof(Target));
         public ResourceKindReference? Kind { get; } = Kind;
     }

@@ -344,6 +344,7 @@ public static class ResourceEffectCatalogBuilder
                                 targetDeclaration.Target,
                                 source.Provenance,
                                 source.Text.Length,
+                                normalized: false,
                                 ref effect);
                         if (validationFailure is not null)
                             return validationFailure;
@@ -411,6 +412,7 @@ public static class ResourceEffectCatalogBuilder
                     declaration.Target,
                     declaration.Provenances[0],
                     0,
+                    normalized: true,
                     ref effect);
             if (validationFailure is not null)
                 return validationFailure;
@@ -614,6 +616,7 @@ public static class ResourceEffectCatalogBuilder
         ResourceEffectTargetSelector target,
         ResourceDeclarationProvenance provenance,
         int sourceLength,
+        bool normalized,
         ref ResourceEffect effect)
     {
         if (!HasValidFiniteShape(effect))
@@ -621,6 +624,13 @@ public static class ResourceEffectCatalogBuilder
             return Invalid(
                 ResourceEffectDiagnosticKind.InvalidTerm,
                 "A typed effect contains a value or relationship outside resource-effects/1.");
+        }
+        if (normalized
+            && Locations(effect).Any(ContainsModelLocalAlias))
+        {
+            return Invalid(
+                ResourceEffectDiagnosticKind.InvalidLocation,
+                "A normalized declaration cannot retain model-local field or operation aliases.");
         }
         if (effect is ResourceEffect.Resource resource)
         {
@@ -640,11 +650,15 @@ public static class ResourceEffectCatalogBuilder
                         Selector.Kind: ResourceEffectMemberKind.Field,
                     }:
                     if (resource.Value != ResourceDeclaredValueKind.DeclaredField
-                        || resource.Selector is null)
+                        || (normalized
+                            ? resource.Selector is not null
+                            : resource.Selector is null))
                     {
                         return Invalid(
                             ResourceEffectDiagnosticKind.InvalidTarget,
-                            "A field resource declaration requires value=declared-field and selector.");
+                            normalized
+                                ? "A normalized field resource declaration requires value=declared-field without a model-local selector."
+                                : "A parsed field resource declaration requires value=declared-field and selector.");
                     }
                     break;
                 default:
@@ -652,6 +666,29 @@ public static class ResourceEffectCatalogBuilder
                         ResourceEffectDiagnosticKind.InvalidTarget,
                         "A resource statement may target only a type or field.");
             }
+        }
+        else if (effect is ResourceEffect.Consume consume
+                 && (normalized
+                     ? consume.Target is not ResourceEffectLocation.ResolvedOperation
+                     : consume.Target is not ResourceEffectLocation.Operation))
+        {
+            return Invalid(
+                ResourceEffectDiagnosticKind.InvalidTarget,
+                normalized
+                    ? "A normalized consume target must be a resolved operation slot."
+                    : "A parsed consume target must be operation[N].");
+        }
+        else if (normalized
+                 && effect is ResourceEffect.Consume
+                 {
+                     Target: ResourceEffectLocation.ResolvedOperation operation,
+                 } normalizedConsume
+                 && (operation.Source != normalizedConsume.Source
+                     || operation.Kind != normalizedConsume.Kind))
+        {
+            return Invalid(
+                ResourceEffectDiagnosticKind.InvalidTarget,
+                "A normalized consume target must identify its exact source and resource kind.");
         }
         else if (target is not ResourceEffectTargetSelector.Member
                  {
@@ -780,15 +817,46 @@ public static class ResourceEffectCatalogBuilder
         HashSet<ResourceEffectGenericVariable> boundTypeVariables)
     {
         if (target is not ResourceEffectTargetSelector.Member)
-            return !Locations(effect).Any(
-                location => location is ResourceEffectLocation.ResolvedField);
+            return !Locations(effect)
+                .SelectMany(ResolvedFields)
+                .Any();
         return Locations(effect)
-            .OfType<ResourceEffectLocation.ResolvedField>()
+            .SelectMany(ResolvedFields)
             .All(field => ValidateResolvedFieldVariables(
                 field.Selector,
                 typeArity,
                 methodArity,
                 boundTypeVariables));
+    }
+
+    static IEnumerable<ResourceEffectLocation.ResolvedField> ResolvedFields(
+        ResourceEffectLocation location)
+    {
+        switch (location)
+        {
+            case ResourceEffectLocation.Field field:
+                foreach (ResourceEffectLocation.ResolvedField nested
+                         in ResolvedFields(field.Root))
+                {
+                    yield return nested;
+                }
+                break;
+            case ResourceEffectLocation.ResolvedField field:
+                yield return field;
+                foreach (ResourceEffectLocation.ResolvedField nested
+                         in ResolvedFields(field.Root))
+                {
+                    yield return nested;
+                }
+                break;
+            case ResourceEffectLocation.ResolvedOperation operation:
+                foreach (ResourceEffectLocation.ResolvedField nested
+                         in ResolvedFields(operation.Source))
+                {
+                    yield return nested;
+                }
+                break;
+        }
     }
 
     static bool HasValidFiniteShape(ResourceEffect effect)
@@ -852,7 +920,8 @@ public static class ResourceEffectCatalogBuilder
 
         var outcomes = new Dictionary<ScopedLocal, ResourceEffect.Outcome>();
         var callbacks = new Dictionary<ScopedIndex, ResourceEffect.Callback>();
-        var operations = new HashSet<ScopedIndex>();
+        var operationDeclarations =
+            new Dictionary<ScopedIndex, List<ParsedDeclaration>>();
         foreach (ParsedDeclaration declaration in declarations)
         {
             string target = ResourceEffectCanonicalizer.Target(declaration.Target);
@@ -893,8 +962,21 @@ public static class ResourceEffectCatalogBuilder
                 }
                 callbacks[key] = callback;
             }
-            if (declaration.Effect is ResourceEffect.Consume consume)
-                operations.Add(new ScopedIndex(target, consume.Target.Index));
+            if (declaration.Effect is ResourceEffect.Consume
+                {
+                    Target: ResourceEffectLocation.Operation operation,
+                })
+            {
+                var key = new ScopedIndex(target, operation.Index);
+                if (!operationDeclarations.TryGetValue(
+                        key,
+                        out List<ParsedDeclaration>? definitions))
+                {
+                    definitions = [];
+                    operationDeclarations.Add(key, definitions);
+                }
+                definitions.Add(declaration);
+            }
         }
 
         foreach (ParsedDeclaration declaration in declarations)
@@ -919,13 +1001,17 @@ public static class ResourceEffectCatalogBuilder
                         ResourceEffectDiagnosticKind.UnresolvedCallback,
                         "A callback location references no callback declaration on the operation.");
                 }
-                if (location is ResourceEffectLocation.Operation operation
-                    && !operations.Contains(new ScopedIndex(target, operation.Index)))
+                foreach (ResourceEffectLocation.Operation operation
+                         in LocalOperationLocations(location))
                 {
-                    return Failure(
-                        declaration,
-                        ResourceEffectDiagnosticKind.UnresolvedOperation,
-                        "An operation location references no consume declaration on the operation.");
+                    if (!operationDeclarations.ContainsKey(
+                            new ScopedIndex(target, operation.Index)))
+                    {
+                        return Failure(
+                            declaration,
+                            ResourceEffectDiagnosticKind.UnresolvedOperation,
+                            "An operation location references no consume declaration on the operation.");
+                    }
                 }
             }
             foreach (ResourceBorrowScope scope in Scopes(declaration.Effect))
@@ -952,6 +1038,37 @@ public static class ResourceEffectCatalogBuilder
             }
         }
 
+        var operations =
+            new Dictionary<ScopedIndex, ResourceEffectLocation.ResolvedOperation>();
+        var resolvingOperations = new HashSet<ScopedIndex>();
+        ResourceEffectCatalogOutcome? operationFailure = null;
+        foreach ((ScopedIndex key, List<ParsedDeclaration> definitions)
+                 in operationDeclarations)
+        {
+            ResolveOperation(key, definitions[0]);
+            if (operationFailure is not null)
+                return operationFailure;
+        }
+        var operationAliases =
+            new Dictionary<
+                (string Target, ResourceEffectLocation.ResolvedOperation Slot),
+                ScopedIndex>();
+        foreach ((ScopedIndex key, ResourceEffectLocation.ResolvedOperation operation)
+                 in operations)
+        {
+            if (operationAliases.TryGetValue(
+                    (key.Target, operation),
+                    out ScopedIndex? existing)
+                && existing.Index != key.Index)
+            {
+                return Failure(
+                    operationDeclarations[key][0],
+                    ResourceEffectDiagnosticKind.ConflictingDeclaration,
+                    "One obligation is transferred to multiple model-local operation slots.");
+            }
+            operationAliases[(key.Target, operation)] = key;
+        }
+
         for (int index = 0; index < declarations.Count; index++)
         {
             ParsedDeclaration declaration = declarations[index];
@@ -960,7 +1077,8 @@ public static class ResourceEffectCatalogBuilder
                 declaration.Effect,
                 target,
                 fields,
-                outcomes);
+                outcomes,
+                operations);
             if (!ResolvedFieldsAreValid(declaration.Target, resolved))
             {
                 return Failure(
@@ -974,6 +1092,83 @@ public static class ResourceEffectCatalogBuilder
             };
         }
         return null;
+
+        ResourceEffectLocation.ResolvedOperation? ResolveOperation(
+            ScopedIndex key,
+            ParsedDeclaration reference)
+        {
+            if (operations.TryGetValue(
+                    key,
+                    out ResourceEffectLocation.ResolvedOperation? existing))
+            {
+                return existing;
+            }
+            if (!resolvingOperations.Add(key))
+            {
+                operationFailure = Failure(
+                    reference,
+                    ResourceEffectDiagnosticKind.DuplicateLocalIdentity,
+                    "Model-local operation slots form a cyclic consume definition.");
+                return null;
+            }
+
+            ResourceEffectLocation.ResolvedOperation? resolved = null;
+            foreach (ParsedDeclaration definition in operationDeclarations[key])
+            {
+                var consume = (ResourceEffect.Consume)definition.Effect;
+                ResourceEffectLocation? source =
+                    ResolveOperationLocation(consume.Source, key.Target, definition);
+                if (source is null)
+                    return null;
+                var candidate =
+                    new ResourceEffectLocation.ResolvedOperation(source, consume.Kind);
+                if (resolved is not null && resolved != candidate)
+                {
+                    operationFailure = Failure(
+                        definition,
+                        ResourceEffectDiagnosticKind.DuplicateLocalIdentity,
+                        "One model-local operation slot has inconsistent consume definitions.");
+                    return null;
+                }
+                resolved = candidate;
+            }
+
+            resolvingOperations.Remove(key);
+            operations.Add(key, resolved!);
+            return resolved;
+        }
+
+        ResourceEffectLocation? ResolveOperationLocation(
+            ResourceEffectLocation location,
+            string target,
+            ParsedDeclaration reference)
+        {
+            switch (location)
+            {
+                case ResourceEffectLocation.Field field:
+                    return new ResourceEffectLocation.ResolvedField(
+                        ResolveOperationLocation(field.Root, target, reference)!,
+                        fields[field.Selector]);
+                case ResourceEffectLocation.ResolvedField field:
+                    return new ResourceEffectLocation.ResolvedField(
+                        ResolveOperationLocation(field.Root, target, reference)!,
+                        field.Selector);
+                case ResourceEffectLocation.Operation operation:
+                    return ResolveOperation(
+                        new ScopedIndex(target, operation.Index),
+                        reference);
+                case ResourceEffectLocation.ResolvedOperation operation:
+                    ResourceEffectLocation? source =
+                        ResolveOperationLocation(operation.Source, target, reference);
+                    return source is null
+                        ? null
+                        : new ResourceEffectLocation.ResolvedOperation(
+                            source,
+                            operation.Kind);
+                default:
+                    return location;
+            }
+        }
 
         ResourceEffectCatalogOutcome Failure(
             ParsedDeclaration declaration,
@@ -998,14 +1193,61 @@ public static class ResourceEffectCatalogBuilder
                 && AllLocalFieldsDefined(field.Root, fields),
             ResourceEffectLocation.ResolvedField field =>
                 AllLocalFieldsDefined(field.Root, fields),
+            ResourceEffectLocation.ResolvedOperation operation =>
+                AllLocalFieldsDefined(operation.Source, fields),
             _ => true,
+        };
+
+    static IEnumerable<ResourceEffectLocation.Operation> LocalOperationLocations(
+        ResourceEffectLocation location)
+    {
+        switch (location)
+        {
+            case ResourceEffectLocation.Operation operation:
+                yield return operation;
+                break;
+            case ResourceEffectLocation.Field field:
+                foreach (ResourceEffectLocation.Operation nested
+                         in LocalOperationLocations(field.Root))
+                {
+                    yield return nested;
+                }
+                break;
+            case ResourceEffectLocation.ResolvedField field:
+                foreach (ResourceEffectLocation.Operation nested
+                         in LocalOperationLocations(field.Root))
+                {
+                    yield return nested;
+                }
+                break;
+            case ResourceEffectLocation.ResolvedOperation operation:
+                foreach (ResourceEffectLocation.Operation nested
+                         in LocalOperationLocations(operation.Source))
+                {
+                    yield return nested;
+                }
+                break;
+        }
+    }
+
+    static bool ContainsModelLocalAlias(ResourceEffectLocation location)
+        => location switch
+        {
+            ResourceEffectLocation.Field
+                or ResourceEffectLocation.Operation => true,
+            ResourceEffectLocation.ResolvedField field =>
+                ContainsModelLocalAlias(field.Root),
+            ResourceEffectLocation.ResolvedOperation operation =>
+                ContainsModelLocalAlias(operation.Source),
+            _ => false,
         };
 
     static ResourceEffect ResolveEffect(
         ResourceEffect effect,
         string target,
         IReadOnlyDictionary<ResourceEffectLocalIdentity, ResourceEffectMemberSelector> fields,
-        IReadOnlyDictionary<ScopedLocal, ResourceEffect.Outcome> outcomes)
+        IReadOnlyDictionary<ScopedLocal, ResourceEffect.Outcome> outcomes,
+        IReadOnlyDictionary<ScopedIndex, ResourceEffectLocation.ResolvedOperation> operations)
         => effect switch
         {
             ResourceEffect.Resource resource => new ResourceEffect.Resource(
@@ -1016,63 +1258,85 @@ public static class ResourceEffectCatalogBuilder
                     : resource.Selector),
             ResourceEffect.Authority authority => new ResourceEffect.Authority(
                 authority.Kind,
-                ResolveLocation(authority.Target, fields),
+                ResolveLocation(authority.Target, target, fields, operations),
                 authority.Key),
             ResourceEffect.Acquire acquire => new ResourceEffect.Acquire(
                 acquire.Kind,
-                ResolveLocation(acquire.Target, fields),
-                ResolveCompletion(acquire.When, target, fields, outcomes),
-                ResolveOptionalLocation(acquire.Correspondence, fields),
-                ResolveOptionalLocation(acquire.Lender, fields)),
+                ResolveLocation(acquire.Target, target, fields, operations),
+                ResolveCompletion(
+                    acquire.When,
+                    target,
+                    fields,
+                    outcomes,
+                    operations),
+                ResolveOptionalLocation(
+                    acquire.Correspondence,
+                    target,
+                    fields,
+                    operations),
+                ResolveOptionalLocation(acquire.Lender, target, fields, operations)),
             ResourceEffect.Move move => new ResourceEffect.Move(
-                ResolveLocation(move.Source, fields),
-                ResolveLocation(move.Target, fields),
-                ResolveCompletion(move.When, target, fields, outcomes),
+                ResolveLocation(move.Source, target, fields, operations),
+                ResolveLocation(move.Target, target, fields, operations),
+                ResolveCompletion(move.When, target, fields, outcomes, operations),
                 move.Kind),
             ResourceEffect.Consume consume => new ResourceEffect.Consume(
-                ResolveLocation(consume.Source, fields),
-                consume.Target,
+                ResolveLocation(consume.Source, target, fields, operations),
+                ResolveLocation(consume.Target, target, fields, operations),
                 consume.Kind),
             ResourceEffect.Release release => new ResourceEffect.Release(
-                ResolveLocation(release.Source, fields),
-                ResolveCompletion(release.When, target, fields, outcomes),
+                ResolveLocation(release.Source, target, fields, operations),
+                ResolveCompletion(
+                    release.When,
+                    target,
+                    fields,
+                    outcomes,
+                    operations),
                 release.Kind,
-                ResolveOptionalLocation(release.Correspondence, fields),
-                ResolveOptionalLocation(release.Observation, fields)),
+                ResolveOptionalLocation(
+                    release.Correspondence,
+                    target,
+                    fields,
+                    operations),
+                ResolveOptionalLocation(
+                    release.Observation,
+                    target,
+                    fields,
+                    operations)),
             ResourceEffect.Borrow borrow => new ResourceEffect.Borrow(
-                ResolveLocation(borrow.Source, fields),
-                ResolveLocation(borrow.Target, fields),
+                ResolveLocation(borrow.Source, target, fields, operations),
+                ResolveLocation(borrow.Target, target, fields, operations),
                 borrow.Access,
                 borrow.Scope,
                 borrow.Kind,
-                ResolveOptionalLocation(borrow.Lender, fields),
+                ResolveOptionalLocation(borrow.Lender, target, fields, operations),
                 borrow.Materialization),
             ResourceEffect.Derive derive => new ResourceEffect.Derive(
-                ResolveLocation(derive.Source, fields),
-                ResolveLocation(derive.Target, fields),
+                ResolveLocation(derive.Source, target, fields, operations),
+                ResolveLocation(derive.Target, target, fields, operations),
                 derive.Relation,
-                ResolveGuard(derive.Guard, fields)),
+                ResolveGuard(derive.Guard, target, fields, operations)),
             ResourceEffect.Pass pass => new ResourceEffect.Pass(
-                ResolveLocation(pass.Source, fields),
-                ResolveLocation(pass.Target, fields),
+                ResolveLocation(pass.Source, target, fields, operations),
+                ResolveLocation(pass.Target, target, fields, operations),
                 pass.Identity),
             ResourceEffect.Independent independent => new ResourceEffect.Independent(
-                ResolveLocation(independent.Source, fields),
-                ResolveLocation(independent.Target, fields)),
+                ResolveLocation(independent.Source, target, fields, operations),
+                ResolveLocation(independent.Target, target, fields, operations)),
             ResourceEffect.Callback callback => callback,
             ResourceEffect.Accept accept => new ResourceEffect.Accept(
-                ResolveLocation(accept.Source, fields),
-                ResolveLocation(accept.Target, fields),
-                ResolveCompletion(accept.When, target, fields, outcomes),
+                ResolveLocation(accept.Source, target, fields, operations),
+                ResolveLocation(accept.Target, target, fields, operations),
+                ResolveCompletion(accept.When, target, fields, outcomes, operations),
                 accept.Kind,
                 accept.Order),
             ResourceEffect.Operation operation => new ResourceEffect.Operation(
                 operation.Boundary,
                 operation.Throws,
-                ResolveGuard(operation.Guard, fields)),
+                ResolveGuard(operation.Guard, target, fields, operations)),
             ResourceEffect.Outcome outcome => new ResourceEffect.Outcome(
                 outcome.Identity,
-                ResolveLocation(outcome.Source, fields),
+                ResolveLocation(outcome.Source, target, fields, operations),
                 outcome.Test),
             _ => throw new InvalidOperationException("Unknown resource effect."),
         };
@@ -1092,16 +1356,44 @@ public static class ResourceEffectCatalogBuilder
             _ => location,
         };
 
+    static ResourceEffectLocation ResolveLocation(
+        ResourceEffectLocation location,
+        string target,
+        IReadOnlyDictionary<ResourceEffectLocalIdentity, ResourceEffectMemberSelector> fields,
+        IReadOnlyDictionary<ScopedIndex, ResourceEffectLocation.ResolvedOperation> operations)
+        => location switch
+        {
+            ResourceEffectLocation.Field field => new ResourceEffectLocation.ResolvedField(
+                ResolveLocation(field.Root, target, fields, operations),
+                fields[field.Selector]),
+            ResourceEffectLocation.ResolvedField field =>
+                new ResourceEffectLocation.ResolvedField(
+                    ResolveLocation(field.Root, target, fields, operations),
+                    field.Selector),
+            ResourceEffectLocation.Operation operation =>
+                operations[new ScopedIndex(target, operation.Index)],
+            ResourceEffectLocation.ResolvedOperation operation =>
+                new ResourceEffectLocation.ResolvedOperation(
+                    ResolveLocation(operation.Source, target, fields, operations),
+                    operation.Kind),
+            _ => location,
+        };
+
     static ResourceEffectLocation? ResolveOptionalLocation(
         ResourceEffectLocation? location,
-        IReadOnlyDictionary<ResourceEffectLocalIdentity, ResourceEffectMemberSelector> fields)
-        => location is null ? null : ResolveLocation(location, fields);
+        string target,
+        IReadOnlyDictionary<ResourceEffectLocalIdentity, ResourceEffectMemberSelector> fields,
+        IReadOnlyDictionary<ScopedIndex, ResourceEffectLocation.ResolvedOperation> operations)
+        => location is null
+            ? null
+            : ResolveLocation(location, target, fields, operations);
 
     static ResourceEffectCompletion ResolveCompletion(
         ResourceEffectCompletion completion,
         string target,
         IReadOnlyDictionary<ResourceEffectLocalIdentity, ResourceEffectMemberSelector> fields,
-        IReadOnlyDictionary<ScopedLocal, ResourceEffect.Outcome> outcomes)
+        IReadOnlyDictionary<ScopedLocal, ResourceEffect.Outcome> outcomes,
+        IReadOnlyDictionary<ScopedIndex, ResourceEffectLocation.ResolvedOperation> operations)
     {
         return completion switch
         {
@@ -1109,7 +1401,7 @@ public static class ResourceEffectCatalogBuilder
                 ResolveLocalOutcome(outcome),
             ResourceEffectCompletion.ResolvedOutcome outcome =>
                 new ResourceEffectCompletion.ResolvedOutcome(
-                    ResolveLocation(outcome.Source, fields),
+                    ResolveLocation(outcome.Source, target, fields, operations),
                     outcome.Test),
             _ => completion,
         };
@@ -1120,17 +1412,19 @@ public static class ResourceEffectCatalogBuilder
             ResourceEffect.Outcome definition =
                 outcomes[new ScopedLocal(target, outcome.Identity)];
             return new ResourceEffectCompletion.ResolvedOutcome(
-                ResolveLocation(definition.Source, fields),
+                ResolveLocation(definition.Source, target, fields, operations),
                 definition.Test);
         }
     }
 
     static ResourceEffectGuard? ResolveGuard(
         ResourceEffectGuard? guard,
-        IReadOnlyDictionary<ResourceEffectLocalIdentity, ResourceEffectMemberSelector> fields)
+        string target,
+        IReadOnlyDictionary<ResourceEffectLocalIdentity, ResourceEffectMemberSelector> fields,
+        IReadOnlyDictionary<ScopedIndex, ResourceEffectLocation.ResolvedOperation> operations)
         => guard is ResourceEffectGuard.ExactRuntimeType exact
             ? new ResourceEffectGuard.ExactRuntimeType(
-                ResolveLocation(exact.Subject, fields),
+                ResolveLocation(exact.Subject, target, fields, operations),
                 exact.Expected)
             : null;
 
@@ -1462,6 +1756,10 @@ public static class ResourceEffectCatalogBuilder
                 ResourceEffectLocation.ResolvedField right) =>
                 LocationsCanOverlap(left.Root, right.Root)
                 && MembersCanOverlap(left.Selector, right.Selector),
+            (ResourceEffectLocation.ResolvedOperation left,
+                ResourceEffectLocation.ResolvedOperation right) =>
+                LocationsCanOverlap(left.Source, right.Source)
+                && KindsOverlap(left.Kind, right.Kind),
             _ => false,
         };
     }
@@ -1691,6 +1989,8 @@ public static class ResourceEffectCatalogBuilder
             ResourceEffectLocation.Parameter parameter =>
                 parameter.Index < member.Parameters.Length,
             ResourceEffectLocation.Operation => true,
+            ResourceEffectLocation.ResolvedOperation operation =>
+                ValidateLocationShape(member, operation.Source),
             ResourceEffectLocation.CallbackParameter callback =>
                 callback.CallbackIndex < member.Parameters.Length,
             ResourceEffectLocation.CallbackReturn callback =>
@@ -1805,6 +2105,33 @@ public static class ResourceEffectCatalogBuilder
         };
         if (kind is not null)
             yield return kind;
+        foreach (ResourceEffectLocation location in Locations(effect))
+        {
+            foreach (ResourceKindReference nested in LocationKinds(location))
+                yield return nested;
+        }
+    }
+
+    static IEnumerable<ResourceKindReference> LocationKinds(
+        ResourceEffectLocation location)
+    {
+        switch (location)
+        {
+            case ResourceEffectLocation.Field field:
+                foreach (ResourceKindReference kind in LocationKinds(field.Root))
+                    yield return kind;
+                break;
+            case ResourceEffectLocation.ResolvedField field:
+                foreach (ResourceKindReference kind in LocationKinds(field.Root))
+                    yield return kind;
+                break;
+            case ResourceEffectLocation.ResolvedOperation operation:
+                if (operation.Kind is not null)
+                    yield return operation.Kind;
+                foreach (ResourceKindReference kind in LocationKinds(operation.Source))
+                    yield return kind;
+                break;
+        }
     }
 
     static IEnumerable<ResourceEffectLocation> Locations(ResourceEffect effect)
@@ -1827,6 +2154,7 @@ public static class ResourceEffectCatalogBuilder
                 break;
             case ResourceEffect.Consume value:
                 yield return value.Source;
+                yield return value.Target;
                 break;
             case ResourceEffect.Release value:
                 yield return value.Source;
@@ -2137,6 +2465,11 @@ static class ResourceEffectCanonicalizer
                 Node(
                     "location-operation",
                     Atom("index", operation.Index.ToString(CultureInfo.InvariantCulture))),
+            ResourceEffectLocation.ResolvedOperation operation =>
+                Node(
+                    "location-resolved-operation",
+                    Location(operation.Source),
+                    OptionalKind(operation.Kind)),
             ResourceEffectLocation.CallbackParameter callback =>
                 Node(
                     "location-callback-parameter",

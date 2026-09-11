@@ -1415,6 +1415,322 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void Catalog_ComposesIndependentModelLocalOperationSlots()
+    {
+        ResourceEffectModelIdentity poolModel = new("example.operation.pool");
+        ResourceEffectModelIdentity sessionModel = new("example.operation.session");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        poolModel,
+                        TwoDifferentParameterOperationTarget(),
+                        [
+                            "consume(kind=example.pool,source=parameter[0],target=operation[0])",
+                            "release(source=operation[0],when=normal-return)",
+                        ],
+                        [Kind(poolModel, "example.pool", 0)]),
+                    Model(
+                        sessionModel,
+                        TwoDifferentParameterOperationTarget(),
+                        [
+                            "consume(kind=example.session,source=parameter[1],target=operation[0])",
+                            "move(source=operation[0],target=return,when=normal-return)",
+                        ],
+                        [Kind(sessionModel, "example.session", 0)]),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_CoalescesEquivalentOperationSlotsWithDifferentLocalIndexes()
+    {
+        ResourceEffectModelIdentity first = new("example.operation.first");
+        ResourceEffectModelIdentity second = new("example.operation.second");
+        ResourceEffectCatalog catalog = Build(
+            Model(
+                first,
+                SimpleOperationTarget(),
+                [
+                    "consume(kind=example.resource,source=parameter[0],target=operation[0])",
+                    "release(source=operation[0],when=normal-return)",
+                ],
+                [Kind(first, "example.resource", 0)]),
+            Model(
+                second,
+                SimpleOperationTarget(),
+                [
+                    "consume(kind=example.resource,source=parameter[0],target=operation[1])",
+                    "release(source=operation[1],when=normal-return)",
+                ],
+                [Kind(second, "example.resource", 0)]));
+
+        Assert.Equal(2, catalog.Declarations.Length);
+        Assert.All(
+            catalog.Declarations,
+            declaration => Assert.Equal(2, declaration.Provenances.Length));
+    }
+
+    [Fact]
+    public void Catalog_RejectsInconsistentModelLocalOperationSlotDefinitions()
+    {
+        ResourceEffectModelIdentity model = new("example.operation-inconsistent");
+        ResourceEffectCatalogOutcome outcome = ResourceEffectCatalogBuilder.Build(
+            [
+                Model(
+                    model,
+                    TwoDifferentParameterOperationTarget(),
+                    [
+                        "consume(kind=example.first,source=parameter[0],target=operation[0])",
+                        "consume(kind=example.second,source=parameter[1],target=operation[0])",
+                    ],
+                    [
+                        Kind(model, "example.first", 0),
+                        Kind(model, "example.second", 0),
+                    ]),
+            ]);
+
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.DuplicateLocalIdentity,
+            Assert.IsType<ResourceEffectCatalogOutcome.Rejected>(outcome)
+                .Diagnostics.Single().Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void Catalog_ResolvesChainedModelLocalOperationSlots()
+    {
+        ResourceEffectModelIdentity model = new("example.operation-chain");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        model,
+                        SimpleOperationTarget(),
+                        [
+                            "consume(kind=example.resource,source=parameter[0],target=operation[0])",
+                            "consume(kind=example.resource,source=operation[0],target=operation[1])",
+                            "release(source=operation[1],when=normal-return)",
+                        ],
+                        [Kind(model, "example.resource", 0)]),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_RejectsCyclicModelLocalOperationSlotsWithoutThrowing()
+    {
+        ResourceEffectModelIdentity model = new("example.operation-cycle");
+        ResourceEffectCatalogOutcome outcome = ResourceEffectCatalogBuilder.Build(
+            [
+                Model(
+                    model,
+                    SimpleOperationTarget(),
+                    [
+                        "consume(kind=example.resource,source=operation[1],target=operation[0])",
+                        "consume(kind=example.resource,source=operation[0],target=operation[1])",
+                    ],
+                    [Kind(model, "example.resource", 0)]),
+            ]);
+
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.DuplicateLocalIdentity,
+            Assert.IsType<ResourceEffectCatalogOutcome.Rejected>(outcome)
+                .Diagnostics.Single().Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void Catalog_ReadmitsItsNormalizedFieldDeclarations()
+    {
+        ResourceEffectModelIdentity model = new("example.field-roundtrip");
+        ResourceEffectCatalog original = Build(FieldRoundTripModel(model));
+        ResourceEffectCatalog roundTrip = Build(
+            new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                model,
+                original.ResourceKinds,
+                [],
+                original.Declarations));
+
+        Assert.Equal(original.Declarations, roundTrip.Declarations);
+        Assert.Equal(original.Receipt.SemanticHash, roundTrip.Receipt.SemanticHash);
+    }
+
+    [Fact]
+    public void Catalog_ReadmitsItsNormalizedOperationSlots()
+    {
+        ResourceEffectModelIdentity model = new("example.operation-roundtrip");
+        ResourceEffectCatalog original = Build(
+            Model(
+                model,
+                SimpleOperationTarget(),
+                [
+                    "consume(kind=example.resource,source=parameter[0],target=operation[0])",
+                    "release(source=operation[0],when=normal-return)",
+                ],
+                [Kind(model, "example.resource", 0)]));
+        ResourceEffectCatalog roundTrip = Build(
+            new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                model,
+                original.ResourceKinds,
+                [],
+                original.Declarations));
+
+        Assert.Equal(original.Declarations, roundTrip.Declarations);
+        Assert.Equal(original.Receipt.SemanticHash, roundTrip.Receipt.SemanticHash);
+    }
+
+    [Fact]
+    public void Catalog_RequiresFieldAliasesOnlyBeforeNormalization()
+    {
+        ResourceEffectModelIdentity parsedModel = new("example.field-parsed");
+        ResourceEffectCatalogOutcome parsed = ResourceEffectCatalogBuilder.Build(
+            [
+                Model(
+                    parsedModel,
+                    FieldTarget("Child"),
+                    ["resource(kind=example.child,value=declared-field)"]),
+            ]);
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.InvalidTarget,
+            Assert.IsType<ResourceEffectCatalogOutcome.Rejected>(parsed)
+                .Diagnostics.Single().Diagnostic.Kind);
+
+        ResourceEffectModelIdentity normalizedModel = new("example.field-normalized");
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    new ResourceEffectModelDefinition(
+                        ResourceEffectLanguageIdentity.Version1,
+                        normalizedModel,
+                        [],
+                        [],
+                        [
+                            TypedFieldResource(
+                                normalizedModel,
+                                selector: null),
+                        ]),
+                ]));
+        AssertTypedRejected(
+            "example.field-normalized-alias",
+            new ResourceEffect.Resource(
+                new ResourceKindReference(
+                    new ResourceKindIdentity("example.child")),
+                ResourceDeclaredValueKind.DeclaredField,
+                new ResourceEffectLocalIdentity("child")),
+            FieldTarget("Child"),
+            ResourceEffectDiagnosticKind.InvalidTarget);
+    }
+
+    [Fact]
+    public void Catalog_RejectsFabricatedNormalizedOperationIdentity()
+    {
+        ResourceKindReference firstKind =
+            new(new ResourceKindIdentity("example.first"));
+        ResourceKindReference secondKind =
+            new(new ResourceKindIdentity("example.second"));
+
+        AssertTypedRejected(
+            "example.operation-source-mismatch",
+            new ResourceEffect.Consume(
+                new ResourceEffectLocation.Parameter(0),
+                new ResourceEffectLocation.ResolvedOperation(
+                    new ResourceEffectLocation.Parameter(1),
+                    firstKind),
+                firstKind),
+            TwoDifferentParameterOperationTarget(),
+            ResourceEffectDiagnosticKind.InvalidTarget);
+        AssertTypedRejected(
+            "example.operation-kind-mismatch",
+            new ResourceEffect.Consume(
+                new ResourceEffectLocation.Parameter(0),
+                new ResourceEffectLocation.ResolvedOperation(
+                    new ResourceEffectLocation.Parameter(0),
+                    secondKind),
+                firstKind),
+            TwoDifferentParameterOperationTarget(),
+            ResourceEffectDiagnosticKind.InvalidTarget);
+    }
+
+    [Fact]
+    public void Catalog_RejectsModelLocalAliasesInNormalizedDeclarations()
+    {
+        ResourceEffectModelIdentity operationModel =
+            new("example.normalized-operation-alias");
+        ResourceEffectCatalogOutcome operation = ResourceEffectCatalogBuilder.Build(
+            [
+                new ResourceEffectModelDefinition(
+                    ResourceEffectLanguageIdentity.Version1,
+                    operationModel,
+                    [Kind(operationModel, "example.resource", 0)],
+                    [
+                        new ResourceEffectTargetDeclaration(
+                            SimpleOperationTarget(),
+                            [
+                                Source(
+                                    operationModel,
+                                    operationModel.Value,
+                                    0,
+                                    "consume(kind=example.resource,source=parameter[0],target=operation[0])"),
+                            ]),
+                    ],
+                    [
+                        Typed(
+                            operationModel,
+                            SimpleOperationTarget(),
+                            new ResourceEffect.Release(
+                                new ResourceEffectLocation.Operation(0),
+                                new ResourceEffectCompletion.NormalReturn(),
+                                null,
+                                null,
+                                null),
+                            1),
+                    ]),
+            ]);
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.InvalidLocation,
+            Assert.IsType<ResourceEffectCatalogOutcome.Rejected>(operation)
+                .Diagnostics.Single().Diagnostic.Kind);
+
+        ResourceEffectModelIdentity fieldModel =
+            new("example.normalized-field-alias");
+        ResourceEffectCatalogOutcome field = ResourceEffectCatalogBuilder.Build(
+            [
+                new ResourceEffectModelDefinition(
+                    ResourceEffectLanguageIdentity.Version1,
+                    fieldModel,
+                    [],
+                    [
+                        new ResourceEffectTargetDeclaration(
+                            FieldTarget("Child"),
+                            [
+                                Source(
+                                    fieldModel,
+                                    fieldModel.Value,
+                                    0,
+                                    "resource(kind=example.child,value=declared-field,selector=child)"),
+                            ]),
+                    ],
+                    [
+                        Typed(
+                            fieldModel,
+                            SimpleOperationTarget(),
+                            new ResourceEffect.Pass(
+                                new ResourceEffectLocation.Field(
+                                    new ResourceEffectLocation.Receiver(),
+                                    new ResourceEffectLocalIdentity("child")),
+                                new ResourceEffectLocation.Return(),
+                                null),
+                            1),
+                    ]),
+            ]);
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.InvalidLocation,
+            Assert.IsType<ResourceEffectCatalogOutcome.Rejected>(field)
+                .Diagnostics.Single().Diagnostic.Kind);
+    }
+
+    [Fact]
     public void Catalog_RevalidatesParsedResolvedFieldVariablesAgainstOuterTarget()
     {
         ResourceEffectModelIdentity invalidModel = new("example.parsed-field-unbound");
@@ -1578,6 +1894,33 @@ public class ResourceEffectLanguageTests
                     [Source(model, model.Value, 1, terminal)]),
             ]);
 
+    static ResourceEffectModelDefinition FieldRoundTripModel(
+        ResourceEffectModelIdentity model)
+        => new(
+            ResourceEffectLanguageIdentity.Version1,
+            model,
+            [],
+            [
+                new ResourceEffectTargetDeclaration(
+                    FieldTarget("Child"),
+                    [
+                        Source(
+                            model,
+                            model.Value,
+                            0,
+                            "resource(kind=example.child,value=declared-field,selector=child)"),
+                    ]),
+                new ResourceEffectTargetDeclaration(
+                    SimpleOperationTarget(),
+                    [
+                        Source(
+                            model,
+                            model.Value,
+                            1,
+                            "pass(source=receiver.field[child],target=return)"),
+                    ]),
+            ]);
+
     static ResourceEffectModelDefinition OutcomeAliasModel(
         ResourceEffectModelIdentity model,
         bool sameField)
@@ -1670,6 +2013,40 @@ public class ResourceEffectLanguageTests
                     ResourceDeclarationAuthority.ProductShipped,
                     new InertString(TextPolicy.Field, model.Value + ".typed"),
                     ordinal),
+            ]);
+
+    static NormalizedResourceEffectDeclaration Typed(
+        ResourceEffectModelIdentity model,
+        ResourceEffectTargetSelector target,
+        ResourceEffect effect,
+        int ordinal)
+        => new(
+            target,
+            effect,
+            [
+                new ResourceDeclarationProvenance(
+                    model,
+                    ResourceDeclarationAuthority.ProductShipped,
+                    new InertString(TextPolicy.Field, model.Value + ".typed"),
+                    ordinal),
+            ]);
+
+    static NormalizedResourceEffectDeclaration TypedFieldResource(
+        ResourceEffectModelIdentity model,
+        ResourceEffectLocalIdentity? selector)
+        => new(
+            FieldTarget("Child"),
+            new ResourceEffect.Resource(
+                new ResourceKindReference(
+                    new ResourceKindIdentity("example.child")),
+                ResourceDeclaredValueKind.DeclaredField,
+                selector),
+            [
+                new ResourceDeclarationProvenance(
+                    model,
+                    ResourceDeclarationAuthority.ProductShipped,
+                    new InertString(TextPolicy.Field, model.Value + ".typed"),
+                    0),
             ]);
 
     static void AssertResourceKindBoundary(
