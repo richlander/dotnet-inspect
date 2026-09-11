@@ -2044,9 +2044,30 @@ The line presents app version, linked short commit, concise UTC build date,
 applicable acquisition producer, and the same CLI-tool and agent-skill links
 used on Home. Package acquisition supplies a compact producer label; the data
 bar renders that display text without parsing an endpoint. Runtime/Wasm state,
-timings, cache inventory, assembly/framework duplication, and management
-actions belong to the separate full-bleed Diagnostics surface rather than the
+timings, cache evidence, assembly/framework duplication, and management actions
+belong to the separate full-bleed Diagnostics surface rather than the
 persistent row.
+
+The routed `/diagnostics` surface is available from Settings and the Spotlight
+Commands scope. `src/diagnostics-view.ts` owns its typed pure rendering and
+Back/product bindings; `src/diagnostics-route.ts` owns route recognition and
+the in-app history marker. The first snapshot presents current Browser/Wasm
+loading, ready, or failed state; startup phase measurements and framework-byte
+totals; exact build provenance; and the aggregate package-cache statistics
+issued by the engine. Missing build data and runtime or cache failures remain
+visible rather than becoming zeroes or retained successful counts. The route
+does not appear in the Application menu and does not repeat the data bar.
+
+`test/diagnostics-view.test.ts`, `test/diagnostics-route.test.ts`,
+`test/settings-panel.test.ts`, `test/command-bar.test.ts`, and
+`test/entry-routes.test.ts` gate the typed snapshot, escaping, entry controls,
+history marker, and static hosting inventory. The Diagnostics cases in
+`browser/library-hierarchy.spec.ts` exercise Settings and Spotlight routing,
+destination focus, Back restoration, loading and failure states, package-cache
+failure disclosure, and the 390-pixel vertical layout against the built app.
+Network history, package-source health, cache-entry inventory and limits,
+support-report generation, eviction state, and cache-management actions remain
+future owner-adoption work.
 
 The workbench subject hierarchy is **Package → Library → Type → Member**.
 Package owns coordinate-wide inventory, documents, and NuGet dependencies.

@@ -440,6 +440,19 @@ import {
   fmtBytes,
 } from "./data-bar.ts";
 import {
+  DIAGNOSTICS_PATH,
+  diagnosticsHistoryState,
+  isDiagnosticsHistoryEntry,
+  isDiagnosticsPath,
+} from "./diagnostics-route.ts";
+import {
+  bindDiagnosticsView,
+  diagnosticsViewHtml,
+  type DiagnosticsPackageCacheState,
+  type DiagnosticsRuntimeState,
+  type RuntimeStartupDiagnostics,
+} from "./diagnostics-view.ts";
+import {
   bindCreditsPanel,
   isCreditsPath,
   renderCreditsPage,
@@ -851,16 +864,6 @@ interface RecentPackage {
   framework: string;
 }
 
-interface Diagnostics {
-  downloadMs: number;
-  startupMs: number;
-  precomputeMs: number;
-  totalMs: number;
-  transfer: number;
-  decoded: number;
-  assets: number;
-}
-
 let spotlightCache: SpotlightCache | null = null;
 const HOME_BOT_ANIMATION_DURATION_MS = 5500;
 const DEFAULT_REQUESTED_FRAMEWORK = "net10.0";
@@ -1026,6 +1029,10 @@ const initialState = {
   diag: null,
   buildIdentity: null,
   packageCacheStats: null,
+  packageCacheStatsStatus: "idle" as
+    "idle" | "loading" | "ready" | "failed",
+  packageCacheStatsError: "",
+  diagnosticsCapturedAtUtc: null,
 };
 
 interface StateOverrides {
@@ -1076,9 +1083,11 @@ interface StateOverrides {
   styleOptions: StyleOption[] | null;
   history: string[];
   retryAction: ErrorRetryAction;
-  diag: Diagnostics | null;
+  diag: RuntimeStartupDiagnostics | null;
   buildIdentity: BrowserBuildIdentity | null;
   packageCacheStats: BrowserPackageCacheStats | null;
+  packageCacheStatsStatus: "idle" | "loading" | "ready" | "failed";
+  diagnosticsCapturedAtUtc: string | null;
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
@@ -1105,6 +1114,8 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 let packageQueryHandoffNavigationSeq: number | null = null;
+let packageCacheStatsRequest = 0;
+let diagnosticsHeadingFocusPending = false;
 let platformLibraryRetry: RetryAction = null;
 let platformCatalogRetry: RetryAction = null;
 
@@ -1425,6 +1436,9 @@ function captureRetainedHostState() {
     diag: state.diag,
     buildIdentity: state.buildIdentity,
     packageCacheStats: state.packageCacheStats,
+    packageCacheStatsStatus: state.packageCacheStatsStatus,
+    packageCacheStatsError: state.packageCacheStatsError,
+    diagnosticsCapturedAtUtc: state.diagnosticsCapturedAtUtc,
   };
 }
 
@@ -2504,12 +2518,18 @@ const initialLocation = initialWorkspace.visible;
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.packageQueryOpen = isPackageQueryPath(location.pathname);
+const diagnosticsOpen = isDiagnosticsPath(location.pathname);
 const productHomeDemosOpen = isProductHomeDemosPath(location.pathname);
+if (diagnosticsOpen) {
+  state.diagnosticsCapturedAtUtc = new Date().toISOString();
+  diagnosticsHeadingFocusPending = true;
+}
 if (state.packageQueryOpen) {
   applyPackageQueryHistory(history.state);
 }
 state.home = state.credits
-  || (!state.packageQueryOpen
+  || (!diagnosticsOpen
+    && !state.packageQueryOpen
     && !productHomeDemosOpen
     && !initialLocation.package
     && !initialWorkspace.hasWorkspaceState
@@ -4325,6 +4345,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
 
+  if (isDiagnosticsPath(location.pathname)) {
+    loadingBotSrc = null;
+    renderDiagnosticsPage();
+    return;
+  }
   // The Metadata Explorer is a full-bleed "browse the database" view layered over the
   // package workbench. Like Settings it owns no URL and renders first, returning to the
   // Metadata lens on close.
@@ -7257,6 +7282,7 @@ function bindScopeBarEvents() {
 function bindSettingsPanelEvents() {
   bindSettingsPanel(document, {
     onClose: closeSettings,
+    onOpenDiagnostics: openDiagnosticsRoute,
     onOpen: openSettings,
     onTasteClear: clearTaste,
     onTasteToggle: toggleTaste,
@@ -9089,9 +9115,17 @@ function executeCommand(
   value: string,
   result: CommandPaletteResult | null = null,
 ) {
+  const [verb, ...rest] = value.split(/\s+/);
+  if (verb === "diagnostics" && rest.length === 0) {
+    state.history = [
+      value,
+      ...state.history.filter(item => item !== value),
+    ].slice(0, 5);
+    openDiagnosticsRoute();
+    return undefined;
+  }
   const pkg = currentPackage();
   beginSpotlightNavigation();
-  const [verb, ...rest] = value.split(/\s+/);
   const argument = rest.join(" ");
   let operation;
   if (verb === "type") {
@@ -10693,6 +10727,124 @@ function renderCreditsView() {
     onClose: goHome,
     onToggleTheme: toggleCreditsTheme,
   });
+}
+
+function diagnosticsRuntimeState(): DiagnosticsRuntimeState {
+  if (state.engineStartupFailed) {
+    return {
+      kind: "failed",
+      message: "The browser inspection engine did not start.",
+      detail: state.errorDetail || state.error || null,
+    };
+  }
+  if (state.engineReady) {
+    return {
+      kind: "ready",
+      message: ".NET is running in WebAssembly and ready for inspection.",
+      diagnostics: state.diag,
+    };
+  }
+  return {
+    kind: "loading",
+    message: state.engineStatus
+      || state.loadingMessage
+      || "Starting the browser inspection engine.",
+  };
+}
+
+function diagnosticsPackageCacheState(): DiagnosticsPackageCacheState {
+  if (state.engineStartupFailed) {
+    return {
+      kind: "failed",
+      message: "Package-cache statistics are unavailable because the inspection engine did not start.",
+    };
+  }
+  if (state.packageCacheStatsStatus === "failed") {
+    return {
+      kind: "failed",
+      message: state.packageCacheStatsError
+        || "Package-cache statistics are unavailable.",
+    };
+  }
+  if (state.packageCacheStatsStatus === "ready"
+    && state.packageCacheStats) {
+    return {
+      kind: "ready",
+      stats: state.packageCacheStats,
+    };
+  }
+  return { kind: "loading" };
+}
+
+function renderDiagnosticsPage() {
+  const restoreHeadingFocus = diagnosticsHeadingFocusPending
+    || document.activeElement?.id === "diagnostics-heading";
+  state.diagnosticsCapturedAtUtc ??= new Date().toISOString();
+  document.title = "Diagnostics · dotnet-inspect";
+  app.innerHTML = diagnosticsViewHtml({
+    runtime: diagnosticsRuntimeState(),
+    buildIdentity: state.buildIdentity,
+    packageCache: diagnosticsPackageCacheState(),
+    capturedAtUtc: state.diagnosticsCapturedAtUtc,
+  }, value => escapeHtml(value));
+  bindDiagnosticsView(document, {
+    onBack: closeDiagnosticsRoute,
+  });
+  if (restoreHeadingFocus) {
+    requestAnimationFrame(() => {
+      if (!isDiagnosticsPath(location.pathname)) return;
+      diagnosticsHeadingFocusPending = false;
+      focusLevelOneHeading();
+    });
+  }
+}
+
+function openDiagnosticsRoute() {
+  dismissModalsForRoutedNavigation();
+  navigationSequence.begin();
+  packageQueryController.cancel();
+  state.packageQueryOpen = false;
+  state.credits = false;
+  state.home = false;
+  state.diagnosticsCapturedAtUtc = new Date().toISOString();
+  diagnosticsHeadingFocusPending = true;
+  if (state.engineReady) {
+    state.packageCacheStatsStatus = "loading";
+    state.packageCacheStatsError = "";
+  }
+  workspaceLocation.push(
+    DIAGNOSTICS_PATH,
+    diagnosticsHistoryState(history.state));
+  render();
+  if (state.engineReady) refreshPackageStats();
+}
+
+function closeDiagnosticsRoute() {
+  if (isDiagnosticsHistoryEntry(history.state)) {
+    history.back();
+    return;
+  }
+  replaceDiagnosticsWithHome();
+}
+
+function replaceDiagnosticsWithHome() {
+  navigationSequence.begin();
+  state.loading = false;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  invalidateGraphMemberNavigation();
+  clearNavigationError();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
+  state.packageQueryOpen = false;
+  packageQueryController.cancel();
+  state.credits = false;
+  state.home = true;
+  spotlight.reset();
+  workspaceLocation.replace("/", history.state);
+  render();
 }
 
 function focusPackageQueryInput() {
@@ -14849,6 +15001,13 @@ async function bootstrap() {
     }
     state.engineReady = true;
     state.engineStatus = "";
+    if (isDiagnosticsPath(location.pathname)) {
+      state.loading = false;
+      state.diag = computeDiagnostics(tStart, tEngine, performance.now());
+      diagnosticsHeadingFocusPending = true;
+      refreshPackageStats();
+      return;
+    }
     if (state.home) {
       // Engine is warm and search is ready; show the intro/home page without loading a package.
       state.loading = false;
@@ -14890,7 +15049,7 @@ function computeDiagnostics(
   tStart: number,
   tEngine: number,
   tReady: number,
-): Diagnostics {
+): RuntimeStartupDiagnostics {
   const assets = performance.getEntriesByType("resource")
     .filter((entry): entry is PerformanceResourceTiming =>
       entry instanceof PerformanceResourceTiming
@@ -14910,7 +15069,7 @@ function computeDiagnostics(
     downloadMs: hasAssets ? lastEnd - firstStart : 0,
     startupMs: hasAssets ? Math.max(0, tEngine - lastEnd) : tEngine - tStart,
     precomputeMs: tReady - tEngine,
-    totalMs: tReady,
+    totalMs: tReady - tStart,
     transfer,
     decoded,
     assets: assets.length
@@ -14918,13 +15077,28 @@ function computeDiagnostics(
 }
 
 function refreshPackageStats() {
+  const request = ++packageCacheStatsRequest;
+  state.packageCacheStatsStatus = "loading";
+  state.packageCacheStatsError = "";
+  if (isDiagnosticsPath(location.pathname)) render();
   void inspectPackageCacheStats().then(
     stats => {
+      if (request !== packageCacheStatsRequest) return undefined;
       state.packageCacheStats = stats;
+      state.packageCacheStatsStatus = "ready";
+      state.diagnosticsCapturedAtUtc = new Date().toISOString();
+      if (isDiagnosticsPath(location.pathname)) render();
       return undefined;
     },
-    () => {
-      // Keep the last known counts; a stats read failure must not disrupt inspection.
+    (error: unknown) => {
+      if (request !== packageCacheStatsRequest) return undefined;
+      state.packageCacheStats = null;
+      state.packageCacheStatsStatus = "failed";
+      state.packageCacheStatsError =
+        `Package-cache statistics are unavailable: ${errorMessage(error)}`;
+      state.diagnosticsCapturedAtUtc = new Date().toISOString();
+      console.error("Package-cache statistics are unavailable.", error);
+      if (isDiagnosticsPath(location.pathname)) render();
       return undefined;
     },
   );
@@ -15054,6 +15228,10 @@ async function openFreshWorkspaceLink(
 }
 
 async function navigateInAppUrl(url: URL) {
+  if (isDiagnosticsPath(url.pathname)) {
+    openDiagnosticsRoute();
+    return;
+  }
   if (isCreditsPath(url.pathname)) {
     openCredits();
     return;
@@ -15623,7 +15801,8 @@ window.addEventListener("popstate", () => {
   const unavailableGlobalWorkspace =
     historyWorkspaceReferenced
     && !historyWorkspaceAvailable
-    && (isPackageQueryPath(location.pathname)
+    && (isDiagnosticsPath(location.pathname)
+      || isPackageQueryPath(location.pathname)
       || isCreditsPath(location.pathname)
       || isProductHomeDemosPath(location.pathname));
   if (unavailableGlobalWorkspace) {
@@ -15631,6 +15810,23 @@ window.addEventListener("popstate", () => {
       !publishFreshEmptyWorkspaceFromHistory(location.href);
   }
   if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
+  if (isDiagnosticsPath(location.pathname)) {
+    clearNavigationError();
+    state.packageQueryOpen = false;
+    packageQueryController.cancel();
+    state.credits = false;
+    state.home = false;
+    state.loading = false;
+    state.diagnosticsCapturedAtUtc = new Date().toISOString();
+    diagnosticsHeadingFocusPending = true;
+    if (state.engineReady) {
+      state.packageCacheStatsStatus = "loading";
+      state.packageCacheStatsError = "";
+    }
+    render();
+    if (state.engineReady) refreshPackageStats();
+    return;
+  }
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
     applyPackageQueryHistory(history.state);
