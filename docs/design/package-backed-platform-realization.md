@@ -9,7 +9,7 @@ adoption step 5 in
 and is tracked by
 [#6561](https://github.com/richlander/dotnet-inspect/issues/6561).
 
-The implementation is staged without changing the eleven-step count:
+The implementation is staged without changing the ten-step count:
 
 1. **Step 5a** adds package-backed target discovery, immutable reference-pack
    realization, and a thin PlatformHouse adapter.
@@ -148,11 +148,18 @@ remain source containers when reached through this path. An exact package
 request may inspect the same `.nupkg` through ordinary Package semantics, but
 that result does not prove Platform target identity or membership.
 
-The package-source prerequisite is the public lease capability tracked by
-[#6560](https://github.com/richlander/dotnet-inspect/pull/6560): complete
+The package-source discovery prerequisite is tracked by
+[#6611](https://github.com/richlander/dotnet-inspect/issues/6611): complete
 version discovery for an explicit selection contract. Platform consumes that
 package-owned result and does not reuse the dependency-specific discovery
 contract or reconstruct configured-authority aggregation.
+
+Package Source must also complete its focused adoption of
+[Resource Ownership and Borrowing](resource-ownership-and-borrowing.md), tracked
+by [#6619](https://github.com/richlander/dotnet-inspect/issues/6619), before
+step 5a implementation. Platform operations consume
+package-source-owner-issued operation authority; they do not retain or
+approximate a borrow of a caller-owned settlement lease across `await`.
 
 ## Identity and evidence roles
 
@@ -176,13 +183,12 @@ generations never enter `PlatformFamilyTarget`. Equal target values from
 installed and package-backed sources remain equal Platform targets with
 distinct source evidence.
 
-## Source capabilities and lifetime
+## Source capabilities and ownership
 
-One package-backed source receives explicit live capabilities:
+One package-backed source retains only stable host configuration:
 
 ```text
 PackagePlatformSource(
-  package-source settlement lease,
   package-source authorization,
   authority-and-producer scoped store factory,
   payload limits,
@@ -190,14 +196,25 @@ PackagePlatformSource(
   source maximums)
 ```
 
-The source does not own or dispose the settlement lease, authorization, source
-clients, stores, transfer policy, or operation context. It owns only its
-immutable source results and private assembly byte snapshots.
+Every discovery or realization call additionally receives one
+package-source-owner-issued operation lease by ownership transfer. That lease
+carries the live settlement authority and operation context across asynchronous
+source work. The Platform source releases or settles it on every success,
+failure, cancellation, and work-limit path; it does not retain the lease in
+source state, a candidate, a source result, a House contribution, or a receipt.
 
-Retiring the package-source lease prevents new discovery, candidate
-settlement, and payload acquisition. Existing successful source results remain
-readable because realized libraries own private byte snapshots rather than
-reopening the package store.
+The exact operation-lease type, issuance, transfer, cancellation, retirement,
+and cleanup semantics belong to the Package Source Model's focused ownership
+adoption. A caller-owned `PackageSourceSettlementLease` passed by ordinary
+reference across an awaited Platform method is not an acceptable substitute:
+current C# permits that compatibility shape, but the shared ownership protocol
+does not classify an async-spanning reference as a borrow.
+
+The source does not own or dispose authorization, source clients, stores, or
+transfer policy. It owns its immutable source results and private assembly byte
+snapshots. Existing successful source results remain readable after operation
+settlement because realized libraries own detached bytes rather than reopening
+the package store or retaining package-source authority.
 
 The source authorization is evaluated independently for each closed package
 ID. Authorization for a reference package does not authorize its runtime pack,
@@ -497,6 +514,8 @@ The step 5a Release gates prove:
 - per-entry, aggregate-byte, entry-count, assembly-count, duration, and
   cancellation bounds;
 - immutable snapshots remain readable after source inputs are retired; and
+- every terminal path settles the transferred package-source operation lease,
+  while successful results retain no live package-source authority; and
 - target discovery and reference realization map to authorized
   PlatformHouse contributions.
 

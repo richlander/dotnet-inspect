@@ -66,10 +66,12 @@ resource, not for PackageHouse or another consumer.
 The lease carries the live authority to:
 
 - authorize and settle one caller-pinned package coordinate;
-- discover dependency versions across one explicit source authorization; and
+- discover complete versions under one explicit discovery contract and source
+  authorization;
 - acquire one exact manifest through a candidate issued by the same lease; and
 - acquire one admitted retained payload through a candidate issued by the same
-  lease and caller-supplied authority-scoped package stores.
+  lease and caller-supplied authority-scoped package stores, retaining the
+  exact source-result identity beside the configured authority.
 
 One lease owns one candidate-issuer identity. It accepts only source results
 whose association and client identity match the exact configured authority
@@ -99,11 +101,13 @@ owns that contract. Repository-wide absence of another issuer or the retired
 House-named API remains unverified by user choice.
 
 `PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient`
-and `PackageSourceSettlementLeaseAcquiresPayloadAndRetiresWithoutDisposingClient`
-are the Release gates for lease retirement, caller-owned resources, retained
-generation, producer, and origin. Together with
-`PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation`
-they gate candidate identity and exact source association. Existing
+and
+`PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation`,
+together with the configured payload and PackageHouse execution suites, are
+the Release gates for retirement, caller-owned resources, candidate identity,
+exact source association, discovery completeness, and payload settlement.
+`PackageSourceSettlementLeaseAcquiresPayloadAndRetiresWithoutDisposingClient`
+additionally gates retained generation, producer, and origin. Existing
 `ConfiguredPayloadAcquisitionTests` remain the Release gates for cache/source
 ordering, failover, not-found evidence, and typed payload failures through the
 shared candidate-payload implementation.
@@ -415,6 +419,13 @@ Cold acquisition preserves NuGet's local-before-HTTP source tiers. There is no
 precedence within one tier. A cached payload may answer before an uncached
 authority is probed only when its retained authority is currently authorized
 for that coordinate.
+
+`PackageSourceSettlementLease.AcquireCandidatePayloadAsync` owns this
+candidate-bound operation. Its result carries the exact
+`PackageSourceResultIdentity` that produced or authorized the payload; a
+higher consumer does not reconstruct source or producer identity from the
+configured endpoint or payload text. Desktop composition delegates its
+payload work to this source-owned operation during PackageHouse adoption.
 
 Symbols, manifests, RID companions, tool-wrapper redirects, and projected
 platform packs independently reapply the package-ID and coordinate authority
