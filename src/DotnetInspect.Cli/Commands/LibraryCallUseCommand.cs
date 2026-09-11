@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -16,11 +17,11 @@ public static class LibraryCallUseCommand
     public const string Name = "libraries";
 
     internal const string ConsumerUseSitesSection =
-        "Consumer Use Sites";
+        LibraryCallUseViewSections.ConsumerUseSites;
     internal const string ProviderApiTypesSection =
-        "Provider API Types";
+        LibraryCallUseViewSections.ProviderApiTypes;
     internal const string CallSitesSection =
-        "Call Sites";
+        LibraryCallUseViewSections.CallSites;
 
     static readonly string[] SectionOrder =
     [
@@ -32,98 +33,6 @@ public static class LibraryCallUseCommand
     static readonly IReadOnlyDictionary<string, string[]> NoCategories =
         new Dictionary<string, string[]>(
             StringComparer.OrdinalIgnoreCase);
-
-    static readonly string[] CallSiteLabels =
-    [
-        "Source Library",
-        "Source MVID",
-        "Source Member",
-        "Source Token",
-        "Target Library",
-        "Target MVID",
-        "Target Member",
-        "Target Token",
-        "Call",
-        "Evidence Method",
-        "Evidence MVID",
-        "Evidence Token",
-        "IL Offset",
-        "Operand Token",
-        "Exact Target",
-    ];
-
-    static readonly string[] CallSiteIds =
-    [
-        "source-library",
-        "source-mvid",
-        "source-member",
-        "source-token",
-        "target-library",
-        "target-mvid",
-        "target-member",
-        "target-token",
-        "call",
-        "evidence-method",
-        "evidence-mvid",
-        "evidence-token",
-        "il-offset",
-        "operand-token",
-        "exact-target",
-    ];
-
-    static readonly string[] ConsumerUseSiteLabels =
-    [
-        "Source Library",
-        "Source MVID",
-        "Source Member",
-        "Source Token",
-        "Target Library",
-        "Target MVID",
-        "Provider Types",
-        "Target Members",
-        "Call Sites",
-        "Call Site Rows",
-    ];
-
-    static readonly string[] ConsumerUseSiteIds =
-    [
-        "source-library",
-        "source-mvid",
-        "source-member",
-        "source-token",
-        "target-library",
-        "target-mvid",
-        "provider-types",
-        "target-members",
-        "call-sites",
-        "call-site-rows",
-    ];
-
-    static readonly string[] ProviderApiTypeLabels =
-    [
-        "Source Library",
-        "Source MVID",
-        "Target Library",
-        "Target MVID",
-        "Target Type",
-        "Source Members",
-        "Target Members",
-        "Call Sites",
-        "Call Site Rows",
-    ];
-
-    static readonly string[] ProviderApiTypeIds =
-    [
-        "source-library",
-        "source-mvid",
-        "target-library",
-        "target-mvid",
-        "target-type",
-        "source-members",
-        "target-members",
-        "call-sites",
-        "call-site-rows",
-    ];
 
     static readonly string[] DefaultCallSiteColumns =
     [
@@ -306,23 +215,10 @@ public static class LibraryCallUseCommand
         return 0;
     }
 
-    static DocumentSchema CreateSchema()
-    {
-        var schema = new DocumentSchema();
-        schema.Add(
-            ConsumerUseSitesSection,
-            "column",
-            ConsumerUseSiteLabels);
-        schema.Add(
-            ProviderApiTypesSection,
-            "column",
-            ProviderApiTypeLabels);
-        schema.Add(
-            CallSitesSection,
-            "column",
-            CallSiteLabels);
-        return schema;
-    }
+    static DocumentSchema CreateSchema() =>
+        LibraryCallUseViewContext.Default
+            .GetSchemaInfo<LibraryCallUseSelectedView>()!
+            .ToDocumentSchema();
 
     static bool TryResolveSelection(
         LibraryCallUseOptions options,
@@ -430,15 +326,19 @@ public static class LibraryCallUseCommand
         AssemblyPairCallUseResult result,
         LibraryCallUseOptions options)
     {
-        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences =
-            RowWindow.Apply(
-                options.Rows,
-                result.Occurrences);
-        if (options.Count)
+        List<LibraryCallUseCallSiteRow> rows =
+            CreateCallSiteRows(result.Occurrences);
+        IReadOnlyList<AssemblyPairCallUseOccurrence> selectedOccurrences =
+            RowWindow.Apply(options.Rows, result.Occurrences);
+        var view = new LibraryCallUseCallSitesView
         {
-            CountOutput.WriteCount(occurrences.Count);
-            return;
-        }
+            Title = "Library Call Use",
+            Description = CreateDefaultDescription(
+                result,
+                selectedOccurrences,
+                options.Rows),
+            Rows = rows,
+        };
 
         string[]? columns = options.Columns;
         string[]? fields = options.Fields;
@@ -451,16 +351,29 @@ public static class LibraryCallUseCommand
             columns = DefaultCallSiteColumns;
         }
 
+        var writerOptions =
+            OutputFormatter.CreateProjectedWriterOptions(
+                columns,
+                fields,
+                options.Rows);
+        if (options.Count)
+        {
+            CountProjection count = CountProjectionFormatter.Capture(
+                view,
+                LibraryCallUseViewContext.Default,
+                writerOptions);
+            CountOutput.WriteCount(count.Total);
+            return;
+        }
+
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions>
-            serialize = (writer, formatter, writerOptions) =>
-            {
-                var markout = new MarkoutWriter(
+            serialize = (writer, formatter, projectedOptions) =>
+                MarkoutSerializer.Serialize(
+                    view,
                     writer,
                     formatter,
-                    writerOptions);
-                WriteCallSiteTable(markout, occurrences);
-                markout.Flush();
-            };
+                    LibraryCallUseViewContext.Default,
+                    projectedOptions);
         switch (options.Format)
         {
             case OutputFormat.Json:
@@ -469,7 +382,7 @@ public static class LibraryCallUseCommand
                     columns,
                     fields,
                     serialize,
-                    maxRows: null);
+                    maxRows: options.Rows);
                 break;
             case OutputFormat.Table:
             case OutputFormat.Tsv:
@@ -482,43 +395,17 @@ public static class LibraryCallUseCommand
                     columns,
                     fields,
                     serialize,
-                    maxRows: null);
+                    maxRows: options.Rows);
                 break;
             default:
-                var writerOptions =
-                    OutputFormatter.CreateProjectedWriterOptions(
-                        columns,
-                        fields,
-                        rows: null);
-                var markout = new MarkoutWriter(
+                MarkoutSerializer.Serialize(
+                    view,
                     Console.Out,
                     options.Format == OutputFormat.PlainText
                         ? new PlainTextFormatter()
                         : new MarkdownFormatter(),
+                    LibraryCallUseViewContext.Default,
                     writerOptions);
-                markout.WriteHeading(1, "Library Call Use");
-                markout.WriteParagraph(
-                    $"{FormatAssembly(result.Subjects[0])} "
-                    + "\u2194 "
-                    + FormatAssembly(
-                        result.Subjects[1]));
-                string[] summaries =
-                    [.. RelationshipSummaries(occurrences)];
-                if (summaries.Length == 0)
-                {
-                    markout.WriteParagraph(
-                        result.Occurrences.Length > 0
-                            && options.Rows is not null
-                            ? "No direct pair call use is selected by the row window."
-                            : result.IsComplete
-                            ? "No direct pair call use was observed."
-                            : "No exact pair call use was observed; the evidence is incomplete.");
-                }
-                else
-                    foreach (string summary in summaries)
-                        markout.WriteParagraph(summary);
-                WriteCallSiteTable(markout, occurrences);
-                markout.Flush();
                 break;
         }
     }
@@ -529,53 +416,43 @@ public static class LibraryCallUseCommand
         LibraryCallUseOptions options,
         IReadOnlyCollection<string> selectedNames)
     {
-        LibraryCallUseSection[] sections =
-            CreateSections(projection);
-        LibraryCallUseSection[] selected =
-        [
-            .. sections.Where(
-                section => selectedNames.Contains(
-                    section.Name,
-                    StringComparer.OrdinalIgnoreCase)),
-        ];
         DocumentSchema schema = CreateSchema();
         string[]? projectedColumns =
             ResolveProjectedColumns(options);
         HashSet<string> renderedNames =
             projectedColumns is { Length: > 0 }
-                ? selected
+                ? selectedNames
                     .Where(section =>
                         schema.ValidateProjection(
-                            section.Name,
+                            section,
                             projectedColumns)
                             .Resolved.Length > 0)
-                    .Select(section => section.Name)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase)
                 : selectedNames.ToHashSet(
                     StringComparer.OrdinalIgnoreCase);
-        LibraryCallUseSection[] rendered =
-        [
-            .. selected.Where(
-                section => renderedNames.Contains(section.Name)),
-        ];
-        LibraryCallUseSection[] windowed =
-            ApplyRowWindow(rendered, options.Rows);
+        LibraryCallUseSelectedView view =
+            CreateSelectedView(projection);
+        var writerOptions =
+            OutputFormatter.CreateProjectedWriterOptions(
+                projectedColumns,
+                fields: null,
+                options.Rows);
+        writerOptions.IncludeSections = renderedNames;
 
         if (options.Count)
         {
-            if (selected.Length == 1)
+            string[] ordered =
+                [.. SectionOrder.Where(selectedNames.Contains)];
+            CountProjection counts = CountProjectionFormatter.Capture(
+                view,
+                LibraryCallUseViewContext.Default,
+                writerOptions);
+            if (ordered.Length == 1)
             {
-                CountOutput.WriteCount(
-                    renderedNames.Contains(selected[0].Name)
-                        ? RowWindow.Apply(
-                            options.Rows,
-                            selected[0].Rows).Count
-                        : 0);
+                CountOutput.WriteCount(counts.Total);
                 return;
             }
 
-            string[] ordered =
-                [.. selected.Select(section => section.Name)];
             if (!CountOutput.ValidateMapFormat(
                     options.Format,
                     ordered))
@@ -583,17 +460,6 @@ public static class LibraryCallUseCommand
                 return;
             }
 
-            var counts = new CountProjection();
-            foreach (LibraryCallUseSection section in selected)
-            {
-                counts.SetRows(
-                    section.Name,
-                    renderedNames.Contains(section.Name)
-                        ? RowWindow.Apply(
-                            options.Rows,
-                            section.Rows).Count
-                        : 0);
-            }
             CountOutput.Write(
                 counts,
                 ordered,
@@ -609,17 +475,16 @@ public static class LibraryCallUseCommand
                 projectedColumns,
                 fields: null,
                 (writer, formatter, writerOptions) =>
-                    WriteSelectedDocument(
-                        new MarkoutWriter(
-                            writer,
-                            formatter,
-                            writerOptions),
-                        result,
-                        windowed,
-                        includeDocumentHeading:
-                            selected.Length > 1,
-                        renderEmptyTables: true),
-                maxRows: null);
+                {
+                    writerOptions.IncludeSections = renderedNames;
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        LibraryCallUseViewContext.Default,
+                        writerOptions);
+                },
+                maxRows: options.Rows);
             return;
         }
 
@@ -628,7 +493,6 @@ public static class LibraryCallUseCommand
                 or OutputFormat.Tsv
                 or OutputFormat.Jsonl)
         {
-            LibraryCallUseSection section = windowed[0];
             OutputFormatter.WriteProjectedTable(
                 Console.Out,
                 showHeader: !options.NoHeader,
@@ -638,14 +502,15 @@ public static class LibraryCallUseCommand
                 fields: null,
                 (writer, formatter, writerOptions) =>
                 {
-                    var markout = new MarkoutWriter(
+                    writerOptions.IncludeSections = renderedNames;
+                    MarkoutSerializer.Serialize(
+                        view,
                         writer,
                         formatter,
+                        LibraryCallUseViewContext.Default,
                         writerOptions);
-                    WriteSectionTable(markout, section);
-                    markout.Flush();
                 },
-                maxRows: null);
+                maxRows: options.Rows);
             return;
         }
 
@@ -653,182 +518,249 @@ public static class LibraryCallUseCommand
             options.Columns is null && options.Fields is null
                 ? DefaultSelectedColumns
                 : projectedColumns;
-        var projectedWriterOptions =
-            OutputFormatter.CreateProjectedWriterOptions(
-                humanColumns,
-                fields: null,
-                rows: null);
-        var document = new MarkoutWriter(
-            Console.Out,
+        WriteSelectedHuman(
+            result,
+            projection,
+            options,
+            renderedNames,
+            humanColumns,
+            includeDocumentHeading: selectedNames.Count > 1);
+    }
+
+    static void WriteSelectedHuman(
+        AssemblyPairCallUseResult result,
+        AssemblyPairCallUseProjection projection,
+        LibraryCallUseOptions options,
+        IReadOnlySet<string> renderedNames,
+        string[]? columns,
+        bool includeDocumentHeading)
+    {
+        IMarkoutFormatter formatter =
             options.Format == OutputFormat.PlainText
                 ? new PlainTextFormatter()
-                : new MarkdownFormatter(),
-            projectedWriterOptions);
-        WriteSelectedDocument(
-            document,
-            result,
-            windowed,
-            includeDocumentHeading: selected.Length > 1);
-        document.Flush();
-    }
-
-    static LibraryCallUseSection[] CreateSections(
-        AssemblyPairCallUseProjection projection) =>
-    [
-        new(
-            ConsumerUseSitesSection,
-            "Attributed source methods that directly use the other library. "
-                + "These are use sites, not inferred features or public entry points.",
-            ConsumerUseSiteLabels,
-            ConsumerUseSiteIds,
-            [
-                .. projection.ConsumerUseSites.Select(site => new[]
-                {
-                    AssemblyIdentityFormatter.Format(
-                        site.Source.Identity),
-                    site.SourceModuleVersionId.ToString("D"),
-                    LibraryMetadataService.FormatMethod(
-                        site.SourceMethod),
-                    $"0x{site.SourceMethod.MetadataToken:X8}",
-                    AssemblyIdentityFormatter.Format(
-                        site.Target.Identity),
-                    site.TargetModuleVersionId.ToString("D"),
-                    site.TargetTypes.Length.ToString(),
-                    site.TargetMethods.Length.ToString(),
-                    site.CallSiteCount.ToString(),
-                    FormatOccurrenceRows(site.OccurrenceIndexes),
-                }),
-            ],
-            projection.IsComplete
-                ? "No direct consumer use sites were observed."
-                : "No exact consumer use sites were observed; the evidence is incomplete."),
-        new(
-            ProviderApiTypesSection,
-            "Structured declaring types of exact selected target methods. "
-                + "These are consumed provider types, not inferred capability clusters or public API boundaries.",
-            ProviderApiTypeLabels,
-            ProviderApiTypeIds,
-            [
-                .. projection.ProviderApiTypes.Select(type => new[]
-                {
-                    AssemblyIdentityFormatter.Format(
-                        type.Source.Identity),
-                    type.SourceModuleVersionId.ToString("D"),
-                    AssemblyIdentityFormatter.Format(
-                        type.Target.Identity),
-                    type.TargetModuleVersionId.ToString("D"),
-                    type.TargetType.Resolution?.Type.ToMetadataFullName()
-                        ?? type.TargetType.ToQualifiedDisplayString(),
-                    type.SourceMethods.Length.ToString(),
-                    type.TargetMethods.Length.ToString(),
-                    type.CallSiteCount.ToString(),
-                    FormatOccurrenceRows(type.OccurrenceIndexes),
-                }),
-            ],
-            projection.IsComplete
-                ? "No provider API types were observed."
-                : "No exact provider API types were observed; the evidence is incomplete."),
-        new(
-            CallSitesSection,
-            "Exact physical call and construction occurrences crossing the library pair.",
-            CallSiteLabels,
-            CallSiteIds,
-            CreateCallSiteRows(projection.Pair.Occurrences),
-            projection.IsComplete
-                ? "No direct pair call use was observed."
-                : "No exact pair call use was observed; the evidence is incomplete."),
-    ];
-
-    static LibraryCallUseSection[] ApplyRowWindow(
-        IEnumerable<LibraryCallUseSection> sections,
-        RowWindow? rows) =>
-    [
-        .. sections.Select(section => section with
-        {
-            Rows = [.. RowWindow.Apply(rows, section.Rows)],
-            WasLogicallyEmpty = section.Rows.Length == 0,
-        }),
-    ];
-
-    static void WriteSelectedDocument(
-        MarkoutWriter writer,
-        AssemblyPairCallUseResult result,
-        IReadOnlyList<LibraryCallUseSection> sections,
-        bool includeDocumentHeading,
-        bool renderEmptyTables = false)
-    {
+                : new MarkdownFormatter();
         if (includeDocumentHeading)
         {
-            writer.WriteHeading(1, "Library Call Use");
-            writer.WriteParagraph(
-                $"{FormatAssembly(result.Subjects[0])} "
-                + "\u2194 "
-                + FormatAssembly(result.Subjects[1]));
+            MarkoutSerializer.Serialize(
+                new LibraryCallUseHeaderView
+                {
+                    Description = FormatPair(result),
+                },
+                Console.Out,
+                formatter,
+                LibraryCallUseViewContext.Default);
         }
 
-        bool first = true;
-        foreach (LibraryCallUseSection section in sections)
+        var writerOptions =
+            OutputFormatter.CreateProjectedWriterOptions(
+                columns,
+                fields: null,
+                options.Rows);
+        writerOptions.HeadingLevelOffset = 1;
+        bool wroteDocument = includeDocumentHeading;
+        foreach (string section in SectionOrder)
         {
-            if (!first || includeDocumentHeading)
-                writer.WriteBlankLine();
-            first = false;
-            writer.WriteHeading(2, section.Name);
-            writer.WriteParagraph(section.Summary);
-            if (section.Rows.Length == 0
-                && !renderEmptyTables)
-            {
-                writer.WriteParagraph(
-                    section.WasLogicallyEmpty
-                        ? section.EmptyText
-                        : "No rows are selected by the row window.");
+            if (!renderedNames.Contains(section))
                 continue;
+
+            if (wroteDocument)
+            {
+                Console.WriteLine();
+                Console.WriteLine();
             }
-            WriteSectionTable(writer, section);
+
+            switch (section)
+            {
+                case ConsumerUseSitesSection:
+                    MarkoutSerializer.Serialize(
+                        CreateConsumerUseSitesView(
+                            projection,
+                            options.Rows),
+                        Console.Out,
+                        formatter,
+                        LibraryCallUseViewContext.Default,
+                        writerOptions);
+                    break;
+                case ProviderApiTypesSection:
+                    MarkoutSerializer.Serialize(
+                        CreateProviderApiTypesView(
+                            projection,
+                            options.Rows),
+                        Console.Out,
+                        formatter,
+                        LibraryCallUseViewContext.Default,
+                        writerOptions);
+                    break;
+                case CallSitesSection:
+                    MarkoutSerializer.Serialize(
+                        CreateSelectedCallSitesView(
+                            projection,
+                            options.Rows),
+                        Console.Out,
+                        formatter,
+                        LibraryCallUseViewContext.Default,
+                        writerOptions);
+                    break;
+            }
+            wroteDocument = true;
         }
     }
 
-    static void WriteSectionTable(
-        MarkoutWriter writer,
-        LibraryCallUseSection section) =>
-        writer.WriteTable(
-            section.Labels,
-            section.Ids,
-            section.Rows);
+    static LibraryCallUseSelectedView CreateSelectedView(
+        AssemblyPairCallUseProjection projection) =>
+        new()
+        {
+            ConsumerUseSites =
+                [.. projection.ConsumerUseSites.Select(CreateConsumerUseSiteRow)],
+            ProviderApiTypes =
+                [.. projection.ProviderApiTypes.Select(CreateProviderApiTypeRow)],
+            CallSites = CreateCallSiteRows(projection.Pair.Occurrences),
+        };
 
-    static void WriteCallSiteTable(
-        MarkoutWriter writer,
-        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences) =>
-        writer.WriteTable(
-            CallSiteLabels,
-            CallSiteIds,
-            CreateCallSiteRows(occurrences));
+    static LibraryCallUseConsumerUseSitesView CreateConsumerUseSitesView(
+        AssemblyPairCallUseProjection projection,
+        RowWindow? rows)
+    {
+        List<LibraryCallUseConsumerUseSiteRow> values =
+            [.. projection.ConsumerUseSites.Select(CreateConsumerUseSiteRow)];
+        return new()
+        {
+            Description = CreateSectionDescription(
+                "Attributed source methods that directly use the other library. "
+                    + "These are use sites, not inferred features or public entry points.",
+                projection.IsComplete
+                    ? "No direct consumer use sites were observed."
+                    : "No exact consumer use sites were observed; the evidence is incomplete.",
+                values,
+                rows),
+            Rows = HasSelectedRows(values, rows) ? values : null,
+        };
+    }
 
-    static string[][] CreateCallSiteRows(
+    static LibraryCallUseProviderApiTypesView CreateProviderApiTypesView(
+        AssemblyPairCallUseProjection projection,
+        RowWindow? rows)
+    {
+        List<LibraryCallUseProviderApiTypeRow> values =
+            [.. projection.ProviderApiTypes.Select(CreateProviderApiTypeRow)];
+        return new()
+        {
+            Description = CreateSectionDescription(
+                "Structured declaring types of exact selected target methods. "
+                    + "These are consumed provider types, not inferred capability clusters or public API boundaries.",
+                projection.IsComplete
+                    ? "No provider API types were observed."
+                    : "No exact provider API types were observed; the evidence is incomplete.",
+                values,
+                rows),
+            Rows = HasSelectedRows(values, rows) ? values : null,
+        };
+    }
+
+    static LibraryCallUseCallSitesView CreateSelectedCallSitesView(
+        AssemblyPairCallUseProjection projection,
+        RowWindow? rows)
+    {
+        List<LibraryCallUseCallSiteRow> values =
+            CreateCallSiteRows(projection.Pair.Occurrences);
+        return new()
+        {
+            Title = CallSitesSection,
+            Description = CreateSectionDescription(
+                "Exact physical call and construction occurrences crossing the library pair.",
+                projection.IsComplete
+                    ? "No direct pair call use was observed."
+                    : "No exact pair call use was observed; the evidence is incomplete.",
+                values,
+                rows),
+            Rows = HasSelectedRows(values, rows) ? values : null,
+        };
+    }
+
+    static string CreateDefaultDescription(
+        AssemblyPairCallUseResult result,
+        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences,
+        RowWindow? rows)
+    {
+        string[] summaries = [.. RelationshipSummaries(occurrences)];
+        string detail = summaries.Length > 0
+            ? string.Join("\n\n", summaries)
+            : result.Occurrences.Length > 0 && rows is not null
+                ? "No direct pair call use is selected by the row window."
+                : result.IsComplete
+                    ? "No direct pair call use was observed."
+                    : "No exact pair call use was observed; the evidence is incomplete.";
+        return $"{FormatPair(result)}\n\n{detail}";
+    }
+
+    static string CreateSectionDescription<T>(
+        string summary,
+        string emptyText,
+        IReadOnlyList<T> values,
+        RowWindow? rows) =>
+        HasSelectedRows(values, rows)
+            ? summary
+            : $"{summary}\n\n{(values.Count == 0 ? emptyText : "No rows are selected by the row window.")}";
+
+    static bool HasSelectedRows<T>(
+        IReadOnlyList<T> values,
+        RowWindow? rows) =>
+        RowWindow.Apply(rows, values).Count > 0;
+
+    static LibraryCallUseConsumerUseSiteRow CreateConsumerUseSiteRow(
+        AssemblyPairCallUseConsumerUseSite site) =>
+        new()
+        {
+            SourceLibrary = AssemblyIdentityFormatter.Format(site.Source.Identity),
+            SourceMvid = site.SourceModuleVersionId.ToString("D"),
+            SourceMember = LibraryMetadataService.FormatMethod(site.SourceMethod),
+            SourceToken = $"0x{site.SourceMethod.MetadataToken:X8}",
+            TargetLibrary = AssemblyIdentityFormatter.Format(site.Target.Identity),
+            TargetMvid = site.TargetModuleVersionId.ToString("D"),
+            ProviderTypes = site.TargetTypes.Length,
+            TargetMembers = site.TargetMethods.Length,
+            CallSites = site.CallSiteCount,
+            CallSiteRows = FormatOccurrenceRows(site.OccurrenceIndexes),
+        };
+
+    static LibraryCallUseProviderApiTypeRow CreateProviderApiTypeRow(
+        AssemblyPairCallUseProviderApiType type) =>
+        new()
+        {
+            SourceLibrary = AssemblyIdentityFormatter.Format(type.Source.Identity),
+            SourceMvid = type.SourceModuleVersionId.ToString("D"),
+            TargetLibrary = AssemblyIdentityFormatter.Format(type.Target.Identity),
+            TargetMvid = type.TargetModuleVersionId.ToString("D"),
+            TargetType = type.TargetType.Resolution?.Type.ToMetadataFullName()
+                ?? type.TargetType.ToQualifiedDisplayString(),
+            SourceMembers = type.SourceMethods.Length,
+            TargetMembers = type.TargetMethods.Length,
+            CallSites = type.CallSiteCount,
+            CallSiteRows = FormatOccurrenceRows(type.OccurrenceIndexes),
+        };
+
+    static List<LibraryCallUseCallSiteRow> CreateCallSiteRows(
         IEnumerable<AssemblyPairCallUseOccurrence> occurrences) =>
     [
-        .. occurrences.Select(occurrence => new[]
+        .. occurrences.Select(occurrence => new LibraryCallUseCallSiteRow
         {
-            AssemblyIdentityFormatter.Format(
-                occurrence.Source.Identity),
-            occurrence.SourceModuleVersionId.ToString("D"),
-            LibraryMetadataService.FormatMethod(
-                occurrence.SourceMethod),
-            $"0x{occurrence.SourceMethod.MetadataToken:X8}",
-            AssemblyIdentityFormatter.Format(
-                occurrence.Target.Identity),
-            occurrence.TargetModuleVersionId.ToString("D"),
-            LibraryMetadataService.FormatMethod(
-                occurrence.TargetMethod),
-            $"0x{occurrence.TargetMethod.MetadataToken:X8}",
-            FormatCallKind(occurrence.Call.Kind),
-            LibraryMetadataService.FormatMethod(
+            SourceLibrary = AssemblyIdentityFormatter.Format(occurrence.Source.Identity),
+            SourceMvid = occurrence.SourceModuleVersionId.ToString("D"),
+            SourceMember = LibraryMetadataService.FormatMethod(occurrence.SourceMethod),
+            SourceToken = $"0x{occurrence.SourceMethod.MetadataToken:X8}",
+            TargetLibrary = AssemblyIdentityFormatter.Format(occurrence.Target.Identity),
+            TargetMvid = occurrence.TargetModuleVersionId.ToString("D"),
+            TargetMember = LibraryMetadataService.FormatMethod(occurrence.TargetMethod),
+            TargetToken = $"0x{occurrence.TargetMethod.MetadataToken:X8}",
+            Call = FormatCallKind(occurrence.Call.Kind),
+            EvidenceMethod = LibraryMetadataService.FormatMethod(
                 occurrence.Call.EvidenceMethod),
-            occurrence.Call.EvidenceMethod.ModuleVersionId
-                .ToString("D"),
-            $"0x{occurrence.Call.EvidenceMethod.MetadataToken:X8}",
-            $"0x{occurrence.Call.ILOffset:X4}",
-            $"0x{occurrence.Call.OperandToken:X8}",
-            occurrence.Call.ExactTarget ? "yes" : "no",
+            EvidenceMvid = occurrence.Call.EvidenceMethod.ModuleVersionId.ToString("D"),
+            EvidenceToken =
+                $"0x{occurrence.Call.EvidenceMethod.MetadataToken:X8}",
+            IlOffset = $"0x{occurrence.Call.ILOffset:X4}",
+            OperandToken = $"0x{occurrence.Call.OperandToken:X8}",
+            ExactTarget = occurrence.Call.ExactTarget ? "yes" : "no",
         }),
     ];
 
@@ -860,6 +792,11 @@ public static class LibraryCallUseCommand
         subject.Identity.Version is { } version
             ? $"{subject.Identity.Name}@{version}"
             : subject.Identity.Name;
+
+    static string FormatPair(AssemblyPairCallUseResult result) =>
+        $"{FormatAssembly(result.Subjects[0])} "
+        + "\u2194 "
+        + FormatAssembly(result.Subjects[1]);
 
     static string FormatCallKind(CallKind kind) => kind switch
     {
@@ -941,17 +878,6 @@ public static class LibraryCallUseCommand
                 + $"{result.Diagnostics.UnresolvedCandidateCallCount} "
                 + "call sites name the other library but could not be matched.";
         }
-    }
-
-    sealed record LibraryCallUseSection(
-        string Name,
-        string Summary,
-        string[] Labels,
-        string[] Ids,
-        string[][] Rows,
-        string EmptyText)
-    {
-        internal bool WasLogicallyEmpty { get; init; }
     }
 
     sealed class AssemblySubjectPairComparer
