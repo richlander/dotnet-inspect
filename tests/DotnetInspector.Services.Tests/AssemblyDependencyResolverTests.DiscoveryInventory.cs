@@ -1,4 +1,6 @@
 using System.Reflection.PortableExecutable;
+using System.Text;
+using DotnetInspector.DependencyManifests;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Services.Tests;
@@ -256,6 +258,61 @@ public partial class AssemblyDependencyResolverTests
         {
             Environment.SetEnvironmentVariable("NUGET_PACKAGES", oldPackages);
         }
+    }
+
+    [Fact]
+    public void SuppliedDependencyManifestProjectsAdjacentSdkProjectAsset()
+    {
+        using var files = new DiscoveryFiles();
+        string project = files.Write(
+            "ProjectDependency.dll",
+            BuildAssembly("ProjectDependency", []));
+        ApplicationDependencyManifest manifest = Assert.IsType<
+            ApplicationDependencyManifestParseOutcome.Succeeded>(
+                ApplicationDependencyManifestReader.Parse(
+                    Encoding.UTF8.GetBytes(
+                        """
+                        {
+                          "runtimeTarget": {
+                            "name": ".NETCoreApp,Version=v11.0"
+                          },
+                          "targets": {
+                            ".NETCoreApp,Version=v11.0": {
+                              "ProjectDependency/1.0.0": {
+                                "runtime": {
+                                  "nested/ProjectDependency.dll": {}
+                                }
+                              }
+                            }
+                          },
+                          "libraries": {
+                            "ProjectDependency/1.0.0": {
+                              "type": "project"
+                            }
+                          }
+                        }
+                        """),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)).Value;
+        var resolver = new AssemblyDependencyResolver(
+            files.Options with
+            {
+                IncludeDepsJsonAssets = true,
+                DependencyManifest = manifest,
+            });
+
+        AssemblyDependencyDiscoveryResult.Captured inventory =
+            Assert.IsType<AssemblyDependencyDiscoveryResult.Captured>(
+                resolver.CaptureDiscoveryInventory(
+                    TestContext.Current.CancellationToken));
+        AssemblyDependencyDiscoveryEntry entry =
+            Assert.Single(inventory.Entries);
+
+        Assert.Equal(project, entry.Dependency.Path);
+        Assert.Equal(
+            AssemblyDependencyProvenance.DepsJsonAsset,
+            entry.Dependency.Provenance);
+        Assert.Equal(project, Assert.Single(resolver.ResolveAll()).Path);
     }
 
     [Fact]

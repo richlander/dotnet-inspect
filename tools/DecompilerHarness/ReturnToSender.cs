@@ -8,6 +8,7 @@ using System.Text.Json.Serialization;
 
 using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
+using DotnetInspector.DependencyManifests;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.RoundTripCompilation;
@@ -2432,13 +2433,14 @@ static class ReturnToSender
         ArtifactQueryLease? lease = null;
         try
         {
-            bool hasDependencyManifest =
-                File.Exists(Path.ChangeExtension(targetPath, ".deps.json"));
+            ApplicationDependencyManifest? dependencyManifest =
+                ReadDependencyManifest(targetPath);
             var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
             {
                 ExcludeTargetAssembly = true,
                 SnapshotAssemblyImages = true,
                 AllowPlatformAssemblyVersionRollForward = true,
+                DependencyManifest = dependencyManifest,
                 // The process TPA describes the harness closure, not platform
                 // authority for the inspected artifact. Resolve platform
                 // references from their actual binding requests instead.
@@ -2447,7 +2449,7 @@ static class ReturnToSender
                 // A matching application manifest already defines the local
                 // dependency graph; sibling scanning would register its assets
                 // again with unrelated provenance.
-                IncludeSiblingAssemblies = !hasDependencyManifest,
+                IncludeSiblingAssemblies = dependencyManifest is null,
             });
             ResolvedAssemblyReference targetAssembly =
                 resolver.AcquireTargetAssembly()
@@ -2507,6 +2509,47 @@ static class ReturnToSender
             owner.DisposeAsync().AsTask().GetAwaiter().GetResult();
             throw;
         }
+    }
+
+    static ApplicationDependencyManifest? ReadDependencyManifest(
+        string targetPath)
+    {
+        string manifestPath =
+            Path.ChangeExtension(targetPath, ".deps.json");
+        if (!File.Exists(manifestPath))
+            return null;
+
+        byte[] bytes;
+        using (FileStream stream = File.OpenRead(manifestPath))
+        {
+            if (stream.Length
+                > ApplicationDependencyManifestParseBudget.Default.MaxBytes)
+            {
+                throw new InvalidOperationException(
+                    "The application dependency manifest exceeds the format-reader byte limit.");
+            }
+
+            bytes = new byte[checked((int)stream.Length)];
+            stream.ReadExactly(bytes);
+        }
+
+        ApplicationDependencyManifestParseOutcome outcome =
+            ApplicationDependencyManifestReader.Parse(bytes);
+        return outcome switch
+        {
+            ApplicationDependencyManifestParseOutcome.Succeeded succeeded =>
+                succeeded.Value,
+            ApplicationDependencyManifestParseOutcome.Rejected rejected =>
+                throw new InvalidOperationException(
+                    "The application dependency manifest was rejected: "
+                    + $"{rejected.Diagnostic.Kind}."),
+            ApplicationDependencyManifestParseOutcome.Incomplete incomplete =>
+                throw new InvalidOperationException(
+                    "The application dependency manifest was incomplete: "
+                    + $"{incomplete.Diagnostic.Kind}."),
+            _ => throw new InvalidOperationException(
+                "Unknown application dependency manifest outcome."),
+        };
     }
 
     static AssemblyBindingRequest[] PlatformRequests(

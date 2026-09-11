@@ -794,7 +794,9 @@ The compatibility-preserving frozen-reference adoption path has four steps:
    discovery evidence before consumer selection. The typed inventory landed in
    [#6214](https://github.com/richlander/dotnet-inspect/pull/6214); ordered
    `.deps.json` physical-location selection landed in
-   [#6360](https://github.com/richlander/dotnet-inspect/pull/6360).
+   [#6360](https://github.com/richlander/dotnet-inspect/pull/6360). The
+   [Application Dependency Manifest Format](application-dependency-manifest-format.md)
+   later separates SDK byte interpretation from that physical resolver policy.
 4. Migrate ReturnToSender's compiler-closure acquisition to the frozen context
    in [#6103](https://github.com/richlander/dotnet-inspect/issues/6103) and retire
    its simple-name-first-wins reference enumeration and competing compiler
@@ -832,15 +834,21 @@ prepares a global request for an exact captured candidate when Services
 independently selects the same complete identity as a platform asset, even if
 the collision is not target-reachable.
 
-When a matching `<target>.deps.json` exists, RTS uses its application-relative
-asset locations and disables broad sibling-directory discovery. The manifest
-is the runtime dependency graph for that application; scanning the same
-directory as a separate source would create distinct provenance-bearing
-registrations for one physical asset. The candidate-inventory contract forbids
-coalescing those registrations by path or bytes, so avoiding the second
-discovery source prevents an artificial selection ambiguity without weakening
-the evidence model. Targets without a matching dependency manifest retain
-sibling discovery.
+When a matching `<target>.deps.json` exists, RTS reads its bounded bytes and
+directly invokes the application dependency-manifest format owner. That result
+selects the exact runtime target and, for RID-specific SDK output, its
+associated RID-less compilation target. RTS supplies the immutable result to
+Services, which projects application-relative, package-root, and adjacent
+project-output locations without interpreting JSON. Broad sibling-directory
+discovery is disabled only after format interpretation succeeds.
+
+Scanning the same directory as a separate source would create distinct
+provenance-bearing registrations for one physical asset. The
+candidate-inventory contract forbids coalescing those registrations by path or
+bytes, so avoiding the second discovery source prevents an artificial
+selection ambiguity without weakening the evidence model. Targets without a
+matching dependency manifest retain sibling discovery; a rejected or
+incomplete matching manifest fails visibly rather than selecting that fallback.
 
 Selection requests every captured candidate except the platform and agreement
 registrations explicitly covered by prepared binding evidence. Another
@@ -863,9 +871,12 @@ compiler set. A renamed extra occurrence with the selected platform identity
 must remain ambiguous because it is outside the binding's agreement evidence.
 An exact candidate at another version remains in the compiler set rather than
 being suppressed by the prepared platform family.
-The manifest case provides the same dependency through a matching application
-manifest and as a sibling file and requires exactly one compiler reference. The
-pinned cutover population adds real evidence from
+The manifest case uses an SDK project entry with no declared physical path,
+projects its nested logical asset to the adjacent output file, ignores an
+unselected target, and requires exactly one compiler reference despite the
+same file also being sibling-discoverable. A malformed matching manifest must
+fail before sibling fallback. The pinned cutover population adds real evidence
+from
 `dotnet-inspect.any/0.14.0` application dependencies and the
 `microsoft.codeanalysis.csharp/5.0.0` package graph: package-local dependencies
 reach member-level RTS without being compared to unrelated current-harness or
