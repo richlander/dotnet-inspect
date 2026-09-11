@@ -125,6 +125,7 @@ public sealed class LocalPackageSourceIdentityTests : IDisposable
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OrdinalIgnoreCaseFoldMatchesComparerForEveryUnicodeScalar()
     {
         var foldByClass =

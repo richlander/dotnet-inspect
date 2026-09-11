@@ -175,6 +175,20 @@ function startFailureReason(
     : reason.kind;
 }
 
+function registerEngineWorkerCanaryAdapter(host: EngineWorkerHost) {
+  return host.registerOperation({
+    kind: engineWorkerCanaryKind,
+    allowance: { kind: "unbounded" },
+    encodeInput: (input: string) => engineWorkerText.decode(input),
+    value: engineWorkerText,
+    error: engineWorkerText,
+    diagnostic: engineWorkerText,
+    progress: engineWorkerText,
+    mapPreparationError: error => error,
+    boundaryErrors: engineWorkerBoundaryErrors,
+  });
+}
+
 function packageQueryRequest(
   searchText: string,
   facetIdsJson: string,
@@ -541,17 +555,7 @@ export function bindPackageQueryFacade(
 // migration or a claim that application operations already run in this Worker.
 export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
   const host = createHost(options);
-  const adapter = host.registerOperation({
-    kind: engineWorkerCanaryKind,
-    allowance: { kind: "unbounded" },
-    encodeInput: (input: string) => engineWorkerText.decode(input),
-    value: engineWorkerText,
-    error: engineWorkerText,
-    diagnostic: engineWorkerText,
-    progress: engineWorkerText,
-    mapPreparationError: error => error,
-    boundaryErrors: engineWorkerBoundaryErrors,
-  });
+  const adapter = registerEngineWorkerCanaryAdapter(host);
   const typeSourceAdapter = registerEngineWorkerTypeSourceAdapter(host);
   const page = createOperationAuthorityPage();
   const cpu = bindEngineWorkerCpuProbe(host, page, options.operationDiagnostic);
@@ -620,6 +624,27 @@ export function createProductionEngineWorkerClient(
   }
 
   const authority = createSharedEngineOperationAuthority();
+  const readinessAdapter = registerEngineWorkerCanaryAdapter(host);
+  const readinessSession = authority.page.createSession<
+    string, string, string, string, WorkerRuntimePreparationError
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: options.operationDiagnostic },
+  });
+  const readiness = readinessSession.start("", readinessAdapter);
+  const ready = (async () => {
+    if (readiness.kind !== "started") {
+      throw new Error(
+        `Engine readiness probe refused: ${startFailureReason(readiness.reason)}.`);
+    }
+    const outcome = await readiness.handle.outcome;
+    await readiness.handle.quiesced;
+    if (outcome.kind === "succeeded") return;
+    if (outcome.kind === "failed") {
+      throw new Error(`Engine readiness probe failed: ${outcome.error}`);
+    }
+    throw new Error(`Engine readiness probe was canceled: ${outcome.reason}.`);
+  })();
   const startup = bindEngineWorkerStartupClient(
     host,
     options.operationDiagnostic,
@@ -641,6 +666,9 @@ export function createProductionEngineWorkerClient(
     authority,
   );
   const identity = startup.host.buildIdentity();
+  // The eager startup read may settle before the page awaits it. Observe that
+  // rejection now; the retained promise still rejects to the Build consumer.
+  void identity.catch(() => undefined);
   const client: EngineClient = {
     host: {
       buildIdentity: () => identity,
@@ -665,8 +693,9 @@ export function createProductionEngineWorkerClient(
   return {
     host,
     client,
-    ready: identity.then(() => undefined),
+    ready,
     dispose() {
+      readinessSession.dispose();
       packageQuery.dispose();
       typeSource.dispose();
       host.dispose();

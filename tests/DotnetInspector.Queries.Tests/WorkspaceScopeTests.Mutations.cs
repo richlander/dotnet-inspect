@@ -70,6 +70,7 @@ public sealed partial class WorkspaceScopeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task AddReducesExactCorrespondenceBeforeLogicalCapacityAndPreparation()
     {
         await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
@@ -240,6 +241,7 @@ public sealed partial class WorkspaceScopeTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(false, "stale", WorkspaceScopeRejection.RevisionMismatch)]
     [InlineData(false, "foreign", WorkspaceScopeRejection.ForeignWorkspace)]
     [InlineData(false, "malformed", WorkspaceScopeRejection.Malformed)]

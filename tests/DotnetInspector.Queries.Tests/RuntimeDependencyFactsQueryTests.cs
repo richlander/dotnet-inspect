@@ -702,6 +702,7 @@ public class RuntimeDependencyFactsQueryTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(RuntimeDependencyFactsQuery.MaxTargetLibraries, false)]
     [InlineData(RuntimeDependencyFactsQuery.MaxTargetLibraries + 1, true)]
     public void Execute_TargetLibraryBoundIsExact(
@@ -727,6 +728,7 @@ public class RuntimeDependencyFactsQueryTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(RuntimeDependencyFactsQuery.MaxDependencyOccurrences, false)]
     [InlineData(RuntimeDependencyFactsQuery.MaxDependencyOccurrences + 1, true)]
     public void Execute_DependencyOccurrenceBoundIsExact(

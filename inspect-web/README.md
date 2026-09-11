@@ -2044,9 +2044,30 @@ The line presents app version, linked short commit, concise UTC build date,
 applicable acquisition producer, and the same CLI-tool and agent-skill links
 used on Home. Package acquisition supplies a compact producer label; the data
 bar renders that display text without parsing an endpoint. Runtime/Wasm state,
-timings, cache inventory, assembly/framework duplication, and management
-actions belong to the separate full-bleed Diagnostics surface rather than the
+timings, cache evidence, assembly/framework duplication, and management actions
+belong to the separate full-bleed Diagnostics surface rather than the
 persistent row.
+
+The routed `/diagnostics` surface is available from Settings and the Spotlight
+Commands scope. `src/diagnostics-view.ts` owns its typed pure rendering and
+Back/product bindings; `src/diagnostics-route.ts` owns route recognition and
+the in-app history marker. The first snapshot presents current Browser/Wasm
+loading, ready, or failed state; startup phase measurements and framework-byte
+totals; exact build provenance; and the aggregate package-cache statistics
+issued by the engine. Missing build data and runtime or cache failures remain
+visible rather than becoming zeroes or retained successful counts. The route
+does not appear in the Application menu and does not repeat the data bar.
+
+`test/diagnostics-view.test.ts`, `test/diagnostics-route.test.ts`,
+`test/settings-panel.test.ts`, `test/command-bar.test.ts`, and
+`test/entry-routes.test.ts` gate the typed snapshot, escaping, entry controls,
+history marker, and static hosting inventory. The Diagnostics cases in
+`browser/library-hierarchy.spec.ts` exercise Settings and Spotlight routing,
+destination focus, Back restoration, loading and failure states, package-cache
+failure disclosure, and the 390-pixel vertical layout against the built app.
+Network history, package-source health, cache-entry inventory and limits,
+support-report generation, eviction state, and cache-management actions remain
+future owner-adoption work.
 
 The workbench subject hierarchy is **Package → Library → Type → Member**.
 Package owns coordinate-wide inventory, documents, and NuGet dependencies.
@@ -2319,29 +2340,28 @@ provenance before publication.
 That cohort's browser workload still targets `net11.0`; the runtime is .NET 12
 CoreCLR even though the application graph retains its current target framework.
 The workflow enables `runtime-async=on` across this application graph and
-applies the `UseMonoRuntime=false`, `PublishReadyToRun=true`,
-`PublishReadyToRunComposite=false`, `WasmBuildNative=false`,
-`WasmNestedPublishAppDependsOn=`, and `WasmEnableExceptionHandling=true`
+applies the `UseMonoRuntime=false`, `PublishReadyToRun=false`,
+`WasmBuildNative=false`, `WasmNestedPublishAppDependsOn=`, and
+`WasmEnableExceptionHandling=true`
 overrides. This exercises runtime async only in the CoreCLR comparison
 deployment; Mono staging and ordinary non-AOT builds retain classic async
-lowering. Crossgen2 emits non-composite per-assembly Wasm images into `R2R/`.
-`verify-coreclr-r2r-publication.ts` requires each emitted image to be a
-WebAssembly module and byte-identical to the corresponding fingerprinted
-published asset. It requires all eight `DotnetInspect.Web*` assets and
-`System.Private.CoreLib` to be ReadyToRun, rejects orphaned outputs, and records
-the three framework facades without Crossgen2 output as IL-only. The artifact
-carries that complete per-assembly manifest, its digest, exact `dotnet --info`,
-the installed workload list, uncompressed and compressed `/_framework/` sizes,
-and a machine-readable SDK/runtime/workload receipt. That receipt also
-identifies the exact CoreCLR browser runtime asset bytes, which must match the
-published native JavaScript and Wasm. The workflow regenerates and verifies the
-ReadyToRun evidence, receipt, and CoreCLR-specific `GetDotNetRuntimeHeap` hook
-before artifact upload and again before deployment. Before the CoreCLR artifact
-crosses the upload boundary, the workflow compares its schema-5 runtime receipt
-with the triggering Mono run's schema-5 compiler receipt. This comparison is
-intentionally cross-toolchain: generated facade contracts and async-lowering
-evidence must remain equivalent between the .NET 11 Mono build and .NET 12
-CoreCLR build.
+lowering. The non-composite ReadyToRun trial is rejected because the first real
+package operation fatally entered a mismatched CoreCLR-Wasm R2R thunk even
+though build identity and the async-lowering canary succeeded. The deployment
+therefore runs a focused package-adoption test through the published production
+Worker before upload; it opens a deterministic local package through
+`QueryPackage`, so a runtime that initializes but cannot execute product work
+never reaches Azure deployment.
+
+The artifact carries exact `dotnet --info`, the installed workload list, and a
+machine-readable SDK/runtime/workload receipt. That receipt identifies the
+CoreCLR browser runtime asset bytes, which must match the published native
+JavaScript and Wasm, and records `PublishReadyToRun=false`. Before the CoreCLR
+artifact crosses the upload boundary, the workflow compares its schema-5
+runtime receipt with the triggering Mono run's schema-5 compiler receipt. This
+comparison is intentionally cross-toolchain: generated facade contracts and
+async-lowering evidence must remain equivalent between the .NET 11 Mono build
+and .NET 12 CoreCLR build.
 
 Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
 project that reaches `CoreCompile` fails unless its exact `Features` property

@@ -1476,7 +1476,8 @@ test("the Application menu owns global actions and modal focus return", async ({
     "data-drill-in",
     "true");
   await page.keyboard.press("Shift+Tab");
-  await expect(page.getByRole("button", { name: "Light" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Open Diagnostics" }))
+    .toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeHidden();
   await expect(button).toBeFocused();

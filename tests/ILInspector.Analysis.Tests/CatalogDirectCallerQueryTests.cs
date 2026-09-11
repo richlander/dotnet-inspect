@@ -18,6 +18,7 @@ public class CatalogDirectCallerQueryTests
         XmlReader.Create(reader, new XmlReaderSettings());
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ForwardedParameterTypesJoinCompleteMemberSignatures()
     {
         string? targetPath = PrivateXmlPath();
@@ -37,6 +38,7 @@ public class CatalogDirectCallerQueryTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ForwardedParameterTypesDoNotJoinCloseOverloads()
     {
         string? targetPath = PrivateXmlPath();

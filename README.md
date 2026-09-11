@@ -178,7 +178,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
-| `graph libraries` | Show exact resolved `call`, `callvirt`, and `newobj` occurrences crossing between two explicit local libraries. |
+| `graph libraries` | Show exact resolved cross-library call sites or summarize the consumer methods and provider API types they connect. |
 | `depends X` | Walk type, package, or library dependency graphs with lossless shared edges; emit tree, Mermaid, table, TSV, JSONL, JSON, or edge-count output. |
 | `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -559,7 +559,23 @@ dotnet-inspect graph integrations \
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  -S
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  -S "Provider API Types" \
+  --table
 ```
+
+`graph libraries` evaluates both directions in the pair; every row still names
+its directed source and target. Omitting `-S` preserves the exact physical call
+sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
+methods containing direct calls, and the provider declaring types selected by
+those calls. These are direct-use surfaces, not semantic feature clusters,
+public-entrypoint reachability, or a list of configured ecosystem Integrations.
 
 ### Workspace sharing and built-in guidance
 
