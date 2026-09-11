@@ -559,21 +559,6 @@ public static class CommandLineBuilder
             }
         }
 
-        int[] messageMatches =
-        [
-            .. Enumerable.Range(0, arguments.Count)
-                .Where(index =>
-                    arguments[index].Length > 0
-                    && error.Message.Contains(
-                        $"'{arguments[index]}'",
-                        StringComparison.Ordinal)),
-        ];
-        if (messageMatches.Length == 1)
-        {
-            int index = messageMatches[0];
-            return argumentPositions?[index] ?? index;
-        }
-
         IReadOnlyList<Token> errorTokens =
             error.SymbolResult is CommandResult
                 ? []
@@ -589,12 +574,15 @@ public static class CommandLineBuilder
                                 mappedToken,
                                 errorToken)))),
         ];
-        if (tokenMatches.Length == 1)
-        {
-            int index = tokenMatches[0];
-            return argumentPositions?[index] ?? index;
-        }
-
+        int[] messageMatches =
+        [
+            .. Enumerable.Range(0, arguments.Count)
+                .Where(index =>
+                    arguments[index].Length > 0
+                    && error.Message.Contains(
+                        $"'{arguments[index]}'",
+                        StringComparison.Ordinal)),
+        ];
         int[] occurrenceMatches =
         [
             .. messageMatches.Intersect(tokenMatches),
@@ -602,6 +590,19 @@ public static class CommandLineBuilder
         if (occurrenceMatches.Length == 1)
         {
             int index = occurrenceMatches[0];
+            return argumentPositions?[index] ?? index;
+        }
+
+        if (tokenMatches.Length == 1)
+        {
+            int index = tokenMatches[0];
+            return argumentPositions?[index] ?? index;
+        }
+
+        if (tokenMatches.Length == 0
+            && messageMatches.Length == 1)
+        {
+            int index = messageMatches[0];
             return argumentPositions?[index] ?? index;
         }
 

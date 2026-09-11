@@ -1601,6 +1601,51 @@ public class FindCommandIntegrationTests
             error);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AttachedParserValueDoesNotBorrowEarlierDuplicateValuePosition(
+        bool useOptionValue)
+    {
+        var arguments = new List<string>
+        {
+            "find",
+        };
+        if (useOptionValue)
+        {
+            arguments.AddRange(
+                [
+                    "JsonDocument",
+                    "--type",
+                    "nope",
+                ]);
+        }
+        else
+        {
+            arguments.Add("nope");
+        }
+        arguments.AddRange(
+            [
+                "--take",
+                "--take",
+                "1",
+                "-v:nope",
+                "--offline",
+            ]);
+
+        var (exit, output, error) =
+            RunCli([.. arguments]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--take requires a value.",
+            error);
+        Assert.DoesNotContain(
+            "Argument 'nope' not recognized.",
+            error);
+    }
+
     [Fact]
     public void MissingTakeValue_PrecedesLaterPositionalDuplicatingAttachedValue()
     {
