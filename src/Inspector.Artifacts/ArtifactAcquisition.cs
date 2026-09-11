@@ -45,6 +45,7 @@ public abstract class ArtifactAcquisitionOutcome
     {
     }
 
+    [ResourceOwnership]
     public sealed class Acquired : ArtifactAcquisitionOutcome
     {
         public Acquired(

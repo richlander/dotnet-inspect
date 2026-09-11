@@ -888,6 +888,7 @@ public sealed class ArtifactGenerationAuthority
         }
     }
 
+    [ResourceOwnership]
     internal sealed class ArtifactAccessStream(
         Stream inner,
         ArtifactContentAccess access) : Stream

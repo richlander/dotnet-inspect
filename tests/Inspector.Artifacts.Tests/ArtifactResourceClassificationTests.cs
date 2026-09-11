@@ -12,12 +12,16 @@ public sealed class ArtifactResourceClassificationTests
         Type[] expected =
         [
             typeof(ArtifactAccessLease),
+            typeof(ArtifactAcquisitionOutcome.Acquired),
             typeof(ArtifactAdmissionLease),
             typeof(IArtifactAccessLease),
             typeof(IArtifactAcquisitionLease),
             typeof(ArtifactContributionScope),
             typeof(ArtifactQueryLease),
-            typeof(ArtifactSetSession)
+            typeof(ArtifactSetSession),
+            typeof(ArtifactGenerationAuthority).GetNestedType(
+                "ArtifactAccessStream",
+                BindingFlags.NonPublic)!
         ];
 
         Type[] actual = expected
