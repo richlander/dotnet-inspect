@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Routes `vocabulary` value rows through the shared semantic selection path:
+  `-n` and bare `-N` select Head rows, `--tail` selects from the end, and
+  range-form `--rows` composes in argument order across every selected section.
+  Strict windows fail without partial output, and `--count` observes the
+  selected rows (#6643).
 - **Breaking:** Simplifies `vocabulary` into a flat section catalog. Bare
   output now shows only section name, summary, and value count; `-D` lists
   sections without category doors; exact names, stable section IDs, and globs

@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -13,6 +14,7 @@ public sealed record VocabularyOptions : IProjectionOptions
     public bool Schema { get; init; }
     public bool Tree { get; init; }
     public bool Count { get; init; }
+    public RowSelectionIntent<string>? RowSelection { get; init; }
     public RowWindow? Rows { get; init; }
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
     public bool JsonOutput { get; init; }

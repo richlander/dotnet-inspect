@@ -14,6 +14,7 @@ dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S Accessibility
 dotnet-inspect vocabulary -S "C# Style Choices" --json
 dotnet-inspect vocabulary -S "C# Body Kinds"
+dotnet-inspect vocabulary -S Accessibility -n 2 --tail
 dotnet-inspect vocabulary -S "C#*" --count
 ```
 
@@ -23,12 +24,24 @@ dotnet-inspect vocabulary -S "C#*" --count
 - `-D` discovers sections and fields.
 - `-S` selects the values to materialize by exact section name, stable section
   ID, or glob.
-- `--columns` and `--fields` project values. Released `--rows` accepts a count
-  or an absolute range; the historical #4677 target proposed making it
-  range-only. [Item and line limits](item-and-line-limits.md) records that
-  focused CLI ownership remains pending.
-  `--count` collapses each row set to its cardinality.
+- `--columns` and `--fields` project values. `-n` selects Head rows by default
+  and Tail rows with `--tail`; `--rows` accepts one-based inclusive `N..M`,
+  `N..`, and `..M` windows. These gestures compose in argument order and apply
+  independently to every selected vocabulary section through the shared
+  semantic row-selection path. Discovery retains its existing structural-row
+  window behavior.
+- `--count` collapses each selected row set after projection and semantic row
+  selection.
 - Markdown, plain text, table, TSV, JSONL, and JSON use the same section and row identities.
+
+`VocabularyCommandTests.CommandLine_HeadTailAndBareLimitUseSemanticRows`,
+`CommandLine_ComposesSemanticStagesInArgumentOrder`,
+`Command_MultiSectionStrictWindowFailsWithoutPartialOutput`, and
+`CommandLine_MultiSectionCountObservesSemanticWindow` gate the CLI grammar,
+ordered execution, all-or-failure behavior, and terminal count composition in
+Release. Predicate, baseline-order, and Top adoption remain with the shared
+row-query and CLI owners tracked by #5162, #5414, and #6489; vocabulary does
+not implement a command-local substitute.
 
 The structured document carries a schema version. Every section declares its
 stable ID, accepted query inputs, field schema, legal operators, and typed
