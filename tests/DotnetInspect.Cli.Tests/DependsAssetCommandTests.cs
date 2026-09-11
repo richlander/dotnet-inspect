@@ -1290,12 +1290,20 @@ public sealed class DependsAssetCommandTests
         Assert.Empty(error);
         Assert.Contains("Dependency Graph", output, StringComparison.Ordinal);
         Assert.Contains("Dependencies", output, StringComparison.Ordinal);
+#if DEBUG
+        Assert.Contains("Roots", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency Groups",
+            output,
+            StringComparison.Ordinal);
+#else
         Assert.DoesNotContain("Roots", output, StringComparison.Ordinal);
-        Assert.DoesNotContain("Restored Edges", output, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Dependency Groups",
             output,
             StringComparison.Ordinal);
+#endif
+        Assert.DoesNotContain("Restored Edges", output, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Restored Packages",
             output,
@@ -1316,7 +1324,11 @@ public sealed class DependsAssetCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("Failures", output, StringComparison.Ordinal);
+#if DEBUG
+        Assert.Contains("Roots", output, StringComparison.Ordinal);
+#else
         Assert.DoesNotContain("Roots", output, StringComparison.Ordinal);
+#endif
         Assert.Contains("typed failure", error, StringComparison.Ordinal);
     }
 
@@ -1512,7 +1524,7 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task DiscoveryAndCategoryExposeOnlyConsumerSections()
+    public async Task DiscoveryReflectsCompiledSectionCatalog()
     {
         (int exitCode, string output, string error) =
             await RunCapturedAsync(["depends", "-D"]);
@@ -1533,7 +1545,11 @@ public sealed class DependsAssetCommandTests
             DependsAssetSections.DependencyGroups,
             DependsAssetSections.RestoredPackages,
         })
+#if DEBUG
+            Assert.Contains(section, output, StringComparison.Ordinal);
+#else
             Assert.DoesNotContain(section, output, StringComparison.Ordinal);
+#endif
         Assert.Contains("@Dependencies", output, StringComparison.Ordinal);
     }
 

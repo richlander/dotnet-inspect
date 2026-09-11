@@ -566,8 +566,10 @@ authorize the package traversal they request.
 Type and library roots may not have package-declaration sections. Release
 static discovery lists only the three retail sections; effective discovery
 reports which of those sections are applicable to the admitted root kinds and
-available evidence. Debug full-schema discovery may additionally expose the
-explicit diagnostic sections.
+available evidence. In a Debug build, bare `-D` also lists the four registered
+diagnostic sections, and effective discovery reports the applicable diagnostic
+sections. This visible Release/Debug difference is the direct demonstration
+that diagnostic registration disappears from retail compilation.
 
 ## Graph rendering and row currency
 

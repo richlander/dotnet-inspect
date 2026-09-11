@@ -73,10 +73,6 @@ public partial class DependsCommand
                 sectionCostAnnotations:
                     catalog.Pipeline.GetCostAnnotations(),
                 sectionCategories: catalog.SelectionCategoryMap,
-                catalogHiddenSections:
-                    options.Schema
-                        ? null
-                        : catalog.Pipeline.GetCatalogHiddenSections(),
                 listedCategoryDoors:
                     catalog.Pipeline.GetListedCategoryDoors(),
                 projection: options);
@@ -142,8 +138,6 @@ public partial class DependsCommand
                     sectionCostAnnotations:
                         catalog.Pipeline.GetCostAnnotations(),
                     sectionCategories: catalog.SelectionCategoryMap,
-                    catalogHiddenSections:
-                        catalog.Pipeline.GetCatalogHiddenSections(),
                     listedCategoryDoors:
                         catalog.Pipeline.GetListedCategoryDoors(),
                     projection: options);
