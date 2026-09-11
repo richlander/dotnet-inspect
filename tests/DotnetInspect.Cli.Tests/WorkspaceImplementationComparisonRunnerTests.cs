@@ -356,6 +356,29 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             "\"mechanism\": \"IL\"",
             output,
             StringComparison.Ordinal);
+
+        (exitCode, output, error) =
+            await RunPackageCommandAsync(
+                type: "N.Type",
+                member: "Type.Value",
+                sections:
+                    "Implementation Diff");
+
+        Assert.True(
+            exitCode == 0,
+            error);
+        Assert.True(
+            string.IsNullOrEmpty(error),
+            error);
+        Assert.Contains(
+            "N.Type.Value",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"mechanism\": \"IL\"",
+            output,
+            StringComparison.Ordinal);
+
     }
 
     [Fact]
@@ -395,11 +418,109 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task PackageCommand_ComposedAnalysisFailureRetainsWorkspaceRows()
+    {
+        _ = CreateForwardedSide(
+            "1.0.0",
+            methodResult: 1);
+        _ = CreateForwardedSide(
+            "2.0.0",
+            methodResult: 2);
+
+        var (exitCode, output, error) =
+            await RunPackageCommandAsync(
+                type: "Type",
+                member: "Value",
+                sections:
+                    "Analysis Diff;Implementation Diff");
+
+        Assert.Equal(
+            1,
+            exitCode);
+        Assert.True(
+            string.IsNullOrEmpty(error),
+            error);
+        Assert.Contains(
+            "Analysis selection is incomplete",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"mechanism\": \"Type Forwarder\"",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"mechanism\": \"IL\"",
+            output,
+            StringComparison.Ordinal);
+
+        (exitCode, output, error) =
+            await RunPackageCommandAsync(
+                type: "Type",
+                member: "Value",
+                sections:
+                    "Analysis Diff;Implementation Diff",
+                json: false);
+
+        Assert.Equal(
+            1,
+            exitCode);
+        Assert.True(
+            string.IsNullOrEmpty(error),
+            error);
+        Assert.Contains(
+            "Analysis selection is incomplete",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Type Forwarder",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| IL |",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PackageCommand_DirectNestedTypeRetainsStructuredIdentity()
+    {
+        _ = CreateDirectSide(
+            "1.0.0",
+            methodResult: 1,
+            nested: true,
+            writePackage: true);
+        _ = CreateDirectSide(
+            "2.0.0",
+            methodResult: 2,
+            nested: true,
+            writePackage: true);
+
+        var (exitCode, output, error) =
+            await RunPackageCommandAsync(
+                type: "N.Outer+Type",
+                member: "Value",
+                sections:
+                    "Implementation Diff");
+
+        Assert.True(
+            exitCode == 0,
+            error);
+        Assert.True(
+            string.IsNullOrEmpty(error),
+            error);
+        Assert.Contains(
+            "\"mechanism\": \"IL\"",
+            output,
+            StringComparison.Ordinal);
+    }
+
     Task<(int ExitCode, string Output, string Error)>
         RunPackageCommandAsync(
         string type,
         string member,
-        string sections)
+        string sections,
+        bool json = true)
     {
         Dictionary<string, byte[]> packages =
             PackagePayloads();
@@ -412,23 +533,29 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         return ConsoleCapture.RunAsync(
             async () =>
             {
+                var arguments = new List<string>
+                {
+                    "diff",
+                    "--package",
+                    $"{Facade}@1.0.0..2.0.0",
+                    "--type",
+                    type,
+                    "--member",
+                    member,
+                    "-S",
+                    sections,
+                };
+                if (json)
+                    arguments.Add("--json");
+                arguments.AddRange(
+                    [
+                        "--source",
+                        Feed,
+                    ]);
                 var parsed =
                     CommandLineBuilder.CreateRootCommand().Parse(
                         CommandLineBuilder.PreprocessArgs(
-                            [
-                                "diff",
-                                "--package",
-                                $"{Facade}@1.0.0..2.0.0",
-                                "--type",
-                                type,
-                                "--member",
-                                member,
-                                "-S",
-                                sections,
-                                "--json",
-                                "--source",
-                                Feed,
-                            ]));
+                            [.. arguments]));
                 Assert.Empty(parsed.Errors);
                 return await CommandLineBuilder.InvokeAsync(
                     parsed);
@@ -436,21 +563,46 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
     }
 
     Dictionary<string, byte[]> PackagePayloads()
-        => new(StringComparer.Ordinal)
+    {
+        var packages =
+            new Dictionary<string, byte[]>(
+                StringComparer.Ordinal);
+        AddPackage(
+            packages,
+            Facade,
+            "1.0.0");
+        AddPackage(
+            packages,
+            Facade,
+            "2.0.0");
+        AddPackage(
+            packages,
+            Terminal,
+            "1.0.0");
+        AddPackage(
+            packages,
+            Terminal,
+            "2.0.0");
+        return packages;
+    }
+
+    void AddPackage(
+        Dictionary<string, byte[]> packages,
+        string id,
+        string version)
+    {
+        string path = PackagePath(
+            id,
+            version);
+        if (File.Exists(path))
         {
-            [PackageUrl(Facade, "1.0.0")] =
-                File.ReadAllBytes(
-                    PackagePath(Facade, "1.0.0")),
-            [PackageUrl(Facade, "2.0.0")] =
-                File.ReadAllBytes(
-                    PackagePath(Facade, "2.0.0")),
-            [PackageUrl(Terminal, "1.0.0")] =
-                File.ReadAllBytes(
-                    PackagePath(Terminal, "1.0.0")),
-            [PackageUrl(Terminal, "2.0.0")] =
-                File.ReadAllBytes(
-                    PackagePath(Terminal, "2.0.0")),
-        };
+            packages.Add(
+                PackageUrl(
+                    id,
+                    version),
+                File.ReadAllBytes(path));
+        }
+    }
 
     static AssemblyReferenceIdentity TerminalIdentity(
         WorkspaceResearchTargetCompositionReceipt receipt)
@@ -506,14 +658,28 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
 
     TestSide CreateDirectSide(
         string version,
-        int methodResult)
-        => CreateSide(
-            version,
-            BuildAssembly(
+        int methodResult,
+        bool nested = false,
+        bool writePackage = false)
+    {
+        byte[] assembly = BuildAssembly(
                 Facade,
                 version,
-                methodResult),
+                methodResult,
+                nested: nested);
+        if (writePackage)
+        {
+            WritePackage(
+                Facade,
+                version,
+                assembly,
+                dependencies: null);
+        }
+        return CreateSide(
+            version,
+            assembly,
             dependencies: null);
+    }
 
     TestSide CreateSide(
         string version,
@@ -647,7 +813,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         string name,
         string version,
         int? methodResult,
-        AssemblyReferenceIdentity? forwardsTo = null)
+        AssemblyReferenceIdentity? forwardsTo = null,
+        bool nested = false)
     {
         var metadata = new MetadataBuilder();
         var bodyStream = new BlobBuilder();
@@ -688,13 +855,38 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             MetadataTokens.MethodDefinitionHandle(1));
         if (methodResult is { } result)
         {
-            metadata.AddTypeDefinition(
-                TypeAttributes.Public,
-                metadata.GetOrAddString("N"),
-                metadata.GetOrAddString("Type"),
-                default,
-                MetadataTokens.FieldDefinitionHandle(1),
-                MetadataTokens.MethodDefinitionHandle(1));
+            if (nested)
+            {
+                TypeDefinitionHandle outer =
+                    metadata.AddTypeDefinition(
+                        TypeAttributes.Public,
+                        metadata.GetOrAddString("N"),
+                        metadata.GetOrAddString("Outer"),
+                        default,
+                        MetadataTokens.FieldDefinitionHandle(1),
+                        MetadataTokens.MethodDefinitionHandle(1));
+                TypeDefinitionHandle inner =
+                    metadata.AddTypeDefinition(
+                        TypeAttributes.NestedPublic,
+                        default,
+                        metadata.GetOrAddString("Type"),
+                        default,
+                        MetadataTokens.FieldDefinitionHandle(1),
+                        MetadataTokens.MethodDefinitionHandle(1));
+                metadata.AddNestedType(
+                    inner,
+                    outer);
+            }
+            else
+            {
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Type"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            }
             var signature = new BlobBuilder();
             new BlobEncoder(signature)
                 .MethodSignature()

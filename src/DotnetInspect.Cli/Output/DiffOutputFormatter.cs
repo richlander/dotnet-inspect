@@ -132,6 +132,20 @@ public static class DiffOutputFormatter
             DiffViewText.Field(
                 $"Changes selection is incomplete: {detail}"));
 
+    internal static AnalysisDiffView
+        BuildAnalysisDiffFailureView(
+            string name,
+            string fromVersion,
+            string toVersion,
+            string detail)
+        => BuildAnalysisDiffView(
+            name,
+            [],
+            $"Analysis selection is incomplete: {detail}",
+            fromVersion,
+            toVersion,
+            decorateMember: false);
+
     public static DiffDocumentView BuildDocumentView(
         string name,
         string fromVersion,

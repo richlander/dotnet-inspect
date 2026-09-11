@@ -497,6 +497,14 @@ composition or producer non-success remains typed, is rendered as a Query or
 producer row, and causes a nonzero command result; the host neither falls back
 to the legacy comparison nor turns it into an empty success.
 
+The selected type's structured metadata definition name remains authoritative
+through workspace execution, including nested definitions; display spelling is
+not reparsed as identity. When a composed Changes or Analysis Diff section
+cannot apply its legacy member selection to a forwarded facade, the CLI renders
+that peer section as incomplete while preserving the workspace section and
+returns nonzero. This isolates peer failure without migrating either peer
+section to workspace execution.
+
 The Release `WorkspaceImplementationComparisonRunnerTests` gate covers
 forwarded and direct local-package targets, exact terminal versions and MVIDs,
 native forwarder rows, C#/IL evidence, configured local-authority acquisition,
@@ -507,8 +515,9 @@ owner's Release `WorkspaceImplementationComparisonQueryTests` gate enforces
 root-to-terminal identity, closed-world execution, correspondence, and typed
 composition and producer outcomes. Facade-shaped command cases in
 `WorkspaceImplementationComparisonRunnerTests` additionally gate short
-forwarded type selection, type-qualified member lowering, and preservation of
-typed workspace failures in composed JSON and Markdown output.
+forwarded and direct nested type selection, type-qualified member lowering,
+and preservation of workspace evidence beside incomplete composed sections in
+JSON output.
 
 ### Integration ecosystem queries
 

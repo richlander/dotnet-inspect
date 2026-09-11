@@ -229,6 +229,33 @@ public class DiffCommand
                             options.SourceOptions,
                             context.CreatePackageSourceComposition,
                             logger.Log);
+                ResearchComparison? workspaceAnalysis = null;
+                string? workspaceAnalysisFailure = null;
+                if (workspaceTarget is not null
+                    && SelectsAnalysisDiff(options))
+                {
+                    BodySignalComparisonInput? analysisInput =
+                        null;
+                    try
+                    {
+                        analysisInput =
+                            CreateBodySignalComparisonInput(
+                                inputs,
+                                options);
+                    }
+                    catch (InvalidOperationException exception)
+                        when (options.MemberFilter.Count > 0)
+                    {
+                        workspaceAnalysisFailure =
+                            exception.Message;
+                    }
+                    if (analysisInput is not null)
+                    {
+                        workspaceAnalysis =
+                            BodySignalComparisonQuery.Execute(
+                                analysisInput);
+                    }
+                }
                 IReadOnlyList<ApiDiffInspectionFailure>
                     inspectionFailures =
                         ApiDiffAnalyzer.ProjectInspectionFailures(
@@ -246,7 +273,9 @@ public class DiffCommand
                         logger,
                         inspectionFailures,
                         workspaceImplementation,
-                        workspaceTarget?.Display);
+                        workspaceTarget?.Display,
+                        workspaceAnalysis,
+                        workspaceAnalysisFailure);
                     return inspectionIncomplete ? 1 : 0;
                 }
 
@@ -908,17 +937,23 @@ public class DiffCommand
         if (!workspaceImplementation)
             return plan;
 
+        ImmutableArray<InspectionQueryDefinition> removedQueries =
+            SelectsAnalysisDiff(options)
+                ? [
+                    ImplementationComparisonQuery.Definition,
+                    BodySignalComparisonQuery.Definition,
+                ]
+                : [ImplementationComparisonQuery.Definition];
         ImmutableArray<InspectionQueryDefinition> queries =
             [
                 .. plan.RequestedQueries.Where(
-                    query => query
-                        != ImplementationComparisonQuery.Definition),
+                    query => !removedQueries.Contains(query)),
             ];
         ImmutableArray<SectionQueryDemand> demands =
             [
                 .. plan.SectionDemand.Where(
-                    demand => demand.Query
-                        != ImplementationComparisonQuery.Definition),
+                    demand => !removedQueries.Contains(
+                        demand.Query)),
             ];
         var sectionPlan = new SectionQueryPlan(
             queries,
@@ -940,7 +975,9 @@ public class DiffCommand
             inspectionFailures,
         WorkspaceImplementationComparisonResult?
             workspaceImplementation = null,
-        string? workspaceTargetDisplay = null)
+        string? workspaceTargetDisplay = null,
+        ResearchComparison? workspaceAnalysis = null,
+        string? workspaceAnalysisFailure = null)
     {
         var selected = options.IncludeSections
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -986,18 +1023,34 @@ public class DiffCommand
         }
 
         AnalysisDiffView? analysisView = null;
+        bool analysisIncomplete = false;
         if (selected.Contains(DiffSections.AnalysisDiff.Name))
         {
-            var analysis = BuildAnalysisDiff(
-                queryResults.Get(BodySignalComparisonQuery.Definition),
-                options);
-            analysisView = DiffOutputFormatter.BuildAnalysisDiffView(
-                inputs.Name,
-                analysis.Rows,
-                analysis.Summary,
-                inputs.FromVersion,
-                inputs.ToVersion,
-                decorateMember: false);
+            if (workspaceAnalysisFailure is not null)
+            {
+                analysisIncomplete = true;
+                analysisView =
+                    DiffOutputFormatter.BuildAnalysisDiffFailureView(
+                        inputs.Name,
+                        inputs.FromVersion,
+                        inputs.ToVersion,
+                        workspaceAnalysisFailure);
+            }
+            else
+            {
+                var analysis = BuildAnalysisDiff(
+                    workspaceAnalysis
+                        ?? queryResults.Get(
+                            BodySignalComparisonQuery.Definition),
+                    options);
+                analysisView = DiffOutputFormatter.BuildAnalysisDiffView(
+                    inputs.Name,
+                    analysis.Rows,
+                    analysis.Summary,
+                    inputs.FromVersion,
+                    inputs.ToVersion,
+                    decorateMember: false);
+            }
         }
 
         ImplementationDiffView? implementationView = null;
@@ -1068,14 +1121,16 @@ public class DiffCommand
             Console.WriteLine(JsonSerializer.Serialize(view, DiffJsonContext.Default.DiffDocumentView));
             return inspectionFailures.Count > 0
                 || workspaceIncomplete
-                || changesIncomplete;
+                || changesIncomplete
+                || analysisIncomplete;
         }
 
         Console.WriteLine(DiffOutputFormatter.RenderDocumentView(
             view, OutputFormatter.CreateWindowedOptions(options.Rows)));
         return inspectionFailures.Count > 0
             || workspaceIncomplete
-            || changesIncomplete;
+            || changesIncomplete
+            || analysisIncomplete;
     }
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
@@ -2530,20 +2585,26 @@ public class DiffCommand
         }
 
         string typeSelector = options.TypeFilter.Single();
-        string? selectedTypeName =
+        WorkspaceImplementationTypeSelection? selectedType =
             ResolveWorkspaceImplementationTypeName(
                 inputs.FromSurface,
                 inputs.ToSurface,
                 typeSelector);
-        string typeName = selectedTypeName
+        string typeName = selectedType?.DisplayName
             ?? typeSelector;
-        if (MetadataTypeDefinitionName.ParseSerialized(typeName)
-            is not MetadataTypeDefinitionNameResult.Valid valid)
+        MetadataTypeDefinitionName definitionName;
+        if (selectedType is not null)
         {
-            return null;
+            definitionName = selectedType.DefinitionName;
         }
-        if (selectedTypeName is null
-            && valid.Name.Namespace.Length == 0)
+        else if (MetadataTypeDefinitionName.ParseSerialized(
+                typeSelector)
+            is MetadataTypeDefinitionNameResult.Valid valid
+            && valid.Name.Namespace.Length > 0)
+        {
+            definitionName = valid.Name;
+        }
+        else
         {
             return null;
         }
@@ -2556,61 +2617,67 @@ public class DiffCommand
         MemberTargetSelector selector = MemberTargetSelector.Parse(
             memberSelector);
         return new(
-            valid.Name,
+            definitionName,
             selector,
             $"{typeName}.{selector.RequestedText}");
     }
 
-    internal static string?
+    internal static WorkspaceImplementationTypeSelection?
         ResolveWorkspaceImplementationTypeName(
             ApiSurface fromSurface,
             ApiSurface toSurface,
             string query)
     {
-        string? oldTypeName = SelectWorkspaceImplementationTypeName(
-            fromSurface,
-            query,
-            out string? oldError);
-        string? newTypeName = SelectWorkspaceImplementationTypeName(
-            toSurface,
-            query,
-            out string? newError);
+        WorkspaceImplementationTypeSelection? oldType =
+            SelectWorkspaceImplementationTypeName(
+                fromSurface,
+                query,
+                out string? oldError);
+        WorkspaceImplementationTypeSelection? newType =
+            SelectWorkspaceImplementationTypeName(
+                toSurface,
+                query,
+                out string? newError);
         if (oldError is not null
             || newError is not null
-            || oldTypeName is not null
-                && newTypeName is not null
-                && !oldTypeName.Equals(
-                    newTypeName,
-                    StringComparison.Ordinal))
+            || oldType is not null
+                && newType is not null
+                && !oldType.DefinitionName.Equals(
+                    newType.DefinitionName))
         {
             return null;
         }
 
-        return oldTypeName
-            ?? newTypeName;
+        return oldType
+            ?? newType;
     }
 
-    static string? SelectWorkspaceImplementationTypeName(
-        ApiSurface surface,
-        string query,
-        out string? error)
+    static WorkspaceImplementationTypeSelection?
+        SelectWorkspaceImplementationTypeName(
+            ApiSurface surface,
+            string query,
+            out string? error)
     {
-        string[] matches =
+        WorkspaceImplementationTypeSelection[] matches =
         [
-            .. FindingTypeNames.EnumerateResolvable(surface)
-                .Concat(surface.TypeForwarders.Select(
-                    static forwarder =>
-                        forwarder.DefinitionName?.ToMetadataFullName()
-                        ?? forwarder.TypeName))
-                .Where(typeName =>
+            .. EnumerateWorkspaceImplementationTypes(surface)
+                .Where(candidate =>
                     TypeMatcher.MatchesTypeFilter(
-                        typeName,
+                        candidate.MatchName,
                         query))
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal),
+                .GroupBy(
+                    candidate => candidate.DefinitionName)
+                .Select(group =>
+                    new WorkspaceImplementationTypeSelection(
+                        group.Key,
+                        group.Key.ToEscapedFullName()))
+                .OrderBy(
+                    candidate => candidate.DisplayName,
+                    StringComparer.Ordinal),
         ];
-        string? exact = matches.FirstOrDefault(typeName =>
-            typeName.Equals(
+        WorkspaceImplementationTypeSelection? exact =
+            matches.FirstOrDefault(candidate =>
+            candidate.DisplayName.Equals(
                 query,
                 StringComparison.Ordinal));
         if (exact is not null)
@@ -2619,7 +2686,8 @@ public class DiffCommand
         {
             error =
                 $"Type target '{query}' is ambiguous. Use one of: "
-                + $"{string.Join(", ", matches)}.";
+                + $"{string.Join(", ", matches.Select(
+                    candidate => candidate.DisplayName))}.";
             return null;
         }
 
@@ -2627,14 +2695,96 @@ public class DiffCommand
         return matches.SingleOrDefault();
     }
 
+    static IEnumerable<WorkspaceImplementationTypeCandidate>
+        EnumerateWorkspaceImplementationTypes(
+            ApiSurface surface)
+    {
+        foreach (ApiType type in surface.Types)
+        {
+            MetadataTypeDefinitionName? definitionName =
+                type.DefinitionName
+                ?? ParseWorkspaceImplementationTypeName(
+                    string.IsNullOrEmpty(type.Namespace)
+                        ? type.MetadataName ?? type.Name
+                        : $"{type.Namespace}."
+                            + $"{type.MetadataName ?? type.Name}");
+            if (definitionName is not null)
+            {
+                yield return new(
+                    definitionName,
+                    type.FullName);
+                yield return new(
+                    definitionName,
+                    definitionName.ToEscapedFullName());
+            }
+        }
+
+        foreach (ApiSurfaceInspectionFailure failure
+            in surface.InspectionFailures)
+        {
+            if (failure.OwningTypeDefinition is { } owner)
+            {
+                yield return new(
+                    owner,
+                    owner.ToEscapedFullName());
+            }
+            if (failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
+                continue;
+            foreach (MetadataTypeDefinitionName affected
+                in failure.AffectedTypeDefinitions)
+            {
+                yield return new(
+                    affected,
+                    affected.ToEscapedFullName());
+            }
+        }
+
+        foreach (TypeForwarder forwarder
+            in surface.TypeForwarders)
+        {
+            MetadataTypeDefinitionName? definitionName =
+                forwarder.DefinitionName
+                ?? ParseWorkspaceImplementationTypeName(
+                    forwarder.TypeName);
+            if (definitionName is not null)
+            {
+                yield return new(
+                    definitionName,
+                    forwarder.TypeName);
+                yield return new(
+                    definitionName,
+                    definitionName.ToEscapedFullName());
+            }
+        }
+    }
+
+    static MetadataTypeDefinitionName?
+        ParseWorkspaceImplementationTypeName(
+            string typeName)
+        => MetadataTypeDefinitionName.ParseSerialized(
+            typeName)
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? valid.Name
+                : null;
+
     internal static string
         LowerWorkspaceImplementationMemberSelector(
             string memberSelector,
             string typeSelector,
             string selectedTypeName)
     {
+        int namespaceBoundary =
+            selectedTypeName.LastIndexOf('.');
+        string shortTypeName = namespaceBoundary < 0
+            ? selectedTypeName
+            : selectedTypeName[(namespaceBoundary + 1)..];
         foreach (string typeName in
-            new[] { selectedTypeName, typeSelector }
+            new[]
+            {
+                selectedTypeName,
+                typeSelector,
+                shortTypeName,
+            }
                 .Distinct(StringComparer.Ordinal)
                 .OrderByDescending(static name =>
                     name.Length))
@@ -2660,6 +2810,14 @@ public class DiffCommand
         MetadataTypeDefinitionName DeclaringType,
         MemberTargetSelector Selector,
         string Display);
+
+    internal sealed record WorkspaceImplementationTypeSelection(
+        MetadataTypeDefinitionName DefinitionName,
+        string DisplayName);
+
+    sealed record WorkspaceImplementationTypeCandidate(
+        MetadataTypeDefinitionName DefinitionName,
+        string MatchName);
 
     sealed record ParsedDiffMemberTarget(string TypeName, MemberTargetSelector Selector);
 
