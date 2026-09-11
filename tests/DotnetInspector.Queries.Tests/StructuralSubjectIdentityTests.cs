@@ -94,6 +94,44 @@ public sealed class StructuralSubjectIdentityTests
     }
 
     [Fact]
+    public void Formatting_DoesNotRecurseThroughWorkspaceAncestry()
+    {
+        RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
+        StructuralSubjectTestData.PackageContext context =
+            StructuralSubjectTestData.Package(coordinate);
+        StructuralSubjectIdentity.LibrarySubject library =
+            StructuralSubjectIdentity.ForLibrary(
+                context.Subject,
+                Library(coordinate, "Library"));
+        StructuralSubjectIdentity.TypeSubject type =
+            StructuralSubjectIdentity.ForType(
+                library,
+                TypeName("Sample", "Widget"));
+        StructuralSubjectIdentity.MemberSubject member =
+            StructuralSubjectIdentity.ForMember(
+                type,
+                Anchor("Sample.Widget", "Run"));
+
+        Assert.All(
+            new StructuralSubjectIdentity[]
+            {
+                context.Workspace,
+                context.Subject,
+                StructuralSubjectIdentity.ForAllLibraries(context.Subject),
+                library,
+                type,
+                member,
+            },
+            subject =>
+            {
+                string diagnostic = subject.ToString();
+
+                Assert.Contains(subject.GetType().Name, diagnostic);
+                Assert.Contains(subject.Kind.ToString(), diagnostic);
+            });
+    }
+
+    [Fact]
     public void PortableCoordinateAlone_CannotIdentifyRetainedPackageSubject()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");

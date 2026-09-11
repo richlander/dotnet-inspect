@@ -91,6 +91,12 @@ public abstract record StructuralSubjectIdentity
 
         /// <summary>The Artifact-owner identity of the exact Workspace.</summary>
         public InspectionWorkspaceIdentity Identity { get; }
+
+        /// <inheritdoc />
+        public override string ToString() =>
+            $"{nameof(WorkspaceSubject)} {{ {nameof(Kind)} = {Kind}, " +
+            $"{nameof(IsPortable)} = {IsPortable}, " +
+            $"{nameof(Identity)} = {Identity} }}";
     }
 
     /// <summary>One exact retained Package occurrence.</summary>
