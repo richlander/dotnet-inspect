@@ -387,7 +387,10 @@ public sealed class InspectionGraphCommandTests
             directory,
             "Markout.dll");
 
-        async Task<(int UseSites, int ProviderTypes)> Counts(
+        async Task<(
+            int UseSites,
+            int ProviderTypes,
+            int CallSites)> Counts(
             string consumer)
         {
             var captured = await ConsoleCapture.RunAsync(
@@ -401,6 +404,7 @@ public sealed class InspectionGraphCommandTests
                             "--library",
                             markout,
                             "-S",
+                            "*",
                             "--count",
                             "--json",
                         ])
@@ -416,14 +420,17 @@ public sealed class InspectionGraphCommandTests
                     .GetInt32(),
                 document.RootElement[1]
                     .GetProperty("count")
+                    .GetInt32(),
+                document.RootElement[2]
+                    .GetProperty("count")
                     .GetInt32());
         }
 
         Assert.Equal(
-            (2, 4),
+            (2, 4, 6),
             await Counts("DotnetInspector.Presentation.dll"));
         Assert.Equal(
-            (13, 4),
+            (13, 4, 72),
             await Counts("DotnetInspector.MetadataRendering.dll"));
     }
 
