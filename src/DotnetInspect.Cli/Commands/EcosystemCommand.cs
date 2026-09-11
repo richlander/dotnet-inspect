@@ -816,11 +816,12 @@ public static class EcosystemCommand
         public string Summary { get; init; }
         public string[] Labels { get; init; }
         public string[] Ids { get; init; }
-        public string EmptyText { get; init; }
-        public string[]? StructuredEmptyRow { get; init; }
-        public bool WasLogicallyEmpty { get; init; }
 
         /// <summary>The section's rows, produced once on first access.</summary>
+        /// <remarks>
+        /// Declared in constructor position: a repository guard requires a record's reflected
+        /// property order to match the order its constructor takes them.
+        /// </remarks>
         public string[][] Rows
         {
             get => _materialized ??= _rows();
@@ -830,5 +831,9 @@ public static class EcosystemCommand
                 _rows = () => value;
             }
         }
+
+        public string EmptyText { get; init; }
+        public string[]? StructuredEmptyRow { get; init; }
+        public bool WasLogicallyEmpty { get; init; }
     }
 }
