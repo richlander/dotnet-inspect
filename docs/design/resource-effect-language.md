@@ -96,13 +96,17 @@ materialized by `eng/prepare-resource-triage-corpus.cs` through the ordinary
 package acquisition path and includes:
 
 - [MessagePack 2.5.192](https://www.nuget.org/packages/MessagePack/2.5.192),
-  whose `MessagePackReader.ReadStringSlow` supplies an external-input
-  exception-path case;
+  whose
+  [`MessagePackReader.ReadStringSlow`](https://github.com/MessagePack-CSharp/MessagePack-CSharp/blob/d3d435b96cf09b9b0afc313bdea4257de6481c9f/src/MessagePack.UnityClient/Assets/Scripts/MessagePack/MessagePackReader.cs#L1098-L1131)
+  supplies an external-input exception-path case;
 - [Npgsql 8.0.4](https://www.nuget.org/packages/Npgsql/8.0.4), whose
-  `TextConverter.GetChars` case exercises typed wrapper propagation; and
+  [`TextConverter.GetChars`](https://github.com/npgsql/npgsql/blob/6990cceffbca2d2de4c5f12df32729bc78bbeafb/src/Npgsql/Internal/Converters/Primitive/TextConverters.cs#L293-L348)
+  case exercises typed wrapper propagation; and
 - [Pipelines.Sockets.Unofficial
   2.2.8](https://www.nuget.org/packages/Pipelines.Sockets.Unofficial/2.2.8),
-  whose `AsyncPipeStream.ReadByte` case exercises an external stream boundary.
+  whose
+  [`AsyncPipeStream.ReadByte`](https://github.com/mgravell/Pipelines.Sockets.Unofficial/blob/0438f06057b0fc2e4edb9d7b4d2d6019e2933261/src/Pipelines.Sockets.Unofficial/StreamConnection.AsyncPipeStream.cs#L131-L154)
+  case exercises an external stream boundary.
 
 The current baseline records 19 lifecycle observations across the nine pinned
 community assemblies: three untrusted-actionable, eleven trusted, and five
