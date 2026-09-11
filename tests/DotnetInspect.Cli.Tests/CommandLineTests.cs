@@ -786,16 +786,6 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void PreprocessArgs_RequiredProjectReadmeValueCanResembleLineLimit()
-    {
-        PreprocessAndApplyLineWindow(
-            ["project", "--readme", "-n1", "--help"]);
-
-        Assert.Null(CommandLineBuilder.HeadLines);
-        Assert.Null(CommandLineBuilder.TailLines);
-    }
-
-    [Fact]
     public void ParsedLineWindow_UsesActiveCommandOptionArity()
     {
         PreprocessAndApplyLineWindow(

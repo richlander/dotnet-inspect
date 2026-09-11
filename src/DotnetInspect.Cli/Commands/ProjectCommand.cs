@@ -1,23 +1,25 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using DotnetInspector.Core;
-using DotnetInspect.Cli.Inspectors;
+
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspector.Packages;
-using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Services;
+using ILInspector.CSharp;
 using InertText;
 using Markout;
-
-using ILInspector.CSharp;
 
 namespace DotnetInspect.Cli.Commands;
 
 public class ProjectCommand
 {
+    private enum ProjectDocumentKind
+    {
+        Skill,
+        Readme,
+    }
+
     private enum ProjectSkillReadFailure
     {
         None,
@@ -27,394 +29,779 @@ public class ProjectCommand
     }
 
     public const string Name = "project";
-    private const string ProjectSkillsSection = "Skills";
-    private static readonly string[] ProjectSectionNames = [ProjectSkillsSection];
-    private static readonly string[] ProjectSkillColumnNames =
-    [
-        "Package",
-        "Version",
-        "Path",
-        "Size",
-        "Name",
-        "Description"
-    ];
-    private static readonly string[] ProjectReadmeCandidates = ["README.md", "PROJECT.md"];
+    internal const string ProjectSkillsSection = "Skills";
+    internal const string ProjectReadmeSection = "Package README file";
 
-    public static async Task<int> ExecuteAsync(ProjectOptions options)
+    private const string ProjectTitle = "Restored Project Package Documents";
+    private const string ProjectDescription =
+        "Package-authored documents from the restored project's direct dependencies.";
+
+    private static readonly string[] ProjectSectionNames =
+    [
+        ProjectSkillsSection,
+        ProjectReadmeSection,
+    ];
+
+    private static readonly IReadOnlyDictionary<string, string[]> ProjectCategories =
+        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            [SelectResolver.AllSelector] = ProjectSectionNames,
+        };
+
+    public static Task<int> ExecuteAsync(ProjectOptions options)
+        => Task.FromResult(Execute(options));
+
+    private static int Execute(ProjectOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
         if (!ValidateOptions(options))
             return 1;
 
-        var selectResult = SelectResolver.ResolveSelectAsSections(
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
             options.Select,
             ProjectSectionNames,
             infoSections: [],
-            ProjectCategoryMap(),
+            ProjectCategories,
             selectDefault: options.SelectDefault);
-        if (SelectOutput.WriteUnresolved(selectResult))
+        if (SelectOutput.WriteUnresolved(selection))
             return 1;
 
-        if (options.Discover != null)
+        DocumentSchema schema = ProjectDiscoverySchema();
+        if (options.Discover is not null)
         {
             return DiscoverOutput.Execute(
                 options.Discover,
-                ProjectDiscoverySchema(),
+                schema,
                 projection: options,
                 tree: options.Tree,
-                json: options.JsonOutput,
-                tsv: options.Tsv,
-                jsonl: options.Jsonl,
-                markdown: !options.Tabular && !options.JsonOutput,
-                sectionCategories: ProjectCategoryMap());
+                json: options.Format == OutputFormat.Json,
+                tsv: options.Format == OutputFormat.Tsv,
+                jsonl: options.Format == OutputFormat.Jsonl,
+                markdown: options.Format == OutputFormat.Markdown,
+                plainText: options.Format == OutputFormat.PlainText,
+                sectionCategories: ProjectCategories,
+                rootLabel: ProjectTitle);
         }
 
-        if (options.Discover == null && options.Count && !CountOutput.ValidateSingleSection(selectResult.Sections))
-            return 1;
-
-        var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
-        if (shapeCount > 1)
+        if (options.Tree)
         {
-            CommandError.Write("specify only one of --value, --urls, or --paths.");
-            return 1;
-        }
-
-        if (shapeCount == 1)
-        {
-            var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-            if (options.Discover == null && !ShapeProjectionOutput.ValidateSingleSection(selectResult.Sections, optionName))
-                return 1;
-            if (options.Count || options.Print)
-            {
-                CommandError.Write($"{optionName} cannot be combined with --count or --print.");
-                return 1;
-            }
-            if (options.Rows is not null)
-            {
-                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
-                return 1;
-            }
-        }
-
-        if (options.JsonArray && shapeCount == 0 && !options.Print)
-        {
-            CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
+            CommandError.Write(
+                "--tree is supported only with -D/--discover for project schema.");
             return 1;
         }
 
-        if (options.JsonArray && (options.JsonOutput || options.Jsonl))
-        {
-            CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
-            return 1;
-        }
-
-        if ((options.Columns is { Length: > 0 } || options.Fields is { Length: > 0 })
-            && shapeCount == 0
-            && !ValidateProjectProjectionOptions())
+        int shapeCount = ShapeProjectionOutput.ActiveShapeCount(
+            options.Value,
+            options.Urls,
+            options.Paths);
+        if (shapeCount == 1
+            && !ShapeProjectionOutput.ValidateSingleSection(
+                selection.Sections,
+                options.Value ? "--value"
+                    : options.Urls ? "--urls"
+                    : "--paths"))
         {
             return 1;
         }
 
-        if (options.Print && !ValidateProjectPrintSelection(selectResult.Sections))
-            return 1;
-
-        if (options.Schema && options.Discover == null)
+        if ((options.Print || options.Bare)
+            && selection.Sections is not { Count: 1 })
         {
-            CommandError.Write("--schema requires -D/--discover.");
-            return 1;
-        }
-
-        var sectionMode = selectResult.Sections is { Count: > 0 };
-        var legacyMode = options.AgentsIndex || options.ReadmePackageId != null;
-        if (sectionMode && legacyMode)
-        {
-            CommandError.Write("-S/--select cannot be combined with --agents-index or --readme.");
+            CommandError.Write(
+                "--print requires -S/--select to match exactly one printable "
+                + "section.");
             return 1;
         }
 
-        if (!sectionMode && !legacyMode)
+        if (selection.Sections is not { Count: > 0 } selectedNames)
         {
-            CommandError.Write("Specify exactly one project mode: -S Skills, --agents-index, or --readme <package-id>.");
+            CommandError.Write(
+                "Select at least one project section: -S Skills or "
+                + "-S \"Package README file\".");
+            return 1;
+        }
+
+        string[] orderedNames =
+        [
+            .. ProjectSectionNames.Where(selectedNames.Contains),
+        ];
+
+        string[]? projectedColumns = ResolveProjectedColumns(options);
+        if (!ProjectionDiagnostics.ValidateProjection(
+                schema,
+                selectedNames,
+                fields: null,
+                columns: projectedColumns))
+        {
+            return 1;
+        }
+
+        if (options.Format
+                is OutputFormat.Table
+                or OutputFormat.Tsv
+                or OutputFormat.Jsonl
+            && orderedNames.Length != 1
+            && !options.Count)
+        {
+            CommandError.Write(
+                $"Selection matches {orderedNames.Length} sections: "
+                + $"{string.Join(", ", orderedNames)}.");
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine(
+                "--table, --tsv, and --jsonl display one section at a time.");
+            CommandError.WriteLine(
+                "Use -S with a specific section name, or --markdown/--json "
+                + "for multi-section output.");
+            return 1;
+        }
+
+        if (!ProjectAssetsParser.TryFindAssets(
+                options.ProjectPath,
+                out string? assetsPath,
+                out ProjectAssetsStatus assetsStatus)
+            || assetsPath is null)
+        {
+            CommandError.Write(
+                ProjectAssetsParser.DescribeMissingAssets(
+                    options.ProjectPath,
+                    assetsStatus));
             return 1;
         }
 
         var context = new CommandContext(options.Verbose);
-        var logger = context.Logger;
-        if (!ProjectAssetsParser.TryFindAssets(options.ProjectPath, out var assetsPath, out var assetsStatus))
-        {
-            CommandError.Write($"{ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
-            return 1;
-        }
-
-        logger.Log($"Using assets: {assetsPath}");
-        var dependencies = ProjectAssetsParser.ParsePackageReferences(assetsPath, options.Tfm, logger.Log);
+        context.Logger.Log($"Using assets: {assetsPath}");
+        List<ProjectPackageReference> dependencies =
+            ProjectAssetsParser.ParsePackageReferences(
+                assetsPath,
+                options.Tfm,
+                context.Logger.Log);
         if (dependencies.Count == 0)
         {
-            CommandError.Write($"No direct package references found in '{assetsPath}'.");
+            CommandError.Write(
+                $"No direct package references found in '{assetsPath}'.");
             return 1;
         }
 
-        if (options.AgentsIndex)
-            return WriteAgentsIndex(dependencies, options);
+        var sections = new List<ProjectSection>(orderedNames.Length);
+        foreach (string name in orderedNames)
+        {
+            if (!TryCreateSection(
+                    name,
+                    assetsPath,
+                    options.Tfm,
+                    context.Logger.Log,
+                    out ProjectSection? section))
+            {
+                return 1;
+            }
 
-        if (sectionMode)
-            return WriteSkills(assetsPath, options, log: null);
+            sections.Add(section);
+        }
 
-        return await WriteReadmeAsync(dependencies, options, context);
+        if (shapeCount == 1)
+            return WriteShapeProjection(sections[0], options, projectedColumns);
+
+        if (options.Print || options.Bare)
+            return PrintDocument(sections[0], options);
+
+        if (options.Count)
+            return WriteCounts(sections, orderedNames, options);
+
+        return RenderSections(sections, projectedColumns, options);
     }
 
     private static bool ValidateOptions(ProjectOptions options)
     {
         if (options.FrontmatterRequested && options.BodyRequested)
         {
-            CommandError.Write("--frontmatter/--yaml-header cannot be combined with --body.");
+            CommandError.Write(
+                "--frontmatter/--yaml-header cannot be combined with --body.");
             return false;
         }
 
-        if (options.AgentsIndex && options.BodyRequested)
+        int shapeCount = ShapeProjectionOutput.ActiveShapeCount(
+            options.Value,
+            options.Urls,
+            options.Paths);
+        if (shapeCount > 1)
         {
-            CommandError.Write("--body cannot be combined with --agents-index.");
+            CommandError.Write(
+                "specify only one of --value, --urls, or --paths.");
             return false;
         }
 
-        if (options.ReadmePackageId != null && options.Tabular && !options.Jsonl)
+        if (shapeCount == 1 && (options.Count || options.Print || options.Bare))
         {
-            CommandError.Write("project --readme supports raw text, --json, or --jsonl; it cannot be combined with --table or --tsv.");
+            string optionName = options.Value ? "--value"
+                : options.Urls ? "--urls"
+                : "--paths";
+            CommandError.Write(
+                $"{optionName} cannot be combined with --count, --print, "
+                + "or --bare.");
             return false;
         }
 
-        if (options.Print && options.ReadmePackageId != null)
+        if ((options.Print || options.Bare) && options.Count)
         {
-            CommandError.Write("--print cannot be combined with --readme.");
-            return false;
-        }
-
-        if (options.Print && options.AgentsIndex)
-        {
-            CommandError.Write("--print cannot be combined with --agents-index.");
+            CommandError.Write(
+                "--count cannot be combined with --print or --bare.");
             return false;
         }
 
         if (options.PrintRow is not null
             && !options.Print
-            && !options.Value
-            && !options.Urls
-            && !options.Paths)
+            && !options.Bare
+            && shapeCount == 0)
         {
-            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
-            return false;
-        }
-
-        if (options.Print && options.Rows is not null)
-        {
-            CommandError.Write("--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            CommandError.Write(
+                "--row requires --print, --bare, --value, --urls, or --paths.");
             return false;
         }
 
         if ((options.FrontmatterRequested || options.BodyRequested)
             && !options.Print
-            && options.ReadmePackageId == null
-            && !options.AgentsIndex)
+            && !options.Bare)
         {
-            CommandError.Write("--frontmatter/--body require --print or --readme.");
+            CommandError.Write(
+                "--frontmatter/--body require --print or --bare.");
+            return false;
+        }
+
+        if (options.JsonArray
+            && shapeCount == 0
+            && !options.Print
+            && !options.Bare)
+        {
+            CommandError.Write(
+                "--json-array requires --value, --urls, --paths, --print, "
+                + "or --bare.");
+            return false;
+        }
+
+        if (options.JsonArray
+            && options.Format is OutputFormat.Json or OutputFormat.Jsonl)
+        {
+            CommandError.Write(
+                "--json-array cannot be combined with --json or --jsonl.");
+            return false;
+        }
+
+        if (options.Schema && options.Discover is null)
+        {
+            CommandError.Write("--schema requires -D/--discover.");
             return false;
         }
 
         return true;
     }
 
-    private static bool ValidateProjectPrintSelection(HashSet<string>? sections)
+    private static bool TryCreateSection(
+        string name,
+        string assetsPath,
+        string? targetFramework,
+        Action<string>? log,
+        [NotNullWhen(true)] out ProjectSection? section)
     {
-        if (sections is { Count: 1 } && sections.Contains(ProjectSkillsSection))
-            return true;
-
-        CommandError.Write("--print requires -S/--select to match exactly one printable section.");
-        return false;
-    }
-
-    private static DocumentSchema ProjectDiscoverySchema()
-    {
-        var schema = new DocumentSchema();
-        schema.Add(ProjectSkillsSection, "column", ProjectSkillColumnNames);
-        return schema;
-    }
-
-    private static IReadOnlyDictionary<string, string[]> ProjectCategoryMap()
-        => new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        if (name.Equals(ProjectSkillsSection, StringComparison.OrdinalIgnoreCase))
         {
-            [SelectResolver.AllSelector] = ProjectSectionNames
-        };
-
-    private static int WriteAgentsIndex(IReadOnlyList<ProjectPackageReference> dependencies, ProjectOptions options)
-    {
-        var rows = dependencies
-            .Select(CreateAgentsIndexRow)
-            .ToList();
-
-        var output = options.JsonOutput
-            ? JsonSerializer.Serialize(rows.ToArray(), ProjectCommandJsonContext.Default.ProjectAgentsIndexRowArray)
-            : options.Jsonl
-                ? RenderAgentsIndexJsonl(rows)
-                : options.Tabular
-                    ? RenderAgentsIndexTable(rows, options)
-                    : RenderAgentsIndexMarkdown(rows);
-
-        WriteOutput(output, options.OutputPath);
-        return 0;
-    }
-
-    private static ProjectAgentsIndexRow CreateAgentsIndexRow(ProjectPackageReference dependency)
-    {
-        if (string.IsNullOrWhiteSpace(dependency.PackagePath) || !Directory.Exists(dependency.PackagePath))
-            return EmptyAgentsIndexRow(dependency);
-
-        var agentsPath = Path.Combine(dependency.PackagePath, "AGENTS.md");
-        if (!File.Exists(agentsPath))
-            return EmptyAgentsIndexRow(dependency);
-
-        var content = File.ReadAllText(agentsPath);
-        var frontmatter = MarkdownContent.ParseYamlFrontmatter(content);
-        frontmatter.TryGetValue("name", out var name);
-        frontmatter.TryGetValue("description", out var description);
-
-        return new ProjectAgentsIndexRow(
-            dependency.PackageName,
-            dependency.Version,
-            name ?? "",
-            description ?? "",
-            "AGENTS.md");
-    }
-
-    private static ProjectAgentsIndexRow EmptyAgentsIndexRow(ProjectPackageReference dependency)
-        => new(
-            dependency.PackageName,
-            dependency.Version,
-            Name: "",
-            Description: "",
-            Path: "");
-
-    private static string RenderAgentsIndexJsonl(IEnumerable<ProjectAgentsIndexRow> rows)
-    {
-        var builder = new StringBuilder();
-        foreach (var row in rows)
-            builder
-                .Append(JsonSerializer.Serialize(row, ProjectCommandCompactJsonContext.Default.ProjectAgentsIndexRow))
-                .Append('\n');
-        return builder.ToString();
-    }
-
-    private static string RenderAgentsIndexTable(IReadOnlyList<ProjectAgentsIndexRow> rows, ProjectOptions options)
-        => OutputFormatter.RenderTable(!options.NoHeader, (writer, formatter) =>
-        {
-            var markoutWriter = new MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl));
-            markoutWriter.WriteTable(
-                ["Package", "Version", "Name", "Description"],
-                ["package", "version", "name", "description"],
-                rows.Select(row => new[] { row.Package, row.Version, row.Name, row.Description }).ToArray());
-            markoutWriter.Flush();
-        });
-
-    private static string RenderAgentsIndexMarkdown(IReadOnlyList<ProjectAgentsIndexRow> rows)
-    {
-        var builder = new StringBuilder();
-        builder.AppendLine("# Project AGENTS.md Index");
-        builder.AppendLine();
-        builder.AppendLine("| Package | Version | Name | Description |");
-        builder.AppendLine("| ------- | ------- | ---- | ----------- |");
-        foreach (var row in rows)
-        {
-            builder.Append("| ");
-            builder.Append(EscapeMarkdownTableCell(row.Package));
-            builder.Append(" | ");
-            builder.Append(EscapeMarkdownTableCell(row.Version));
-            builder.Append(" | ");
-            builder.Append(EscapeMarkdownTableCell(row.Name));
-            builder.Append(" | ");
-            builder.Append(EscapeMarkdownTableCell(row.Description));
-            builder.AppendLine(" |");
+            return TryCreateSkillsSection(
+                assetsPath,
+                targetFramework,
+                log,
+                out section);
         }
 
-        return builder.ToString();
+        if (name.Equals(ProjectReadmeSection, StringComparison.OrdinalIgnoreCase))
+        {
+            return TryCreateReadmeSection(
+                assetsPath,
+                targetFramework,
+                log,
+                out section);
+        }
+
+        throw new InvalidOperationException($"Unknown project section '{name}'.");
     }
 
-    private static int WriteSkills(string assetsPath, ProjectOptions options, Action<string>? log)
+    private static bool TryCreateSkillsSection(
+        string assetsPath,
+        string? targetFramework,
+        Action<string>? log,
+        out ProjectSection? section)
     {
-        var rows = new List<ProjectSkillRow>();
-        foreach (var file in ProjectAssetsParser.ParsePackageFileEntries(
+        var documents = new List<ProjectDocumentRow>();
+        foreach (ProjectPackageFileEntry file
+                 in ProjectAssetsParser.ParsePackageFileEntries(
                      assetsPath,
-                     options.Tfm,
+                     targetFramework,
                      ["skills/SKILL.md", "skills/**/SKILL.md"],
                      log))
         {
-            var failure = CreateSkillRow(file, out var row);
+            ProjectSkillReadFailure failure = CreateSkillRow(
+                file,
+                out ProjectDocumentRow? row);
             if (failure != ProjectSkillReadFailure.None)
             {
                 CommandError.Write(failure switch
                 {
                     ProjectSkillReadFailure.MissingFile =>
-                        "A restored package skill listed in project.assets.json is missing from the package cache.",
+                        "A restored package skill listed in "
+                        + "project.assets.json is missing from the package cache.",
                     ProjectSkillReadFailure.InvalidName =>
-                        "A restored package skill must declare an Agent Skills-compliant name that matches its containing directory.",
+                        "A restored package skill must declare an Agent "
+                        + "Skills-compliant name that matches its containing "
+                        + "directory.",
                     _ =>
-                        "A restored package skill must declare an Agent Skills-compliant description of 1 to 1024 characters.",
+                        "A restored package skill must declare an Agent "
+                        + "Skills-compliant description of 1 to 1024 characters.",
                 });
-                return 1;
+                section = null;
+                return false;
             }
 
-            if (row is not null)
-                rows.Add(row);
+            if (row is null)
+            {
+                throw new InvalidOperationException(
+                    "A successful skill row projection must produce a row.");
+            }
+
+            documents.Add(row);
         }
 
-        if (options.Value || options.Urls || options.Paths)
-            return WriteSkillShapeProjection(rows, options);
-
-        if (options.Print || options.Bare)
-            return PrintSkillDocument(rows, options);
-
-        var visibleRows = RowWindow.Apply(options.Rows, rows);
-        if (options.Count)
-        {
-            CountOutput.WriteCount(visibleRows.Count, options.OutputPath, options.Rows);
-            return 0;
-        }
-
-        var output = options.JsonOutput
-            ? JsonSerializer.Serialize(visibleRows.ToArray(), ProjectCommandJsonContext.Default.ProjectSkillRowArray)
-            : options.Jsonl
-                ? RenderSkillJsonl(visibleRows)
-                : options.Tabular
-                    ? RenderSkillTable(visibleRows, options)
-                    : RenderSkillMarkdown(visibleRows);
-
-        WriteOutput(output, options.OutputPath);
-        return 0;
+        section = new ProjectSection(
+            ProjectSkillsSection,
+            "Valid Agent Skills documents from direct package dependencies.",
+            ["Package", "Version", "Path", "Size", "Name", "Description"],
+            ["package", "version", "path", "size", "name", "description"],
+            documents,
+            "No skills found in the restored direct package dependencies.");
+        return true;
     }
 
     private static ProjectSkillReadFailure CreateSkillRow(
         ProjectPackageFileEntry file,
-        out ProjectSkillRow? row)
+        out ProjectDocumentRow? row)
     {
         row = null;
-        if (string.IsNullOrWhiteSpace(file.FullPath) || !File.Exists(file.FullPath))
+        if (string.IsNullOrWhiteSpace(file.FullPath)
+            || !File.Exists(file.FullPath))
+        {
             return ProjectSkillReadFailure.MissingFile;
+        }
 
-        var content = File.ReadAllText(file.FullPath);
-        var frontmatter = MarkdownContent.ParseYamlFrontmatter(content);
-        if (!TryGetSkillName(file.Path, frontmatter, out var name))
+        string content = File.ReadAllText(file.FullPath);
+        IReadOnlyDictionary<string, string> frontmatter =
+            MarkdownContent.ParseYamlFrontmatter(content);
+        if (!TryGetSkillName(file.Path, frontmatter, out string name))
             return ProjectSkillReadFailure.InvalidName;
 
-        frontmatter.TryGetValue("description", out var description);
+        frontmatter.TryGetValue("description", out string? description);
         if (!IsAgentSkillDescription(description))
             return ProjectSkillReadFailure.InvalidDescription;
 
-        row = new ProjectSkillRow(
+        row = new ProjectDocumentRow(
+            ProjectDocumentKind.Skill,
             file.PackageName,
             file.Version,
             file.Path,
             new FileInfo(file.FullPath).Length,
             ContainSkillMetadata(name),
-            ContainSkillMetadata(FoldSkillDescriptionLineEndings(description ?? "")),
+            ContainSkillMetadata(
+                FoldSkillDescriptionLineEndings(description ?? "")),
             file.FullPath);
         return ProjectSkillReadFailure.None;
+    }
+
+    private static bool TryCreateReadmeSection(
+        string assetsPath,
+        string? targetFramework,
+        Action<string>? log,
+        out ProjectSection? section)
+    {
+        List<ProjectPackageFileEntry> candidates =
+            ProjectAssetsParser.ParsePackageFileEntries(
+                assetsPath,
+                targetFramework,
+                ["README.md"],
+                log);
+        var documents = new List<ProjectDocumentRow>();
+        foreach (IGrouping<string, ProjectPackageFileEntry> group
+                 in candidates.GroupBy(
+                     file => $"{file.PackageName}\0{file.Version}",
+                     StringComparer.OrdinalIgnoreCase))
+        {
+            ProjectPackageFileEntry file = group
+                .OrderBy(
+                    candidate => candidate.Path.Equals(
+                        "README.md",
+                        StringComparison.Ordinal)
+                        ? 0
+                        : 1)
+                .ThenBy(candidate => candidate.Path, StringComparer.Ordinal)
+                .First();
+            if (string.IsNullOrWhiteSpace(file.FullPath)
+                || !File.Exists(file.FullPath))
+            {
+                CommandError.Write(
+                    "A restored package README listed in project.assets.json "
+                    + "is missing from the package cache.");
+                section = null;
+                return false;
+            }
+
+            documents.Add(new ProjectDocumentRow(
+                ProjectDocumentKind.Readme,
+                file.PackageName,
+                file.Version,
+                file.Path,
+                new FileInfo(file.FullPath).Length,
+                name: null,
+                description: null,
+                file.FullPath));
+        }
+
+        section = new ProjectSection(
+            ProjectReadmeSection,
+            "Root README.md documents from direct package dependencies.",
+            ["Package", "Version", "Path", "Size"],
+            ["package", "version", "path", "size"],
+            documents,
+            "No root README.md files found in the restored direct package "
+            + "dependencies.");
+        return true;
+    }
+
+    private static int WriteShapeProjection(
+        ProjectSection section,
+        ProjectOptions options,
+        string[]? projectedColumns)
+    {
+        ShapeProjectionKind kind = ShapeProjectionOutput.GetKind(
+            options.Value,
+            options.Urls,
+            options.Paths);
+        int valueColumn = -1;
+        if (kind == ShapeProjectionKind.Value)
+        {
+            if (!TryResolveValueColumn(
+                    section,
+                    projectedColumns,
+                    out valueColumn))
+            {
+                return 1;
+            }
+        }
+
+        var projected = new List<ShapeProjectionRow>();
+        for (int index = 0; index < section.Documents.Count; index++)
+        {
+            ProjectDocumentRow document = section.Documents[index];
+            string? value = kind switch
+            {
+                ShapeProjectionKind.Paths => document.Path,
+                ShapeProjectionKind.Value => document.Cells[valueColumn],
+                _ => null,
+            };
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+
+            projected.Add(new ShapeProjectionRow(
+                index + 1,
+                section.Name,
+                value,
+                Label: document.Package,
+                Path: document.Path));
+        }
+
+        return ShapeProjectionOutput.Write(
+            projected,
+            new ShapeProjectionOptions(
+                kind,
+                options.PrintRow,
+                options.Format == OutputFormat.Json,
+                options.Format == OutputFormat.Jsonl,
+                options.JsonArray,
+                new ProjectionDestination(options.OutputPath, options.Rows)));
+    }
+
+    private static bool TryResolveValueColumn(
+        ProjectSection section,
+        string[]? projectedColumns,
+        out int column)
+    {
+        if (projectedColumns is not { Length: > 0 })
+        {
+            column = Array.IndexOf(section.Ids, "path");
+            return true;
+        }
+
+        if (projectedColumns.Length != 1)
+        {
+            CommandError.Write(
+                "--value requires exactly one --fields/--columns entry.");
+            column = -1;
+            return false;
+        }
+
+        string requested = projectedColumns[0];
+        column = Array.FindIndex(
+            section.Ids,
+            id => id.Equals(requested, StringComparison.OrdinalIgnoreCase));
+        if (column < 0)
+        {
+            column = Array.FindIndex(
+                section.Labels,
+                label => label.Equals(
+                    requested,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (column >= 0)
+            return true;
+
+        CommandError.Write(
+            $"Column '{requested}' is not available in '{section.Name}'.");
+        return false;
+    }
+
+    private static int PrintDocument(
+        ProjectSection section,
+        ProjectOptions options)
+    {
+        var printableRows = new List<PrintableRow>(section.Documents.Count);
+        var documentByRow =
+            new Dictionary<PrintableRow, ProjectDocumentRow>(
+                ReferenceEqualityComparer.Instance);
+        for (int index = 0; index < section.Documents.Count; index++)
+        {
+            ProjectDocumentRow document = section.Documents[index];
+            var row = new PrintableRow(
+                index + 1,
+                section.Name,
+                $"{document.Package} {document.Path}",
+                document.Path,
+                Url: null);
+            printableRows.Add(row);
+            documentByRow.Add(row, document);
+        }
+
+        IReadOnlyList<PrintableRow> visibleRows =
+            RowWindow.Apply(options.Rows, printableRows);
+        return PrintProjectionOutput.Write(
+            visibleRows,
+            row => ReadPrintableContent(documentByRow[row], options),
+            new PrintProjectionOptions(
+                options.PrintRow,
+                options.Format == OutputFormat.Json,
+                options.Format == OutputFormat.Jsonl,
+                options.JsonArray,
+                options.Bare,
+                new ProjectionDestination(options.OutputPath, options.Rows)));
+    }
+
+    private static PrintableContent ReadPrintableContent(
+        ProjectDocumentRow document,
+        ProjectOptions options)
+    {
+        string content = MarkdownContent.ApplyScope(
+            File.ReadAllText(document.FullPath),
+            options.ContentScope);
+        if (document.Kind == ProjectDocumentKind.Skill)
+        {
+            return PrintableContent.FromContainmentSelection(
+                AgentSkillDocument.PrepareForOutput(
+                    content,
+                    normalizeGithubLinksToRaw: true));
+        }
+
+        return new PrintableContent(
+            GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content));
+    }
+
+    private static int WriteCounts(
+        IReadOnlyList<ProjectSection> sections,
+        IReadOnlyList<string> orderedNames,
+        ProjectOptions options)
+    {
+        if (sections.Count == 1)
+        {
+            CountOutput.WriteCount(
+                RowWindow.Apply(
+                    options.Rows,
+                    sections[0].Documents).Count,
+                options.OutputPath,
+                options.Rows);
+            return 0;
+        }
+
+        if (!CountOutput.ValidateMapFormat(options.Format, orderedNames))
+            return 1;
+
+        var projection = new CountProjection();
+        foreach (ProjectSection section in sections)
+        {
+            projection.SetRows(
+                section.Name,
+                RowWindow.Apply(options.Rows, section.Documents).Count);
+        }
+        CountOutput.Write(
+            projection,
+            orderedNames,
+            options.Format,
+            options.NoHeader,
+            options.OutputPath,
+            options.Rows);
+        return 0;
+    }
+
+    private static int RenderSections(
+        IReadOnlyList<ProjectSection> sections,
+        string[]? projectedColumns,
+        ProjectOptions options)
+    {
+        ProjectSection[] rendered =
+        [
+            .. sections.Select(section => section with
+            {
+                Documents =
+                [
+                    .. RowWindow.Apply(options.Rows, section.Documents),
+                ],
+                WasLogicallyEmpty = section.Documents.Count == 0,
+            }),
+        ];
+
+        var output = new StringWriter(CultureInfo.InvariantCulture)
+        {
+            NewLine = "\n",
+        };
+        if (options.Format == OutputFormat.Json)
+        {
+            OutputFormatter.WriteProjectedJson(
+                output,
+                projectedColumns,
+                fields: null,
+                (writer, formatter, writerOptions) =>
+                    WriteDocument(
+                        new MarkoutWriter(writer, formatter, writerOptions),
+                        rendered,
+                        includeDocumentHeading: rendered.Length > 1,
+                        renderEmptyTables: true));
+        }
+        else if (options.Format
+                     is OutputFormat.Table
+                     or OutputFormat.Tsv
+                     or OutputFormat.Jsonl)
+        {
+            ProjectSection section = rendered[0];
+            OutputFormatter.WriteProjectedTable(
+                output,
+                showHeader: !options.NoHeader,
+                tsv: options.Format == OutputFormat.Tsv,
+                jsonl: options.Format == OutputFormat.Jsonl,
+                projectedColumns,
+                fields: null,
+                (writer, formatter, writerOptions) =>
+                {
+                    var markout = new MarkoutWriter(
+                        writer,
+                        formatter,
+                        writerOptions);
+                    WriteTable(markout, section);
+                    markout.Flush();
+                });
+        }
+        else
+        {
+            MarkoutWriterOptions writerOptions =
+                OutputFormatter.CreateProjectedWriterOptions(
+                    projectedColumns,
+                    fields: null);
+            var writer = new MarkoutWriter(
+                output,
+                options.Format == OutputFormat.PlainText
+                    ? new PlainTextFormatter()
+                    : new MarkdownFormatter(),
+                writerOptions);
+            WriteDocument(
+                writer,
+                rendered,
+                includeDocumentHeading: rendered.Length > 1);
+            writer.Flush();
+        }
+
+        WriteOutput(output.ToString(), options.OutputPath);
+        return 0;
+    }
+
+    private static void WriteDocument(
+        MarkoutWriter writer,
+        IEnumerable<ProjectSection> sections,
+        bool includeDocumentHeading,
+        bool renderEmptyTables = false)
+    {
+        if (includeDocumentHeading)
+        {
+            writer.WriteHeading(1, ProjectTitle);
+            writer.WriteParagraph(ProjectDescription);
+        }
+
+        bool first = true;
+        foreach (ProjectSection section in sections)
+        {
+            if (!first || includeDocumentHeading)
+                writer.WriteBlankLine();
+            first = false;
+            writer.WriteHeading(2, section.Name);
+            writer.WriteParagraph(section.Summary);
+            if (section.Documents.Count == 0
+                && section.WasLogicallyEmpty
+                && !renderEmptyTables)
+            {
+                writer.WriteParagraph(section.EmptyText);
+            }
+            else
+            {
+                WriteTable(writer, section);
+            }
+        }
+    }
+
+    private static void WriteTable(
+        MarkoutWriter writer,
+        ProjectSection section)
+        => writer.WriteTable(
+            section.Labels,
+            section.Ids,
+            section.Documents.Select(document => document.Cells).ToArray());
+
+    private static DocumentSchema ProjectDiscoverySchema()
+    {
+        var schema = new DocumentSchema();
+        schema.Add(
+            ProjectSkillsSection,
+            "column",
+            ["Package", "Version", "Path", "Size", "Name", "Description"]);
+        schema.Add(
+            ProjectReadmeSection,
+            "column",
+            ["Package", "Version", "Path", "Size"]);
+        return schema;
+    }
+
+    private static string[]? ResolveProjectedColumns(ProjectOptions options)
+    {
+        if (options.Columns is not { Length: > 0 })
+            return options.Fields is { Length: > 0 } ? options.Fields : null;
+        if (options.Fields is not { Length: > 0 })
+            return options.Columns;
+
+        return
+        [
+            .. options.Columns
+                .Concat(options.Fields)
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
     }
 
     private static string FoldSkillDescriptionLineEndings(string value)
@@ -425,7 +812,8 @@ public class ProjectCommand
 
     private static string ContainSkillMetadata(string value)
         => new InertString(TextPolicy.Field, value)
-            .ReplaceIfContainmentRequired(InertString.ContainmentRequiredPlaceholder)
+            .ReplaceIfContainmentRequired(
+                InertString.ContainmentRequiredPlaceholder)
             .ToString();
 
     private static bool TryGetSkillName(
@@ -433,17 +821,17 @@ public class ProjectCommand
         IReadOnlyDictionary<string, string> frontmatter,
         out string name)
     {
-        var normalizedPath = packagePath.Replace('\\', '/');
-        var fileSeparator = normalizedPath.LastIndexOf('/');
+        string normalizedPath = packagePath.Replace('\\', '/');
+        int fileSeparator = normalizedPath.LastIndexOf('/');
         if (fileSeparator <= 0)
         {
             name = "";
             return false;
         }
 
-        var parentPath = normalizedPath[..fileSeparator].TrimEnd('/');
-        var parentSeparator = parentPath.LastIndexOf('/');
-        var directoryName = parentPath[(parentSeparator + 1)..];
+        string parentPath = normalizedPath[..fileSeparator].TrimEnd('/');
+        int parentSeparator = parentPath.LastIndexOf('/');
+        string directoryName = parentPath[(parentSeparator + 1)..];
         if (!frontmatter.TryGetValue("name", out name!))
             return false;
 
@@ -460,10 +848,10 @@ public class ProjectCommand
             return false;
         }
 
-        var previousWasHyphen = false;
-        foreach (var character in name)
+        bool previousWasHyphen = false;
+        foreach (char character in name)
         {
-            var isHyphen = character == '-';
+            bool isHyphen = character == '-';
             if (!(character is >= 'a' and <= 'z'
                   || character is >= '0' and <= '9'
                   || isHyphen)
@@ -483,7 +871,7 @@ public class ProjectCommand
         if (string.IsNullOrEmpty(description))
             return false;
 
-        var length = 0;
+        int length = 0;
         foreach (var _ in description.EnumerateRunes())
         {
             if (++length > 1024)
@@ -491,280 +879,6 @@ public class ProjectCommand
         }
 
         return true;
-    }
-
-    private static string RenderSkillJsonl(IEnumerable<ProjectSkillRow> rows)
-    {
-        var builder = new StringBuilder();
-        foreach (var row in rows)
-            builder
-                .Append(JsonSerializer.Serialize(row, ProjectCommandCompactJsonContext.Default.ProjectSkillRow))
-                .Append('\n');
-        return builder.ToString();
-    }
-
-    private static string RenderSkillTable(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
-        => OutputFormatter.RenderTable(!options.NoHeader, (writer, formatter) =>
-        {
-            var markoutWriter = new MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl));
-            markoutWriter.WriteTable(
-                ["Package", "Version", "Path", "Size", "Name", "Description"],
-                ["package", "version", "path", "size", "name", "description"],
-                rows.Select(row => new[]
-                {
-                    row.Package,
-                    row.Version,
-                    row.Path,
-                    row.Size.ToString(CultureInfo.InvariantCulture),
-                    row.Name,
-                    row.Description
-                }).ToArray());
-            markoutWriter.Flush();
-        });
-
-    private static string RenderSkillMarkdown(IReadOnlyList<ProjectSkillRow> rows)
-    {
-        var builder = new StringBuilder();
-        builder.AppendLine("## Skills");
-        builder.AppendLine();
-        if (rows.Count == 0)
-        {
-            builder.AppendLine("No skills found in the restored direct package dependencies.");
-            return builder.ToString();
-        }
-        builder.AppendLine("| Package | Version | Path | Size | Name | Description |");
-        builder.AppendLine("| ------- | ------- | ---- | ---: | ---- | ----------- |");
-        foreach (var row in rows)
-        {
-            builder.Append("| ");
-            builder.Append(EscapeMarkdownTableCell(row.Package));
-            builder.Append(" | ");
-            builder.Append(EscapeMarkdownTableCell(row.Version));
-            builder.Append(" | ");
-            builder.Append(EscapeMarkdownTableCell(row.Path));
-            builder.Append(" | ");
-            builder.Append(row.Size.ToString(CultureInfo.InvariantCulture));
-            builder.Append(" | ");
-            builder.Append(EscapeMarkdownTableCell(row.Name));
-            builder.Append(" | ");
-            builder.Append(EscapeMarkdownTableCell(row.Description));
-            builder.AppendLine(" |");
-        }
-
-        return builder.ToString();
-    }
-
-    private static int PrintSkillDocument(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
-    {
-        var printableRows = new List<PrintableRow>(rows.Count);
-        var sourceByRow = new Dictionary<PrintableRow, ProjectSkillRow>(
-            ReferenceEqualityComparer.Instance);
-        for (var i = 0; i < rows.Count; i++)
-        {
-            var source = rows[i];
-            var row = new PrintableRow(
-                i + 1,
-                ProjectSkillsSection,
-                $"{source.Package} {source.Path}",
-                source.Path,
-                null);
-            printableRows.Add(row);
-            sourceByRow.Add(row, source);
-        }
-        var visibleRows = RowWindow.Apply(options.Rows, printableRows);
-
-        return PrintProjectionOutput.Write(
-            visibleRows,
-            row => ReadPrintableSkillContent(sourceByRow[row], options),
-            new PrintProjectionOptions(
-                options.Bare && !options.Print ? RowSelector.First : options.PrintRow,
-                options.JsonOutput,
-                options.Jsonl,
-                options.JsonArray,
-                options.Bare,
-                new ProjectionDestination(options.OutputPath, options.Rows)));
-    }
-
-    private static int WriteSkillShapeProjection(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
-    {
-        var kind = ShapeProjectionOutput.GetKind(options.Value, options.Urls, options.Paths);
-        List<ShapeProjectionRow> projected = [];
-        for (var i = 0; i < rows.Count; i++)
-        {
-            var row = rows[i];
-            string? value = kind switch
-            {
-                ShapeProjectionKind.Paths => row.Path,
-                ShapeProjectionKind.Value => SelectSkillValue(row, options),
-                _ => null
-            };
-            if (string.IsNullOrWhiteSpace(value))
-                continue;
-            projected.Add(new ShapeProjectionRow(i + 1, ProjectSkillsSection, value, Label: row.Package, Path: row.Path));
-        }
-
-        return ShapeProjectionOutput.Write(
-            projected,
-            new ShapeProjectionOptions(
-                kind,
-                options.PrintRow,
-                options.JsonOutput,
-                options.Jsonl,
-                options.JsonArray,
-                new ProjectionDestination(options.OutputPath, options.Rows)));
-    }
-
-    private static string? SelectSkillValue(ProjectSkillRow row, ProjectOptions options)
-    {
-        var column = options.Columns?.SingleOrDefault() ?? options.Fields?.SingleOrDefault();
-        return column?.ToLowerInvariant() switch
-        {
-            "package" => row.Package,
-            "version" => row.Version,
-            "path" => row.Path,
-            "size" => row.Size.ToString(CultureInfo.InvariantCulture),
-            "name" => row.Name,
-            "description" => row.Description,
-            _ => row.Path
-        };
-    }
-
-    private static PrintableContent ReadPrintableSkillContent(
-        ProjectSkillRow row,
-        ProjectOptions options)
-    {
-        string fullPath = row.FullPath
-            ?? throw new InvalidOperationException(
-                $"The selected skill '{row.Path}' has no content path.");
-        var selected = AgentSkillDocument.PrepareForOutput(
-            MarkdownContent.ApplyScope(File.ReadAllText(fullPath), options.ContentScope),
-            normalizeGithubLinksToRaw: true);
-        return PrintableContent.FromContainmentSelection(selected);
-    }
-
-    private static bool ValidateProjectProjectionOptions()
-    {
-        CommandError.Write("project does not currently support --columns or --fields.");
-        return false;
-    }
-
-    private static async Task<int> WriteReadmeAsync(
-        IReadOnlyList<ProjectPackageReference> dependencies,
-        ProjectOptions options,
-        CommandContext context)
-    {
-        var dependency = dependencies.FirstOrDefault(dep =>
-            dep.PackageName.Equals(options.ReadmePackageId, StringComparison.OrdinalIgnoreCase));
-        if (dependency == null)
-        {
-            CommandError.Write($"Package '{options.ReadmePackageId}' is not a direct dependency of '{options.ProjectPath}'.");
-            return 1;
-        }
-
-        var document = await ReadBestPackageDocumentAsync(dependency, options, context);
-        if (document == null)
-        {
-            CommandError.Write($"Package '{dependency.PackageName}' does not contain a readme file.");
-            return 1;
-        }
-
-        InfoTracker.SetDetail("readme", $"{document.Path} ({document.Size.ToString(CultureInfo.InvariantCulture)} B)");
-        var output = options.JsonOutput
-            ? JsonSerializer.Serialize(document, ProjectCommandJsonContext.Default.ProjectPackageDocument)
-            : options.Jsonl
-                ? JsonSerializer.Serialize(document, ProjectCommandCompactJsonContext.Default.ProjectPackageDocument) + '\n'
-                : document.Content;
-
-        WriteOutput(output, options.OutputPath);
-        return 0;
-    }
-
-    private static async Task<ProjectPackageDocument?> ReadBestPackageDocumentAsync(
-        ProjectPackageReference dependency,
-        ProjectOptions options,
-        CommandContext context)
-    {
-        var fromProjectAssets = ReadBestPackageDocumentFromDirectory(dependency, options.ContentScope);
-        if (fromProjectAssets != null)
-            return fromProjectAssets;
-
-        PackageExtractionResult? resolution = null;
-        try
-        {
-            var outcome = await PackageExtractor.ExtractPackageAsync(
-                context.HttpClient,
-                dependency.PackageName,
-                context.Logger.Log,
-                sourceOptions: options.SourceOptions,
-                version: dependency.Version);
-
-            if (!outcome.IsSuccess)
-            {
-                CommandError.Write($"{outcome.ErrorMessage}");
-                return null;
-            }
-
-            resolution = outcome.Result!;
-            return ReadBestPackageDocumentFromDirectory(
-                dependency with
-                {
-                    Version = resolution.Version ?? dependency.Version,
-                    PackagePath = resolution.ExtractPath
-                },
-                options.ContentScope);
-        }
-        finally
-        {
-            if (resolution is { FromCache: false, TempDir: not null } && Directory.Exists(resolution.TempDir))
-            {
-                try
-                {
-                    Directory.Delete(resolution.TempDir, recursive: true);
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
-            }
-        }
-    }
-
-    private static ProjectPackageDocument? ReadBestPackageDocumentFromDirectory(
-        ProjectPackageReference dependency,
-        PackageFileContentScope scope)
-    {
-        if (string.IsNullOrWhiteSpace(dependency.PackagePath) || !Directory.Exists(dependency.PackagePath))
-            return null;
-
-        var readme = ResolveProjectReadme(dependency.PackagePath);
-        if (readme == null)
-            return null;
-
-        var fullPath = Path.Combine(dependency.PackagePath, readme.Replace('/', Path.DirectorySeparatorChar));
-        if (!File.Exists(fullPath))
-            return null;
-
-        var content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(
-            MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope));
-        return new ProjectPackageDocument(
-            dependency.PackageName,
-            dependency.Version,
-            readme,
-            new FileInfo(fullPath).Length,
-            content);
-    }
-
-    private static string? ResolveProjectReadme(string packagePath)
-    {
-        foreach (var candidate in ProjectReadmeCandidates)
-        {
-            var match = Directory.EnumerateFiles(packagePath, "*", SearchOption.TopDirectoryOnly)
-                .FirstOrDefault(file => Path.GetFileName(file).Equals(candidate, StringComparison.OrdinalIgnoreCase));
-            if (match != null)
-                return Path.GetRelativePath(packagePath, match).Replace('\\', '/');
-        }
-
-        return null;
     }
 
     private static void WriteOutput(string output, string? outputPath)
@@ -775,112 +889,62 @@ public class ProjectCommand
             Console.Write(output);
     }
 
-    /// <summary>
-    /// Escapes a table cell for Markdown. This handles the pipe and the line
-    /// break only; rendering hazards are contained upstream on the row records,
-    /// which is the one place both of this command's table writers read from.
-    /// </summary>
-    private static string EscapeMarkdownTableCell(string value)
-        => value
-            .Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("|", "\\|", StringComparison.Ordinal)
-            .Replace("\r", " ", StringComparison.Ordinal)
-            .Replace("\n", " ", StringComparison.Ordinal);
-}
+    private sealed record ProjectSection(
+        string Name,
+        string Summary,
+        string[] Labels,
+        string[] Ids,
+        IReadOnlyList<ProjectDocumentRow> Documents,
+        string EmptyText,
+        bool WasLogicallyEmpty = false);
 
-/// <summary>
-/// A row of the agents index. Every field is display text, and every field but
-/// the version came out of a package the user did not write, so each is
-/// contained here at the row boundary rather than at one of the two writers
-/// that render it (issue #3319).
-/// </summary>
-internal sealed record ProjectAgentsIndexRow(
-    string Package,
-    string Version,
-    string Name,
-    string Description,
-    string Path)
-{
-    public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
-    public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
-    public string Name { get; init; } = CSharpIdentifier.ContainRenderedText(Name);
-    public string Description { get; init; } = CSharpIdentifier.ContainRenderedText(Description);
-    public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
-}
+    private sealed record ProjectDocumentRow
+    {
+        public ProjectDocumentRow(
+            ProjectDocumentKind kind,
+            string package,
+            string version,
+            string path,
+            long size,
+            string? name,
+            string? description,
+            string fullPath)
+        {
+            Kind = kind;
+            Package = CSharpIdentifier.ContainRenderedText(package);
+            Version = CSharpIdentifier.ContainRenderedText(version);
+            Path = CSharpIdentifier.ContainRenderedText(path);
+            Size = size;
+            Name = name;
+            Description = description;
+            FullPath = fullPath;
+            Cells = kind == ProjectDocumentKind.Skill
+                ?
+                [
+                    Package,
+                    Version,
+                    Path,
+                    Size.ToString(CultureInfo.InvariantCulture),
+                    Name ?? "",
+                    Description ?? "",
+                ]
+                :
+                [
+                    Package,
+                    Version,
+                    Path,
+                    Size.ToString(CultureInfo.InvariantCulture),
+                ];
+        }
 
-/// <summary>
-/// A document read out of a package. <c>Content</c> is deliberately left raw:
-/// the point of <c>--print</c> is to show the file as it is, and containing it
-/// would misrepresent the bytes on disk. The identifying fields around it are
-/// contained, because those are the tool's own framing (issue #3319).
-/// </summary>
-internal sealed record ProjectPackageDocument(
-    string Package,
-    string Version,
-    string Path,
-    long Size,
-    string Content)
-{
-    // Redeclared in full, in constructor order; see ProjectSkillRow.
-    public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
-    public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
-    public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
-    public long Size { get; init; } = Size;
-    public string Content { get; init; } = Content;
-}
-
-/// <summary>
-/// A row of the skills listing.
-/// </summary>
-/// <remarks>
-/// <c>FullPath</c> is deliberately left raw: it is the path this command opens
-/// to read the skill, so containing it would break file access. It is also
-/// <see cref="JsonIgnoreAttribute"/>d and never rendered, so it is not a
-/// display channel. <c>Path</c> is the rendered one and is contained.
-/// </remarks>
-internal sealed record ProjectSkillRow(
-    string Package,
-    string Version,
-    string Path,
-    long Size,
-    string Name,
-    string Description,
-    string? FullPath)
-{
-    // Every positional property is redeclared, in constructor order, including
-    // the ones that need no containment: a record's compiler-generated
-    // properties are emitted before its explicitly declared ones, so
-    // redeclaring only some of them reorders the rendered columns and the
-    // serialized keys.
-    public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
-    public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
-    public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
-    public long Size { get; init; } = Size;
-    public string Name { get; init; } = CSharpIdentifier.ContainRenderedText(Name);
-    public string Description { get; init; } = CSharpIdentifier.ContainRenderedText(Description);
-    [JsonIgnore]
-    public string? FullPath { get; init; } = FullPath;
-}
-
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(ProjectAgentsIndexRow))]
-[JsonSerializable(typeof(ProjectAgentsIndexRow[]))]
-[JsonSerializable(typeof(ProjectPackageDocument))]
-[JsonSerializable(typeof(ProjectSkillRow))]
-[JsonSerializable(typeof(ProjectSkillRow[]))]
-internal partial class ProjectCommandJsonContext : JsonSerializerContext
-{
-}
-
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(ProjectAgentsIndexRow))]
-[JsonSerializable(typeof(ProjectPackageDocument))]
-[JsonSerializable(typeof(ProjectSkillRow))]
-internal partial class ProjectCommandCompactJsonContext : JsonSerializerContext
-{
+        public ProjectDocumentKind Kind { get; }
+        public string Package { get; }
+        public string Version { get; }
+        public string Path { get; }
+        public long Size { get; }
+        public string? Name { get; }
+        public string? Description { get; }
+        public string FullPath { get; }
+        public string[] Cells { get; }
+    }
 }

@@ -6,17 +6,11 @@ using Xunit;
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Gate for package-authored text read by the <c>project</c> command (issue
-/// #3319). <c>AGENTS.md</c> frontmatter lands in Markdown table cells, while a
-/// noncompliant <c>skills/SKILL.md</c> identity must fail before rendering.
+/// Gate for package-authored skill metadata read by the <c>project</c> command
+/// (issue #3319). A noncompliant <c>skills/SKILL.md</c> identity must fail
+/// before rendering.
 /// </summary>
 /// <remarks>
-/// The escaper on that path replaced the pipe and folded CR/LF, which keeps a
-/// cell inside its row but does nothing about a vertical tab, an ANSI escape, or
-/// a bidi override. Containment now lives on the row records so all AGENTS.md
-/// writers inherit it. The Skills gate separately proves that a noncompliant
-/// name is rejected without echoing package-authored identity text.
-///
 /// The fixture is a hand-built package folder plus a <c>project.assets.json</c>
 /// whose library <c>path</c> is relative to a test-owned
 /// <c>NUGET_PACKAGES</c> root. That avoids a restore, network, feed, and writes
@@ -55,9 +49,6 @@ public class UntrustedProjectViewContainmentTests : IDisposable
         Directory.CreateDirectory(Path.Combine(package, "skills", HostileSkillDir));
         Directory.CreateDirectory(Path.Combine(package, "lib", "net10.0"));
 
-        File.WriteAllText(
-            Path.Combine(package, "AGENTS.md"),
-            $"---\nname: Agents{Bidi}INJECTEDAGENTNAME\ndescription: AgentDesc{Vtab}INJECTEDAGENTDESC\n---\nbody\n");
         File.WriteAllText(
             Path.Combine(package, "skills", HostileSkillDir, "SKILL.md"),
             $"---\nname: Skill{Bidi}INJECTEDSKILLNAME\ndescription: Desc{Vtab}INJECTEDSKILLDESC\n---\nbody\n");
@@ -113,7 +104,6 @@ public class UntrustedProjectViewContainmentTests : IDisposable
                   "type": "package",
                   "path": "hostile.skill/1.0.0",
                   "files": [
-                    "AGENTS.md",
                     "hostile.skill.nuspec",
                     "lib/net10.0/Hostile.Skill.dll",
                     "{{skillPath}}"
@@ -136,33 +126,6 @@ public class UntrustedProjectViewContainmentTests : IDisposable
               }
             }
             """;
-    }
-
-    [Fact]
-    public async Task ProjectAgentsFrontmatter_WithHostileText_RendersNoHazard()
-    {
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ProjectCommand.ExecuteAsync(new ProjectOptions
-            {
-                ProjectPath = _assets,
-                AgentsIndex = true,
-            }));
-
-        Assert.Equal(0, exit);
-
-        // Per-marker non-vacuity: the name and the description reach the table
-        // through separate frontmatter keys, and the package id, version, and
-        // path arrive from the assets file rather than the frontmatter, so one
-        // rendering vouches for none of the others. An earlier version of this
-        // gate used benign values for the latter three and passed under tamper.
-        foreach (var marker in new[] { "INJECTEDAGENTNAME", "INJECTEDAGENTDESC", "INJECTEDPKGID", "INJECTEDVERSION" })
-        {
-            Assert.True(
-                output.Contains(marker, StringComparison.Ordinal),
-                $"'{marker}' never rendered, so this gate proves nothing about its channel");
-        }
-
-        HostileOutputAssert.NoRenderingHazard(output, "UntrustedProjectViewContainmentTests");
     }
 
     [Fact]

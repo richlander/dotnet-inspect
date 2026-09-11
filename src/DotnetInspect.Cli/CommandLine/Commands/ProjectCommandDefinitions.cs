@@ -10,33 +10,57 @@ public static class ProjectCommandDefinitions
 {
     public static Command CreateProjectCommand(SharedOptions opts)
     {
-        var projectCommand = new Command(ProjectCommand.Name, "Inspect restored project package references");
+        var projectCommand = new Command(
+            ProjectCommand.Name,
+            "Inspect package skills and README files from a restored project")
+        {
+            TreatUnmatchedTokensAsErrors = true
+        };
 
         var pathArg = new Argument<string?>("path")
         {
             Description = "Project file, project directory, or project.assets.json path (defaults to current directory)",
             Arity = ArgumentArity.ZeroOrOne
         };
-        var agentsIndexOption = new Option<bool>("--agents-index")
+        pathArg.Validators.Add(result =>
         {
-            Description = "Emit a compact AGENTS.md frontmatter manifest for direct package dependencies"
-        };
-        var readmeOption = new Option<string?>("--readme")
-        {
-            Description = "Print the best package doc for one direct dependency, resolving its version from the project"
-        };
+            if (result.Tokens.Count == 0)
+                return;
+
+            string token = result.Tokens[^1].Value;
+            if (token.Equals("--agents-index", StringComparison.Ordinal)
+                || token.StartsWith(
+                    "--agents-index=",
+                    StringComparison.Ordinal))
+            {
+                result.AddError(
+                    "'--agents-index' is no longer supported. Inspect package "
+                    + "skills with '-S Skills'; package AGENTS.md files are "
+                    + "not a supported project document surface.");
+            }
+            else if (token.Equals("--readme", StringComparison.Ordinal)
+                     || token.StartsWith(
+                         "--readme=",
+                         StringComparison.Ordinal))
+            {
+                result.AddError(
+                    "'--readme' is no longer valid. Select package README rows "
+                    + "with '-S \"Package README file\"' and add '--print "
+                    + "--row N' to print one document.");
+            }
+        });
         var tfmOption = new Option<string?>("--tfm")
         {
             Description = "Select target framework from project.assets.json (e.g., net10.0)"
         };
         var frontmatterOption = new Option<bool>("--frontmatter")
         {
-            Description = "With --readme, print only the leading YAML frontmatter block"
+            Description = "With --print or --bare, print only the leading YAML frontmatter block"
         };
         frontmatterOption.Aliases.Add("--yaml-header");
         var bodyOption = new Option<bool>("--body")
         {
-            Description = "With --readme, print only content after YAML frontmatter"
+            Description = "With --print or --bare, print only content after YAML frontmatter"
         };
         var outOption = new Option<string?>("--out")
         {
@@ -46,21 +70,20 @@ public static class ProjectCommandDefinitions
         outOption.Aliases.Add("-o");
 
         projectCommand.Arguments.Add(pathArg);
-        projectCommand.Options.Add(agentsIndexOption);
-        projectCommand.Options.Add(readmeOption);
         projectCommand.Options.Add(tfmOption);
         projectCommand.Options.Add(frontmatterOption);
         projectCommand.Options.Add(bodyOption);
         projectCommand.Options.Add(outOption);
-        projectCommand.Options.Add(opts.Json);
+        opts.AddJsonOptionTo(projectCommand);
         projectCommand.Options.Add(opts.Bare);
+        projectCommand.Options.Add(opts.Markdown);
+        projectCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(projectCommand);
         opts.AddOutputOptionsTo(projectCommand);
         opts.AddSectionOptionsTo(projectCommand);
         opts.AddCountOptionTo(projectCommand);
         opts.AddPrintOptionTo(projectCommand);
         opts.AddShapeProjectionOptionsTo(projectCommand);
-        opts.AddNuGetOptionsTo(projectCommand);
 
         projectCommand.SetAction(async (parseResult, ct) =>
         {
@@ -75,8 +98,6 @@ public static class ProjectCommandDefinitions
             var options = new ProjectOptions
             {
                 ProjectPath = parseResult.GetValue(pathArg) ?? ".",
-                AgentsIndex = parseResult.GetValue(agentsIndexOption),
-                ReadmePackageId = parseResult.GetValue(readmeOption),
                 Print = parseResult.GetValue(opts.Print),
                 PrintRow = opts.ParsePrintRow(parseResult),
                 Value = parseResult.GetValue(opts.Value),
@@ -88,10 +109,7 @@ public static class ProjectCommandDefinitions
                 FrontmatterRequested = frontmatterRequested,
                 BodyRequested = bodyRequested,
                 OutputPath = parseResult.GetValue(outOption),
-                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
-                Tabular = opts.ResolveTabular(parseResult),
-                Tsv = opts.ResolveTsv(parseResult),
-                Jsonl = opts.ResolveJsonl(parseResult),
+                Format = opts.ResolveFormat(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Bare = parseResult.GetValue(opts.Bare),
                 Discover = opts.ParseDiscover(parseResult),
@@ -103,8 +121,7 @@ public static class ProjectCommandDefinitions
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
-                Verbose = parseResult.GetValue(opts.Verbose),
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                Verbose = parseResult.GetValue(opts.Verbose)
             };
 
             return await ProjectCommand.ExecuteAsync(options);
