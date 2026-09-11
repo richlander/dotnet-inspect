@@ -47,6 +47,8 @@ public sealed class PackageSourceSettlementLease : IDisposable
         new();
     private readonly PackageAcquisitionCandidateManifestAcquirer
         _manifestAcquirer;
+    private readonly PackageAcquisitionCandidatePayloadAcquirer
+        _payloadAcquirer;
     private int _retired;
 
     internal PackageSourceSettlementLease(
@@ -57,6 +59,9 @@ public sealed class PackageSourceSettlementLease : IDisposable
         _getClient = getClient;
         _createOperationContext = createOperationContext;
         _manifestAcquirer = new(
+            _candidateIssuer,
+            GetClient);
+        _payloadAcquirer = new(
             _candidateIssuer,
             GetClient);
     }
@@ -350,6 +355,65 @@ public sealed class PackageSourceSettlementLease : IDisposable
             candidate,
             cancellationToken,
             operationContext ?? ownedOperation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Acquires one exact admitted retained payload through a candidate issued
+    /// by this lease.
+    /// </summary>
+    public async Task<ConfiguredPackagePayloadResult>
+        AcquireCandidatePayloadAsync(
+        PackageAcquisitionCandidate candidate,
+        Func<
+            ConfiguredPackageAuthority,
+            PackageProducerIdentity,
+            IPackageStore> createStore,
+        Action<string>? log = null,
+        PackagePayloadLimits? limits = null,
+        CancellationToken cancellationToken = default,
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        NuGetOperationContext? operationContext = null)
+    {
+        ThrowIfRetired();
+        using NuGetOperationContext? ownedOperation =
+            operationContext is null
+                ? CreateOperationContext(cancellationToken)
+                : null;
+        return await _payloadAcquirer.AcquireAsync(
+            candidate,
+            createStore,
+            log,
+            limits,
+            cancellationToken,
+            transferPolicy,
+            operationContext ?? ownedOperation).ConfigureAwait(false);
+    }
+
+    internal Task<ConfiguredPackagePayloadResult>
+        AcquireCandidatePayloadAsync(
+        PackageAcquisitionCandidate candidate,
+        Func<
+            ConfiguredPackageAuthority,
+            PackageProducerIdentity,
+            IPackageStore> createStore,
+        Action<string>? log,
+        NuGetOperationContext operationContext,
+        PackagePayloadLimits? limits,
+        IPackagePayloadTransferPolicy? transferPolicy,
+        List<PackageAuthorityFailure> failures,
+        bool selectionUsesOriginalSources)
+    {
+        ThrowIfRetired();
+        return _payloadAcquirer.AcquireAsync(
+            candidate,
+            createStore,
+            log,
+            limits,
+            operationContext.CancellationToken,
+            transferPolicy,
+            operationContext,
+            failures,
+            selectionUsesOriginalSources);
     }
 
     public void Dispose() =>
