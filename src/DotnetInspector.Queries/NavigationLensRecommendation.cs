@@ -346,12 +346,10 @@ public static class NavigationLensRecommendation
         StructuralSubjectIdentity subject) =>
         subject switch
         {
-            StructuralSubjectIdentity.RootSubject root
-                when ViewFacetTarget.ForRoot(root).RootKind
-                    == ViewFacetRootKind.PackageCapable =>
+            StructuralSubjectIdentity.WorkspaceSubject =>
+                ViewFacetRole.WorkspaceOverview,
+            StructuralSubjectIdentity.PackageSubject =>
                 ViewFacetRole.PackageOverview,
-            StructuralSubjectIdentity.RootSubject =>
-                ViewFacetRole.RootOverview,
             StructuralSubjectIdentity.AllLibrariesSubject
                 or StructuralSubjectIdentity.LibrarySubject =>
                 ViewFacetRole.LibraryReferences,

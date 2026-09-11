@@ -1385,8 +1385,8 @@ The lowerer uses this closed, scope-aware table:
 | `lens`, exact Type, no Member | `api` | Type, `type.api` |
 | `lens`, exact Type, no Member | `metadata` | Type, `type.metadata` |
 | `lens`, exact Type, no Member | `source` | Type, `type.source` |
-| package-capable coordinate with no Type or Member | `overview` | Root, `root.package-overview` |
-| package-capable coordinate with no Type or Member | `dependencies` | Root, `root.package-dependencies` |
+| package-capable coordinate with no Type or Member | `overview` | Package, `package.overview` |
+| package-capable coordinate with no Type or Member | `dependencies` | Package, `package.dependencies` |
 | package-capable coordinate with no Type or Member | `integrations` | All Libraries, `library.integrations` |
 | package-capable coordinate with no Type or Member | `opportunities` | All Libraries, `library.opportunities` |
 | package-capable coordinate with no Type or Member | `analysis` | All Libraries, `library.analysis` |
@@ -2057,8 +2057,8 @@ Definition records and product demos (this slice):
   `MemberShare_RejectsPlatformSource`,
   `MemberShare_RejectsLocalPackage`, and
   `MemberShare_RejectsConflictingModes` gate the production boundary;
-- the package Root `dependencies` compatibility token lowers to
-  `root.package-dependencies`; the packet carries the exact package coordinate
+- the package `dependencies` compatibility token lowers to
+  `package.dependencies`; the packet carries the exact package coordinate
   and framework but no graph results, dependency-group indexes, or Browser
   runtime state. The public CLI gesture and producer behavior are owned by
   [CLI Workspace Sharing](cli-workspace-sharing.md). The published Browser

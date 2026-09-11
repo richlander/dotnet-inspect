@@ -23,7 +23,6 @@ public sealed record SourceAvailabilitySummary(
 public static class SourceAvailabilityService
 {
     private const string CacheCategory = "source-audit-v2";
-    private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromDays(1);
     private static readonly TimeSpan MutablePositiveCacheTtl = TimeSpan.FromDays(1);
 
     public static async Task<SourceAvailabilitySummary> InspectAsync(
@@ -78,14 +77,6 @@ public static class SourceAvailabilityService
             {
                 accessibleCount++;
             }
-            else if (cache?.TryGet(
-                CacheCategory,
-                document.ResolvedUrl!,
-                NegativeCacheTtl,
-                "miss") != null)
-            {
-                missingFiles.Add(document.OriginalPath);
-            }
             else
             {
                 uncachedDocuments.Add(document);
@@ -113,6 +104,7 @@ public static class SourceAvailabilityService
                         cancellationToken: ct,
                         trafficKind: NetworkTrafficKind.SourceAudit).ConfigureAwait(false);
                     using var response = result.Response;
+                    ct.ThrowIfCancellationRequested();
                     string? finalUrl = response?.RequestMessage?.RequestUri?.AbsoluteUri;
                     bool originPreserved = response is not null
                         && SourceFetchOriginValidator.Validate(
@@ -133,14 +125,6 @@ public static class SourceAvailabilityService
                         {
                             log?.Invoke(
                                 "Could not verify the final SourceLink response origin.");
-                        }
-                        else if (result.IsNotFound)
-                        {
-                            cache?.Set(
-                                CacheCategory,
-                                document.ResolvedUrl!,
-                                "1",
-                                "miss");
                         }
 
                         if (response is null)

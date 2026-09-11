@@ -2024,14 +2024,15 @@ escaping; `test/spotlight-package-search.test.ts` gates debounce, scope and
 query eligibility, cancellation, stale suppression, failure settlement, and
 mounted-result refresh.
 
-`src/catalog-requests.ts` owns .NET release and package-version catalog
-lifecycles: cache and loading state, request deduplication, version ordering,
-package-residency guards, and selector-update dispatch. `dotnet-inspect.ts`
-retains the .NET release endpoint, engine version query, option rendering, DOM
-repainting, and version switching. `test/catalog-requests.test.ts` gates cache
-reuse, in-flight deduplication, sorting, current Platform refresh, package
-removal, and both silent transient-failure paths; the composition-root gate
-checks that network and DOM authority remain outside the coordinator.
+`src/catalog-requests.ts` owns package-version catalog lifecycles: cache and
+loading state, request deduplication, version ordering, package-residency
+guards, and selector-update dispatch. `dotnet-inspect.ts` retains the engine
+version query, option rendering, DOM repainting, and version switching.
+`test/catalog-requests.test.ts` gates cache reuse, in-flight deduplication,
+sorting, package removal, and visible failure; the composition-root gate checks
+that engine and DOM authority remain outside the coordinator. Platform version
+selection instead consumes exact catalog targets as documented by
+`docs/design/version-resolution.md#browser-platform-catalog-targets`.
 
 The typed `src/data-bar.ts` component renders the same fixed product-information
 line on Home and every workbench surface. Its 30-pixel bottom row remains

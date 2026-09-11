@@ -427,7 +427,6 @@ import { createPackageRemoval } from "./package-removal.ts";
 import {
   createCatalogRequests,
   type CatalogPackage,
-  type DotnetRelease,
 } from "./catalog-requests.ts";
 import {
   bindPackageComparisonTargets,
@@ -969,8 +968,6 @@ const initialState = {
   platformStack: [],
   platformDrillLoading: false,
   platformDrillError: "",
-  dotnetReleases: null,
-  dotnetReleasesLoading: false,
   memberFacts: null,
   memberFactsLoading: false,
   memberFactsError: "",
@@ -1060,7 +1057,6 @@ interface StateOverrides {
   memberCallGraph: InspectedCallGraph | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
-  dotnetReleases: DotnetRelease[] | null;
   memberFacts: MemberFacts | null;
   libraryScope: Set<string> | null;
   accessibilityFilter: Set<string>;
@@ -1416,8 +1412,6 @@ function captureRetainedHostState() {
     spotlightFocus: state.spotlightFocus,
     spotlightChipIndex: state.spotlightChipIndex,
     spotlightPackageSearch: state.spotlightPackageSearch,
-    dotnetReleases: state.dotnetReleases,
-    dotnetReleasesLoading: state.dotnetReleasesLoading,
     styleTiers: state.styleTiers,
     styleOptions: state.styleOptions,
     styleCatalogError: state.styleCatalogError,
@@ -2685,9 +2679,7 @@ const spotlightPackageSearch = createSpotlightPackageSearch({
 });
 const catalogRequests = createCatalogRequests({
   state,
-  queryDotnetReleases,
   queryPackageVersions: pkg => inspectPackageVersions(pkg.id, pkg.version),
-  updatePlatformVersionSelect,
   updatePackageVersionSelect: updateVersionSelect,
 });
 const packageComparisonTargets =
@@ -8471,24 +8463,11 @@ interface NugetSearchResponse {
   data?: NugetSearchResult[];
 }
 
-interface DotnetReleaseIndexEntry {
-  "channel-version": string;
-  "latest-release": string;
-}
-
 function isNugetSearchResult(value: unknown): value is NugetSearchResult {
   return isRecord(value)
     && typeof value.id === "string"
     && typeof value.version === "string"
     && (value.description === undefined || typeof value.description === "string");
-}
-
-function isDotnetReleaseIndexEntry(
-  value: unknown,
-): value is DotnetReleaseIndexEntry {
-  return isRecord(value)
-    && typeof value["channel-version"] === "string"
-    && typeof value["latest-release"] === "string";
 }
 
 async function querySpotlightPackages(query: string): Promise<SpotlightPackageHit[]> {
@@ -8512,7 +8491,6 @@ async function querySpotlightPackages(query: string): Promise<SpotlightPackageHi
 // Build the <option> list for the version selector. Always includes the currently loaded
 // version (even before the version inventory arrives) so the control is never empty.
 function versionOptionsHtml(pkg: AppPackage) {
-  if (pkg.isRuntimePack) return platformVersionOptionsHtml(pkg);
   const entry = catalogRequests.packageVersions(pkg);
   const versions = entry.status === "available" ? [...entry.inventory.versions] : [pkg.version];
   if (entry.status === "available"
@@ -8522,56 +8500,6 @@ function versionOptionsHtml(pkg: AppPackage) {
   return versions
     .map(v => `<option value="${escapeHtml(v)}" ${v.toLowerCase() === pkg.version.toLowerCase() ? "selected" : ""}>${escapeHtml(v)}</option>`)
     .join("");
-}
-
-// The Platform version selector's options: one entry per in-support .NET major (8+) from the
-// dotnet/core releases index, each labelled with that channel's latest release — the latest
-// stable patch for stable majors, the latest preview for a preview major (e.g. .NET 11). The
-// option value is the TFM (net8.0 …) so a change reloads the whole Platform at that major. A
-// preview major whose TFM the bundled library index doesn't carry loads (CoreLib browsing)
-// but offers no library roster yet — honest, not hidden. The active TFM is always present so
-// the control is never empty before the index loads.
-function platformVersionOptionsHtml(pkg: AppPackage) {
-  const releases = state.dotnetReleases || [];
-  const list = releases.map(r => ({ tfm: r.tfm, version: r.version }));
-  if (!list.some(r => r.tfm === pkg.activeFramework)) {
-    list.unshift({ tfm: pkg.activeFramework, version: pkg.version });
-  }
-  return list
-    .map(r => `<option value="${escapeHtml(r.tfm)}" ${r.tfm === pkg.activeFramework ? "selected" : ""}>${escapeHtml(r.version)}</option>`)
-    .join("");
-}
-
-async function queryDotnetReleases(): Promise<DotnetRelease[]> {
-  const url = "https://raw.githubusercontent.com/dotnet/core/refs/heads/main/release-notes/releases-index.json";
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const payload: unknown = await response.json();
-  if (!isRecord(payload)) throw new TypeError("The .NET release index was invalid.");
-  const releases = payload["releases-index"];
-  if (releases !== undefined
-      && (!Array.isArray(releases)
-        || !releases.every(isDotnetReleaseIndexEntry))) {
-    throw new TypeError("The .NET release index contained an invalid release.");
-  }
-  const typedReleases: DotnetReleaseIndexEntry[] = releases || [];
-  return typedReleases
-    .map(entry => {
-      const major = parseInt(entry["channel-version"], 10);
-      return {
-        major,
-        tfm: `net${entry["channel-version"]}`,
-        version: entry["latest-release"],
-      };
-    })
-    .filter(row => Number.isFinite(row.major) && row.major >= 8 && row.version)
-    .sort((a, b) => b.major - a.major);
-}
-
-function updatePlatformVersionSelect() {
-  if (!state.package?.isRuntimePack) return;
-  const select = document.querySelector("#package-version");
-  if (select) select.innerHTML = versionOptionsHtml(state.package);
 }
 
 // Switch the resident Platform to a different .NET major (by TFM). Drops the current
