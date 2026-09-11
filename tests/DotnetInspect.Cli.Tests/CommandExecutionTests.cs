@@ -34943,22 +34943,38 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--agents-index")]
-    [InlineData("--agents-index=true")]
-    [InlineData("--readme")]
-    [InlineData("--readme=Test.Package")]
-    public async Task Project_RemovedDocumentModes_AreNotRecognized(
-        string option)
+    [InlineData("--agents-index", null, "-S Skills")]
+    [InlineData("--agents-index=true", null, "-S Skills")]
+    [InlineData(
+        "--readme",
+        "Test.Package",
+        "-S \"Package README file\"")]
+    [InlineData(
+        "--readme=Test.Package",
+        null,
+        "-S \"Package README file\"")]
+    public async Task Project_RemovedDocumentModes_ReportMigrationGuidance(
+        string option,
+        string? value,
+        string replacement)
     {
-        var (exit, output, error) = await RunAppAsync(
-            "project",
-            option);
+        string[] removedArguments =
+            value is null ? [option] : [option, value];
+        var withoutPath = await RunAppAsync(
+            ["project", .. removedArguments]);
+        var afterPath = await RunAppAsync(
+            ["project", ".", .. removedArguments]);
 
-        Assert.NotEqual(0, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            option.Split('=', 2)[0],
-            error);
+        foreach (var result in new[] { withoutPath, afterPath })
+        {
+            Assert.NotEqual(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(option.Split('=', 2)[0], result.Error);
+            Assert.Contains(replacement, result.Error);
+            Assert.DoesNotContain(
+                "Unrecognized command or argument",
+                result.Error);
+        }
     }
 
     [Fact]
@@ -34972,6 +34988,7 @@ public partial class CommandExecutionTests
         Assert.NotEqual(0, exit);
         Assert.Empty(output);
         Assert.Contains("--readme", error);
+        Assert.Contains("-S \"Package README file\"", error);
         Assert.DoesNotContain(
             "Select at least one project section",
             error);
