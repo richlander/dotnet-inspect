@@ -140,15 +140,15 @@ and from about 78 to 40 MB respectively. The sparse `Grpc.*` witness grew to
 100-row requests and completed source exhaustion within 0.4 seconds of the
 fixed-100 baseline on both hosts.
 
-The phase-timing prototype at `cb016eeb9` then compared the serializer-default
-and 128 KB prefix buffers with five samples for `System.*`, `Azure.*`,
-`AWSSDK.*`, and `Grpc.*` on each host. Both artifacts used the same supported
-Search Query Service response and the same prefix projection. For the 3.55 MB
-decoded `AWSSDK.*` first page, the larger buffer reduced managed stream reads
-from 272 to 82 on fernie and 85 on merritt. Median stream-read time fell from
-513 to 85 ms and from 897 to 68 ms; row-20 latency fell from 2.347 to 1.839
-seconds and from 1.701 to 0.820 seconds. A 256 KB probe produced no further
-row-20 improvement on fernie, so 128 KB is the smallest measured plateau.
+The #5816 phase-timing prototype then compared the serializer-default and
+128 KB prefix buffers with five samples for `System.*`, `Azure.*`, `AWSSDK.*`,
+and `Grpc.*` on each host. Both artifacts used the same supported Search Query
+Service response and the same prefix projection. For the 3.55 MB decoded
+`AWSSDK.*` first page, the larger buffer reduced managed stream reads from 272
+to 82 on fernie and 85 on merritt. Median stream-read time fell from 513 to
+85 ms and from 897 to 68 ms; row-20 latency fell from 2.347 to 1.839 seconds
+and from 1.701 to 0.820 seconds. A 256 KB probe produced no further row-20
+improvement on fernie, so 128 KB is the smallest measured plateau.
 Five alternating clean-production pairs then compared `origin/main` with
 candidate `e080cdb21`. `AWSSDK.*` median row-20 latency fell from 2.900 to
 2.668 seconds on a heavily loaded fernie and from 1.672 to 0.816 seconds on
