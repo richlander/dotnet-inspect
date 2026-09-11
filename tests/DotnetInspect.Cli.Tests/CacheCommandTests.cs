@@ -100,6 +100,32 @@ public class CacheCommandTests : IDisposable
             "Expected cache info or empty cache message");
     }
 
+    [Theory]
+    [InlineData("--head", "| Field | Value |")]
+    [InlineData("--tail", "Run 'dotnet-inspect cache clear' to clear the cache.")]
+    public async Task Cli_LineLimitSelectsRenderedCacheLines(
+        string direction,
+        string expectedLine)
+    {
+        var categoryPath = Path.Combine(_cacheBasePath, "versions");
+        Directory.CreateDirectory(categoryPath);
+        File.WriteAllText(Path.Combine(categoryPath, "versions.json"), "{}");
+
+        string[] args = ["cache", "-n", "1", direction];
+        var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (result, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
+
+        Assert.Equal(0, result);
+        Assert.Empty(error);
+        Assert.Equal(
+            [expectedLine],
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
+    }
+
     [Fact]
     public async Task ExecuteAsync_WithClean_OnEmptyCache_ReturnsZero()
     {

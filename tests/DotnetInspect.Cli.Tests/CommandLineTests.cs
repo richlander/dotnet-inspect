@@ -165,6 +165,31 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public void CacheCommand_WithDirectionButNoLineLimit_ReportsUnsupportedCombination(
+        string direction)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", direction]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal($"{direction} requires -n.", error.Message);
+    }
+
+    [Theory]
+    [InlineData("--clean")]
+    [InlineData("--clear")]
+    public void CacheCommand_WithRetiredClearOption_ReportsUnrecognizedOption(
+        string option)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", option]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(option, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void RootCommand_DoesNotExposeRemovedUtilityCommands()
     {

@@ -102,14 +102,20 @@ public static class UtilityCommandDefinitions
     {
         var cacheCommand = new Command("cache", "Manage the dotnet-inspect cache");
 
-        var cleanOption = new Option<bool>("--clean", "--clear") { Hidden = true };
-
-        cacheCommand.Options.Add(cleanOption);
         cacheCommand.Options.Add(opts.Json);
         cacheCommand.Options.Add(opts.Markdown);
         cacheCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(cacheCommand);
         opts.AddOutputOptionsTo(cacheCommand, supportsRowWindows: false);
+        cacheCommand.Validators.Add(result =>
+        {
+            bool head = result.GetValue(opts.Head);
+            bool tail = result.GetValue(opts.Tail);
+            if (head == tail || result.GetResult(opts.Limit) is not null)
+                return;
+
+            result.AddError($"{(head ? "--head" : "--tail")} requires -n.");
+        });
 
         // Subcommand: clear
         var clearCommand = new Command("clear", "Clear the cache");
@@ -125,15 +131,9 @@ public static class UtilityCommandDefinitions
 
         cacheCommand.SetAction(async (parseResult, cancellationToken) =>
         {
-            var clean = parseResult.GetValue(cleanOption);
-            if (clean)
-            {
-                CommandError.WriteLine("hint: use 'dotnet-inspect cache clear' instead of --clean/--clear");
-            }
-
             var verbosity = OptionParsers.ParseVerbosity(parseResult.GetValue(opts.Verbosity));
             var options = new CacheOptions(
-                Clean: clean,
+                Clean: false,
                 Verbose: parseResult.GetValue(opts.Verbose) || verbosity >= Verbosity.Detailed,
                 Format: opts.ResolveFormat(parseResult),
                 NoHeader: parseResult.GetValue(opts.NoHeaders));
