@@ -184,7 +184,9 @@ Artifact adopts the shared declaration protocol with these meanings:
 | `ArtifactContributionScope` | Synchronous admission capability resource | Close contribution authority before admission completes |
 | Returned compatibility stream | Synchronous owned child resource | Close one admitted stream and release its parent access registration |
 | Authorization objects | Issuer authority, not a lease | Owner revocation; no consumer transfer or release obligation |
-| References, identities, descriptors, registrations, roles, provenance, digests, outcomes, and receipts | Resource-free evidence | None |
+| References, identities, descriptors, registrations, roles, provenance, digests, detached status outcomes, and receipts | Resource-free evidence | None |
+| Successful acquisition outcomes | Ownership-bearing result | Propagate the contained `IArtifactAcquisitionLease` until transfer or release |
+| Content-access outcomes | Result carrier | Propagate any ownership obligation in the callback result |
 
 `ArtifactGenerationAuthority` remains an internal issuer mechanism. The
 declaration boundary classifies the public or transferred obligations rather
@@ -195,6 +197,12 @@ Artifact session. A rejected acquisition result owns no hidden successful
 lease. If validation or aggregate acceptance fails before transfer, the caller
 retains the lease; after transfer, the Artifact session owns cleanup on every
 terminal path.
+
+An outcome wrapper is not proof that its payload is resource-free. A successful
+acquisition carries its source lease until that obligation transfers or
+releases. A generic content callback may likewise return an independently
+owned value; its access-outcome wrapper propagates that contained ownership.
+Only detached status and observation outcomes have no terminal obligation.
 
 ## Issuance and transfer
 
@@ -248,10 +256,12 @@ instead validates the live content lease and exact reference. Treating an
 already issued child lease as if it were still a query-policy lease would make
 unrelated policy replacement revoke a downstream owner's accepted resource.
 
-An access admitted before authorization replacement, content-lease release, or
-session retirement may finish. Later access is rejected by the applicable
-authority. This is the same admitted-work boundary already used by returned
-streams and scoped query callbacks.
+An access admitted before authorization replacement or session retirement may
+finish. Later query access is rejected by current policy, while a live content
+child remains usable during ancestor retirement. The supported ownership
+lifecycle does not release a content lease while its own borrow is live. This
+is the same admitted-work boundary already used by returned streams and scoped
+query callbacks without weakening the shared borrowing rule.
 
 ## Session retirement and quiescence
 
@@ -333,7 +343,12 @@ use, session retirement, and backing acquisition-resource release.
 
 The model checks:
 
-- content issuance requires a current query lease and an open session;
+- content issuance requires a current same-session query lease, an exact
+  same-session reference, and an open session;
+- the replacement query lease can issue while the superseded lease remains
+  stale;
+- every child remains bound to the exact content reference accepted at
+  issuance;
 - later query-policy replacement does not revoke an issued content child;
 - backing acquisition resources release only after content children and
   borrows settle; and
@@ -341,9 +356,9 @@ The model checks:
   and borrow-completion fairness.
 
 Its broken-policy configurations demonstrate that ungated issuance,
-query-bound transferred children, and immediate backing release each violate a
-different required property. The model establishes bounded design evidence,
-not implementation conformance.
+query-bound transferred children, unbound content borrowing, and immediate
+backing release each violate a different required property. The model
+establishes bounded design evidence, not implementation conformance.
 
 ## Production adoption and retirement
 

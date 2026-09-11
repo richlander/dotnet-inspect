@@ -1,48 +1,104 @@
 -------------------- MODULE ArtifactContentOwnership --------------------
 (***************************************************************************)
-(* Artifact-owned interaction among current query policy, transferred      *)
-(* retained-content child leases, scoped borrows, session retirement, and  *)
-(* backing acquisition-resource release.                                   *)
+(* Artifact-owned interaction among exact content references, current      *)
+(* query authority, transferred retained-content child leases, scoped      *)
+(* borrows, session retirement, and backing acquisition-resource release.  *)
 (*                                                                         *)
-(* The model deliberately separates query authorization from an already    *)
-(* issued content child. Query replacement rejects later issuance through  *)
-(* the stale query lease, but a transferred child remains usable until its  *)
-(* owner releases it. Session retirement rejects new children and waits for *)
-(* every child and admitted borrow before backing resources release.        *)
+(* Query-lease and content-reference identities preserve their issuing     *)
+(* session. Each content child records the exact reference and query lease  *)
+(* under which it was issued. Query replacement keeps the old lease stale  *)
+(* and the replacement current at the same time. A transferred child uses  *)
+(* its exact reference independently of that later policy replacement.      *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets, TLC
 
 CONSTANTS
   Holders,
+  PrimarySession,
+  ForeignSession,
+  ContentOne,
+  ContentTwo,
+  ReferenceOne,
+  ReferenceTwo,
+  ForeignReference,
+  InitialQueryLease,
+  ReplacementQueryLease,
+  ForeignQueryLease,
   IssuanceMode, \* "Gated" or "Ungated"
   BorrowMode,   \* "LeaseBound" or "QueryBound"
+  ReferenceMode,\* "Exact" or "Unbound"
   ReleaseMode   \* "AwaitChildren" or "Immediate"
 
 ASSUME Cardinality(Holders) >= 2
+ASSUME PrimarySession # ForeignSession
+ASSUME ContentOne # ContentTwo
+ASSUME ReferenceOne # ReferenceTwo
+ASSUME ReferenceOne # ForeignReference
+ASSUME ReferenceTwo # ForeignReference
+ASSUME InitialQueryLease # ReplacementQueryLease
+ASSUME InitialQueryLease # ForeignQueryLease
+ASSUME ReplacementQueryLease # ForeignQueryLease
 ASSUME IssuanceMode \in {"Gated", "Ungated"}
 ASSUME BorrowMode \in {"LeaseBound", "QueryBound"}
+ASSUME ReferenceMode \in {"Exact", "Unbound"}
 ASSUME ReleaseMode \in {"AwaitChildren", "Immediate"}
+
+References == {ReferenceOne, ReferenceTwo, ForeignReference}
+QueryLeases ==
+  {InitialQueryLease, ReplacementQueryLease, ForeignQueryLease}
+NoReference == "NoReference"
+NoQueryLease == "NoQueryLease"
+
+ReferenceSession(reference) ==
+  IF reference = ForeignReference
+    THEN ForeignSession
+    ELSE PrimarySession
+
+ReferenceContent(reference) ==
+  CASE reference = ReferenceOne -> ContentOne
+    [] reference = ReferenceTwo -> ContentTwo
+    [] OTHER -> ContentOne
+
+QueryLeaseSession(lease) ==
+  IF lease = ForeignQueryLease
+    THEN ForeignSession
+    ELSE PrimarySession
 
 VARIABLES
   session,              \* "open" | "retiring" | "released"
   retireRequested,
-  queryLease,           \* "current" | "stale"
+  queryLeases,          \* [QueryLeases -> "absent" | "current" | "stale"]
   leases,               \* [Holders -> "absent" | "live" | "released"]
+  leaseReferences,      \* exact reference bound to each issued child
+  issuingQueries,       \* query lease that authorized each child
   borrows,              \* [Holders -> "idle" | "live" | "done" | "rejected"]
+  borrowReferences,     \* exact reference used by an admitted borrow
   wIssuanceGuard,
   wChildIndependent,
+  wExactBorrow,
   wReleaseGuard,
   pBorrowAfterReplace,
-  pRejectedOldIssue,
+  pInvalidIssueRejected,
+  pMismatchRejected,
+  pReplacementIssue,
   pRetiredAfterChild
 
 vars ==
-  << session, retireRequested, queryLease, leases, borrows,
-     wIssuanceGuard, wChildIndependent, wReleaseGuard,
-     pBorrowAfterReplace, pRejectedOldIssue, pRetiredAfterChild >>
+  << session, retireRequested, queryLeases, leases, leaseReferences,
+     issuingQueries, borrows, borrowReferences, wIssuanceGuard,
+     wChildIndependent, wExactBorrow, wReleaseGuard, pBorrowAfterReplace,
+     pInvalidIssueRejected, pMismatchRejected, pReplacementIssue,
+     pRetiredAfterChild >>
 
+QueryLeaseStates == {"absent", "current", "stale"}
 LeaseStates == {"absent", "live", "released"}
 BorrowStates == {"idle", "live", "done", "rejected"}
+
+ValidIssue(lease, reference) ==
+  /\ session = "open"
+  /\ queryLeases[lease] = "current"
+  /\ QueryLeaseSession(lease) = PrimarySession
+  /\ ReferenceSession(reference) = PrimarySession
 
 ChildrenSettled ==
   \A h \in Holders :
@@ -52,120 +108,208 @@ ChildrenSettled ==
 TypeOK ==
   /\ session \in {"open", "retiring", "released"}
   /\ retireRequested \in BOOLEAN
-  /\ queryLease \in {"current", "stale"}
+  /\ queryLeases \in [QueryLeases -> QueryLeaseStates]
   /\ leases \in [Holders -> LeaseStates]
+  /\ leaseReferences \in [Holders -> References \union {NoReference}]
+  /\ issuingQueries \in [Holders -> QueryLeases \union {NoQueryLease}]
   /\ borrows \in [Holders -> BorrowStates]
+  /\ borrowReferences \in [Holders -> References \union {NoReference}]
   /\ wIssuanceGuard \in BOOLEAN
   /\ wChildIndependent \in BOOLEAN
+  /\ wExactBorrow \in BOOLEAN
   /\ wReleaseGuard \in BOOLEAN
   /\ pBorrowAfterReplace \in BOOLEAN
-  /\ pRejectedOldIssue \in BOOLEAN
+  /\ pInvalidIssueRejected \in BOOLEAN
+  /\ pMismatchRejected \in BOOLEAN
+  /\ pReplacementIssue \in BOOLEAN
   /\ pRetiredAfterChild \in BOOLEAN
 
 Init ==
   /\ session = "open"
   /\ retireRequested = FALSE
-  /\ queryLease = "current"
+  /\ queryLeases =
+      [lease \in QueryLeases |->
+        IF lease = InitialQueryLease
+          THEN "current"
+          ELSE IF lease = ForeignQueryLease
+            THEN "current"
+            ELSE "absent"]
   /\ leases = [h \in Holders |-> "absent"]
+  /\ leaseReferences = [h \in Holders |-> NoReference]
+  /\ issuingQueries = [h \in Holders |-> NoQueryLease]
   /\ borrows = [h \in Holders |-> "idle"]
+  /\ borrowReferences = [h \in Holders |-> NoReference]
   /\ wIssuanceGuard = TRUE
   /\ wChildIndependent = TRUE
+  /\ wExactBorrow = TRUE
   /\ wReleaseGuard = TRUE
   /\ pBorrowAfterReplace = FALSE
-  /\ pRejectedOldIssue = FALSE
+  /\ pInvalidIssueRejected = FALSE
+  /\ pMismatchRejected = FALSE
+  /\ pReplacementIssue = FALSE
   /\ pRetiredAfterChild = FALSE
 
 ReplaceQueryAuthorization ==
   /\ session = "open"
-  /\ queryLease = "current"
-  /\ queryLease' = "stale"
-  /\ UNCHANGED << session, retireRequested, leases, borrows,
-                  wIssuanceGuard, wChildIndependent, wReleaseGuard,
-                  pBorrowAfterReplace, pRejectedOldIssue,
+  /\ queryLeases[InitialQueryLease] = "current"
+  /\ queryLeases[ReplacementQueryLease] = "absent"
+  /\ queryLeases' =
+      [queryLeases EXCEPT
+        ![InitialQueryLease] = "stale",
+        ![ReplacementQueryLease] = "current"]
+  /\ UNCHANGED << session, retireRequested, leases, leaseReferences,
+                  issuingQueries, borrows, borrowReferences,
+                  wIssuanceGuard, wChildIndependent, wExactBorrow,
+                  wReleaseGuard, pBorrowAfterReplace,
+                  pInvalidIssueRejected, pMismatchRejected,
+                  pReplacementIssue, pRetiredAfterChild >>
+
+IssueContentLease(holder, queryLease, reference) ==
+  /\ holder \in Holders
+  /\ queryLease \in QueryLeases
+  /\ reference \in References
+  /\ leases[holder] = "absent"
+  /\ IF IssuanceMode = "Gated"
+       THEN ValidIssue(queryLease, reference)
+       ELSE session # "released"
+  /\ leases' = [leases EXCEPT ![holder] = "live"]
+  /\ leaseReferences' =
+      [leaseReferences EXCEPT ![holder] = reference]
+  /\ issuingQueries' =
+      [issuingQueries EXCEPT ![holder] = queryLease]
+  /\ wIssuanceGuard' =
+      (wIssuanceGuard /\ ValidIssue(queryLease, reference))
+  /\ pReplacementIssue' =
+      (pReplacementIssue
+        \/ queryLease = ReplacementQueryLease)
+  /\ UNCHANGED << session, retireRequested, queryLeases, borrows,
+                  borrowReferences, wChildIndependent, wExactBorrow,
+                  wReleaseGuard, pBorrowAfterReplace,
+                  pInvalidIssueRejected, pMismatchRejected,
                   pRetiredAfterChild >>
 
-IssueContentLease(h) ==
-  /\ leases[h] = "absent"
-  /\ IF IssuanceMode = "Gated"
-       THEN /\ session = "open"
-            /\ queryLease = "current"
-       ELSE session # "released"
-  /\ leases' = [leases EXCEPT ![h] = "live"]
-  /\ wIssuanceGuard' =
-      (wIssuanceGuard /\ session = "open" /\ queryLease = "current")
-  /\ UNCHANGED << session, retireRequested, queryLease, borrows,
-                  wChildIndependent, wReleaseGuard, pBorrowAfterReplace,
-                  pRejectedOldIssue, pRetiredAfterChild >>
-
-RejectOldQueryIssue(h) ==
+RejectInvalidIssue(holder, queryLease, reference) ==
   /\ IssuanceMode = "Gated"
-  /\ leases[h] = "absent"
-  /\ session = "open"
-  /\ queryLease = "stale"
-  /\ pRejectedOldIssue' = TRUE
-  /\ UNCHANGED << session, retireRequested, queryLease, leases, borrows,
-                  wIssuanceGuard, wChildIndependent, wReleaseGuard,
-                  pBorrowAfterReplace, pRetiredAfterChild >>
+  /\ holder \in Holders
+  /\ queryLease \in QueryLeases
+  /\ reference \in References
+  /\ leases[holder] = "absent"
+  /\ ~ValidIssue(queryLease, reference)
+  /\ pInvalidIssueRejected' = TRUE
+  /\ UNCHANGED << session, retireRequested, queryLeases, leases,
+                  leaseReferences, issuingQueries, borrows,
+                  borrowReferences, wIssuanceGuard, wChildIndependent,
+                  wExactBorrow, wReleaseGuard, pBorrowAfterReplace,
+                  pMismatchRejected, pReplacementIssue,
+                  pRetiredAfterChild >>
 
-StartBorrow(h) ==
-  /\ leases[h] = "live"
-  /\ borrows[h] \in {"idle", "done"}
+StartBorrow(holder, reference) ==
+  /\ holder \in Holders
+  /\ reference \in References
+  /\ leases[holder] = "live"
+  /\ borrows[holder] \in {"idle", "done"}
+  /\ IF ReferenceMode = "Exact"
+       THEN reference = leaseReferences[holder]
+       ELSE TRUE
   /\ IF BorrowMode = "LeaseBound"
        THEN TRUE
-       ELSE queryLease = "current"
-  /\ borrows' = [borrows EXCEPT ![h] = "live"]
+       ELSE queryLeases[issuingQueries[holder]] = "current"
+  /\ borrows' = [borrows EXCEPT ![holder] = "live"]
+  /\ borrowReferences' =
+      [borrowReferences EXCEPT ![holder] = reference]
+  /\ wExactBorrow' =
+      (wExactBorrow /\ reference = leaseReferences[holder])
   /\ pBorrowAfterReplace' =
       (pBorrowAfterReplace
-        \/ (queryLease = "stale" /\ BorrowMode = "LeaseBound"))
-  /\ UNCHANGED << session, retireRequested, queryLease, leases,
-                  wIssuanceGuard, wChildIndependent, wReleaseGuard,
-                  pRejectedOldIssue, pRetiredAfterChild >>
+        \/ (issuingQueries[holder] = InitialQueryLease
+          /\ queryLeases[InitialQueryLease] = "stale"
+          /\ BorrowMode = "LeaseBound"))
+  /\ UNCHANGED << session, retireRequested, queryLeases, leases,
+                  leaseReferences, issuingQueries, wIssuanceGuard,
+                  wChildIndependent, wReleaseGuard,
+                  pInvalidIssueRejected, pMismatchRejected,
+                  pReplacementIssue, pRetiredAfterChild >>
 
-RejectBorrowAfterPolicyReplacement(h) ==
+RejectBorrowAfterPolicyReplacement(holder) ==
   /\ BorrowMode = "QueryBound"
-  /\ queryLease = "stale"
-  /\ leases[h] = "live"
-  /\ borrows[h] \in {"idle", "done"}
-  /\ borrows' = [borrows EXCEPT ![h] = "rejected"]
+  /\ holder \in Holders
+  /\ leases[holder] = "live"
+  /\ borrows[holder] \in {"idle", "done"}
+  /\ queryLeases[issuingQueries[holder]] = "stale"
+  /\ borrows' = [borrows EXCEPT ![holder] = "rejected"]
   /\ wChildIndependent' = FALSE
-  /\ UNCHANGED << session, retireRequested, queryLease, leases,
-                  wIssuanceGuard, wReleaseGuard, pBorrowAfterReplace,
-                  pRejectedOldIssue, pRetiredAfterChild >>
-
-EndBorrow(h) ==
-  /\ borrows[h] = "live"
-  /\ borrows' = [borrows EXCEPT ![h] = "done"]
-  /\ UNCHANGED << session, retireRequested, queryLease, leases,
-                  wIssuanceGuard, wChildIndependent, wReleaseGuard,
-                  pBorrowAfterReplace, pRejectedOldIssue,
+  /\ UNCHANGED << session, retireRequested, queryLeases, leases,
+                  leaseReferences, issuingQueries, borrowReferences,
+                  wIssuanceGuard, wExactBorrow, wReleaseGuard,
+                  pBorrowAfterReplace, pInvalidIssueRejected,
+                  pMismatchRejected, pReplacementIssue,
                   pRetiredAfterChild >>
 
-ReleaseContentLease(h) ==
-  /\ leases[h] = "live"
-  /\ borrows[h] # "live"
-  /\ leases' = [leases EXCEPT ![h] = "released"]
-  /\ UNCHANGED << session, retireRequested, queryLease, borrows,
-                  wIssuanceGuard, wChildIndependent, wReleaseGuard,
-                  pBorrowAfterReplace, pRejectedOldIssue,
+RejectMismatchedBorrow(holder, reference) ==
+  /\ ReferenceMode = "Exact"
+  /\ holder \in Holders
+  /\ reference \in References
+  /\ leases[holder] = "live"
+  /\ borrows[holder] \in {"idle", "done"}
+  /\ reference # leaseReferences[holder]
+  /\ pMismatchRejected' = TRUE
+  /\ UNCHANGED << session, retireRequested, queryLeases, leases,
+                  leaseReferences, issuingQueries, borrows,
+                  borrowReferences, wIssuanceGuard, wChildIndependent,
+                  wExactBorrow, wReleaseGuard, pBorrowAfterReplace,
+                  pInvalidIssueRejected, pReplacementIssue,
                   pRetiredAfterChild >>
+
+EndBorrow(holder) ==
+  /\ holder \in Holders
+  /\ borrows[holder] = "live"
+  /\ borrows' = [borrows EXCEPT ![holder] = "done"]
+  /\ borrowReferences' =
+      [borrowReferences EXCEPT ![holder] = NoReference]
+  /\ UNCHANGED << session, retireRequested, queryLeases, leases,
+                  leaseReferences, issuingQueries, wIssuanceGuard,
+                  wChildIndependent, wExactBorrow, wReleaseGuard,
+                  pBorrowAfterReplace, pInvalidIssueRejected,
+                  pMismatchRejected, pReplacementIssue,
+                  pRetiredAfterChild >>
+
+ReleaseContentLease(holder) ==
+  /\ holder \in Holders
+  /\ leases[holder] = "live"
+  /\ borrows[holder] # "live"
+  /\ leases' = [leases EXCEPT ![holder] = "released"]
+  /\ UNCHANGED << session, retireRequested, queryLeases, leaseReferences,
+                  issuingQueries, borrows, borrowReferences,
+                  wIssuanceGuard, wChildIndependent, wExactBorrow,
+                  wReleaseGuard, pBorrowAfterReplace,
+                  pInvalidIssueRejected, pMismatchRejected,
+                  pReplacementIssue, pRetiredAfterChild >>
 
 RequestRetirement ==
   /\ retireRequested = FALSE
   /\ retireRequested' = TRUE
-  /\ UNCHANGED << session, queryLease, leases, borrows,
-                  wIssuanceGuard, wChildIndependent, wReleaseGuard,
-                  pBorrowAfterReplace, pRejectedOldIssue,
-                  pRetiredAfterChild >>
+  /\ UNCHANGED << session, queryLeases, leases, leaseReferences,
+                  issuingQueries, borrows, borrowReferences,
+                  wIssuanceGuard, wChildIndependent, wExactBorrow,
+                  wReleaseGuard, pBorrowAfterReplace,
+                  pInvalidIssueRejected, pMismatchRejected,
+                  pReplacementIssue, pRetiredAfterChild >>
 
 BeginRetirement ==
   /\ retireRequested
   /\ session = "open"
   /\ session' = "retiring"
-  /\ queryLease' = "stale"
-  /\ UNCHANGED << retireRequested, leases, borrows,
-                  wIssuanceGuard, wChildIndependent, wReleaseGuard,
-                  pBorrowAfterReplace, pRejectedOldIssue,
-                  pRetiredAfterChild >>
+  /\ queryLeases' =
+      [lease \in QueryLeases |->
+        IF queryLeases[lease] = "current"
+          THEN "stale"
+          ELSE queryLeases[lease]]
+  /\ UNCHANGED << retireRequested, leases, leaseReferences,
+                  issuingQueries, borrows, borrowReferences,
+                  wIssuanceGuard, wChildIndependent, wExactBorrow,
+                  wReleaseGuard, pBorrowAfterReplace,
+                  pInvalidIssueRejected, pMismatchRejected,
+                  pReplacementIssue, pRetiredAfterChild >>
 
 ReleaseBackingResources ==
   /\ session = "retiring"
@@ -177,18 +321,33 @@ ReleaseBackingResources ==
   /\ pRetiredAfterChild' =
       (pRetiredAfterChild
         \/ \E h \in Holders : leases[h] = "released")
-  /\ UNCHANGED << retireRequested, queryLease, leases, borrows,
-                  wIssuanceGuard, wChildIndependent, pBorrowAfterReplace,
-                  pRejectedOldIssue >>
+  /\ UNCHANGED << retireRequested, queryLeases, leases,
+                  leaseReferences, issuingQueries, borrows,
+                  borrowReferences, wIssuanceGuard, wChildIndependent,
+                  wExactBorrow, pBorrowAfterReplace,
+                  pInvalidIssueRejected, pMismatchRejected,
+                  pReplacementIssue >>
 
 Next ==
   \/ ReplaceQueryAuthorization
-  \/ \E h \in Holders : IssueContentLease(h)
-  \/ \E h \in Holders : RejectOldQueryIssue(h)
-  \/ \E h \in Holders : StartBorrow(h)
-  \/ \E h \in Holders : RejectBorrowAfterPolicyReplacement(h)
-  \/ \E h \in Holders : EndBorrow(h)
-  \/ \E h \in Holders : ReleaseContentLease(h)
+  \/ \E holder \in Holders :
+       \E queryLease \in QueryLeases :
+         \E reference \in References :
+           IssueContentLease(holder, queryLease, reference)
+  \/ \E holder \in Holders :
+       \E queryLease \in QueryLeases :
+         \E reference \in References :
+           RejectInvalidIssue(holder, queryLease, reference)
+  \/ \E holder \in Holders :
+       \E reference \in References :
+         StartBorrow(holder, reference)
+  \/ \E holder \in Holders :
+       RejectBorrowAfterPolicyReplacement(holder)
+  \/ \E holder \in Holders :
+       \E reference \in References :
+         RejectMismatchedBorrow(holder, reference)
+  \/ \E holder \in Holders : EndBorrow(holder)
+  \/ \E holder \in Holders : ReleaseContentLease(holder)
   \/ RequestRetirement
   \/ BeginRetirement
   \/ ReleaseBackingResources
@@ -198,24 +357,32 @@ Spec ==
   /\ [][Next]_vars
   /\ WF_vars(BeginRetirement)
   /\ WF_vars(ReleaseBackingResources)
-  /\ \A h \in Holders : WF_vars(EndBorrow(h))
-  /\ \A h \in Holders : SF_vars(ReleaseContentLease(h))
+  /\ \A holder \in Holders : WF_vars(EndBorrow(holder))
+  /\ \A holder \in Holders : SF_vars(ReleaseContentLease(holder))
 
-IssuanceRequiresCurrentPolicy == wIssuanceGuard
+IssuanceRequiresCurrentPolicyAndExactSession == wIssuanceGuard
 TransferredChildIndependentOfQueryPolicy == wChildIndependent
+ContentLeaseBindsExactReference == wExactBorrow
 BackingReleaseRequiresChildSettlement == wReleaseGuard
 
 ReleasedBackingHasNoLiveChild ==
   session = "released" => ChildrenSettled
 
-LiveBorrowHasLiveChild ==
-  \A h \in Holders : borrows[h] = "live" => leases[h] = "live"
+LiveBorrowHasLiveExactChild ==
+  \A holder \in Holders :
+    borrows[holder] = "live" =>
+      /\ leases[holder] = "live"
+      /\ borrowReferences[holder] = leaseReferences[holder]
+      /\ ReferenceContent(borrowReferences[holder])
+          = ReferenceContent(leaseReferences[holder])
 
 RetirementEventuallySettles ==
   retireRequested ~> session = "released"
 
 ProbeNoBorrowAfterReplacement == ~pBorrowAfterReplace
-ProbeNoRejectedOldIssue == ~pRejectedOldIssue
+ProbeNoInvalidIssueRejection == ~pInvalidIssueRejected
+ProbeNoMismatchRejection == ~pMismatchRejected
+ProbeNoReplacementIssue == ~pReplacementIssue
 ProbeNoRetirementAfterChild == ~pRetiredAfterChild
 
 =============================================================================
