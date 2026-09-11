@@ -86,6 +86,46 @@ public class RenderAbSensorTests
     }
 
     [Fact]
+    public void RenderAbSemanticLane_ReportsUnavailableWithoutCompilation()
+    {
+        const string key = "unsupported.dll!T::M()";
+        var function = SyntheticFunction();
+        var shellContext = ValidityCheck.MethodShellContext.Create(
+            function,
+            requiresUnsafeContext: false);
+        var baseline = new Dictionary<string, RenderAbSensor.BaselineMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new("return 1;", shellContext),
+        };
+        var current = new Dictionary<string, RenderAbSensor.RenderedMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "T",
+                "M",
+                "()",
+                "/path/that/must/not/be-opened.dll",
+                "unsupported.dll",
+                "",
+                shellContext,
+                CompileBackUnavailableReason:
+                    "module memory-safety rules are Unsupported"),
+        };
+
+        string output = CaptureConsole(
+            () => RenderAbSensor.Compare(
+                baseline,
+                current,
+                maxExamples: 5),
+            expectedExitCode: 1);
+
+        Assert.Contains("Compile-back unavailable: 1", output);
+        Assert.Contains("unavailable: 1", output);
+        Assert.Contains("semantic unavailable", output);
+    }
+
+    [Fact]
     public void RenderAbSemanticLane_BindsCrossMethodRaisedBodies()
     {
         var type = typeof(UnraisedLocalFunctionSamples);
