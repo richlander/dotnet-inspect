@@ -669,6 +669,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   preserving source identity, observed horizon, completion, and typed failure.
   Ecosystem scope, security meaning, report selection, cursors, leaf
   enrichment, and host adoption remain with their focused owners.
+- [GitHub NuGet advisory evidence](design/github-nuget-advisory-evidence.md):
+  bounded acquisition and exact-coordinate evaluation of current affected and
+  explicitly fixed evidence from GitHub-reviewed NuGet advisories. Package
+  release dates, security-release classification, historical transitions,
+  report selection, and presentation remain with their focused owners.
 - [NuGet Gallery discovery](design/nuget-gallery-discovery.md): proposed
   NuGetFetch-owned termless/type-filtered discovery, source ordering,
   search-selector catalog, typed metadata observations, and Gallery-specific

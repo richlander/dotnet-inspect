@@ -319,6 +319,7 @@
         "CSharpText",
         "Inspector.Artifacts",
         "Inspector.Findings",
+        "Inspector.Resources",
         "ILInspector.MetadataPrimitives",
         "InertText"
       ]
