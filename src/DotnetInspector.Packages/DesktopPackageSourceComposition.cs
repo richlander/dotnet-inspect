@@ -229,7 +229,9 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _authoritiesByAssociation =
             new(ReferenceEqualityComparer.Instance);
     private readonly PackageSourceSettlementLease _sourceLease;
-    private int _disposed;
+    private readonly PackageSourceSettlementAuthorization _sourceAuthorization;
+    private readonly object _disposeGate = new();
+    private Task? _disposal;
 
     /// <summary>
     /// Creates a desktop composition using the installed NuGet credential
@@ -242,9 +244,8 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = provider;
         _ownedCredentialSource = provider;
         _createTransport = CreateProductionTransport;
-        _sourceLease = PackageSourceSettlementService.IssueLease(
-            GetSourceClient,
-            CreateOperationContext);
+        _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
+        _sourceAuthorization = _sourceLease.CreateAuthorization();
     }
 
     internal DesktopPackageSourceComposition(
@@ -257,9 +258,8 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _options = NuGetFetchOptions.FromRequestTimeout(requestTimeout);
         _credentialSource = credentialSource;
         _createTransport = createTransport;
-        _sourceLease = PackageSourceSettlementService.IssueLease(
-            GetSourceClient,
-            CreateOperationContext);
+        _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
+        _sourceAuthorization = _sourceLease.CreateAuthorization();
     }
 
     internal NuGetOperationContext CreateOperationContext(CancellationToken cancellationToken = default) =>
@@ -270,7 +270,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     /// package ID and adopts their results through exact association lookup.
     /// A supplied operation context remains caller-owned.
     /// </summary>
-    public async Task<PackageVersionDiscoveryResult> GetVersionsAsync(
+    public Task<PackageVersionDiscoveryResult> GetVersionsAsync(
         string packageId,
         bool includePrerelease,
         int? limit,
@@ -278,16 +278,29 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         bool includeUnlisted = false,
-        NuGetOperationContext? operationContext = null)
+        NuGetOperationContext? operationContext = null) =>
+        PackageSourceSettlementCompatibility.RunAsync(
+            _sourceAuthorization, cancellationToken, operationContext,
+            (generation, operation) => GetVersionsCoreAsync(
+                generation, packageId, includePrerelease, limit, sourceOptions,
+                log, operation, includeUnlisted),
+            _options.RequestTimeout, _options.OperationTimeout);
+
+    private async Task<PackageVersionDiscoveryResult> GetVersionsCoreAsync(
+        PackageSourceSettlementGeneration generation,
+        string packageId,
+        bool includePrerelease,
+        int? limit,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        NuGetOperationContext operation,
+        bool includeUnlisted)
     {
         PackageVersionDiscoveryContract contract =
             PackageVersionDiscoveryContract.Create(
                 includePrerelease,
                 includeUnlisted,
                 limit);
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
         if (!PackageExtractor.IsValidPackageId(packageId))
         {
             return Failed(
@@ -322,14 +335,10 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 failures,
                 hasAnyCandidate: false,
                 contract: contract,
-                candidateIssuer: _sourceLease.CandidateIssuerIdentity);
+                candidateIssuer: generation.CandidateIssuerIdentity);
         }
 
-        using NuGetOperationContext? ownedOperation = operationContext is null
-            ? CreateOperationContext(cancellationToken)
-            : null;
-        NuGetOperationContext operation = operationContext ?? ownedOperation!;
-        cancellationToken = operation.ResolveInvocationToken(cancellationToken);
+        CancellationToken cancellationToken = operation.CancellationToken;
         IReadOnlyList<InertString> feedLabels = PackageSourceDisplay.ForVersionListings(sources);
         var versions = new Dictionary<string, List<PackageVersionSourceInfo>>(StringComparer.OrdinalIgnoreCase);
         var candidates = new List<ConfiguredPackageCandidateObservation>();
@@ -503,7 +512,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             hasAnyCandidate,
             retainedCandidates,
             contract,
-            _sourceLease.CandidateIssuerIdentity);
+            generation.CandidateIssuerIdentity);
     }
 
     /// <summary>
@@ -628,16 +637,22 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     /// Acquires one exact manifest through the desktop transport and authentication policy
     /// while preserving the configured authority's owner-issued association.
     /// </summary>
-    public async Task<PackageSourceOperationResult<PackageSourceManifest>>
+    public Task<PackageSourceOperationResult<PackageSourceManifest>>
         GetManifestAsync(
             ConfiguredPackageAuthority authority,
             PackageSourceCoordinate coordinate,
             CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
+            NuGetOperationContext? operationContext = null) =>
+        PackageSourceSettlementCompatibility.RunAsync(
+            _sourceAuthorization, cancellationToken, operationContext,
+            (_, operation) => GetManifestCoreAsync(authority, coordinate, operation),
+            _options.RequestTimeout, _options.OperationTimeout);
+
+    private async Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestCoreAsync(
+        ConfiguredPackageAuthority authority,
+        PackageSourceCoordinate coordinate,
+        NuGetOperationContext operation)
     {
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(coordinate);
 
@@ -651,8 +666,8 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             await runtime.Client.GetManifestAsync(
                 coordinate.PackageId,
                 coordinate.Version,
-                cancellationToken,
-                operationContext).ConfigureAwait(false);
+                operation.CancellationToken,
+                operation).ConfigureAwait(false);
 
         if (outcome.Failure is { } failure)
         {
@@ -863,12 +878,15 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         });
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
+        lock (_disposeGate)
+            return new(_disposal ??= DisposeCoreAsync());
+    }
 
-        _sourceLease.Dispose();
+    private async Task DisposeCoreAsync()
+    {
+        await _sourceLease.DisposeAsync().ConfigureAwait(false);
         List<Exception>? failures = null;
         foreach (AuthorityEntry authority in _authorities.Values)
         {

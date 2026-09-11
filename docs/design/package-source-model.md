@@ -60,7 +60,8 @@ package-profile projection remains owned by
 The package source model owns package-source settlement. Its
 `PackageSourceSettlementService` issues a
 `PackageSourceSettlementLease` over caller-supplied configured-authority
-client access and operation-context creation. The lease is named for that
+client access. The service creates operation contexts at operation issuance.
+The lease is named for that
 resource, not for PackageHouse or another consumer.
 
 The root settlement generation establishes the authority to:
@@ -77,20 +78,28 @@ One lease owns one candidate-issuer identity. It accepts only source results
 whose association and client identity match the exact configured authority
 being settled.
 
-### Current compatibility lifetime
+### Adoption and remaining compatibility
 
-The current root lease directly exposes asynchronous settlement methods and
-accepts an optional caller-owned `NuGetOperationContext`. Current C# therefore
-permits the caller and an asynchronous state machine to retain ordinary aliases
-to live settlement authority. This remains a compatibility lifetime until the
-operation-ownership adoption tracked by
-[#6619](https://github.com/richlander/dotnet-inspect/issues/6619) lands. It is
-not a borrow under the shared
-[Resource Ownership and Borrowing](resource-ownership-and-borrowing.md)
-protocol, because no borrow crosses `await`.
+The operation-ownership implementation tracked by
+[#6619](https://github.com/richlander/dotnet-inspect/issues/6619) separates the
+root lifetime from asynchronous use. Public root access is synchronous
+`CreateAuthorization`; public source steps belong to
+`PackageSourceOperationLease`. Both leases and the private work child carry
+`ResourceOwnership` metadata. The root implements only `IAsyncDisposable`.
 
-The adopted contract preserves the root lease's issuer and candidate identity
-while separating long-lived settlement lifetime from one asynchronous use.
+PackageHouse retains its existing execution signature until
+[#6622](https://github.com/richlander/dotnet-inspect/issues/6622). Its internal
+compatibility bridge registers awaited work against the root generation and
+never disposes a caller-supplied `NuGetOperationContext`. This is not
+PackageHouse operation-lease ownership adoption. Desktop composition and direct
+source adapters retain revocable authorization rather than borrowing the root
+across `await`: calls without an external context own a fresh operation lease,
+while existing external-context calls use the internal registered-work bridge.
+Desktop release awaits root quiescence before releasing its clients.
+
+These compatibility paths do not claim that ordinary class aliases are
+borrows under [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md).
+No borrow crosses `await`.
 
 ### Root lease and operation issuance
 

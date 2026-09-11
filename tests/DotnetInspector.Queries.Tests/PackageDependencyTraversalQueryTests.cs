@@ -958,7 +958,7 @@ public sealed class PackageDependencyTraversalQueryTests
     [Fact]
     public async Task Traversal_InertTextRemainsInertThroughGraphResult()
     {
-        using RegistryFixture fixture = new();
+        await using RegistryFixture fixture = new();
         fixture.Registry.Add(
             "dependency",
             "1.2.3",
@@ -996,7 +996,7 @@ public sealed class PackageDependencyTraversalQueryTests
     [Fact]
     public async Task Traversal_ExactDeclarationUsesPinnedAcquisition()
     {
-        using RegistryFixture fixture = new();
+        await using RegistryFixture fixture = new();
         fixture.Registry.Add("dependency", "1.2.3", "");
         PackageDependencyEvidenceRoot rootEvidence = BuildRoot(
             "roota",
@@ -1025,7 +1025,7 @@ public sealed class PackageDependencyTraversalQueryTests
     [Fact]
     public async Task Traversal_BareVersionRequiresCandidateResolution()
     {
-        using RegistryFixture fixture = new();
+        await using RegistryFixture fixture = new();
         fixture.Registry.Add("dependency", "1.0.0", "");
         fixture.Registry.Add("dependency", "1.5.0", "");
         PackageDependencyEvidenceRoot rootEvidence = BuildRoot(
@@ -1060,7 +1060,7 @@ public sealed class PackageDependencyTraversalQueryTests
     [Fact]
     public async Task Traversal_CandidateResolverIncompleteOutcomeRemainsVisible()
     {
-        using RegistryFixture fixture = new();
+        await using RegistryFixture fixture = new();
         fixture.Client.FailVersionDiscovery = true;
         PackageDependencyEvidenceRoot rootEvidence = BuildRoot(
             "roota",
@@ -1091,7 +1091,7 @@ public sealed class PackageDependencyTraversalQueryTests
     [Fact]
     public async Task Traversal_ResolutionFailureIsNotDependencyFreeLeaf()
     {
-        using RegistryFixture fixture = new();
+        await using RegistryFixture fixture = new();
         // "dependency" is never added, so version discovery is authoritatively empty.
         PackageDependencyEvidenceRoot rootEvidence = BuildRoot(
             "roota",
@@ -1123,7 +1123,7 @@ public sealed class PackageDependencyTraversalQueryTests
     [Fact]
     public async Task Traversal_ManifestFailureIsNotDependencyFreeLeaf()
     {
-        using RegistryFixture fixture = new();
+        await using RegistryFixture fixture = new();
         // The version is known (so candidate resolution succeeds) but its manifest
         // bytes were never published, so exact acquisition fails.
         fixture.Registry.AddVersionOnly("dependency", "1.2.3");
@@ -1258,7 +1258,7 @@ public sealed class PackageDependencyTraversalQueryTests
     [Fact]
     public async Task Traversal_ManifestExpansionUsesManifestBytesOnly()
     {
-        using RegistryFixture fixture = new();
+        await using RegistryFixture fixture = new();
         fixture.Registry.Add("dependency", "1.2.3", "");
         fixture.Client.ForbidPayloadAndSymbols = true;
         PackageDependencyEvidenceRoot rootEvidence = BuildRoot(
@@ -1282,7 +1282,7 @@ public sealed class PackageDependencyTraversalQueryTests
     [Fact]
     public async Task Traversal_AuthorizedManifestSourceRejectsForeignCandidate()
     {
-        using RegistryFixture fixture = new();
+        await using RegistryFixture fixture = new();
         var foreignIssuer = new PackageAcquisitionCandidateIssuer();
         PackageAcquisitionCandidate foreignCandidate = Pinned(
             foreignIssuer,
@@ -1300,7 +1300,7 @@ public sealed class PackageDependencyTraversalQueryTests
     [Fact]
     public async Task Traversal_OperationDeadlineAffectsOnlyUnfinishedRoots()
     {
-        using RegistryFixture fixture = new();
+        await using RegistryFixture fixture = new();
         fixture.Registry.Add("dependency", "1.2.3", "");
         fixture.Client.DelayManifestBeyondOperationDeadline = true;
         PackageDependencyTraversalRootOccurrence directRoot = Root(
@@ -1357,7 +1357,7 @@ public sealed class PackageDependencyTraversalQueryTests
 
         // Browser/Wasm-style: explicit caller-owned source clients over a fake
         // in-memory registry.
-        using RegistryFixture fixture = new();
+        await using RegistryFixture fixture = new();
         fixture.Registry.Add(
             "dependency",
             "1.2.3",
@@ -1466,7 +1466,7 @@ public sealed class PackageDependencyTraversalQueryTests
         using var successfulClient = new RegistryPackageSourceClient(
             CreateResultFactoryFor(dependencyAuthorization.Authorities[1]),
             successfulRegistry);
-        using PackageSourceSettlementLease lease =
+        await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(
                 authority => ReferenceEquals(
                     authority.Association,
@@ -1475,7 +1475,7 @@ public sealed class PackageDependencyTraversalQueryTests
                         : successfulClient);
         var candidateSource = new AuthorizedPackageDependencyCandidateSource(
             authorization,
-            lease);
+            lease.CreateAuthorization());
         PackageDependencyTraversalOutcome explicitOutcome = await ExecuteAsync(
             [root],
             new PackageDependencyTraversalCandidateAdapter(candidateSource),
@@ -2148,7 +2148,7 @@ public sealed class PackageDependencyTraversalQueryTests
     /// real candidate-authorized exact manifest capability over one fake, in-memory
     /// registry-backed source client.
     /// </summary>
-    private sealed class RegistryFixture : IDisposable
+    private sealed class RegistryFixture : IAsyncDisposable
     {
         public PackageRegistry Registry { get; } = new();
 
@@ -2174,16 +2174,16 @@ public sealed class PackageDependencyTraversalQueryTests
             var candidateSource =
                 new AuthorizedPackageDependencyCandidateSource(
                     authorization,
-                    Lease);
+                    Lease.CreateAuthorization());
             CandidateResolver = new PackageDependencyTraversalCandidateAdapter(
                 candidateSource);
             ManifestAcquirer = new AuthorizedPackageDependencyManifestSource(
                 candidateSource);
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
-            Lease.Dispose();
+            await Lease.DisposeAsync();
             Client.Dispose();
         }
     }

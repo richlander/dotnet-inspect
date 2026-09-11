@@ -5,24 +5,24 @@ namespace DotnetInspector.PackageQueries;
 
 /// <summary>
 /// Thin dependency-candidate adapter over explicit package authorization and
-/// one caller-owned package-source settlement lease.
+/// revocable permission for one caller-owned package-source generation.
 /// </summary>
 public sealed class AuthorizedPackageDependencyCandidateSource
     : IPackageDependencyCandidateSource
 {
     private readonly IPackageSourceAuthorization _authorization;
-    private readonly PackageSourceSettlementLease _sourceLease;
+    private readonly PackageSourceSettlementAuthorization _sourceAuthorization;
 
-    internal PackageSourceSettlementLease SourceLease => _sourceLease;
+    internal PackageSourceSettlementAuthorization SourceAuthorization => _sourceAuthorization;
 
     public AuthorizedPackageDependencyCandidateSource(
         IPackageSourceAuthorization authorization,
-        PackageSourceSettlementLease sourceLease)
+        PackageSourceSettlementAuthorization sourceAuthorization)
     {
         ArgumentNullException.ThrowIfNull(authorization);
-        ArgumentNullException.ThrowIfNull(sourceLease);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
         _authorization = authorization;
-        _sourceLease = sourceLease;
+        _sourceAuthorization = sourceAuthorization;
     }
 
     public ValueTask<PackageAcquisitionCandidateResult>
@@ -30,20 +30,18 @@ public sealed class AuthorizedPackageDependencyCandidateSource
         PackageSourceCoordinate coordinate,
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null) =>
-        _sourceLease.ResolvePinnedCandidateAsync(
-            _authorization,
-            coordinate,
-            cancellationToken,
-            operationContext);
+        new(PackageSourceSettlementCompatibility.RunAsync(
+            _sourceAuthorization, cancellationToken, operationContext,
+            (generation, context) => generation.ResolvePinnedCandidateAsync(
+                _authorization, coordinate, operationContext: context).AsTask()));
 
-    public async Task<PackageVersionDiscoveryResult>
+    public Task<PackageVersionDiscoveryResult>
         DiscoverDependencyVersionsAsync(
             string packageId,
             CancellationToken cancellationToken = default,
             NuGetOperationContext? operationContext = null) =>
-            await _sourceLease.DiscoverDependencyVersionsAsync(
-                packageId,
-                _authorization,
-                cancellationToken,
-                operationContext).ConfigureAwait(false);
+            PackageSourceSettlementCompatibility.RunAsync(
+                _sourceAuthorization, cancellationToken, operationContext,
+                (generation, context) => generation.DiscoverDependencyVersionsAsync(
+                    packageId, _authorization, operationContext: context));
 }

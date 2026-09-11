@@ -11,7 +11,7 @@ public sealed partial class DesktopPackageSourceComposition
     /// from authorities whose admitted observations reported that coordinate.
     /// An external operation remains caller-owned through payload consumption.
     /// </summary>
-    public async Task<ConfiguredPackagePayloadResult> AcquireSelectedAsync(
+    public Task<ConfiguredPackagePayloadResult> AcquireSelectedAsync(
         string packageId,
         string? versionSelector,
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
@@ -22,9 +22,27 @@ public sealed partial class DesktopPackageSourceComposition
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null,
         PackagePayloadLimits? limits = null,
-        IPackagePayloadTransferPolicy? transferPolicy = null)
+        IPackagePayloadTransferPolicy? transferPolicy = null) =>
+        PackageSourceSettlementCompatibility.RunAsync(
+            _sourceAuthorization, cancellationToken, operationContext,
+            (generation, operation) => AcquireSelectedCoreAsync(
+                generation, packageId, versionSelector, createStore, sourceOptions,
+                log, includePrerelease, rangeAddress, operation, limits, transferPolicy),
+            _options.RequestTimeout, _options.OperationTimeout);
+
+    private async Task<ConfiguredPackagePayloadResult> AcquireSelectedCoreAsync(
+        PackageSourceSettlementGeneration generation,
+        string packageId,
+        string? versionSelector,
+        Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        bool includePrerelease,
+        string? rangeAddress,
+        NuGetOperationContext operation,
+        PackagePayloadLimits? limits,
+        IPackagePayloadTransferPolicy? transferPolicy)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         ArgumentNullException.ThrowIfNull(createStore);
         if (!PackageExtractor.IsValidPackageId(packageId))
             return InvalidSelection("The package ID must use the NuGet package ID grammar.");
@@ -55,20 +73,16 @@ public sealed partial class DesktopPackageSourceComposition
                 return InvalidSelection("Selected payload acquisition requires latest, a wildcard, or a range; use pinned acquisition for an exact version.");
         }
 
-        using NuGetOperationContext? ownedOperation = operationContext is null
-            ? CreateOperationContext(cancellationToken)
-            : null;
-        NuGetOperationContext operation = operationContext ?? ownedOperation!;
-        cancellationToken = operation.ResolveInvocationToken(cancellationToken);
         var failures = new List<PackageAuthorityFailure>();
         try
         {
             operation.ThrowIfExpired();
-            PackageVersionDiscoveryResult discovery = await GetVersionsAsync(
+            PackageVersionDiscoveryResult discovery = await GetVersionsCoreAsync(
+                generation,
                 packageId,
                 includePrerelease || prefix is not null || range?.IncludesPrerelease == true,
-                limit: null, sourceOptions, log, cancellationToken,
-                includeUnlisted: false, operationContext: operation).ConfigureAwait(false);
+                limit: null, sourceOptions, log, operation,
+                includeUnlisted: false).ConfigureAwait(false);
             failures.AddRange(discovery.Failures);
             if (discovery.State != PackageVersionDiscoveryState.Authoritative)
                 return new(null, null, null, failures);
@@ -107,8 +121,8 @@ public sealed partial class DesktopPackageSourceComposition
             if (coordinate is null)
                 return new(null, null, null, failures);
 
-            return await AcquireDiscoveredAsync(
-                discovery, coordinate, createStore, sourceOptions, log, operation,
+            return await AcquireDiscoveredCoreAsync(
+                generation, discovery, coordinate, createStore, sourceOptions, log, operation,
                 limits, transferPolicy).ConfigureAwait(false);
         }
         catch (NuGetOperationTimeoutException)
@@ -133,9 +147,24 @@ public sealed partial class DesktopPackageSourceComposition
         Action<string>? log,
         NuGetOperationContext operation,
         PackagePayloadLimits? limits = null,
-        IPackagePayloadTransferPolicy? transferPolicy = null)
+        IPackagePayloadTransferPolicy? transferPolicy = null) =>
+        PackageSourceSettlementCompatibility.RunAsync(
+            _sourceAuthorization, operation.CancellationToken, operation,
+            (generation, context) => AcquireDiscoveredCoreAsync(
+                generation, discovery, coordinate, createStore, sourceOptions,
+                log, context, limits, transferPolicy));
+
+    private Task<ConfiguredPackagePayloadResult> AcquireDiscoveredCoreAsync(
+        PackageSourceSettlementGeneration generation,
+        PackageVersionDiscoveryResult discovery,
+        PackageSourceCoordinate coordinate,
+        Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        NuGetOperationContext operation,
+        PackagePayloadLimits? limits,
+        IPackagePayloadTransferPolicy? transferPolicy)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         ArgumentNullException.ThrowIfNull(createStore);
         var failures = new List<PackageAuthorityFailure>(discovery.Failures);
         if (discovery.State != PackageVersionDiscoveryState.Authoritative)
@@ -150,8 +179,8 @@ public sealed partial class DesktopPackageSourceComposition
                 "Selected payload acquisition requires configured sources, not legacy producer or resolved-source restrictions."));
 
         PackageAcquisitionCandidate candidate = discovery.SelectCandidate(coordinate.Version);
-        PackageAcquisitionCandidateResult originalPolicy = ResolvePinnedCandidate(
-            candidate.Coordinate, sourceOptions, operationContext: operation);
+        PackageAcquisitionCandidateResult originalPolicy = ResolvePinnedCandidateCore(
+            generation, candidate.Coordinate, sourceOptions, operationContext: operation);
         failures.AddRange(originalPolicy.Failures);
         if (originalPolicy.Candidate is not { } originalSources)
             return Task.FromResult(new ConfiguredPackagePayloadResult(
@@ -166,7 +195,7 @@ public sealed partial class DesktopPackageSourceComposition
         bool selectionUsesOriginalSources = failures.Count == 0
             && reporters.SetEquals(originalSources.Authorities.Select(evidence => evidence.Authority));
         return AcquireCandidateAsync(
-            candidate, createStore, log, operation,
+            generation, candidate, createStore, log, operation,
             limits, transferPolicy, failures, selectionUsesOriginalSources);
     }
 

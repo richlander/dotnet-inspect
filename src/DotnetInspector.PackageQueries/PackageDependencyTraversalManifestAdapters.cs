@@ -51,7 +51,7 @@ public sealed class DesktopPackageDependencyTraversalManifestSource(
 
 /// <summary>
 /// Host-neutral candidate-authorized exact manifest adapter over the same
-/// caller-owned package-source settlement lease as
+/// caller-owned package-source settlement generation as
 /// <see cref="AuthorizedPackageDependencyCandidateSource"/>. This is the
 /// Browser/Wasm host's thin path: the host supplies source capabilities
 /// instead of a desktop transport composition.
@@ -60,21 +60,28 @@ public sealed class AuthorizedPackageDependencyManifestSource(
     AuthorizedPackageDependencyCandidateSource candidateSource) :
     IPackageDependencyTraversalManifestAcquirer
 {
-    private readonly PackageSourceSettlementLease _sourceLease =
+    private readonly PackageSourceSettlementAuthorization _sourceAuthorization =
         candidateSource is null
             ? throw new ArgumentNullException(nameof(candidateSource))
-            : candidateSource.SourceLease;
+            : candidateSource.SourceAuthorization;
 
-    public async Task<PackageDependencyTraversalManifestResult> AcquireAsync(
+    public Task<PackageDependencyTraversalManifestResult> AcquireAsync(
         PackageAcquisitionCandidate candidate,
         CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null)
+        NuGetOperationContext? operationContext = null) =>
+        PackageSourceSettlementCompatibility.RunAsync(
+            _sourceAuthorization, cancellationToken, operationContext,
+            (generation, context) => AcquireCoreAsync(generation, candidate, context));
+
+    private static async Task<PackageDependencyTraversalManifestResult> AcquireCoreAsync(
+        PackageSourceSettlementGeneration generation,
+        PackageAcquisitionCandidate candidate,
+        NuGetOperationContext context)
     {
         ConfiguredPackageManifestResult result =
-            await _sourceLease.AcquireCandidateManifestAsync(
+            await generation.AcquireCandidateManifestAsync(
                 candidate,
-                cancellationToken,
-                operationContext).ConfigureAwait(false);
+                operationContext: context).ConfigureAwait(false);
         return result.Manifest is { } manifest
             ? new PackageDependencyTraversalManifestResult.Acquired(
                 manifest,
