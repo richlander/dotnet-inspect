@@ -72,6 +72,12 @@ sparse prefixes recover the established scan throughput. Materialized prefix
 search retains 100-row requests because its caller has already requested one
 aggregate rather than demand-driven pages.
 
+The Gallery candidate projection uses a 128 KB `System.Text.Json` read buffer.
+This setting belongs only to the prefix projection context; materialized search
+retains the serializer default. The larger prefix buffer reduces Browser/Wasm
+stream crossings without changing the response, decoded fields, validation, or
+candidate ordering.
+
 Pagination advances by the raw response count and retains the existing 3,000
 maximum skip and 100-page client ceiling. Metadata byte limits, repeat-page
 rejection, candidate limits, and exact manifest validation remain in force.
@@ -134,9 +140,19 @@ and from about 78 to 40 MB respectively. The sparse `Grpc.*` witness grew to
 100-row requests and completed source exhaustion within 0.4 seconds of the
 fixed-100 baseline on both hosts.
 
+The phase-timing prototype at `cb016eeb9` then compared the serializer-default
+and 128 KB prefix buffers with five samples for `System.*`, `Azure.*`,
+`AWSSDK.*`, and `Grpc.*` on each host. Both artifacts used the same supported
+Search Query Service response and the same prefix projection. For the 3.55 MB
+decoded `AWSSDK.*` first page, the larger buffer reduced managed stream reads
+from 272 to 82 on fernie and 85 on merritt. Median stream-read time fell from
+513 to 85 ms and from 897 to 68 ms; row-20 latency fell from 2.347 to 1.839
+seconds and from 1.701 to 0.820 seconds. A 256 KB probe produced no further
+row-20 improvement on fernie, so 128 KB is the smallest measured plateau.
+
 This slice does not claim a fixed first-row latency, reduce NuGet round-trip
 time, yield individual candidates before one raw page completes, isolate
-decompression from JSON processing, parallelize manifests, virtualize the DOM,
-or change the Worker credit protocol. The production measurements in #5816
-explain the motivation and observed result, not a deterministic latency
-guarantee.
+decompression within stream-read time, parallelize manifests, virtualize the
+DOM, or change the Worker credit protocol. The production measurements in
+issue #5816 explain the motivation and observed result, not a deterministic
+latency guarantee.
