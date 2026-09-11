@@ -1389,7 +1389,13 @@ host-neutral
 installed implementation closure owned by
 [Platform Composition and Overlays](platform-composition-and-overlays.md#installed-implementation-platform-realization),
 and its installed PlatformHouse contribution. Both sub-slices are implemented;
-step 5 is the next production-adoption step.
+step 5 is staged by
+[Package-backed Platform realization](package-backed-platform-realization.md).
+Step 5a adds package-backed target discovery, reference-pack realization, and
+the package PlatformHouse adapter. Step 5b adds RID-specific runtime-pack
+acquisition and manifest-defined implementation closure through the same
+adapter. The two sub-slices preserve the eleven-step count; step 6 follows
+after both are implemented.
 
 No CLI flag is retained solely for compatibility. User-facing platform
 coordinates project to the shared target and House request, and unsupported
