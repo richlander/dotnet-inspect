@@ -316,6 +316,67 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void SuppliedDependencyManifestMissingAssetIsUnavailable()
+    {
+        using var files = new DiscoveryFiles();
+        ApplicationDependencyManifest manifest = Assert.IsType<
+            ApplicationDependencyManifestParseOutcome.Succeeded>(
+                ApplicationDependencyManifestReader.Parse(
+                    Encoding.UTF8.GetBytes(
+                        """
+                        {
+                          "runtimeTarget": {
+                            "name": ".NETCoreApp,Version=v11.0"
+                          },
+                          "targets": {
+                            ".NETCoreApp,Version=v11.0": {
+                              "ProjectDependency/1.0.0": {
+                                "runtime": {
+                                  "ProjectDependency.dll": {
+                                    "localPath": "Missing.dll"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "libraries": {
+                            "ProjectDependency/1.0.0": {
+                              "type": "project"
+                            }
+                          }
+                        }
+                        """),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)).Value;
+        var resolver = new AssemblyDependencyResolver(
+            files.Options with
+            {
+                IncludeDepsJsonAssets = true,
+                DependencyManifest = manifest,
+            });
+
+        AssemblyDependencyDiscoveryResult.Failed failure =
+            Assert.IsType<AssemblyDependencyDiscoveryResult.Failed>(
+                resolver.CaptureDiscoveryInventory(
+                    TestContext.Current.CancellationToken));
+        AssemblyDependencyDiscoveryEntry entry =
+            Assert.Single(failure.PartialEntries);
+
+        Assert.Empty(failure.DiscoveryFailures);
+        Assert.Equal(
+            Path.Combine(files.Root, "Missing.dll"),
+            entry.Dependency.Path);
+        Assert.Equal(
+            AssemblyDependencyProvenance.DepsJsonAsset,
+            entry.Dependency.Provenance);
+        Assert.Equal(
+            CandidateOpenFailureKind.Unreadable,
+            Assert.IsType<AssemblyDependencyAcquisition.Unavailable>(
+                entry.Acquisition).Failure.Kind);
+        Assert.Empty(resolver.ResolveAll());
+    }
+
+    [Fact]
     public void CaptureDiscoveryInventory_DepsAssetValidatesFallbackBeforeSelectingLocal()
     {
         using var files = new DiscoveryFiles();

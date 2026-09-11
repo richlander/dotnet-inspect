@@ -94,8 +94,9 @@ Unknown properties and library types do not gain semantics.
 ## Coordinate boundary
 
 Logical coordinates are relative `/`-separated values with no empty, `.`, or
-`..` segment, backslash, control character, rooted path, or drive prefix. The
-format result retains both the complete coordinate and its final file name.
+`..` segment, backslash, colon or volume-qualified segment, control character,
+or rooted path. The format result retains both the complete coordinate and its
+final file name.
 
 Validation does not authorize filesystem access. A consumer may project:
 

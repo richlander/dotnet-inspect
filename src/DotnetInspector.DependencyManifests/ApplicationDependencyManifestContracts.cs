@@ -45,7 +45,8 @@ public sealed class ApplicationDependencyManifestCoordinate :
                 && char.IsAsciiLetter(value[0])
                 && value[1] == ':'
             || value[^1] == '/'
-            || value.Contains('\\'))
+            || value.Contains('\\')
+            || value.Contains(':'))
         {
             return false;
         }

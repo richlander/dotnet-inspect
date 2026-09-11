@@ -165,6 +165,9 @@ public sealed class ApplicationDependencyManifestReaderTests
         """{"runtimeTarget":{"name":"target"},"targets":{"target":{"P/1.0.0":{"runtime":{"../P.dll":{}}}}},"libraries":{"P/1.0.0":{"type":"package"}}}""",
         ApplicationDependencyManifestDiagnosticKind.InvalidAssetCoordinate)]
     [InlineData(
+        """{"runtimeTarget":{"name":"target"},"targets":{"target":{"P/1.0.0":{"runtime":{"P.dll":{"localPath":"nested/C:P.dll"}}}}},"libraries":{"P/1.0.0":{"type":"project"}}}""",
+        ApplicationDependencyManifestDiagnosticKind.InvalidAssetCoordinate)]
+    [InlineData(
         """{"runtimeTarget":{"name":"target"},"targets":{"target":{"P/1.0.0":{}}},"libraries":{"P/1.0.0":{"type":"package","path":null}}}""",
         ApplicationDependencyManifestDiagnosticKind.InvalidLibraryMetadata)]
     public void Parse_RejectsInvalidDocuments(

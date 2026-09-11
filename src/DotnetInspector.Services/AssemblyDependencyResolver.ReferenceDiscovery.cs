@@ -623,38 +623,59 @@ public sealed partial class AssemblyDependencyResolver
                 in library.Assets)
             {
                 var candidates = new List<string>(3);
-                if (asset.LocalPath is { } localPath
-                    && StorePath.TryResolveUnderRoot(
-                        targetDirectory,
-                        localPath.Value,
-                        out string? resolvedLocalPath))
+                if (asset.LocalPath is { } localPath)
                 {
-                    candidates.Add(resolvedLocalPath);
+                    if (StorePath.TryResolveUnderRoot(
+                            targetDirectory,
+                            localPath.Value,
+                            out string? resolvedLocalPath))
+                    {
+                        candidates.Add(resolvedLocalPath);
+                    }
+                    else if (strict)
+                    {
+                        throw new JsonException(
+                            "A supplied dependency local asset path was rejected.");
+                    }
                 }
 
-                if (library.DeclaredPath is { } declaredPath
-                    && StorePath.TryResolveUnderRoot(
-                        GlobalPackagesRoot(),
-                        declaredPath.Value,
-                        out string? libraryDirectory)
-                    && StorePath.TryResolveUnderRoot(
-                        libraryDirectory,
-                        asset.Coordinate.Value,
-                        out string? resolvedAssetPath))
+                if (library.DeclaredPath is { } declaredPath)
                 {
-                    candidates.Add(resolvedAssetPath);
+                    if (StorePath.TryResolveUnderRoot(
+                            GlobalPackagesRoot(),
+                            declaredPath.Value,
+                            out string? libraryDirectory)
+                        && StorePath.TryResolveUnderRoot(
+                            libraryDirectory,
+                            asset.Coordinate.Value,
+                            out string? resolvedAssetPath))
+                    {
+                        candidates.Add(resolvedAssetPath);
+                    }
+                    else if (strict)
+                    {
+                        throw new JsonException(
+                            "A supplied dependency package asset path was rejected.");
+                    }
                 }
 
                 if (library.Kind
                         == ApplicationDependencyLibraryKind.Project
                     && asset.LocalPath is null
-                    && library.DeclaredPath is null
-                    && StorePath.TryResolveUnderRoot(
-                        targetDirectory,
-                        asset.Coordinate.FileName,
-                        out string? resolvedProjectPath))
+                    && library.DeclaredPath is null)
                 {
-                    candidates.Add(resolvedProjectPath);
+                    if (StorePath.TryResolveUnderRoot(
+                            targetDirectory,
+                            asset.Coordinate.FileName,
+                            out string? resolvedProjectPath))
+                    {
+                        candidates.Add(resolvedProjectPath);
+                    }
+                    else if (strict)
+                    {
+                        throw new JsonException(
+                            "A supplied dependency project asset path was rejected.");
+                    }
                 }
 
                 string? selected = candidates.FirstOrDefault(
