@@ -14,8 +14,10 @@ projection but not `-S` selection. `diff` supports `-D` and `-S` but not
 field/column projection. `timeline` supports section selection and projection
 but not `-D` discovery. `workspace` supports output formats, `--count`, and
 `--rows`, but not discovery, section selection, or field projection.
-Relationship commands render fixed output without `-D` or `-S`. Discover the
-shape first where available, then select and project.
+`depends` supports `-D`, `-S`, categories, row windows, count, and field/column
+projection across its dependency graph and evidence sections. Other
+relationship commands may still expose fixed output. Discover the shape first
+where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
