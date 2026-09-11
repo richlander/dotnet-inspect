@@ -160,6 +160,11 @@ substrates, and inspection producers that will extend that space.
   retains IL interpretation and Finding semantics; Houses compose and settle
   scenarios without issuing adjacent-owner leases. Adoption and retirement are
   tracked by #6544.
+- [Artifact Ownership and Borrowing](design/artifact-ownership-and-borrowing.md)
+  applies that protocol to Artifact: resource-free content references remain
+  separate from current query authority and transferable per-content child
+  leases, while session settlement drains children and scoped accesses before
+  releasing source acquisition resources.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its
@@ -467,6 +472,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
+- [Artifact ownership and borrowing](design/artifact-ownership-and-borrowing.md):
+  resource-classified Artifact lifetimes, resource-free content references,
+  transferred retained-content children, and synchronous scoped byte access.
 - [Library ownership and borrowing](design/library-ownership-and-borrowing.md):
   resource-free managed-Library references, aggregate content ownership,
   owner-issued async operation leases, and synchronous scoped content
