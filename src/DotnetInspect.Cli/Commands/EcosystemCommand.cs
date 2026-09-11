@@ -4,7 +4,6 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
-using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using Markout;
@@ -34,9 +33,28 @@ public static class EcosystemCommand
     private static readonly IReadOnlyDictionary<string, string[]> NoCategories =
         new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
 
-    public static int Execute(EcosystemOptions options)
+    /// <summary>
+    /// The base shared framework installed on this machine, which is the target the
+    /// <c>Pruning</c> section reports.
+    /// </summary>
+    private static readonly Func<InstalledPlatformPruneSource.Result> DefaultPruneSource =
+        static () => InstalledPlatformPruneSource.Read("runtime");
+
+    public static int Execute(EcosystemOptions options) =>
+        Execute(options, DefaultPruneSource);
+
+    /// <summary>Runs the command against an explicit platform prune source.</summary>
+    /// <remarks>
+    /// The source is a factory rather than a value so an unselected <c>Pruning</c> section reads
+    /// nothing. Tests supply their own to observe that, and to reach the read-failure path
+    /// without an unreadable machine.
+    /// </remarks>
+    internal static int Execute(
+        EcosystemOptions options,
+        Func<InstalledPlatformPruneSource.Result> pruneSource)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(pruneSource);
         ImmutableArray<EcosystemPackDescriptor> packs =
             EcosystemPackCatalog.Discover();
         if (!TryResolveFocus(
@@ -47,7 +65,7 @@ public static class EcosystemCommand
             return 1;
         }
 
-        EcosystemSection[] sections = CreateSections(packs, focus);
+        EcosystemSection[] sections = CreateSections(packs, focus, pruneSource);
         DocumentSchema schema = CreateSchema(sections);
         string[]? projectedColumns = ResolveProjectedColumns(options);
         string[]? discover = NormalizeSectionAliases(options.Discover);
@@ -301,7 +319,8 @@ public static class EcosystemCommand
 
     private static EcosystemSection[] CreateSections(
         ImmutableArray<EcosystemPackDescriptor> packs,
-        EcosystemPackDescriptor? focus)
+        EcosystemPackDescriptor? focus,
+        Func<InstalledPlatformPruneSource.Result> pruneSource)
     {
         ImmutableArray<EcosystemPackDescriptor> scope =
             focus is null ? packs : [focus];
@@ -334,7 +353,7 @@ public static class EcosystemCommand
         // route: it is the one section here backed by an installed reference pack rather than a
         // compiled-in descriptor, and its rows are produced on demand.
         if (focus is not null && focus.Id == EcosystemPackIds.Platform)
-            sections.Add(CreatePruningSection());
+            sections.Add(CreatePruningSection(pruneSource));
 
         return [.. sections];
     }
@@ -348,20 +367,23 @@ public static class EcosystemCommand
     /// a frozen entry is subsumed for any plausible request, while a live entry tracks the pack
     /// and turns on the version comparison.
     /// </remarks>
-    private static EcosystemSection CreatePruningSection() =>
+    private static EcosystemSection CreatePruningSection(
+        Func<InstalledPlatformPruneSource.Result> pruneSource) =>
         new(
             PruningSection,
             "Package identities the installed platform target supplies, so a reference to one resolves to the platform rather than the package.",
             ["Package", "Supplied By", "Supplied", "Kind"],
             ["package", "supplied_by", "supplied", "kind"],
-            BuildPruningRows,
-            "No platform prune inventory is installed for this target.",
-            StructuredEmptyRow: ["", "", "", ""]);
+            new Lazy<string[][]>(() => BuildPruningRows(pruneSource)),
+            // Says what was read, not what the platform contains. A pack that is absent, that
+            // publishes no prune data, and that could not be read all produce no rows, and none
+            // of them licenses the claim that the target subsumes nothing.
+            "No platform prune inventory was read for this target.");
 
-    private static string[][] BuildPruningRows()
+    private static string[][] BuildPruningRows(
+        Func<InstalledPlatformPruneSource.Result> pruneSource)
     {
-        InstalledPlatformPruneSource.Result result =
-            InstalledPlatformPruneSource.Read("runtime");
+        InstalledPlatformPruneSource.Result result = pruneSource();
         if (result.Inventory is not { } inventory)
         {
             // A missing or unreadable pack is not an empty platform. Report it and render no
@@ -378,10 +400,10 @@ public static class EcosystemCommand
                 entry.PackageId,
                 entry.Family,
                 entry.SuppliedVersion.ToNormalizedString(),
-                entry.Precision == PlatformPrunePrecision.Exact
-                    && entry.SuppliedVersion == entry.SourcePackVersion
-                        ? "live"
-                        : "frozen",
+                // A supplied version that is the pack's own version moves with the framework;
+                // a lower one is pinned to a release the framework has passed. Precision plays
+                // no part: this source reads the selected pack, so every entry is exact.
+                entry.SuppliedVersion == entry.SourcePackVersion ? "live" : "frozen",
             }),
         ];
     }
@@ -713,10 +735,11 @@ public static class EcosystemCommand
         [
             .. sections.Select(section =>
             {
+                string[][] sectionRows = section.Rows;
                 string[][] renderedRows =
-                    [.. RowWindow.Apply(rows, section.Rows)];
+                    [.. RowWindow.Apply(rows, sectionRows)];
                 if (structuredEmptyRows
-                    && section.Rows.Length == 0
+                    && sectionRows.Length == 0
                     && section.StructuredEmptyRow is { } emptyRow)
                 {
                     renderedRows = [emptyRow];
@@ -724,8 +747,8 @@ public static class EcosystemCommand
 
                 return section with
                 {
-                    Rows = renderedRows,
-                    WasLogicallyEmpty = section.Rows.Length == 0,
+                    RowSource = new Lazy<string[][]>(renderedRows),
+                    WasLogicallyEmpty = sectionRows.Length == 0,
                 };
             }),
         ];
@@ -774,66 +797,39 @@ public static class EcosystemCommand
     /// Deferring production keeps an unselected section free, which is what lets the section
     /// ladder decide cost rather than the constructor.
     /// </remarks>
-    private sealed record EcosystemSection
+    private sealed record EcosystemSection(
+        string Name,
+        string Summary,
+        string[] Labels,
+        string[] Ids,
+        Lazy<string[][]> RowSource,
+        string EmptyText,
+        string[]? StructuredEmptyRow = null,
+        bool WasLogicallyEmpty = false)
     {
-        private readonly Func<string[][]> _rows;
-        private string[][]? _materialized;
-
+        /// <summary>Declares a section whose rows are already in hand.</summary>
         internal EcosystemSection(
-            string Name,
-            string Summary,
-            string[] Labels,
-            string[] Ids,
-            Func<string[][]> Rows,
-            string EmptyText,
-            string[]? StructuredEmptyRow = null,
-            bool WasLogicallyEmpty = false)
-        {
-            this.Name = Name;
-            this.Summary = Summary;
-            this.Labels = Labels;
-            this.Ids = Ids;
-            _rows = Rows;
-            this.EmptyText = EmptyText;
-            this.StructuredEmptyRow = StructuredEmptyRow;
-            this.WasLogicallyEmpty = WasLogicallyEmpty;
-        }
-
-        internal EcosystemSection(
-            string Name,
-            string Summary,
-            string[] Labels,
-            string[] Ids,
-            string[][] Rows,
-            string EmptyText,
-            string[]? StructuredEmptyRow = null,
-            bool WasLogicallyEmpty = false)
-            : this(Name, Summary, Labels, Ids, () => Rows, EmptyText, StructuredEmptyRow, WasLogicallyEmpty)
+            string name,
+            string summary,
+            string[] labels,
+            string[] ids,
+            string[][] rows,
+            string emptyText,
+            string[]? structuredEmptyRow = null,
+            bool wasLogicallyEmpty = false)
+            : this(
+                name,
+                summary,
+                labels,
+                ids,
+                new Lazy<string[][]>(rows),
+                emptyText,
+                structuredEmptyRow,
+                wasLogicallyEmpty)
         {
         }
-
-        public string Name { get; init; }
-        public string Summary { get; init; }
-        public string[] Labels { get; init; }
-        public string[] Ids { get; init; }
 
         /// <summary>The section's rows, produced once on first access.</summary>
-        /// <remarks>
-        /// Declared in constructor position: a repository guard requires a record's reflected
-        /// property order to match the order its constructor takes them.
-        /// </remarks>
-        public string[][] Rows
-        {
-            get => _materialized ??= _rows();
-            init
-            {
-                _materialized = value;
-                _rows = () => value;
-            }
-        }
-
-        public string EmptyText { get; init; }
-        public string[]? StructuredEmptyRow { get; init; }
-        public bool WasLogicallyEmpty { get; init; }
+        public string[][] Rows => RowSource.Value;
     }
 }

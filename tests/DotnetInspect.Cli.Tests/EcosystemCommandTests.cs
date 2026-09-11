@@ -3,6 +3,9 @@ using System.Text.Json;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
+using DotnetInspector.Services;
+using NuGet.Versioning;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -552,6 +555,18 @@ public sealed class EcosystemCommandTests
         ConsoleCapture.RunAsync(
             () => Task.FromResult(EcosystemCommand.Execute(options)));
 
+    private static async Task<(int ExitCode, string Output, string Error)> ExecuteAsync(
+        EcosystemOptions options,
+        Func<InstalledPlatformPruneSource.Result> pruneSource,
+        string? expectedError = null)
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(EcosystemCommand.Execute(options, pruneSource)));
+        if (expectedError is not null)
+            Assert.Contains(expectedError, result.Error, StringComparison.Ordinal);
+        return result;
+    }
+
     private static Task<(int ExitCode, string Output, string Error)>
         ExecuteCommandLineAsync(params string[] arguments)
     {
@@ -565,21 +580,66 @@ public sealed class EcosystemCommandTests
     [Fact]
     public async Task Pruning_ListsWhatTheInstalledPlatformTargetSupplies()
     {
+        // The real reference pack installed on this machine, which is the scenario the section
+        // exists for. Membership moves with the SDK, so this pins the shape of the answer and
+        // leaves the live/frozen contract to the deterministic case below.
         var result = await ExecuteAsync(new EcosystemOptions
         {
             Ecosystem = "platform",
             Select = ["Pruning"],
+            Format = OutputFormat.Json,
         });
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Pruning", result.Output);
-        Assert.Contains("System.Text.Json", result.Output);
+        Assert.Empty(result.Error);
 
-        // Both populations render. The distinction is what explains a result rather than
-        // restating it: a frozen entry is subsumed for any plausible request, while a live
-        // entry tracks the pack and turns on the version comparison.
-        Assert.Contains("| live |", result.Output);
-        Assert.Contains("| frozen |", result.Output);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement[] rows =
+            [.. document.RootElement.GetProperty("pruning").EnumerateArray()];
+
+        // System.Text.Json has been a subsumed identity for every supported target, and the
+        // installed runtime pack is the family that supplies it.
+        JsonElement json = Assert.Single(
+            rows,
+            row => row.GetProperty("package").GetString() == "System.Text.Json");
+        Assert.Equal("Microsoft.NETCore.App", json.GetProperty("supplied_by").GetString());
+        Assert.True(
+            NuGetVersion.TryParse(json.GetProperty("supplied").GetString(), out _),
+            "the supplied version is the pack's literal, so it must parse");
+    }
+
+    [Fact]
+    public async Task Pruning_SeparatesTheVersionThatMovesWithTheFrameworkFromThePinnedOne()
+    {
+        // The distinction is what explains a result rather than restating it: a supplied version
+        // that is the pack's own version moves with the framework, while a lower one is pinned to
+        // a release the framework has passed.
+        var result = await ExecuteAsync(
+            new EcosystemOptions
+            {
+                Ecosystem = "platform",
+                Select = ["Pruning"],
+                Format = OutputFormat.Json,
+            },
+            Supplying("Microsoft.CSharp|4.7.0", "System.Text.Json|11.0.0"));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Dictionary<string, (string Supplied, string Kind, string SuppliedBy)> rows =
+            document.RootElement
+                .GetProperty("pruning")
+                .EnumerateArray()
+                .ToDictionary(
+                    row => row.GetProperty("package").GetString()!,
+                    row => (
+                        row.GetProperty("supplied").GetString()!,
+                        row.GetProperty("kind").GetString()!,
+                        row.GetProperty("supplied_by").GetString()!));
+
+        Assert.Equal(("4.7.0", "frozen", "Microsoft.NETCore.App"), rows["Microsoft.CSharp"]);
+        Assert.Equal(("11.0.0", "live", "Microsoft.NETCore.App"), rows["System.Text.Json"]);
     }
 
     [Fact]
@@ -599,17 +659,95 @@ public sealed class EcosystemCommandTests
     }
 
     [Fact]
-    public async Task Pruning_CostsNothingWhenItIsNotSelected()
+    public async Task Pruning_ReadsTheInstalledPackOnlyWhenItIsSelected()
     {
         // It is the one section backed by an installed reference pack rather than a compiled-in
-        // descriptor. Rows are produced on demand, so routes that do not select it read no pack.
-        var catalog = await ExecuteAsync(new EcosystemOptions());
+        // descriptor, so the count is the property that matters: routes that do not select it
+        // read nothing, and a route that does reads once.
+        int reads = 0;
+        InstalledPlatformPruneSource.Result Counting()
+        {
+            reads++;
+            return Supplying("System.Text.Json|11.0.0")();
+        }
+
+        var catalog = await ExecuteAsync(new EcosystemOptions(), Counting);
         Assert.Equal(0, catalog.ExitCode);
         Assert.DoesNotContain("## Pruning", catalog.Output);
+        Assert.Equal(0, reads);
 
-        var platformInfo = await ExecuteAsync(new EcosystemOptions { Ecosystem = "platform" });
+        var platformInfo = await ExecuteAsync(
+            new EcosystemOptions { Ecosystem = "platform" },
+            Counting);
         Assert.Equal(0, platformInfo.ExitCode);
         Assert.DoesNotContain("## Pruning", platformInfo.Output);
         Assert.Empty(platformInfo.Error);
+        Assert.Equal(0, reads);
+
+        var pruning = await ExecuteAsync(
+            new EcosystemOptions { Ecosystem = "platform", Select = ["Pruning"] },
+            Counting);
+        Assert.Equal(0, pruning.ExitCode);
+        Assert.Contains("## Pruning", pruning.Output);
+        Assert.Equal(1, reads);
     }
+
+    [Fact]
+    public async Task Pruning_ReportsAnUnreadablePackRatherThanAnEmptyInventory()
+    {
+        // A pack that cannot be read is not a platform that subsumes nothing. The failure reaches
+        // stderr and no row claims otherwise.
+        var result = await ExecuteAsync(
+            new EcosystemOptions { Ecosystem = "platform", Select = ["Pruning"] },
+            static () => new InstalledPlatformPruneSource.Result(
+                null,
+                "Could not read '/packs/Microsoft.NETCore.App.Ref/11.0.0/data/PackageOverrides.txt'."),
+            expectedError: "Could not read");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Pruning", result.Output);
+
+        // The empty text stands in for the table, so reaching it is the assertion that no row
+        // rendered — and it reports what was read rather than what the platform contains.
+        Assert.Contains(
+            "No platform prune inventory was read for this target.",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task Pruning_StructuredOutputCarriesNoEmptyRowWhenNothingIsSubsumed()
+    {
+        // A pack that publishes no entries subsumes nothing. Structured output says so with no
+        // rows rather than with one row of empty strings, which a consumer would read as an
+        // identity with a blank name.
+        var result = await ExecuteAsync(
+            new EcosystemOptions
+            {
+                Ecosystem = "platform",
+                Select = ["Pruning"],
+                Format = OutputFormat.Json,
+            },
+            Supplying());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Empty(
+            document.RootElement.GetProperty("pruning").EnumerateArray());
+    }
+
+    /// <summary>
+    /// A prune source that supplies exactly these <c>PackageOverrides.txt</c> lines for a fixed
+    /// target, so a case can assert the rendered answer rather than the installed SDK.
+    /// </summary>
+    private static Func<InstalledPlatformPruneSource.Result> Supplying(params string[] lines) =>
+        () => new InstalledPlatformPruneSource.Result(
+            PlatformPruneInventory.FromExactFamily(
+                new PlatformPruneTarget(
+                    "Microsoft.NETCore.App",
+                    "net11.0",
+                    NuGetVersion.Parse("11.0.0")),
+                lines),
+            null);
 }
