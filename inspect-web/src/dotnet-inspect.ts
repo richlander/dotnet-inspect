@@ -4316,6 +4316,53 @@ function typeDisplayName(
   return item?.displayName || item?.name || "";
 }
 
+type HomeFocusTarget =
+  | { kind: "id"; id: string }
+  | {
+    kind: "link";
+    region: "home-bar" | "data-bar";
+    href: string;
+  }
+  | { kind: "spotlight-scope"; scope: string };
+
+function captureHomeFocus(
+  focused: HTMLElement | null,
+): HomeFocusTarget | null {
+  if (!focused?.closest(".home")) return null;
+  if (focused.id) return { kind: "id", id: focused.id };
+  const spotlightScope = focused.dataset.slScope;
+  if (spotlightScope) {
+    return { kind: "spotlight-scope", scope: spotlightScope };
+  }
+  if (!(focused instanceof HTMLAnchorElement)) return null;
+  const region = focused.closest(".home-bar")
+    ? "home-bar"
+    : focused.closest(".data-bar")
+      ? "data-bar"
+      : null;
+  const href = focused.getAttribute("href");
+  return region && href ? { kind: "link", region, href } : null;
+}
+
+function restoreHomeFocus(target: HomeFocusTarget): boolean {
+  let element: HTMLElement | null = null;
+  if (target.kind === "id") {
+    element = document.getElementById(target.id);
+  } else if (target.kind === "spotlight-scope") {
+    element = [...document.querySelectorAll<HTMLElement>("[data-sl-scope]")]
+      .find(candidate => candidate.dataset.slScope === target.scope)
+      ?? null;
+  } else {
+    element = [...document.querySelectorAll<HTMLAnchorElement>(
+      `.${target.region} a[href]`,
+    )].find(candidate => candidate.getAttribute("href") === target.href)
+      ?? null;
+  }
+  if (!element) return false;
+  element.focus({ preventScroll: true });
+  return true;
+}
+
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   const graphExplorerWasOpen = graphExplorer.isOpen;
@@ -4337,6 +4384,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const focusedElement = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
+  const homeFocus = captureHomeFocus(focusedElement);
   contentFrameFocusOwner = null;
   contentFrameReplacementAuthority = null;
   const scopeBarOwnsFocus = focusedElement
@@ -4402,7 +4450,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   retainFailedWorkspaceUrl();
   if (state.home) {
-    renderHomeView();
+    renderHomeView(homeFocus);
     return;
   }
   if (scope() === "platform") {
@@ -10170,7 +10218,7 @@ async function copyText(value: string, confirmation: string) {
 // search, and a few demo entry points. The search reuses the Spotlight machinery in place
 // (shared #spotlight-input / #spotlight-chips / #spotlight-results ids), so results, scope
 // chips, NuGet discovery, and result picking all behave exactly like the modal Spotlight.
-function renderHomeView() {
+function renderHomeView(preservedFocus: HomeFocusTarget | null) {
   document.title = "dotnet-inspect -- Inspect .NET packages in your browser.";
   const enginePending = !state.engineReady;
   const showReadyGlint = state.engineReady && homeReadyGlintPending;
@@ -10240,7 +10288,7 @@ function renderHomeView() {
       }, escapeHtml)}
     </div>
     ${state.settings ? renderSettingsViewHtml() : ""}`;
-  bindHomeEvents();
+  bindHomeEvents(preservedFocus);
   if (state.settings) {
     document.querySelector<HTMLElement>("#settings-title")
       ?.focus({ preventScroll: true });
@@ -10260,10 +10308,11 @@ const homeShellActions: HomeShellBindingActions = {
   onToggleTheme: toggleTheme,
 };
 
-function bindHomeEvents() {
+function bindHomeEvents(preservedFocus: HomeFocusTarget | null) {
   bindSettingsPanelEvents();
   bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
+  if (state.settings) return;
   if (diagnosticsDestinationFocusPending) return;
   const destinationFocusGeneration = diagnosticsDestinationFocusGeneration;
   if (destinationFocusGeneration !== null) {
@@ -10281,6 +10330,7 @@ function bindHomeEvents() {
     return;
   }
   afterCurrentNavigationFrame(() => {
+    if (preservedFocus && restoreHomeFocus(preservedFocus)) return;
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
     if (input

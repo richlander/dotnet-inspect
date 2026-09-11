@@ -860,6 +860,25 @@ test("Home keeps Search and curated demos ahead of artwork", async ({
   await expect(page).toHaveURL("/credits");
 });
 
+test("Home preserves focused controls through delayed Build identity", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(credits).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
 test("Diagnostics opens from Settings and Spotlight without entering the Application menu", async ({
   page,
 }, testInfo) => {
