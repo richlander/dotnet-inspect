@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="../DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
   </ItemGroup>
 
 </Project>
