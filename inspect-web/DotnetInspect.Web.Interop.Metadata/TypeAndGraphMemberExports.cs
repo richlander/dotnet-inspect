@@ -2,6 +2,8 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using ILInspector.Metadata;
 using ILInspector.Research;
 using Analysis = ILInspector.Analysis;
 
@@ -19,9 +21,10 @@ public static partial class MetadataExports
 {
     /// <summary>
     /// One type's metadata projection, produced by
-    /// <see cref="AssemblyContextTypeProjectionQuery"/> over the participant that owns the type.
-    /// The query owns the metadata source and resolves references through the group's binding
-    /// policy; nothing here opens a source or reads an image.
+    /// <see cref="AssemblyContextTypeProjectionQuery"/> over the participant that owns the type
+    /// and <see cref="AssemblyContextTypeDependencyQuery"/> over the active package Workspace.
+    /// The queries own metadata access and resolve references through the group's binding policy;
+    /// nothing here opens a source or reads an image.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryTypeProjection(
@@ -29,44 +32,77 @@ public static partial class MetadataExports
         string version,
         string targetFramework,
         string assemblyName,
-        string typeId)
+        string typeId,
+        string workspaceJson)
     {
         BrowserTypeMetadata type = await TypeProjectionAsync(
             packageId,
             version,
             targetFramework,
             assemblyName,
-            typeId);
+            typeId,
+            workspaceJson,
+            RowSelectionIntent<TypeDependencyRowOrder>.Empty);
         return JsonSerializer.Serialize(
             type,
             BrowserMetadataJsonContext.Default.BrowserTypeMetadata);
     }
 
-    static async Task<BrowserTypeMetadata> TypeProjectionAsync(
+    internal static async Task<BrowserTypeMetadata> TypeProjectionAsync(
         string packageId,
         string version,
         string targetFramework,
         string assemblyName,
-        string typeId)
+        string typeId,
+        string workspaceJson,
+        RowSelectionIntent<TypeDependencyRowOrder>
+            typeDependencyRows)
     {
-        (BrowserScopeLease<BrowserInspectionScope> lease,
-            BrowserWorkspaceParticipant participant) =
-            await BrowserMemberResolution.SurfaceParticipantAsync(
+        ArgumentNullException.ThrowIfNull(typeDependencyRows);
+        (BrowserPackageRequest[] requests, int rootIndex) =
+            TypeProjectionRequests(
                 packageId,
                 version,
                 targetFramework,
-                assemblyName);
-        await using BrowserScopeLease<BrowserInspectionScope> surfaceLease = lease;
-        BrowserInspectionScope scope = lease.Scope;
+                workspaceJson);
+        await using BrowserScopeResolution resolution =
+            await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(requests);
+        BrowserInspectionScope scope = resolution.Scope;
+        BrowserPackageCoordinate requestedRoot =
+            resolution.RequestedCoordinates[rootIndex];
+        BrowserPackageCoordinate root = scope.Coordinate(requestedRoot);
+        BrowserWorkspaceParticipant participant =
+            scope.SurfaceParticipant(
+                root,
+                root.CompileAsset(assemblyName));
 
-        ResearchViews.TypeProjectionResult projection = BrowserSurfaceProjection.Require(
+        (ResearchViews.TypeProjectionResult Projection,
+            TypeDependencySectionResult Dependencies) result =
             scope.UseSurfaceParticipant(
                 participant,
-                (group, member) => AssemblyContextTypeProjectionQuery.ExecuteParticipant(
-                    group,
-                    member,
-                    new AssemblyContextTypeProjectionRequest(typeId))),
-            $"Type projection for '{typeId}'");
+                (group, member) =>
+                {
+                    ResearchViews.TypeProjectionResult projection =
+                        BrowserSurfaceProjection.Require(
+                            AssemblyContextTypeProjectionQuery.ExecuteParticipant(
+                                group,
+                                member,
+                                new AssemblyContextTypeProjectionRequest(typeId)),
+                            $"Type projection for '{typeId}'");
+                    return (
+                        projection,
+                        TypeDependencySectionExecutor.ExecuteParticipant(
+                            group,
+                            member,
+                            new TypeDependencySectionPlan(
+                                projection.Identity.FullName,
+                                typeDependencyRows,
+                                maximumDepth: null)));
+                });
+        ResearchViews.TypeProjectionResult projection = result.Projection;
+        (BrowserTypeGraphNode[] graphNodes,
+            BrowserTypeGraphEdge[] graphEdges) =
+            TypeRelationshipGraph(projection, result.Dependencies);
 
         return new BrowserTypeMetadata(
                 projection.Identity.FullName,
@@ -107,22 +143,227 @@ public static partial class MetadataExports
                         composition.Obsolete,
                         composition.Total)
                     : null,
-                [
-                    .. projection.Graph?.Nodes.Select(node => new BrowserTypeGraphNode(
-                        node.Id,
-                        node.DisplayName,
-                        node.Role.ToString().ToLowerInvariant())) ?? [],
-                ],
-                [
-                    .. projection.Graph?.Edges.Select(edge => new BrowserTypeGraphEdge(
-                        edge.FromId,
-                        edge.ToId,
-                        edge.Kind.ToString().ToLowerInvariant())) ?? [],
-                ],
+                graphNodes,
+                graphEdges,
                 [
                     .. projection.InspectionFailures.Select(
                         failure => $"{failure.Operation}: {failure.Detail}"),
+                    .. TypeDependencyFailures(scope, result.Dependencies),
                 ]);
+    }
+
+    internal static (BrowserPackageRequest[] Requests, int RootIndex)
+        TypeProjectionRequests(
+            string packageId,
+            string version,
+            string targetFramework,
+            string workspaceJson)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceJson);
+
+        BrowserWorkspacePackage[] workspace =
+            JsonSerializer.Deserialize(
+                workspaceJson,
+                BrowserMetadataJsonContext.Default
+                    .BrowserWorkspacePackageArray)
+            ?? throw new InvalidOperationException(
+                "The Browser Workspace package context is required.");
+        BrowserPackageRequest[] requests =
+        [
+            .. workspace.Select(package => new BrowserPackageRequest(
+                package.Package,
+                package.Version,
+                package.Framework)),
+        ];
+        int[] rootIndexes =
+        [
+            .. requests
+                .Select((request, index) => (request, index))
+                .Where(candidate =>
+                    StringComparer.OrdinalIgnoreCase.Equals(
+                        candidate.request.PackageId,
+                        packageId)
+                    && StringComparer.OrdinalIgnoreCase.Equals(
+                        candidate.request.Version,
+                        version)
+                    && StringComparer.OrdinalIgnoreCase.Equals(
+                        candidate.request.TargetFramework,
+                        targetFramework))
+                .Select(candidate => candidate.index),
+        ];
+        if (rootIndexes.Length != 1)
+        {
+            throw new InvalidOperationException(
+                "The Browser Workspace package context must contain the "
+                    + "active package coordinate exactly once.");
+        }
+
+        return (requests, rootIndexes[0]);
+    }
+
+    static (BrowserTypeGraphNode[] Nodes, BrowserTypeGraphEdge[] Edges)
+        TypeRelationshipGraph(
+            ResearchViews.TypeProjectionResult projection,
+            TypeDependencySectionResult dependencies)
+    {
+        var nodes = new List<BrowserTypeGraphNode>();
+        var nodeIndexes = new Dictionary<string, int>(StringComparer.Ordinal);
+        var edges = new List<BrowserTypeGraphEdge>();
+        var edgeKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        void AddNode(string id, string displayName, string role)
+        {
+            if (nodeIndexes.TryGetValue(id, out int index))
+            {
+                if (nodes[index].Role != "self"
+                    && role == "self")
+                {
+                    nodes[index] = nodes[index] with { Role = role };
+                }
+                return;
+            }
+
+            nodeIndexes.Add(id, nodes.Count);
+            nodes.Add(new BrowserTypeGraphNode(id, displayName, role));
+        }
+
+        void AddEdge(string fromId, string toId, string kind)
+        {
+            if (edgeKeys.Add($"{fromId}\0{toId}\0{kind}"))
+                edges.Add(new BrowserTypeGraphEdge(fromId, toId, kind));
+        }
+
+        foreach (ResearchViews.TypeRelationshipNode node
+                 in projection.Graph?.Nodes ?? [])
+        {
+            if (node.Role is not (
+                    ResearchViews.TypeRelationshipRole.Self
+                    or ResearchViews.TypeRelationshipRole.Derived))
+            {
+                continue;
+            }
+            AddNode(
+                node.Id,
+                node.DisplayName,
+                node.Role.ToString().ToLowerInvariant());
+        }
+        foreach (ResearchViews.TypeRelationshipEdge edge
+                 in projection.Graph?.Edges ?? [])
+        {
+            if (edge.Kind
+                is not ResearchViews.TypeRelationshipKind.DerivedFrom)
+            {
+                continue;
+            }
+            AddEdge(
+                edge.FromId,
+                edge.ToId,
+                edge.Kind.ToString().ToLowerInvariant());
+        }
+
+        string? matchedType =
+            dependencies.QueryResult.Dependency.MatchedType;
+        if (matchedType is null)
+            return ([.. nodes], [.. edges]);
+
+        var dependencyRoles = new Dictionary<string, string>(
+            StringComparer.Ordinal);
+        foreach (TypeDependencyRelationship relationship
+                 in dependencies.RowSelection.Relationships)
+        {
+            dependencyRoles.TryAdd(
+                relationship.TargetTypeName,
+                relationship.Kind
+                    is TypeDependencyRelationshipKind.BaseType
+                        ? "base"
+                        : "interface");
+        }
+
+        string GraphId(string typeName) =>
+            typeName.Equals(matchedType, StringComparison.Ordinal)
+                ? projection.Identity.FullName
+                : typeName;
+
+        foreach (TypeDependencyRelationship relationship
+                 in dependencies.RowSelection.Relationships.OrderBy(
+                     static relationship => relationship.Ordinal))
+        {
+            string sourceId = GraphId(relationship.SourceTypeName);
+            string targetId = GraphId(relationship.TargetTypeName);
+            AddNode(
+                sourceId,
+                sourceId,
+                sourceId.Equals(
+                    projection.Identity.FullName,
+                    StringComparison.Ordinal)
+                    ? "self"
+                    : dependencyRoles.GetValueOrDefault(
+                        relationship.SourceTypeName,
+                        "base"));
+            AddNode(
+                targetId,
+                targetId,
+                dependencyRoles[relationship.TargetTypeName]);
+            AddEdge(
+                sourceId,
+                targetId,
+                relationship.Kind
+                    is TypeDependencyRelationshipKind.BaseType
+                        ? "inherits"
+                        : "implements");
+        }
+
+        return ([.. nodes], [.. edges]);
+    }
+
+    static IEnumerable<string> TypeDependencyFailures(
+        BrowserInspectionScope scope,
+        TypeDependencySectionResult dependencies)
+    {
+        foreach (AssemblyContextTypeDependencyEntry.Rejected rejected
+                 in dependencies.QueryResult.Participants.OfType<
+                     AssemblyContextTypeDependencyEntry.Rejected>())
+        {
+            BrowserWorkspaceParticipant? participant =
+                scope.SurfaceParticipants.FirstOrDefault(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        rejected.Subject.Registration));
+            string coordinate = participant is null
+                ? "an unknown Workspace participant"
+                : $"{participant.Coordinate.PackageId}@"
+                    + $"{participant.Coordinate.Version}/"
+                    + participant.Coordinate.Framework;
+            yield return
+                $"Type dependencies for {coordinate} were rejected "
+                + $"({rejected.Failure.Kind}).";
+        }
+
+        if (!dependencies.QueryResult.HasSurvivingParticipant)
+        {
+            yield return
+                "Workspace type dependencies are unavailable because every "
+                + "participant was rejected.";
+        }
+        if (dependencies.RowSelection.Failure is { } rowFailure)
+        {
+            yield return
+                $"Type dependency row selection stage "
+                + $"{rowFailure.Failure.StageNumber} requires row "
+                + $"{rowFailure.Failure.RequiredPosition}, but "
+                + $"{rowFailure.Identity} has "
+                + $"{rowFailure.Failure.AvailableCount} rows.";
+        }
+        else if (!dependencies.QueryResult.Dependency.Found)
+        {
+            yield return
+                "Workspace type dependencies could not certify the selected "
+                + "type; participant-local derived relationships are shown "
+                + "only.";
+        }
     }
 
     /// <summary>
