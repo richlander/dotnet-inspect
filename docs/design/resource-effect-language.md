@@ -16,7 +16,9 @@ Its exact claim is:
 > Resource API declarations from compiled attributes, shipped mappings,
 > external JSON, and future compiler metadata can describe their lifecycle
 > semantics using one bounded effect language, and equivalent declarations
-> normalize to the same Analysis input.
+> normalize to the same Analysis input. Independently declared resource
+> domains compose in one catalog and one flow without selecting
+> resource-specific engine behavior.
 
 [Resource ownership and borrowing](resource-ownership-and-borrowing.md) owns
 the lifecycle semantics described by the language. `ILInspector.Analysis` owns
@@ -71,14 +73,17 @@ algorithm, a control-flow graph, a Finding, or a remediation policy.
 
 ## Complexity basis
 
-The additional language machinery is justified by two correctness
+The additional language machinery is justified by three correctness
 requirements:
 
 1. equal CLR value shapes can carry different obligations depending on how
    they were acquired; and
 2. the same obligation can cross calls, aliases, callback borrows, and
    synchronous or asynchronous release without making those APIs part of the
-   flow engine.
+   flow engine; and
+3. code governed by one resource protocol can acquire, borrow, retain, or
+   release obligations from another protocol without choosing one resource
+   world or analyzer.
 
 `byte[]` is the motivating example. An ordinary array has no pool-return
 obligation. An array returned by `ArrayPool<byte>.Shared.Rent` does, and that
@@ -238,6 +243,40 @@ fact belongs to Analysis.
 A **normalized declaration** is the typed, source-independent result of
 parsing and validating a model. Attribute, JSON, shipped, and future compiler
 sources that state the same contract produce equal normalized declarations.
+
+## Cross-resource composition
+
+The ArrayPool and repository ownership models are initial witnesses, not
+separate operating modes. Analysis admits both into one catalog, and one
+method body may carry obligations from both resource domains at the same time.
+Resource-kind identity is catalog-global; model identity records declaration
+provenance and does not partition flow state.
+
+For example, an attribute-declared resource owner may rent an ArrayPool buffer
+while constructing or servicing the owner:
+
+- a temporary buffer remains an independent pooled-buffer obligation that must
+  be returned on every supported terminal path even while the outer owner
+  remains live;
+- returning or disposing the outer owner does not implicitly release the
+  buffer;
+- storing the rented buffer as owned child state requires an explicit
+  `accept` relationship or visible generic body flow, and later cleanup must
+  release or transfer that exact pooled-buffer obligation; and
+- a leak, use after return, or incomplete ArrayPool flow remains reportable
+  beside the outer owner's own release, borrow, and settlement evidence.
+
+A model may refer to a resource kind declared by another admitted model through
+its exact qualified kind identity and generic arity. Catalog validation rejects
+an unresolved or incompatible cross-model reference. It does not merge kinds
+because they use the same CLR type or give one model precedence over another.
+
+This composition is a principal benefit of the generic effect system. The
+engine tracks an open set of obligation identities and relationships rather
+than selecting an ArrayPool analysis or an ownership-model analysis for a
+body. Adding another resource protocol therefore adds declarations and,
+when necessary, generic proof capability—not another top-level lifecycle
+engine.
 
 ## Structural identity
 
@@ -461,6 +500,49 @@ language patterns, exception-type predicates, or property evaluation. An API
 whose effect depends on a discriminator outside the bounded `outcome` set is
 incomplete.
 
+## Violations are derived, not declared
+
+Effect declarations describe valid API transitions. They do not annotate a
+method as leaking, double-releasing, or duplicating ownership. Analysis derives
+those outcomes by applying the declared transitions to actual metadata and IL
+flow.
+
+Copying a CLR reference does not copy its obligation. Every supported alias
+retains the same obligation identity. A copy becomes an ownership violation
+when flow treats two aliases as independent owners—for example, transferring
+the same obligation twice or arranging for two aliases to release it. The
+analyzer therefore distinguishes ordinary aliasing from **ownership
+duplication**.
+
+A second physical materialization of detached data is different. It may be a
+performance or identity defect, but it is not a lifecycle violation unless the
+copy duplicates or loses a tracked obligation. The snapshot runtime gate owns
+the no-double-materialization property; the effect engine does not report
+arbitrary extra data copies as resource Findings.
+
+The initial derived lifecycle outcomes are:
+
+| Outcome | Derived condition |
+| ------- | ----------------- |
+| Missing release | A supported terminal path retains an obligation that was neither released nor transferred. |
+| Ownership duplication | One obligation is treated as independently owned through two aliases or destinations. |
+| Double release | A release is reachable after the same obligation was already released. |
+| Use after release | A use, borrow, transfer, or release is reachable after release. |
+| Use after move | A use, borrow, transfer, or release is reachable through the prior owner after transfer. |
+| Wrong authority | Release or settlement uses authority that does not correspond to the acquisition. |
+| Borrow escape | A borrowed or owner-derived value reaches a location beyond its declared scope. |
+| Incompatible borrowed access | Mutable use, transfer, or release occurs through read-only borrowed access. |
+| Owner transition with live borrow | An owner is released or transferred while a supported borrow remains live. |
+| Unobserved settlement | An asynchronous release attempt is not observed to complete successfully. |
+| Incomplete | Declaration, metadata, alias, dispatch, state-machine, or control-flow evidence exceeds the supported proof set. |
+
+Proven violations become `analysis.resource-lifecycle` Findings with resource
+kind, obligation identity, acquisition coordinate, violating operation, and
+supporting path evidence. Incomplete proof becomes a typed incomplete or failed
+inspection, not a violation and never a clean empty census. Exact
+presentation, severity, confidence, and remediation remain Analysis and
+Resource Triage concerns rather than language terms.
+
 ## String statement encoding
 
 One effect statement has this grammar:
@@ -642,37 +724,42 @@ Conceptually:
 }
 ```
 
-This fragment is explanatory, not the complete JSON schema. The implementation
-slice owns generated serialization types and the exact source-generated
-serializer context corresponding to this design.
+This fragment is explanatory, not the complete JSON schema. The future product
+intake slice owns production serialization types and its source-generated
+serializer context. Before that capability exists, a test harness owns a
+test-only decoder for schema and normalization equivalence.
 
-Product intake uses duplicate-rejecting hardened JSON, rejects unmapped
-members, and applies explicit document, declaration, selector, string, generic
-arity, and statement-work limits before retaining model data. JSON cannot name
-an assembly to load, execute a resolver, include another file, invoke a plugin,
-or embed code.
+When product intake is added, it uses duplicate-rejecting hardened JSON,
+rejects unmapped members, and applies explicit document, declaration, selector,
+string, generic arity, and statement-work limits before retaining model data.
+JSON cannot name an assembly to load, execute a resolver, include another file,
+invoke a plugin, or embed code.
 
-The first implementation uses JSON fixtures and the shipped ArrayPool mapping.
-A caller-supplied CLI or browser mapping is a separately approved production
-capability. This design ensures that later intake does not require a second
-language or engine.
+The first implementation does not deserialize resource-effect JSON in
+production. It realizes the shipped ArrayPool model as typed C# declarations
+and admits them through the same catalog validation and normalized declaration
+boundary used after attribute parsing. Tests deserialize equivalent JSON and
+prove that it reaches the same normalized declarations. A caller-supplied CLI
+or browser mapping is a separately approved production capability.
 
 ### Implementation placement
 
 `Inspector.Resources` may provide the canonical dependency-free carrier
-attribute and current-C# runtime helpers. It does not parse statements, read
-JSON, depend on System.Text.Json, or contain Analysis policy.
+attribute and current-C# runtime helpers. Resource owners only emit carrier
+attribute blobs; they do not parse statements or JSON. `Inspector.Resources`
+therefore does not depend on System.Text.Json or contain Analysis policy.
 
 `ILInspector.Analysis` owns the bounded statement parser, structural selector
-resolution, normalized declarations, shipped mappings, and JSON model types
-because it is the first consumer. These remain SRM-only, NativeAOT-friendly,
-Roslyn-free, and free of inspected-assembly loading.
+resolution, normalized declarations, catalog validation, and shipped typed
+mappings because it is the first consumer. These remain SRM-only,
+NativeAOT-friendly, Roslyn-free, and free of inspected-assembly loading.
 
-The ArrayPool model ships as an embedded JSON resource using the public schema.
-It is parsed and validated through the same JSON and statement paths as a
-fixture or future external model; production code does not hand-construct a
-privileged normalized ArrayPool declaration. The validated result may be
-cached immutably.
+The ArrayPool model is realized once in `ILInspector.Analysis` as immutable C#
+data. It uses the public normalized declaration types and catalog validator,
+not an ArrayPool-specific engine input. This avoids runtime JSON
+deserialization on the baseline Analysis path while retaining one lifecycle
+engine. The equivalence harness independently decodes the documented JSON form
+and compares the resulting normalized model with this shipped realization.
 
 Another repository does not need an `Inspector.Resources` reference. It may
 define a carrier with the required metadata constructor shape and supply that
@@ -938,6 +1025,150 @@ single materialization, exact result-object propagation, callback cardinality,
 and post-release rejection. The effect language proves none of those runtime
 implementation properties by declaration alone.
 
+## Worked examples
+
+These examples use conceptual Finding names. Final output spelling and
+presentation belong to Analysis and Resource Triage.
+
+### ArrayPool leak and use after release
+
+The shipped ArrayPool model supplies these relevant declarations:
+
+```text
+authority(kind=dotnet.array-pool.shared,target=return,
+  key=singleton[type[0]])
+acquire(kind=dotnet.array-pool.buffer<type[0]>,target=return,
+  correspondence=receiver,when=normal-return)
+release(kind=dotnet.array-pool.buffer<type[0]>,source=parameter[0],
+  correspondence=receiver,when=normal-return)
+```
+
+Consider:
+
+```csharp
+static int ReadOne(Stream stream)
+{
+    byte[] buffer = ArrayPool<byte>.Shared.Rent(1);
+    int count = stream.Read(buffer, 0, 1);
+    ArrayPool<byte>.Shared.Return(buffer);
+    return count == 0 ? -1 : buffer[0];
+}
+```
+
+The normalized flow is:
+
+1. `get_Shared` produces authority
+   `dotnet.array-pool.shared<byte>`.
+2. `Rent` creates obligation `B1` for
+   `dotnet.array-pool.buffer<byte>`, corresponding to that authority.
+3. `Stream.Read` may throw. On that exceptional exit, `B1` remains owned, so
+   Analysis derives **missing release**.
+4. On normal return from `Return`, the corresponding authority releases `B1`.
+5. Reading `buffer[0]` afterward uses the value carrying released obligation
+   `B1`, so Analysis derives **use after release**.
+
+Conceptually, Analysis emits:
+
+```text
+Finding(resource=dotnet.array-pool.buffer<byte>,
+  outcome=missing-release,acquire=Rent,path=Stream.Read exceptional-exit)
+Finding(resource=dotnet.array-pool.buffer<byte>,
+  outcome=use-after-release,release=Return,use=array-element-read)
+```
+
+Assigning `buffer` to another local would create another alias for `B1`, not a
+second obligation. Returning both aliases to the pool would add a
+**double-release** outcome; passing both to independently consuming operations
+would be **ownership duplication**.
+
+### AssemblyInspectionSession snapshot and duplicate release
+
+The compiled ownership and snapshot declarations normalize to:
+
+```text
+acquire(kind=dotnet-inspect.assembly-session,target=return,
+  when=normal-return)
+release(kind=dotnet-inspect.assembly-session,source=receiver,
+  when=normal-return)
+borrow(kind=dotnet-inspect.assembly-session,source=receiver,
+  target=receiver,access=read,scope=call)
+callback(delegate=parameter[1],scope=callback[1],
+  execution=synchronous,cardinality=exactly-once)
+borrow(source=receiver,target=callback[1].parameter[0],
+  access=read,scope=callback[1])
+independent(source=receiver,target=callback[1].return)
+pass(source=callback[1].return,target=return)
+```
+
+The intended path returns a detached projection:
+
+```csharp
+static MetadataTableProjection Project(string path)
+{
+    using var session = AssemblyInspectionSession.Open(path);
+    return session.Snapshot(
+        new MetadataProjectionOptions(),
+        static (snapshot, options) =>
+            snapshot.Value.MetadataTables(options));
+}
+```
+
+The normalized flow is:
+
+1. `Open` creates one session obligation `S1`.
+2. `Snapshot` creates read-only callback borrow `R1` from `S1`.
+3. `snapshot.Value` derives the live borrowed session value. `MetadataTables`
+   is one of the declared read-only operations, so its use is compatible with
+   `R1`.
+4. The callback returns a detached `MetadataTableProjection`. The
+   `independent` declaration requires Analysis to prove that the result does
+   not carry `S1` or `R1`.
+5. The callback ends `R1`, and the generated `using` cleanup releases `S1`.
+   No lifecycle Finding is produced.
+
+Now consider a duplicated terminal responsibility:
+
+```csharp
+static MetadataTableProjection BrokenProject(string path)
+{
+    AssemblyInspectionSession first =
+        AssemblyInspectionSession.Open(path);
+    AssemblyInspectionSession second = first;
+
+    MetadataTableProjection projection = second.Snapshot(
+        new MetadataProjectionOptions(),
+        static (snapshot, options) =>
+            snapshot.Value.MetadataTables(options));
+
+    first.Dispose();
+    _ = second.HasMetadata;
+    second.Dispose();
+    return projection;
+}
+```
+
+Assigning `first` to `second` creates another alias for `S1`; it does not create
+`S2`. `first.Dispose()` releases `S1`. `second.HasMetadata` then uses released
+`S1`, and `second.Dispose()` attempts to release it again.
+
+Conceptually, Analysis emits:
+
+```text
+Finding(resource=dotnet-inspect.assembly-session,
+  outcome=use-after-release,release=first.Dispose,
+  use=second.HasMetadata)
+Finding(resource=dotnet-inspect.assembly-session,
+  outcome=double-release,first=first.Dispose,second=second.Dispose)
+```
+
+If two consuming operations instead accepted `first` and `second` as separate
+owners, Analysis would derive **ownership duplication** at the second
+transfer. If neither alias released or transferred `S1`, every supported
+terminal path would derive **missing release**. If the snapshot callback
+returned `snapshot.Value` itself, the `independent` requirement would fail and
+Analysis would derive **borrow escape** rather than accepting the
+owner-derived result as detached.
+
 ## One Analysis engine
 
 The engine consumes only resolved normalized declarations plus existing
@@ -1098,6 +1329,13 @@ The generic engine gates must preserve:
 
 - the clean, leak, use-after-return, double-return, storage, caller-return,
   forwarding, alias, and incomplete fixture outcomes;
+- a separately compiled declared owner that uses ArrayPool internally,
+  including temporary return, exceptional leak, retained-child cleanup, and
+  independent outer-owner and pooled-buffer outcomes in one flow;
+- derived missing-release, ownership-duplication, double-release,
+  use-after-release, use-after-move, wrong-authority, borrow, and
+  unobserved-settlement outcomes without declaring those failures as API
+  effects;
 - current normal and exceptional path evidence;
 - intended current Resource Lifecycle Finding identity and coordinates;
 - the pinned community-corpus lifecycle and actionability census, with every
@@ -1120,16 +1358,18 @@ nine focused slices:
 1. lock this language, its encodings, normalized boundary, and oracle;
 2. implement the bounded parser, validator, model provenance, and normalized
    declarations;
-3. express the supported ArrayPool and wrapper contracts as a shipped mapping;
+3. express the supported ArrayPool and wrapper contracts as a shipped typed C#
+   mapping;
 4. adapt one generic flow engine to reproduce the ArrayPool fixture and corpus
-   oracle;
+   oracle plus the declared-owner/ArrayPool composition witness;
 5. adopt generic evidence in `LibraryBodyIndex`, `LeakTriageAnalyzer`, the
    corpus sensor, and Resource Lifecycle Analysis, then retire the
    ArrayPool-specific lifecycle semantic path;
 6. adopt generic ownership-flow evidence in Research and retire
    `ArrayPoolOwnershipFlow` and `ArrayPoolOwnershipPathWitness`;
 7. express `Inspector.Resources` and `AssemblyInspectionSession` through
-   compiled effect attributes and equivalent JSON fixtures;
+   compiled effect attributes and prove equivalent normalization from JSON
+   test inputs;
 8. expose generalized Resource Triage through the CLI;
 9. expose the same typed contract through Inspect Web Browser/Wasm.
 

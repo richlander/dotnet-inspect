@@ -686,6 +686,8 @@ normalization mechanics.
 This protocol requires that the language can express:
 
 - exact resource type identity;
+- simultaneous obligations from multiple admitted resource kinds in one body,
+  including a declared owner that acquires or retains an ArrayPool obligation;
 - acquisition operations;
 - ownership-bearing return and field shapes;
 - mutable-borrowed, read-only-borrowed, and consuming receivers;
@@ -833,16 +835,17 @@ end-to-end tracker. Its current total is 21 steps:
 3. implement the bounded parser, validator, provenance, and resource-neutral
    normalized model;
 4. express ArrayPool and its supported wrapper relationships as a shipped
-   mapping through that language;
+   typed C# mapping through that language;
 5. adapt one generic flow engine to reproduce the ArrayPool fixture and corpus
-   oracle;
+   oracle plus the declared-owner/ArrayPool composition witness;
 6. adopt generic evidence in `LibraryBodyIndex`, `LeakTriageAnalyzer`, the
    corpus sensor, and Resource Lifecycle Analysis, then retire the
    ArrayPool-specific lifecycle semantic path;
 7. adopt generic ownership-flow evidence in Research and retire
    ArrayPool-specific flow records;
 8. express `Inspector.Resources` and `AssemblyInspectionSession` through
-   compiled effect attributes and equivalent JSON fixtures;
+   compiled effect attributes and prove equivalent normalization from JSON
+   test inputs;
 9. implement the host-neutral snapshot callback interface and ref-like view,
    including the generic detached-result channel and its Analysis effects;
 10. expose generalized Resource Triage through the CLI;
@@ -924,6 +927,8 @@ The declaration and Analysis steps must gate:
 - incomplete decode, resolution, dispatch, alias, body, and control-flow
   evidence remaining visible;
 - compatibility with the existing ArrayPool corpus and Finding identities;
+- one declared owner and ArrayPool model composing in the same body without
+  selecting separate lifecycle engines;
 - repository dogfood that distinguishes complete violations, complete clean
   lifecycles, and unsupported or incomplete ownership flow; and
 - equivalent typed outcomes in CLI and Browser/Wasm consumers.
