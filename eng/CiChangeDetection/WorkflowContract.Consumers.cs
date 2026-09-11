@@ -47,6 +47,10 @@ internal static partial class WorkflowContract
             jobs,
             "Run NetworkAccess tests",
             "dotnet run --project tests/NetworkAccess.Tests -c Release");
+        ValidateRequiredTestStep(
+            jobs,
+            "Run DotnetInspector.Networking tests",
+            "dotnet run --project tests/DotnetInspector.Networking.Tests -c Release");
     }
 
     private static void ValidateRepositoryGuardsJob(YamlMappingNode jobs)

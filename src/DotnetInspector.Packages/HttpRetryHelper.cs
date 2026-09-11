@@ -165,9 +165,9 @@ public static class HttpRetryHelper
             void RecordFailure(HttpStatusCode? status)
             {
                 if (effectiveRequestUri is { } effectiveUri)
-                    FeedFailureTelemetry.Record(effectiveUri, status);
+                    FeedFailureRecorder.Record(effectiveUri, status);
                 else
-                    FeedFailureTelemetry.Record(url, status);
+                    FeedFailureRecorder.Record(url, status);
             }
             void CaptureEffectiveRequestUri(Uri? uri)
             {
@@ -250,7 +250,7 @@ public static class HttpRetryHelper
                     log?.Invoke($"HTTP {methodName} unsupported URL (not retryable)");
                     return new HttpRetryResult(null, null);
                 }
-                catch (DotnetInspector.Core.OfflineException)
+                catch (DotnetInspector.Networking.OfflineException)
                 {
                     log?.Invoke($"Network access is disabled (--offline mode).");
                     return new HttpRetryResult(null, null);
@@ -447,7 +447,7 @@ public static class HttpRetryHelper
                     if (!IsRetryableStatus(statusCode))
                     {
                         log?.Invoke($"HTTP GET {(int)statusCode} (not retryable).");
-                        FeedFailureTelemetry.Record(url, statusCode);
+                        FeedFailureRecorder.Record(url, statusCode);
                         return new HttpBodyFetchResult(
                             null,
                             HttpBodyFetchStatus.Unavailable,
@@ -471,7 +471,7 @@ public static class HttpRetryHelper
                             ? socketError.ToString()
                             : ex.HttpRequestError.ToString();
                         log?.Invoke($"HTTP GET error {errorKind} (not retryable).");
-                        FeedFailureTelemetry.Record(url, null);
+                        FeedFailureRecorder.Record(url, null);
                         return new HttpBodyFetchResult(
                             null,
                             HttpBodyFetchStatus.Unavailable);
@@ -511,7 +511,7 @@ public static class HttpRetryHelper
                 if (attempts++ >= retryCount)
                 {
                     log?.Invoke($"Max retries ({retryCount}) exceeded.");
-                    FeedFailureTelemetry.Record(url, null);
+                    FeedFailureRecorder.Record(url, null);
                     return new HttpBodyFetchResult(
                         null,
                         HttpBodyFetchStatus.Unavailable);
@@ -642,7 +642,7 @@ public static class HttpRetryHelper
             return null;
 
         // Body work sits outside ExecuteWithRetryAsync's NetworkTelemetry.Scope.
-        // Re-enter the caller trafficKind so FeedFailureTelemetry.Record stamps
+        // Re-enter the caller trafficKind so FeedFailureRecorder.Record stamps
         // PackageVersionList / PackageManifest / etc., not Unknown or an outer
         // ambient scope.
         using (NetworkTelemetry.Scope(trafficKind))
@@ -654,9 +654,9 @@ public static class HttpRetryHelper
             {
                 Uri? effective = response.RequestMessage?.RequestUri;
                 if (effective is not null)
-                    FeedFailureTelemetry.Record(effective, response.StatusCode);
+                    FeedFailureRecorder.Record(effective, response.StatusCode);
                 else
-                    FeedFailureTelemetry.Record(url, response.StatusCode);
+                    FeedFailureRecorder.Record(url, response.StatusCode);
             }
 
             if (response.Content.Headers.ContentLength is long advertised

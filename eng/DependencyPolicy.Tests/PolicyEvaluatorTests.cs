@@ -720,6 +720,24 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void CheckedInPolicyKeepsNetworkingBelowCoreAndHosts()
+    {
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "networking-stays-below-core-and-hosts",
+            "DotnetInspector.Networking",
+            "DotnetInspector.Core");
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsNuGetFetchIndependent()
+    {
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "nuget-fetch-stays-independent",
+            "NuGetFetch",
+            "DotnetInspector.Packages");
+    }
+
+    [Fact]
     public void CheckedInBroadProductRulesExcludeCallerGraphFixtures()
     {
         string repository = FindRepositoryRoot();
@@ -859,6 +877,47 @@ public sealed class PolicyEvaluatorTests
             Configuration = "Release",
             Rules = rules,
         };
+
+    private static void AssertCheckedInRuleRejectsRepositoryDependency(
+        string ruleId,
+        string target,
+        string dependency)
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == ruleId);
+        RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
+            [
+                Node(
+                    target,
+                    projectReferences: [dependency],
+                    assemblyReferences: [dependency]),
+                Node(dependency),
+            ]);
+
+        DependencyViolation[] violations = PolicyEvaluator
+            .Evaluate(
+                new DependencyPolicyDocument
+                {
+                    SchemaVersion = policy.SchemaVersion,
+                    Solution = policy.Solution,
+                    Configuration = policy.Configuration,
+                    Rules = [rule],
+                },
+                graph)
+            .ToArray();
+
+        Assert.Equal(2, violations.Length);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Project);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Assembly);
+    }
 
     private static string FindRepositoryRoot()
     {

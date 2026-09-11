@@ -175,7 +175,7 @@ public class RouterVersionTests
     /// </summary>
     private static async Task EnsurePackageCached(string packageName, string? version = null)
     {
-        var client = DotnetInspector.Core.HttpClientFactory.Shared;
+        var client = DotnetInspector.Networking.HttpClientFactory.Shared;
         var outcome = await PackageExtractor.ExtractPackageAsync(
             client, packageName, log: null, version: version);
         Assert.True(outcome.IsSuccess, $"Failed to download {packageName}: {outcome.ErrorMessage}");
