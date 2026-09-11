@@ -99,6 +99,7 @@ import {
   spotlightCandidateSignature,
   typeLensesFor,
   uniqueTypeByQueryId,
+  uniqueWorkspaceTypeByQueryId,
   workspaceCoordinatesMatch
 } from "../src/data.ts";
 import type {
@@ -1444,10 +1445,16 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /bindGraphBack\(document, graphBackActions\)/);
   assert.match(
     typeGraph,
-    /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveTypeGraphNode: nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*closeGraphExplorerForNavigation\(\);[\s\S]*navigateToType\(target\)[\s\S]*unavailableLabel/);
+    /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveTypeGraphNode: nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*closeGraphExplorerForNavigation\(\);[\s\S]*navigateToWorkspaceType\(candidate\.pkg, candidate\.type\)/);
   assert.match(
     typeGraph,
-    /const target = graphNode\.role === "self"\s*\? selectedType\(\)\s*: uniqueTypeByQueryId\(pkg\.types, fullName\)/);
+    /unavailableLabel:[\s\S]*not uniquely available in the loaded Workspace surfaces/);
+  assert.match(
+    appSource,
+    /function navigateToWorkspaceType\([\s\S]*selectWorkspacePackage\(pkg, \{ renderSelection: false \}\);[\s\S]*navigateToType\(target\)/);
+  assert.match(
+    typeGraph,
+    /const candidate = graphNode\.role === "self"[\s\S]*\{ pkg: currentPackage\(\), type: currentType \}[\s\S]*uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>\([\s\S]*state\.packages,[\s\S]*fullName\)/);
   assert.match(
     dependencyGraph,
     /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveDependencyGraphNode: nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
@@ -6934,6 +6941,32 @@ test("relationship navigation rejects ambiguous dotted identities", () => {
   assert.equal(uniqueTypeByQueryId([first], "N.T"), first);
   assert.equal(uniqueTypeByQueryId([first, second], "N.T"), null);
   assert.equal(uniqueTypeByQueryId([], "N.T"), null);
+});
+
+test("relationship navigation resolves one exact type across loaded Workspace packages", () => {
+  const first = {
+    id: "First",
+    types: [{ id: "A:N.T", queryId: "N.T" }],
+  };
+  const second = {
+    id: "Second",
+    types: [{ id: "B:N.U", queryId: "N.U" }],
+  };
+
+  assert.deepEqual(
+    uniqueWorkspaceTypeByQueryId([first, second], "N.U"),
+    { pkg: second, type: second.types[0] });
+  assert.equal(
+    uniqueWorkspaceTypeByQueryId(
+      [
+        first,
+        {
+          id: "Duplicate",
+          types: [{ id: "C:N.T", queryId: "N.T" }],
+        },
+      ],
+      "N.T"),
+    null);
 });
 
 // Same widening as `engineCallGraphTarget`: the engine's diagnostics payload also carries

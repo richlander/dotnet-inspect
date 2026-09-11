@@ -272,4 +272,4 @@ export declare function queryPackageMetadataTable(packageId: string, version: st
 export declare function queryPlatformHeapEntries(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, heap: string): Promise<BrowserHeapListing>;
 export declare function queryPlatformMetadata(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageMetadata>;
 export declare function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
-export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string): Promise<BrowserTypeMetadata>;
+export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string, workspaceJson: string): Promise<BrowserTypeMetadata>;
