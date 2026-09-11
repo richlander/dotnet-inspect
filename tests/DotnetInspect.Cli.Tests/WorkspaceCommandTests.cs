@@ -754,7 +754,7 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task ActivePackage_CurrentCatalogEntriesAreExecutable()
+    public async Task ActivePackage_ActiveEntriesExecuteAndTombstoneRemainsRetired()
     {
         var store = new InMemoryPackageStore();
         await AddPackageAsync(
@@ -802,10 +802,22 @@ public sealed class WorkspaceCommandTests
             lens => lens.GetProperty("facet").GetString()
                 == "library.compare");
         Assert.All(
-            lenses,
+            lenses.Where(lens =>
+                lens.GetProperty("facet").GetString()
+                    != "library.opportunities"),
             lens => Assert.Equal(
                 "Available",
                 lens.GetProperty("availability").GetString()));
+        JsonElement retired = Assert.Single(
+            lenses,
+            lens => lens.GetProperty("facet").GetString()
+                == "library.opportunities");
+        Assert.Equal(
+            "Unavailable",
+            retired.GetProperty("availability").GetString());
+        Assert.Equal(
+            "This view is retired.",
+            retired.GetProperty("diagnostic").GetString());
     }
 
     [Fact]

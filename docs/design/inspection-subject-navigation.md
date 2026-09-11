@@ -69,7 +69,7 @@ are
 `UnknownDestinationLens_RetainsSourceAndDiagnostic`,
 `ActivePackage_MarkdownLowersNavigationThroughMarkout`, and
 `ActivePackage_JsonlCarriesPortableDescriptorRecords`,
-`ActivePackage_CurrentCatalogEntriesAreExecutable`,
+`ActivePackage_ActiveEntriesExecuteAndTombstoneRemainsRetired`,
 `MissingType_RendersNonSuccessSnapshotAndDiagnostic`,
 `RootOnlyAllLibraries_RendersTypedUnavailableSnapshot`, and
 `AllLibrariesRejectsIgnoredLibraryWithoutTypeDestination`. Default package
