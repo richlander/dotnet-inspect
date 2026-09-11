@@ -1808,6 +1808,7 @@ public sealed class PackageHouseContractTests
                     TestContext.Current.CancellationToken);
 
         Assert.Same(authority, payload.Authority);
+        Assert.Same(client.Source, payload.Source);
         AcquiredPackageSourcePayload acquired =
             Assert.IsType<AcquiredPackageSourcePayload>(payload.Payload);
         Assert.Same(committed, acquired.Content);
