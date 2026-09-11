@@ -59,7 +59,7 @@ internal static class PromotionWorkflowContract
         """;
     private const string CoreClrPackageOperationCheck =
         """
-        INSPECT_WEB_PACKAGE_ADOPTION_SITE=artifacts/inspect-web-coreclr-publish/wwwroot \
+        INSPECT_WEB_PACKAGE_ADOPTION_SITE="$GITHUB_WORKSPACE/artifacts/inspect-web-coreclr-publish/wwwroot" \
           eng/test-inspect-web-package-adoption-gate.sh \
             --grep 'drives the production opening, join, occurrence, and rejection contracts'
         """;
