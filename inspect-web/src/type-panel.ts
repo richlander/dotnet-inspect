@@ -504,10 +504,12 @@ export function typeMetadataSignature(
   item: TypeSummary,
   packageContext: TypePanelPackageContext,
   libraryIdentity = "",
+  workspaceIdentity = "",
 ): string {
-  const signature =
+  let signature =
     `${packageContext.id}@${packageContext.version}/${packageContext.activeFramework}/${item.assembly}/${item.id}`;
-  return libraryIdentity ? `${signature}/${libraryIdentity}` : signature;
+  if (libraryIdentity) signature = `${signature}/${libraryIdentity}`;
+  return workspaceIdentity ? `${signature}#${workspaceIdentity}` : signature;
 }
 
 export interface TypeMetadataStateSlice {
@@ -521,6 +523,7 @@ export interface RenderTypeMetadataOptions {
   item: TypeSummary;
   packageContext: TypePanelPackageContext;
   libraryIdentity?: string;
+  workspaceIdentity?: string;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
   escapeHtml: EscapeHtml;
@@ -530,13 +533,15 @@ export interface RenderTypeMetadataOptions {
 
 export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const {
-    item, packageContext, libraryIdentity, metadataState, memberCompositionHtml,
+    item, packageContext, libraryIdentity, workspaceIdentity, metadataState,
+    memberCompositionHtml,
     escapeHtml, relatedTypeChip, factRows,
   } = options;
   const current = typeMetadataSignature(
     item,
     packageContext,
-    libraryIdentity);
+    libraryIdentity,
+    workspaceIdentity);
   const fresh = metadataState.typeMetadataKey === current;
   const meta = fresh ? metadataState.typeMetadata : null;
   const renderSurface = (content: string) => {

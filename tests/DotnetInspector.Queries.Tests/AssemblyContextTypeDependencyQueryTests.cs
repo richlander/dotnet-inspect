@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -111,6 +112,37 @@ public sealed class AssemblyContextTypeDependencyQueryTests
         Assert.Equal(
                 relationship.TargetTypeName,
                 boundary.TypeName);
+        Assert.Equal(1, boundary.MaximumDepth);
+    }
+
+    [Fact]
+    public void ExecuteParticipant_DepthBoundFlowsThroughExactRoot()
+    {
+        var policy = new TestBindingPolicy();
+        TestAssembly source =
+            TestAssembly.Create("bounded participant", policy);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+
+        AssemblyContextTypeDependencyResult result =
+            AssemblyContextTypeDependencyQuery.ExecuteParticipant(
+                group,
+                source.Participant,
+                typeof(AssemblyContextTypeDependencyRoot)
+                    .FullName!,
+                maximumDepth: 1);
+
+        TypeDependencyRelationship relationship =
+            Assert.Single(result.Dependency.Relationships);
+        Assert.EndsWith(
+            nameof(AssemblyContextTypeDependencyMiddle),
+            relationship.TargetTypeName,
+            StringComparison.Ordinal);
+        TypeDependencyDepthBoundary boundary =
+            Assert.Single(result.Dependency.DepthBoundaries);
+        Assert.Equal(relationship.TargetTypeName, boundary.TypeName);
         Assert.Equal(1, boundary.MaximumDepth);
     }
 
@@ -298,6 +330,149 @@ public sealed class AssemblyContextTypeDependencyQueryTests
         Assert.Equal(1, third.OpenCount);
     }
 
+    [Fact]
+    public void ExecuteParticipant_SelectsTheExactSameNamedRoot()
+    {
+        const string typeNamespace =
+            "DotnetInspector.Queries.Tests.Duplicate";
+        const string typeName = "Root";
+        string fullName = $"{typeNamespace}.{typeName}";
+        var policy = new TestBindingPolicy();
+        TestAssembly first =
+            TestAssembly.CreateWithInterface(
+                "first duplicate",
+                policy,
+                "FirstDuplicate",
+                typeNamespace,
+                typeName,
+                typeof(IAsyncDisposable));
+        TestAssembly selected =
+            TestAssembly.CreateWithInterface(
+                "selected duplicate",
+                policy,
+                "SelectedDuplicate",
+                typeNamespace,
+                typeName,
+                typeof(IDisposable));
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    first.Participant,
+                    selected.Participant,
+                ]);
+
+        AssemblyContextTypeDependencyResult result =
+            AssemblyContextTypeDependencyQuery.ExecuteParticipant(
+                group,
+                selected.Participant,
+                fullName);
+
+        Assert.True(result.Dependency.Found);
+        Assert.Contains(
+            result.Dependency.Relationships,
+            relationship =>
+                relationship.TargetTypeName
+                    == typeof(IDisposable).FullName);
+        Assert.DoesNotContain(
+            result.Dependency.Relationships,
+            relationship =>
+                relationship.TargetTypeName
+                    == typeof(IAsyncDisposable).FullName);
+        Assert.Equal(
+            [
+                first.Participant.Assembly.Registration,
+                selected.Participant.Assembly.Registration,
+            ],
+            result.Participants.Select(
+                participant =>
+                    participant.Subject.Registration));
+    }
+
+    [Fact]
+    public void ExecuteParticipant_DoesNotBorrowSameNamedRoot()
+    {
+        const string typeNamespace =
+            "DotnetInspector.Queries.Tests.Duplicate";
+        const string typeName = "Root";
+        string fullName = $"{typeNamespace}.{typeName}";
+        var policy = new TestBindingPolicy();
+        TestAssembly other =
+            TestAssembly.CreateWithInterface(
+                "public duplicate",
+                policy,
+                "PublicDuplicate",
+                typeNamespace,
+                typeName,
+                typeof(IAsyncDisposable));
+        TestAssembly selected =
+            TestAssembly.CreateWithInterface(
+                "non-public selected duplicate",
+                policy,
+                "NonPublicSelectedDuplicate",
+                typeNamespace,
+                typeName,
+                typeof(IDisposable),
+                isPublic: false);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    other.Participant,
+                    selected.Participant,
+                ]);
+
+        AssemblyContextTypeDependencyResult result =
+            AssemblyContextTypeDependencyQuery.ExecuteParticipant(
+                group,
+                selected.Participant,
+                fullName);
+
+        Assert.False(result.Dependency.Found);
+        Assert.Empty(result.Dependency.Relationships);
+        Assert.All(
+            result.Participants,
+            participant =>
+                Assert.IsType<
+                    AssemblyContextTypeDependencyEntry.Completed>(
+                        participant));
+    }
+
+    [Fact]
+    public void ExecuteParticipant_DoesNotFuzzyMatchWithinSelectedParticipant()
+    {
+        const string typeNamespace =
+            "DotnetInspector.Queries.Tests.Fuzzy";
+        const string typeName = "Widget";
+        string fullName = $"{typeNamespace}.{typeName}";
+        var policy = new TestBindingPolicy();
+        TestAssembly selected =
+            TestAssembly.CreateWithGenericCollision(
+                "selected fuzzy collision",
+                policy,
+                "SelectedFuzzyCollision",
+                typeNamespace,
+                typeName,
+                typeof(IDisposable),
+                typeof(IAsyncDisposable));
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [selected.Participant]);
+
+        AssemblyContextTypeDependencyResult result =
+            AssemblyContextTypeDependencyQuery.ExecuteParticipant(
+                group,
+                selected.Participant,
+                fullName);
+
+        Assert.False(result.Dependency.Found);
+        Assert.Empty(result.Dependency.Relationships);
+        Assert.IsType<
+            AssemblyContextTypeDependencyEntry.Completed>(
+                Assert.Single(result.Participants));
+    }
+
     sealed class TestAssembly
     {
         private int openCount;
@@ -345,6 +520,92 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                 BuildMalformedRelationshipImage(
                     typeNamespace,
                     typeName);
+            using var peReader =
+                new PEReader(
+                    new MemoryStream(bytes, writable: false));
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            return Create(
+                bytes,
+                identity,
+                label,
+                policy,
+                selectedName: null);
+        }
+
+        internal static TestAssembly CreateWithInterface(
+            string label,
+            IAssemblyBindingPolicy policy,
+            string assemblyName,
+            string typeNamespace,
+            string typeName,
+            Type interfaceType,
+            bool isPublic = true)
+        {
+            var assembly = new PersistedAssemblyBuilder(
+                new AssemblyName(assemblyName),
+                typeof(object).Assembly);
+            ModuleBuilder module =
+                assembly.DefineDynamicModule(assemblyName);
+            TypeBuilder type = module.DefineType(
+                $"{typeNamespace}.{typeName}",
+                (isPublic
+                    ? TypeAttributes.Public
+                    : TypeAttributes.NotPublic)
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Class);
+            type.AddInterfaceImplementation(interfaceType);
+            type.CreateType();
+            using var stream = new MemoryStream();
+            assembly.Save(stream);
+            byte[] bytes = stream.ToArray();
+            using var peReader =
+                new PEReader(
+                    new MemoryStream(bytes, writable: false));
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            return Create(
+                bytes,
+                identity,
+                label,
+                policy,
+                selectedName: null);
+        }
+
+        internal static TestAssembly CreateWithGenericCollision(
+            string label,
+            IAssemblyBindingPolicy policy,
+            string assemblyName,
+            string typeNamespace,
+            string typeName,
+            Type selectedInterface,
+            Type fuzzyInterface)
+        {
+            var assembly = new PersistedAssemblyBuilder(
+                new AssemblyName(assemblyName),
+                typeof(object).Assembly);
+            ModuleBuilder module =
+                assembly.DefineDynamicModule(assemblyName);
+            TypeBuilder selected = module.DefineType(
+                $"{typeNamespace}.{typeName}",
+                TypeAttributes.NotPublic
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Class);
+            selected.AddInterfaceImplementation(selectedInterface);
+            selected.CreateType();
+            TypeBuilder fuzzy = module.DefineType(
+                $"{typeNamespace}.{typeName}`1",
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Class);
+            fuzzy.DefineGenericParameters("T");
+            fuzzy.AddInterfaceImplementation(fuzzyInterface);
+            fuzzy.CreateType();
+            using var stream = new MemoryStream();
+            assembly.Save(stream);
+            byte[] bytes = stream.ToArray();
             using var peReader =
                 new PEReader(
                     new MemoryStream(bytes, writable: false));
