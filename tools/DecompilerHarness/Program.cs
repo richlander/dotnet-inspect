@@ -717,10 +717,12 @@ static class Program
             return AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
 
         if (typeCheck)
-            return TypeSourceCheck.Run(assemblies, cap, maxExamples);
+            return RunAggregate(
+                () => TypeSourceCheck.Run(assemblies, cap, maxExamples));
 
         if (bindCheck)
-            return TypeBindCheck.Run(assemblies, cap, maxExamples);
+            return RunAggregate(
+                () => TypeBindCheck.Run(assemblies, cap, maxExamples));
 
         if (gaps)
             return RunAggregate(

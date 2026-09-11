@@ -39,9 +39,9 @@ decompiler reason instead of replacing it with only a generic acquisition
 failure. Harness reports admit the same decision before mode-sensitive passes
 instead of silently omitting them or measuring them under an invented mode.
 Compile-back and portfolio reports retain unavailable methods as explicit
-coverage. Aggregate pass censuses, whose result shapes have no unavailable-row
-contract, fail the report before running any pass when an input mode is
-unavailable.
+coverage. Aggregate harness analyses whose result shapes have no
+unavailable-row contract fail before composing source or running passes when
+an input mode is unavailable.
 
 This distinction is module-wide. An invalid consumed-member contract can keep a
 body visible at Partial fidelity when the caller's own language mode is known;

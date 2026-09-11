@@ -1808,6 +1808,8 @@ public partial class AuthoredCorpusHarnessProcessTests
                 [assembly],
                 [assembly, "--gaps"],
                 [assembly, "--unsupported-nodes", "--json"],
+                [assembly, "--type-check"],
+                [assembly, "--bind-check"],
                 [
                     assembly,
                     "--emit-corpus-snapshot",
