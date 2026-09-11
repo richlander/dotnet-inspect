@@ -1007,7 +1007,7 @@ internal static class CliRowSelectionArgumentAdapter
             || arguments[index + 1] == "--"
             || IsKnownOptionToken(
                 arguments[index + 1],
-                parsedArguments[index + 1].Scope,
+                parsedArguments[index].Scope,
                 limit);
     }
 

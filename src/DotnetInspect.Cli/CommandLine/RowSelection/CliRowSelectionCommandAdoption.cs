@@ -75,6 +75,8 @@ internal sealed record CliRowSelectionPreparation
 
     public bool HasCompatibilityError { get; init; }
 
+    public bool IsAdopted { get; init; }
+
     public bool IsActive => Lowering is not null || Error is not null;
 
     public static CliRowSelectionPreparation Inactive(ParseResult parseResult) =>
@@ -170,7 +172,8 @@ internal static class CliRowSelectionCommandRegistry
                 result.ParseResult) with
             {
                 Arguments = result.Arguments,
-                ArgumentPositions = result.ArgumentPositions
+                ArgumentPositions = result.ArgumentPositions,
+                IsAdopted = true
             };
         }
 
@@ -178,6 +181,7 @@ internal static class CliRowSelectionCommandRegistry
         {
             Arguments = result.Arguments,
             ArgumentPositions = result.ArgumentPositions,
+            IsAdopted = true,
             PresenceOptions =
             [
                 adoption.Bindings.Head,
@@ -192,9 +196,6 @@ internal static class CliRowSelectionCommandRegistry
         CliRowSelectionArgumentResult result,
         CliRowSelectionCommandAdoption adoption)
     {
-        if (result.HasParseErrors)
-            return CliRowSelectionPreparation.Inactive(result.ParseResult);
-
         if (result.ArgumentFailure is { } argumentFailure)
         {
             return CliRowSelectionPreparation.Failed(
@@ -203,6 +204,9 @@ internal static class CliRowSelectionCommandRegistry
                 argumentFailure.Position,
                 CliSelectionFailureCategory.Arity);
         }
+
+        if (result.HasParseErrors)
+            return CliRowSelectionPreparation.Inactive(result.ParseResult);
 
         CliRowSelectionLoweringResult<string> loweringResult =
             result.LoweringResult

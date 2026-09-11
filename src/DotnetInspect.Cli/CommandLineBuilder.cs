@@ -275,38 +275,23 @@ public static class CommandLineBuilder
             FindFirstParseFailure(
                 parseResult,
                 effectiveArguments,
-                rowSelection.ArgumentPositions);
+                rowSelection.ArgumentPositions,
+                optionValueFailure);
 
-        if (preparedFailure?.Category
-                == CliSelectionFailureCategory.Arity)
+        bool usesCombinedFailurePrecedence =
+            rowSelection.IsAdopted
+            || executionBound.IsActive;
+        if (usesCombinedFailurePrecedence
+            && SelectFirstCategoryOneFailure(
+                preparedFailure,
+                optionValueFailure,
+                parseFailure) is { } categoryOneFailure)
         {
-            int competingPosition =
-                Math.Min(
-                    optionValueFailure?.Position
-                        ?? int.MaxValue,
-                    parseFailure?.Position
-                        ?? int.MaxValue);
-            if (preparedFailure.Position <= competingPosition)
-            {
-                CommandError.Write(preparedFailure.Error);
-                return 1;
-            }
-
-            if (optionValueFailure is not null
-                && optionValueFailure.Position
-                    <= (parseFailure?.Position ?? int.MaxValue))
-            {
-                CommandError.Write(optionValueFailure.Error);
-                return 1;
-            }
-
-            if (parseFailure is not null)
-            {
-                CommandError.Write(parseFailure.Error);
-                return 1;
-            }
+            CommandError.Write(categoryOneFailure);
+            return 1;
         }
-        else
+
+        if (!usesCombinedFailurePrecedence)
         {
             if (optionValueFailure is not null)
             {
@@ -399,6 +384,50 @@ public static class CommandLineBuilder
         string Error,
         int Position);
 
+    private sealed record CategoryOneFailure(
+        string Error,
+        int Position,
+        int SourceOrder);
+
+    private static string? SelectFirstCategoryOneFailure(
+        PreparedFailure? preparedFailure,
+        CliOptionValueFailure? optionValueFailure,
+        ParseFailure? parseFailure)
+    {
+        var failures = new List<CategoryOneFailure>(3);
+        if (preparedFailure?.Category
+            == CliSelectionFailureCategory.Arity)
+        {
+            failures.Add(
+                new(
+                    preparedFailure.Error,
+                    preparedFailure.Position,
+                    SourceOrder: 0));
+        }
+        if (optionValueFailure is not null)
+        {
+            failures.Add(
+                new(
+                    optionValueFailure.Error,
+                    optionValueFailure.Position,
+                    SourceOrder: 1));
+        }
+        if (parseFailure is not null)
+        {
+            failures.Add(
+                new(
+                    parseFailure.Error,
+                    parseFailure.Position,
+                    SourceOrder: 2));
+        }
+
+        return failures
+            .OrderBy(failure => failure.Position)
+            .ThenBy(failure => failure.SourceOrder)
+            .Select(failure => failure.Error)
+            .FirstOrDefault();
+    }
+
     private static PreparedFailure? SelectPreparedFailure(
         CliRowSelectionPreparation rowSelection,
         CliExecutionBoundPreparation executionBound)
@@ -462,7 +491,8 @@ public static class CommandLineBuilder
     private static ParseFailure? FindFirstParseFailure(
         ParseResult parseResult,
         IReadOnlyList<string> arguments,
-        IReadOnlyList<int>? argumentPositions)
+        IReadOnlyList<int>? argumentPositions,
+        CliOptionValueFailure? optionValueFailure)
     {
         if (parseResult.Errors.Count == 0)
             return null;
@@ -480,7 +510,8 @@ public static class CommandLineBuilder
                     parseResult,
                     arguments,
                     argumentPositions,
-                    mapped),
+                    mapped,
+                    optionValueFailure),
                 Order = order,
             })
             .OrderBy(failure => failure.Position)
@@ -496,25 +527,36 @@ public static class CommandLineBuilder
         ParseResult parseResult,
         IReadOnlyList<string> arguments,
         IReadOnlyList<int>? argumentPositions,
-        IReadOnlyList<CliArgumentOwnership.ParsedArgument> mapped)
+        IReadOnlyList<CliArgumentOwnership.ParsedArgument> mapped,
+        CliOptionValueFailure? optionValueFailure)
     {
-        IReadOnlyList<Token> errorTokens =
-            error.SymbolResult?.Tokens
-                ?? [];
-        int[] tokenMatches =
-        [
-            .. Enumerable.Range(0, mapped.Count)
-                .Where(index =>
-                    mapped[index].Tokens.Any(mappedToken =>
-                        errorTokens.Any(errorToken =>
-                            ReferenceEquals(
-                                mappedToken,
-                                errorToken)))),
-        ];
-        if (tokenMatches.Length == 1)
+        if (optionValueFailure is not null)
         {
-            int index = tokenMatches[0];
-            return argumentPositions?[index] ?? index;
+            int optionIndex = FindArgumentIndex(
+                optionValueFailure.Position,
+                arguments.Count,
+                argumentPositions);
+            if (optionIndex >= 0
+                && TryGetAttachedOptionValue(
+                    arguments[optionIndex],
+                    out string? optionValue)
+                && error.Message.Contains(
+                    $"'{optionValue}'",
+                    StringComparison.Ordinal))
+            {
+                int unmatchedPosition =
+                    FindUnmatchedArgumentPositions(
+                        optionValue!,
+                        parseResult,
+                        arguments,
+                        argumentPositions,
+                        mapped)
+                    .DefaultIfEmpty(int.MaxValue)
+                    .Min();
+                return Math.Min(
+                    optionValueFailure.Position,
+                    unmatchedPosition);
+            }
         }
 
         int[] messageMatches =
@@ -532,6 +574,37 @@ public static class CommandLineBuilder
             return argumentPositions?[index] ?? index;
         }
 
+        IReadOnlyList<Token> errorTokens =
+            error.SymbolResult is CommandResult
+                ? []
+                : error.SymbolResult?.Tokens
+                ?? [];
+        int[] tokenMatches =
+        [
+            .. Enumerable.Range(0, mapped.Count)
+                .Where(index =>
+                    mapped[index].Tokens.Any(mappedToken =>
+                        errorTokens.Any(errorToken =>
+                            ReferenceEquals(
+                                mappedToken,
+                                errorToken)))),
+        ];
+        if (tokenMatches.Length == 1)
+        {
+            int index = tokenMatches[0];
+            return argumentPositions?[index] ?? index;
+        }
+
+        int[] occurrenceMatches =
+        [
+            .. messageMatches.Intersect(tokenMatches),
+        ];
+        if (occurrenceMatches.Length == 1)
+        {
+            int index = occurrenceMatches[0];
+            return argumentPositions?[index] ?? index;
+        }
+
         foreach (string unmatched in parseResult.UnmatchedTokens)
         {
             if (!error.Message.Contains(
@@ -541,18 +614,111 @@ public static class CommandLineBuilder
                 continue;
             }
 
-            for (int index = 0; index < arguments.Count; index++)
-            {
-                if (arguments[index].Equals(
-                        unmatched,
-                        StringComparison.Ordinal))
-                {
-                    return argumentPositions?[index] ?? index;
-                }
-            }
+            return FindUnmatchedArgumentPositions(
+                    unmatched,
+                    parseResult,
+                    arguments,
+                    argumentPositions,
+                    mapped)
+                .DefaultIfEmpty(int.MaxValue)
+                .Min();
         }
 
         return int.MaxValue;
+    }
+
+    private static int FindArgumentIndex(
+        int position,
+        int argumentCount,
+        IReadOnlyList<int>? argumentPositions)
+    {
+        if (argumentPositions is null)
+        {
+            return position < argumentCount
+                ? position
+                : -1;
+        }
+
+        for (int index = 0; index < argumentPositions.Count; index++)
+        {
+            if (argumentPositions[index] == position)
+                return index;
+        }
+
+        return -1;
+    }
+
+    private static IEnumerable<int> FindUnmatchedArgumentPositions(
+        string value,
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<int>? argumentPositions,
+        IReadOnlyList<CliArgumentOwnership.ParsedArgument> mapped)
+    {
+        if (!parseResult.UnmatchedTokens.Contains(
+                value,
+                StringComparer.Ordinal))
+        {
+            return [];
+        }
+
+        var positionalTokens =
+            new HashSet<Token>(
+                ReferenceEqualityComparer.Instance);
+        var optionValueTokens =
+            new HashSet<Token>(
+                CliArgumentOwnership.GetOptionResults(parseResult)
+                    .SelectMany(option => option.Tokens),
+                ReferenceEqualityComparer.Instance);
+        for (CommandResult? scope = parseResult.CommandResult;
+            scope is not null;
+            scope = scope.Parent as CommandResult)
+        {
+            foreach (ArgumentResult argument
+                in scope.Children.OfType<ArgumentResult>())
+            {
+                positionalTokens.UnionWith(
+                    argument.Tokens);
+            }
+        }
+
+        return Enumerable.Range(0, arguments.Count)
+            .Where(index =>
+                arguments[index].Equals(
+                    value,
+                    StringComparison.Ordinal)
+                && mapped[index].AttachedOption is null
+                && !mapped[index].Tokens.Any(
+                    token =>
+                        positionalTokens.Contains(token)
+                        || optionValueTokens.Contains(token)))
+            .Select(index =>
+                argumentPositions?[index] ?? index);
+    }
+
+    private static bool TryGetAttachedOptionValue(
+        string argument,
+        out string? value)
+    {
+        value = null;
+        if (!argument.StartsWith(
+                "-",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        int delimiter = argument.IndexOfAny(
+            ['=', ':'],
+            1);
+        if (delimiter < 0
+            || delimiter + 1 >= argument.Length)
+        {
+            return false;
+        }
+
+        value = argument[(delimiter + 1)..];
+        return true;
     }
 
     private static async Task<int> InvokeCoreAsync(ParseResult parseResult)

@@ -1556,6 +1556,179 @@ public class FindCommandIntegrationTests
     }
 
     [Fact]
+    public void EarlierUnknownOption_PrecedesLaterModifierArityFailure()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "JsonDocument",
+                "--unknown",
+                "--take",
+                "1",
+                "--head=true",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Unrecognized command or argument '--unknown'.",
+            error);
+        Assert.DoesNotContain(
+            "--head does not accept a value.",
+            error);
+    }
+
+    [Fact]
+    public void EarlierUnknownOption_PrecedesDuplicatedAttachedModifierValue()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "dup",
+                "--unknown",
+                "--head=dup",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Unrecognized command or argument '--unknown'.",
+            error);
+        Assert.DoesNotContain(
+            "--head does not accept a value.",
+            error);
+    }
+
+    [Fact]
+    public void MissingTakeValue_PrecedesLaterPositionalDuplicatingAttachedValue()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "Json",
+                "--package=dup",
+                "--take",
+                "--take",
+                "1",
+                "dup",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--take requires a value.",
+            error);
+    }
+
+    [Fact]
+    public void EarlierUnmatchedPositional_PrecedesDuplicatedAttachedModifierValue()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "Json",
+                "dup",
+                "--take",
+                "1",
+                "--head=dup",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Unrecognized command or argument 'dup'.",
+            error);
+        Assert.DoesNotContain(
+            "--head does not accept a value.",
+            error);
+    }
+
+    [Fact]
+    public void ValidAttachedValueDoesNotCaptureLaterPositionalFailure()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "Json",
+                "--package=dup",
+                "--head=true",
+                "dup",
+                "--take",
+                "1",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--head does not accept a value.",
+            error);
+        Assert.DoesNotContain(
+            "Unrecognized command or argument 'dup'.",
+            error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SeparatedOptionValueDoesNotBecomeAnUnmatchedOccurrence(
+        bool addLaterDuplicate)
+    {
+        var arguments = new List<string>
+        {
+            "find",
+            "Json",
+            "--package",
+            "dup",
+            "--head=dup",
+        };
+        if (addLaterDuplicate)
+            arguments.Add("dup");
+        arguments.AddRange(
+            [
+                "--take",
+                "1",
+            ]);
+
+        var (exit, output, error) =
+            RunCli([.. arguments]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--head does not accept a value.",
+            error);
+        Assert.DoesNotContain(
+            "Unrecognized command or argument 'dup'.",
+            error);
+    }
+
+    [Fact]
+    public void MissingRowsValue_PrecedesLaterParserArityFailure()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "JsonDocument",
+                "--rows",
+                "--take",
+                "1",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--rows requires a value.",
+            error);
+        Assert.DoesNotContain(
+            "Unrecognized command or argument '1'.",
+            error);
+    }
+
+    [Fact]
     public void LiteralTakeCapability_PrecedesPackagePlanningResolution()
     {
         var (exit, output, error) = RunCli(

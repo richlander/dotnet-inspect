@@ -8,7 +8,8 @@ namespace DotnetInspect.Cli.CommandLine;
 internal sealed record CliExecutionBoundPreparation(
     string? Error,
     int? ErrorPosition,
-    CliSelectionFailureCategory? ErrorCategory);
+    CliSelectionFailureCategory? ErrorCategory,
+    bool IsActive);
 
 internal sealed class CliExecutionBoundAdoption
 {
@@ -75,7 +76,7 @@ internal static class CliExecutionBoundCommandRegistry
                 out CliExecutionBoundAdoption? adoption)
             || !adoption.IsActive(parseResult))
         {
-            return new(null, null, null);
+            return new(null, null, null, false);
         }
 
         int maximum = adoption.Maximum(parseResult);
@@ -131,7 +132,7 @@ internal static class CliExecutionBoundCommandRegistry
         }
 
         if (occurrences.Count == 0)
-            return new(null, null, null);
+            return new(null, null, null, true);
 
         if (occurrences.FirstOrDefault(
                 static occurrence =>
@@ -140,7 +141,8 @@ internal static class CliExecutionBoundCommandRegistry
             return new(
                 $"{optionName} requires a value.",
                 missing.Position,
-                CliSelectionFailureCategory.Arity);
+                CliSelectionFailureCategory.Arity,
+                true);
         }
 
         foreach ((int position, string? value, _) in occurrences)
@@ -150,7 +152,8 @@ internal static class CliExecutionBoundCommandRegistry
                 return new(
                     $"{optionName} requires a positive whole number.",
                     position,
-                    CliSelectionFailureCategory.Value);
+                    CliSelectionFailureCategory.Value,
+                    true);
             }
 
             if (parsed > maximum)
@@ -159,7 +162,8 @@ internal static class CliExecutionBoundCommandRegistry
                     $"{optionName} must be between 1 and "
                     + $"{maximum.ToString(CultureInfo.InvariantCulture)}.",
                     position,
-                    CliSelectionFailureCategory.Value);
+                    CliSelectionFailureCategory.Value,
+                    true);
             }
         }
 
@@ -168,7 +172,8 @@ internal static class CliExecutionBoundCommandRegistry
             return new(
                 $"{optionName} may only be specified once.",
                 occurrences[1].Position,
-                CliSelectionFailureCategory.Conflict);
+                CliSelectionFailureCategory.Conflict,
+                true);
         }
 
         Values.Add(
@@ -178,7 +183,7 @@ internal static class CliExecutionBoundCommandRegistry
                     occurrences[0].Value!,
                     NumberStyles.None,
                     CultureInfo.InvariantCulture)));
-        return new(null, null, null);
+        return new(null, null, null, true);
     }
 
     public static int? GetPreparedValue(
