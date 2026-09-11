@@ -180,9 +180,7 @@ jobs:
                   targetFramework: $target_framework,
                   configuration: {
                     asyncLowering: "runtime",
-                    publishReadyToRun: true,
-                    publishReadyToRunComposite: false,
-                    readyToRunContainer: "wasm",
+                    publishReadyToRun: false,
                     wasmBuildNative: false
                   },
                   workload: {
@@ -205,6 +203,7 @@ jobs:
         run: |
           npm ci
           npm run build
+          npx playwright install --with-deps firefox
           grep -q '<script type="importmap"></script>' dist/index.html
           grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
 
@@ -251,8 +250,7 @@ jobs:
             -p:BuildTimestampUtc="$built_at" \
             -p:Features=runtime-async=on \
             -p:UseMonoRuntime=false \
-            -p:PublishReadyToRun=true \
-            -p:PublishReadyToRunComposite=false \
+            -p:PublishReadyToRun=false \
             -p:WasmBuildNative=false \
             -p:WasmNestedPublishAppDependsOn= \
             -p:WasmEnableExceptionHandling=true \
@@ -264,11 +262,6 @@ jobs:
             artifacts/inspect-web-coreclr-runtime-cohort/workload-list.txt \
             artifacts/inspect-web-coreclr-runtime-cohort/runtime-cohort.json \
             artifacts/inspect-web-coreclr-publish/runtime-cohort/
-          node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
-            --record \
-            artifacts/inspect-web-coreclr-publish/wwwroot \
-            inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
-            artifacts/inspect-web-coreclr-publish/runtime-cohort
 
       - name: Verify runtime-async deployment
         shell: bash
@@ -280,6 +273,13 @@ jobs:
               artifacts/inspect-web-coreclr-publish/wwwroot \
               artifacts/inspect-web-coreclr-publish/async-lowering.json \
               artifacts/inspect-web-runtime-async-receipts
+
+      - name: Test CoreCLR package operation
+        shell: bash
+        run: |
+          INSPECT_WEB_PACKAGE_ADOPTION_SITE=artifacts/inspect-web-coreclr-publish/wwwroot \
+            eng/test-inspect-web-package-adoption-gate.sh \
+              --grep 'drives the production opening, join, occurrence, and rejection contracts'
 
       - name: Publish MSDL managed API
         run: >
@@ -401,11 +401,6 @@ jobs:
           cohort=artifacts/inspect-web-coreclr-publish/runtime-cohort
           test -f "$cohort/dotnet-info.txt"
           test -f "$cohort/workload-list.txt"
-          node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
-            --verify \
-            "$site" \
-            inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
-            "$cohort"
           jq -e '
             .schema == 2
             and .sdk == {
@@ -424,27 +419,9 @@ jobs:
             and .targetFramework == "net11.0"
             and .configuration == {
               asyncLowering: "runtime",
-              publishReadyToRun: true,
-              publishReadyToRunComposite: false,
-              readyToRunContainer: "wasm",
+              publishReadyToRun: false,
               wasmBuildNative: false
             }
-            and .readyToRun.evidenceFile == "ready-to-run-assets.json"
-            and (.readyToRun.evidenceSha256 | test("^[0-9a-f]{64}$"))
-            and .readyToRun.format == "crossgen2-webassembly"
-            and .readyToRun.mode == "per-assembly"
-            and .readyToRun.publishedManagedAssetCount > 0
-            and .readyToRun.readyToRunAssetCount
-              == (.readyToRun.publishedManagedAssetCount - 3)
-            and .readyToRun.readyToRunBytes > 0
-            and .readyToRun.inspectWebApplicationAssetCount == 8
-            and .readyToRun.ilOnlyAssets == [
-              "System.ComponentModel.wasm",
-              "System.Xml.Linq.wasm",
-              "System.wasm"
-            ]
-            and all(.readyToRun.frameworkPayload[];
-              .fileCount > 0 and .bytes > 0)
             and .workload == {
               id: "wasm-tools",
               manifestVersion: "12.0.100-alpha.1.26459.112",
@@ -611,11 +588,6 @@ jobs:
           cohort=artifacts/inspect-web-coreclr-publish/runtime-cohort
           test -f "$cohort/dotnet-info.txt"
           test -f "$cohort/workload-list.txt"
-          node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
-            --verify \
-            "$site" \
-            inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
-            "$cohort"
           jq -e '
             .schema == 2
             and .sdk == {
@@ -634,27 +606,9 @@ jobs:
             and .targetFramework == "net11.0"
             and .configuration == {
               asyncLowering: "runtime",
-              publishReadyToRun: true,
-              publishReadyToRunComposite: false,
-              readyToRunContainer: "wasm",
+              publishReadyToRun: false,
               wasmBuildNative: false
             }
-            and .readyToRun.evidenceFile == "ready-to-run-assets.json"
-            and (.readyToRun.evidenceSha256 | test("^[0-9a-f]{64}$"))
-            and .readyToRun.format == "crossgen2-webassembly"
-            and .readyToRun.mode == "per-assembly"
-            and .readyToRun.publishedManagedAssetCount > 0
-            and .readyToRun.readyToRunAssetCount
-              == (.readyToRun.publishedManagedAssetCount - 3)
-            and .readyToRun.readyToRunBytes > 0
-            and .readyToRun.inspectWebApplicationAssetCount == 8
-            and .readyToRun.ilOnlyAssets == [
-              "System.ComponentModel.wasm",
-              "System.Xml.Linq.wasm",
-              "System.wasm"
-            ]
-            and all(.readyToRun.frameworkPayload[];
-              .fileCount > 0 and .bytes > 0)
             and .workload == {
               id: "wasm-tools",
               manifestVersion: "12.0.100-alpha.1.26459.112",
