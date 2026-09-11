@@ -1646,6 +1646,100 @@ public class FindCommandIntegrationTests
             error);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EarlierParserValuePrecedesDuplicatedAttachedPresenceValue(
+        bool includeMissingTake)
+    {
+        var arguments = new List<string>
+        {
+            "find",
+            "JsonDocument",
+            "-v:nope",
+        };
+        if (includeMissingTake)
+        {
+            arguments.AddRange(
+                [
+                    "--take",
+                    "--take",
+                    "1",
+                ]);
+        }
+        arguments.AddRange(
+            [
+                "--head=nope",
+                "--offline",
+            ]);
+
+        var (exit, output, error) =
+            RunCli([.. arguments]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Argument 'nope' not recognized.",
+            error);
+        Assert.DoesNotContain(
+            "--take requires a value.",
+            error);
+        Assert.DoesNotContain(
+            "--head does not accept a value.",
+            error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RepeatedParserValuesPrecedeDuplicatedAttachedPresenceValue(
+        bool attached)
+    {
+        var arguments = new List<string>
+        {
+            "find",
+            "Json",
+        };
+        if (attached)
+        {
+            arguments.Add("-v:nope");
+        }
+        else
+        {
+            arguments.AddRange(
+                [
+                    "-v",
+                    "nope",
+                ]);
+        }
+        arguments.Add("--head=nope");
+        if (attached)
+        {
+            arguments.Add("-v:nope");
+        }
+        else
+        {
+            arguments.AddRange(
+                [
+                    "-v",
+                    "nope",
+                ]);
+        }
+        arguments.Add("--offline");
+
+        var (exit, output, error) =
+            RunCli([.. arguments]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Option '-v' expects a single argument but 2 were provided.",
+            error);
+        Assert.DoesNotContain(
+            "--head does not accept a value.",
+            error);
+    }
+
     [Fact]
     public void MissingTakeValue_PrecedesLaterPositionalDuplicatingAttachedValue()
     {

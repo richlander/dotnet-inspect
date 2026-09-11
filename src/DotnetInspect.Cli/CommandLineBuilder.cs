@@ -530,6 +530,56 @@ public static class CommandLineBuilder
         IReadOnlyList<CliArgumentOwnership.ParsedArgument> mapped,
         CliOptionValueFailure? optionValueFailure)
     {
+        IReadOnlyList<Token> errorTokens =
+            error.SymbolResult is CommandResult
+                ? []
+                : error.SymbolResult?.Tokens
+                ?? [];
+        int[] tokenMatches =
+        [
+            .. Enumerable.Range(0, mapped.Count)
+                .Where(index =>
+                    mapped[index].Tokens.Any(mappedToken =>
+                        errorTokens.Any(errorToken =>
+                            ReferenceEquals(
+                                mappedToken,
+                                errorToken)))),
+        ];
+        int[] messageMatches =
+        [
+            .. Enumerable.Range(0, arguments.Count)
+                .Where(index =>
+                    arguments[index].Length > 0
+                    && (error.Message.Contains(
+                            $"'{arguments[index]}'",
+                            StringComparison.Ordinal)
+                        || TryGetAttachedOptionValue(
+                                arguments[index],
+                                out string? attachedValue)
+                            && error.Message.Contains(
+                                $"'{attachedValue}'",
+                                StringComparison.Ordinal))),
+        ];
+        int[] occurrenceMatches =
+        [
+            .. messageMatches.Intersect(tokenMatches),
+        ];
+        if (occurrenceMatches.Length > 0)
+        {
+            return occurrenceMatches
+                .Select(index =>
+                    argumentPositions?[index] ?? index)
+                .Min();
+        }
+
+        if (tokenMatches.Length > 0)
+        {
+            return tokenMatches
+                .Select(index =>
+                    argumentPositions?[index] ?? index)
+                .Min();
+        }
+
         if (optionValueFailure is not null)
         {
             int optionIndex = FindArgumentIndex(
@@ -559,48 +609,7 @@ public static class CommandLineBuilder
             }
         }
 
-        IReadOnlyList<Token> errorTokens =
-            error.SymbolResult is CommandResult
-                ? []
-                : error.SymbolResult?.Tokens
-                ?? [];
-        int[] tokenMatches =
-        [
-            .. Enumerable.Range(0, mapped.Count)
-                .Where(index =>
-                    mapped[index].Tokens.Any(mappedToken =>
-                        errorTokens.Any(errorToken =>
-                            ReferenceEquals(
-                                mappedToken,
-                                errorToken)))),
-        ];
-        int[] messageMatches =
-        [
-            .. Enumerable.Range(0, arguments.Count)
-                .Where(index =>
-                    arguments[index].Length > 0
-                    && error.Message.Contains(
-                        $"'{arguments[index]}'",
-                        StringComparison.Ordinal)),
-        ];
-        int[] occurrenceMatches =
-        [
-            .. messageMatches.Intersect(tokenMatches),
-        ];
-        if (occurrenceMatches.Length == 1)
-        {
-            int index = occurrenceMatches[0];
-            return argumentPositions?[index] ?? index;
-        }
-
-        if (tokenMatches.Length == 1)
-        {
-            int index = tokenMatches[0];
-            return argumentPositions?[index] ?? index;
-        }
-
-        if (tokenMatches.Length == 0
-            && messageMatches.Length == 1)
+        if (messageMatches.Length == 1)
         {
             int index = messageMatches[0];
             return argumentPositions?[index] ?? index;
