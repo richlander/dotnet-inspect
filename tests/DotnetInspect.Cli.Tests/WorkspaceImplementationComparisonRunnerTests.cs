@@ -499,7 +499,7 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         var (exitCode, output, error) =
             await RunPackageCommandAsync(
                 type: "N.Outer+Type",
-                member: "Value",
+                member: "Type.Value",
                 sections:
                     "Implementation Diff");
 

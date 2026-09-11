@@ -503,11 +503,14 @@ to the legacy comparison nor turns it into an empty success.
 
 The selected type's structured metadata definition name remains authoritative
 through workspace execution, including nested definitions; display spelling is
-not reparsed as identity. When a composed Changes or Analysis Diff section
-cannot apply its legacy member selection to a forwarded facade, the CLI renders
-that peer section as incomplete while preserving the workspace section and
-returns nonzero. This isolates peer failure without migrating either peer
-section to workspace execution.
+not reparsed as identity. Type-qualified member lowering applies the existing
+generic- and nested-aware type selector semantics to that selected identity, so
+canonical, short, C# generic, and innermost nested qualifiers select the same
+member. When a composed Changes or Analysis Diff section cannot apply its
+legacy member selection to a forwarded facade, the CLI renders that peer
+section as incomplete while preserving the workspace section and returns
+nonzero. This isolates peer failure without migrating either peer section to
+workspace execution.
 
 The Release `WorkspaceImplementationComparisonRunnerTests` gate covers
 forwarded and direct local-package targets, exact terminal versions and MVIDs,
@@ -521,7 +524,8 @@ composition and producer outcomes. Facade-shaped command cases in
 `WorkspaceImplementationComparisonRunnerTests` additionally gate short
 forwarded and direct nested type selection, type-qualified member lowering,
 and preservation of workspace evidence beside incomplete composed sections in
-JSON output.
+JSON output. Selector cases additionally gate C# generic and innermost nested
+member qualifiers; real-package probes cover both spellings.
 
 ### Integration ecosystem queries
 

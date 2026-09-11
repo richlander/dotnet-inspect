@@ -2278,6 +2278,18 @@ public class SectionPipelineTests
                 "ServiceCollection.Dispose",
                 "Microsoft.Extensions.DependencyInjection.ServiceCollection",
                 "Microsoft.Extensions.DependencyInjection.ServiceCollection"));
+        Assert.Equal(
+            "Dispose",
+            DiffCommand.LowerWorkspaceImplementationMemberSelector(
+                "OptionsMonitor<TOptions>.Dispose",
+                "Microsoft.Extensions.Options.OptionsMonitor<TOptions>",
+                "Microsoft.Extensions.Options.OptionsMonitor`1"));
+        Assert.Equal(
+            "MoveNext",
+            DiffCommand.LowerWorkspaceImplementationMemberSelector(
+                "ObjectEnumerator.MoveNext",
+                "System.Text.Json.JsonElement+ObjectEnumerator",
+                "System.Text.Json.JsonElement+ObjectEnumerator"));
     }
 
     [Fact]

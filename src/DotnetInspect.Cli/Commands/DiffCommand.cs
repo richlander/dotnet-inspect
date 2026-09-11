@@ -2773,28 +2773,21 @@ public class DiffCommand
             string typeSelector,
             string selectedTypeName)
     {
-        int namespaceBoundary =
-            selectedTypeName.LastIndexOf('.');
-        string shortTypeName = namespaceBoundary < 0
-            ? selectedTypeName
-            : selectedTypeName[(namespaceBoundary + 1)..];
-        foreach (string typeName in
-            new[]
-            {
-                selectedTypeName,
-                typeSelector,
-                shortTypeName,
-            }
-                .Distinct(StringComparer.Ordinal)
-                .OrderByDescending(static name =>
-                    name.Length))
+        foreach (int boundary
+            in TopLevelDotPositionsFromRight(
+                memberSelector))
         {
-            string prefix = typeName + ".";
-            if (memberSelector.StartsWith(
-                    prefix,
-                    StringComparison.Ordinal))
+            string qualifier =
+                memberSelector[..boundary];
+            if (qualifier.Equals(
+                    typeSelector,
+                    StringComparison.Ordinal)
+                || TypeMatcher.MatchesTypeFilter(
+                    selectedTypeName,
+                    qualifier))
             {
-                return memberSelector[prefix.Length..];
+                return memberSelector[
+                    (boundary + 1)..];
             }
         }
 
