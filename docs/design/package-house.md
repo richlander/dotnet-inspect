@@ -261,10 +261,11 @@ issue `Settle` or `Realize` operations for admitted edges; PackageHouse does
 not own graph scheduling, cycle termination, depth, or traversal work budgets.
 
 The current `PackageHouse.ExecuteAsync` floor supports `Settle` and `Acquire`.
-It consumes the host's source authorization, source-settlement lease,
-request-matched operation context, and, for acquisition, an
-authority-and-producer-scoped package-store factory. `Realize` is rejected
-until the realization owner is composed in its adoption step.
+One `PackageHouse` instance retains the host's package-source authorization and
+an optional `PackagePayloadAcquisitionPlan`. Each operation separately accepts
+the request and explicitly receives the source-settlement lease, caller
+cancellation, and optional request-matched operation context. `Realize` is
+rejected until the realization owner is composed in its adoption step.
 
 Execution returns the `PackageHouseSettlement` union. Both arms carry one
 closed, immutable, resource-free `Result`. `ResourceFree` carries no live
@@ -288,6 +289,18 @@ The host supplies:
 The plan is capability, not result. Registration does not prove a source
 supports the requested operation, a package exists, a version is selectable,
 or a payload is authorized.
+
+The current execution floor binds stable host capabilities to the
+`PackageHouse` instance. `PackagePayloadAcquisitionPlan` groups the
+authority-and-producer-scoped store provider, payload limits, transfer policy,
+and payload diagnostics. It carries no source-settlement lease, operation
+context, payload, or release obligation and does not take ownership of stores
+returned by its provider. The resource-owner-issued
+`PackageSourceSettlementLease` and any caller-owned operation context remain
+explicit invocation inputs rather than hidden fields of a House-named plan.
+This is the current Package Source Model compatibility lifetime, not a claim
+that its async use has completed the declaration and Analysis adoption tracked
+by #6544.
 
 One House operation consumes one shared operation identity and ceiling across
 all selected authorities, source routes, compatibility requests, payload

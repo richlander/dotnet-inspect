@@ -64,27 +64,35 @@ public abstract class PackageHouseSettlement
 /// </summary>
 public sealed class PackageHouse
 {
+    private readonly IPackageSourceAuthorization _sourceAuthorization;
+    private readonly PackagePayloadAcquisitionPlan? _payloadAcquisition;
+
+    public PackageHouse(
+        IPackageSourceAuthorization sourceAuthorization,
+        PackagePayloadAcquisitionPlan? payloadAcquisition = null)
+    {
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        _sourceAuthorization = sourceAuthorization;
+        _payloadAcquisition = payloadAcquisition;
+    }
+
     /// <summary>
     /// Settles one exact or selecting request through a source-owner lease.
     /// The caller owns the lease, any supplied operation context, all stores,
     /// and any returned payload.
     /// </summary>
+    /// <remarks>
+    /// This preserves the current Package Source Model lifetime contract.
+    /// Declared ownership effects for async lease use remain a focused
+    /// adoption under the resource-ownership tracker.
+    /// </remarks>
     public async Task<PackageHouseSettlement> ExecuteAsync(
         PackageHouseRequest request,
-        IPackageSourceAuthorization sourceAuthorization,
         PackageSourceSettlementLease sourceLease,
-        Func<
-            ConfiguredPackageAuthority,
-            PackageProducerIdentity,
-            IPackageStore>? createStore = null,
         CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null,
-        Action<string>? log = null,
-        PackagePayloadLimits? limits = null,
-        IPackagePayloadTransferPolicy? transferPolicy = null)
+        NuGetOperationContext? operationContext = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(sourceAuthorization);
         ArgumentNullException.ThrowIfNull(sourceLease);
         if (request.Operation.Profile
             == PackageHouseOperationProfile.Realize)
@@ -94,10 +102,9 @@ public sealed class PackageHouse
         }
         if (request.Operation.Profile
                 == PackageHouseOperationProfile.Acquire
-            && createStore is null)
+            && _payloadAcquisition is null)
         {
-            throw new ArgumentNullException(
-                nameof(createStore),
+            throw new InvalidOperationException(
                 "An Acquire operation requires an authority-scoped package store capability.");
         }
         if (operationContext is not null
@@ -131,26 +138,16 @@ public sealed class PackageHouse
                     await ExecuteExactAsync(
                         request,
                         exact,
-                        sourceAuthorization,
                         sourceLease,
-                        createStore,
                         cancellationToken,
-                        operation,
-                        log,
-                        limits,
-                        transferPolicy).ConfigureAwait(false),
+                        operation).ConfigureAwait(false),
                 PackageHouseDemand.Selecting selecting =>
                     await ExecuteSelectingAsync(
                         request,
                         selecting,
-                        sourceAuthorization,
                         sourceLease,
-                        createStore,
                         cancellationToken,
-                        operation,
-                        log,
-                        limits,
-                        transferPolicy).ConfigureAwait(false),
+                        operation).ConfigureAwait(false),
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(request),
                     request.Demand,
@@ -174,25 +171,17 @@ public sealed class PackageHouse
         }
     }
 
-    private static async Task<PackageHouseSettlement> ExecuteExactAsync(
+    private async Task<PackageHouseSettlement> ExecuteExactAsync(
         PackageHouseRequest request,
         PackageHouseDemand.Exact exact,
-        IPackageSourceAuthorization sourceAuthorization,
         PackageSourceSettlementLease sourceLease,
-        Func<
-            ConfiguredPackageAuthority,
-            PackageProducerIdentity,
-            IPackageStore>? createStore,
         CancellationToken cancellationToken,
-        NuGetOperationContext operation,
-        Action<string>? log,
-        PackagePayloadLimits? limits,
-        IPackagePayloadTransferPolicy? transferPolicy)
+        NuGetOperationContext operation)
     {
         cancellationToken.ThrowIfCancellationRequested();
         operation.ThrowIfExpired();
         PackageSourceAuthorization authorization =
-            sourceAuthorization.AuthorizeSourcesFor(
+            _sourceAuthorization.AuthorizeSourcesFor(
                 exact.Coordinate.PackageId);
         cancellationToken.ThrowIfCancellationRequested();
         operation.ThrowIfExpired();
@@ -241,37 +230,25 @@ public sealed class PackageHouse
             retained,
             candidate,
             sourceLease,
-            createStore!,
             cancellationToken,
             operation,
-            log,
-            limits,
-            transferPolicy,
             failures).ConfigureAwait(false);
     }
 
-    private static async Task<PackageHouseSettlement>
+    private async Task<PackageHouseSettlement>
         ExecuteSelectingAsync(
         PackageHouseRequest request,
         PackageHouseDemand.Selecting selecting,
-        IPackageSourceAuthorization sourceAuthorization,
         PackageSourceSettlementLease sourceLease,
-        Func<
-            ConfiguredPackageAuthority,
-            PackageProducerIdentity,
-            IPackageStore>? createStore,
         CancellationToken cancellationToken,
-        NuGetOperationContext operation,
-        Action<string>? log,
-        PackagePayloadLimits? limits,
-        IPackagePayloadTransferPolicy? transferPolicy)
+        NuGetOperationContext operation)
     {
         PackageVersionSelectionRequest selection =
             selecting.Request;
         cancellationToken.ThrowIfCancellationRequested();
         operation.ThrowIfExpired();
         PackageSourceAuthorization authorization =
-            sourceAuthorization.AuthorizeSourcesFor(
+            _sourceAuthorization.AuthorizeSourcesFor(
                 selection.PackageId);
         cancellationToken.ThrowIfCancellationRequested();
         operation.ThrowIfExpired();
@@ -344,40 +321,33 @@ public sealed class PackageHouse
             retained,
             resolved.Candidate,
             sourceLease,
-            createStore!,
             cancellationToken,
             operation,
-            log,
-            limits,
-            transferPolicy,
             failures).ConfigureAwait(false);
     }
 
-    private static async Task<PackageHouseSettlement> AcquireAsync(
+    private async Task<PackageHouseSettlement> AcquireAsync(
         PackageHouseRequest request,
         PackageHouseDecisionReceipt decision,
         PackageAcquisitionCandidate candidate,
         PackageSourceSettlementLease sourceLease,
-        Func<
-            ConfiguredPackageAuthority,
-            PackageProducerIdentity,
-            IPackageStore> createStore,
         CancellationToken cancellationToken,
         NuGetOperationContext operation,
-        Action<string>? log,
-        PackagePayloadLimits? limits,
-        IPackagePayloadTransferPolicy? transferPolicy,
         List<PackageHouseFailure> failures)
     {
+        PackagePayloadAcquisitionPlan payloadAcquisition =
+            _payloadAcquisition
+            ?? throw new InvalidOperationException(
+                "An Acquire operation requires a payload acquisition plan.");
         ConfiguredPackagePayloadResult payloadResult =
             await sourceLease.AcquireCandidatePayloadAsync(
                 candidate,
-                createStore,
-                cancellationToken,
-                operation,
-                log,
-                limits,
-                transferPolicy).ConfigureAwait(false);
+                payloadAcquisition.GetStore,
+                log: payloadAcquisition.Log,
+                limits: payloadAcquisition.Limits,
+                cancellationToken: cancellationToken,
+                transferPolicy: payloadAcquisition.TransferPolicy,
+                operationContext: operation).ConfigureAwait(false);
         failures.AddRange(
             AdaptFailures(request, payloadResult.Failures));
         if (payloadResult.Payload is not { } payload)

@@ -16,17 +16,17 @@ public sealed class PackageHouseExecutionTests
         int stores = 0;
         PackageHouseRequest request = ExactRequest(
             PackageHouseOperationProfile.Settle);
+        PackageHouse house = environment.CreateHouse(
+            (_, _) =>
+            {
+                stores++;
+                return new InMemoryPackageStore();
+            });
 
         PackageHouseSettlement settlement =
-            await new PackageHouse().ExecuteAsync(
+            await house.ExecuteAsync(
                 request,
-                environment.Authorization,
                 environment.Lease,
-                (_, _) =>
-                {
-                    stores++;
-                    return new InMemoryPackageStore();
-                },
                 TestContext.Current.CancellationToken);
 
         PackageHouseSettlement.ResourceFree resourceFree =
@@ -48,13 +48,13 @@ public sealed class PackageHouseExecutionTests
             new SourceBehavior([Version]));
         PackageHouseRequest request = ExactRequest(
             PackageHouseOperationProfile.Acquire);
+        PackageHouse house = environment.CreateHouse(
+            (_, _) => new InMemoryPackageStore());
 
         PackageHouseSettlement settlement =
-            await new PackageHouse().ExecuteAsync(
+            await house.ExecuteAsync(
                 request,
-                environment.Authorization,
                 environment.Lease,
-                (_, _) => new InMemoryPackageStore(),
                 TestContext.Current.CancellationToken);
 
         PackageHouseSettlement.Acquired acquired =
@@ -78,6 +78,29 @@ public sealed class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task AcquireRequiresPayloadAcquisitionPlan()
+    {
+        using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageHouse house = environment.CreateHouse();
+        PackageHouseRequest request = ExactRequest(
+            PackageHouseOperationProfile.Acquire);
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => house.ExecuteAsync(
+                    request,
+                    environment.Lease,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "package store capability",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+    }
+
+    [Fact]
     public async Task SelectingAcquireUsesOnlyAuthoritiesThatReportedSelection()
     {
         using HouseEnvironment environment = HouseEnvironment.Create(
@@ -89,13 +112,13 @@ public sealed class PackageHouseExecutionTests
                     PackageId)),
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Acquire));
+        PackageHouse house = environment.CreateHouse(
+            (_, _) => new InMemoryPackageStore());
 
         PackageHouseSettlement settlement =
-            await new PackageHouse().ExecuteAsync(
+            await house.ExecuteAsync(
                 request,
-                environment.Authorization,
                 environment.Lease,
-                (_, _) => new InMemoryPackageStore(),
                 TestContext.Current.CancellationToken);
 
         Assert.IsType<PackageHouseResult.Settled>(
@@ -127,17 +150,17 @@ public sealed class PackageHouseExecutionTests
                     PackageId)),
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Acquire));
+        PackageHouse house = environment.CreateHouse(
+            (_, _) =>
+            {
+                stores++;
+                return new InMemoryPackageStore();
+            });
 
         PackageHouseSettlement settlement =
-            await new PackageHouse().ExecuteAsync(
+            await house.ExecuteAsync(
                 request,
-                environment.Authorization,
                 environment.Lease,
-                (_, _) =>
-                {
-                    stores++;
-                    return new InMemoryPackageStore();
-                },
                 TestContext.Current.CancellationToken);
 
         Assert.IsType<PackageHouseResult.Incomplete>(
@@ -165,16 +188,14 @@ public sealed class PackageHouseExecutionTests
                 PackageHouseOperationProfile.Settle));
 
         PackageHouseSettlement notFound =
-            await new PackageHouse().ExecuteAsync(
+            await absent.CreateHouse().ExecuteAsync(
                 CreateRequest(),
-                absent.Authorization,
                 absent.Lease,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
         PackageHouseSettlement noMatch =
-            await new PackageHouse().ExecuteAsync(
+            await prerelease.CreateHouse().ExecuteAsync(
                 CreateRequest(),
-                prerelease.Authorization,
                 prerelease.Lease,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
@@ -199,9 +220,8 @@ public sealed class PackageHouseExecutionTests
             TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<ArgumentException>(
-            () => new PackageHouse().ExecuteAsync(
+            () => environment.CreateHouse().ExecuteAsync(
                 request,
-                environment.Authorization,
                 environment.Lease,
                 cancellationToken:
                     TestContext.Current.CancellationToken,
@@ -233,9 +253,8 @@ public sealed class PackageHouseExecutionTests
 
         OperationCanceledException exception =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => new PackageHouse().ExecuteAsync(
+                () => environment.CreateHouse().ExecuteAsync(
                     request,
-                    environment.Authorization,
                     environment.Lease,
                     cancellationToken: cancellation.Token));
 
@@ -265,9 +284,8 @@ public sealed class PackageHouseExecutionTests
                     TimeSpan.FromMilliseconds(20)));
 
         PackageHouseSettlement settlement =
-            await new PackageHouse().ExecuteAsync(
+            await environment.CreateHouse().ExecuteAsync(
                 request,
-                environment.Authorization,
                 environment.Lease,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
@@ -310,9 +328,8 @@ public sealed class PackageHouseExecutionTests
             TestContext.Current.CancellationToken);
 
         PackageHouseSettlement settlement =
-            await new PackageHouse().ExecuteAsync(
+            await environment.CreateHouse().ExecuteAsync(
                 request,
-                environment.Authorization,
                 environment.Lease,
                 cancellationToken:
                     TestContext.Current.CancellationToken,
@@ -339,9 +356,8 @@ public sealed class PackageHouseExecutionTests
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Settle));
         PackageHouseSettlement settlement =
-            await new PackageHouse().ExecuteAsync(
+            await environment.CreateHouse().ExecuteAsync(
                 request,
-                environment.Authorization,
                 environment.Lease,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
@@ -470,6 +486,14 @@ public sealed class PackageHouseExecutionTests
                 clients,
                 [.. clientsByAssociation.Values]);
         }
+
+        public PackageHouse CreateHouse(
+            PackageStoreProvider? getStore = null) =>
+            new(
+                Authorization,
+                getStore is null
+                    ? null
+                    : new PackagePayloadAcquisitionPlan(getStore));
 
         public void Dispose()
         {
