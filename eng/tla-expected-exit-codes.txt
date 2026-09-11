@@ -4,6 +4,17 @@
 # entry only when the configuration's exact outcome is a named repository gate.
 # Format: one canonical `<path-to-cfg>=<TLC-exit-code>` pair per line.
 
+docs/design/models/artifact-content-ownership/BrokenImmediateRelease.cfg=12
+docs/design/models/artifact-content-ownership/BrokenQueryBoundChild.cfg=12
+docs/design/models/artifact-content-ownership/BrokenUnboundContent.cfg=12
+docs/design/models/artifact-content-ownership/BrokenUngatedIssuance.cfg=12
+docs/design/models/artifact-content-ownership/Liveness.cfg=0
+docs/design/models/artifact-content-ownership/ReachabilityBorrowAfterReplacement.cfg=12
+docs/design/models/artifact-content-ownership/ReachabilityMismatchRejection.cfg=12
+docs/design/models/artifact-content-ownership/ReachabilityOldQueryRejection.cfg=12
+docs/design/models/artifact-content-ownership/ReachabilityReplacementIssue.cfg=12
+docs/design/models/artifact-content-ownership/ReachabilityRetirementAfterChild.cfg=12
+docs/design/models/artifact-content-ownership/Safety.cfg=0
 docs/design/models/artifact-root-publication/BrokenCancellationAuthorityMismatchCommit.cfg=12
 docs/design/models/artifact-root-publication/BrokenCancellationRetainsAuthority.cfg=12
 docs/design/models/artifact-root-publication/BrokenCompositionIdentityReuse.cfg=12

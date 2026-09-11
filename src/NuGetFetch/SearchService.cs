@@ -8,6 +8,7 @@ namespace NuGetFetch;
 /// </summary>
 public partial class SearchService
 {
+    private const int InitialPrefixCandidatePageSize = 20;
     private const int PrefixSearchPageSize = 100;
     private const int MaxPrefixSearchPages = 100;
     private readonly HttpClient _client;
@@ -376,6 +377,9 @@ public partial class SearchService
             new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _observedResults =
             new(StringComparer.OrdinalIgnoreCase);
+        private int _pageSize = includeVersionHistory
+            ? PrefixSearchPageSize
+            : InitialPrefixCandidatePageSize;
         private int _skip;
         private int _pageNumber;
 
@@ -396,14 +400,14 @@ public partial class SearchService
                 ? await service.SearchPageAsync(
                     prefix,
                     _skip,
-                    PrefixSearchPageSize,
+                    _pageSize,
                     prerelease,
                     auth,
                     operation).ConfigureAwait(false)
                 : await service.SearchPrefixCandidatePageAsync(
                     prefix,
                     _skip,
-                    PrefixSearchPageSize,
+                    _pageSize,
                     prerelease,
                     auth,
                     operation).ConfigureAwait(false);
@@ -436,6 +440,12 @@ public partial class SearchService
             if (!madeProgress)
                 throw new InvalidOperationException(
                     "NuGet search pagination repeated a page without making progress.");
+
+            if (!includeVersionHistory
+                && matches.Count * 2 < page.Count)
+            {
+                _pageSize = Math.Min(_pageSize * 2, PrefixSearchPageSize);
+            }
 
             _skip += page.Count;
             if (!IsCompleted)
