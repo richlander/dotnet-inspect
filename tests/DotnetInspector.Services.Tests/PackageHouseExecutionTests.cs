@@ -11,7 +11,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task ExactSettleAuthorizesWithoutPayloadWork()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
         int stores = 0;
         PackageHouseRequest request = ExactRequest(
@@ -44,7 +44,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task ExactAcquireBindsLivePayloadToResourceFreeReceipt()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
         PackageHouseRequest request = ExactRequest(
             PackageHouseOperationProfile.Acquire);
@@ -80,7 +80,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task AcquireRequiresPayloadAcquisitionPlan()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
         PackageHouse house = environment.CreateHouse();
         PackageHouseRequest request = ExactRequest(
@@ -103,7 +103,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task SelectingAcquireUsesOnlyAuthoritiesThatReportedSelection()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior(["9.0.0", Version]),
             new SourceBehavior(["9.0.0"]));
         var request = new PackageHouseRequest(
@@ -137,7 +137,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task PartialDiscoveryDoesNotReachPayloadOrStore()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]),
             new SourceBehavior(
                 [],
@@ -176,9 +176,9 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task SelectionKeepsNotFoundAndNoMatchDistinct()
     {
-        using HouseEnvironment absent = HouseEnvironment.Create(
+        await using HouseEnvironment absent = HouseEnvironment.Create(
             new SourceBehavior([]));
-        using HouseEnvironment prerelease = HouseEnvironment.Create(
+        await using HouseEnvironment prerelease = HouseEnvironment.Create(
             new SourceBehavior(["11.0.0-preview.1"]));
         PackageHouseRequest CreateRequest() => new(
             new PackageHouseDemand.Selecting(
@@ -209,7 +209,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task SuppliedOperationDeadlinesMustMatchRequest()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
         PackageHouseRequest request = ExactRequest(
             PackageHouseOperationProfile.Settle);
@@ -234,7 +234,7 @@ public sealed class PackageHouseExecutionTests
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior(
                 [Version],
                 BeforeVersions: async (_, token) =>
@@ -266,7 +266,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task OperationTimeoutBecomesTypedTerminalFailure()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior(
                 [Version],
                 BeforeVersions: async (_, token) =>
@@ -308,7 +308,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task SelectingMayTimeOutBeforeDiscoveryReceiptExists()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Selecting(
@@ -347,7 +347,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task OperationTimeoutMayPreserveCompletedSelectionReceipt()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([]));
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Selecting(
@@ -404,7 +404,7 @@ public sealed class PackageHouseExecutionTests
             CancellationToken,
             Task>? BeforeVersions = null);
 
-    private sealed class HouseEnvironment : IDisposable
+    private sealed class HouseEnvironment : IAsyncDisposable
     {
         private HouseEnvironment(
             FixedAuthorization authorization,
@@ -495,9 +495,9 @@ public sealed class PackageHouseExecutionTests
                     ? null
                     : new PackagePayloadAcquisitionPlan(getStore));
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
-            Lease.Dispose();
+            await Lease.DisposeAsync();
             foreach (IPackageSourceClient client in OwnedClients)
             {
                 client.Dispose();
