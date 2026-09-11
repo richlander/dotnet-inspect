@@ -108,6 +108,10 @@ public static class UtilityCommandDefinitions
         cacheCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(cacheCommand);
         opts.AddOutputOptionsTo(cacheCommand, supportsRowWindows: false);
+        CliOptionValueValidation.RegisterPresenceOptions(
+            cacheCommand,
+            opts.Head,
+            opts.Tail);
         cacheCommand.Validators.Add(
             result => ValidateCacheLineDirection(result, opts));
 

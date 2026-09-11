@@ -149,6 +149,68 @@ public class CacheCommandTests : IDisposable
         Assert.Contains($"{direction} requires -n.", error);
     }
 
+    [Theory]
+    [InlineData("--head=false", false)]
+    [InlineData("--tail=false", false)]
+    [InlineData("--head=false", true)]
+    [InlineData("--tail=false", true)]
+    public async Task Cli_RejectsAttachedDirectionValueBeforeAction(
+        string direction,
+        bool clear)
+    {
+        string[] args = clear
+            ?
+            [
+                "cache",
+                direction,
+                "clear",
+                "--session",
+                "cache-command-missing-probe"
+            ]
+            : ["cache", direction];
+        var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (result, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
+
+        string option = direction[..direction.IndexOf('=')];
+        Assert.Equal(1, result);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: {option} does not accept a value.{Environment.NewLine}",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--head", false)]
+    [InlineData("--tail", false)]
+    [InlineData("--head", true)]
+    [InlineData("--tail", true)]
+    public async Task Cli_ParsesSeparateDirectionValueIndependently(
+        string direction,
+        bool clear)
+    {
+        string[] args = clear
+            ?
+            [
+                "cache",
+                direction,
+                "false",
+                "clear",
+                "--session",
+                "cache-command-missing-probe"
+            ]
+            : ["cache", direction, "false"];
+        var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (result, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
+
+        Assert.Equal(1, result);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: {direction} does not accept a value.{Environment.NewLine}",
+            error);
+    }
+
     [Fact]
     public async Task ExecuteAsync_WithClean_OnEmptyCache_ReturnsZero()
     {
