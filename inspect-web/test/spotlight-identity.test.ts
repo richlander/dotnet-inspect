@@ -608,8 +608,8 @@ const engineCoordinatorSource = readFileSync(
 const deploySource = readFileSync(
   new URL("../../.github/workflows/deploy-inspect-web.yml", import.meta.url),
   "utf8");
-const statusBarSource = readFileSync(
-  new URL("../src/status-bar.ts", import.meta.url),
+const dataBarSource = readFileSync(
+  new URL("../src/data-bar.ts", import.meta.url),
   "utf8");
 const spotlightSource = readFileSync(
   new URL("../src/spotlight.ts", import.meta.url),
@@ -901,7 +901,6 @@ test("typed Spotlight owns search presentation and hosts commands", () => {
 });
 
 test("workspace data bar receives package acquisition provenance", () => {
-  assert.match(appSource, /source: pkg\.source/);
   assert.match(
     appSource,
     /createPackageAcquisition\(\{[\s\S]*queryPackage:[\s\S]*loadRuntimePack:[\s\S]*loadRuntimePackAssembly:/);
@@ -914,31 +913,24 @@ test("workspace data bar receives package acquisition provenance", () => {
     /interface RuntimeLoadResult \{[\s\S]*failureMessage: string;[\s\S]*const result = await packageAcquisition\.loadRuntimePack\([\s\S]*failureMessage: result\.error === null \? "" : errorMessage\(result\.error\)/);
   assert.match(packageAcquisitionSource, /source: \{ kind: "nuget\.org" \}/);
   assert.match(packageAcquisitionSource, /source: \{ kind: "platform" \}/);
+  assert.match(packageAcquisitionSource, /producerLabel: "NuGet\.org"/);
+  assert.match(packageAcquisitionSource, /producerLabel: "Platform"/);
   assert.doesNotMatch(appSource, /source: \{ kind: "(?:nuget\.org|platform)" \}/);
-  assert.match(statusBarSource, /Source: \$\{escapeHtml\(packageSourceLabel\(model\.source\)\)\}/);
+  assert.match(
+    appSource,
+    /producer: \{\s*kind: pkg\.source\.kind === "platform" \? "acquisition" : "package",\s*label: pkg\.producerLabel,\s*\}/);
+  assert.match(
+    dataBarSource,
+    /const producerLabel = model\.producer\?\.label\.trim\(\) \?\? ""/);
+  assert.doesNotMatch(dataBarSource, /new URL|URLSearchParams|\.split\(/);
 });
 
-test("typed status bar owns its rendered toggle binding", () => {
-  const binding =
-    appSource.match(/function bindStatusBarEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
-    ?? "";
-  assert.match(
-    binding,
-    /bindStatusBar\(document, \{\s*onToggle: \(\) => \{[\s\S]*state\.statusBarExpanded = !state\.statusBarExpanded;[\s\S]*render\(\);[\s\S]*\},\s*\}\)/);
-  assert.equal(binding.match(/\bdocument\b/g)?.length, 1);
-  assert.match(
-    statusBarSource,
-    /export function bindStatusBar\([\s\S]*\[data-status-bar-toggle-button\][\s\S]*actions\.onToggle/);
-  assert.doesNotMatch(appSource, /\[data-status-bar-toggle-button\]/);
-  assert.match(
-    appSource,
-    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);/);
-  assert.match(
-    appSource,
-    /function bindHomeEvents\(\) \{\s*bindStatusBarEvents\(\);/);
-  assert.equal(
-    appSource.match(/\bbindStatusBarEvents\(\)/g)?.length,
-    5);
+test("data bar has no expansion state or interaction binding", () => {
+  assert.doesNotMatch(appSource, /statusBarExpanded|bindStatusBarEvents/);
+  assert.doesNotMatch(
+    `${appSource}\n${dataBarSource}`,
+    /data-status-bar-toggle|status-bar-toggle|aria-expanded/);
+  assert.doesNotMatch(dataBarSource, /addEventListener|querySelector/);
 });
 
 test("typed package controls own framework and version selection bindings", () => {
@@ -1065,7 +1057,7 @@ test("typed package view owns package navigation bindings", () => {
     appSource.match(/function bindPackageViewEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindPackageDependencyListEvents)/)?.[0]
     ?? "";
   const dependencyListBinding =
-    appSource.match(/function bindPackageDependencyListEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindStatusBarEvents)/)?.[0]
+    appSource.match(/function bindPackageDependencyListEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   const dependencyPatch =
     appSource.match(/function patchDependenciesGroup\(\) \{[\s\S]*?\n}/)?.[0]
@@ -1606,7 +1598,7 @@ test("typed type panel owns its rendered control bindings", () => {
     1);
   assert.match(
     appSource,
-    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);\s*packageControls\.bind\(document\);\s*bindWorkspaceSubjectEvents\(\);\s*bindTypePanelEvents\(\);/);
+    /function bindEvents\(\) \{\s*packageControls\.bind\(document\);\s*bindWorkspaceSubjectEvents\(\);\s*bindTypePanelEvents\(\);/);
   assert.match(
     typePanelSource,
     /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
@@ -1896,7 +1888,7 @@ test("typed settings panel owns its rendered control bindings", () => {
     string | null,
   ])[] = [
     [bindEvents, "workbench settings binder", "bindScopeBarEvents"],
-    [bindHomeEvents, "home settings binder", "bindStatusBarEvents"],
+    [bindHomeEvents, "home settings binder", null],
   ];
   for (const [owner, description, predecessor] of settingsBinders) {
     assert.equal(
@@ -2482,20 +2474,31 @@ test("dependency graph render identity includes truncation and navigation", () =
     }));
 });
 
-test("ready status shows versioned linked build provenance", () => {
+test("data bar shows versioned linked build provenance", () => {
   assert.match(appSource, /state\.buildIdentity = await engineClient\.host\.buildIdentity\(\)/);
+  assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 4);
   assert.match(
     appSource,
-    /<\/main>[\s\S]{0,700}\$\{statusBarHtml\(\{/);
-  assert.match(statusBarSource, /"statusbar data-bar"/);
-  assert.match(statusBarSource, /buildIdentityHtml\(model\.buildIdentity/);
+    /<\/main>[\s\S]{0,700}\$\{dataBarHtml\(\{/);
+  assert.match(dataBarSource, /<footer class="data-bar" aria-label="Product information">/);
+  assert.match(dataBarSource, /buildIdentityItems\(model\.buildIdentity/);
   assert.match(
     appSource,
-    /variant: "home"[\s\S]{0,200}buildIdentity: state\.buildIdentity/);
+    /\$\{dataBarHtml\(\{\s*buildIdentity: state\.buildIdentity,\s*}, escapeHtml\)\}/);
   assert.match(
-    statusBarSource,
+    appSource,
+    /producer: \{ kind: "acquisition", label: "Platform" \}/);
+  assert.match(
+    appSource,
+    /href="\$\{CLI_TOOL_URL\}"[\s\S]*href="\$\{AGENT_SKILL_URL\}"/);
+  assert.match(
+    dataBarSource,
+    /href="\$\{CLI_TOOL_URL\}"[\s\S]*href="\$\{AGENT_SKILL_URL\}"/);
+  assert.match(
+    dataBarSource,
     /identity\.commitUrl[\s\S]*target="_blank" rel="noopener noreferrer"/);
-  assert.match(statusBarSource, /built \$\{escapeHtml\(builtAt\)\} UTC/);
+  assert.match(dataBarSource, /compactUtcDate\(identity\.builtAtUtc\)/);
+  assert.doesNotMatch(dataBarSource, /\bbuilt\b/i);
   assert.match(
     deploySource,
     /-getProperty:VersionPrefix[\s\S]*-p:VersionPrefix="\$version"[\s\S]*-p:SourceRevisionId="\$GITHUB_SHA"[\s\S]*-p:BuildTimestampUtc="\$built_at"/);
@@ -2561,8 +2564,9 @@ test("bare home paints before wasm engine download", () => {
     appSource,
     /class="home-search \$\{enginePending[\s\S]*class="home-engine-status"/);
   assert.match(
-    `${appSource}\n${statusBarSource}`,
-    /state\.engineReady[\s\S]*browser wasm ready[\s\S]*browser wasm loading/);
+    appSource,
+    /state\.engineReady[\s\S]*class="home-engine-status"/);
+  assert.doesNotMatch(dataBarSource, /engineReady|browser wasm/i);
   assert.match(
     appSource,
     /state\.retryAction = \(\) => window\.location\.reload\(\)/);
@@ -3925,7 +3929,9 @@ test("settings keep a viewport-bounded scroll region", () => {
     /(?:^|\n)\s*overflow-y: auto;/);
 });
 
-test("home keeps a viewport-bounded scroll region and reachable footer", () => {
+test("home and workbench keep viewport-bounded content above the data bar", () => {
+  const workbenchRule =
+    stylesSource.match(/\.workbench\s*\{([^}]*)\}/s)?.[1] ?? "";
   const homeRule =
     stylesSource.match(/\.home\s*\{([^}]*)\}/s)?.[1] ?? "";
   const homeHeroRule =
@@ -3937,8 +3943,11 @@ test("home keeps a viewport-bounded scroll region and reachable footer", () => {
     homeRule,
     /(?:^|\n)\s*min-height:/);
   assert.match(
+    workbenchRule,
+    /grid-template-rows: 42px 46px auto minmax\(0, 1fr\) 30px;/);
+  assert.match(
     homeRule,
-    /(?:^|\n)\s*grid-template-rows: auto auto minmax\(0, 1fr\) auto;/);
+    /(?:^|\n)\s*grid-template-rows: auto auto minmax\(0, 1fr\) 30px;/);
   assert.match(
     homeHeroRule,
     /(?:^|\n)\s*min-height: 0;/);
@@ -3953,7 +3962,10 @@ test("home keeps a viewport-bounded scroll region and reachable footer", () => {
     /(?:^|\n)\s*grid-row: 3;/);
   assert.match(
     stylesSource,
-    /\.home-foot\s*\{[^}]*grid-row: 4;/s);
+    /\.workbench > \.notice-stack\s*\{\s*grid-row: 3;\s*\}[\s\S]*\.workbench > \.workspace\s*\{\s*grid-row: 4;\s*\}[\s\S]*\.workbench > \.data-bar\s*\{\s*grid-row: 5;\s*\}/);
+  assert.match(
+    stylesSource,
+    /\.home > \.data-bar\s*\{\s*grid-row: 4;\s*\}/);
 });
 
 test("all dependency navigation paths use one product-owned coordinate matcher", () => {
