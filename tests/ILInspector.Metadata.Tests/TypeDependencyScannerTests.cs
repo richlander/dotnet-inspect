@@ -93,6 +93,7 @@ public class TypeDependencyScannerTests
         // IComparable<T> is a leaf interface
         var result = TypeDependencyScanner.BuildDependencyTree("IComparable", RefAssemblies);
 
+        Assert.True(result.Found);
         Assert.Empty(result.Tree);
     }
 
@@ -515,6 +516,9 @@ public class TypeDependencyScannerTests
             [consumer.Registration, reference.Registration],
             result.Candidates.Select(
                 static candidate => candidate.Registration));
+        Assert.Same(
+            consumer.Registration,
+            result.MatchedRegistration);
         Assert.All(
             result.Candidates,
             static candidate =>
@@ -567,6 +571,7 @@ public class TypeDependencyScannerTests
         Assert.False(result.Dependency.Found);
         Assert.Empty(result.Dependency.Tree);
         Assert.Empty(result.Dependency.Relationships);
+        Assert.Null(result.MatchedRegistration);
     }
 
     [Fact]

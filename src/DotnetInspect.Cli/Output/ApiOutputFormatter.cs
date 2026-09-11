@@ -1893,6 +1893,8 @@ public static class ApiOutputFormatter
         if (code.DecompiledResult is { } decompiledResult)
         {
             EmitDecompileBreadcrumb(member.Name, decompiledResult.Trace);
+            if (!decompiledResult.Succeeded)
+                memberCode.DecompiledSourceFailure = decompiledResult;
             memberCode.DecompiledSourceCode = FormatCSharpResult(
                 type,
                 member,
