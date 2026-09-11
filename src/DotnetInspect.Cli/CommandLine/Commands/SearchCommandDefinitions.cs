@@ -2,7 +2,6 @@ using System.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -115,58 +114,6 @@ public static class SearchCommandDefinitions
             findCommand,
             validateLegacyRowWindow: static _ => false);
         opts.AddNuGetOptionsTo(findCommand);
-
-        findCommand.Validators.Add(result =>
-        {
-            string? literal = result.GetValue(literalOption);
-            if (literal is null)
-                return;
-
-            if (!string.IsNullOrEmpty(result.GetValue(patternArg))
-                || result.GetResult(packagePrefixOption) is { Implicit: false }
-                || result.GetResult(assemblyOption) is { Implicit: false }
-                || result.GetResult(platformOption) is { Implicit: false }
-                || result.GetResult(platformLibraryOption) is { Implicit: false }
-                || result.GetValue(extensionsOption)
-                || result.GetValue(aspnetcoreOption)
-                || result.GetResult(projectOption) is { Implicit: false }
-                || result.GetResult(binOption) is { Implicit: false }
-                || result.GetValue(membersOption)
-                || result.GetValue(allOption)
-                || result.GetResult(typeFilterOption) is { Implicit: false })
-            {
-                result.AddError(
-                    "--literal searches only explicit ID@VERSION packages; "
-                    + "it cannot be combined with a type pattern, API search scopes, "
-                    + "--package-prefix, --members, --all, or --type.");
-                return;
-            }
-
-            if (result.GetValue(opts.Discover) is not null)
-                return;
-
-            // The planner rejects a missing target framework through the ordinary argument
-            // contract, which carries no product-authored sentence. The CLI owns that diagnostic.
-            string tfm = result.GetValue(tfmOption) ?? "";
-            if (string.IsNullOrWhiteSpace(tfm))
-            {
-                result.AddError(PackageAssemblyQueryDiagnostics.MissingTargetFramework);
-                return;
-            }
-
-            try
-            {
-                _ = PackageAssemblyQuery.Plan(
-                    PackageAssemblyPatterns.StringLiteralContains,
-                    literal,
-                    result.GetValue(packageOption) ?? [],
-                    tfm);
-            }
-            catch (ArgumentException ex)
-            {
-                result.AddError(PackageAssemblyQueryDiagnostics.Describe(ex));
-            }
-        });
 
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,

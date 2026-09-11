@@ -147,9 +147,11 @@ public class FindCommand
                     "type",
                     out IReadOnlyList<TypeFindResult> selectedTypes))
             {
+                WriteUnmatchedPatternWarning(search);
                 return 1;
             }
             results = [.. selectedTypes];
+            WriteUnmatchedPatternWarning(search);
             var title = patterns.Length == 1 ? $"Find: {patterns[0]}" : "Find Results";
 
             // --count reduces the payload, so it is resolved before the format flags that
@@ -197,6 +199,22 @@ public class FindCommand
             CommandError.Write(ex);
             return 1;
         }
+    }
+
+    private static void WriteUnmatchedPatternWarning(
+        FindSearchResult<TypeFindResult> search)
+    {
+        int unmatchedCount =
+            search.UnmatchedPatterns?.Count ?? 0;
+        if (unmatchedCount == 0 || search.Rows.Count == 0)
+            return;
+
+        CommandError.WriteWarning(
+            $"{unmatchedCount} search "
+            + (unmatchedCount == 1
+                ? "pattern matched"
+                : "patterns matched")
+            + " no types.");
     }
 
     /// <summary>

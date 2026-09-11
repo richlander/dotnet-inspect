@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -128,6 +129,17 @@ public static class FindOptionsParser
             return new Invalid();
         }
 
+        if (literal is not null
+            && !ValidateLiteralQuery(
+                parseResult,
+                opts,
+                args,
+                pattern,
+                literal))
+        {
+            return new Invalid();
+        }
+
         bool isPackageProfile =
             literal is null
             && string.IsNullOrEmpty(pattern)
@@ -228,6 +240,69 @@ public static class FindOptionsParser
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);
+    }
+
+    private static bool ValidateLiteralQuery(
+        ParseResult parseResult,
+        SharedOptions opts,
+        FindCommandArgs args,
+        string? pattern,
+        string literal)
+    {
+        if (!string.IsNullOrEmpty(pattern)
+            || parseResult.GetResult(args.PackagePrefixOption)
+                is { Implicit: false }
+            || parseResult.GetResult(args.AssemblyOption)
+                is { Implicit: false }
+            || parseResult.GetResult(args.PlatformOption)
+                is { Implicit: false }
+            || parseResult.GetResult(args.PlatformLibraryOption)
+                is { Implicit: false }
+            || parseResult.GetValue(args.ExtensionsOption)
+            || parseResult.GetValue(args.AspNetCoreOption)
+            || parseResult.GetResult(args.ProjectOption)
+                is { Implicit: false }
+            || parseResult.GetResult(args.BinOption)
+                is { Implicit: false }
+            || parseResult.GetValue(args.MembersOption)
+            || parseResult.GetValue(args.AllOption)
+            || parseResult.GetResult(args.TypeFilterOption)
+                is { Implicit: false })
+        {
+            CommandError.Write(
+                "--literal searches only explicit ID@VERSION packages; "
+                + "it cannot be combined with a type pattern, API search scopes, "
+                + "--package-prefix, --members, --all, or --type.");
+            return false;
+        }
+
+        if (parseResult.GetValue(opts.Discover) is not null)
+            return true;
+
+        string tfm =
+            parseResult.GetValue(args.TfmOption) ?? "";
+        if (string.IsNullOrWhiteSpace(tfm))
+        {
+            CommandError.Write(
+                PackageAssemblyQueryDiagnostics.MissingTargetFramework);
+            return false;
+        }
+
+        try
+        {
+            _ = PackageAssemblyQuery.Plan(
+                PackageAssemblyPatterns.StringLiteralContains,
+                literal,
+                parseResult.GetValue(args.PackageOption) ?? [],
+                tfm);
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            CommandError.Write(
+                PackageAssemblyQueryDiagnostics.Describe(ex));
+            return false;
+        }
     }
 
     /// <summary>

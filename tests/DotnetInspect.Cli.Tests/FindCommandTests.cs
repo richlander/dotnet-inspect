@@ -1474,6 +1474,27 @@ public class FindCommandIntegrationTests
     }
 
     [Fact]
+    public void PackageProfileMissingRepeatedTakeValue_PrecedesMalformedRows()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Contoso.",
+                "--rows",
+                "bad",
+                "--take",
+                "--take",
+                "1",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--take requires a value.", error);
+        Assert.DoesNotContain("--rows requires", error);
+    }
+
+    [Fact]
     public void PackageContentTakeMaximum_ParticipatesInComposedDiagnostics()
     {
         var takeBeforeRows = RunCli(
@@ -1699,6 +1720,64 @@ public class FindCommandIntegrationTests
             error);
     }
 
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--count")]
+    [InlineData("--table")]
+    [InlineData("--jsonl")]
+    public void Find_MixedMultiPatternStrictWindow_ExcludesUnmatchedContext(
+        string format)
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "JsonDocument,ZzzNoSuchApi6585*",
+                "--platform-library",
+                "System.Text.Json",
+                "--rows",
+                "2..2",
+                format,
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "only 1 type rows are available.",
+            error);
+        Assert.Contains(
+            "1 search pattern matched no types.",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--take", "bad", "--take requires a positive whole number.")]
+    [InlineData("--rows", "bad", "--rows requires N..M, N.., or ..M")]
+    public void LiteralPlanningFailure_FollowsSharedSelectionFailure(
+        string option,
+        string value,
+        string expected)
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--literal",
+                "Json",
+                "--package",
+                "UnpinnedName",
+                "--tfm",
+                "net10.0",
+                option,
+                value,
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain(
+            "exact ID@VERSION coordinate",
+            error);
+    }
+
     [Fact]
     public async Task Find_RuntimeFramework_FindsJsonSerializer()
     {
@@ -1708,7 +1787,7 @@ public class FindCommandIntegrationTests
             PlatformFrameworks = ["runtime"]
         };
 
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => FindCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
@@ -2400,7 +2479,7 @@ public class FindCommandIntegrationTests
             PlatformFrameworks = ["runtime", "aspnetcore", "netstandard"]
         };
 
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => FindCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
@@ -2417,9 +2496,8 @@ public class FindCommandIntegrationTests
         Assert.Contains("partial", output);
         Assert.Contains("TypedResults", output);
 
-        // Not found patterns appear as rows with "notfound" match kind
-        Assert.Contains("notfound", output);
-        Assert.Contains("System.Nonexistent.FooBarXyz", output);
-        Assert.Contains("XyzNonexistent123", output);
+        // Unmatched patterns are diagnostic context rather than selectable rows.
+        Assert.DoesNotContain("notfound", output);
+        Assert.Contains("2 search patterns matched no types.", error);
     }
 }

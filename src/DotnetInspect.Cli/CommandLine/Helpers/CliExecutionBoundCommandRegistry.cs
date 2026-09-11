@@ -86,7 +86,8 @@ internal static class CliExecutionBoundCommandRegistry
         }
 
         string optionName = adoption.Option.Name;
-        var occurrences = new List<(int Position, string? Value)>();
+        var occurrences =
+            new List<(int Position, string? Value, bool MissingValue)>();
         for (int index = 0; index < arguments.Count; index++)
         {
             string argument = arguments[index];
@@ -101,9 +102,16 @@ internal static class CliExecutionBoundCommandRegistry
                     index + 1 < arguments.Count
                         ? arguments[index + 1]
                         : null;
+                bool missingValue =
+                    value is null
+                    || IsOptionToken(value);
                 occurrences.Add(
-                    (argumentPositions?[index] ?? index, value));
-                index++;
+                    (
+                        argumentPositions?[index] ?? index,
+                        missingValue ? null : value,
+                        missingValue));
+                if (!missingValue)
+                    index++;
                 continue;
             }
 
@@ -117,14 +125,25 @@ internal static class CliExecutionBoundCommandRegistry
                 occurrences.Add(
                     (
                         argumentPositions?[index] ?? index,
-                        argument[(optionName.Length + 1)..]));
+                        argument[(optionName.Length + 1)..],
+                        MissingValue: false));
             }
         }
 
         if (occurrences.Count == 0)
             return new(null, null, null);
 
-        foreach ((int position, string? value) in occurrences)
+        if (occurrences.FirstOrDefault(
+                static occurrence =>
+                    occurrence.MissingValue) is { MissingValue: true } missing)
+        {
+            return new(
+                $"{optionName} requires a value.",
+                missing.Position,
+                CliSelectionFailureCategory.Arity);
+        }
+
+        foreach ((int position, string? value, _) in occurrences)
         {
             if (!TryParsePositive(value, out int parsed))
             {
@@ -188,5 +207,22 @@ internal static class CliExecutionBoundCommandRegistry
                 CultureInfo.InvariantCulture,
                 out parsed)
             && parsed > 0;
+    }
+
+    private static bool IsOptionToken(string value)
+    {
+        if (value.Length == 0 || value[0] != '-')
+            return false;
+
+        if (value.Length == 1)
+            return true;
+
+        for (int index = 1; index < value.Length; index++)
+        {
+            if (value[index] is < '0' or > '9')
+                return true;
+        }
+
+        return false;
     }
 }

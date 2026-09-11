@@ -282,9 +282,9 @@ Prefer built-in limits to shell pipes:
 - `--count` counts rows in one selected table.
 
 `find`, package `--versions` / `--versions-with-feed`, and `demo list` use
-semantic rows. `-n N` selects complete items, while `-n N --lines` clips
-rendered lines. `--rows` on those surfaces accepts only `A..B`, `A..`, and
-`..B`; `-n` and `--rows` compose as stages in argv order. `--head` and
-`--tail` modify `-n`, not the range. On patternless
-`find --package-prefix`, `--take N` separately bounds package work before
-semantic row selection.
+semantic rows. `-n N` selects complete items. Package version listings and
+`demo list` also accept `-n N --lines` to clip rendered lines. `--rows` on
+those surfaces accepts only `A..B`, `A..`, and `..B`; `-n` and `--rows`
+compose as stages in argv order. `--head` and `--tail` modify `-n`, not the
+range. On patternless `find --package-prefix`, `--take N` separately bounds
+package work before semantic row selection.

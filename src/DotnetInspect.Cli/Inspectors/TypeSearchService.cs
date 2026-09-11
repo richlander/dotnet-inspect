@@ -69,7 +69,9 @@ internal static class TypeSearchService
                         configured,
                         MarkFailure,
                         cancellationToken));
-            return new(configuredResults, hasFailures);
+            return CreateSearchResult(
+                configuredResults,
+                hasFailures);
         }
 
         using var workspace = new AssemblySetInspectionWorkspace();
@@ -85,7 +87,7 @@ internal static class TypeSearchService
         // Optimized single-pattern path: collect with filtering, then partial match if empty
         if (patterns.Length == 1)
         {
-            return new(
+            return CreateSearchResult(
                 await FindSinglePatternAsync(
                 patterns[0],
                 options,
@@ -94,12 +96,32 @@ internal static class TypeSearchService
         }
 
         // Multi-pattern or tabular output: collect all types, then match each pattern
-        return new(
+        return CreateSearchResult(
             await FindMultiPatternAsync(
                 patterns,
                 options,
                 Collect),
             hasFailures);
+    }
+
+    private static FindSearchResult<TypeFindResult> CreateSearchResult(
+        List<TypeFindResult> results,
+        bool hasFailures)
+    {
+        string[] unmatchedPatterns =
+        [
+            .. results
+                .Where(static result =>
+                    result.Match == MatchKind.NotFound)
+                .Select(static result => result.Pattern),
+        ];
+        return new(
+            [
+                .. results.Where(static result =>
+                    result.Match != MatchKind.NotFound),
+            ],
+            hasFailures,
+            unmatchedPatterns);
     }
 
     private static async Task<List<TypeFindResult>> FindMultiPatternAsync(
