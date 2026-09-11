@@ -1937,7 +1937,6 @@ public static class ApiSurfaceExtractor
         ApiMemberIdentity.PopulateCanonicalIdentities(
             surface,
             budget is null ? null : budget.RetainCommittedText);
-
         return surface;
     }
 
@@ -3032,6 +3031,7 @@ public static class ApiSurfaceExtractor
                     SignatureDecodeStatus = extension.SignatureDecodeStatus,
                     MethodSemantics = extension.MethodSemantics,
                     MetadataToken = extension.MetadataToken,
+                    GenericArity = extension.GenericArity,
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
                     IsAbstract = extension.IsAbstract,
@@ -3804,15 +3804,35 @@ public static class ApiSurfaceExtractor
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
-        // MemberName carries identity (ApiMemberIdentity parses it for docids and
-        // the generic-parameter map), so it keeps the raw metadata spelling; only
-        // the rendered signature is sanitized (issue #3319).
+        // MemberName carries source-level generic spelling used by identity
+        // consumers, so it keeps the raw metadata spelling; only the rendered
+        // signature is sanitized (issue #3319).
         var displayName = context.MethodParameters.Count > 0
             ? $"{SanitizeMemberDisplayName(name)}<{string.Join(", ", methodTypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>"
             : SanitizeMemberDisplayName(name);
+        IReadOnlyList<string>? xmlDocumentationParameterTypes =
+            TryGetXmlDocumentationNames(
+                treeSignature.ParameterTypes,
+                beforeRetainText);
+        string? xmlDocumentationReturnType = null;
+        if (ApiMemberIdentity.IsConversionOperator(name)
+            && treeSignature.ReturnType.TryGetXmlDocumentationName(
+                out string? exactReturnType))
+        {
+            xmlDocumentationReturnType = exactReturnType;
+        }
+        if (xmlDocumentationReturnType is not null)
+            beforeRetainText?.Invoke(xmlDocumentationReturnType);
         return ($"{returnType} {displayName}({paramStr2})", new ApiSignature
         {
             ExtensionReceiverType = extensionReceiverType,
+            XmlDocumentationParameterTypes =
+                xmlDocumentationParameterTypes,
+            XmlDocumentationReturnType =
+                xmlDocumentationReturnType,
+            XmlDocumentationIsVararg =
+                treeSignature.Header.CallingConvention
+                    == SignatureCallingConvention.VarArgs,
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
@@ -3831,6 +3851,21 @@ public static class ApiSurfaceExtractor
             Parameters = parameterModels
         }, treeSignature.ReturnType.IsDegraded
             || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
+    }
+
+    static IReadOnlyList<string>? TryGetXmlDocumentationNames(
+        ImmutableArray<TypeNode> types,
+        Action<string>? beforeRetainText)
+    {
+        var names = new string[types.Length];
+        for (int index = 0; index < names.Length; index++)
+        {
+            if (!types[index].TryGetXmlDocumentationName(out string? name))
+                return null;
+            names[index] = name;
+            beforeRetainText?.Invoke(names[index]);
+        }
+        return names;
     }
 
     private static List<string> ReturnParameterAttributes(
@@ -4884,8 +4919,14 @@ public static class ApiSurfaceExtractor
             treeSignature.ReturnType,
             paramHandles,
             beforeDecodeWork);
+        IReadOnlyList<string>? xmlDocumentationParameterTypes =
+            TryGetXmlDocumentationNames(
+                treeSignature.ParameterTypes,
+                beforeRetainText);
         var model = new ApiSignature
         {
+            XmlDocumentationParameterTypes =
+                xmlDocumentationParameterTypes,
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
@@ -5701,6 +5742,9 @@ public static class ApiSurfaceExtractor
         AddText(ref count, signature.ReturnType);
         AddText(ref count, signature.CanonicalReturnType);
         AddText(ref count, signature.StructuralReturnType);
+        if (signature.XmlDocumentationParameterTypes is { } xmlParameters)
+            AddText(ref count, xmlParameters);
+        AddText(ref count, signature.XmlDocumentationReturnType);
         AddText(ref count, signature.ReturnTypeShape);
         AddText(
             ref count,
