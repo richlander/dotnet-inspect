@@ -135,7 +135,7 @@ public class UntrustedProjectViewContainmentTests : IDisposable
             () => ProjectCommand.ExecuteAsync(new ProjectOptions
             {
                 ProjectPath = _assets,
-                Select = ["@All"],
+                Select = [ProjectCommand.ProjectSkillsSection],
             }));
 
         Assert.Equal(1, exit);
