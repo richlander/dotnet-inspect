@@ -265,8 +265,11 @@ carry several.
 Row windows apply independently to the selected section rows after summary
 groups are formed. A selected summary row retains counts for its complete
 group; limiting summary rows does not change the group's underlying occurrence
-set. `--count` counts selected rows after that window, using the normal
-multi-section count map when several sections are selected.
+set. Summary `Call Site Rows` values are one-based references to the default
+call-site output, matching `--rows`; the typed projection continues to retain
+zero-based indexes into the result array. `--count` counts selected rows after
+that window, using the normal multi-section count map when several sections are
+selected.
 
 If a later slice projects the result into `InspectionGraphDocument`, every
 rolled-up library edge must retain the member-level occurrence receipts behind
