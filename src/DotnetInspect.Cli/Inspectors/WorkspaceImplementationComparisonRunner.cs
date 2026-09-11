@@ -133,50 +133,68 @@ internal static class WorkspaceImplementationComparisonRunner
         string? packageDirectory = FindPackageDirectory(
             rootEntry.Path);
         TypeDefinitionResolutionSession resolution = CreateResolution(
-            corpusAssemblyPaths: null);
+            usePackageSourcePolicy:
+                packageDirectory is not null);
         try
         {
             TypeResolutionOutcome outcome =
                 resolution.Resolve(declaringType);
-            if (outcome is TypeResolutionOutcome.UnboundBinding
+            (AssemblyReferenceIdentity Identity,
+                AssemblyResolutionScope Scope)? forwardedTarget =
+                outcome switch
                 {
-                    Target:
-                        AssemblyBindingTarget.AssemblyReference reference,
-                })
+                    TypeResolutionOutcome.UnboundBinding
+                    {
+                        Target:
+                            AssemblyBindingTarget.AssemblyReference reference,
+                    } unbound => (
+                        reference.Identity,
+                        unbound.Scope),
+                    TypeResolutionOutcome.Resolved
+                    {
+                        Hops.Length: > 0,
+                    } initialResolved =>
+                        (
+                            initialResolved.Hops[0].TargetReference,
+                            initialResolved.Hops[0].Scope),
+                    _ => null,
+                };
+            if (forwardedTarget is not null)
             {
-                string? targetPath =
+                DeclaredTarget? target =
                     await AcquireDeclaredTargetAsync(
                         packageDirectory,
                         rootEntry.Tfm,
-                        reference.Identity,
+                        forwardedTarget.Value.Identity,
                         httpClient,
                         sourceOptions,
                         createComposition,
                         log,
                         ownedTemporaryDirectories,
                         cancellationToken);
-                if (targetPath is not null)
+                if (target is null
+                    || ResolvedAssemblyReference
+                        .CreateFromPathIfManaged(
+                            target.Path,
+                            AssemblyResolutionProvenance.Package(
+                                target.PackageId,
+                                target.PackageVersion,
+                                target.TargetFramework,
+                                rid: null))
+                        is not { } targetAssembly)
                 {
-                    resolution.Dispose();
-                    resolution = CreateResolution([targetPath]);
-                    outcome = resolution.Resolve(declaringType);
+                    return UnavailableSide();
                 }
+                outcome = ResolveDeclaredTarget(
+                    rootAssembly,
+                    targetAssembly,
+                    forwardedTarget.Value.Identity,
+                    forwardedTarget.Value.Scope,
+                    declaringType);
             }
             if (outcome is not TypeResolutionOutcome.Resolved resolved)
             {
-                var policy =
-                    NoResolverAssemblyBindingPolicy.Instance;
-                var unavailableRootParticipant =
-                    new AssemblyContextParticipant(
-                        rootAssembly,
-                        policy);
-                return new(
-                    workspace.CreateAssemblyContextGroup(
-                        [unavailableRootParticipant]),
-                    unavailableRootParticipant,
-                    [CreateBinding(
-                        rootAssembly,
-                        rootEntry.Path)]);
+                return UnavailableSide();
             }
 
             var occurrences = new Dictionary<
@@ -242,7 +260,7 @@ internal static class WorkspaceImplementationComparisonRunner
         }
 
         TypeDefinitionResolutionSession CreateResolution(
-            IReadOnlyList<string>? corpusAssemblyPaths)
+            bool usePackageSourcePolicy)
             => new(
                 rootAssembly,
                 isPlatformAssembly: false,
@@ -250,12 +268,58 @@ internal static class WorkspaceImplementationComparisonRunner
                 targetFramework: rootEntry.Tfm,
                 packageDirectory: packageDirectory,
                 sourceOptions: sourceOptions,
-                usePackageSourcePolicy: packageDirectory is not null,
-                allowPlatformAssemblyVersionRollForward: false,
-                corpusAssemblyPaths: corpusAssemblyPaths);
+                usePackageSourcePolicy:
+                    usePackageSourcePolicy,
+                allowPlatformAssemblyVersionRollForward: false);
+
+        ComparisonSide UnavailableSide()
+        {
+            var policy =
+                NoResolverAssemblyBindingPolicy.Instance;
+            var unavailableRootParticipant =
+                new AssemblyContextParticipant(
+                    rootAssembly,
+                    policy);
+            return new(
+                workspace.CreateAssemblyContextGroup(
+                    [unavailableRootParticipant]),
+                unavailableRootParticipant,
+                [CreateBinding(
+                    rootAssembly,
+                    rootEntry.Path)]);
+        }
     }
 
-    static async Task<string?> AcquireDeclaredTargetAsync(
+    static TypeResolutionOutcome ResolveDeclaredTarget(
+        ResolvedAssemblyReference root,
+        ResolvedAssemblyReference target,
+        AssemblyReferenceIdentity targetIdentity,
+        AssemblyResolutionScope scope,
+        MetadataTypeDefinitionName declaringType)
+    {
+        var policy = new ClosedRouteBindingPolicy(
+            [
+                new(
+                    root.Registration,
+                    targetIdentity,
+                    scope,
+                    target),
+            ]);
+        var catalog = new TypeResolutionCatalog();
+        TypeResolutionRequest request =
+            TypeResolutionRequest.FromAssembly(
+                root,
+                AssemblyResolutionScope.Any,
+                declaringType);
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                [root, target],
+                [request]);
+        return context.Resolve(request);
+    }
+
+    static async Task<DeclaredTarget?> AcquireDeclaredTargetAsync(
         string? packageDirectory,
         string? targetFramework,
         AssemblyReferenceIdentity target,
@@ -344,13 +408,17 @@ internal static class WorkspaceImplementationComparisonRunner
                     target.Name + ".dll",
                     StringComparison.OrdinalIgnoreCase)),
         ];
-        return matches.Length == 1
-            ? Path.Combine(
+        if (matches.Length != 1)
+            return null;
+        return new(
+            Path.Combine(
                 extracted.ExtractPath,
                 matches[0].EntryPath.Replace(
                     '/',
-                    Path.DirectorySeparatorChar))
-            : null;
+                    Path.DirectorySeparatorChar)),
+            target.Name,
+            versions[0],
+            selected.Universe.TargetFramework);
     }
 
     static string? FindPackageDirectory(string assemblyPath)
@@ -399,6 +467,12 @@ internal static class WorkspaceImplementationComparisonRunner
         AssemblyContextGroup Group,
         AssemblyContextParticipant Root,
         IReadOnlyList<ImplementationComparisonBinding> Bindings);
+
+    sealed record DeclaredTarget(
+        string Path,
+        string PackageId,
+        string PackageVersion,
+        string? TargetFramework);
 
     sealed record ClosedRoute(
         AssemblyAcquisitionRegistration Source,

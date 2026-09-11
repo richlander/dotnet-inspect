@@ -175,6 +175,98 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
     }
 
     [Fact]
+    public async Task PreResolvedTerminal_DoesNotOverrideDeclaredPackageCoordinate()
+    {
+        Guid declaredMvid =
+            new("00000000-0000-0000-0000-000000000501");
+        Guid promotedMvid =
+            new("00000000-0000-0000-0000-000000000502");
+        TestSide before = CreateForwardedSide(
+            "1.0.0",
+            methodResult: 1,
+            terminalMvid: declaredMvid);
+        TestSide after = CreateForwardedSide(
+            "3.0.0",
+            methodResult: 1,
+            writeTerminalPackage: false,
+            dependencyVersion: "1.0.0",
+            terminalAssemblyVersion: "1.0.0",
+            terminalMvid: declaredMvid);
+        AssemblySetEntry afterRoot =
+            Assert.Single(after.AssemblySet.Assemblies);
+        File.WriteAllBytes(
+            Path.Combine(
+                Path.GetDirectoryName(
+                    afterRoot.Path)!,
+                Terminal + ".dll"),
+            BuildAssembly(
+                Terminal,
+                "1.0.0",
+                methodResult: 2,
+                moduleVersionId: promotedMvid));
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [_root],
+        };
+
+        string afterPackageDirectory =
+            Path.GetFullPath(
+                Path.Combine(
+                    Path.GetDirectoryName(
+                        afterRoot.Path)!,
+                    "..",
+                    ".."));
+        using (var initialResolution =
+            new TypeDefinitionResolutionSession(
+                afterRoot.Path,
+                isPlatformAssembly: false,
+                projectAssetsPath: null,
+                targetFramework: afterRoot.Tfm,
+                packageDirectory:
+                    afterPackageDirectory,
+                sourceOptions: sourceOptions,
+                usePackageSourcePolicy: true,
+                allowPlatformAssemblyVersionRollForward:
+                    false))
+        {
+            var promoted =
+                Assert.IsType<
+                    TypeResolutionOutcome.Resolved>(
+                    initialResolution.Resolve(
+                        TypeName));
+            Assert.Equal(
+                promotedMvid,
+                promoted.Definition.Address
+                    .ModuleVersionId);
+        }
+
+        WorkspaceImplementationComparisonResult result =
+            await WorkspaceImplementationComparisonRunner.ExecuteAsync(
+                before.AssemblySet,
+                after.AssemblySet,
+                Facade,
+                TypeName,
+                MemberTargetSelector.Parse("Value"),
+                new HttpClient(),
+                sourceOptions,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var publication =
+            Assert.IsType<
+                WorkspaceImplementationComparisonResult.Published>(
+                result).Publication;
+        Assert.Equal(
+            declaredMvid,
+            publication.Before.EffectiveAttempt
+                .Address!.Value.ModuleVersionId);
+        Assert.Equal(
+            declaredMvid,
+            publication.After.EffectiveAttempt
+                .Address!.Value.ModuleVersionId);
+    }
+
+    [Fact]
     public async Task DirectPackageTargets_DoNotInventForwarderRows()
     {
         TestSide before = CreateDirectSide(
@@ -513,6 +605,24 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             "\"mechanism\": \"IL\"",
             output,
             StringComparison.Ordinal);
+
+        (exitCode, output, error) =
+            await RunPackageCommandAsync(
+                type: "N.Outer+Type",
+                member: "Type.Value",
+                sections:
+                    "Implementation Diff",
+                json: false,
+                allocRegressions: true,
+                table: true);
+
+        Assert.Equal(
+            0,
+            exitCode);
+        Assert.True(
+            string.IsNullOrEmpty(error),
+            error);
+        Assert.NotEmpty(output);
     }
 
     Task<(int ExitCode, string Output, string Error)>
@@ -520,7 +630,9 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         string type,
         string member,
         string sections,
-        bool json = true)
+        bool json = true,
+        bool allocRegressions = false,
+        bool table = false)
     {
         Dictionary<string, byte[]> packages =
             PackagePayloads();
@@ -547,6 +659,10 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                 };
                 if (json)
                     arguments.Add("--json");
+                if (allocRegressions)
+                    arguments.Add("--alloc-regressions");
+                if (table)
+                    arguments.Add("--table");
                 arguments.AddRange(
                     [
                         "--source",
@@ -617,12 +733,20 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         bool writeTerminalPackage = true,
         string terminalName = Terminal,
         string targetFramework = Framework,
-        string? dependencyGroupFramework = null)
+        string? dependencyGroupFramework = null,
+        string? dependencyVersion = null,
+        string? terminalAssemblyVersion = null,
+        Guid? terminalMvid = null)
     {
+        string selectedDependencyVersion =
+            dependencyVersion
+            ?? version;
         byte[] terminal = BuildAssembly(
             terminalName,
-            version,
-            methodResult);
+            terminalAssemblyVersion
+                ?? selectedDependencyVersion,
+            methodResult,
+            moduleVersionId: terminalMvid);
         AssemblyReferenceIdentity terminalIdentity =
             ReadIdentity(terminal);
         byte[] facade = BuildAssembly(
@@ -631,12 +755,12 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             methodResult: null,
             terminalIdentity);
         string dependencies =
-            $"<dependency id=\"{terminalName}\" version=\"{version}\" />";
+            $"<dependency id=\"{terminalName}\" version=\"{selectedDependencyVersion}\" />";
         if (writeTerminalPackage)
         {
             WritePackage(
                 terminalName,
-                version,
+                selectedDependencyVersion,
                 terminal,
                 dependencies: null,
                 targetFramework);
@@ -814,7 +938,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         string version,
         int? methodResult,
         AssemblyReferenceIdentity? forwardsTo = null,
-        bool nested = false)
+        bool nested = false,
+        Guid? moduleVersionId = null)
     {
         var metadata = new MetadataBuilder();
         var bodyStream = new BlobBuilder();
@@ -828,11 +953,13 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             Math.Max(
                 0,
                 packageVersion.Revision));
-        Guid mvid = new(
-            parsedVersion.Major,
-            (short)parsedVersion.Minor,
-            (short)parsedVersion.Build,
-            [0, 0, 0, 0, 0, 0, 0, 1]);
+        Guid mvid =
+            moduleVersionId
+            ?? new Guid(
+                parsedVersion.Major,
+                (short)parsedVersion.Minor,
+                (short)parsedVersion.Build,
+                [0, 0, 0, 0, 0, 0, 0, 1]);
         metadata.AddModule(
             0,
             metadata.GetOrAddString(name + ".dll"),
@@ -911,7 +1038,7 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
         }
-        else
+        else if (forwardsTo is not null)
         {
             AssemblyReferenceHandle target =
                 metadata.AddAssemblyReference(

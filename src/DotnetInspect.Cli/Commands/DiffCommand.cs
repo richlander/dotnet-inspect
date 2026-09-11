@@ -414,16 +414,33 @@ public class DiffCommand
 
                 if (SelectsAnalysisDiff(options))
                 {
-                    var analysis = BuildAnalysisDiff(
-                        queryResults.Get(BodySignalComparisonQuery.Definition),
-                        options);
-                    var view = DiffOutputFormatter.BuildAnalysisDiffView(
-                        inputs.Name,
-                        analysis.Rows,
-                        analysis.Summary,
-                        inputs.FromVersion,
-                        inputs.ToVersion,
-                        decorateMember: !options.Jsonl);
+                    bool analysisIncomplete =
+                        workspaceAnalysisFailure is not null;
+                    AnalysisDiffView view;
+                    if (workspaceAnalysisFailure is not null)
+                    {
+                        view =
+                            DiffOutputFormatter.BuildAnalysisDiffFailureView(
+                                inputs.Name,
+                                inputs.FromVersion,
+                                inputs.ToVersion,
+                                workspaceAnalysisFailure);
+                    }
+                    else
+                    {
+                        var analysis = BuildAnalysisDiff(
+                            workspaceAnalysis
+                                ?? queryResults.Get(
+                                    BodySignalComparisonQuery.Definition),
+                            options);
+                        view = DiffOutputFormatter.BuildAnalysisDiffView(
+                            inputs.Name,
+                            analysis.Rows,
+                            analysis.Summary,
+                            inputs.FromVersion,
+                            inputs.ToVersion,
+                            decorateMember: !options.Jsonl);
+                    }
                     if (options.Tabular)
                     {
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
@@ -461,7 +478,10 @@ public class DiffCommand
                         WriteIncompleteComparisonDiagnostic(
                             inspectionFailures);
                     }
-                    return inspectionFailures.Count > 0 ? 1 : 0;
+                    return inspectionFailures.Count > 0
+                        || analysisIncomplete
+                            ? 1
+                            : 0;
                 }
 
                 var diff = BuildApiDiff(

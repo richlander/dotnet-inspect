@@ -490,7 +490,11 @@ same-named dependency minimum, the host acquires that exact package coordinate
 through the existing configured-authority composition and selects its matching
 package asset. This is target-specific realization of an already observed
 forwarding edge, not generalized package-role inference: an absent, ambiguous,
-or differently named dependency is not searched or guessed.
+or differently named dependency is not searched or guessed. The declared
+coordinate remains authoritative when ordinary resolution has already found a
+same-identity terminal through a sibling or cache: the host replays the
+observed forwarding reference through a closed policy exposing only the exact
+acquired asset.
 
 The host then retains only the observed root-to-terminal occurrences and
 replays them through an acquisition-free closed-world policy. The query owns
@@ -510,12 +514,16 @@ member. When a composed Changes or Analysis Diff section cannot apply its
 legacy member selection to a forwarded facade, the CLI renders that peer
 section as incomplete while preserving the workspace section and returns
 nonzero. This isolates peer failure without migrating either peer section to
-workspace execution.
+workspace execution. Allocation-focused output consumes that separately
+computed Analysis result rather than requesting the legacy comparison that the
+adopted plan removed.
 
 The Release `WorkspaceImplementationComparisonRunnerTests` gate covers
 forwarded and direct local-package targets, exact terminal versions and MVIDs,
 native forwarder rows, C#/IL evidence, configured local-authority acquisition,
-and typed missing-terminal failure.
+typed missing-terminal failure, a pre-resolved same-identity terminal that must
+not override the declared package coordinate, and allocation-focused
+single-section rendering without a removed-query lookup.
 `SectionPipelineTests.DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges`
 proves that the adopted plan omits the legacy comparison query. The Queries
 owner's Release `WorkspaceImplementationComparisonQueryTests` gate enforces
