@@ -96,7 +96,7 @@ internal static class RenderAbSensor
         }
     }
 
-    static Dictionary<string, RenderedMethod> CollectRenders(
+    internal static Dictionary<string, RenderedMethod> CollectRenders(
         IReadOnlyList<string> assemblies,
         int methodCap,
         int? workers,
@@ -128,22 +128,28 @@ internal static class RenderAbSensor
                     // single run leaves raw — found via slice F1 scoping).
                     var projection = RenderProjection(source, function);
                     var rendered = projection.Output;
-                    if (rendered is not null)
-                    {
-                        string signature = CorpusMethodIdentity.SignatureText(function.Signature);
-                        string key = $"{portablePath}!{typeName}::{methodName}{signature}";
-                        renders.TryAdd(key, new RenderedMethod(
-                            typeName,
-                            methodName,
-                            signature,
-                            assemblyPath,
-                            portablePath,
-                            rendered.Trim(),
-                            ValidityCheck.MethodShellContext.Create(
-                                function,
-                                projection.RequiresUnsafeBodyModifier),
-                            PrecomputedSemanticContext: null));
-                    }
+                    string? unavailableReason = projection.Diagnostics
+                        .Where(diagnostic => diagnostic.Id
+                            == DiagnosticIds.MemorySafetyModeUnavailable)
+                        .Select(diagnostic => diagnostic.Message)
+                        .FirstOrDefault();
+                    if (rendered is null && unavailableReason is null)
+                        return;
+
+                    string signature = CorpusMethodIdentity.SignatureText(function.Signature);
+                    string key = $"{portablePath}!{typeName}::{methodName}{signature}";
+                    renders.TryAdd(key, new RenderedMethod(
+                        typeName,
+                        methodName,
+                        signature,
+                        assemblyPath,
+                        portablePath,
+                        rendered?.Trim() ?? "",
+                        ValidityCheck.MethodShellContext.Create(
+                            function,
+                            projection.RequiresUnsafeBodyModifier),
+                        PrecomputedSemanticContext: null,
+                        unavailableReason));
                 }
                 catch
                 {
@@ -172,7 +178,8 @@ internal static class RenderAbSensor
                 kv => kv.Key,
                 kv => new BaselineMethod(
                     kv.Value.Body,
-                    kv.Value.ShellContext),
+                    kv.Value.ShellContext,
+                    kv.Value.CompileBackUnavailableReason),
                 StringComparer.Ordinal));
 
     internal static int Compare(
@@ -181,6 +188,7 @@ internal static class RenderAbSensor
         int maxExamples)
     {
         int total = 0, changed = 0, added = 0, removed = 0;
+        int compileBackUnavailable = 0;
         var byClass = new Dictionary<DiffClass, int> { [DiffClass.Structural] = 0, [DiffClass.ParenEquivalent] = 0, [DiffClass.Unparsed] = 0 };
         var bySemantic = new Dictionary<SemanticTransition, int>
         {
@@ -188,22 +196,49 @@ internal static class RenderAbSensor
             [SemanticTransition.InvalidToValid] = 0,
             [SemanticTransition.ValidToInvalid] = 0,
             [SemanticTransition.InvalidToInvalid] = 0,
+            [SemanticTransition.Unavailable] = 0,
         };
         var diffs = new List<(string Key, string Before, string After, DiffClass Class, SemanticTransition Semantic)>();
         var semanticRegressions = new List<(string Key, string Before, string After, ValidityCheck.RenderedBodyResult BeforeValidity, ValidityCheck.RenderedBodyResult AfterValidity)>();
         var references = ValidityCheck.RuntimeReferences();
         var compileOptions = ValidityCheck.CompileOptions();
         var semanticContexts = new Dictionary<string, SemanticContext?>(StringComparer.Ordinal);
-        var parseOptionsByAssembly = new Dictionary<string, CSharpParseOptions>(
+        var featureOptionsByAssembly =
+            new Dictionary<string, CompilerFeatureOptions.Resolution>(
             StringComparer.Ordinal);
 
         foreach (var kvp in current)
         {
             total++;
             var sample = kvp.Value;
+            if (sample.CompileBackUnavailableReason is not null)
+                compileBackUnavailable++;
             if (!baseline.TryGetValue(kvp.Key, out var before))
             {
                 added++;
+            }
+            else if (before.CompileBackUnavailableReason is not null
+                || sample.CompileBackUnavailableReason is not null)
+            {
+                if (sample.CompileBackUnavailableReason is null)
+                    compileBackUnavailable++;
+                if (before.Body != sample.Body
+                    || before.CompileBackUnavailableReason
+                        != sample.CompileBackUnavailableReason)
+                {
+                    changed++;
+                    byClass[DiffClass.Unparsed]++;
+                    bySemantic[SemanticTransition.Unavailable]++;
+                    if (diffs.Count < maxExamples * 10)
+                    {
+                        diffs.Add((
+                            kvp.Key,
+                            before.Body,
+                            sample.Body,
+                            DiffClass.Unparsed,
+                            SemanticTransition.Unavailable));
+                    }
+                }
             }
             else if (before.Body != sample.Body)
             {
@@ -215,27 +250,28 @@ internal static class RenderAbSensor
                     context = sample.PrecomputedSemanticContext ?? BuildSemanticContext(sample);
                     semanticContexts[kvp.Key] = context;
                 }
-                if (!parseOptionsByAssembly.TryGetValue(
+                if (!featureOptionsByAssembly.TryGetValue(
                     sample.AssemblyPath,
-                    out var parseOptions))
+                    out var featureOptions))
                 {
-                    parseOptions =
-                        CompilerFeatureOptions.ParseOptions(sample.AssemblyPath);
-                    parseOptionsByAssembly[sample.AssemblyPath] = parseOptions;
+                    featureOptions =
+                        CompilerFeatureOptions.Resolve(sample.AssemblyPath);
+                    featureOptionsByAssembly[sample.AssemblyPath] =
+                        featureOptions;
                 }
                 var beforeValidity = CheckSemantic(
                     context,
                     before.ShellContext,
                     before.Body,
                     references,
-                    parseOptions,
+                    featureOptions,
                     compileOptions);
                 var afterValidity = CheckSemantic(
                     context,
                     sample.ShellContext,
                     sample.Body,
                     references,
-                    parseOptions,
+                    featureOptions,
                     compileOptions);
                 var transition = SemanticTransitionOf(beforeValidity, afterValidity);
                 bySemantic[transition]++;
@@ -249,7 +285,11 @@ internal static class RenderAbSensor
         foreach (var key in baseline.Keys)
         {
             if (!current.ContainsKey(key))
+            {
                 removed++;
+                if (baseline[key].CompileBackUnavailableReason is not null)
+                    compileBackUnavailable++;
+            }
         }
 
         Console.WriteLine($"Render A/B Check: {total} methods evaluated");
@@ -263,10 +303,13 @@ internal static class RenderAbSensor
                 + $"valid->valid: {bySemantic[SemanticTransition.ValidToValid]}, "
                 + $"invalid->valid: {bySemantic[SemanticTransition.InvalidToValid]}, "
                 + $"valid->invalid: {bySemantic[SemanticTransition.ValidToInvalid]}, "
-                + $"invalid->invalid: {bySemantic[SemanticTransition.InvalidToInvalid]}");
+                + $"invalid->invalid: {bySemantic[SemanticTransition.InvalidToInvalid]}, "
+                + $"unavailable: {bySemantic[SemanticTransition.Unavailable]}");
         }
         Console.WriteLine($"Added:   {added}");
         Console.WriteLine($"Removed: {removed}");
+        Console.WriteLine(
+            $"Compile-back unavailable: {compileBackUnavailable}");
 
         if (changed == 0)
         {
@@ -319,7 +362,14 @@ internal static class RenderAbSensor
     /// </summary>
     enum DiffClass { Structural, Unparsed, ParenEquivalent }
 
-    enum SemanticTransition { ValidToValid, InvalidToValid, ValidToInvalid, InvalidToInvalid }
+    enum SemanticTransition
+    {
+        ValidToValid,
+        InvalidToValid,
+        ValidToInvalid,
+        InvalidToInvalid,
+        Unavailable,
+    }
 
     static string DiffClassLabel(DiffClass diffClass) => diffClass switch
     {
@@ -333,11 +383,14 @@ internal static class RenderAbSensor
         SemanticTransition.ValidToValid => "semantic valid->valid",
         SemanticTransition.InvalidToValid => "semantic invalid->valid",
         SemanticTransition.ValidToInvalid => "semantic valid->invalid",
-        _ => "semantic invalid->invalid",
+        SemanticTransition.InvalidToInvalid => "semantic invalid->invalid",
+        _ => "semantic unavailable",
     };
 
     static SemanticTransition SemanticTransitionOf(ValidityCheck.RenderedBodyResult before, ValidityCheck.RenderedBodyResult after)
-        => (before.IsValid, after.IsValid) switch
+        => before.CompileBackUnavailable || after.CompileBackUnavailable
+            ? SemanticTransition.Unavailable
+            : (before.IsValid, after.IsValid) switch
         {
             (true, true) => SemanticTransition.ValidToValid,
             (false, true) => SemanticTransition.InvalidToValid,
@@ -350,9 +403,18 @@ internal static class RenderAbSensor
         ValidityCheck.MethodShellContext shellContext,
         string body,
         ImmutableArray<MetadataReference> references,
-        CSharpParseOptions parseOptions,
+        CompilerFeatureOptions.Resolution featureOptions,
         CSharpCompilationOptions compileOptions)
     {
+        if (featureOptions is CompilerFeatureOptions.Resolution.Unavailable unavailable)
+        {
+            return new ValidityCheck.RenderedBodyResult(
+                [],
+                SemanticChecked: false,
+                [],
+                unavailable.Reason);
+        }
+
         if (context is null)
         {
             return new ValidityCheck.RenderedBodyResult(
@@ -373,7 +435,8 @@ internal static class RenderAbSensor
             shellContext,
             context.ProductParameterList,
             references,
-            parseOptions,
+            ((CompilerFeatureOptions.Resolution.Available)featureOptions)
+                .Options,
             compileOptions,
             bindSemantics);
     }
@@ -462,7 +525,8 @@ internal static class RenderAbSensor
         string PortablePath,
         string Body,
         ValidityCheck.MethodShellContext ShellContext,
-        SemanticContext? PrecomputedSemanticContext = null)
+        SemanticContext? PrecomputedSemanticContext = null,
+        string? CompileBackUnavailableReason = null)
     {
         public string Key => $"{PortablePath}!{TypeName}::{MethodName}{Signature}";
     }
@@ -480,5 +544,6 @@ internal static class RenderAbSensor
 
     internal sealed record BaselineMethod(
         string Body,
-        ValidityCheck.MethodShellContext ShellContext);
+        ValidityCheck.MethodShellContext ShellContext,
+        string? CompileBackUnavailableReason = null);
 }

@@ -112,6 +112,9 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         List<DecompilerDecision> appliedLenses;
         try
         {
@@ -226,6 +229,9 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null)
     {
         printedRanges = PrintedRangeMap.Empty;
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         List<DecompilerDecision> appliedLenses;
         try
         {
@@ -268,6 +274,9 @@ public sealed partial class CSharpPrinter
     /// <summary>As <see cref="PrintLowered(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam for non-cosmetic lowered passes such as lambda, local-function, and iterator reconstruction.</summary>
     public static DecompilerResult PrintLowered(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody)
     {
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
@@ -301,6 +310,9 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null)
     {
         printedRanges = PrintedRangeMap.Empty;
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
@@ -346,6 +358,9 @@ public sealed partial class CSharpPrinter
 
     public static DecompilerResult Print(IrFunction function, PrinterOptions? options = null)
     {
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             var printer = new CSharpPrinter(function, options);
@@ -362,6 +377,9 @@ public sealed partial class CSharpPrinter
         IrFunction function, out PrintedRangeMap printedRanges, PrinterOptions? options = null)
     {
         printedRanges = PrintedRangeMap.Empty;
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             var sink = new PrintedRangeMap();
@@ -380,6 +398,37 @@ public sealed partial class CSharpPrinter
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
     }
+
+    internal static DecompilerResult? MemorySafetyModeUnavailableResult(
+        IrFunction function)
+    {
+        if (MemorySafetyModeUnavailableResult(function.MemorySafetyMode)
+            is not { } unavailable)
+        {
+            return null;
+        }
+
+        return function.Diagnostics.Count == 0
+            ? unavailable
+            : unavailable with
+            {
+                Diagnostics =
+                [
+                    .. function.Diagnostics,
+                    .. unavailable.Diagnostics,
+                ],
+            };
+    }
+
+    internal static DecompilerResult? MemorySafetyModeUnavailableResult(
+        MemorySafetyModeDecision decision)
+        => decision
+            is MemorySafetyModeDecision.Unavailable unavailable
+                ? DecompilerResult.Failure(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    MemorySafetyModeDecision.DescribeUnavailable(
+                        unavailable.Rules))
+                : null;
 
     DecompilerResult Result(string output, IrFunction function)
         => new(output, function.Fidelity, [.. function.Diagnostics])

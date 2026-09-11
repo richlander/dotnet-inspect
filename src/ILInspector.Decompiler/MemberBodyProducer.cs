@@ -267,7 +267,9 @@ public static class MemberBodyProducer
                 ctx),
             context,
             printerOptions);
-        return composed.Error is { } error
+        return composed.Failure is { } failure
+            ? failure
+            : composed.Error is { } error
             ? DecompilerResult.Success(
                 $"// {DiagnosticIds.InternalError}: type source unavailable: {error.GetType().Name}: {error.Message}")
             : composed.Text is null
@@ -343,7 +345,9 @@ public static class MemberBodyProducer
                 ctx),
             context,
             printerOptions);
-        return composed.Error is { } error
+        return composed.Failure is { } failure
+            ? failure
+            : composed.Error is { } error
             ? DecompilerResult.Failure(
                 DiagnosticIds.InternalError,
                 $"Type source unavailable: {error.GetType().Name}: {error.Message}")
@@ -642,7 +646,8 @@ public static class MemberBodyProducer
 
     sealed record TypeCompositionResult(
         string? Text,
-        Exception? Error = null);
+        Exception? Error = null,
+        DecompilerResult? Failure = null);
 
     static TypeCompositionResult ComposeCore(
         ApiType type,
@@ -740,6 +745,13 @@ public static class MemberBodyProducer
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            if (ex is DecompilerProjectionException projection)
+            {
+                return new TypeCompositionResult(
+                    Text: null,
+                    Failure: projection.Result);
+            }
+
             // Degrade honestly: the section renders the reason instead of
             // silently disappearing.
             return new TypeCompositionResult(Text: null, ex);
@@ -940,10 +952,15 @@ public static class MemberBodyProducer
     }
 
     static MemberRenderResult FailedMemberRender(Exception ex)
-        => new(
-            MemberBodyProductionStatus.Failed,
-            $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
-            []);
+        => ex is DecompilerProjectionException projection
+            ? new(
+                MemberBodyProductionStatus.Failed,
+                DiagnosticComment(projection.Result),
+                [])
+            : new(
+                MemberBodyProductionStatus.Failed,
+                $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
+                []);
 
     sealed record UnionDeclarationInfo(
         IReadOnlyList<string> CaseTypes,
@@ -2608,6 +2625,12 @@ public static class MemberBodyProducer
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions,
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
+        if (!result.Succeeded
+            && result.Diagnostics.Any(static diagnostic =>
+                diagnostic.Id == DiagnosticIds.MemorySafetyModeUnavailable))
+        {
+            throw new DecompilerProjectionException(result);
+        }
         if (failOnDiagnostic
             && (!result.Succeeded
             || result.Diagnostics.Any(static diagnostic =>
@@ -2667,6 +2690,12 @@ public static class MemberBodyProducer
 
     static string DiagnosticComment(DecompilerResult result)
         => string.Join("\n", result.Diagnostics.Select(d => $"// {d}"));
+
+    sealed class DecompilerProjectionException(DecompilerResult result)
+        : Exception(DiagnosticComment(result))
+    {
+        public DecompilerResult Result { get; } = result;
+    }
 
     /// <summary>
     /// Shortens qualified type names against the assembly's own metadata

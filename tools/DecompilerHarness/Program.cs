@@ -758,19 +758,19 @@ static class Program
                 return code;
 
             if (facts)
-                return DumpFacts(assemblies, dumpMethod, dumpIndex, skipPdb);
+                return DumpFacts(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             if (cfg)
-                return DumpCfg(assemblies, dumpMethod, dumpIndex, cfgStage, mermaid, skipPdb);
+                return DumpCfg(assemblies, dumpMethod, dumpIndex, cfgStage, mermaid, skipPdb, simulate);
             if (diff)
-                return DumpDiff(assemblies, dumpMethod, dumpIndex, skipPdb);
+                return DumpDiff(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             if (remarks)
-                return DumpRemarks(assemblies, dumpMethod, dumpIndex, skipPdb);
+                return DumpRemarks(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             if (lowered)
                 return DumpLowered(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             if (assertions)
-                return DumpAssertions(assemblies, dumpMethod, dumpIndex, skipPdb);
+                return DumpAssertions(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             return steps
-                ? DumpSteps(assemblies, dumpMethod, dumpIndex, stepLimit, skipPdb)
+                ? DumpSteps(assemblies, dumpMethod, dumpIndex, stepLimit, skipPdb, simulate)
                 : Dump(assemblies, dumpMethod, dumpIndex, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb, simulate);
         }
 
@@ -1496,7 +1496,12 @@ static class Program
     /// headers (issue #633 item 3). Same stages and boundaries as the plain
     /// stage dump — only the rendering condenses to deltas.
     /// </summary>
-    static int DumpDiff(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
+    static int DumpDiff(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1508,9 +1513,18 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "next, per-pass diff"))
+            {
+                return 0;
+            }
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, per-pass diff)");
             Console.Write(StageDump.FormatDiff(
@@ -1522,7 +1536,13 @@ static class Program
     /// step limit, replays to that ordinal and dumps the IR tree right before
     /// the rewrite — "show me the tree just before this went wrong."
     /// </summary>
-    static int DumpSteps(List<string> assemblies, string dumpMethod, int overloadIndex, int stepLimit, bool skipPdb = false)
+    static int DumpSteps(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        int stepLimit,
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1534,11 +1554,21 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
 
             string where = stepLimit == int.MaxValue ? "all steps" : $"replay to step {stepLimit}";
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                $"next, {where}"))
+            {
+                return 0;
+            }
+
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {where})");
             var stepper = IrPasses.RunWithSteps(
                 function, stepLimit, ImportSeam(source), source.AreProvablyDisjoint);
@@ -1569,7 +1599,12 @@ static class Program
     /// <summary>
     /// Stage dump with the inverse-architecture assertions evaluated and annotated.
     /// </summary>
-    static int DumpAssertions(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
+    static int DumpAssertions(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1581,9 +1616,18 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "next, assertions"))
+            {
+                return 0;
+            }
 
             var dischargePassByStageIdentity = new Dictionary<string, string>(StringComparer.Ordinal);
             if (IrImporter.Import(source, typeName, methodName, overloadIndex) is { } functionForHints)
@@ -1618,7 +1662,12 @@ static class Program
     /// decision, not a re-derivation (issue #633 item 1). The function is raised
     /// through the canonical pipeline first so the facts match the output.
     /// </summary>
-    static int DumpFacts(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
+    static int DumpFacts(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1630,9 +1679,18 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "next, definite-assignment facts"))
+            {
+                return 0;
+            }
 
             IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
             var facts = CSharpPrinter.CollectDataflowFacts(function);
@@ -1680,7 +1738,12 @@ static class Program
     /// exactly the nodes that lower the score. The function is raised through the
     /// canonical pipeline first so the remarks match the shipped output.
     /// </summary>
-    static int DumpRemarks(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
+    static int DumpRemarks(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1692,9 +1755,18 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "next, fidelity remarks"))
+            {
+                return 0;
+            }
 
             IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
             var census = FidelityCauseBuckets.Inspect(function, dumpMethod);
@@ -1759,6 +1831,14 @@ static class Program
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "lowered, unavailable"))
+            {
+                return 0;
+            }
 
             IrPasses.Run(function, IrPasses.Lowered, PassContext.ForImport(ImportSeam(source)));  // lower, but stop short of the cosmetic sugar
             var facts = CSharpPrinter.CollectDataflowFacts(function);
@@ -1779,6 +1859,28 @@ static class Program
         return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
     }
 
+    static bool ReportUnavailableMemorySafetyMode(
+        IrFunction function,
+        string dumpMethod,
+        string assemblyPath,
+        string pipeline)
+    {
+        if (CSharpPrinter.MemorySafetyModeUnavailableResult(function)
+            is not { } unavailable)
+        {
+            return false;
+        }
+
+        Console.WriteLine(
+            $"// {dumpMethod} in {Path.GetFileName(assemblyPath)} "
+            + $"(pipeline: {pipeline})");
+        Console.WriteLine(string.Join(
+            "\n",
+            unavailable.Diagnostics.Select(
+                diagnostic => $"// {diagnostic}")));
+        return true;
+    }
+
     /// <summary>
     /// Renders either the EH-aware IL block graph or each block container in the
     /// raised IR. Each stage consumes the product-owned edges used by its own
@@ -1790,7 +1892,8 @@ static class Program
         int overloadIndex,
         CfgDumpStage stage,
         bool mermaid = false,
-        bool skipPdb = false)
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1802,6 +1905,7 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             if (IrImporter.ResolveMethodHandle(
                 source.Reader,
                 typeName,
@@ -1840,6 +1944,14 @@ static class Program
             var function = IrImporter.Import(source, methodHandle);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "next, control-flow graph"))
+            {
+                return 0;
+            }
             IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
 
             WriteCfgHeader(assemblyPath, dumpMethod, "next", mermaid);
