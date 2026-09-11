@@ -22,7 +22,7 @@ public sealed partial class DesktopPackageSourceComposition
         IPackagePayloadTransferPolicy? transferPolicy = null,
         string? requiredProducerKey = null) =>
         PackageSourceSettlementCompatibility.RunAsync(
-            _sourceAuthorization, cancellationToken, operationContext,
+            _sourceLease, cancellationToken, operationContext,
             (generation, operation) => AcquirePinnedCoreAsync(
                 generation, packageId, version, createStore, sourceOptions, log,
                 operation, limits, transferPolicy, requiredProducerKey),

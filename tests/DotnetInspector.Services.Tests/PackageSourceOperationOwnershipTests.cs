@@ -12,17 +12,15 @@ public sealed class PackageSourceOperationOwnershipTests
         PackageSourceCoordinate.Create("contoso.json", "1.0.0");
 
     [Fact]
-    public async Task PackageSourceSettlementLeaseRetirementRevokesAuthorizationButAllowsIssuedOperation()
+    public async Task PackageSourceSettlementLeaseRetirementRejectsNewButAllowsIssuedOperation()
     {
         await using var fixture = new SourceFixture();
-        PackageSourceSettlementAuthorization authorization = fixture.Root.CreateAuthorization();
-        using PackageSourceOperationLease operation = Issue(authorization);
+        using PackageSourceOperationLease operation = Issue(fixture.Root);
         PackageAcquisitionCandidate before = Candidate(operation, fixture.Authorization);
         Task settlement = fixture.Root.DisposeAsync().AsTask();
 
         Assert.False(settlement.IsCompleted);
-        Assert.Throws<ObjectDisposedException>(() => fixture.Root.CreateAuthorization());
-        Assert.Throws<ObjectDisposedException>(() => Issue(authorization));
+        Assert.Throws<ObjectDisposedException>(() => Issue(fixture.Root));
         Assert.Throws<ObjectDisposedException>(() =>
             fixture.Root.ResolvePinnedCandidate(fixture.Authorization, Coordinate));
         PackageAcquisitionCandidate after = Candidate(operation, fixture.Authorization);
@@ -45,14 +43,13 @@ public sealed class PackageSourceOperationOwnershipTests
         for (int attempt = 0; attempt < 64; attempt++)
         {
             await using var fixture = new SourceFixture();
-            PackageSourceSettlementAuthorization authorization = fixture.Root.CreateAuthorization();
             var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Task<PackageSourceOperationLease?> issuing = Task.Run(async () =>
             {
                 await start.Task;
                 try
                 {
-                    return Issue(authorization);
+                    return Issue(fixture.Root);
                 }
                 catch (ObjectDisposedException)
                 {
@@ -74,13 +71,13 @@ public sealed class PackageSourceOperationOwnershipTests
                 operation.Dispose();
             }
             await settlement.WaitAsync(TestContext.Current.CancellationToken);
-            Assert.Throws<ObjectDisposedException>(() => Issue(authorization));
+            Assert.Throws<ObjectDisposedException>(() => Issue(fixture.Root));
         }
 
         await using var invalid = new SourceFixture();
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            PackageSourceSettlementService.IssueOperationLease(
-                invalid.Root.CreateAuthorization(), TestContext.Current.CancellationToken,
+            invalid.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
                 requestTimeout: TimeSpan.Zero));
         Assert.True(invalid.Root.DisposeAsync().IsCompletedSuccessfully);
     }
@@ -89,8 +86,8 @@ public sealed class PackageSourceOperationOwnershipTests
     public async Task PackageSourceSettlementLeaseSettlementWaitsForIssuedOperations()
     {
         await using var fixture = new SourceFixture();
-        using PackageSourceOperationLease first = Issue(fixture.Root.CreateAuthorization());
-        using PackageSourceOperationLease second = Issue(fixture.Root.CreateAuthorization());
+        using PackageSourceOperationLease first = Issue(fixture.Root);
+        using PackageSourceOperationLease second = Issue(fixture.Root);
         Task settlement = fixture.Root.DisposeAsync().AsTask();
         Assert.False(settlement.IsCompleted);
         first.Dispose();
@@ -107,7 +104,7 @@ public sealed class PackageSourceOperationOwnershipTests
         var fixture = new SourceFixture();
         await using (fixture)
         {
-            using PackageSourceOperationLease operation = Issue(fixture.Root.CreateAuthorization());
+            using PackageSourceOperationLease operation = Issue(fixture.Root);
             await operation.AcquireCandidateManifestAsync(Candidate(operation, fixture.Authorization));
             operation.Dispose();
             await fixture.Root.DisposeAsync();
@@ -129,8 +126,8 @@ public sealed class PackageSourceOperationOwnershipTests
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
             TestContext.Current.CancellationToken);
         using PackageSourceOperationLease operation =
-            PackageSourceSettlementService.IssueOperationLease(
-                fixture.Root.CreateAuthorization(), cancellation.Token,
+            fixture.Root.IssueOperationLease(
+                cancellation.Token,
                 TimeSpan.FromSeconds(7), TimeSpan.FromSeconds(31));
         PackageAcquisitionCandidateResult pinned = await operation.ResolvePinnedCandidateAsync(
             new FixedAuthorization(fixture.Authorization), Coordinate);
@@ -169,8 +166,8 @@ public sealed class PackageSourceOperationOwnershipTests
         await using var fixture = new SourceFixture();
         await using PackageSourceSettlementLease otherRoot =
             PackageSourceSettlementService.IssueLease(_ => fixture.OwnedClient);
-        using PackageSourceOperationLease operation = Issue(fixture.Root.CreateAuthorization());
-        using PackageSourceOperationLease other = Issue(otherRoot.CreateAuthorization());
+        using PackageSourceOperationLease operation = Issue(fixture.Root);
+        using PackageSourceOperationLease other = Issue(otherRoot);
         PackageAcquisitionCandidate foreign = Candidate(other, fixture.Authorization);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             operation.AcquireCandidateManifestAsync(foreign));
@@ -180,12 +177,12 @@ public sealed class PackageSourceOperationOwnershipTests
             Coordinate.PackageId, fixture.Authorization);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             operation.AcquireCandidateManifestAsync(discovery.SelectCandidate(Coordinate.Version)));
-        using PackageSourceOperationLease sameGeneration = Issue(fixture.Root.CreateAuthorization());
+        using PackageSourceOperationLease sameGeneration = Issue(fixture.Root);
         await sameGeneration.AcquireCandidateManifestAsync(Candidate(operation, fixture.Authorization));
     }
 
     [Fact]
-    public void PackageSourceOperationAsyncStateOwnsChildInsteadOfLeaseBorrow()
+    public void PackageSourceOperationAsyncStateOwnsAuthorityWithoutBorrowEscape()
     {
         Type root = typeof(PackageSourceSettlementLease);
         Type operation = typeof(PackageSourceOperationLease);
@@ -195,9 +192,14 @@ public sealed class PackageSourceOperationOwnershipTests
         Assert.False(typeof(IDisposable).IsAssignableFrom(root));
         Assert.True(typeof(IDisposable).IsAssignableFrom(operation));
         Assert.False(typeof(IAsyncDisposable).IsAssignableFrom(operation));
-        Assert.Null(typeof(PackageSourceSettlementAuthorization)
-            .GetCustomAttribute<ResourceOwnershipAttribute>());
-        Assert.Empty(typeof(PackageSourceSettlementAuthorization).GetConstructors());
+
+        Type[] resourceTypes = operation.Assembly.GetTypes()
+            .Where(type =>
+                type.Name.StartsWith("PackageSource", StringComparison.Ordinal) &&
+                type.GetCustomAttribute<ResourceOwnershipAttribute>() is not null)
+            .OrderBy(type => type.FullName, StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal([operation, root], resourceTypes);
 
         MethodInfo[] wrappers = operation.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Where(method => method.Name.EndsWith("Async", StringComparison.Ordinal)).ToArray();
@@ -208,12 +210,6 @@ public sealed class PackageSourceOperationOwnershipTests
             Assert.DoesNotContain(method.GetParameters(),
                 parameter => parameter.ParameterType == typeof(NuGetOperationContext));
         });
-        Type child = Assert.Single(operation.GetNestedTypes(BindingFlags.NonPublic),
-            type => type.GetCustomAttribute<ResourceOwnershipAttribute>() is not null);
-        Assert.True(child.IsNestedPrivate);
-        Assert.True(typeof(IDisposable).IsAssignableFrom(child));
-        Assert.Contains(child.GetFields(BindingFlags.NonPublic | BindingFlags.Instance),
-            field => field.FieldType == operation);
         AsyncStateMachineAttribute[] machines = operation
             .GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
             .Select(method => method.GetCustomAttribute<AsyncStateMachineAttribute>())
@@ -223,17 +219,16 @@ public sealed class PackageSourceOperationOwnershipTests
         {
             FieldInfo[] fields = machine.StateMachineType.GetFields(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            Assert.Contains(fields, field => field.FieldType == child);
             Assert.DoesNotContain(fields,
                 field => field.FieldType == operation || field.FieldType == root);
         });
     }
 
     [Fact]
-    public async Task PackageSourceOperationLeaseRejectsReleaseWhileChildIsActive()
+    public async Task PackageSourceOperationLeaseRejectsReleaseWhileAsyncWorkIsActive()
     {
         await using var fixture = new SourceFixture();
-        using PackageSourceOperationLease operation = Issue(fixture.Root.CreateAuthorization());
+        using PackageSourceOperationLease operation = Issue(fixture.Root);
         var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         fixture.Client.BeforeStep = _ => finish.Task;
         PackageAcquisitionCandidate candidate = Candidate(operation, fixture.Authorization);
@@ -267,14 +262,13 @@ public sealed class PackageSourceOperationOwnershipTests
     [InlineData("manifest")]
     [InlineData("versions")]
     [InlineData("payload")]
-    public async Task PackageSourceOperationLeaseCancellationSettlesChildBeforeRelease(string step)
+    public async Task PackageSourceOperationLeaseCancellationSettlesWorkBeforeRelease(string step)
     {
         await using var fixture = new SourceFixture();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
             TestContext.Current.CancellationToken);
         using PackageSourceOperationLease operation =
-            PackageSourceSettlementService.IssueOperationLease(
-                fixture.Root.CreateAuthorization(), cancellation.Token);
+            fixture.Root.IssueOperationLease(cancellation.Token);
         fixture.Client.BeforeStep = token => Task.Delay(Timeout.InfiniteTimeSpan, token);
         Task pending = StartStep(operation, fixture.Authorization, step);
         cancellation.Cancel();
@@ -289,10 +283,10 @@ public sealed class PackageSourceOperationOwnershipTests
     [InlineData("manifest")]
     [InlineData("versions")]
     [InlineData("payload")]
-    public async Task PackageSourceOperationLeaseFailureSettlesChildBeforeRelease(string step)
+    public async Task PackageSourceOperationLeaseFailureSettlesWorkBeforeRelease(string step)
     {
         await using var fixture = new SourceFixture();
-        using PackageSourceOperationLease operation = Issue(fixture.Root.CreateAuthorization());
+        using PackageSourceOperationLease operation = Issue(fixture.Root);
         var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         fixture.Client.BeforeStep = _ => finish.Task;
         var expected = new InvalidDataException("Source failed after suspension.");
@@ -311,9 +305,8 @@ public sealed class PackageSourceOperationOwnershipTests
     }
 
     private static PackageSourceOperationLease Issue(
-        PackageSourceSettlementAuthorization authorization) =>
-        PackageSourceSettlementService.IssueOperationLease(
-            authorization, TestContext.Current.CancellationToken);
+        PackageSourceSettlementLease root) =>
+        root.IssueOperationLease(TestContext.Current.CancellationToken);
 
     private static PackageAcquisitionCandidate Candidate(
         PackageSourceOperationLease operation, PackageSourceAuthorization authorization) =>

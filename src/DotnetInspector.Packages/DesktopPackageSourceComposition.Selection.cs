@@ -24,7 +24,7 @@ public sealed partial class DesktopPackageSourceComposition
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null) =>
         PackageSourceSettlementCompatibility.RunAsync(
-            _sourceAuthorization, cancellationToken, operationContext,
+            _sourceLease, cancellationToken, operationContext,
             (generation, operation) => AcquireSelectedCoreAsync(
                 generation, packageId, versionSelector, createStore, sourceOptions,
                 log, includePrerelease, rangeAddress, operation, limits, transferPolicy),
@@ -149,7 +149,7 @@ public sealed partial class DesktopPackageSourceComposition
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null) =>
         PackageSourceSettlementCompatibility.RunAsync(
-            _sourceAuthorization, operation.CancellationToken, operation,
+            _sourceLease, operation.CancellationToken, operation,
             (generation, context) => AcquireDiscoveredCoreAsync(
                 generation, discovery, coordinate, createStore, sourceOptions,
                 log, context, limits, transferPolicy));

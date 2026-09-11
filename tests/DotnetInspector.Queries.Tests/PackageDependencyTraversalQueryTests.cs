@@ -1475,7 +1475,7 @@ public sealed class PackageDependencyTraversalQueryTests
                         : successfulClient);
         var candidateSource = new AuthorizedPackageDependencyCandidateSource(
             authorization,
-            lease.CreateAuthorization());
+            lease);
         PackageDependencyTraversalOutcome explicitOutcome = await ExecuteAsync(
             [root],
             new PackageDependencyTraversalCandidateAdapter(candidateSource),
@@ -2174,7 +2174,7 @@ public sealed class PackageDependencyTraversalQueryTests
             var candidateSource =
                 new AuthorizedPackageDependencyCandidateSource(
                     authorization,
-                    Lease.CreateAuthorization());
+                    Lease);
             CandidateResolver = new PackageDependencyTraversalCandidateAdapter(
                 candidateSource);
             ManifestAcquirer = new AuthorizedPackageDependencyManifestSource(

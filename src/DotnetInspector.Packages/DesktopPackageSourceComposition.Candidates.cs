@@ -15,7 +15,7 @@ public sealed partial class DesktopPackageSourceComposition
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null) =>
         PackageSourceSettlementCompatibility.Run(
-            _sourceAuthorization,
+            _sourceLease,
             generation => ResolvePinnedCandidateCore(
                 generation, coordinate, sourceOptions, cancellationToken, operationContext));
 

@@ -82,20 +82,25 @@ being settled.
 
 The operation-ownership implementation tracked by
 [#6619](https://github.com/richlander/dotnet-inspect/issues/6619) separates the
-root lifetime from asynchronous use. Public root access is synchronous
-`CreateAuthorization`; public source steps belong to
-`PackageSourceOperationLease`. Both leases and the private work child carry
-`ResourceOwnership` metadata. The root implements only `IAsyncDisposable`.
+root lifetime from asynchronous use. A synchronous borrow of the root directly
+issues `PackageSourceOperationLease`. The root and operation lease are the
+only Package Source types carrying `ResourceOwnership` metadata. Active
+asynchronous work holds the required generation, context, and release effect
+without defining a third Package Source resource or retaining a root or
+operation-lease borrow across `await`. The root implements only
+`IAsyncDisposable`.
 
 PackageHouse retains its existing execution signature until
 [#6622](https://github.com/richlander/dotnet-inspect/issues/6622). Its internal
 compatibility bridge registers awaited work against the root generation and
 never disposes a caller-supplied `NuGetOperationContext`. This is not
-PackageHouse operation-lease ownership adoption. Desktop composition and direct
-source adapters retain revocable authorization rather than borrowing the root
-across `await`: calls without an external context own a fresh operation lease,
-while existing external-context calls use the internal registered-work bridge.
-Desktop release awaits root quiescence before releasing its clients.
+PackageHouse operation-lease ownership adoption. Existing direct source
+adapters likewise retain the root only through this scoped compatibility path
+until their owning consumers adopt transferred operation leases. Calls without
+an external context own a fresh operation lease, while existing
+external-context calls use the internal registered-work bridge. Desktop
+composition owns the root and awaits root quiescence before releasing its
+clients.
 
 These compatibility paths do not claim that ordinary class aliases are
 borrows under [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md).
@@ -109,8 +114,8 @@ caller-owned source clients that back it. A synchronous borrow of the live root
 issues one `PackageSourceOperationLease` directly. Host composition owns the
 root, issues an operation lease at each supported operation boundary, and
 transfers that lease to PackageHouse, package-backed Platform, or a direct
-Package Source consumer. Long-lived adapters do not retain the root or a
-delegate, wrapper, or authorization that captures its live settlement
+Package Source consumer. Adopted long-lived adapters do not retain the root or
+a delegate, wrapper, or authorization that captures its live settlement
 authority.
 
 No separate package-source operation-authorization type is required.

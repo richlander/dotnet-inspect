@@ -229,7 +229,6 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _authoritiesByAssociation =
             new(ReferenceEqualityComparer.Instance);
     private readonly PackageSourceSettlementLease _sourceLease;
-    private readonly PackageSourceSettlementAuthorization _sourceAuthorization;
     private readonly object _disposeGate = new();
     private Task? _disposal;
 
@@ -245,7 +244,6 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _ownedCredentialSource = provider;
         _createTransport = CreateProductionTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
-        _sourceAuthorization = _sourceLease.CreateAuthorization();
     }
 
     internal DesktopPackageSourceComposition(
@@ -259,7 +257,6 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = credentialSource;
         _createTransport = createTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
-        _sourceAuthorization = _sourceLease.CreateAuthorization();
     }
 
     internal NuGetOperationContext CreateOperationContext(CancellationToken cancellationToken = default) =>
@@ -280,7 +277,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         bool includeUnlisted = false,
         NuGetOperationContext? operationContext = null) =>
         PackageSourceSettlementCompatibility.RunAsync(
-            _sourceAuthorization, cancellationToken, operationContext,
+            _sourceLease, cancellationToken, operationContext,
             (generation, operation) => GetVersionsCoreAsync(
                 generation, packageId, includePrerelease, limit, sourceOptions,
                 log, operation, includeUnlisted),
@@ -644,7 +641,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             CancellationToken cancellationToken = default,
             NuGetOperationContext? operationContext = null) =>
         PackageSourceSettlementCompatibility.RunAsync(
-            _sourceAuthorization, cancellationToken, operationContext,
+            _sourceLease, cancellationToken, operationContext,
             (_, operation) => GetManifestCoreAsync(authority, coordinate, operation),
             _options.RequestTimeout, _options.OperationTimeout);
 

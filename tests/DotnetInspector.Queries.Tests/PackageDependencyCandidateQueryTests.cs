@@ -301,7 +301,7 @@ public sealed class PackageDependencyCandidateQueryTests
                     "Pinned authorization must not create a source client."));
         var source = new AuthorizedPackageDependencyCandidateSource(
             authorization,
-            lease.CreateAuthorization());
+            lease);
         using var context = new NuGetOperationContext(
             requestTimeout: TimeSpan.FromSeconds(1),
             operationTimeout: TimeSpan.FromMilliseconds(30),
@@ -344,7 +344,7 @@ public sealed class PackageDependencyCandidateQueryTests
                     "2.0.0"));
         var source = new AuthorizedPackageDependencyCandidateSource(
             new UniformPackageSourceAuthorization([configuredSource]),
-            lease.CreateAuthorization());
+            lease);
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
@@ -378,7 +378,7 @@ public sealed class PackageDependencyCandidateQueryTests
                     "1.0.0"));
         var source = new AuthorizedPackageDependencyCandidateSource(
             new UniformPackageSourceAuthorization([configuredSource]),
-            lease.CreateAuthorization());
+            lease);
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
@@ -422,7 +422,7 @@ public sealed class PackageDependencyCandidateQueryTests
                     "1.0.0"));
         var source = new AuthorizedPackageDependencyCandidateSource(
             new UniformPackageSourceAuthorization(configuredSources),
-            lease.CreateAuthorization());
+            lease);
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
@@ -461,7 +461,7 @@ public sealed class PackageDependencyCandidateQueryTests
                 });
         var source = new AuthorizedPackageDependencyCandidateSource(
             new UniformPackageSourceAuthorization(configuredSources),
-            lease.CreateAuthorization());
+            lease);
         using var context = new NuGetOperationContext(
             requestTimeout: TimeSpan.FromSeconds(1),
             operationTimeout: TimeSpan.FromMilliseconds(30),
@@ -516,7 +516,7 @@ public sealed class PackageDependencyCandidateQueryTests
                     "1.0.0"));
         var source = new AuthorizedPackageDependencyCandidateSource(
             new UniformPackageSourceAuthorization([configuredSource]),
-            lease.CreateAuthorization());
+            lease);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             async () =>

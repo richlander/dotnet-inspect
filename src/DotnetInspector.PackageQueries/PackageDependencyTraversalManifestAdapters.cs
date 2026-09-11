@@ -60,28 +60,21 @@ public sealed class AuthorizedPackageDependencyManifestSource(
     AuthorizedPackageDependencyCandidateSource candidateSource) :
     IPackageDependencyTraversalManifestAcquirer
 {
-    private readonly PackageSourceSettlementAuthorization _sourceAuthorization =
+    private readonly PackageSourceSettlementLease _sourceLease =
         candidateSource is null
             ? throw new ArgumentNullException(nameof(candidateSource))
-            : candidateSource.SourceAuthorization;
+            : candidateSource.SourceLease;
 
-    public Task<PackageDependencyTraversalManifestResult> AcquireAsync(
+    public async Task<PackageDependencyTraversalManifestResult> AcquireAsync(
         PackageAcquisitionCandidate candidate,
         CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null) =>
-        PackageSourceSettlementCompatibility.RunAsync(
-            _sourceAuthorization, cancellationToken, operationContext,
-            (generation, context) => AcquireCoreAsync(generation, candidate, context));
-
-    private static async Task<PackageDependencyTraversalManifestResult> AcquireCoreAsync(
-        PackageSourceSettlementGeneration generation,
-        PackageAcquisitionCandidate candidate,
-        NuGetOperationContext context)
+        NuGetOperationContext? operationContext = null)
     {
         ConfiguredPackageManifestResult result =
-            await generation.AcquireCandidateManifestAsync(
+            await _sourceLease.AcquireCandidateManifestAsync(
                 candidate,
-                operationContext: context).ConfigureAwait(false);
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
         return result.Manifest is { } manifest
             ? new PackageDependencyTraversalManifestResult.Acquired(
                 manifest,

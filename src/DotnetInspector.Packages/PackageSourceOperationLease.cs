@@ -13,7 +13,7 @@ public sealed class PackageSourceOperationLease : IDisposable
     private readonly object _gate = new();
     private readonly PackageSourceSettlementGeneration _generation;
     private readonly NuGetOperationContext _context;
-    private WorkLease? _work;
+    private ActiveWorkRegistration? _work;
     private bool _disposed;
 
     internal PackageSourceOperationLease(
@@ -27,7 +27,7 @@ public sealed class PackageSourceOperationLease : IDisposable
     /// <summary>Checks the shared caller cancellation and operation ceiling.</summary>
     public void ThrowIfExpired()
     {
-        using WorkLease work = StartWork();
+        using ActiveWorkRegistration work = StartWork();
         work.Context.ThrowIfExpired();
     }
 
@@ -35,7 +35,7 @@ public sealed class PackageSourceOperationLease : IDisposable
         PackageSourceAuthorization authorization,
         PackageSourceCoordinate coordinate)
     {
-        using WorkLease work = StartWork();
+        using ActiveWorkRegistration work = StartWork();
         work.Context.ThrowIfExpired();
         return work.Generation.ResolvePinnedCandidate(authorization, coordinate);
     }
@@ -116,7 +116,7 @@ public sealed class PackageSourceOperationLease : IDisposable
         }
     }
 
-    private WorkLease StartWork()
+    private ActiveWorkRegistration StartWork()
     {
         lock (_gate)
         {
@@ -128,12 +128,13 @@ public sealed class PackageSourceOperationLease : IDisposable
         }
     }
 
-    private void ReleaseWork(WorkLease work)
+    private void ReleaseWork(ActiveWorkRegistration work)
     {
         lock (_gate)
         {
             if (!ReferenceEquals(_work, work))
-                throw new InvalidOperationException("The work child is not owned by this operation.");
+                throw new InvalidOperationException(
+                    "The active work registration is not owned by this operation.");
             _work = null;
         }
     }
@@ -143,15 +144,14 @@ public sealed class PackageSourceOperationLease : IDisposable
         RunCoreAsync(StartWork(), action);
 
     private static async Task<TResult> RunCoreAsync<TResult>(
-        WorkLease work,
+        ActiveWorkRegistration work,
         Func<PackageSourceSettlementGeneration, NuGetOperationContext, Task<TResult>> action)
     {
         using (work)
             return await action(work.Generation, work.Context).ConfigureAwait(false);
     }
 
-    [ResourceOwnership]
-    private sealed class WorkLease(
+    private sealed class ActiveWorkRegistration(
         PackageSourceOperationLease parent,
         PackageSourceSettlementGeneration generation,
         NuGetOperationContext context) : IDisposable
@@ -165,7 +165,7 @@ public sealed class PackageSourceOperationLease : IDisposable
     }
 
     private static async ValueTask<PackageAcquisitionCandidateResult> ResolvePinnedCoreAsync(
-        WorkLease work,
+        ActiveWorkRegistration work,
         IPackageSourceAuthorization authorization,
         PackageSourceCoordinate coordinate)
     {
@@ -175,7 +175,7 @@ public sealed class PackageSourceOperationLease : IDisposable
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverAuthorizedCoreAsync(
-        WorkLease work, string packageId, IPackageSourceAuthorization authorization)
+        ActiveWorkRegistration work, string packageId, IPackageSourceAuthorization authorization)
     {
         using (work)
             return await work.Generation.DiscoverDependencyVersionsAsync(
@@ -183,7 +183,7 @@ public sealed class PackageSourceOperationLease : IDisposable
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverCoreAsync(
-        WorkLease work, string packageId, PackageSourceAuthorization authorization,
+        ActiveWorkRegistration work, string packageId, PackageSourceAuthorization authorization,
         PackageVersionDiscoveryContract contract)
     {
         using (work)
@@ -192,7 +192,7 @@ public sealed class PackageSourceOperationLease : IDisposable
     }
 
     private static async Task<ConfiguredPackageManifestResult> ManifestCoreAsync(
-        WorkLease work, PackageAcquisitionCandidate candidate)
+        ActiveWorkRegistration work, PackageAcquisitionCandidate candidate)
     {
         using (work)
             return await work.Generation.AcquireCandidateManifestAsync(
@@ -200,7 +200,7 @@ public sealed class PackageSourceOperationLease : IDisposable
     }
 
     private static async Task<ConfiguredPackagePayloadResult> PayloadCoreAsync(
-        WorkLease work, PackageAcquisitionCandidate candidate,
+        ActiveWorkRegistration work, PackageAcquisitionCandidate candidate,
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
         Action<string>? log, PackagePayloadLimits? limits,
         IPackagePayloadTransferPolicy? transferPolicy)

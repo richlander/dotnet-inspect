@@ -16,7 +16,7 @@ public sealed partial class DesktopPackageSourceComposition
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null) =>
         PackageSourceSettlementCompatibility.RunAsync(
-            _sourceAuthorization, cancellationToken, operationContext,
+            _sourceLease, cancellationToken, operationContext,
             (generation, operation) => generation.AcquireCandidateManifestAsync(
                 candidate, operationContext: operation),
             _options.RequestTimeout, _options.OperationTimeout);

@@ -1715,8 +1715,7 @@ public sealed class PackageHouseContractTests
         await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(_ => client);
         using PackageSourceOperationLease operation =
-            PackageSourceSettlementService.IssueOperationLease(
-                lease.CreateAuthorization(),
+            lease.IssueOperationLease(
                 TestContext.Current.CancellationToken,
                 requestTimeout: TimeSpan.FromSeconds(7),
                 operationTimeout: TimeSpan.FromSeconds(31));
@@ -1776,8 +1775,7 @@ public sealed class PackageHouseContractTests
         await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(_ => client);
         using PackageSourceOperationLease operation =
-            PackageSourceSettlementService.IssueOperationLease(
-                lease.CreateAuthorization(), TestContext.Current.CancellationToken);
+            lease.IssueOperationLease(TestContext.Current.CancellationToken);
         PackageAcquisitionCandidate candidate =
             Assert.IsType<PackageAcquisitionCandidate>(
                 operation.ResolvePinnedCandidate(
@@ -1847,11 +1845,9 @@ public sealed class PackageHouseContractTests
         await using PackageSourceSettlementLease foreignLease =
             PackageSourceSettlementService.IssueLease(_ => foreignClient);
         using PackageSourceOperationLease operation =
-            PackageSourceSettlementService.IssueOperationLease(
-                lease.CreateAuthorization(), TestContext.Current.CancellationToken);
+            lease.IssueOperationLease(TestContext.Current.CancellationToken);
         using PackageSourceOperationLease foreignOperation =
-            PackageSourceSettlementService.IssueOperationLease(
-                foreignLease.CreateAuthorization(), TestContext.Current.CancellationToken);
+            foreignLease.IssueOperationLease(TestContext.Current.CancellationToken);
         PackageAcquisitionCandidate candidate =
             Assert.IsType<PackageAcquisitionCandidate>(
                 operation.ResolvePinnedCandidate(

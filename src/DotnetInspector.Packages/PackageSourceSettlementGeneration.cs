@@ -35,15 +35,6 @@ internal sealed class PackageSourceSettlementGeneration
     internal object CandidateIssuerIdentity =>
         _candidateIssuer.Identity;
 
-    internal PackageSourceSettlementAuthorization CreateAuthorization()
-    {
-        lock (_gate)
-        {
-            ThrowIfSettling();
-            return new(this);
-        }
-    }
-
     internal void RegisterOperation()
     {
         lock (_gate)
@@ -57,7 +48,11 @@ internal sealed class PackageSourceSettlementGeneration
     {
         lock (_gate)
         {
-            if (--_operations == 0 && _settling)
+            if (_operations == 0)
+                throw new InvalidOperationException(
+                    "Package Source operation registration cannot underflow.");
+            _operations--;
+            if (_operations == 0 && _settling)
                 _quiescence.SetResult();
         }
     }
