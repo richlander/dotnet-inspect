@@ -7,8 +7,8 @@ namespace CSharpText;
 /// <summary>
 /// Shared plain-text extraction from XML documentation nodes: flattens see/seealso/paramref/
 /// typeparamref cross-references to their simple names, unwraps inline code, and normalizes
-/// whitespace. Used by both the C# source doc-comment parser (DocCommentParser) and the compiler
-/// .xml doc-file parser (XmlDocFileParser) so cref rendering stays identical regardless of source.
+/// whitespace. Used by both the C# source doc-comment parser and the shared compiler
+/// XML-documentation reader so cref rendering stays identical regardless of source.
 /// </summary>
 public static partial class XmlDocText
 {

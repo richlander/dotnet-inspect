@@ -1531,27 +1531,17 @@ test("typed document inspection owns package document request coordination", () 
     /async open\(request: PackageDocumentRequest\)[\s\S]*const pending = \{[\s\S]*status: "loading",[\s\S]*state\.docViewer = pending[\s\S]*state\.docViewer !== pending/);
 });
 
-test("typed catalog requests own release and package-version coordination", () => {
-  const releaseLoader =
-    appSource.match(/async function discoverPlatformVersions\([\s\S]*?\n}/)?.[0]
-    ?? "";
+test("typed catalog requests own package-version coordination", () => {
   const versionLoader =
     appSource.match(/function ensurePackageVersions\(pkg: AppPackage \| null\)[\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     appSource,
-    /createCatalogRequests\(\{[\s\S]*queryDotnetReleases,[\s\S]*queryPackageVersions: pkg => inspectPackageVersions\(pkg\.id, pkg\.version\),[\s\S]*updatePlatformVersionSelect,[\s\S]*updatePackageVersionSelect: updateVersionSelect,/);
-  assert.match(
-    appSource,
-    /raw\.githubusercontent\.com\/dotnet\/core\/refs\/heads\/main\/release-notes\/releases-index\.json/);
-  assert.match(releaseLoader, /parsePlatformVersions[\s\S]*inspectPlatformVersions\(tfm\)/);
+    /createCatalogRequests\(\{[\s\S]*queryPackageVersions: pkg => inspectPackageVersions\(pkg\.id, pkg\.version\),[\s\S]*updatePackageVersionSelect: updateVersionSelect,/);
   assert.match(versionLoader, /return catalogRequests\.ensurePackageVersions\(pkg\)/);
   assert.doesNotMatch(
-    `${releaseLoader}\n${versionLoader}`,
-    /dotnetReleasesLoading|packageVersionsLoading|state\.packages/);
-  assert.match(
-    catalogRequestsSource,
-    /state\.dotnetReleasesLoading = true[\s\S]*dependencies\.queryDotnetReleases\(\)[\s\S]*state\.dotnetReleasesLoading = false/);
+    versionLoader,
+    /packageVersionsLoading|state\.packages/);
   assert.match(
     catalogRequestsSource,
     /inventories\.set\(pkg, pending\)[\s\S]*dependencies\.queryPackageVersions\(pkg\)[\s\S]*if \(isCurrent\(\)\)/);
@@ -6825,6 +6815,7 @@ test("graph-first platform acquisition preserves catalog family and physical fil
     tfm: "net11.0",
     version: "11.0.0",
     rows: [row],
+    supplies: [],
   };
   assert.equal(
     platformGraphLibraryForTarget(target, "Mixed.dll", "netcore.app"),

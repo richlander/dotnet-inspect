@@ -1,0 +1,16 @@
+[package]
+name = "resource-ownership-counterfactual"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+description = "Executable Rust counterfactual for dotnet-inspect resource ownership"
+
+[lib]
+path = "src/lib.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }

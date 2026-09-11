@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using System.Xml;
+using CSharpText;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -511,23 +513,28 @@ internal static class SourceEnricher
 
         logger.Log($"Loading XML documentation from: {xmlDocPath}");
 
-        var xmlParser = new XmlDocFileParser();
-        if (!xmlParser.Load(xmlDocPath))
+        XmlDocumentationCatalog? documentation =
+            LoadXmlDocumentation(xmlDocPath, logger);
+        if (documentation is null)
         {
-            logger.Log("Failed to load XML documentation file");
             return;
         }
 
         foreach (var apiType in types)
         {
-            EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
+            EnrichTypeFromXmlDoc(apiType, documentation, options);
         }
     }
 
-    private static void EnrichTypeFromXmlDoc(ApiType apiType, XmlDocFileParser xmlParser, ApiOptions options, VerboseLogger logger)
+    private static void EnrichTypeFromXmlDoc(
+        ApiType apiType,
+        XmlDocumentationCatalog documentation,
+        ApiOptions options)
     {
-        var typeDoc = xmlParser.GetTypeDocumentation(apiType.FullName);
-        if (typeDoc != null)
+        if (ApiMemberIdentity.TryGetXmlDocTypeIdentity(
+                apiType,
+                out XmlDocMemberIdentity typeIdentity)
+            && documentation.Find(typeIdentity) is { } typeDoc)
         {
             apiType.Documentation = new DocComment
             {
@@ -540,14 +547,20 @@ internal static class SourceEnricher
         {
             foreach (var member in apiType.Members)
             {
-                var memberDoc = xmlParser.GetMemberDocumentation(apiType, member);
-                if (memberDoc != null)
+                if (ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                        apiType,
+                        member,
+                        out XmlDocMemberIdentity memberIdentity)
+                    && documentation.Find(memberIdentity) is { } memberDoc)
                 {
                     member.Documentation = new DocComment
                     {
                         Summary = memberDoc.Summary,
                         Remarks = memberDoc.Remarks,
-                        Parameters = memberDoc.Parameters,
+                        Parameters = memberDoc.Parameters.ToDictionary(
+                            pair => pair.Key,
+                            pair => pair.Value,
+                            StringComparer.Ordinal),
                         Returns = memberDoc.Returns
                     };
                 }
@@ -572,16 +585,16 @@ internal static class SourceEnricher
 
         logger.Log($"Loading XML documentation from: {xmlDocPath}");
 
-        var xmlParser = new XmlDocFileParser();
-        if (!xmlParser.Load(xmlDocPath))
+        XmlDocumentationCatalog? documentation =
+            LoadXmlDocumentation(xmlDocPath, logger);
+        if (documentation is null)
         {
-            logger.Log("Failed to load XML documentation file");
             return;
         }
 
         foreach (var apiType in types)
         {
-            EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
+            EnrichTypeFromXmlDoc(apiType, documentation, options);
         }
     }
 
@@ -608,14 +621,14 @@ internal static class SourceEnricher
 
         logger.Log($"Loading XML documentation from: {xmlDocPath}");
 
-        var xmlParser = new XmlDocFileParser();
-        if (!xmlParser.Load(xmlDocPath))
+        XmlDocumentationCatalog? documentation =
+            LoadXmlDocumentation(xmlDocPath, logger);
+        if (documentation is null)
         {
-            logger.Log("Failed to load XML documentation file");
             return;
         }
 
-        EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
+        EnrichTypeFromXmlDoc(apiType, documentation, options);
     }
 
     private static void EnrichFromXmlDocFile(ApiType apiType, string typeName, ApiOptions options, VerboseLogger logger)
@@ -644,14 +657,33 @@ internal static class SourceEnricher
 
         logger.Log($"Loading XML documentation from: {xmlDocPath}");
 
-        var xmlParser = new XmlDocFileParser();
-        if (!xmlParser.Load(xmlDocPath))
+        XmlDocumentationCatalog? documentation =
+            LoadXmlDocumentation(xmlDocPath, logger);
+        if (documentation is null)
         {
-            logger.Log("Failed to load XML documentation file");
             return;
         }
 
-        EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
+        EnrichTypeFromXmlDoc(apiType, documentation, options);
+    }
+
+    private static XmlDocumentationCatalog? LoadXmlDocumentation(
+        string path,
+        VerboseLogger logger)
+    {
+        try
+        {
+            using Stream stream = File.OpenRead(path);
+            return XmlDocumentationCatalog.Load(stream);
+        }
+        catch (Exception error) when (
+            error is IOException
+                or UnauthorizedAccessException
+                or XmlException)
+        {
+            logger.Log($"Failed to load XML documentation: {error.Message}");
+            return null;
+        }
     }
 
     internal static void MergePartialTypeDocumentation(

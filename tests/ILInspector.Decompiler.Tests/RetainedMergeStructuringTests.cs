@@ -34,6 +34,70 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
+    public void RetainedAuditRecordsOnlyInstalledReplacement()
+    {
+        var successStepper = new Stepper(enabled: true);
+        var (_, successDiagnostics) = Structure(
+            SequentialRetainedMerges(),
+            stepper: successStepper);
+
+        Assert.Equal(1, successDiagnostics.Structured);
+        Assert.Equal(2, successDiagnostics.RetainedRegions);
+        Assert.Empty(successDiagnostics.Stops);
+        Assert.Empty(successDiagnostics.RetainedDeclines);
+        Assert.Single(
+            successStepper.Steps,
+            step => step.Description.Contains("2 retained-merge region(s)", StringComparison.Ordinal));
+
+        var declineStepper = new Stepper(enabled: true);
+        var (declined, declineDiagnostics) = Structure(
+            RetainedBodyMergeNestedBelowGotoBlocks(),
+            stepper: declineStepper);
+
+        Assert.Equal(0, declineDiagnostics.RetainedRegions);
+        Assert.Equal(["cond-target-past-region"], declineDiagnostics.Stops);
+        Assert.Equal(
+            [
+                "retained-dangling-merge-label",
+                "retained-external-entry",
+                "retained-back-edge-entangled",
+                "retained-external-entry",
+                "retained-external-entry",
+                "retained-back-edge-region",
+            ],
+            declineDiagnostics.RetainedDeclines);
+        Assert.Empty(declined.Descendants.OfType<WhileLoop>());
+        Assert.Empty(declineStepper.Steps);
+    }
+
+    [Fact]
+    public void RetainedAuditStepLimitStopsBeforeInstallationAndSuccessRecords()
+    {
+        var function = CreateFunction(
+            SequentialRetainedMerges(),
+            parameters: null,
+            usesUpdatedMemorySafetyRules: false,
+            out var originalBody);
+        string originalIr = IrPrinter.Dump(function);
+        var diagnostics = new StructuringDiagnostics();
+        var stepper = new Stepper(enabled: true) { StepLimit = 0 };
+
+        Assert.Throws<StepLimitReachedException>(
+            () => new StructuringPass().Run(
+                function,
+                new PassContext(stepper, diagnostics)));
+
+        Assert.Same(originalBody, function.Body);
+        Assert.Equal(originalIr, IrPrinter.Dump(function));
+        Assert.Equal(0, diagnostics.Structured);
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Empty(diagnostics.Stops);
+        Assert.Empty(diagnostics.RetainedDeclines);
+        Assert.Empty(stepper.Steps);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void CrossingForwardRegionsStayFlat()
     {
         var blocks = new[]
@@ -722,9 +786,30 @@ public class RetainedMergeStructuringTests
     static (IrFunction Function, StructuringDiagnostics Diagnostics) Structure(
         Block[] blocks,
         Parameter[]? parameters = null,
-        bool usesUpdatedMemorySafetyRules = false)
+        bool usesUpdatedMemorySafetyRules = false,
+        Stepper? stepper = null)
     {
-        var container = new BlockContainer();
+        var function = CreateFunction(
+            blocks,
+            parameters,
+            usesUpdatedMemorySafetyRules,
+            out _);
+        var diagnostics = new StructuringDiagnostics();
+
+        new StructuringPass().Run(
+            function,
+            new PassContext(stepper ?? new Stepper(enabled: false), diagnostics));
+        function.CheckInvariant();
+        return (function, diagnostics);
+    }
+
+    static IrFunction CreateFunction(
+        Block[] blocks,
+        Parameter[]? parameters,
+        bool usesUpdatedMemorySafetyRules,
+        out BlockContainer container)
+    {
+        container = new BlockContainer();
         foreach (var block in blocks)
             container.Add(block);
         var function = new IrFunction(
@@ -736,13 +821,7 @@ public class RetainedMergeStructuringTests
         {
             UsesUpdatedMemorySafetyRules = usesUpdatedMemorySafetyRules,
         };
-        var diagnostics = new StructuringDiagnostics();
-
-        new StructuringPass().Run(
-            function,
-            new PassContext(new Stepper(enabled: false), diagnostics));
-        function.CheckInvariant();
-        return (function, diagnostics);
+        return function;
     }
 
     static Block Term(int offset, IrNode terminator) => Block(offset, terminator);

@@ -65,6 +65,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
 | [SourceHouse Composition](design/source-house.md) | Content-first source settlement over SourceLink-authored and C#-decompiled producers with independent consumer-selected source and PDB policy. |
 | [DocumentationHouse Composition](design/documentation-house.md) | Library-scoped compiled-XML and authored-source documentation settlement with independent channel attempts, field provenance, and conflict preservation. |
+| [Library Ownership and Borrowing](design/library-ownership-and-borrowing.md) | Resource-free realized-Library references, owner-issued async operation authority, synchronous scoped content borrowing, and aggregate content release. |
 | [Local Repository Source Acquisition](design/local-repository-source-acquisition.md) | When caller-supplied Git clones may provide checksum-verified PDB source; local locator meaning, decline/fallback, and execution limits. |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs. |
 | [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |
@@ -203,6 +204,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [C# Declared-Type Self-Name Admission](design/csharp-declared-type-self-name.md) | Proposed typed admission from one exact Metadata leaf to the identifier shared by a type header, constructors, and finalizers. |
 | [C# Memory-Safety Declaration Spelling](design/csharp-memory-safety-spelling.md) | Proposed CSharp-owned spelling of caller contracts independently from pointer syntax and body-context requirements. |
 | [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
+| [Source Availability Audit](design/source-availability-audit.md) | Operation-scoped source reachability and origin-validated positive reuse. |
 | [Untrusted Data Threat Model](design/untrusted-data-threat-model.md) | Trust boundaries, existing controls, and the security-scope rationale for untrusted internet-origin data. |
 | [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |
 | [Call Graph Projection](design/call-graph-projection.md) | Projecting the inspection graph into a call graph. |
