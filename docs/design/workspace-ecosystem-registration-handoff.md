@@ -87,6 +87,44 @@ product-specific Ecosystems layer depends on and invokes neutral Workspace
 construction; Workspace never depends on, invokes, or offers an option for
 Ecosystems curation.
 
+## Product scenario served
+
+This handoff is the declaration boundary inside the end-to-end scenario owned
+by [Workspace registration and call-graph focal
+length](workspace-registration-and-call-graph-scope.md#end-to-end-product-scenario):
+
+```text
+discovery-oriented command or Spotlight selection
+  -> Ecosystems creates the current curated Workspace
+     -> project Platform, ASP.NET Core, and Microsoft.Extensions
+        into complete lower ecosystem declarations
+        -> initialize one fresh neutral Workspace explicitly
+           -> add the selected package as membership
+              -> focus a Library, type, or member
+                 -> run a bounded graph over the requested focal length
+                    -> persist expanded registrations, not curated intent
+```
+
+The declaration added by this slice carries the inert information needed at the
+second step. For example, the ASP.NET Core declaration can retain both its
+Platform population and `Microsoft.AspNetCore.` package-prefix population,
+while the Platform declaration retains the .NET runtime population. Later
+consumers can select those exact contributions without importing the
+application catalog or reconstructing them from display text.
+
+The handoff does not decide that the discovery operation should be curated,
+admit the selected package, establish focus, choose `Everything`, resolve a
+reference, apply Platform pruning, or serialize a Workspace. Those decisions
+remain with the host, Workspace, graph, resolution, pruning, and persistence
+owners named by the experience specification. The handoff makes their
+composition possible while preserving each decision as an explicit typed
+boundary.
+
+The contrasting high-fidelity scenario deliberately bypasses this curated
+factory. Package-mode `depends` constructs raw and keeps package-authored
+dependency routes as evidence. Both scenarios use the same neutral Workspace
+API; only the caller's construction choice differs.
+
 ## Boundary shape
 
 ```text
