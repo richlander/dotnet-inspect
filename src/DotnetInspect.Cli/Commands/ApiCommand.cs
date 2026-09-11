@@ -2871,6 +2871,16 @@ public class ApiCommand
                     type, typeDllPath, options.PdbPath, resolver, metadata, options.RenderOptions)
                 : Decompiler.MemberBodyProducer.Project(
                     type, sourceAssembly, options.PdbPath, resolver, metadata, options.RenderOptions);
+            if (projection.Diagnostics.Any(
+                static diagnostic => diagnostic.Id
+                    == Decompiler.DiagnosticIds.MemorySafetyModeUnavailable))
+            {
+                CommandError.Write(string.Join(
+                    Environment.NewLine,
+                    projection.Diagnostics.Select(
+                        static diagnostic => diagnostic.ToString())));
+                return 1;
+            }
             if (sourceAssembly is not null
                 && projection.Diagnostics.Any(
                     static diagnostic => diagnostic.Id == Decompiler.DiagnosticIds.InternalError))

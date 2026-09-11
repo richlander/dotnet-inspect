@@ -32,6 +32,12 @@ feeds one typed language-mode decision shared by rendering and compile-back:
   unavailable-mode diagnostic before mode-sensitive raising, and compile-back
   reports the artifact unavailable without invoking the compiler.
 
+Production hosts preserve that diagnostic at their source boundary. An
+explicitly requested CLI source section fails instead of disappearing from a
+successful command, and the browser's source-unavailable result retains the
+decompiler reason instead of replacing it with only a generic acquisition
+failure.
+
 This distinction is module-wide. An invalid consumed-member contract can keep a
 body visible at Partial fidelity when the caller's own language mode is known;
 an invalid defining-module mode cannot, because every context-placement decision

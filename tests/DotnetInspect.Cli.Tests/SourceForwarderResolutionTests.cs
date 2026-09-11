@@ -18,6 +18,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
+using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -1931,6 +1932,50 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    public async Task TypeWholeTypeDecompilerAcquisition_ReportsUnavailableMemorySafetyMode()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = WriteUnsupportedMemorySafetyAssembly(directory);
+            const string TypeName =
+                "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals";
+            var source = CreateApiSource(path, SourceKind.Library) with
+            {
+                TypeName = TypeName,
+            };
+            var options = new TypeOptions
+            {
+                TypeName = TypeName,
+                Select = [SectionNames.DecompiledSource],
+                DocsExplicitlySet = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Minimal,
+            };
+            var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
+                ApiServices.LoadTypeApi(source, options));
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    options,
+                    source,
+                    loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("DEC0016", error);
+            Assert.Contains(
+                "module memory-safety rules are Unsupported",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void TypeWholeTypeDecompilerAcquisition_CarriesExternalPdb()
     {
         string directory = CreateDirectory();
@@ -3062,6 +3107,39 @@ public class SourceForwarderResolutionTests
             PackageReplaySourceUrls: null,
             PackageReplayUsesOriginalSources: false,
             Context: new CommandContext(verbose: false));
+
+    static string WriteUnsupportedMemorySafetyAssembly(string directory)
+    {
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using (var pe = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            MemorySafetyRulesObservation observation = Assert.Single(
+                MemorySafetyMetadataIndex.Create(reader)
+                    .Rules
+                    .Observations);
+            CustomAttribute attribute = reader.GetCustomAttribute(
+                (CustomAttributeHandle)MetadataTokens.EntityHandle(
+                    observation.AttributeToken));
+            byte[] original = reader.GetBlobBytes(attribute.Value);
+            int valueOffset = Assert.Single(
+                Enumerable.Range(0, image.Length - original.Length + 1),
+                offset => image
+                        .AsSpan(offset, original.Length)
+                        .SequenceEqual(original));
+            BitConverter.TryWriteBytes(
+                image.AsSpan(valueOffset + 2, sizeof(int)),
+                99);
+        }
+
+        string path = Path.Combine(
+            directory,
+            "ILInspector.Decompiler.Fixtures.NewUnsafe.dll");
+        File.WriteAllBytes(path, image);
+        return path;
+    }
 
     static MetadataTypeDefinitionName TypeName() =>
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
