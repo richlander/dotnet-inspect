@@ -177,6 +177,26 @@ public class CommandLineTests
         Assert.Equal($"{direction} requires -n.", error.Message);
     }
 
+    [Fact]
+    public void CacheClear_WithAncestorRowWindow_ReportsUnsupportedOption()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["cache", "--rows", "1..2", "clear", "--session", "cache-command-missing-probe"]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("--rows is not supported by the 'clear' command.", error.Message);
+    }
+
+    [Fact]
+    public void CacheClear_WithOppositeDirections_ReportsConflict()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["cache", "--head", "--tail", "clear", "--session", "cache-command-missing-probe"]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("--head and --tail select opposite ends; choose one.", error.Message);
+    }
+
     [Theory]
     [InlineData("--clean")]
     [InlineData("--clear")]

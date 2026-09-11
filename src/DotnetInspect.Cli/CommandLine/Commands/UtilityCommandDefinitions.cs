@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -107,20 +108,16 @@ public static class UtilityCommandDefinitions
         cacheCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(cacheCommand);
         opts.AddOutputOptionsTo(cacheCommand, supportsRowWindows: false);
-        cacheCommand.Validators.Add(result =>
-        {
-            bool head = result.GetValue(opts.Head);
-            bool tail = result.GetValue(opts.Tail);
-            if (head == tail || result.GetResult(opts.Limit) is not null)
-                return;
-
-            result.AddError($"{(head ? "--head" : "--tail")} requires -n.");
-        });
+        cacheCommand.Validators.Add(
+            result => ValidateCacheLineDirection(result, opts));
 
         // Subcommand: clear
         var clearCommand = new Command("clear", "Clear the cache");
         var sessionOption = new Option<string?>("--session") { Description = "Clear a named isolated session cache" };
         clearCommand.Options.Add(sessionOption);
+        opts.AddRowWindowValidators(clearCommand, supportsRowWindows: false);
+        clearCommand.Validators.Add(
+            result => ValidateCacheLineDirection(result, opts));
         clearCommand.SetAction(async (parseResult, cancellationToken) =>
         {
             var session = parseResult.GetValue(sessionOption);
@@ -142,6 +139,18 @@ public static class UtilityCommandDefinitions
         });
 
         return cacheCommand;
+    }
+
+    private static void ValidateCacheLineDirection(
+        CommandResult result,
+        SharedOptions opts)
+    {
+        bool head = result.GetValue(opts.Head);
+        bool tail = result.GetValue(opts.Tail);
+        if (head == tail || result.GetResult(opts.Limit) is not null)
+            return;
+
+        result.AddError($"{(head ? "--head" : "--tail")} requires -n.");
     }
 
     public static Command CreateSkillCommand(SharedOptions opts)

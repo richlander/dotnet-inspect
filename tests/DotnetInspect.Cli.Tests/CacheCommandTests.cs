@@ -126,6 +126,29 @@ public class CacheCommandTests : IDisposable
                     | StringSplitOptions.TrimEntries));
     }
 
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task Cli_ClearRejectsAncestorDirectionWithoutLineLimitBeforeAction(
+        string direction)
+    {
+        string[] args =
+        [
+            "cache",
+            direction,
+            "clear",
+            "--session",
+            "cache-command-missing-probe"
+        ];
+        var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (result, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
+
+        Assert.Equal(1, result);
+        Assert.Empty(output);
+        Assert.Contains($"{direction} requires -n.", error);
+    }
+
     [Fact]
     public async Task ExecuteAsync_WithClean_OnEmptyCache_ReturnsZero()
     {
