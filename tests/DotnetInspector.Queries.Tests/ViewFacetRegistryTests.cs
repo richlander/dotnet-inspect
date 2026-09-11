@@ -6,6 +6,19 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class ViewFacetRegistryTests
 {
     [Fact]
+    public void GetRequiredDescriptor_ResolvesUniqueRoleWithinSubjectKind()
+    {
+        ViewFacetDescriptor descriptor =
+            InspectionViewFacetCatalog.Registry.GetRequiredDescriptor(
+                StructuralSubjectKind.Member,
+                ViewFacetRole.MemberOverview);
+
+        Assert.Equal("member.overview", descriptor.Id.Value);
+        Assert.Equal(StructuralSubjectKind.Member, descriptor.Kind);
+        Assert.Equal(ViewFacetRole.MemberOverview, descriptor.Role);
+    }
+
+    [Fact]
     public void Catalog_IsCompleteUniqueAndDeterministicallyOrdered()
     {
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
