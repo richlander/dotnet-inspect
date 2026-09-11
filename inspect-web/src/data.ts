@@ -40,7 +40,6 @@ export const libraryLenses = [
   ["overview", "Overview"],
   ["references", "References"],
   ["integrations", "Integrations"],
-  ["opportunities", "Opportunities"],
   ["analysis", "Analysis"],
   ["metadata", "Metadata"]
 ] as const;

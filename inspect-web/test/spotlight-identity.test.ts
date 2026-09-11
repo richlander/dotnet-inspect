@@ -1159,7 +1159,6 @@ test("typed library controls own library and Platform picker bindings", () => {
     /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
   for (const lens of [
     "integrations",
-    "opportunities",
     "analysis",
     "metadata",
   ]) {
@@ -3354,7 +3353,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*state\.platformIndex\?\.target\(\s*originPackage\.activeFramework,\s*originPackage\.version\)[\s\S]*row\.hasImplementation[\s\S]*row\.pack === pack[\s\S]*row\.assembly\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*runtimeAssemblyIsResident\(\s*originPackage,\s*row\.assembly,\s*row\.pack\)[\s\S]*const runtimeResult = await loadRuntimePackAssembly\(\s*originPackage\.activeFramework,\s*platformAssemblyRequest\(row\),\s*row\.pack,\s*isCurrent,\s*originPackage\.version,\s*row\.file\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
+    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*state\.platformIndex\?\.target\(\s*originPackage\.activeFramework,\s*originPackage\.version\)[\s\S]*row\.hasImplementation[\s\S]*row\.pack === pack[\s\S]*row\.assembly\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*runtimeAssemblyIsResident\(\s*originPackage,\s*row\.assembly,\s*row\.pack\)[\s\S]*const runtimeResult = await loadRuntimePackAssembly\(\s*originPackage\.activeFramework,\s*platformAssemblyRequest\(row\),\s*row\.pack,\s*isCurrent,\s*originPackage\.version,\s*row\.file\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*state\.integrationMode === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
   assert.doesNotMatch(
     picker,
     /\(\) => state\.packages\.includes\(originPackage\)/);
@@ -5965,7 +5964,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "opportunities"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
