@@ -1542,45 +1542,6 @@ export function sourceRequestNeedsLoad(
   return !sameRequest || (!loading && !result && !error);
 }
 
-export interface SourceRequestState {
-  sourceRequestGeneration?: number;
-  memberSourceLoading?: boolean;
-  memberSourceKey?: string;
-  memberSourceError?: string;
-  typeSourceLoading?: boolean;
-  typeSourceKey?: string;
-  typeSourceError?: string;
-}
-
-export function beginSourceRequestState(state: SourceRequestState): number {
-  state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
-  clearInFlightSourceState(state);
-  return state.sourceRequestGeneration;
-}
-
-export function cancelSourceRequestState(state: SourceRequestState): boolean {
-  if (!state.memberSourceLoading
-    && !state.typeSourceLoading) {
-    return false;
-  }
-  state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
-  clearInFlightSourceState(state);
-  return true;
-}
-
-function clearInFlightSourceState(state: SourceRequestState): void {
-  if (state.memberSourceLoading) {
-    state.memberSourceLoading = false;
-    state.memberSourceKey = "";
-    state.memberSourceError = "";
-  }
-  if (state.typeSourceLoading) {
-    state.typeSourceLoading = false;
-    state.typeSourceKey = "";
-    state.typeSourceError = "";
-  }
-}
-
 export interface SectionableMember {
   kind?: string;
 }

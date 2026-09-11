@@ -1,7 +1,8 @@
-import { pdbSourceLimitationHtml } from "./data.ts";
+import { assertNever, pdbSourceLimitationHtml } from "./data.ts";
 import { renderContentNavigationCloseButton } from "./content-frame.ts";
 import { typeGraphLegendHtml } from "./graph-legends.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
+import type { SourceResultState } from "./source-inspection.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
@@ -656,12 +657,7 @@ export function typeSourceSignature(
   ], taste);
 }
 
-export interface TypeSourceStateSlice {
-  typeSourceKey: string;
-  typeSourceLoading: boolean;
-  typeSource: TypeSourceResult | null;
-  typeSourceError: string | null;
-}
+export type TypeSourceStateSlice = SourceResultState<TypeSourceResult>;
 
 export interface RenderTypeSourceOptions {
   item: TypeSummary;
@@ -709,19 +705,22 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
     escapeHtml,
     highlightCSharp,
   } = options;
-  const fresh = sourceState.typeSourceKey === currentSignature;
-  if (sourceState.typeSourceLoading && fresh) {
+  if (sourceState.status === "idle"
+    || sourceState.signature !== currentSignature) {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
   }
-  if (fresh && sourceState.typeSource) {
-    return renderSourceResult({
-      source: sourceState.typeSource,
-      escapeHtml,
-      highlightCSharp,
-    });
+  switch (sourceState.status) {
+    case "loading":
+      return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
+    case "ready":
+      return renderSourceResult({
+        source: sourceState.source,
+        escapeHtml,
+        highlightCSharp,
+      });
+    case "failed":
+      return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(sourceState.error || "No type source result was returned.")}</p></section>`;
+    default:
+      return assertNever(sourceState, "type source result state");
   }
-  if (fresh && sourceState.typeSourceError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(sourceState.typeSourceError)}</p></section>`;
-  }
-  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
 }

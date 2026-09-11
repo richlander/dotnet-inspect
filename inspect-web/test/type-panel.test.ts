@@ -967,10 +967,9 @@ test("type PDB source renders code above provenance once loaded", () => {
     item: jsonSerializer,
     currentSignature: "sig",
     sourceState: {
-      typeSourceKey: "sig",
-      typeSourceLoading: false,
-      typeSource: { provider: "pdb", provenance: "SourceLink", url: "https://example.test", text: "class JsonSerializer {}" },
-      typeSourceError: null,
+      status: "ready",
+      signature: "sig",
+      source: { provider: "pdb", provenance: "SourceLink", url: "https://example.test", text: "class JsonSerializer {}" },
     },
     escapeHtml,
     highlightCSharp,
@@ -1018,15 +1017,14 @@ test("decompiled type source discloses an escaped PDB-source limitation", () => 
     item: jsonSerializer,
     currentSignature: "sig",
     sourceState: {
-      typeSourceKey: "sig",
-      typeSourceLoading: false,
-      typeSource: {
+      status: "ready",
+      signature: "sig",
+      source: {
         provider: "decompiled",
         provenance: "decompiled from IL",
         pdbSourceLimitation: "<checksum mismatch>",
         text: "class JsonSerializer {}",
       },
-      typeSourceError: null,
     },
     escapeHtml,
     highlightCSharp,
@@ -1041,10 +1039,9 @@ test("type source reports a failure without a stale result", () => {
     item: jsonSerializer,
     currentSignature: "sig",
     sourceState: {
-      typeSourceKey: "sig",
-      typeSourceLoading: false,
-      typeSource: null,
-      typeSourceError: "The decompiler query failed.",
+      status: "failed",
+      signature: "sig",
+      error: "The decompiler query failed.",
     },
     escapeHtml,
     highlightCSharp,
@@ -1052,4 +1049,22 @@ test("type source reports a failure without a stale result", () => {
 
   assert.match(html, /Type source failed/);
   assert.match(html, /The decompiler query failed\./);
+});
+
+test("type source renders a settled fallback for an empty failure", () => {
+  const html = renderTypeSource({
+    item: jsonSerializer,
+    currentSignature: "sig",
+    sourceState: {
+      status: "failed",
+      signature: "sig",
+      error: "",
+    },
+    escapeHtml,
+    highlightCSharp,
+  });
+
+  assert.match(html, /Type source failed/);
+  assert.match(html, /No type source result was returned\./);
+  assert.doesNotMatch(html, /Resolving type source/);
 });

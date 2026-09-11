@@ -1965,9 +1965,9 @@ routing, stale publication, and explicit Platform library scope;
 `test/spotlight-identity.test.js` gates the composition-root wiring.
 
 `src/source-inspection.ts` owns the mutually exclusive member, type, and
-call-graph source request lifecycle: shared cancellation, generation and
-per-surface identity checks, loading/error/result transitions, the graph
-modal's request-shaped state union, and focus-preserving completion.
+call-graph source request lifecycle: shared cancellation, request-owned Type
+and Member Source result states, per-surface identity checks, the graph modal's
+request-shaped state union, and focus-preserving completion.
 `dotnet-inspect.ts`
 validates the active selection, builds typed engine requests, supplies mutable
 state and rendering ports, and retains source presentation.
@@ -1975,6 +1975,8 @@ state and rendering ports, and retains source presentation.
 selection, visible failure, hidden type completion, graph close/cancellation,
 settled empty graph failure, and graph auto-load eligibility;
 `test/spotlight-identity.test.js` gates engine and composition-root wiring.
+The focused Type and Member Source state contract is
+[Inspect Web Type and Member Source State](../docs/design/inspect-web-type-member-source-state.md).
 
 `src/member-detail-inspection.ts` owns member XML-documentation, annotated
 source, and Facts request lifecycles: cache and request identity, current-member
