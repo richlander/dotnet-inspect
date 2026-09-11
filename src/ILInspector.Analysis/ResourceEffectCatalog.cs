@@ -221,15 +221,6 @@ public static class ResourceEffectCatalogBuilder
                     declarationCount,
                     model.Identity);
             }
-            if (model.ResourceKinds.Length > limits.MaxResourceKindsPerModel)
-            {
-                return Limit(
-                    ResourceEffectWorkLimitKind.ModelResourceKinds,
-                    limits.MaxResourceKindsPerModel,
-                    model.ResourceKinds.Length,
-                    model.Identity);
-            }
-
             int statementCount =
                 model.Declarations.Sum(declaration => declaration.Statements.Length)
                 + model.NormalizedDeclarations.Length;
@@ -296,9 +287,13 @@ public static class ResourceEffectCatalogBuilder
                         "One model declares incompatible arities for the same resource kind.");
                 }
                 definitions[definition.Identity] = Merge(existing, definition);
+                if (definitions.Count > limits.MaxResourceKindsPerModel)
+                    return ResourceKindLimit(model, limits, definitions.Count);
                 continue;
             }
             definitions.Add(definition.Identity, definition);
+            if (definitions.Count > limits.MaxResourceKindsPerModel)
+                return ResourceKindLimit(model, limits, definitions.Count);
         }
 
         var declarations = new List<ParsedDeclaration>();
@@ -373,6 +368,8 @@ public static class ResourceEffectCatalogBuilder
                                 existing is null
                                     ? declared
                                     : Merge(existing, declared);
+                            if (definitions.Count > limits.MaxResourceKindsPerModel)
+                                return ResourceKindLimit(model, limits, definitions.Count);
                         }
                         declarations.Add(
                             new ParsedDeclaration(
@@ -436,6 +433,8 @@ public static class ResourceEffectCatalogBuilder
                     declaration.Provenances);
                 definitions[resource.Kind.Identity] =
                     existing is null ? declared : Merge(existing, declared);
+                if (definitions.Count > limits.MaxResourceKindsPerModel)
+                    return ResourceKindLimit(model, limits, definitions.Count);
             }
             foreach (ResourceDeclarationProvenance provenance in declaration.Provenances)
             {
@@ -483,6 +482,16 @@ public static class ResourceEffectCatalogBuilder
                 provenances));
         return null;
     }
+
+    static ResourceEffectCatalogOutcome ResourceKindLimit(
+        ResourceEffectModelDefinition model,
+        ResourceEffectWorkLimits limits,
+        int required)
+        => Limit(
+            ResourceEffectWorkLimitKind.ModelResourceKinds,
+            limits.MaxResourceKindsPerModel,
+            required,
+            model.Identity);
 
     static ResourceEffectCatalogOutcome? ValidateTarget(
         ResourceEffectTargetSelector target,
@@ -676,6 +685,17 @@ public static class ResourceEffectCatalogBuilder
                     "A declaring-type variable is not preserved by the target's structural type binding.");
             }
         }
+        if (!ResolvedFieldsAreValid(
+                    target,
+                    effect,
+                    typeArity,
+                    methodArity,
+                    boundTypeVariables))
+        {
+            return Invalid(
+                    ResourceEffectDiagnosticKind.UnboundGenericVariable,
+                    "A resolved field selector contains a generic variable not bound by the outer operation.");
+        }
 
         if (target is ResourceEffectTargetSelector.Member member)
         {
@@ -686,17 +706,6 @@ public static class ResourceEffectCatalogBuilder
                     return Invalid(
                         ResourceEffectDiagnosticKind.InvalidLocation,
                         "An effect location is incompatible with its structural member selector.");
-                }
-                if (location is ResourceEffectLocation.ResolvedField resolvedField
-                    && !ValidateResolvedFieldVariables(
-                        resolvedField.Selector,
-                        typeArity,
-                        methodArity,
-                        boundTypeVariables))
-                {
-                    return Invalid(
-                        ResourceEffectDiagnosticKind.UnboundGenericVariable,
-                        "A resolved field selector contains a generic variable not bound by the outer operation.");
                 }
             }
             foreach (ResourceEffectSignatureLocation signatureLocation in SignatureLocations(effect))
@@ -748,6 +757,38 @@ public static class ResourceEffectCatalogBuilder
                 0,
                 sourceLength,
                 message);
+    }
+
+    static bool ResolvedFieldsAreValid(
+        ResourceEffectTargetSelector target,
+        ResourceEffect effect)
+    {
+        (int typeArity, int methodArity) = TargetArities(target);
+        return ResolvedFieldsAreValid(
+            target,
+            effect,
+            typeArity,
+            methodArity,
+            BoundTypeVariables(target));
+    }
+
+    static bool ResolvedFieldsAreValid(
+        ResourceEffectTargetSelector target,
+        ResourceEffect effect,
+        int typeArity,
+        int methodArity,
+        HashSet<ResourceEffectGenericVariable> boundTypeVariables)
+    {
+        if (target is not ResourceEffectTargetSelector.Member)
+            return !Locations(effect).Any(
+                location => location is ResourceEffectLocation.ResolvedField);
+        return Locations(effect)
+            .OfType<ResourceEffectLocation.ResolvedField>()
+            .All(field => ValidateResolvedFieldVariables(
+                field.Selector,
+                typeArity,
+                methodArity,
+                boundTypeVariables));
     }
 
     static bool HasValidFiniteShape(ResourceEffect effect)
@@ -915,13 +956,21 @@ public static class ResourceEffectCatalogBuilder
         {
             ParsedDeclaration declaration = declarations[index];
             string target = ResourceEffectCanonicalizer.Target(declaration.Target);
+            ResourceEffect resolved = ResolveEffect(
+                declaration.Effect,
+                target,
+                fields,
+                outcomes);
+            if (!ResolvedFieldsAreValid(declaration.Target, resolved))
+            {
+                return Failure(
+                    declaration,
+                    ResourceEffectDiagnosticKind.UnboundGenericVariable,
+                    "A resolved field selector contains a generic variable not bound by the outer operation.");
+            }
             declarations[index] = declaration with
             {
-                Effect = ResolveEffect(
-                    declaration.Effect,
-                    target,
-                    fields,
-                    outcomes),
+                Effect = resolved,
             };
         }
         return null;
@@ -1203,10 +1252,15 @@ public static class ResourceEffectCatalogBuilder
                  secondIndex++)
             {
                 NormalizedResourceEffectDeclaration second = declarations[secondIndex];
-                if (first.Target != second.Target)
+                if (!TargetsCanOverlap(first.Target, second.Target))
                     continue;
                 if (TerminalConflict(first.Effect, second.Effect)
-                    || OperationConflict(first.Effect, second.Effect, first.Target))
+                    || EntryConflict(first.Effect, second.Effect)
+                    || OperationConflict(
+                        first.Effect,
+                        first.Target,
+                        second.Effect,
+                        second.Target))
                 {
                     ImmutableArray<ResourceDeclarationProvenance> provenances =
                         [.. first.Provenances
@@ -1270,8 +1324,9 @@ public static class ResourceEffectCatalogBuilder
 
     static bool OperationConflict(
         ResourceEffect first,
+        ResourceEffectTargetSelector firstTarget,
         ResourceEffect second,
-        ResourceEffectTargetSelector target)
+        ResourceEffectTargetSelector secondTarget)
     {
         if (first is not ResourceEffect.Operation left
             || second is not ResourceEffect.Operation right)
@@ -1280,7 +1335,110 @@ public static class ResourceEffectCatalogBuilder
         }
         if (left.Boundary == right.Boundary && left.Throws == right.Throws)
             return false;
-        return GuardsOverlap(left.Guard, right.Guard, target);
+        return GuardsOverlap(
+            left.Guard,
+            firstTarget,
+            right.Guard,
+            secondTarget);
+    }
+
+    static bool EntryConflict(ResourceEffect first, ResourceEffect second)
+    {
+        EntryEffect? left = Entry(first);
+        EntryEffect? right = Entry(second);
+        if (left is null || right is null)
+            return false;
+        if (left.Source != right.Source || !KindsOverlap(left.Kind, right.Kind))
+            return false;
+        if (left.IsBorrow || right.IsBorrow)
+            return left.IsBorrow != right.IsBorrow;
+        return left.Transition != right.Transition;
+    }
+
+    static EntryEffect? Entry(ResourceEffect effect)
+        => effect switch
+        {
+            ResourceEffect.Borrow borrow => new(
+                borrow.Source,
+                borrow.Kind,
+                IsBorrow: true,
+                Transition: ""),
+            ResourceEffect.Consume consume => new(
+                consume.Source,
+                consume.Kind,
+                IsBorrow: false,
+                Transition:
+                    "consume:"
+                    + ResourceEffectCanonicalizer.Location(consume.Target)),
+            ResourceEffect.Move
+                {
+                    When: ResourceEffectCompletion.Entry,
+                } move => new(
+                    move.Source,
+                    move.Kind,
+                    IsBorrow: false,
+                    ResourceEffectCanonicalizer.Transition(move)),
+            ResourceEffect.Release
+                {
+                    When: ResourceEffectCompletion.Entry,
+                } release => new(
+                    release.Source,
+                    release.Kind,
+                    IsBorrow: false,
+                    ResourceEffectCanonicalizer.Transition(release)),
+            ResourceEffect.Accept
+                {
+                    When: ResourceEffectCompletion.Entry,
+                } accept => new(
+                    accept.Source,
+                    accept.Kind,
+                    IsBorrow: false,
+                    ResourceEffectCanonicalizer.Transition(accept)),
+            _ => null,
+        };
+
+    static bool TargetsCanOverlap(
+        ResourceEffectTargetSelector first,
+        ResourceEffectTargetSelector second)
+        => (first, second) switch
+        {
+            (ResourceEffectTargetSelector.Type left,
+                ResourceEffectTargetSelector.Type right) =>
+                TypeExpressionsCanUnify(left.Selector, right.Selector),
+            (ResourceEffectTargetSelector.Member left,
+                ResourceEffectTargetSelector.Member right) =>
+                MembersCanOverlap(left.Selector, right.Selector),
+            _ => false,
+        };
+
+    static bool MembersCanOverlap(
+        ResourceEffectMemberSelector first,
+        ResourceEffectMemberSelector second)
+    {
+        if (first.MetadataName != second.MetadataName
+            || first.Kind != second.Kind
+            || first.IsStatic != second.IsStatic
+            || first.GenericArity != second.GenericArity
+            || first.CallingConvention != second.CallingConvention
+            || first.HasThis != second.HasThis
+            || first.ExplicitThis != second.ExplicitThis
+            || first.Parameters.Length != second.Parameters.Length)
+        {
+            return false;
+        }
+        for (int index = 0; index < first.Parameters.Length; index++)
+        {
+            if (first.Parameters[index].RefKind != second.Parameters[index].RefKind)
+                return false;
+        }
+        return TypeExpressionPairsCanUnify(
+            [
+                (first.DeclaringType, second.DeclaringType),
+                .. first.Parameters
+                    .Zip(second.Parameters)
+                    .Select(pair => (pair.First.Type, pair.Second.Type)),
+                (first.ReturnType, second.ReturnType),
+            ]);
     }
 
     static bool KindsOverlap(ResourceKindReference? first, ResourceKindReference? second)
@@ -1338,8 +1496,9 @@ public static class ResourceEffectCatalogBuilder
 
     static bool GuardsOverlap(
         ResourceEffectGuard? first,
+        ResourceEffectTargetSelector firstTarget,
         ResourceEffectGuard? second,
-        ResourceEffectTargetSelector target)
+        ResourceEffectTargetSelector secondTarget)
     {
         if (first is null || second is null)
             return true;
@@ -1347,8 +1506,10 @@ public static class ResourceEffectCatalogBuilder
         var right = (ResourceEffectGuard.ExactRuntimeType)second;
         if (left.Subject != right.Subject)
             return true;
-        ResourceTypeExpression? leftExpected = ExpectedType(target, left.Expected);
-        ResourceTypeExpression? rightExpected = ExpectedType(target, right.Expected);
+        ResourceTypeExpression? leftExpected =
+            ExpectedType(firstTarget, left.Expected);
+        ResourceTypeExpression? rightExpected =
+            ExpectedType(secondTarget, right.Expected);
         return leftExpected is null
             || rightExpected is null
             || TypeExpressionsCanUnify(leftExpected, rightExpected);
@@ -1357,10 +1518,19 @@ public static class ResourceEffectCatalogBuilder
     static bool TypeExpressionsCanUnify(
         ResourceTypeExpression first,
         ResourceTypeExpression second)
+        => TypeExpressionPairsCanUnify([(first, second)]);
+
+    static bool TypeExpressionPairsCanUnify(
+        IEnumerable<(ResourceTypeExpression First, ResourceTypeExpression Second)> pairs)
     {
         var substitutions =
             new Dictionary<ResourceEffectGenericVariable, ResourceTypeExpression>();
-        return Unify(first, second);
+        foreach ((ResourceTypeExpression first, ResourceTypeExpression second) in pairs)
+        {
+            if (!Unify(first, second))
+                return false;
+        }
+        return true;
 
         bool Unify(ResourceTypeExpression left, ResourceTypeExpression right)
         {
@@ -1815,6 +1985,11 @@ public static class ResourceEffectCatalogBuilder
 
     sealed record ScopedLocal(string Target, ResourceEffectLocalIdentity Identity);
     sealed record ScopedIndex(string Target, int Index);
+    sealed record EntryEffect(
+        ResourceEffectLocation Source,
+        ResourceKindReference? Kind,
+        bool IsBorrow,
+        string Transition);
     sealed record TerminalEffect(
         ResourceEffectLocation Source,
         ResourceKindReference? Kind,

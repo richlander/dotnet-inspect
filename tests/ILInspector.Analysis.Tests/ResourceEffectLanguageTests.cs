@@ -1173,6 +1173,205 @@ public class ResourceEffectLanguageTests
                 0));
     }
 
+    [Fact]
+    public void Catalog_RejectsOverlappingBorrowAndConsumeAtEntry()
+    {
+        ResourceEffectModelIdentity model = new("example.borrow-consume");
+        ResourceEffectCatalogOutcome outcome = ResourceEffectCatalogBuilder.Build(
+            [
+                Model(
+                    model,
+                    SimpleOperationTarget(),
+                    [
+                        "borrow(source=parameter[0],target=parameter[0],access=read,scope=call)",
+                        "consume(source=parameter[0],target=operation[0])",
+                    ]),
+            ]);
+
+        AssertConflict(outcome);
+    }
+
+    [Fact]
+    public void Catalog_RejectsMultipleConsumesToDifferentOperationSlots()
+    {
+        ResourceEffectModelIdentity model = new("example.multiple-consume");
+        ResourceEffectCatalogOutcome outcome = ResourceEffectCatalogBuilder.Build(
+            [
+                Model(
+                    model,
+                    SimpleOperationTarget(),
+                    [
+                        "consume(source=parameter[0],target=operation[0])",
+                        "consume(source=parameter[0],target=operation[1])",
+                    ]),
+            ]);
+
+        AssertConflict(outcome);
+    }
+
+    [Fact]
+    public void Catalog_AllowsConsumeFollowedByLaterOperationSlotSettlement()
+    {
+        ResourceEffectModelIdentity model = new("example.consume-release");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        model,
+                        SimpleOperationTarget(),
+                        [
+                            "consume(source=parameter[0],target=operation[0])",
+                            "release(source=operation[0],when=normal-return)",
+                        ]),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_ConflictsAcrossCompatibleTargetAssemblyPolicies()
+    {
+        ResourceAssemblySelector any = Assembly(
+            publicKeyToken: null,
+            ResourceAssemblyVersionPolicy.Any);
+        ResourceAssemblySelector exact = Assembly(
+            publicKeyToken: null,
+            ResourceAssemblyVersionPolicy.Exact(new Version(1, 0, 0, 0)));
+        AssertConflict(
+            TargetTerminalOutcome(
+                any,
+                exact,
+                "example.target-version-overlap"));
+
+        ResourceAssemblySelector noToken = Assembly(
+            publicKeyToken: null,
+            ResourceAssemblyVersionPolicy.Any);
+        ResourceAssemblySelector exactToken = Assembly(
+            publicKeyToken: "0011223344556677",
+            ResourceAssemblyVersionPolicy.Any);
+        AssertConflict(
+            TargetTerminalOutcome(
+                noToken,
+                exactToken,
+                "example.target-token-overlap"));
+    }
+
+    [Fact]
+    public void Catalog_AllowsTerminalEffectsOnProvenDisjointTargets()
+    {
+        ResourceAssemblySelector first = Assembly(
+            publicKeyToken: null,
+            ResourceAssemblyVersionPolicy.Exact(new Version(1, 0, 0, 0)));
+        ResourceAssemblySelector second = Assembly(
+            publicKeyToken: null,
+            ResourceAssemblyVersionPolicy.Exact(new Version(2, 0, 0, 0)));
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            TargetTerminalOutcome(
+                first,
+                second,
+                "example.target-version-disjoint"));
+    }
+
+    [Fact]
+    public void Catalog_RevalidatesParsedResolvedFieldVariablesAgainstOuterTarget()
+    {
+        ResourceEffectModelIdentity invalidModel = new("example.parsed-field-unbound");
+        ResourceEffectCatalogOutcome invalid = ResourceEffectCatalogBuilder.Build(
+            [
+                ParsedGenericFieldModel(
+                    invalidModel,
+                    SimpleOperationTarget()),
+            ]);
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.UnboundGenericVariable,
+            Assert.IsType<ResourceEffectCatalogOutcome.Rejected>(invalid)
+                .Diagnostics.Single().Diagnostic.Kind);
+
+        ResourceEffectModelIdentity validModel = new("example.parsed-field-bound");
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    ParsedGenericFieldModel(
+                        validModel,
+                        OpenGenericOperationTarget()),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_ChargesExplicitResourceKindsAfterCoalescing()
+    {
+        ResourceEffectModelIdentity model = new("example.explicit-kind-budget");
+        ResourceEffectModelDefinition definition = Model(
+            model,
+            SimpleOperationTarget(),
+            [],
+            [
+                Kind(model, "example.first", 0),
+                Kind(model, "example.second", 0),
+            ]);
+
+        AssertResourceKindBoundary(definition, exact: 2);
+    }
+
+    [Fact]
+    public void Catalog_ChargesParsedResourceKindsAfterCoalescing()
+    {
+        ResourceEffectModelIdentity model = new("example.parsed-kind-budget");
+        ResourceEffectModelDefinition definition = Model(
+            model,
+            new ResourceEffectTargetSelector.Type(Named("Resource")),
+            [
+                "resource(kind=example.first)",
+                "resource(kind=example.second)",
+            ]);
+
+        AssertResourceKindBoundary(definition, exact: 2);
+    }
+
+    [Fact]
+    public void Catalog_ChargesTypedResourceKindsAfterCoalescing()
+    {
+        ResourceEffectModelIdentity model = new("example.typed-kind-budget");
+        ResourceEffectTargetSelector target =
+            new ResourceEffectTargetSelector.Type(Named("Resource"));
+        ResourceEffectModelDefinition definition = new(
+            ResourceEffectLanguageIdentity.Version1,
+            model,
+            [],
+            [],
+            [
+                TypedResource(model, target, "example.first", 0),
+                TypedResource(model, target, "example.second", 1),
+            ]);
+
+        AssertResourceKindBoundary(definition, exact: 2);
+    }
+
+    [Fact]
+    public void Catalog_CoalescesExplicitParsedAndTypedKindsBeforeBudgeting()
+    {
+        ResourceEffectModelIdentity model = new("example.coalesced-kind-budget");
+        ResourceEffectTargetSelector target =
+            new ResourceEffectTargetSelector.Type(Named("Resource"));
+        ResourceEffectModelDefinition definition = new(
+            ResourceEffectLanguageIdentity.Version1,
+            model,
+            [Kind(model, "example.shared", 0)],
+            [
+                new ResourceEffectTargetDeclaration(
+                    target,
+                    [Source(model, model.Value, 1, "resource(kind=example.shared)")]),
+            ],
+            [TypedResource(model, target, "example.shared", 2)]);
+
+        ResourceEffectCatalog catalog = Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [definition],
+                new ResourceEffectWorkLimits(maxResourceKindsPerModel: 1))).Catalog;
+        Assert.Single(catalog.ResourceKinds);
+        Assert.Equal(3, catalog.ResourceKinds.Single().Provenances.Length);
+    }
+
     static ResourceEffectModelDefinition TerminalModel(bool disjointOutcomes)
     {
         ResourceEffectModelIdentity model = new("example.terminal");
@@ -1261,6 +1460,72 @@ public class ResourceEffectLanguageTests
             ]);
     }
 
+    static ResourceEffectModelDefinition ParsedGenericFieldModel(
+        ResourceEffectModelIdentity model,
+        ResourceEffectTargetSelector operationTarget)
+        => new(
+            ResourceEffectLanguageIdentity.Version1,
+            model,
+            [],
+            [
+                new ResourceEffectTargetDeclaration(
+                    GenericFieldTarget(),
+                    [
+                        Source(
+                            model,
+                            model.Value,
+                            0,
+                            "resource(kind=example.generic-field<type[0]>,value=declared-field,selector=state)"),
+                    ]),
+                new ResourceEffectTargetDeclaration(
+                    operationTarget,
+                    [
+                        Source(
+                            model,
+                            model.Value,
+                            1,
+                            "pass(source=receiver.field[state],target=return)"),
+                    ]),
+            ]);
+
+    static NormalizedResourceEffectDeclaration TypedResource(
+        ResourceEffectModelIdentity model,
+        ResourceEffectTargetSelector target,
+        string kind,
+        int ordinal)
+        => new(
+            target,
+            new ResourceEffect.Resource(
+                new ResourceKindReference(new ResourceKindIdentity(kind)),
+                null,
+                null),
+            [
+                new ResourceDeclarationProvenance(
+                    model,
+                    ResourceDeclarationAuthority.ProductShipped,
+                    new InertString(TextPolicy.Field, model.Value + ".typed"),
+                    ordinal),
+            ]);
+
+    static void AssertResourceKindBoundary(
+        ResourceEffectModelDefinition model,
+        int exact)
+    {
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [model],
+                new ResourceEffectWorkLimits(
+                    maxResourceKindsPerModel: exact)));
+        var exceeded = Assert.IsType<ResourceEffectCatalogOutcome.WorkLimitExceeded>(
+            ResourceEffectCatalogBuilder.Build(
+                [model],
+                new ResourceEffectWorkLimits(
+                    maxResourceKindsPerModel: exact - 1)));
+        Assert.Equal(ResourceEffectWorkLimitKind.ModelResourceKinds, exceeded.LimitKind);
+        Assert.Equal(exact - 1, exceeded.Limit);
+        Assert.Equal(exact, exceeded.Required);
+    }
+
     static void AssertTypedRejected(
         string modelValue,
         ResourceEffect effect,
@@ -1312,6 +1577,26 @@ public class ResourceEffectLanguageTests
                         "operation(boundary=transparent,throws=never,guard=exact-type[parameter[0];signature-parameter[0]])",
                         "operation(boundary=ordinary,throws=possible,guard=exact-type[parameter[0];signature-parameter[1]])",
                     ]),
+            ]);
+    }
+
+    static ResourceEffectCatalogOutcome TargetTerminalOutcome(
+        ResourceAssemblySelector first,
+        ResourceAssemblySelector second,
+        string modelValue)
+    {
+        ResourceEffectModelIdentity firstModel = new(modelValue + ".first");
+        ResourceEffectModelIdentity secondModel = new(modelValue + ".second");
+        return ResourceEffectCatalogBuilder.Build(
+            [
+                Model(
+                    firstModel,
+                    OperationTargetForDeclaringAssembly(first),
+                    ["release(source=parameter[0],when=normal-return)"]),
+                Model(
+                    secondModel,
+                    OperationTargetForDeclaringAssembly(second),
+                    ["move(source=parameter[0],target=return,when=normal-return)"]),
             ]);
     }
 
@@ -1416,6 +1701,28 @@ public class ResourceEffectLanguageTests
                 ],
                 Named("Object")));
 
+    static ResourceEffectTargetSelector OpenGenericOperationTarget()
+        => OperationTargetWithDeclaring(
+            OpenGenericOwner(),
+            "Transform");
+
+    static ResourceEffectTargetSelector GenericFieldTarget()
+        => new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                OpenGenericOwner(),
+                "State",
+                ResourceEffectMemberKind.Field,
+                isStatic: false,
+                genericArity: 0,
+                ResourceEffectCallingConvention.Default,
+                hasThis: false,
+                explicitThis: false,
+                [],
+                new ResourceTypeExpression.Variable(
+                    new ResourceEffectGenericVariable(
+                        ResourceEffectGenericVariableKind.Type,
+                        0))));
+
     static ResourceEffectTargetSelector GuardTarget(
         ResourceTypeExpression first,
         ResourceTypeExpression second)
@@ -1481,6 +1788,12 @@ public class ResourceEffectLanguageTests
                 ],
                 Named("Result")));
 
+    static ResourceEffectTargetSelector OperationTargetForDeclaringAssembly(
+        ResourceAssemblySelector assembly)
+        => OperationTargetWithDeclaring(
+            Named(assembly, "Example", "Owner"),
+            "Transform");
+
     static ResourceEffectMemberSelector MemberSelector(
         ResourceEffectMemberKind kind,
         bool isStatic,
@@ -1528,6 +1841,20 @@ public class ResourceEffectLanguageTests
             @namespace,
             [new ResourceTypeNameSegment(name, 0)]);
 
+    static ResourceTypeExpression.Named OpenGenericOwner()
+        => new(
+            Assembly(
+                publicKeyToken: null,
+                ResourceAssemblyVersionPolicy.Any),
+            "Example",
+            [new ResourceTypeNameSegment("Owner", 1)],
+            [
+                new ResourceTypeExpression.Variable(
+                    new ResourceEffectGenericVariable(
+                        ResourceEffectGenericVariableKind.Type,
+                        0)),
+            ]);
+
     static ResourceAssemblySelector Assembly(
         string? publicKeyToken,
         ResourceAssemblyVersionPolicy version)
@@ -1551,6 +1878,13 @@ public class ResourceEffectLanguageTests
         Assert.Equal(offset, result.Diagnostic.Offset);
         Assert.Equal(token.Length, result.Diagnostic.Length);
     }
+
+    static void AssertConflict(ResourceEffectCatalogOutcome outcome)
+        => Assert.All(
+            Assert.IsType<ResourceEffectCatalogOutcome.Rejected>(outcome).Diagnostics,
+            diagnostic => Assert.Equal(
+                ResourceEffectDiagnosticKind.ConflictingDeclaration,
+                diagnostic.Diagnostic.Kind));
 
     static void AssertLimit(
         ResourceEffectParseOutcome outcome,
