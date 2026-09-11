@@ -14,6 +14,7 @@ bash "$root/eng/prepare-decompiler-corpus.sh" "$tmp/pinned.txt"
 
 declare -a local_assemblies=(
   "$root/artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll"
+  "$root/artifacts/bin/NetworkAccess/release/NetworkAccess.dll"
   "$root/artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll"
   "$root/artifacts/bin/DotnetInspector.Services/release/DotnetInspector.Services.dll"
   "$root/artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll"

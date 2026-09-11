@@ -27,9 +27,11 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_NUGET_FEED: https://api.nuget.org/v3/index.json
   DOTNET_ROOT: ${{ github.workspace }}/artifacts/dotnet-coreclr
-  DOTNET_RUNTIME_VERSION: '12.0.0-alpha.1.26454.116'
+  DOTNET_RUNTIME_VERSION: '12.0.0-alpha.1.26459.112'
   DOTNET_SDK_FEATURE_BAND: '12.0.100-alpha.1'
-  DOTNET_SDK_VERSION: '12.0.100-alpha.1.26454.116'
+  DOTNET_SDK_VERSION: '12.0.100-alpha.1.26459.112'
+  DOTNET_VMR_COMMIT: 7792b064d8573a30d8527944de8184b7e108837e
+  DOTNET_VMR_REPOSITORY: https://github.com/dotnet/dotnet
 
 jobs:
   publish:
@@ -80,7 +82,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
+          cache-dependency-path: inspect-web/package-lock.json
 
       - name: Install browser Wasm workload
         shell: bash
@@ -124,10 +126,17 @@ jobs:
             Microsoft.NETCore.App.Runtime.AOT.linux-x64.Cross.browser-wasm; do
             test -d "$DOTNET_ROOT/packs/$pack/$DOTNET_RUNTIME_VERSION"
           done
-          test -f "$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$DOTNET_RUNTIME_VERSION.nupkg"
+          webassembly_pack_nupkg="$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$DOTNET_RUNTIME_VERSION.nupkg"
+          test -f "$webassembly_pack_nupkg"
+          vmr_repository=$(unzip -p "$webassembly_pack_nupkg" '*.nuspec' \
+            | sed -n 's/.*<repository[^>]*url="\([^"]*\)"[^>]*>.*/\1/p')
+          vmr_commit=$(unzip -p "$webassembly_pack_nupkg" '*.nuspec' \
+            | sed -n 's/.*<repository[^>]*commit="\([^"]*\)"[^>]*>.*/\1/p')
+          test "$vmr_repository" = "$DOTNET_VMR_REPOSITORY"
+          test "$vmr_commit" = "$DOTNET_VMR_COMMIT"
 
           target_framework=$(dotnet msbuild \
-            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -getProperty:TargetFramework \
             -nologo)
           test "$target_framework" = "net11.0"
@@ -142,13 +151,15 @@ jobs:
             --arg daily_feed "$DOTNET_DAILY_FEED" \
             --arg nuget_feed "$DOTNET_NUGET_FEED" \
             --arg target_framework "$target_framework" \
+            --arg vmr_commit "$vmr_commit" \
+            --arg vmr_repository "$vmr_repository" \
             --arg native_wasm_sha256 "$native_wasm_sha256" \
             --arg native_javascript_sha256 "$native_javascript_sha256" \
             '
               . as $manifest
               | .workloads["wasm-tools"].packs as $packs
               | {
-                  schema: 1,
+                  schema: 2,
                   sdk: {
                     version: $sdk,
                     featureBand: $feature_band
@@ -157,6 +168,10 @@ jobs:
                     name: "Microsoft.NETCore.App",
                     version: $runtime,
                     implementation: "CoreCLR",
+                    source: {
+                      repository: $vmr_repository,
+                      commit: $vmr_commit
+                    },
                     assets: {
                       nativeWasmSha256: $native_wasm_sha256,
                       nativeJavaScriptSha256: $native_javascript_sha256
@@ -165,7 +180,9 @@ jobs:
                   targetFramework: $target_framework,
                   configuration: {
                     asyncLowering: "runtime",
-                    publishReadyToRun: false,
+                    publishReadyToRun: true,
+                    publishReadyToRunComposite: false,
+                    readyToRunContainer: "wasm",
                     wasmBuildNative: false
                   },
                   workload: {
@@ -184,7 +201,7 @@ jobs:
             ' "$manifest" > "$cohort_dir/runtime-cohort.json"
 
       - name: Build browser frontend
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: |
           npm ci
           npm run build
@@ -225,7 +242,7 @@ jobs:
           version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
-            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output artifacts/inspect-web-coreclr-publish \
             --configfile "$nuget_config" \
@@ -234,7 +251,8 @@ jobs:
             -p:BuildTimestampUtc="$built_at" \
             -p:Features=runtime-async=on \
             -p:UseMonoRuntime=false \
-            -p:PublishReadyToRun=false \
+            -p:PublishReadyToRun=true \
+            -p:PublishReadyToRunComposite=false \
             -p:WasmBuildNative=false \
             -p:WasmNestedPublishAppDependsOn= \
             -p:WasmEnableExceptionHandling=true \
@@ -246,6 +264,11 @@ jobs:
             artifacts/inspect-web-coreclr-runtime-cohort/workload-list.txt \
             artifacts/inspect-web-coreclr-runtime-cohort/runtime-cohort.json \
             artifacts/inspect-web-coreclr-publish/runtime-cohort/
+          node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
+            --record \
+            artifacts/inspect-web-coreclr-publish/wwwroot \
+            inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
+            artifacts/inspect-web-coreclr-publish/runtime-cohort
 
       - name: Verify runtime-async deployment
         shell: bash
@@ -253,7 +276,7 @@ jobs:
           RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
             eng/verify-inspect-web-async-deployment.sh \
               runtime \
-              prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
+              inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
               artifacts/inspect-web-coreclr-publish/wwwroot \
               artifacts/inspect-web-coreclr-publish/async-lowering.json \
               artifacts/inspect-web-runtime-async-receipts
@@ -261,7 +284,7 @@ jobs:
       - name: Publish MSDL managed API
         run: >
           dotnet publish
-          prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj
+          inspect-web/msdl-proxy/MsdlProxy.csproj
           -c Release
           --output artifacts/inspect-web-coreclr-publish/api
 
@@ -290,13 +313,13 @@ jobs:
             and .repository_projects == (.repository_projects | sort | unique)
             and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
             and ([.assemblies[].name] == [
-              "InspectWeb.Engine",
-              "InspectWeb.Engine.AnalysisExports",
-              "InspectWeb.Engine.CallGraphExports",
-              "InspectWeb.Engine.CatalogExports",
-              "InspectWeb.Engine.MetadataExports",
-              "InspectWeb.Engine.PackageExports",
-              "InspectWeb.Engine.SourceExports"
+              "DotnetInspect.Web",
+              "DotnetInspect.Web.Interop.Analysis",
+              "DotnetInspect.Web.Interop.CallGraph",
+              "DotnetInspect.Web.Interop.Catalog",
+              "DotnetInspect.Web.Interop.Metadata",
+              "DotnetInspect.Web.Interop.Package",
+              "DotnetInspect.Web.Interop.Source"
             ])
             and ([.assemblies[].module] == [
               "inspect-web-host",
@@ -318,7 +341,7 @@ jobs:
               and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
               and .webcil_assembly == .name
               and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
-              and (.published_webcil_file | test("^InspectWeb\\.Engine(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+              and (.published_webcil_file | test("^DotnetInspect\\.Web(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
               and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
               and .js_export_method_count > 0
               and .async_method_count > 0
@@ -378,26 +401,53 @@ jobs:
           cohort=artifacts/inspect-web-coreclr-publish/runtime-cohort
           test -f "$cohort/dotnet-info.txt"
           test -f "$cohort/workload-list.txt"
+          node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
+            --verify \
+            "$site" \
+            inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
+            "$cohort"
           jq -e '
-            .schema == 1
+            .schema == 2
             and .sdk == {
-              version: "12.0.100-alpha.1.26454.116",
+              version: "12.0.100-alpha.1.26459.112",
               featureBand: "12.0.100-alpha.1"
             }
             and .runtime.name == "Microsoft.NETCore.App"
-            and .runtime.version == "12.0.0-alpha.1.26454.116"
+            and .runtime.version == "12.0.0-alpha.1.26459.112"
             and .runtime.implementation == "CoreCLR"
+            and .runtime.source == {
+              repository: "https://github.com/dotnet/dotnet",
+              commit: "7792b064d8573a30d8527944de8184b7e108837e"
+            }
             and (.runtime.assets.nativeWasmSha256 | test("^[0-9a-f]{64}$"))
             and (.runtime.assets.nativeJavaScriptSha256 | test("^[0-9a-f]{64}$"))
             and .targetFramework == "net11.0"
             and .configuration == {
               asyncLowering: "runtime",
-              publishReadyToRun: false,
+              publishReadyToRun: true,
+              publishReadyToRunComposite: false,
+              readyToRunContainer: "wasm",
               wasmBuildNative: false
             }
+            and .readyToRun.evidenceFile == "ready-to-run-assets.json"
+            and (.readyToRun.evidenceSha256 | test("^[0-9a-f]{64}$"))
+            and .readyToRun.format == "crossgen2-webassembly"
+            and .readyToRun.mode == "per-assembly"
+            and .readyToRun.publishedManagedAssetCount > 0
+            and .readyToRun.readyToRunAssetCount
+              == (.readyToRun.publishedManagedAssetCount - 3)
+            and .readyToRun.readyToRunBytes > 0
+            and .readyToRun.inspectWebApplicationAssetCount == 8
+            and .readyToRun.ilOnlyAssets == [
+              "System.ComponentModel.wasm",
+              "System.Xml.Linq.wasm",
+              "System.wasm"
+            ]
+            and all(.readyToRun.frameworkPayload[];
+              .fileCount > 0 and .bytes > 0)
             and .workload == {
               id: "wasm-tools",
-              manifestVersion: "12.0.100-alpha.1.26454.116",
+              manifestVersion: "12.0.100-alpha.1.26459.112",
               sources: [
                 "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json",
                 "https://api.nuget.org/v3/index.json"
@@ -405,23 +455,23 @@ jobs:
               packs: [
                 {
                   id: "Microsoft.NET.Runtime.WebAssembly.Sdk.net11",
-                  version: "12.0.0-alpha.1.26454.116"
+                  version: "12.0.0-alpha.1.26459.112"
                 },
                 {
                   id: "Microsoft.NET.Sdk.WebAssembly.Pack.net11",
-                  version: "12.0.0-alpha.1.26454.116"
+                  version: "12.0.0-alpha.1.26459.112"
                 },
                 {
                   id: "Microsoft.NETCore.App.Runtime.Mono.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
+                  version: "12.0.0-alpha.1.26459.112"
                 },
                 {
                   id: "Microsoft.NETCore.App.Runtime.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
+                  version: "12.0.0-alpha.1.26459.112"
                 },
                 {
                   id: "Microsoft.NETCore.App.Runtime.AOT.Cross.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
+                  version: "12.0.0-alpha.1.26459.112"
                 }
               ]
             }
@@ -473,13 +523,13 @@ jobs:
             and .repository_projects == (.repository_projects | sort | unique)
             and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
             and ([.assemblies[].name] == [
-              "InspectWeb.Engine",
-              "InspectWeb.Engine.AnalysisExports",
-              "InspectWeb.Engine.CallGraphExports",
-              "InspectWeb.Engine.CatalogExports",
-              "InspectWeb.Engine.MetadataExports",
-              "InspectWeb.Engine.PackageExports",
-              "InspectWeb.Engine.SourceExports"
+              "DotnetInspect.Web",
+              "DotnetInspect.Web.Interop.Analysis",
+              "DotnetInspect.Web.Interop.CallGraph",
+              "DotnetInspect.Web.Interop.Catalog",
+              "DotnetInspect.Web.Interop.Metadata",
+              "DotnetInspect.Web.Interop.Package",
+              "DotnetInspect.Web.Interop.Source"
             ])
             and ([.assemblies[].module] == [
               "inspect-web-host",
@@ -501,7 +551,7 @@ jobs:
               and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
               and .webcil_assembly == .name
               and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
-              and (.published_webcil_file | test("^InspectWeb\\.Engine(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+              and (.published_webcil_file | test("^DotnetInspect\\.Web(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
               and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
               and .js_export_method_count > 0
               and .async_method_count > 0
@@ -561,26 +611,53 @@ jobs:
           cohort=artifacts/inspect-web-coreclr-publish/runtime-cohort
           test -f "$cohort/dotnet-info.txt"
           test -f "$cohort/workload-list.txt"
+          node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
+            --verify \
+            "$site" \
+            inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
+            "$cohort"
           jq -e '
-            .schema == 1
+            .schema == 2
             and .sdk == {
-              version: "12.0.100-alpha.1.26454.116",
+              version: "12.0.100-alpha.1.26459.112",
               featureBand: "12.0.100-alpha.1"
             }
             and .runtime.name == "Microsoft.NETCore.App"
-            and .runtime.version == "12.0.0-alpha.1.26454.116"
+            and .runtime.version == "12.0.0-alpha.1.26459.112"
             and .runtime.implementation == "CoreCLR"
+            and .runtime.source == {
+              repository: "https://github.com/dotnet/dotnet",
+              commit: "7792b064d8573a30d8527944de8184b7e108837e"
+            }
             and (.runtime.assets.nativeWasmSha256 | test("^[0-9a-f]{64}$"))
             and (.runtime.assets.nativeJavaScriptSha256 | test("^[0-9a-f]{64}$"))
             and .targetFramework == "net11.0"
             and .configuration == {
               asyncLowering: "runtime",
-              publishReadyToRun: false,
+              publishReadyToRun: true,
+              publishReadyToRunComposite: false,
+              readyToRunContainer: "wasm",
               wasmBuildNative: false
             }
+            and .readyToRun.evidenceFile == "ready-to-run-assets.json"
+            and (.readyToRun.evidenceSha256 | test("^[0-9a-f]{64}$"))
+            and .readyToRun.format == "crossgen2-webassembly"
+            and .readyToRun.mode == "per-assembly"
+            and .readyToRun.publishedManagedAssetCount > 0
+            and .readyToRun.readyToRunAssetCount
+              == (.readyToRun.publishedManagedAssetCount - 3)
+            and .readyToRun.readyToRunBytes > 0
+            and .readyToRun.inspectWebApplicationAssetCount == 8
+            and .readyToRun.ilOnlyAssets == [
+              "System.ComponentModel.wasm",
+              "System.Xml.Linq.wasm",
+              "System.wasm"
+            ]
+            and all(.readyToRun.frameworkPayload[];
+              .fileCount > 0 and .bytes > 0)
             and .workload == {
               id: "wasm-tools",
-              manifestVersion: "12.0.100-alpha.1.26454.116",
+              manifestVersion: "12.0.100-alpha.1.26459.112",
               sources: [
                 "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json",
                 "https://api.nuget.org/v3/index.json"
@@ -588,23 +665,23 @@ jobs:
               packs: [
                 {
                   id: "Microsoft.NET.Runtime.WebAssembly.Sdk.net11",
-                  version: "12.0.0-alpha.1.26454.116"
+                  version: "12.0.0-alpha.1.26459.112"
                 },
                 {
                   id: "Microsoft.NET.Sdk.WebAssembly.Pack.net11",
-                  version: "12.0.0-alpha.1.26454.116"
+                  version: "12.0.0-alpha.1.26459.112"
                 },
                 {
                   id: "Microsoft.NETCore.App.Runtime.Mono.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
+                  version: "12.0.0-alpha.1.26459.112"
                 },
                 {
                   id: "Microsoft.NETCore.App.Runtime.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
+                  version: "12.0.0-alpha.1.26459.112"
                 },
                 {
                   id: "Microsoft.NETCore.App.Runtime.AOT.Cross.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
+                  version: "12.0.0-alpha.1.26459.112"
                 }
               ]
             }

@@ -62,6 +62,13 @@ internal static class CustomAttributeValueDecoder
         MetadataSafetyPolicy.MaxSignatureTypeNodes;
 
     /// <summary>
+    /// Maximum metadata name bytes rendered or compared while resolving enums
+    /// across one attribute decode.
+    /// </summary>
+    public const int MaxEnumResolutionNameWork =
+        MetadataSafetyPolicy.MaxStructuralSignatureWorkChars;
+
+    /// <summary>
     /// Returns <see langword="true"/> and a materialized <paramref name="value"/>
     /// when decoding succeeds, or <see langword="false"/> when the blob is refused.
     /// Caller-callback failures are raised as
@@ -105,15 +112,19 @@ internal static class CustomAttributeValueDecoder
                 out namedArgumentWidthDefaulted);
         }
         catch (Exception ex) when (
-            ex is BadImageFormatException or ArgumentOutOfRangeException)
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or EnumResolutionBudgetExceededException)
         {
             // Malformed structure — including truncation, a bad signature, and
             // a definition-index failure — is a decode outcome, not a laundered
             // exception. A caller callback failure is wrapped in
             // CallerCallbackException, which is not one of these types, so it
             // escapes here and is rethrown at the public edge. Resource
-            // exhaustion (OutOfMemoryException) and every other internal failure
-            // also propagate: this filter is exact, never a bare catch.
+            // exhaustion (OutOfMemoryException) and every other internal
+            // failure also propagate. Enum-resolution budget exhaustion is a
+            // separate decode-local refusal so it is never cached as an
+            // intrinsic type-definition-index failure.
             value = default;
             fixedArgumentWidthDefaulted = default;
             namedArgumentWidthDefaulted = default;
@@ -132,8 +143,15 @@ internal static class CustomAttributeValueDecoder
 
         public long StructuralMatchFrames { get; internal set; }
 
+        public long TypeDefinitionIndexNameBytes { get; internal set; }
+
+        public long TypeReferenceMatchNameBytes { get; internal set; }
+
         public long Operations =>
             TypeDefinitionCandidatesVisited + StructuralMatchFrames;
+
+        public long NameBytes =>
+            TypeDefinitionIndexNameBytes + TypeReferenceMatchNameBytes;
 
         internal void VisitTypeDefinitionCandidate()
         {
@@ -147,15 +165,52 @@ internal static class CustomAttributeValueDecoder
             StructuralMatchFrames++;
         }
 
+        internal void VisitTypeDefinitionIndexNameBytes(int bytes)
+        {
+            long accepted = ReserveNameBytes(bytes);
+            TypeDefinitionIndexNameBytes += accepted;
+            RefuseIncompleteNameCharge(accepted, bytes);
+        }
+
+        internal void VisitTypeReferenceMatchNameBytes(int bytes)
+        {
+            long accepted = ReserveNameBytes(bytes);
+            TypeReferenceMatchNameBytes += accepted;
+            RefuseIncompleteNameCharge(accepted, bytes);
+        }
+
+        long ReserveNameBytes(int bytes)
+        {
+            if (bytes <= 0)
+                return 0;
+            return Math.Min(
+                bytes,
+                MaxEnumResolutionNameWork - NameBytes);
+        }
+
+        static void RefuseIncompleteNameCharge(
+            long accepted,
+            int requested)
+        {
+            if (accepted != requested)
+            {
+                throw new EnumResolutionBudgetExceededException(
+                    "Custom-attribute enum resolution exceeds the name-work budget.");
+            }
+        }
+
         void EnsureBudget()
         {
             if (Operations >= MaxEnumResolutionWork)
             {
-                throw new BadImageFormatException(
+                throw new EnumResolutionBudgetExceededException(
                     "Custom-attribute enum resolution exceeds the work budget.");
             }
         }
     }
+
+    sealed class EnumResolutionBudgetExceededException(string message)
+        : Exception(message);
 
     /// <summary>
     /// One decode of one attribute value. Fixed arguments are read from the
@@ -1048,7 +1103,7 @@ internal static class CustomAttributeValueDecoder
                     name = TypeResolver.GetTypeNameFromDefinition(
                         _reader,
                         handle,
-                        ObserveBeforeMaterialize);
+                        ObserveTypeDefinitionIndexName);
                 }
                 catch (Exception ex) when (
                     ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -1061,6 +1116,12 @@ internal static class CustomAttributeValueDecoder
             }
 
             return result;
+        }
+
+        void ObserveTypeDefinitionIndexName(int amount)
+        {
+            _enumResolutionWork.VisitTypeDefinitionIndexNameBytes(amount);
+            ObserveBeforeMaterialize(amount);
         }
 
         void ObserveBeforeMaterialize(int amount)

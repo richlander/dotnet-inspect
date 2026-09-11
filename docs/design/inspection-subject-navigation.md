@@ -91,6 +91,24 @@ neither vocabulary creates a Navigation subject.
 The pre-adoption decision to keep this grammar package-specific is recorded on
 [PR #6184](https://github.com/richlander/dotnet-inspect/pull/6184#issuecomment-5574458614).
 
+The atomic descendant-subject plus exact-lens capability added by #6490 follows
+that same two-host adoption:
+
+- #6111's stateless Navigation producer evaluates one exact descendant pair,
+  and #5513 exposes that result through the agent-oriented CLI surface when a
+  CLI request supplies an exact subject and facet. The CLI receives the same
+  exact Registry mapping and complete snapshot result, but no action ID,
+  retained effect authority, Browser history, or Compare mode.
+- #6113's retained Navigation session binds the same request to current intent
+  and synchronization authority. #5510 and #5511 adopt the resulting opaque
+  interactive action and complete result in Browser/Wasm; Compare uses it in
+  stages 4 and 5 of its nine-stage adoption path.
+
+The pure exact-pair evaluator and retained wrapper are one Navigation
+capability, not separate host policies. The CLI does not acquire a retained
+terminal session, and Browser/Wasm does not reconstruct the exact pair from
+display state.
+
 The exact Workspace and retained-occurrence ancestry is necessary for
 correctness: without it, distinct logical occurrences inside one Workspace can
 alias, and display keys can target the wrong retained occurrence. A
@@ -582,7 +600,7 @@ Registry-backed lens-recommendation protocol below.
 Root-only `NoCompileAssets` and `EmptyCompileGroup` outcomes open Package with
 their explanation visible. Failed selection is not treated as an empty package.
 Browser entry and restoration are gated by
-`prototypes/inspect-web/browser/library-hierarchy.spec.ts`; root-only and failed
+`inspect-web/browser/library-hierarchy.spec.ts`; root-only and failed
 selection modeling is gated by `test/package-acquisition.test.ts` in that host.
 This is a default-entry adoption, not completion of #5510/#5511's broader
 snapshot and result-authority migration.
@@ -837,6 +855,89 @@ refreshed descriptors, a reconciled active subject, or a changed lens basis or
 evidence. The same rule applies to a completed Registry or policy `Failed`
 outcome. A non-success result shares the unchanged-snapshot outcome class only
 when the complete snapshot is unchanged.
+
+#### Atomic descendant subject and lens activation
+
+Issue [#6490](https://github.com/richlander/dotnet-inspect/issues/6490)
+adds one product-owned request for a current subject that must activate an
+exact descendant with an exact destination lens. Its first retained consumer
+is Library-to-Type and Type-to-Member drill-down in
+[Inspect Web Compare Experience](inspect-web-compare-experience.md), under the
+end-to-end tracker
+[#5083](https://github.com/richlander/dotnet-inspect/issues/5083). The
+stateless CLI consumer is tracked by #5513 under #5512.
+
+The host-neutral request binds:
+
+```text
+DescendantSubjectLensRequest
+  Source       exact current structural subject
+  Destination  NavigationLensIdentity
+```
+
+The destination lens already binds its exact descendant subject and exact
+Registry facet. A retained interactive session issues an opaque
+generation-scoped action ID bound to the complete request for an available
+owner-issued descendant row. A canonical stateless product peer may submit the
+structured pair through the typed evaluation seam. Browser display state never
+becomes request identity.
+
+The destination must be in the same Workspace and retained Package occurrence
+as its source and must be an eligible descendant admitted by that exact row.
+The first retained consumer uses Library-to-Type and Type-to-Member edges;
+callers do not construct or broaden the relationship from metadata, display
+text, or hierarchy position.
+
+For one-Library sources, an eligible Type retains that exact Library as its
+defining Library. For `All libraries`, each eligible Type row names one exact
+constituent Library from the aggregate's complete admitted Library set; the
+Type keeps that concrete defining-Library identity rather than acquiring an
+aggregate parent. Applying the action installs the destination Type's defining
+Library as hierarchy and Type-inventory context. A Type-to-Member action
+requires the Member's exact declaring Type to equal the source Type.
+
+Submitting the opaque action begins one explicit Navigation intent. Navigation
+validates the action's session, generation, source subject, destination
+ancestry, and exact subject-bound lens before Registry resolution. A stale,
+foreign-Workspace, foreign-occurrence, duplicated, source-mismatched, or
+non-descendant action is `Rejected` without Registry evaluation,
+recommendation, correspondence, or fallback.
+
+Stateless evaluation validates the same exact source, destination, Workspace,
+occurrence, and descendant relationship without issuing retained action or
+effect authority. It returns the same semantic mapping and complete evaluated
+snapshot as data, while retained execution alone may install that snapshot.
+
+After validation, Navigation resolves the destination facet against the exact
+destination subject. It never activates the subject first and never runs lens
+recommendation for that destination:
+
+| Destination Registry or preparation result | Navigation result and state |
+| --- | --- |
+| `Available`, with successful Navigation preparation | `Applied`; install one complete replacement snapshot whose active subject and effective lens equal the exact destination pair |
+| `Unavailable` | `Unavailable`; retain the installed pair and return the exact request and Registry evidence |
+| `Failed` | `Failed`; retain the installed pair and return the exact request and Registry diagnostic |
+| `Inapplicable` or `Unknown` | `Rejected`; retain the installed pair and return the exact Registry evidence |
+| Navigation preparation failure | `Failed`; retain the installed pair and identify Navigation as the failure source |
+| Superseded by a newer explicit intent | `Superseded`; publish no visible effect |
+
+Here, "retain the installed pair" means that this action does not install
+either requested half. The ordinary retained-session result may still carry a
+newer complete snapshot with `Synchronization required` when product state was
+committed by another operation; the consumer installs that current snapshot
+without presenting this descendant request as applied.
+
+An applied action advances the state revision once and produces one canonical
+subject-and-lens transition. The Navigation Consumer applies its existing
+explicit-action history rule to that one result, so the Browser pushes one
+entry and never records an intermediate recommended lens. The action carries
+no host presentation mode, query input, or renderer state.
+
+This action is general Navigation capability, not a Compare-specific command.
+Any future consumer must supply one owner-issued descendant row and exact
+destination lens under the same rules. Ordinary subject activation without an
+exact lens remains recommendation-driven, and standalone lens activation
+continues to require the requested subject to be current.
 
 Selecting Workspace changes only the committed active subject. It preserves
 the active retained-coordinate occurrence and its descendant context when one
@@ -1239,6 +1340,13 @@ The eventual subject-navigation implementation must include named gates for:
 - `StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`
 - `ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`
 - `ExplicitLensResolution_RetainsExactRegistryEvidence`
+- `DescendantLensAction_BindsExactSourceDestinationAndFacet`
+- `DescendantLensAction_RejectsStaleForeignAndNonDescendantBeforeRegistryResolution`
+- `DescendantLensResolution_MapsEveryRegistryOutcomeWithoutRecommendation`
+- `StatelessAndRetainedDescendantLens_UseSameExactMapping`
+- `AppliedDescendantLens_InstallsExactPairInOneSnapshot`
+- `NonAppliedDescendantLens_InstallsNeitherRequestedHalf`
+- `SupersededDescendantLens_PublishesNoEffect`
 - `ExactNonSuccess_InstallsExactRequestBasis`
 - `NavigationPreparationFailure_RemainsDistinctFromRegistryFailure`
 - `NavigationPreparationFailure_RetainsSnapshotAndRevision`
@@ -1323,6 +1431,22 @@ forces Navigation preparation to fail after Registry availability, and
 requires the complete snapshot and revision to remain unchanged while the
 result identifies Navigation as the failure source.
 
+The descendant-action binding gate independently retains the source subject,
+destination subject, facet, Workspace, occurrence, defining Library, and
+issuing generation. Its rejection gate varies each currency and the eligible
+descendant relation before a throwing Registry sentinel. It includes two
+identically named Types in different Libraries under `All libraries` and
+requires the selected row's exact defining Library to become hierarchy and
+Type-inventory context. The exact-pair gate compares the installed subject and
+effective lens with that independent request after one applied result. The
+non-applied gate covers unavailable, failed, inapplicable, unknown, and
+Navigation-preparation failure and requires that neither requested half enters
+the installed snapshot. Existing retained-session authority and consumer
+synchronization gates cover supersession, complete-snapshot installation, and
+acknowledgement; this action introduces no second operation or partial
+publication protocol. The exact pair and descendant relationship remain
+**unverified** until these named Release gates land.
+
 ## Acceptance cases
 
 | Case | Expected result |
@@ -1358,6 +1482,13 @@ result identifies Navigation as the failure source.
 | Same facet on two exact Types | Two distinct subject-bound navigation lens identities |
 | Lens request bound to another exact Type | Rejected before Registry resolution with active subject unchanged |
 | Explicit inapplicable or unknown lens | Rejected with exact Registry evidence and no fallback |
+| Library Type row with exact Type Compare lens | One applied snapshot contains that Type and `type.compare`; no Library-to-Type intermediate recommendation |
+| `All libraries` has identically named Types in L1 and L2, and the L2 row is activated | Exact L2-bound Type, L2 hierarchy, L2 Type-inventory context, and `type.compare`; aggregate identity does not become Type ancestry |
+| Type Member row with exact Member Compare lens | One applied snapshot contains that Member and `member.compare`; no Type-to-Member intermediate recommendation |
+| Descendant lens unavailable, failed, inapplicable, unknown, or preparation-failed | Prior installed subject and lens remain; the exact destination evidence is returned and neither requested half is installed |
+| Stale, foreign-occurrence, or non-descendant subject+lens action | Rejected before Registry resolution or recommendation |
+| Descendant subject+lens action superseded by a newer intent | No visible effect from the superseded action |
+| Stateless CLI evaluates the same exact descendant pair | Same exact Registry mapping and complete snapshot data as retained evaluation; no action ID, effect authority, history, or Compare mode |
 | Failed recommendation becomes available on refresh | Recommendation reruns and installs the newly effective exact lens |
 | Recommended fallback then preferred role becomes available | Recommendation replaces the fallback with the preferred exact lens |
 | Explicit unavailable lens becomes available on refresh | Exact identity is re-resolved without considering a sibling fallback |

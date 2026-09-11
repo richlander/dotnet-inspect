@@ -2103,8 +2103,9 @@ static class Program
         {
             "compile-back" => CorpusFidelityOracle.CompileBack,
             "rts-parity" or "return-to-sender" or "rts" => CorpusFidelityOracle.ReturnToSender,
+            "rts-cutover" or "return-to-sender-cutover" or "native-rts" => CorpusFidelityOracle.ReturnToSenderCutover,
             _ => throw new ArgumentException(
-                $"Unknown corpus fidelity oracle '{value}'. Expected compile-back or rts-parity."),
+                $"Unknown corpus fidelity oracle '{value}'. Expected compile-back, rts-parity, or rts-cutover."),
         };
 
     static CorpusProfile ParseCorpusProfile(string value)
@@ -2539,9 +2540,15 @@ static class Program
                                 fidelity oracle (default 0, not run).
           --corpus-fidelity-oracle <name>
                                 with corpus baseline modes: select compile-back
-                                (default) or rts-parity (aliases: return-to-sender,
-                                rts). RTS evaluates the same compile-back-selected
-                                target population without applying the compile-back floor.
+                                (default), rts-parity (aliases: return-to-sender,
+                                rts), or rts-cutover (aliases:
+                                return-to-sender-cutover, native-rts).
+                                Parity evaluates the compile-back-selected
+                                population; cutover independently hash-selects
+                                targets, runs native RTS without its compile-back
+                                floor, then records legacy results for comparison.
+                                Cutover accepts one distinct positive fidelity
+                                cap per run so the snapshot ledger is complete.
           --corpus-profile <name>        label corpus snapshots and cards as
                                 real-world (default), opt-in-net11, or
                                 classic-state-machines. Profiles keep curated

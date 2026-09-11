@@ -99,38 +99,49 @@ public sealed class PackageHouseContractTests
             "2.0.0",
             "1.5.0",
             "1.0.0");
-        var stable = new PackageVersionResolutionReceipt.Resolved(
-            new PackageVersionSelectionRequest.LatestStable("contoso.json"),
-            allVersions,
-            PackageVersionDiscoveryFreshness.Current);
-        var prerelease = new PackageVersionResolutionReceipt.Resolved(
-            new PackageVersionSelectionRequest.LatestPrerelease(
-                "contoso.json"),
-            allVersions,
-            PackageVersionDiscoveryFreshness.Current);
-        var always = new PackageVersionResolutionReceipt.Resolved(
-            new PackageVersionSelectionRequest.AlwaysLatest(
-                "contoso.json",
-                includePrerelease: true),
-            allVersions,
-            PackageVersionDiscoveryFreshness.RefreshedForRequest);
-        var wildcard = new PackageVersionResolutionReceipt.Resolved(
-            new PackageVersionSelectionRequest.Wildcard(
-                "contoso.json",
-                "1."),
-            allVersions,
-            PackageVersionDiscoveryFreshness.Current);
+        PackageVersionResolutionReceipt.Resolved stable = Assert.IsType<
+            PackageVersionResolutionReceipt.Resolved>(
+            PackageVersionSelectionResolver.Resolve(
+                new PackageVersionSelectionRequest.LatestStable(
+                    "contoso.json"),
+                allVersions,
+                PackageVersionDiscoveryFreshness.Current));
+        PackageVersionResolutionReceipt.Resolved prerelease = Assert.IsType<
+            PackageVersionResolutionReceipt.Resolved>(
+            PackageVersionSelectionResolver.Resolve(
+                new PackageVersionSelectionRequest.LatestPrerelease(
+                    "contoso.json"),
+                allVersions,
+                PackageVersionDiscoveryFreshness.Current));
+        PackageVersionResolutionReceipt.Resolved always = Assert.IsType<
+            PackageVersionResolutionReceipt.Resolved>(
+            PackageVersionSelectionResolver.Resolve(
+                new PackageVersionSelectionRequest.AlwaysLatest(
+                    "contoso.json",
+                    includePrerelease: true),
+                allVersions,
+                PackageVersionDiscoveryFreshness.RefreshedForRequest));
+        PackageVersionResolutionReceipt.Resolved wildcard = Assert.IsType<
+            PackageVersionResolutionReceipt.Resolved>(
+            PackageVersionSelectionResolver.Resolve(
+                new PackageVersionSelectionRequest.Wildcard(
+                    "contoso.json",
+                    "1."),
+                allVersions,
+                PackageVersionDiscoveryFreshness.Current));
         Assert.True(PackageVersionRange.TryParse(
             "contoso.json@1.0.0..2.0.0",
             out PackageVersionRange? versionRange,
             out string? error),
             error);
-        var range = new PackageVersionResolutionReceipt.Resolved(
-            new PackageVersionSelectionRequest.Range(
-                versionRange!,
-                new PackageVersionRangeSelection.Ordinal(2)),
-            allVersions,
-            PackageVersionDiscoveryFreshness.Current);
+        PackageVersionResolutionReceipt.Resolved range = Assert.IsType<
+            PackageVersionResolutionReceipt.Resolved>(
+            PackageVersionSelectionResolver.Resolve(
+                new PackageVersionSelectionRequest.Range(
+                    versionRange!,
+                    new PackageVersionRangeSelection.Ordinal(2)),
+                allVersions,
+                PackageVersionDiscoveryFreshness.Current));
 
         Assert.Equal("2.0.0", stable.Coordinate.Version);
         Assert.Equal("3.0.0-preview.1", prerelease.Coordinate.Version);
@@ -300,6 +311,86 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void VersionDiscoveryRetainsPackageIdentityWithoutCandidates()
+    {
+        PackageVersionDiscoveryResult absent = VersionDiscovery(
+            PackageVersionDiscoveryState.Authoritative,
+            includePrerelease: false,
+            hasAnyCandidate: false);
+        PackageVersionDiscoveryResult failed = VersionDiscovery(
+            PackageVersionDiscoveryState.Failed,
+            includePrerelease: false,
+            hasAnyCandidate: false);
+
+        Assert.Equal("contoso.json", absent.PackageId);
+        Assert.Equal("contoso.json", failed.PackageId);
+    }
+
+    [Fact]
+    public void VersionDiscoveryReservesMissingIdentityForInputFailure()
+    {
+        var inputFailure = new PackageVersionDiscoveryResult(
+            packageId: null,
+            PackageVersionDiscoveryState.Failed,
+            sourceListings: [],
+            failures:
+            [
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Input,
+                    "The package ID is invalid."),
+            ],
+            hasAnyCandidate: false);
+
+        Assert.Null(inputFailure.PackageId);
+        Assert.Throws<ArgumentException>(
+            () => new PackageVersionDiscoveryResult(
+                packageId: null,
+                PackageVersionDiscoveryState.Authoritative,
+                sourceListings: [],
+                failures: [],
+                hasAnyCandidate: false));
+    }
+
+    [Fact]
+    public void VersionDiscoveryRejectsCandidateForAnotherPackage()
+    {
+        var authority = new ConfiguredPackageAuthority(
+            new PackageSource(
+                "version-selection",
+                "https://versions.example/v3/index.json"));
+        PackageSourceResultFactory factory = ResultFactory(
+            authority.Association);
+        var candidate = new ConfiguredPackageCandidateObservation(
+            authority,
+            factory.Candidate(
+                PackageSourceCoordinate.Create(
+                    "other.package",
+                    "4.0.0"),
+                PackageDiscoveryContract.CompleteVersionEnumeration,
+                PackageListingState.Listed));
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageVersionDiscoveryResult(
+                "contoso.json",
+                PackageVersionDiscoveryState.Authoritative,
+                [
+                    new PackageVersionSourceInfo(
+                        "4.0.0",
+                        "version-selection",
+                        Listed: true),
+                ],
+                failures: [],
+                hasAnyCandidate: true,
+                candidates: [candidate],
+                contract: PackageVersionDiscoveryContract.Create(
+                    includePrerelease: false,
+                    includeUnlisted: false,
+                    limit: null),
+                candidateIssuer: new object()));
+    }
+
+    [Fact]
     public void PartialDiscoveryCannotProduceASelectedCoordinate()
     {
         var request = new PackageVersionSelectionRequest.LatestStable(
@@ -383,6 +474,176 @@ public sealed class PackageHouseContractTests
                 receipt.Discovery,
                 new[] { authoritative, failed });
         });
+    }
+
+    [Fact]
+    public void VersionSelectionResolverMapsTerminalEvidence()
+    {
+        var request = new PackageVersionSelectionRequest.LatestStable(
+            "contoso.json");
+        PackageVersionDiscoveryResult absent = VersionDiscovery(
+            PackageVersionDiscoveryState.Authoritative,
+            includePrerelease: false,
+            hasAnyCandidate: false);
+        PackageVersionDiscoveryResult noMatch = VersionDiscovery(
+            PackageVersionDiscoveryState.Authoritative,
+            includePrerelease: false,
+            hasAnyCandidate: true);
+        PackageVersionDiscoveryResult partial = VersionDiscovery(
+            PackageVersionDiscoveryState.Partial,
+            includePrerelease: false,
+            hasAnyCandidate: true,
+            "4.0.0");
+        PackageVersionDiscoveryResult unavailable =
+            VersionDiscoveryWithFailure(
+                PackageAuthorityFailureKind.Unsupported);
+        PackageVersionDiscoveryResult rejected =
+            VersionDiscoveryWithFailure(
+                PackageAuthorityFailureKind.InvalidResponse);
+        PackageVersionDiscoveryResult failed =
+            VersionDiscoveryWithFailure(
+                PackageAuthorityFailureKind.Transport);
+        PackageVersionDiscoveryResult mixedFailure =
+            VersionDiscoveryWithFailure(
+                PackageAuthorityFailureKind.IncompleteMetadata,
+                PackageAuthorityFailureKind.Timeout);
+
+        PackageVersionResolutionReceipt.NotFound notFoundResult =
+            Assert.IsType<PackageVersionResolutionReceipt.NotFound>(
+            PackageVersionSelectionResolver.Resolve(
+                request,
+                absent,
+                PackageVersionDiscoveryFreshness.Current));
+        Assert.IsType<PackageVersionResolutionReceipt.NoMatch>(
+            PackageVersionSelectionResolver.Resolve(
+                request,
+                noMatch,
+                PackageVersionDiscoveryFreshness.Current));
+        Assert.IsType<PackageVersionResolutionReceipt.Incomplete>(
+            PackageVersionSelectionResolver.Resolve(
+                request,
+                partial,
+                PackageVersionDiscoveryFreshness.Current));
+        Assert.IsType<PackageVersionResolutionReceipt.Unavailable>(
+            PackageVersionSelectionResolver.Resolve(
+                request,
+                unavailable,
+                PackageVersionDiscoveryFreshness.NotEstablished));
+        Assert.IsType<PackageVersionResolutionReceipt.Rejected>(
+            PackageVersionSelectionResolver.Resolve(
+                request,
+                rejected,
+                PackageVersionDiscoveryFreshness.NotEstablished));
+        Assert.IsType<PackageVersionResolutionReceipt.Failed>(
+            PackageVersionSelectionResolver.Resolve(
+                request,
+                failed,
+                PackageVersionDiscoveryFreshness.NotEstablished));
+        Assert.IsType<PackageVersionResolutionReceipt.Failed>(
+            PackageVersionSelectionResolver.Resolve(
+                request,
+                mixedFailure,
+                PackageVersionDiscoveryFreshness.NotEstablished));
+        Assert.Same(request, notFoundResult.Request);
+        Assert.Same(absent, notFoundResult.Discovery);
+    }
+
+    [Fact]
+    public void VersionSelectionResolverRejectsIncompatibleDiscovery()
+    {
+        var request = new PackageVersionSelectionRequest.AlwaysLatest(
+            "contoso.json",
+            includePrerelease: true);
+        PackageVersionDiscoveryResult stale = VersionDiscovery(
+            PackageVersionDiscoveryState.Authoritative,
+            includePrerelease: true,
+            hasAnyCandidate: true,
+            "4.0.0-preview.1");
+        PackageVersionDiscoveryResult limited = VersionDiscovery(
+            PackageVersionDiscoveryState.Authoritative,
+            includePrerelease: true,
+            includeUnlisted: false,
+            limit: 1,
+            hasAnyCandidate: true,
+            "4.0.0-preview.1");
+
+        PackageVersionResolutionReceipt.Rejected staleResult = Assert.IsType<
+            PackageVersionResolutionReceipt.Rejected>(
+            PackageVersionSelectionResolver.Resolve(
+                request,
+                stale,
+                PackageVersionDiscoveryFreshness.Current));
+        PackageVersionResolutionReceipt.Rejected limitedResult =
+            Assert.IsType<PackageVersionResolutionReceipt.Rejected>(
+                PackageVersionSelectionResolver.Resolve(
+                    request,
+                    limited,
+                    PackageVersionDiscoveryFreshness.RefreshedForRequest));
+
+        Assert.Same(request, staleResult.Request);
+        Assert.Same(stale, staleResult.Discovery);
+        Assert.Same(limited, limitedResult.Discovery);
+    }
+
+    [Fact]
+    public void VersionSelectionResolverRejectsMissingOrMismatchedDiscoveryIdentity()
+    {
+        var request = new PackageVersionSelectionRequest.LatestStable(
+            "contoso.json");
+        var mismatchedAuthoritative = new PackageVersionDiscoveryResult(
+            "other.package",
+            PackageVersionDiscoveryState.Authoritative,
+            sourceListings: [],
+            failures: [],
+            hasAnyCandidate: false,
+            contract: PackageVersionDiscoveryContract.Create(
+                includePrerelease: false,
+                includeUnlisted: false,
+                limit: null));
+        PackageVersionDiscoveryResult mismatchedFailure =
+            VersionDiscoveryWithFailureForPackage(
+                "other.package",
+                PackageAuthorityFailureKind.Transport);
+        var missingIdentity = new PackageVersionDiscoveryResult(
+            packageId: null,
+            PackageVersionDiscoveryState.Failed,
+            sourceListings: [],
+            failures:
+            [
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Input,
+                    "The package ID is invalid."),
+            ],
+            hasAnyCandidate: false);
+
+        PackageVersionDiscoveryResult[] incompatible =
+        [
+            mismatchedAuthoritative,
+            mismatchedFailure,
+            missingIdentity,
+        ];
+        Assert.All(incompatible, discovery =>
+        {
+            PackageVersionResolutionReceipt.Rejected rejected =
+                Assert.IsType<PackageVersionResolutionReceipt.Rejected>(
+                    PackageVersionSelectionResolver.Resolve(
+                        request,
+                        discovery,
+                        PackageVersionDiscoveryFreshness.NotEstablished));
+            Assert.Same(request, rejected.Request);
+            Assert.Same(discovery, rejected.Discovery);
+            Assert.Contains(
+                "requested package",
+                rejected.Reason.ToString(),
+                StringComparison.Ordinal);
+        });
+        Assert.Throws<ArgumentException>(
+            () => new PackageVersionResolutionReceipt.NotFound(
+                request,
+                mismatchedAuthoritative,
+                PackageVersionDiscoveryFreshness.Current,
+                Reason("Wrong package.")));
     }
 
     [Fact]
@@ -1430,7 +1691,7 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
-    public async Task SourceLeaseSettlesManifestAndRetiresWithoutDisposingClient()
+    public async Task PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient()
     {
         PackageSourceAuthorization authorization =
             PackageSourceAuthorization.Authorize(
@@ -1452,8 +1713,8 @@ public sealed class PackageHouseContractTests
                     return tracking;
                 });
         NuGetOperationContext? createdContext = null;
-        using PackageHouseSourceLease lease =
-            new PackageHouse().IssueSourceLease(
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
                 _ => client,
                 cancellationToken =>
                     createdContext = new NuGetOperationContext(
@@ -1494,7 +1755,7 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
-    public async Task SourceLeaseRejectsForeignCandidateAndClientAssociation()
+    public async Task PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation()
     {
         PackageSourceAuthorization authorization =
             PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
@@ -1508,10 +1769,10 @@ public sealed class PackageHouseContractTests
             PackageSourceClientFactory.Create(
                 foreignAuthority.Source,
                 foreignAuthority.Association);
-        using PackageHouseSourceLease lease =
-            new PackageHouse().IssueSourceLease(_ => foreignClient);
-        using PackageHouseSourceLease foreignLease =
-            new PackageHouse().IssueSourceLease(_ => foreignClient);
+        using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(_ => foreignClient);
+        using PackageSourceSettlementLease foreignLease =
+            PackageSourceSettlementService.IssueLease(_ => foreignClient);
         PackageAcquisitionCandidate candidate =
             Assert.IsType<PackageAcquisitionCandidate>(
                 lease.ResolvePinnedCandidate(
@@ -1673,6 +1934,7 @@ public sealed class PackageHouseContractTests
                 ];
 
         return new PackageVersionDiscoveryResult(
+            "contoso.json",
             state,
             [
                 .. versions.Select(version =>
@@ -1690,6 +1952,36 @@ public sealed class PackageHouseContractTests
                 limit),
             candidateIssuer: new object());
     }
+
+    private static PackageVersionDiscoveryResult
+        VersionDiscoveryWithFailure(
+            params PackageAuthorityFailureKind[] kinds) =>
+        VersionDiscoveryWithFailureForPackage(
+            "contoso.json",
+            kinds);
+
+    private static PackageVersionDiscoveryResult
+        VersionDiscoveryWithFailureForPackage(
+            string packageId,
+            params PackageAuthorityFailureKind[] kinds) =>
+        new(
+            packageId,
+            PackageVersionDiscoveryState.Failed,
+            sourceListings: [],
+            failures:
+            [
+                .. kinds.Select(kind => new PackageAuthorityFailure(
+                    Reason("version-authority"),
+                    kind,
+                    "Version discovery did not settle.")),
+            ],
+            hasAnyCandidate: false,
+            candidates: [],
+            contract: PackageVersionDiscoveryContract.Create(
+                includePrerelease: false,
+                includeUnlisted: false,
+                limit: null),
+            candidateIssuer: new object());
 
     private static PackageSourceResultFactory ResultFactory(
         PackageSourceAssociation association)

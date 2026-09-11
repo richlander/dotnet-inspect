@@ -13,6 +13,7 @@
       "targets": [
         "CSharpText",
         "Inspector.Artifacts",
+        "Inspector.Resources",
         "DotnetInspector.RowSelection",
         "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
@@ -46,6 +47,20 @@
       ],
       "deny": [
         "DotnetInspector.*"
+      ]
+    },
+    {
+      "id": "network-access-stays-independent",
+      "source": "docs/design/library-family-boundaries.md#independent-domain-roots",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "NetworkAccess"
+      ],
+      "allowOnly": [
+        "$platform"
       ]
     },
     {

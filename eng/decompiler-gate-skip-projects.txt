@@ -64,6 +64,8 @@ fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures
 fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
 fixtures/metadata/ILInspector.Metadata.StateMachineFixtures
+fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer
+fixtures/metadata/ILInspector.Metadata.TypeDependencyReference
 fixtures/presentation/LibraryApiDiff.V1
 fixtures/presentation/LibraryApiDiff.V2
 fixtures/queries/DotnetInspector.CloneSearchFixtures
@@ -87,6 +89,9 @@ src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.PlatformHouse
+src/DotnetInspector.PlatformHouse.Installed
+src/DotnetInspector.Platforms.Formats
+src/DotnetInspector.Platforms.Installed
 src/DotnetInspector.Presentation
 src/DotnetInspector.Sections
 src/DotnetInspector.SourceDelegation
@@ -95,6 +100,7 @@ src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
+src/Inspector.Resources
 src/TsJsExport.Contracts
 src/mdi
 src/runfaster
@@ -109,7 +115,9 @@ tests/DotnetInspector.FixtureInfrastructure.Tests
 tests/DotnetInspector.ILRoundtrip.Tests
 tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.PackageManifestCorpus
+tests/DotnetInspector.PlatformHouse.Installed.Tests
 tests/DotnetInspector.PlatformHouse.Tests
+tests/DotnetInspector.Platforms.Formats.Tests
 tests/DotnetInspector.Platforms.Tests
 tests/DotnetInspector.Presentation.Tests
 tests/DotnetInspector.Queries.Consumer
@@ -134,11 +142,15 @@ tests/ILInspector.Research.Tests
 tests/InertText.Tests
 tests/Inspector.Artifacts.Local.PlatformProbe
 tests/Inspector.Artifacts.Tests
+tests/Inspector.Resources.Tests
 tests/Inspector.Text.Tests
+tests/NetworkAccess.Tests
 tests/NuGetFetch.Tests
 tests/TestExtensions
 tests/nuget/NuGetFetch.CustomClientFixture
 tests/nuget/NuGetFetch.PluginFixture
+tests/nuget/PackageAssetSelection.BuildOracle/Consumer
+tests/nuget/PackageAssetSelection.BuildOracle/Package
 tests/runfaster.Tests
 tools/AnalysisHarness
 tools/AotProbe

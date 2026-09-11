@@ -630,8 +630,11 @@ public sealed class PolicyEvaluatorTests
             exception.Message);
     }
 
-    [Fact]
-    public void CheckedInPolicyTreatsTsJsExportContractsAsDependencyFree()
+    [Theory]
+    [InlineData("Inspector.Resources")]
+    [InlineData("TsJsExport.Contracts")]
+    public void CheckedInPolicyTreatsContractFloorAsDependencyFree(
+        string contractFloor)
     {
         string repository = FindRepositoryRoot();
         DependencyPolicyDocument policy = PolicyLoader.Load(
@@ -639,11 +642,11 @@ public sealed class PolicyEvaluatorTests
         DependencyRule rule = Assert.Single(
             policy.Rules,
             candidate => candidate.Id == "dependency-free-contract-floors");
-        Assert.Contains("TsJsExport.Contracts", rule.Targets);
+        Assert.Contains(contractFloor, rule.Targets);
         RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
             [
                 Node(
-                    "TsJsExport.Contracts",
+                    contractFloor,
                     projectReferences: ["Repository.Dependency"],
                     assemblyReferences: ["Repository.Dependency"]),
                 Node("Repository.Dependency"),
@@ -663,10 +666,49 @@ public sealed class PolicyEvaluatorTests
                             Id = rule.Id,
                             Source = rule.Source,
                             Graphs = rule.Graphs,
-                            Targets = ["TsJsExport.Contracts"],
+                            Targets = [contractFloor],
                             AllowOnly = rule.AllowOnly,
                         },
                     ],
+                },
+                graph)
+            .ToArray();
+
+        Assert.Equal(2, violations.Length);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Project);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Assembly);
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsNetworkAccessIndependent()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == "network-access-stays-independent");
+        RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
+            [
+                Node(
+                    "NetworkAccess",
+                    projectReferences: ["Repository.Dependency"],
+                    assemblyReferences: ["Repository.Dependency"]),
+                Node("Repository.Dependency"),
+            ]);
+
+        DependencyViolation[] violations = PolicyEvaluator
+            .Evaluate(
+                new DependencyPolicyDocument
+                {
+                    SchemaVersion = policy.SchemaVersion,
+                    Solution = policy.Solution,
+                    Configuration = policy.Configuration,
+                    Rules = [rule],
                 },
                 graph)
             .ToArray();
