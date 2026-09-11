@@ -204,6 +204,14 @@ releases. A generic content callback may likewise return an independently
 owned value; its access-outcome wrapper propagates that contained ownership.
 Only detached status and observation outcomes have no terminal obligation.
 
+Normal callback return is the ownership commit point for its result.
+Cancellation is checked before invocation, and the callback receives the token
+so it can preserve cancellation while constructing its result. Once the
+callback returns normally, Artifact publishes that result and does not perform
+a later cancellation check that could discard an owned obligation. A callback
+that observes cancellation before returning releases any resource it has not
+transferred and throws or returns its typed cancellation result.
+
 ## Issuance and transfer
 
 The content-lease handoff is:
@@ -247,9 +255,15 @@ Both paths:
 - register the access before invoking consumer code;
 - reject missing, foreign, stale-generation, disposed, or ended authority
   without invoking the callback;
-- preserve consumer exceptions and cancellation;
+- check caller cancellation before invocation and preserve cancellation raised
+  by consumer code;
 - expose immutable retained bytes without reopening the source; and
 - end the access registration when the callback returns or propagates.
+
+A normally returned callback result wins over cancellation requested after the
+last pre-invocation check. This result-first commit rule prevents Artifact from
+discarding a newly owned synchronous result before it can transfer or release
+that obligation.
 
 Only the query path revalidates current query authorization. The ownership path
 instead validates the live content lease and exact reference. Treating an
@@ -327,6 +341,8 @@ Artifact keeps these outcomes distinct:
 - `BorrowRejected`: owner validation rejected before callback invocation;
 - `CallbackFailed`: the callback threw after a borrow began and the borrow
   ended before propagation; and
+- `CallbackCompleted`: normal return committed the callback result, including
+  any propagated ownership, before later cancellation could override it; and
 - `ReleaseFailed`: acquisition or aggregate cleanup failed during observed
   asynchronous settlement.
 
@@ -405,6 +421,7 @@ these exist:
 - `ArtifactSetSession_RetirementDrainsTransferredContentLeases`
 - `ArtifactSetSession_ReleasesAcquisitionAfterContentChildren`
 - `ArtifactContentLease_CallbackFailureAndCancellationRemainVisible`
+- `ArtifactContent_CallbackReturnCommitsOwnedResultBeforeLateCancellation`
 - `ArtifactDigest_RequiresExplicitQueryOrContentAuthority`
 - `ArtifactCompatibilityStream_DeclaresAndReleasesParentRetention`
 - `LocalOnlyHost_UsesExplicitArtifactAuthorityWithoutHiddenReferenceLease`

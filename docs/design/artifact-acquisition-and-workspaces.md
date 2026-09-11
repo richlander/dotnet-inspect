@@ -800,8 +800,12 @@ foreign, disposed, revoked, or ended authority produces
 `Accessed.Value` is the consumer's result, including any consumer-owned typed
 rejection. Consumer exceptions retain their instance and type, including
 `UnauthorizedAccessException` and `ObjectDisposedException`; they cannot be
-mistaken for owner rejection. Caller cancellation is observed before access
-and after a normally returning callback, and remains cancellation.
+mistaken for owner rejection. Caller cancellation is observed before access.
+The callback receives the token and preserves cancellation while it runs.
+Normal callback return is the result-ownership commit point: Artifact publishes
+that result without a later cancellation check that could discard an
+independently owned value before transfer or release. This is a target change
+from the current post-callback cancellation check.
 
 Authorization expiry rejects subsequent callbacks, not work already admitted.
 An active callback keeps acquisition leases alive through generation end until
@@ -848,6 +852,7 @@ established by the focused product gates:
 - `ScopedContent_RejectsAuthorityBeforeInvocation`
 - `ScopedContent_ConsumerExceptionsAreNotAuthorizationFailures`
 - `ScopedContent_CancellationRemainsCancellation`
+- `ScopedContent_CallbackReturnCommitsOwnedResultBeforeLateCancellation`
 - `ScopedContent_RequiresImmutableSnapshot`
 - `ScopedContent_RepeatedQueriesDoNotAllocateFullImage`
 - `ScopedContent_ActiveCallbackPinsRelease`
@@ -902,14 +907,16 @@ by later authorized requests without another charge or hash pass. Concurrent
 requests for one artifact share the successful cold computation. Neither
 computation nor reuse opens the original source or changes the catalog.
 
-Cancellation follows scoped-content semantics: it is observed before admission
-and after the synchronous operation, and remains cancellation. Once charged,
-the bounded hash pass completes and memoizes its value even if cancellation is
-requested during it; a cancelled caller does not receive that value, but the
-completed work is not charged again. An admitted operation may finish after
-authorization expires, and pins retained resources until it returns. Charge
-callbacks have the same synchronous lifetime restriction as other content
-callbacks: they must not wait for disposal of their own session.
+The digest is detached resource-free evidence, so this operation deliberately
+adds its own cancellation observation after the synchronous hash pass. Once
+charged, the bounded pass completes and memoizes its value even if cancellation
+is requested during it; a cancelled caller does not receive that value, but the
+completed work is not charged again. This does not restore a generic
+post-callback cancellation check for ownership-bearing results. An admitted
+operation may finish after authorization expires, and pins retained resources
+until it returns. Charge callbacks have the same synchronous lifetime
+restriction as other content callbacks: they must not wait for disposal of
+their own session.
 
 The existing generation-access model supplies the authorization and quiescence
 basis. This operation reuses that protocol rather than adding publication or
