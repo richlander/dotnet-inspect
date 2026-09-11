@@ -227,6 +227,14 @@ substrates, and inspection producers that will extend that space.
   PlatformHouse, and direct-library adapters construct documentation-ready
   contributions; Metadata, CSharpText, SourceHouse, artifact lifetime, and host
   presentation retain their focused authority.
+- The target
+  [Library Ownership and Borrowing](design/library-ownership-and-borrowing.md)
+  owner defines the shared lifetime seam beneath those Houses: one
+  resource-free exact-Library reference, one aggregate content owner, fresh
+  owner-issued operation authority for async work, and synchronous scoped
+  snapshots over assembly and companion contents. Package, Platform,
+  Workspace, SourceHouse, and DocumentationHouse adopt the contract
+  separately; Library does not own their acquisition or settlement policy.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,
@@ -451,6 +459,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
+- [Library ownership and borrowing](design/library-ownership-and-borrowing.md):
+  resource-free managed-Library references, aggregate content ownership,
+  owner-issued async operation leases, and synchronous multi-content
+  borrowing shared by Library producers and consumers.
 - [Workspace scope and expansion](design/workspace-scope-and-expansion.md):
   committed logical Package membership and order, closed-by-default selective
   dependency expansion, scope revisions, logical limits, and complete

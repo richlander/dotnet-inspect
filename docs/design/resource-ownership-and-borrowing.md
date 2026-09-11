@@ -911,9 +911,10 @@ end-to-end tracker. Its current total is 18 steps:
    Browser/Wasm;
 9. adopt the protocol in artifact acquisition, access, and scoped content
    borrowing;
-10. define the shared Library ownership and borrowing contract used by
-   PackageHouse, PlatformHouse, direct-library adapters, Workspace, and
-   Library consumers;
+10. define the shared
+   [Library ownership and borrowing](library-ownership-and-borrowing.md)
+   contract used by PackageHouse, PlatformHouse, direct-library adapters,
+   Workspace, and Library consumers, tracked by #6621;
 11. adopt the protocol in the package-source owner and issue a resource-named
     package-source lease, completed by #6548;
 12. adopt that package-source lease in PackageHouse and retire the House-issued
