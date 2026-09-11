@@ -212,6 +212,30 @@ public sealed class ViewFacetRegistryTests
     }
 
     [Fact]
+    public void Opportunities_RetainsPublishedIdentityWithoutExecution()
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        Assert.True(registry.TryGetDescriptor(
+            "library.opportunities", out ViewFacetDescriptor? descriptor));
+        Assert.DoesNotContain(
+            registry.ActiveBindings,
+            binding => binding.Id == descriptor!.Id);
+        ViewFacetResolution.Unavailable result =
+            Assert.IsType<ViewFacetResolution.Unavailable>(
+                registry.Resolve(
+                    "library.opportunities",
+                    LibraryTarget(),
+                    ThrowingFacts.Instance));
+        Assert.Same(descriptor, result.Descriptor);
+        Assert.Equal(ViewFacetUnavailabilityKind.Retired, result.Reason.Kind);
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "library.opportunities",
+                TypeTarget(),
+                ThrowingFacts.Instance));
+    }
+
+    [Fact]
     public void StaticDiscovery_DoesNotExecuteOrAcquire()
     {
         var sentinels = new NoWorkSentinels();
@@ -548,7 +572,7 @@ public sealed class ViewFacetRegistryTests
                 200),
             new("library.opportunities", StructuralSubjectKind.Library, "Opportunities",
                 "Framework and ecosystem integrations the active Library could adopt.",
-                300),
+                300, Retired: true),
             new("library.analysis", StructuralSubjectKind.Library, "Analysis",
                 "Static analysis findings and code characteristics for the active Library.",
                 400),
@@ -612,8 +636,6 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.LibraryReferences),
                 ("library.integrations",
                     InspectionViewFacetExecution.LibraryIntegrations),
-                ("library.opportunities",
-                    InspectionViewFacetExecution.LibraryOpportunities),
                 ("library.analysis",
                     InspectionViewFacetExecution.LibraryAnalysis),
                 ("library.metadata",
@@ -663,11 +685,18 @@ public sealed class ViewFacetRegistryTests
                     target,
                     expectedApplicability ? facts : ThrowingFacts.Instance);
                 Assert.Equal(
-                    expectedApplicability,
+                    expectedApplicability && !item.Retired,
                     resolution is ViewFacetResolution.Available);
                 if (!expectedApplicability)
                 {
                     Assert.IsType<ViewFacetResolution.Inapplicable>(resolution);
+                }
+                else if (item.Retired)
+                {
+                    Assert.Equal(
+                        ViewFacetUnavailabilityKind.Retired,
+                        Assert.IsType<ViewFacetResolution.Unavailable>(
+                            resolution).Reason.Kind);
                 }
             }
         }
@@ -1022,7 +1051,8 @@ public sealed class ViewFacetRegistryTests
         string Title,
         string Summary,
         int Order,
-        ViewFacetRole? Role = null)
+        ViewFacetRole? Role = null,
+        bool Retired = false)
     {
         public DescriptorShape Descriptor =>
             new(Id, Kind, Title, Summary, Order, Role);
