@@ -9,7 +9,7 @@ adoption step 5 in
 and is tracked by
 [#6561](https://github.com/richlander/dotnet-inspect/issues/6561).
 
-The implementation is staged without changing the eleven-step count:
+The implementation is staged without changing the ten-step count:
 
 1. **Step 5a** adds package-backed target discovery, immutable reference-pack
    realization, and a thin PlatformHouse adapter.
