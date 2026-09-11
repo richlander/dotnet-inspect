@@ -149,6 +149,11 @@ from 272 to 82 on fernie and 85 on merritt. Median stream-read time fell from
 513 to 85 ms and from 897 to 68 ms; row-20 latency fell from 2.347 to 1.839
 seconds and from 1.701 to 0.820 seconds. A 256 KB probe produced no further
 row-20 improvement on fernie, so 128 KB is the smallest measured plateau.
+Five alternating clean-production pairs then compared `origin/main` with
+candidate `e080cdb21`. `AWSSDK.*` median row-20 latency fell from 2.900 to
+2.668 seconds on a heavily loaded fernie and from 1.672 to 0.816 seconds on
+merritt. The candidate was faster in every fernie pair; one merritt candidate
+request was a network outlier, while the other four improved by 51-53%.
 
 This slice does not claim a fixed first-row latency, reduce NuGet round-trip
 time, yield individual candidates before one raw page completes, isolate
