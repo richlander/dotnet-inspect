@@ -14,9 +14,9 @@ internal static class ProductEcosystemPacks
             100,
             PackageSet: null,
             [
-                Demo(ProductDemoIds.StjSerializer, "System.Text.Json", "Browse a real package API", 100, CreateStjSerializerRecords),
-                Demo(ProductDemoIds.StjSerializeCallGraph, "Serialize call graph", "Dense package-local STJ graph", 300, CreateStjSerializeCallGraphRecords),
-                Demo(ProductDemoIds.StjGetDecimalCallGraph, "JsonElement.GetDecimal", "STJ number parse path", 800, CreateStjGetDecimalCallGraphRecords),
+                Demo(ProductDemoIds.StjSerializer, "System.Text.Json", "Browse the Runtime Platform API", 100, CreateStjSerializerRecords),
+                Demo(ProductDemoIds.StjSerializeCallGraph, "Serialize call graph", "Trace the Runtime STJ implementation", 300, CreateStjSerializeCallGraphRecords),
+                Demo(ProductDemoIds.StjGetDecimalCallGraph, "JsonElement.GetDecimal", "Trace the Runtime number parse path", 800, CreateStjGetDecimalCallGraphRecords),
             ])
         {
             NamespaceRoots = ["System"],
@@ -91,7 +91,11 @@ internal static class ProductEcosystemPacks
     private static InspectionDefinitionRecord[] CreateStjSerializerRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
+        var stjPlatform = Platform(
+            "runtime",
+            "System.Text.Json",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -101,10 +105,10 @@ internal static class ProductEcosystemPacks
                     new WorkspaceContextDefinition(
                         "stj",
                         framework: "net10.0",
-                        members: [stjPackage]),
+                        members: [stjPlatform]),
                 ],
                 title: "System.Text.Json serializer tour",
-                description: "JsonSerializer surface from the System.Text.Json package."),
+                description: "JsonSerializer surface from the Runtime Platform."),
             new ViewDefinition(
                 v,
                 "stj-serializer-view",
@@ -113,13 +117,13 @@ internal static class ProductEcosystemPacks
             new NavigationDefinition(
                 v,
                 "stj-navigation",
-                [new NavigationTabDefinition("stj", coordinate: stjPackage)],
+                [new NavigationTabDefinition("stj", coordinate: stjPlatform)],
                 focus: "stj"),
             new ScenarioDefinition(
                 v,
                 ProductDemoIds.StjSerializer,
                 title: "System.Text.Json",
-                description: "Browse a real package API",
+                description: "Browse the Runtime Platform API",
                 workspace: "stj-serializer-tour",
                 context: "stj",
                 view: "stj-serializer-view",
@@ -178,13 +182,17 @@ internal static class ProductEcosystemPacks
     }
 
     /// <summary>
-    /// Single-package outbound graph: <c>JsonSerializer.Serialize&lt;T&gt;(T, options)</c>.
-    /// Complements the Methods STJ tour with a dense package-local Call Graph.
+    /// Runtime Platform outbound graph: <c>JsonSerializer.Serialize&lt;T&gt;(T, options)</c>.
+    /// Complements the Methods STJ tour with a dense framework-library Call Graph.
     /// </summary>
     private static InspectionDefinitionRecord[] CreateStjSerializeCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
+        var stjPlatform = Platform(
+            "runtime",
+            "System.Text.Json",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -194,10 +202,10 @@ internal static class ProductEcosystemPacks
                     new WorkspaceContextDefinition(
                         "stj",
                         framework: "net10.0",
-                        members: [stjPackage]),
+                        members: [stjPlatform]),
                 ],
                 title: "System.Text.Json Serialize call graph",
-                description: "Package-local Call Graph for JsonSerializer.Serialize."),
+                description: "Runtime Platform Call Graph for JsonSerializer.Serialize."),
             new ViewDefinition(
                 v,
                 "stj-serialize-call-graph",
@@ -208,13 +216,13 @@ internal static class ProductEcosystemPacks
             new NavigationDefinition(
                 v,
                 "stj-serialize-callgraph-navigation",
-                [new NavigationTabDefinition("stj", coordinate: stjPackage)],
+                [new NavigationTabDefinition("stj", coordinate: stjPlatform)],
                 focus: "stj"),
             new ScenarioDefinition(
                 v,
                 ProductDemoIds.StjSerializeCallGraph,
                 title: "Serialize call graph",
-                description: "Dense package-local STJ graph",
+                description: "Trace the Runtime STJ implementation",
                 workspace: "stj-serialize-callgraph-workspace",
                 context: "stj",
                 view: "stj-serialize-call-graph",
@@ -413,7 +421,11 @@ internal static class ProductEcosystemPacks
     private static InspectionDefinitionRecord[] CreateStjGetDecimalCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var stj = Package("System.Text.Json", "10.0.0", "net10.0");
+        var stj = Platform(
+            "runtime",
+            "System.Text.Json",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -426,7 +438,7 @@ internal static class ProductEcosystemPacks
                         members: [stj]),
                 ],
                 title: "JsonElement.GetDecimal call graph",
-                description: "STJ number parse Call Graph for JsonElement.GetDecimal."),
+                description: "Runtime Platform Call Graph for JsonElement.GetDecimal."),
             new ViewDefinition(
                 v,
                 "stj-getdecimal-call-graph",
@@ -443,7 +455,7 @@ internal static class ProductEcosystemPacks
                 v,
                 ProductDemoIds.StjGetDecimalCallGraph,
                 title: "JsonElement.GetDecimal",
-                description: "STJ number parse path",
+                description: "Trace the Runtime number parse path",
                 workspace: "stj-getdecimal-callgraph-workspace",
                 context: "stj",
                 view: "stj-getdecimal-call-graph",
@@ -538,4 +550,11 @@ internal static class ProductEcosystemPacks
         string version,
         string framework) =>
         new(id, version, framework);
+
+    private static DefinitionMemberCoordinate.PlatformCoordinate Platform(
+        string family,
+        string assembly,
+        string version,
+        string framework) =>
+        new(family, assembly, version, framework);
 }

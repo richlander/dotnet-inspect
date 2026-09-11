@@ -253,8 +253,18 @@ public static class DirectMemberComparisonQuery
                             tokens.Where(token => token is not null).ToArray(), address.Token) + 1;
                         selector += $":{ordinal}";
                     }
+                    if (type.DefinitionName is not { } definitionName)
+                    {
+                        failure = Failure(
+                            new LocalComparisonQueryFailure.InvalidDesignation(
+                                DirectMemberDesignationFailureKind
+                                    .MetadataSelectionUnavailable,
+                                [.. surface.InspectionFailures]),
+                            side);
+                        return null;
+                    }
                     failure = null;
-                    return new(type.DefinitionName?.ToMetadataFullName() ?? type.FullName,
+                    return new(definitionName,
                         MemberTargetSelector.Parse(selector), role.Value);
                 }
             }
@@ -276,7 +286,7 @@ public static class DirectMemberComparisonQuery
     }
 
     sealed record Selection(
-        string Type,
+        MetadataTypeDefinitionName Type,
         MemberTargetSelector Selector,
         ResearchTargetRelationshipRole Role)
     {
