@@ -22,6 +22,13 @@ handoff tracked by
 slice. The logical Workspace Scope contract is the upper slice in
 [#5701](https://github.com/richlander/dotnet-inspect/pull/5701).
 
+[Artifact Ownership and Borrowing](artifact-ownership-and-borrowing.md) is the
+focused resource-protocol adoption for this owner. It defines resource-free
+content references, current query authority, transferable per-content child
+leases, scoped retained-content borrowing, and child-before-acquisition
+release. This document retains Artifact acquisition, publication, generation,
+and Workspace composition authority.
+
 Fresh Workspace construction and switching, tracked by
 [#6189](https://github.com/richlander/dotnet-inspect/issues/6189), deliberately
 adds no private Artifact candidate. Definitions constructs a new Workspace,
@@ -699,7 +706,7 @@ Implementation conformance is enforced by these focused gates:
 - `SupplementalAcquisition_LateDiagnosticRemainsVisibleOnTermination`
 - `SupplementalAcquisition_CancellationRemainsCancellation`
 
-Retaining content does not retain authority. The artifact owner issues two
+Retaining content does not retain authority. The artifact owner issues three
 different source-neutral access leases:
 
 - an **admission lease** authorizes the context loader to project sealed
@@ -710,7 +717,13 @@ different source-neutral access leases:
   Neither the group nor its participants retain it;
 - a **query lease** revalidates the current query plan's capabilities and
   source policy before it can select participants, observe binding or
-  correspondence answers, receive content, or use a retained snapshot.
+  correspondence answers, receive content, use a retained snapshot, or request
+  a retained-content child; and
+- a **content lease** is the transferable child ownership obligation for one
+  exact already-selected immutable Artifact. It exposes no catalog, binding,
+  designation, or role-policy operation. Once issued, later query-policy
+  replacement does not revoke it; the Artifact session drains it before
+  releasing source acquisition resources.
 
 Changed, narrowed, or revoked authorization rejects the query before catalog or
 participant selection even when the selected image remains authorized and the
@@ -721,8 +734,10 @@ image is insufficient because catalog membership and binding answers can
 themselves reveal unauthorized candidates.
 
 During construction, only the current admission lease exposes content. After
-group publication, guarded content access rejects that expired lease and
-accepts only a current query lease. An artifact catalog descriptor or
+group publication, a current query lease authorizes selection, query-scoped
+borrowing, and content-child issuance. An already issued content lease
+authorizes later ownership-backed scoped borrowing of only its exact content.
+An artifact catalog descriptor or
 `ResolvedAssemblyReference` cannot bypass the owner with a bare `Func<Stream>`
 or readable path. A path on a target descriptor is inert location evidence, not
 read authority; when a producer genuinely requires a path, the current lease
@@ -732,12 +747,14 @@ separate workspace admission roles. This is a target change from the current
 parameterless
 `ResolvedAssemblyReference.OpenRead` and public readable `Path`.
 
-`ArtifactContentReference` is the compatibility query-time input to a downstream
-content consumer. The artifact owner issues it for one identity in a sealed generation
-and binds that artifact's descriptor and acquisition registration. Role
-and registration observations and retained-content opens revalidate the query
-lease supplied when the reference was issued. The type makes no claim that the
-content is a managed assembly; Metadata owns that decode and identity.
+`ArtifactContentReference` is the resource-free input to a downstream content
+consumer. The artifact owner issues it for one identity in a sealed generation
+and binds that artifact's descriptor, acquisition registration, immutable
+roles, and generation correspondence. It retains no session, lease, callback,
+stream, opener, or reopening capability. Current code still captures a query
+lease as a compatibility implementation; #6647 retires that mismatch. The type
+makes no claim that the content is a managed assembly; Metadata owns that
+decode and identity.
 
 Assembly projection passes the exact acquisition registration and the
 reference's guarded content callback to
@@ -766,14 +783,14 @@ than treating trusted in-process owners as hostile. A stream-only retained
 content registration remains a compatibility facility and explicitly rejects
 scoped byte access; arbitrary openers cannot attest an immutable image.
 
-The synchronous callback convention follows .NET span callbacks: two distinct
-`readonly ref struct` views carry the exact opaque `ArtifactIdentity`, its
-generation, and `ReadOnlySpan<byte>`. Only the artifact owner constructs these
-views. `ArtifactAdmissionContentCallback<TResult>` and
-`ArtifactQueryContentCallback<TResult>` take a scoped view and caller
-cancellation token. Their result type cannot be byref-like. The consumer
-finishes image-local work before returning; retaining a view or borrowed span
-across an asynchronous continuation is not an available operation.
+The synchronous callback convention follows .NET span callbacks:
+phase-specific admission and query views plus the ownership-backed
+content-lease view are `readonly ref struct` values carrying exact Artifact
+correspondence and `ReadOnlySpan<byte>`. Only the Artifact owner constructs
+these views. Their callbacks take a scoped view and caller cancellation token.
+The result type cannot be byref-like. The consumer finishes image-local work
+before returning; retaining a view or borrowed span across an asynchronous
+continuation is not an available operation.
 
 `RetainedArtifactContent.WithAdmissionContent` accepts only admission leases;
 `WithQueryContent` accepts only query leases. Each registers access atomically
@@ -783,8 +800,12 @@ foreign, disposed, revoked, or ended authority produces
 `Accessed.Value` is the consumer's result, including any consumer-owned typed
 rejection. Consumer exceptions retain their instance and type, including
 `UnauthorizedAccessException` and `ObjectDisposedException`; they cannot be
-mistaken for owner rejection. Caller cancellation is observed before access
-and after a normally returning callback, and remains cancellation.
+mistaken for owner rejection. Caller cancellation is observed before access.
+The callback receives the token and preserves cancellation while it runs.
+Normal callback return is the result-ownership commit point: Artifact publishes
+that result without a later cancellation check that could discard an
+independently owned value before transfer or release. This is a target change
+from the current post-callback cancellation check.
 
 Authorization expiry rejects subsequent callbacks, not work already admitted.
 An active callback keeps acquisition leases alive through generation end until
@@ -792,6 +813,13 @@ it unwinds, just as an already-returned compatibility stream does until
 disposal. Callbacks must return; they must not synchronously wait for the
 session's own disposal, which waits for them. No worker thread or background
 execution is required by this contract.
+
+The content-lease path follows the same access-registration rule but validates
+the exact live content child instead of current query policy. Session
+retirement rejects new children, preserves issued children while their owners
+settle, and releases acquisition resources only after those children and their
+admitted callbacks quiesce. The focused contract and stateful model are in
+[Artifact Ownership and Borrowing](artifact-ownership-and-borrowing.md).
 
 `ArtifactSetSession.SealWithProjectionAsync` is the pre-publication integration
 point. After bounded materialization succeeds, it supplies each artifact in
@@ -824,6 +852,7 @@ established by the focused product gates:
 - `ScopedContent_RejectsAuthorityBeforeInvocation`
 - `ScopedContent_ConsumerExceptionsAreNotAuthorizationFailures`
 - `ScopedContent_CancellationRemainsCancellation`
+- `ScopedContent_CallbackReturnCommitsOwnedResultBeforeLateCancellation`
 - `ScopedContent_RequiresImmutableSnapshot`
 - `ScopedContent_RepeatedQueriesDoNotAllocateFullImage`
 - `ScopedContent_ActiveCallbackPinsRelease`
@@ -878,14 +907,16 @@ by later authorized requests without another charge or hash pass. Concurrent
 requests for one artifact share the successful cold computation. Neither
 computation nor reuse opens the original source or changes the catalog.
 
-Cancellation follows scoped-content semantics: it is observed before admission
-and after the synchronous operation, and remains cancellation. Once charged,
-the bounded hash pass completes and memoizes its value even if cancellation is
-requested during it; a cancelled caller does not receive that value, but the
-completed work is not charged again. An admitted operation may finish after
-authorization expires, and pins retained resources until it returns. Charge
-callbacks have the same synchronous lifetime restriction as other content
-callbacks: they must not wait for disposal of their own session.
+The digest is detached resource-free evidence, so this operation deliberately
+adds its own cancellation observation after the synchronous hash pass. Once
+charged, the bounded pass completes and memoizes its value even if cancellation
+is requested during it; a cancelled caller does not receive that value, but the
+completed work is not charged again. This does not restore a generic
+post-callback cancellation check for ownership-bearing results. An admitted
+operation may finish after authorization expires, and pins retained resources
+until it returns. Charge callbacks have the same synchronous lifetime
+restriction as other content callbacks: they must not wait for disposal of
+their own session.
 
 The existing generation-access model supplies the authorization and quiescence
 basis. This operation reuses that protocol rather than adding publication or
@@ -4065,6 +4096,10 @@ Several current types are migration inputs, not target precedent:
   `ArtifactContentReference` from an already published session and returns a
   descriptor with public path/opener compatibility surfaces. #5143 owns the
   missing admission-scoped, opener-free projection used by this context.
+- `ArtifactContentReference` still captures `ArtifactSetSession` and
+  `ArtifactQueryLease`; its registration, role, digest, and open operations
+  therefore hide revocable query authority. #6647 owns the resource-free
+  reference and explicit retained-content child migration.
 - `AssemblyContextSourceQueryContext` exposes package-owned `IPdbStore`,
   `IPackageSourceAuthorization`, and `NuGetSourceOptions` even for
   assembly-authored-source queries.
@@ -4232,6 +4267,12 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactDescriptor_ExposesNoUnguardedContentRoute`
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
 - `ArtifactContentReference_BindsIdentityRegistrationRoleAndContent`
+- `ArtifactContentReference_IsResourceFreeEvidence`
+- `ArtifactContentLease_IssuanceRequiresCurrentQueryAuthority`
+- `ArtifactContentLease_SurvivesQueryAuthorizationReplacement`
+- `ArtifactContentLease_BorrowsOnlyItsExactRetainedContent`
+- `ArtifactSetSession_RetirementDrainsTransferredContentLeases`
+- `ArtifactSetSession_ReleasesAcquisitionAfterContentChildren`
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
 - `LocalPathAdmission_ExpectedKindsAndLinksAreShared`
 - `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`

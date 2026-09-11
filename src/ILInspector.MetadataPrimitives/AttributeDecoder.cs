@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 
 namespace ILInspector.Metadata;
@@ -13,14 +14,58 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class AttributeDecoder
 {
+    /// <summary>
+    /// Shares deterministic decode state across one extraction of one metadata
+    /// reader. Metadata handles in its caches are reader-relative.
+    /// </summary>
     internal sealed class MaterializationContext(Action<int> observe)
     {
         Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
         ExceptionDispatchInfo? _typeDefinitionsByNameFailure;
         MetadataTypeNameFailure? _typeDefinitionsByNameFailureModel;
         bool _typeDefinitionsByNameObserverFailure;
+        Dictionary<DecodedAttributeKey, CustomAttributeValue<string>?>?
+            _decodedAttributes;
 
         public void Observe(int characters) => observe(characters);
+
+        public bool TryGetDecodedAttribute(
+            EntityHandle constructor,
+            BlobHandle value,
+            bool preserveSerializedTypeNames,
+            object? resolverIdentity,
+            out CustomAttributeValue<string>? decoded)
+        {
+            if (_decodedAttributes is not null)
+            {
+                return _decodedAttributes.TryGetValue(
+                    new(
+                        constructor,
+                        value,
+                        preserveSerializedTypeNames,
+                        resolverIdentity),
+                    out decoded);
+            }
+
+            decoded = default;
+            return false;
+        }
+
+        public void CacheDecodedAttribute(
+            EntityHandle constructor,
+            BlobHandle value,
+            bool preserveSerializedTypeNames,
+            object? resolverIdentity,
+            CustomAttributeValue<string>? decoded)
+        {
+            _decodedAttributes ??= [];
+            _decodedAttributes[
+                new(
+                    constructor,
+                    value,
+                    preserveSerializedTypeNames,
+                    resolverIdentity)] = decoded;
+        }
 
         public bool TryGetCachedIndexFailure(
             [NotNullWhen(true)] out MetadataTypeNameFailure? failure)
@@ -72,6 +117,47 @@ public static class AttributeDecoder
                         : MetadataTypeNameFailure.Malformed(default, ex.Message);
                 throw;
             }
+        }
+
+        readonly struct DecodedAttributeKey : IEquatable<DecodedAttributeKey>
+        {
+            public DecodedAttributeKey(
+                EntityHandle constructor,
+                BlobHandle value,
+                bool preserveSerializedTypeNames,
+                object? resolverIdentity)
+            {
+                Constructor = constructor;
+                Value = value;
+                PreserveSerializedTypeNames = preserveSerializedTypeNames;
+                ResolverIdentity = resolverIdentity;
+            }
+
+            public bool Equals(DecodedAttributeKey other)
+                => Constructor == other.Constructor
+                    && Value == other.Value
+                    && PreserveSerializedTypeNames
+                        == other.PreserveSerializedTypeNames
+                    && ReferenceEquals(
+                        ResolverIdentity,
+                        other.ResolverIdentity);
+
+            public override bool Equals(object? obj)
+                => obj is DecodedAttributeKey other && Equals(other);
+
+            public override int GetHashCode()
+                => HashCode.Combine(
+                    Constructor,
+                    Value,
+                    PreserveSerializedTypeNames,
+                    ResolverIdentity is null
+                        ? 0
+                        : RuntimeHelpers.GetHashCode(ResolverIdentity));
+
+            EntityHandle Constructor { get; }
+            BlobHandle Value { get; }
+            bool PreserveSerializedTypeNames { get; }
+            object? ResolverIdentity { get; }
         }
     }
 
@@ -217,12 +303,14 @@ public static class AttributeDecoder
         Action<int>? beforeMaterialize,
         IReadOnlyDictionary<string, PrimitiveTypeCode>
             trustedExternalEnumUnderlyingTypes)
-        => TryDecode(
+        => DecodeCore(
             reader,
             attribute,
             preserveSerializedTypeNames: false,
             beforeMaterialize,
-            TrustedResolver(trustedExternalEnumUnderlyingTypes));
+            TrustedResolver(trustedExternalEnumUnderlyingTypes),
+            cacheable: true,
+            trustedExternalEnumUnderlyingTypes);
 
     /// <summary>
     /// Decodes an attribute while preserving the complete serialized names of
@@ -254,12 +342,14 @@ public static class AttributeDecoder
             Action<int>? beforeMaterialize,
             IReadOnlyDictionary<string, PrimitiveTypeCode>
                 trustedExternalEnumUnderlyingTypes)
-        => TryDecode(
+        => DecodeCore(
             reader,
             attribute,
             preserveSerializedTypeNames: true,
             beforeMaterialize,
-            TrustedResolver(trustedExternalEnumUnderlyingTypes));
+            TrustedResolver(trustedExternalEnumUnderlyingTypes),
+            cacheable: true,
+            trustedExternalEnumUnderlyingTypes);
 
     static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
@@ -272,7 +362,9 @@ public static class AttributeDecoder
             attribute,
             preserveSerializedTypeNames,
             beforeMaterialize,
-            LegacyResolver(enumUnderlyingType));
+            LegacyResolver(enumUnderlyingType),
+            cacheable: enumUnderlyingType is null,
+            resolverIdentity: null);
 
     /// <summary>
     /// Decodes an attribute and additionally reports, per top-level fixed and
@@ -295,6 +387,9 @@ public static class AttributeDecoder
     {
         try
         {
+            Observe(
+                beforeMaterialize,
+                reader.GetBlobReader(attribute.Value).Length);
             if (!CustomAttributeValueDecoder.TryDecode(
                     reader,
                     attribute,
@@ -303,8 +398,10 @@ public static class AttributeDecoder
                     beforeMaterialize,
                     enumUnderlyingType,
                     out CustomAttributeValue<string> value,
-                    out System.Collections.Immutable.ImmutableArray<bool> fixedDefaulted,
-                    out System.Collections.Immutable.ImmutableArray<bool> namedDefaulted))
+                    out System.Collections.Immutable.ImmutableArray<bool>
+                        fixedDefaulted,
+                    out System.Collections.Immutable.ImmutableArray<bool>
+                        namedDefaulted))
             {
                 return null;
             }
@@ -319,6 +416,11 @@ public static class AttributeDecoder
             ex.Rethrow();
             throw;
         }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     static CustomAttributeValue<string>? DecodeCore(
@@ -326,11 +428,32 @@ public static class AttributeDecoder
         CustomAttribute attribute,
         bool preserveSerializedTypeNames,
         Action<int>? beforeMaterialize,
-        EnumWidthResolver? enumUnderlyingType)
+        EnumWidthResolver? enumUnderlyingType,
+        bool cacheable,
+        object? resolverIdentity)
     {
+        var context = cacheable
+            ? beforeMaterialize?.Target as MaterializationContext
+            : null;
+        if (context?.TryGetDecodedAttribute(
+                attribute.Constructor,
+                attribute.Value,
+                preserveSerializedTypeNames,
+                resolverIdentity,
+                out CustomAttributeValue<string>? cached)
+            == true)
+        {
+            return cached;
+        }
+
+        CustomAttributeValue<string>? decoded;
+        bool canCache;
         try
         {
-            return CustomAttributeValueDecoder.TryDecode(
+            Observe(
+                beforeMaterialize,
+                reader.GetBlobReader(attribute.Value).Length);
+            bool succeeded = CustomAttributeValueDecoder.TryDecodeClassified(
                     reader,
                     attribute,
                     preserveSerializedTypeNames,
@@ -339,14 +462,51 @@ public static class AttributeDecoder
                     enumUnderlyingType,
                     out CustomAttributeValue<string> value,
                     out _,
-                    out _)
-                ? value
-                : null;
+                    out _,
+                    out CustomAttributeValueDecoder.DecodeRefusalKind refusal);
+            decoded = succeeded ? value : null;
+            canCache =
+                succeeded
+                || refusal
+                    == CustomAttributeValueDecoder.DecodeRefusalKind.Intrinsic;
         }
         catch (CallerCallbackException ex)
         {
             ex.Rethrow();
             throw;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            decoded = null;
+            canCache = true;
+        }
+
+        if (canCache)
+        {
+            context?.CacheDecodedAttribute(
+                attribute.Constructor,
+                attribute.Value,
+                preserveSerializedTypeNames,
+                resolverIdentity,
+                decoded);
+        }
+        return decoded;
+    }
+
+    static void Observe(Action<int>? beforeMaterialize, int amount)
+    {
+        if (beforeMaterialize is null)
+            return;
+
+        try
+        {
+            beforeMaterialize(amount);
+        }
+        catch (Exception ex)
+        {
+            throw new CallerCallbackException(
+                ExceptionDispatchInfo.Capture(ex));
         }
     }
 
@@ -372,11 +532,14 @@ public static class AttributeDecoder
     /// resolver produces, so an unrecognized cross-assembly enum is never
     /// given an attacker-chosen width.
     /// </summary>
-    static Func<string, PrimitiveTypeCode> TrustedResolver(
+    static EnumWidthResolver TrustedResolver(
         IReadOnlyDictionary<string, PrimitiveTypeCode> trusted)
-        => name => trusted.TryGetValue(name, out PrimitiveTypeCode width)
-            ? width
-            : PrimitiveTypeCode.Int32;
+        => (string name, out PrimitiveTypeCode width) =>
+        {
+            if (!trusted.TryGetValue(name, out width))
+                width = PrimitiveTypeCode.Int32;
+            return true;
+        };
 
     internal sealed class TypeDefinitionIndexException(MetadataTypeNameFailure failure)
         : BadImageFormatException(failure.Detail)

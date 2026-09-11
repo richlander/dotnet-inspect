@@ -3,9 +3,10 @@
 This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
-**Status:** design target. The current `depends` and `dependency-evidence`
-commands remain implemented separately until the migration slices named here
-land.
+**Status:** implementation contract. Asset-mode `depends` implements the
+explicit-root, traversal, section, and output contract in #5994.
+`dependency-evidence` and the positional type-to-library fallback remain
+supported until the focused retirement and cleanup in #5995.
 
 ## Owner and claim
 
@@ -338,9 +339,9 @@ edges. A formatter must never replace root identity with a heading comment that
 drops its outgoing edges.
 
 A root attempt that fails before semantic identity is established remains in
-the `Roots` and `Failures` sections but is not invented as a semantic graph
-node. A root admitted before a later projection or traversal failure retains
-its graph node and the associated failure.
+the diagnostic root ledger and the public `Failures` section but is not
+invented as a semantic graph node. A root admitted before a later projection
+or traversal failure retains its graph node and the associated failure.
 
 Root identity is owner-issued:
 
@@ -468,11 +469,11 @@ algorithm, that work belongs in a focused owner below the CLI rather than in a
 second host-local implementation. Browser/Wasm continues to consume the
 host-neutral evidence query and does not consume this CLI document.
 
-Normalized evidence sections have one stable universe: explicit admitted roots
-only. Selecting `Dependency Graph` may acquire or admit transitive graph
-subjects, but it does not add those subjects' manifests to `Dependencies`,
-`Dependency Groups`, `Restored Packages`, or `Restored Edges`. Adding or
-removing the graph section therefore never changes those already-selected
+Normalized evidence currencies have one stable universe: explicit admitted
+roots only. Selecting `Dependency Graph` may acquire or admit transitive graph
+subjects, but it does not add those subjects' manifests to `Dependencies` or
+the diagnostic group, restored-package, and restored-edge projections. Adding
+or removing the graph section therefore never changes those already-selected
 evidence row sets. `Failures` is plan-relative: selecting traversal can add
 typed traversal failures that an evidence-only plan never produced. For
 restored-project roots, the explicit root's owner-issued evidence already
@@ -501,39 +502,53 @@ The command uses ordinary verbosity and section selection instead of adding
 already owned by progressive disclosure and would not say which evidence is
 wanted.
 
-The base section ladder is:
+The retail base section ladder is:
 
 | Section | Declared row | Default visibility |
 | --- | --- | --- |
 | `Dependency Graph` | One directed logical dependency edge. | Minimal |
-| `Roots` | One explicit root occurrence with identity, provenance, state, and completion. | Normal |
 | `Dependencies` | One normalized direct declaration. | Normal when applicable |
-| `Restored Edges` | One owner-issued restored-project graph edge. | Normal when applicable |
 | `Failures` | One typed root, acquisition, projection, or traversal failure occurrence. | Normal when present |
-| `Dependency Groups` | One normalized framework-scoped declaration group. | Detailed when applicable |
-| `Restored Packages` | One owner-issued restored package node with role and coordinate. | Detailed when applicable |
 
 `Dependency Graph` is the command's single high-value minimal section. It
 preserves the current reason to invoke `depends`: seeing what depends on what.
 
-`-v:n` adds the evidence needed to interpret that graph without making every
-group and package node part of the default view. `-v:d` adds the complete
-applicable base evidence.
+`-v:n` adds normalized direct dependency evidence and any failures needed to
+interpret the result. `-v:d` does not broaden the retail section set until
+another section earns a documented consumer scenario.
 
-The existing `@Dependencies` category contains `Dependency Graph`, `Roots`,
-`Dependencies`, `Restored Edges`, `Failures`, `Dependency Groups`, and
-`Restored Packages`. A caller that wants evidence without traversal selects
-the evidence sections it needs:
+The `@Dependencies` category contains `Dependency Graph`, `Dependencies`, and
+`Failures`. A caller that wants declaration evidence without traversal selects
+the public evidence and failure sections it needs:
 
 ```console
 dotnet-inspect depends --project ./App.csproj \
-  -S Roots -S Dependencies -S "Restored Edges"
+  -S Dependencies -S Failures
 ```
 
 Root-set completion and the state of every requested phase are mandatory
 document fields at every verbosity. They remain visible when the selected
 graph or evidence rows are empty or partial. A traversal phase omitted by
 section planning renders as `NotRequested`.
+
+The implementation also retains four **diagnostic sections** for developing
+and diagnosing the command:
+
+| Diagnostic section | Declared row |
+| --- | --- |
+| `Roots` | One explicit root occurrence with identity, provenance, state, and completion. |
+| `Restored Edges` | One owner-issued restored-project graph edge. |
+| `Dependency Groups` | One normalized framework-scoped declaration group. |
+| `Restored Packages` | One owner-issued restored package node with role and coordinate. |
+
+Diagnostic is their purpose; `DEBUG` is their registration mechanism. A
+`[Conditional("DEBUG")]` registration helper adds them as explicit-only
+sections in Debug builds. In Release builds they are absent from the compiled
+catalog, category membership, verbosity, exact and wildcard selection,
+structural and effective discovery, schemas, count ordering, rendering, and
+typed JSON section output. Their descriptor, view, and owner-issued evidence
+types may remain compiled where the retail graph and dependency projections
+reuse them; those types do not make a section public.
 
 For `depends`, `@Dependencies` is the base category. The same category name may
 have different authored membership in another command; package inspection
@@ -548,10 +563,13 @@ the effective root plan can produce it without network acquisition; the
 explicit remote `--package` gesture and ordinary default `-v:m` continue to
 authorize the package traversal they request.
 
-Type and library roots may not have package-declaration sections. Static
-discovery lists the structural command catalog; effective discovery reports
-which sections are applicable to the admitted root kinds and available
-evidence.
+Type and library roots may not have package-declaration sections. Release
+static discovery lists only the three retail sections; effective discovery
+reports which of those sections are applicable to the admitted root kinds and
+available evidence. In a Debug build, bare `-D` also lists the four registered
+diagnostic sections, and effective discovery reports the applicable diagnostic
+sections. This visible Release/Debug difference is the direct demonstration
+that diagnostic registration disappears from retail compilation.
 
 ## Graph rendering and row currency
 
@@ -756,20 +774,21 @@ dependency traversal.
 Count follows the selected section's declared row currency:
 
 - `Dependency Graph` counts selected logical edges;
-- `Roots` counts explicit root occurrences;
 - `Dependencies` counts normalized direct declarations;
-- `Failures` counts failure occurrences;
-- `Dependency Groups` counts normalized groups;
-- `Restored Packages` counts restored package nodes; and
-- `Restored Edges` counts owner-issued restored graph edges.
+- `Failures` counts failure occurrences.
+
+In a Debug build, explicitly selected diagnostic sections retain their natural
+counts: root occurrences, normalized groups, restored package nodes, or
+owner-issued restored graph edges. Those count cases are unreachable through
+the Release catalog.
 
 Several selected row sets produce the existing ordered section/count table;
 they do not collapse into one request-wide scalar.
 
-Traversal depth never filters `Dependencies`, `Dependency Groups`,
-`Restored Packages`, or `Restored Edges`. Those sections describe the complete
-owner-issued evidence for the explicit roots. Depth applies only to
-`Dependency Graph`.
+Traversal depth never filters `Dependencies` or the diagnostic group,
+restored-package, and restored-edge projections. Those projections describe
+the complete owner-issued evidence for the explicit roots. Depth applies only
+to `Dependency Graph`.
 
 Count is exact only when the selected row set's completion supports an exact
 answer. A depth-bounded graph can be counted exactly within that explicit
@@ -889,7 +908,9 @@ appear in edge-table, Mermaid, JSON, row-window, and count output.
 
 ## Evidence and gates
 
-The implementation slices must provide focused Release gates for:
+The implementation slices must provide focused gates. Product correctness
+runs in Release; the compile-time diagnostic registration contract also gets a
+targeted Debug-build probe.
 
 | Claim | Gate |
 | --- | --- |
@@ -899,12 +920,13 @@ The implementation slices must provide focused Release gates for:
 | Restored-project depth is measured from the explicit project through project-reference and package edges. | #5998 fixture containing `App -> ProjectB -> PackageC`, asserted at depths 1, 2, and unbounded without opening package manifests. |
 | Missing restored assets fail visibly without changing valid sibling results. | Multi-root CLI test with one unrestored project and one valid root. |
 | `--depth 1` performs no deeper package-manifest acquisition. | Instrumented package-source test that fails if a child manifest is requested. |
-| Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting direct evidence sections without `Dependency Graph`. |
+| Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting `Dependencies` without `Dependency Graph`. |
 | Multi-root depth is preserved per root occurrence rather than by one global distance. | Cyclic DAG fixture in which one shared node is reached at different depths from two roots. |
 | A semantic node that is both a transitive child and a later explicit root does not duplicate or suppress edge rows in tree output. | Depth-asymmetric two-root graph fixture run in both root orders, asserting one rendering per selected logical edge and equal tree/table/JSON/count cardinality. |
 | Shared DAG nodes retain every edge and roots survive Mermaid lowering. | #3320 graph fixture across Markdown tree, Mermaid, edge table, JSON, count, and row selection. |
 | Declaration constraints remain when child resolution is unavailable. | Package or nuspec test with a valid declaration and unavailable child expansion. |
-| Restored-edge identity survives independently of command graph-edge projection. | Direct-assets typed JSON and `Restored Edges` section assertions over the same owner-issued edge. |
+| Restored-edge identity survives independently of command graph-edge projection. | Direct-assets owner-level identity assertions and command graph projection assertions over the same owner-issued edge. |
+| Retail builds expose only sections with documented consumer scenarios. | Release catalog, category, exact and wildcard selection, discovery/schema, verbosity, count-order, and typed JSON absence tests; Debug exact-selection tests for the diagnostic farm team. |
 | Partial or truncated evidence never renders or counts as complete. | Multi-root and package-prefix completion tests across Markdown and typed JSON. |
 | Source-authored labels remain inert and never supply graph identity. | Existing hostile-text fixtures extended through graph, evidence, and JSON sinks. |
 | The removed command cannot enter implicit package routing. | Product-entry reservation test for `dependency-evidence`. |

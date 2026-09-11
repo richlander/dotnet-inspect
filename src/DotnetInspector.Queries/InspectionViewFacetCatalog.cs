@@ -21,9 +21,6 @@ public static class InspectionViewFacetCatalog
             "library.integrations",
             InspectionViewFacetExecution.LibraryIntegrations),
         Binding(
-            "library.opportunities",
-            InspectionViewFacetExecution.LibraryOpportunities),
-        Binding(
             "library.analysis",
             InspectionViewFacetExecution.LibraryAnalysis),
         Binding(
@@ -114,7 +111,7 @@ public static class InspectionViewFacetCatalog
                 200),
             "Framework and ecosystem integrations found in the active Library.",
             AppliesToLibrary),
-        Active(
+        new ViewFacetRegistration.Tombstone(
             Descriptor(
                 "library.opportunities",
                 StructuralSubjectKind.Library,
@@ -299,7 +296,6 @@ internal enum InspectionViewFacetExecution
     PackageDependencies,
     LibraryReferences,
     LibraryIntegrations,
-    LibraryOpportunities,
     LibraryAnalysis,
     LibraryMetadata,
     LibraryCompare,

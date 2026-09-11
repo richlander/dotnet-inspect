@@ -81,7 +81,6 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["UnsafeEmitterTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case unsafe source with varying parse options."),
             ["DefaultParameterValidityTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case default-parameter signatures."),
             ["ReturnToSenderPrototypeTests.cs"] = (2, "Runtime construction: builds a shell input assembly asserting 30+ facts; plus a fault-isolation oracle site compiling composed decompiled source for span attribution."),
-            ["ReturnToSenderCompilationClosureTests.cs"] = (1, "Runtime dependency-closure matrix: emits same-identity, version-skewed, manifest-backed, and platform-referencing assemblies whose paths and host context are intrinsic to the selection contract."),
             ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation and cross-assembly seams: builds temporary RTS catalog inputs and pathless donors that require sibling metadata."),
             ["RoundTripComparisonTests.cs"] = (1, "Round-trip oracle seam: compiles an exact donor fixture for typed C# and IL comparison."),
             ["SpanAttributionTests.cs"] = (1, "Product-output validity + oracle seam: compiles synthesized decompiled/authored source per case to feed real compiler diagnostics to the span-attribution classifier."),
@@ -149,12 +148,9 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     the same retained platform images that Metadata resolves.
     //   #6105 adds CSharpMemorySafetySpellingCompileTests.cs (1 site): compiles
     //     CSharp-produced declarations unchanged and re-extracts their contracts.
-    //   #6513 adds ReturnToSenderCompilationClosureTests.cs (1 site): emits a
-    //     runtime dependency-closure matrix whose paths, identities, versions,
-    //     and host process context are the behavior under test.
-    //   Combined: 48 files, 62 sites.
-    const int ExpectedDynamicFiles = 48;
-    const int ExpectedDynamicSites = 62;
+    //   Combined: 47 files, 61 sites.
+    const int ExpectedDynamicFiles = 47;
+    const int ExpectedDynamicSites = 61;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
