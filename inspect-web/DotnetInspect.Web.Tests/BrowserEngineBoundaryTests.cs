@@ -5698,7 +5698,7 @@ public sealed partial class BrowserEngineBoundaryTests
         const string version = "11.0.304";
         const string framework = "net11.0-platform-home-demo-methods";
         byte[] nupkg = PlatformPackage(
-            ("DotnetInspect.Web.Tests.dll",
+            ("PhysicalPayload.dll",
                 File.ReadAllBytes(
                     typeof(BrowserEngineBoundaryTests).Assembly.Location)),
             ("System.Private.CoreLib.dll",
@@ -5771,6 +5771,12 @@ public sealed partial class BrowserEngineBoundaryTests
             result.Packages,
             surface => surface.DefaultAssemblyId
                 == activation.FocusAssembly);
+        Assert.Equal(
+            "PhysicalPayload.dll",
+            Assert.Single(
+                surface.Assemblies,
+                assembly => assembly.Name
+                    == activation.FocusAssembly).Asset);
         Assert.Equal(
             $"DotnetInspect.Web.Tests:{typeof(BrowserEngineBoundaryTests).FullName}",
             activation.TypeId);
