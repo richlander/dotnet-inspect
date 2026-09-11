@@ -42,7 +42,8 @@ public class DependsCommand
         bool Uncertified);
 
     internal static async Task<TypeDependsOutcome> ExecuteTypeDependsAsync(
-        DependsOptions options)
+        DependsOptions options,
+        CancellationToken cancellationToken = default)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -60,17 +61,29 @@ public class DependsCommand
             }
 
             var result = await DependencyGraphService.BuildTypeDependencyTreeAsync(
-                context.HttpClient, options, logger);
+                context.HttpClient,
+                options,
+                logger,
+                cancellationToken);
 
             // A rejected participant scopes to itself and leaves the rest of
             // the scan intact, but the resulting graph is uncertified: it may
             // omit edges the rejected assembly would have contributed. Name
             // each rejection before any result or absence claim, so neither a
             // partial graph nor a "not found" is reported as certified.
-            WriteRejectionWarnings(result.Rejections);
-            bool uncertified = result.Rejections.Count > 0;
+            WriteRejectionWarnings(result.Diagnostics);
+            bool uncertified = result.Diagnostics.Count > 0;
+            if (!result.IsAvailable)
+            {
+                if (uncertified)
+                {
+                    CommandError.Write(
+                        "Dependency scan unavailable because every selected assembly was rejected.");
+                }
+                return new TypeDependsOutcome(1, false);
+            }
 
-            if (!result.Found)
+            if (!result.Dependency.Found)
             {
                 // Report the absence as an absence so the caller can still fall
                 // back or diagnose it, and carry the uncertainty alongside.
@@ -78,7 +91,7 @@ public class DependsCommand
             }
 
             DependencyGraphDocument document =
-                DependencyGraphProjection.Type(result);
+                DependencyGraphProjection.Type(result.Dependency);
             IReadOnlyList<DependencyGraphEdgeRow> rows =
                 RowWindow.Apply(
                     options.Rows,
@@ -90,7 +103,7 @@ public class DependsCommand
             else if (options.JsonOutput && !options.Tree)
             {
                 var visibleNodes = TreeRowWindow.Apply(
-                    result.Tree,
+                    result.Dependency.Tree,
                     options.Rows,
                     node => node.Children,
                     (node, children) => node with { Children = children });
@@ -233,20 +246,24 @@ public class DependsCommand
     /// construction, so every renderer of the node inherits it.
     /// </summary>
     private static void WriteRejectionWarnings(
-        IReadOnlyList<TypeDependencyRejection> rejections)
+        IReadOnlyList<TypeDependencyScanDiagnostic> diagnostics)
     {
-        foreach (TypeDependencyRejection rejection in rejections)
+        foreach (TypeDependencyScanDiagnostic diagnostic in diagnostics)
         {
-            string mechanism = rejection.Kind switch
+            string mechanism = diagnostic.Failure.Kind switch
             {
-                TypeDependencyRejectionKind.UnsupportedMetadataFormat =>
+                CandidateOpenFailureKind.UnsupportedMetadataFormat =>
                     "unsupported metadata format (Windows Metadata)",
-                TypeDependencyRejectionKind.MalformedMetadataRoot =>
-                    $"malformed metadata root ({rejection.MetadataRootReason})",
+                CandidateOpenFailureKind.ResourceBudget =>
+                    $"resource budget ({diagnostic.Failure.Detail})",
+                CandidateOpenFailureKind.Unreadable =>
+                    $"unreadable image ({diagnostic.Failure.Detail})",
+                _ when diagnostic.Failure.MetadataRootReason is { } reason =>
+                    $"malformed metadata root ({reason})",
                 _ => "invalid image",
             };
             CommandError.WriteWarning(
-                $"Excluded '{ContainLabel(Path.GetFileName(rejection.AssemblyPath))}' from the dependency scan: {mechanism}.",
+                $"Excluded '{ContainLabel(diagnostic.Subject)}' from the dependency scan: {mechanism}.",
                 "Results may be incomplete.");
         }
     }
