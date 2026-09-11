@@ -15441,6 +15441,40 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Depends_TypeRowsPreserveTypedWindowFailure()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends", "System.Int128",
+            "--rows", "999..999", "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires row 999",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Relationships has",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Depends_TypeLimitRequiresPositiveSemanticCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends", "System.Int128",
+            "-n", "0", "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "positive whole number",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Depends_TypeJsonUsesTypedGraphDocument()
     {
         var (exit, output, error) = await RunAppAsync(
