@@ -31,8 +31,12 @@ public sealed class NavigationSubjectInventoryTests
 
         Assert.Equal(
             [
-                StructuralSubjectIdentity.ForLibrary(first),
-                StructuralSubjectIdentity.ForLibrary(second),
+                StructuralSubjectIdentity.ForLibrary(
+                    inventory.Package,
+                    first),
+                StructuralSubjectIdentity.ForLibrary(
+                    inventory.Package,
+                    second),
             ],
             inventory.Libraries.Select(library => library.Subject));
         Assert.True(inventory.Libraries[0].IsPrimary);
@@ -424,7 +428,7 @@ public sealed class NavigationSubjectInventoryTests
         Assert.Equal(
             inventory.InitialCandidates[0].Subject,
             NavigationInitialSubjectRecommendation.Recommend(
-                inventory.Root,
+                inventory.Package,
                 allLibraries: null,
                 inventory.InitialCandidates).Subject);
     }
@@ -520,7 +524,9 @@ public sealed class NavigationSubjectInventoryTests
                 Assert.Single(omittedTypes.Evidence));
         Assert.Same(truncation, evidence.Truncation);
         Assert.Equal(
-            StructuralSubjectIdentity.ForLibrary(omitted),
+            StructuralSubjectIdentity.ForLibrary(
+                inventory.Package,
+                omitted),
             evidence.Library);
         Assert.IsType<NavigationTypeInventoryOutcome.Failed>(inventory.Types);
 
@@ -668,9 +674,11 @@ public sealed class NavigationSubjectInventoryTests
     }
 
     [Fact]
-    public void InventoryModels_UseSequenceValueEquality()
+    public void Inventories_PreserveExactPackageAncestryAndSequenceEquality()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate();
+        StructuralSubjectTestData.PackageContext context =
+            StructuralSubjectTestData.Package(coordinate);
         WorkspaceContextMember library = Library(coordinate, "Library");
         ApiType type = Type("Widget", "public", Member("Run"));
         AssemblyContextApiSurfaceResult surface =
@@ -681,18 +689,37 @@ public sealed class NavigationSubjectInventoryTests
             library.Participant);
 
         NavigationSubjectInventory first = Classify(
-            coordinate,
+            context.Subject,
             [library],
             library,
             surface);
         NavigationSubjectInventory second = Classify(
-            Coordinate(),
+            context.Subject,
+            [equalLibrary],
+            equalLibrary,
+            surface);
+        StructuralSubjectIdentity.PackageSubject replacement =
+            StructuralSubjectTestData.Package(
+                Coordinate(),
+                context.WorkspaceIdentity).Subject;
+        NavigationSubjectInventory replacementInventory = Classify(
+            replacement,
             [equalLibrary],
             equalLibrary,
             surface);
 
         Assert.Equal(first, second);
         Assert.Equal(first.GetHashCode(), second.GetHashCode());
+        Assert.Same(context.Subject, first.Package);
+        Assert.All(
+            first.Libraries,
+            row => Assert.Same(context.Subject, row.Subject.Package));
+        Assert.All(
+            first.Types.Rows,
+            row => Assert.Same(
+                context.Subject,
+                row.Subject.Library.Package));
+        Assert.NotEqual(first, replacementInventory);
     }
 
     static NavigationSubjectInventory Classify(
@@ -700,8 +727,19 @@ public sealed class NavigationSubjectInventoryTests
         ImmutableArray<WorkspaceContextMember> libraries,
         WorkspaceContextMember? primary,
         AssemblyContextApiSurfaceResult surface) =>
+        Classify(
+            StructuralSubjectTestData.Package(coordinate).Subject,
+            libraries,
+            primary,
+            surface);
+
+    static NavigationSubjectInventory Classify(
+        StructuralSubjectIdentity.PackageSubject package,
+        ImmutableArray<WorkspaceContextMember> libraries,
+        WorkspaceContextMember? primary,
+        AssemblyContextApiSurfaceResult surface) =>
         NavigationSubjectInventoryClassification.Classify(
-            StructuralSubjectIdentity.ForRoot(coordinate),
+            package,
             libraries,
             primary,
             surface);

@@ -311,8 +311,8 @@ public sealed class DynamicTypeViewTests
         var type = GetType(nameof(DynamicSampleClass));
         var member = GetMethod(nameof(DynamicSampleClass.TakesDynamic));
         Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out var identity));
-        Assert.Contains(identity.NormalizedParameters, p => p.Contains("System.Object"));
-        Assert.DoesNotContain(identity.NormalizedParameters, p => p.Contains("dynamic"));
+        Assert.Contains("System.Object", identity.Value, StringComparison.Ordinal);
+        Assert.DoesNotContain("dynamic", identity.Value, StringComparison.Ordinal);
     }
 
     [Fact]

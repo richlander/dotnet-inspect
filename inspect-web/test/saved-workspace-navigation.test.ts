@@ -4,7 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
-import { createCatalogRequests, type DotnetRelease } from "../src/catalog-requests.ts";
+import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
   type ComparisonPackage,
@@ -237,7 +237,6 @@ function harness() {
       }[];
     } | null,
     dependenciesGroupIndex: null as number | null,
-    dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
     platformStack: [] as object[], platformRecent: [], recentPackages: [],
@@ -259,14 +258,12 @@ function harness() {
   };
   const catalogRequests = createCatalogRequests({
     state,
-    queryDotnetReleases: async () => [],
     queryPackageVersions: async pkg => ({
       versions: [pkg.version],
       currentVersionInsertionIndex: 0,
       previousVersion: null,
       previousVersionUnavailableReason: null,
     }),
-    updatePlatformVersionSelect: () => {},
     updatePackageVersionSelect: () => {},
   });
   const packageComparisonTargets = createPackageComparisonTargets(() => state.packages);
