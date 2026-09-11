@@ -25,7 +25,7 @@ Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, a
 | Compare APIs or method bodies | `diff --package Foo@old..new --breaking` (`--additive` new APIs; `--alloc-regressions` for allocation regressions); `match Type.MethodA Type.MethodB --package Foo --body` adds C#/IL body differences to the structural result; `match Type.Method --similar --package Foo` ranks structural candidates for discovery. |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
 | Inspect packages | `package Foo`; use `-D` to discover sections and `-S "Signals,Audit: Findings"` to audit text-bearing files and SourceLink mappings. Load `skill private-feeds` for custom/authenticated sources. |
-| Inspect a Workspace | `workspace --package Foo@version --tfm net10.0`; repeat `--package` to compose ordered package Roots. Exact duplicates coalesce; packages without compile assemblies remain members. Use `--root-request TOKEN` instead to reopen the exact Root a `find --literal` result names; it is refused rather than approximated by package id and version. |
+| Inspect a Workspace | `workspace --package Foo@version --tfm net10.0`; repeat `--package` to compose ordered Package occurrences. Exact duplicates coalesce; packages without compile assemblies remain members. Add `--active-package N` for structural hierarchy, Library asset IDs, Type/Member inventory, lenses, and diagnostics. Use `--root-request TOKEN` instead to reopen the exact Root a `find --literal` result names; it is refused rather than approximated by package id and version. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections and `-S "Unsafe Members"` for standalone unsafe evidence. Load `skill metadata` for raw ECMA-335 tables/heaps. |
 | Dependencies and relationships | `dependency-evidence --package Foo --tfm net10.0` for direct declarations; `depends Type`, `extensions Type`, or `implements Interface` for traversed relationships. Load `skill relationships` for scopes and semantics. |
 
@@ -38,6 +38,12 @@ defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scop
 
 - `package` and `library` produce terse, token-efficient, high-value domain content by default. Output supports Markdown, tables, TSV, JSONL, and JSON; load `dotnet-inspect skill query` for discovery, selection, projection, and limits.
 - Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
+- `workspace` never selects an occurrence implicitly. Copy a Library asset ID,
+  Type full name, and optional Member stable selector from
+  `workspace --active-package N`, then add `--lens type.*` or
+  `--lens member.*` for one exact stateless descendant request. Selector
+  failures remain structured; JSON/JSONL retain Library asset ancestry and
+  Member containing-versus-declaring Type joins.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
 - Unpinned packages use latest stable; add `--preview` for prerelease APIs.
 

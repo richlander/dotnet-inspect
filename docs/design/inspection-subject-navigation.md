@@ -34,17 +34,57 @@ standalone exact-lens activation is implemented by
 `NavigationLensActivation` and gated by
 `StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`,
 `ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`, and
-`ExplicitLensResolution_RetainsExactRegistryEvidence`. Workspace and Package
-identity as a Navigation subject, snapshot installation, reconciliation,
-revision behavior, retained sessions, synchronization, and restoration remain
-unverified until their implementation gates in
-[Verification](#verification) land. The workspace-owned identity prerequisite
-is implemented by `InspectionWorkspaceIdentity`; the first package descriptor
-composition and exact view-scoped activation slice is implemented by
-`InspectionWorkspacePackageOccurrenceView` for the Inspect Web and CLI
-consumers. This slice does not install or mutate Navigation state. Registry
-adoption is tracked by #5509, and portable
-Workspace/Package subject projection by #5525.
+`ExplicitLensResolution_RetainsExactRegistryEvidence`.
+
+Pure stateless Workspace-rooted snapshot composition is implemented by
+`NavigationWorkspaceSnapshotEvaluation`. It preserves exact Workspace and
+occurrence identity, ordered Package descriptors, retained hierarchy, bounded
+Type and Member inventory, complete target-aware Registry options, and the
+effective or non-effective recommendation basis. It is gated by
+`NavigationWorkspaceSnapshotTests.ZeroOneOrManyOccurrences_DoNotInventActiveOccurrence`,
+`ExactSelectedOccurrence_PreservesAncestryInventoriesAndEvidence`, and
+`PerSubjectAvailabilityProvider_RetainsUnavailableAndFailedEvidence`,
+`PreparedPackage_RequiresExactOwnerIssuedAssetParticipantAssociation`,
+`TypeHierarchy_UsesTheExactLibraryInventoryOutcome`,
+`SelectorMiss_RetainsIncompleteScopedInventoryEvidence`, and
+`MemberSelector_UsesTheSelectedContainingTypeInventory`.
+
+The pure stateless descendant subject plus exact-lens mapping is implemented by
+`NavigationDescendantLensEvaluation`. It validates the exact source,
+Workspace, occurrence, and eligible Library-to-Type or Type-to-Member
+relationship before Registry resolution, then reuses
+`NavigationLensActivation.ResolveExact` without recommendation or partial
+installation. It is gated by
+`NavigationDescendantLensEvaluationTests.LibraryToType_AppliesExactDestinationPair`,
+`AllLibrariesType_RetainsExactDefiningLibrary`,
+`TypeToMember_AppliesExactDestinationPair`,
+`InvalidAncestry_RejectsBeforeRegistryResolution`, and
+`NonAvailableDestinationLenses_InstallNeitherRequestedHalf`.
+
+The CLI `workspace` consumer evaluates this product result and lowers its
+portable projection through Markout and structured formats. Its focused gates
+are
+`WorkspaceCommandTests.ActivePackage_ProjectsPortableNavigationThroughJson`,
+`ExactTypeAndMemberLens_UseAtomicStatelessNavigation`,
+`UnknownDestinationLens_RetainsSourceAndDiagnostic`,
+`ActivePackage_MarkdownLowersNavigationThroughMarkout`, and
+`ActivePackage_JsonlCarriesPortableDescriptorRecords`,
+`ActivePackage_CurrentCatalogEntriesAreExecutable`,
+`MissingType_RendersNonSuccessSnapshotAndDiagnostic`,
+`RootOnlyAllLibraries_RendersTypedUnavailableSnapshot`, and
+`AllLibrariesRejectsIgnoredLibraryWithoutTypeDestination`. Default package
+inventory, row selection, and Count remain unchanged. Portable Type and Member
+rows retain defining Library asset IDs; Member rows distinguish containing
+from declaring Type. Runtime Workspace, occurrence, generation, action, and
+authority identities are not serialized.
+
+Snapshot installation, reconciliation, revision behavior, retained sessions,
+synchronization, and restoration remain unverified until their implementation
+gates in [Verification](#verification) land. The workspace-owned identity
+prerequisite is implemented by `InspectionWorkspaceIdentity`; the observational
+occurrence view remains available for its unmigrated Browser consumer.
+Registry adoption is tracked by #5509, and portable Workspace/Package subject
+projection by #5525.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).

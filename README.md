@@ -160,7 +160,7 @@ stderr rather than mixed into structured output.
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
-| Workspace scope | `workspace --package X --tfm TFM` | Publish and render one complete product-owned Scope snapshot. Repeat `--package` to compose the Workspace; exact duplicate Packages coalesce in first-request order. |
+| Workspace scope and navigation | `workspace --package X --tfm TFM` | Publish and render one complete product-owned Navigation snapshot over the Workspace Scope. Repeat `--package` to compose the Workspace; exact duplicate Packages coalesce in first-request order. Add `--active-package N` for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `find --literal TEXT --package ID@VERSION --tfm TFM`, `workspace --root-request TOKEN` | Evaluate an ordinal decoded-`ldstr` substring over 1-5 explicitly named packages using disposable candidates, reporting per-candidate matched/no-match/not-applicable/failed outcomes with method-token and IL-offset evidence, plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
@@ -187,7 +187,7 @@ stderr rather than mixed into structured output.
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
-| `workspace` | Render the committed ordered package Roots of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact package Root a `find --literal` result names. |
+| `workspace` | Render the committed ordered Package occurrences of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact Package Root a `find --literal` result names. Add `--active-package N` to evaluate the exact one-based occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
@@ -403,6 +403,65 @@ The token is opaque, credential-free, and exact. `workspace --root-request`
 rejects a token this tool did not issue, and reports an unauthorized producer
 or unavailable content instead of opening a different Root that happens to
 share the package id and version.
+
+### Workspace structural navigation
+
+The default `workspace` output remains the ordered Package inventory. It never
+selects an occurrence implicitly, even when the Workspace contains exactly one
+Package:
+
+```bash
+dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0
+```
+
+Add `--active-package N` to evaluate one exact occurrence by its one-based
+Workspace order. The detailed result includes the active subject, complete
+Workspace-to-Member hierarchy slots, Library asset IDs, bounded Type and Member
+inventories, target-aware lens availability, and retained diagnostics.
+For this CLI consumer, the current active catalog entries are available once
+Navigation admits the exact subject because those entries execute on demand;
+query and result non-success remains inside the selected entry. This does not
+prevent another producer from supplying explicit unavailable or failed
+availability evidence to the Navigation evaluator:
+
+```bash
+dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --active-package 1
+```
+
+Library asset IDs, Type full names, and Member stable selectors in that output
+can drive an exact stateless descendant plus lens request:
+
+```bash
+dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --active-package 1 \
+  --library compile:lib/net10.0/System.Text.Json.dll \
+  --type System.Text.Json.JsonSerializer \
+  --lens type.compare
+```
+
+Add `--member <stable-selector>` and use a `member.*` lens for a Type-to-Member
+destination. `--all-libraries` uses the aggregate Library as the source while
+`--library` still names the destination Type's exact defining Library. A
+source-only `--all-libraries` request omits `--library`; supplying both without
+a Type destination is rejected. Root-only and explicit-empty Packages have no
+All-libraries subject and return a typed non-success snapshot instead of
+throwing.
+
+Selector misses retain the evaluated snapshot and diagnostics. The command
+claims that a Type or Member is not present only when its scoped inventory is
+complete; otherwise it reports incomplete evidence. Unavailable, failed,
+inapplicable, and unknown destination lenses leave both requested halves
+uninstalled and return nonzero with typed diagnostic data. JSON and JSONL Type
+and Member rows carry the defining Library asset ID, and Member rows carry both
+containing and declaring Type names. Process-local Workspace, occurrence,
+generation, action, and authority identities are omitted.
 
 ### Projects and local assets
 

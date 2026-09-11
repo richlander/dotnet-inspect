@@ -48,6 +48,39 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Stateless Workspace navigation
+
+The `workspace` command is the first production consumer of
+`NavigationWorkspaceSnapshotEvaluation`. The default path preserves the
+ordered Package inventory without choosing an active occurrence. An explicit
+`--active-package` request borrows the exact committed Package Root generation,
+materializes bounded API-surface evidence, and retains each realization-issued
+Package asset/participant association through Navigation classification. It
+does not rejoin assets to assemblies by file or assembly name.
+
+Exact Type and Member destinations are selected only from the returned
+scoped inventory and submitted through `DescendantSubjectLensRequest`.
+Projected Member rows retain separate containing and declaring Types, so a
+Type-to-Member selector resolves within its selected source Type rather than a
+flattened global Member list. Selector failure retains the complete snapshot;
+absence is claimed only from complete scoped evidence.
+
+After Navigation validates an exact admitted subject, this CLI supplies
+`Available` facts for the Registry's current active entries. Those entries
+execute on demand, so query or result non-success remains inside the selected
+entry rather than making the entry unavailable. The Navigation evaluator still
+accepts per-subject facts carrying explicit unavailable or failed owner
+evidence; the CLI assumption is narrow to the current catalog and is not a
+permanent availability rule. The CLI does not inspect Registry-private
+execution targets, construct an ID-based availability policy, infer structural
+identity from display text, recommend an intermediate destination lens, or
+install one requested half after a non-applied result.
+
+Markdown, plain text, table, and TSV are Markout lowerings; JSON and JSONL omit
+process-local Workspace, occurrence, generation, action, and authority
+identity while retaining portable Library asset, containing-Type, and
+declaring-Type joins.
+
 ## Runtime identity
 
 `--flavor` identifies the executing CLI runtime as `CoreCLR` or `NativeAOT`,
