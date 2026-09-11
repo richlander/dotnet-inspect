@@ -564,6 +564,9 @@ public enum TypeParameterTypeKind
 public class ApiSignature
 {
     internal string? ExtensionReceiverType { get; set; }
+    internal IReadOnlyList<string>? XmlDocumentationParameterTypes { get; set; }
+    internal string? XmlDocumentationReturnType { get; set; }
+    internal bool XmlDocumentationIsVararg { get; set; }
     public string? ReturnType { get; set; }
     public string? CanonicalReturnType { get; set; }
 

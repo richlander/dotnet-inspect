@@ -12,20 +12,21 @@ This is the target architecture for issue #4794, corrected by #5582 after the
 approved split of #5434 and PR #5524 to de-conflate Workspace,
 retained-coordinate selection, and Package inspection. Issue #5013 completes
 its focused lens-recommendation semantics. The
-coordinate-rooted structural kind and exact subject identity subset is
+Workspace-rooted structural kind and exact subject identity family is
 implemented by
 `StructuralSubjectIdentity` and gated by
-`StructuralSubjectIdentityTests.KindVocabulary_IsClosedAndStructurallyOrdered`,
+`StructuralSubjectIdentityTests.WorkspaceSubject_BindsOneExactWorkspaceOccurrence`,
+`KindVocabulary_IsClosedAndWorkspaceRooted`,
 `Identities_BindExactOwnerIssuedComponents`,
+`PortableCoordinateAlone_CannotIdentifyRetainedPackageSubject`,
+`PackageSubject_RequiresPackageOccurrence`,
 `MemberIdentity_BindsExactDeclaringTypeAndAnchor`, and
-`Construction_RejectsAbsentOwnerIssuedComponents`. That implementation does
-not yet include Workspace or Package subjects or bind descendants to an exact
-Workspace occurrence. Exact lens identity, retained evaluation bases, and pure
-lens recommendation are implemented by `NavigationLensRecommendation` and
-gated at their claims below for the implemented subject subset. Pure initial
+`Construction_RejectsAbsentOwnerIssuedComponents`. Exact lens identity,
+retained evaluation bases, and pure lens recommendation are implemented by
+`NavigationLensRecommendation` and gated at their claims below. Pure initial
 subject ranking over available Library candidates and their retained Type
-inventory is implemented by `NavigationInitialSubjectRecommendation`
-and gated at its claim below for one already selected coordinate occurrence.
+inventory is implemented by `NavigationInitialSubjectRecommendation` and gated
+at its claim below for one already selected Package occurrence.
 Generation-free classification of bounded Type and Member inventory evidence
 is implemented by
 `NavigationSubjectInventoryClassification` and gated at its claim below. Pure
@@ -661,18 +662,18 @@ This classification is gated by
 `ProjectionTruncation_NeverProvesUnavailability`,
 `ProducerEvidence_IsRetainedWithoutTranslation`,
 `InitialCandidates_ContainOnlyTrustworthyExactRows`, and
-`InventoryJoin_RequiresExactParticipantRegistration` for the implemented
-coordinate-rooted subset. Workspace-occurrence binding remains unverified.
+`InventoryJoin_RequiresExactParticipantRegistration`, and
+`Inventories_PreserveExactPackageAncestryAndSequenceEquality`.
 
 The pure ranking over available Library candidates is gated by
-`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersOneLibraryThenAggregateThenRoot`,
+`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersLibraryThenPackage`,
 `LibraryRecommendation_UsesPrimaryThenProducerOrderRegardlessOfTypes`, and
 `InitialRecommendation_NeverChoosesTypeOrMember`. Candidate coordinate, Library,
 Type, primary-role, and accessibility consistency is gated by
 `CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence`. The bounded
 classification above supplies the trustworthy Type candidates and retains
 availability and failure evidence. These gates establish ranking only after one
-coordinate occurrence is selected; they do not choose among Workspace
+Package occurrence is selected; they do not choose among Workspace
 inventory entries.
 
 ### Lens recommendation
