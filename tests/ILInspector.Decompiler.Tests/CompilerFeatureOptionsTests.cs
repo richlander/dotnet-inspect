@@ -441,6 +441,59 @@ public class CompilerFeatureOptionsTests
     }
 
     [Fact]
+    public void WholeTypeProjectionRejectsUnavailableModeFromPrivateInitializerConstructor()
+    {
+        var updatedOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var updated = Compile(
+            """
+            public sealed class C
+            {
+                public readonly int Seed = 5;
+
+                private C() { }
+            }
+            """,
+            updatedOptions,
+            assemblyName: "UnsupportedPrivateInitializer");
+        byte[] unsupported = WithMemorySafetyRulesVersion(
+            updated.Image,
+            version: 99);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"unsupported-private-initializer-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, unsupported);
+        try
+        {
+            using var pe = new PEReader(
+                new MemoryStream(unsupported, writable: false));
+            ApiType type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.FullName == "C");
+            Assert.DoesNotContain(
+                type.Members,
+                candidate => candidate.Kind == "constructor");
+
+            DecompilerResult projection =
+                MemberBodyProducer.Project(type, path, pdbPath: null);
+
+            Assert.False(projection.Succeeded);
+            Assert.Contains(
+                projection.Diagnostics,
+                diagnostic => diagnostic.Id
+                    == DiagnosticIds.MemorySafetyModeUnavailable);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void UpdatedByRefPointerLambdaBesideAwait_RemainsReconstructable()
     {
         string oracleAssembly =

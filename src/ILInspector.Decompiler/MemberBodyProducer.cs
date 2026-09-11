@@ -2265,6 +2265,13 @@ public static class MemberBodyProducer
             var result = Pipeline.CSharpPrinter.PrintRaised(
                 function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method),
                 typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
+            if (!result.Succeeded
+                && result.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable))
+            {
+                throw new DecompilerProjectionException(result);
+            }
             foreach (var (field, value) in result.FieldInitializers)
                 initializers.TryAdd(field, value);
         }
