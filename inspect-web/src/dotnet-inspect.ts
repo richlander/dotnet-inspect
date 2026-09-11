@@ -227,6 +227,12 @@ import {
 import { renderOverviewSurface } from "./overview-surface.ts";
 import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
+import {
+  bindIntegrationTabs,
+  isIntegrationMode,
+  restoreIntegrationTabFocus,
+  type IntegrationMode,
+} from "./integration-inspector.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   captureMemberFocus,
@@ -981,6 +987,7 @@ const initialState = {
   lens: "api" as const,
   packageLens: "overview" as const,
   libraryLens: "overview" as const,
+  integrationMode: "integrations" as IntegrationMode,
   workspaceOccurrences: null,
   workspaceOccurrenceSignature: "",
   workspaceOccurrenceLoading: false,
@@ -3352,6 +3359,7 @@ function clearWorkspacePackages() {
   state.platformSelection = null;
   state.platformSlot = -1;
   state.rootKind = "package";
+  state.integrationMode = "integrations";
   for (const packageModel of discarded)
     releasePackageModelCaches(packageModel);
 }
@@ -4342,6 +4350,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? captureScopeBarFocus(focusedElement)
     : null;
   const workspaceFocus = captureWorkspaceFocus(focusedElement);
+  const integrationTabFocus = focusedElement?.dataset.integrationMode;
   const workbenchSearchHadFocus = focusedElement?.id === "open-search";
   const levelOneHeadingHadFocus =
     focusedElement?.matches("main h1") === true;
@@ -4528,7 +4537,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const libraryIntegrationsWorkingSurface =
     activeScope === "library" && state.libraryLens === "integrations";
   const libraryOpportunitiesWorkingSurface =
-    activeScope === "library" && state.libraryLens === "opportunities";
+    libraryIntegrationsWorkingSurface && state.integrationMode === "opportunities";
   const libraryAnalysisWorkingSurface =
     activeScope === "library" && state.libraryLens === "analysis";
   const currentMember = current ? selectedMember(current) : undefined;
@@ -4695,6 +4704,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     focusWorkbenchSearch(document);
   } else if (levelOneHeadingHadFocus) {
     focusLevelOneHeading();
+  } else if (isIntegrationMode(integrationTabFocus)) {
+    restoreIntegrationTabFocus(document, integrationTabFocus);
   }
   if (scopeBarOwnsFocus) {
     let restored = false;
@@ -5048,7 +5059,6 @@ function libraryLensPresentation(
     case "overview": return "◫";
     case "references": return "⇄";
     case "integrations": return "⌁";
-    case "opportunities": return "◇";
     case "analysis": return "∿";
     case "metadata": return "≡";
     default: return assertNever(id, "library lens presentation");
@@ -5223,7 +5233,6 @@ function renderLibraryView() {
   if (state.libraryLens === "overview"
     || state.libraryLens === "references"
     || state.libraryLens === "integrations"
-    || state.libraryLens === "opportunities"
     || state.libraryLens === "analysis"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
@@ -5264,8 +5273,9 @@ function libraryLensBody() {
   switch (state.libraryLens) {
     case "overview": return renderLibraryOverview();
     case "references": return renderLibraryReferences();
-    case "integrations": return renderPackageIntegrations();
-    case "opportunities": return renderPackageOpportunities();
+    case "integrations": return state.integrationMode === "opportunities"
+      ? renderPackageOpportunities()
+      : renderPackageIntegrations();
     case "analysis": return renderPackagePerformance();
     case "metadata": return renderPackageMetadata();
     default: return assertNever(state.libraryLens, "library lens");
@@ -5663,6 +5673,7 @@ async function loadPackageIntegrations() {
 
 function maybeAutoLoadPackageIntegrations() {
   if (!state.atLibraryRoot || state.libraryLens !== "integrations") return;
+  if (state.integrationMode !== "integrations") return;
   if (state.packageIntegrationsKey === packageIntegrationsSignature()) return;
   observeAsync(loadPackageIntegrations(), "Loading package integrations");
 }
@@ -5685,7 +5696,7 @@ function renderPackageOpportunities() {
     coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
     requireLibrary: pkg.isRuntimePack && !scopedLib,
     pickerHtml: pkg.isRuntimePack
-      ? platformLibrarySelectHtml({ dataAttr: "data-platform-opportunities-library", selected: scopedLib || "" })
+      ? platformLibrarySelectHtml({ dataAttr: "data-platform-integrations-library", selected: scopedLib || "" })
       : "",
     fresh: state.packageOpportunitiesKey === current,
     loading: state.packageOpportunitiesLoading,
@@ -5705,7 +5716,8 @@ async function loadPackageOpportunities() {
 }
 
 function maybeAutoLoadPackageOpportunities() {
-  if (!state.atLibraryRoot || state.libraryLens !== "opportunities") return;
+  if (!state.atLibraryRoot || state.libraryLens !== "integrations") return;
+  if (state.integrationMode !== "opportunities") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageOpportunitiesKey === packageScopeSignature()) return;
   observeAsync(loadPackageOpportunities(), "Loading package opportunities");
@@ -6971,8 +6983,10 @@ async function openPlatformLensLibrary(
   state.typeFilter = "";
   state.kindFilter = "";
   normalizeLibrarySelection();
-  if (lens === "integrations") await loadPackageIntegrations();
-  else if (lens === "opportunities") await loadPackageOpportunities();
+  if (lens === "integrations") {
+    if (state.integrationMode === "opportunities") await loadPackageOpportunities();
+    else await loadPackageIntegrations();
+  }
   else if (lens === "analysis") await loadPackagePerformance();
   else await loadPackageMetadata();
 }
@@ -7295,6 +7309,14 @@ function bindSettingsPanelEvents() {
     onTasteClear: clearTaste,
     onTasteToggle: toggleTaste,
     onThemeSelect: setTheme,
+  });
+}
+
+function bindIntegrationInspectorEvents() {
+  bindIntegrationTabs(document, mode => {
+    if (state.integrationMode === mode) return;
+    state.integrationMode = mode;
+    render();
   });
 }
 
@@ -7662,6 +7684,7 @@ function bindEvents() {
   bindScopeBarEvents();
   bindSettingsPanelEvents();
   bindMetadataViewerEvents();
+  bindIntegrationInspectorEvents();
   bindPackageOpportunitiesEvents();
   bindGraphSourceEvents();
   bindDocViewerEvents();

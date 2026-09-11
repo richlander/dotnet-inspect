@@ -311,6 +311,16 @@ and Member Source, and Root and Member Overview remain separate facets.
 These entries had no external compatibility obligation and were replaced by
 the consumer-paired cutover.
 
+## Integrations inspector consolidation
+
+The Browser's [Integrations surface](inspect-web-surface-composition.md#library-integrations)
+now places detected integrations and opportunities in two tabs under
+`library.integrations`. The published `library.opportunities` descriptor remains
+registered as a tombstone: exact applicable resolution returns `Retired` and
+there is no execution binding. Both descriptors retain their issued identities,
+structural kinds, and purpose statements. The compatibility manifest is
+unchanged; Browser tab selection does not mint or alias a Registry ID.
+
 ## Compare facet extension
 
 Issue [#6494](https://github.com/richlander/dotnet-inspect/issues/6494)
