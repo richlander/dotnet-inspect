@@ -78,7 +78,7 @@ public sealed class ViewFacetRegistryTests
             () => new ViewFacetId("workspace.-overview"));
     }
 
-    [Fact]
+        [Fact]
     public void RegistrationsAndBindingsAgree()
     {
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
@@ -542,6 +542,9 @@ public sealed class ViewFacetRegistryTests
             new("library.metadata", StructuralSubjectKind.Library, "Metadata",
                 "Physical ECMA-335 metadata and PE structure for the active Library.",
                 500),
+            new("library.compare", StructuralSubjectKind.Library, "Compare",
+                "Diff and clone results organized by Type for the active Library.",
+                600),
             new("type.api", StructuralSubjectKind.Type, "API",
                 "API shape and member inventory for the active Type.",
                 100, ViewFacetRole.TypeApi),
@@ -551,6 +554,9 @@ public sealed class ViewFacetRegistryTests
             new("type.source", StructuralSubjectKind.Type, "Source",
                 "Source or decompiled code for the active Type.",
                 300),
+            new("type.compare", StructuralSubjectKind.Type, "Compare",
+                "Diff and clone results organized by Member for the active Type.",
+                400),
             new("member.overview", StructuralSubjectKind.Member, "Overview",
                 "Signature, documentation, and overload context for the active Member.",
                 100, ViewFacetRole.MemberOverview),
@@ -566,6 +572,9 @@ public sealed class ViewFacetRegistryTests
             new("member.annotated-source", StructuralSubjectKind.Member, "Annotated source",
                 "Source for the active Member with product analysis annotations.",
                 500),
+            new("member.compare", StructuralSubjectKind.Member, "Compare",
+                "Detailed diff and clone results for the active Member.",
+                600),
         ];
 
         Assert.Equal(
@@ -596,12 +605,16 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.LibraryAnalysis),
                 ("library.metadata",
                     InspectionViewFacetExecution.LibraryMetadata),
+                ("library.compare",
+                    InspectionViewFacetExecution.LibraryCompare),
                 ("type.api",
                     InspectionViewFacetExecution.TypeApi),
                 ("type.metadata",
                     InspectionViewFacetExecution.TypeMetadata),
                 ("type.source",
                     InspectionViewFacetExecution.TypeSource),
+                ("type.compare",
+                    InspectionViewFacetExecution.TypeCompare),
                 ("member.overview",
                     InspectionViewFacetExecution.MemberOverview),
                 ("member.call-graph",
@@ -612,6 +625,8 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.MemberSource),
                 ("member.annotated-source",
                     InspectionViewFacetExecution.MemberAnnotatedSource),
+                ("member.compare",
+                    InspectionViewFacetExecution.MemberCompare),
             },
             registry.ActiveBindings.Select(binding => (
                 binding.Id.Value,
@@ -642,6 +657,137 @@ public sealed class ViewFacetRegistryTests
                     Assert.IsType<ViewFacetResolution.Inapplicable>(resolution);
                 }
             }
+        }
+    }
+
+[Fact]
+    public void CompareInventory_MatchesContract()
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        ViewFacetDescriptor[] compare =
+        [
+            .. registry.Descriptors.Where(descriptor =>
+                descriptor.Title == "Compare"),
+        ];
+
+        Assert.Equal(
+            new[]
+            {
+                new DescriptorShape(
+                    "library.compare",
+                    StructuralSubjectKind.Library,
+                    "Compare",
+                    "Diff and clone results organized by Type for the active Library.",
+                    600,
+                    null),
+                new DescriptorShape(
+                    "type.compare",
+                    StructuralSubjectKind.Type,
+                    "Compare",
+                    "Diff and clone results organized by Member for the active Type.",
+                    400,
+                    null),
+                new DescriptorShape(
+                    "member.compare",
+                    StructuralSubjectKind.Member,
+                    "Compare",
+                    "Detailed diff and clone results for the active Member.",
+                    600,
+                    null),
+            },
+            compare.Select(descriptor => new DescriptorShape(
+                descriptor.Id.Value,
+                descriptor.Kind,
+                descriptor.Title,
+                descriptor.Summary,
+                descriptor.Order,
+                descriptor.Role)));
+        Assert.Equal(
+            new[]
+            {
+                InspectionViewFacetExecution.LibraryCompare,
+                InspectionViewFacetExecution.TypeCompare,
+                InspectionViewFacetExecution.MemberCompare,
+            },
+            compare.Select(descriptor =>
+                Assert.IsType<InspectionViewFacetExecution>(
+                    Assert.Single(
+                        registry.ActiveBindings,
+                        binding => binding.Id == descriptor.Id).Target)));
+
+        ViewFacetAvailabilitySnapshot facts = AllAvailable(registry);
+        foreach (ViewFacetDescriptor descriptor in compare)
+        {
+            foreach (ViewFacetTarget target in Targets())
+            {
+                bool applies = target.Subject.Kind == descriptor.Kind;
+                Assert.Equal(
+                    applies,
+                    registry.Resolve(
+                        descriptor.Id.Value,
+                        target,
+                        applies ? facts : ThrowingFacts.Instance)
+                        is ViewFacetResolution.Available);
+            }
+        }
+    }
+
+    [Fact]
+    public void CompareLookup_PreservesFacetAndModeBoundaries()
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        ViewFacetAvailabilitySnapshot facts = AllAvailable(registry);
+        ViewFacetTarget library = LibraryTarget();
+        ViewFacetTarget type = TypeTarget();
+        ViewFacetTarget member = MemberTarget();
+
+        Assert.Equal(
+            "library.compare",
+            Assert.IsType<ViewFacetResolution.Available>(
+                registry.Resolve("library.compare", library, facts))
+                .Descriptor.Id.Value);
+        Assert.Equal(
+            "type.compare",
+            Assert.IsType<ViewFacetResolution.Available>(
+                registry.Resolve("type.compare", type, facts))
+                .Descriptor.Id.Value);
+        Assert.Equal(
+            "member.compare",
+            Assert.IsType<ViewFacetResolution.Available>(
+                registry.Resolve("member.compare", member, facts))
+                .Descriptor.Id.Value);
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "library.compare",
+                type,
+                ThrowingFacts.Instance));
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "type.compare",
+                member,
+                ThrowingFacts.Instance));
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "member.compare",
+                library,
+                ThrowingFacts.Instance));
+
+        foreach (string unknown in new[]
+        {
+            "compare",
+            "library.diff",
+            "library.clone",
+            "type.diff",
+            "type.clone",
+            "member.diff",
+            "member.clone",
+        })
+        {
+            Assert.IsType<ViewFacetResolution.Unknown>(
+                registry.Resolve(
+                    unknown,
+                    type,
+                    ThrowingFacts.Instance));
         }
     }
 
