@@ -430,7 +430,12 @@ import {
   createPackageComparisonTargets,
   renderPackageComparisonTargets,
 } from "./package-comparison-targets.ts";
-import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
+import {
+  AGENT_SKILL_URL,
+  CLI_TOOL_URL,
+  dataBarHtml,
+  fmtBytes,
+} from "./data-bar.ts";
 import {
   bindCreditsPanel,
   isCreditsPath,
@@ -855,7 +860,6 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
-  statusBarExpanded: false,
   memberFiltersExpanded: false,
   typeFiltersExpanded: false,
   packages: [],
@@ -1380,7 +1384,6 @@ function invalidateWorkspaceAsyncOwners(): void {
 function captureRetainedHostState() {
   return {
     theme: state.theme,
-    statusBarExpanded: state.statusBarExpanded,
     home: state.home,
     credits: state.credits,
     packageQueryOpen: state.packageQueryOpen,
@@ -4617,16 +4620,12 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         </section>
       </main>
 
-      ${statusBarHtml({
+      ${dataBarHtml({
         buildIdentity: state.buildIdentity,
-        diagnostics: state.diag,
-        packageCache: state.packageCacheStats,
-        source: pkg.source,
-        assembly: activeScope === "library"
-          ? selectedLibraryName()
-          : current?.assembly ?? pkg.assembly,
-        framework: pkg.activeFramework,
-        expanded: state.statusBarExpanded,
+        producer: {
+          kind: pkg.source.kind === "platform" ? "acquisition" : "package",
+          label: pkg.producerLabel,
+        },
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
       ${graphSourceIsOpen(state.graphSource) ? renderGraphSource() : ""}
@@ -4738,11 +4737,8 @@ function renderWorkspaceCatalogView() {
           </article>
         </section>
       </main>
-      ${statusBarHtml({
+      ${dataBarHtml({
         buildIdentity: state.buildIdentity,
-        diagnostics: state.diag,
-        packageCache: state.packageCacheStats,
-        expanded: state.statusBarExpanded,
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>
@@ -4751,7 +4747,6 @@ function renderWorkspaceCatalogView() {
     ${state.keyboardHelp
       ? renderKeyboardHelpDialog(keyboardHelpBindings)
       : ""}`;
-  bindStatusBarEvents();
   bindScopeBarEvents();
   bindWorkspaceSubjectEvents();
   bindSettingsPanelEvents();
@@ -6956,15 +6951,6 @@ function bindPackageDependencyListEvents() {
   bindPackageDependencyList(document, packageViewActions);
 }
 
-function bindStatusBarEvents() {
-  bindStatusBar(document, {
-    onToggle: () => {
-      state.statusBarExpanded = !state.statusBarExpanded;
-      render();
-    },
-  });
-}
-
 function bindLibraryControlsEvents() {
   bindLibraryControls(document, libraryControlActions);
 }
@@ -7635,7 +7621,6 @@ function bindWorkspaceSubjectEvents() {
 }
 
 function bindEvents() {
-  bindStatusBarEvents();
   packageControls.bind(document);
   bindWorkspaceSubjectEvents();
   bindTypePanelEvents();
@@ -8236,12 +8221,14 @@ function renderPlatformView() {
         })}
       </article></section>
     </main>
-    ${statusBarHtml({ buildIdentity: state.buildIdentity, diagnostics: state.diag, packageCache: state.packageCacheStats, framework: target?.tfm ?? "", expanded: state.statusBarExpanded }, escapeHtml)}
+    ${dataBarHtml({
+      buildIdentity: state.buildIdentity,
+      producer: { kind: "acquisition", label: "Platform" },
+    }, escapeHtml)}
     ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>${renderApplicationMenu(true)}
     ${state.settings ? renderSettingsViewHtml() : ""}
     ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}`;
-  bindStatusBarEvents();
   bindScopeBarEvents();
   bindSettingsPanelEvents();
   workbenchShellBinding = bindWorkbenchShell(document, workbenchShellActions);
@@ -10229,7 +10216,7 @@ function renderHomeView() {
                 </div>`
               : ""}
           </div>
-          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
+          <p class="home-availability">Also available as a <a href="${CLI_TOOL_URL}" target="_blank" rel="noopener noreferrer">CLI tool</a> and <a href="${AGENT_SKILL_URL}" target="_blank" rel="noopener noreferrer">agent skill</a>.</p>
           <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
             <span class="home-demos-label">Explore product demos</span>
@@ -10243,13 +10230,8 @@ function renderHomeView() {
         </div>
         <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">${homeArtSvg()}</aside>
       </main>
-      ${statusBarHtml({
-        variant: "home",
-        ready: state.engineReady,
+      ${dataBarHtml({
         buildIdentity: state.buildIdentity,
-        diagnostics: state.diag,
-        compactDiagnostics: true,
-        expanded: state.statusBarExpanded,
       }, escapeHtml)}
     </div>
     ${state.settings ? renderSettingsViewHtml() : ""}`;
@@ -10275,7 +10257,6 @@ const homeShellActions: HomeShellBindingActions = {
 };
 
 function bindHomeEvents() {
-  bindStatusBarEvents();
   bindSettingsPanelEvents();
   bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
