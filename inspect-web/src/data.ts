@@ -933,6 +933,24 @@ export function uniqueTypeByQueryId<T extends QueryIdentifiedType>(
   return matches.length === 1 ? matches[0] ?? null : null;
 }
 
+export interface QueryTypePackage<T extends QueryIdentifiedType> {
+  types?: readonly T[];
+}
+
+export function uniqueWorkspaceTypeByQueryId<
+  TType extends QueryIdentifiedType,
+  TPackage extends QueryTypePackage<TType>,
+>(
+  packages: readonly TPackage[],
+  queryId: string,
+): { pkg: TPackage; type: TType } | null {
+  const matches = packages.flatMap(pkg =>
+    (pkg.types ?? [])
+      .filter(type => (type.queryId ?? type.id) === queryId)
+      .map(type => ({ pkg, type })));
+  return matches.length === 1 ? matches[0] ?? null : null;
+}
+
 export interface CallGraphAssembly {
   name?: string;
   version?: string;
