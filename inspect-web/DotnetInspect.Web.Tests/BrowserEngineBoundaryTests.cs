@@ -2127,6 +2127,82 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task SourceUnavailable_PreservesDecompilerDiagnostic()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await Coordinate(
+            "Source.Decompiler.Failure",
+            Package(
+                image,
+                "lib/net11.0/DotnetInspect.Web.Tests.dll"));
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserWorkspaceParticipant participant =
+            Assert.Single(scope.ImplementationParticipants);
+        AssemblyContextApiSurfaceResult result =
+            scope.UseImplementation(
+                group => AssemblyContextApiSurfaceQuery.Execute(group));
+        var available =
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                Assert.Single(result.Assemblies.Assemblies));
+        ApiType type = Assert.Single(
+            available.Value.Surface.Types,
+            candidate => candidate.FullName
+                == typeof(BrowserEngineBoundaryTests).FullName);
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name
+                == nameof(SourceUnavailable_PreservesDecompilerDiagnostic));
+        const string DecompilerDetail =
+            "DEC0016: module memory-safety rules are Unsupported";
+        var memberEntry = new AssemblyMemberSourceEntry.Unavailable(
+            available.Subject,
+            AssemblyMemberSourceRequest.From(type, member),
+            new AssemblySourceFailure(
+                AssemblySourceFailureKind.PdbAndDecompiledUnavailable,
+                "Neither source form is available."),
+            DecompiledAttempt: new MemberRenderResult(
+                MemberBodyProductionStatus.Failed,
+                DecompilerDetail,
+                []));
+
+        var memberError = Assert.Throws<InvalidOperationException>(
+            () => DotnetInspect.Web.Interop.Source.SourceExports.Adapt(
+                memberEntry,
+                participant));
+        Assert.Contains(
+            DecompilerDetail,
+            memberError.Message,
+            StringComparison.Ordinal);
+
+        var decompiledAttempt = DecompilerResult.Failure(
+            DiagnosticIds.MemorySafetyModeUnavailable,
+            "module memory-safety rules are Unsupported");
+        var entry = new AssemblyTypeSourceEntry.Unavailable(
+            available.Subject,
+            AssemblyTypeSourceRequest.From(type),
+            new AssemblySourceFailure(
+                AssemblySourceFailureKind.PdbAndDecompiledUnavailable,
+                "Neither source form is available."),
+            DecompiledAttempt: decompiledAttempt);
+
+        var error = Assert.ThrowsAny<InvalidOperationException>(
+            () => DotnetInspect.Web.Interop.Source.SourceExports.Adapt(
+                entry,
+                participant));
+
+        Assert.Contains(
+            DecompilerDetail,
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures()
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);

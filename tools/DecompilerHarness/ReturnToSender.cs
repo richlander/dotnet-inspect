@@ -1326,7 +1326,9 @@ static class ReturnToSender
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, getterHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor);
+            return PreserveSourceUnavailability(
+                ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, getterHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor),
+                ex);
         }
     }
 
@@ -1349,7 +1351,9 @@ static class ReturnToSender
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(assemblyPath, reader, typeHandle, methodHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor);
+            return PreserveSourceUnavailability(
+                ContextFailResult(assemblyPath, reader, typeHandle, methodHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor),
+                ex);
         }
     }
 
@@ -1385,13 +1389,15 @@ static class ReturnToSender
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(
-                assemblyPath,
-                reader,
-                typeHandle,
-                accessorHandle,
-                $"{ex.GetType().Name}: {ex.Message}",
-                memberAnchor);
+            return PreserveSourceUnavailability(
+                ContextFailResult(
+                    assemblyPath,
+                    reader,
+                    typeHandle,
+                    accessorHandle,
+                    $"{ex.GetType().Name}: {ex.Message}",
+                    memberAnchor),
+                ex);
         }
     }
 
@@ -1415,7 +1421,9 @@ static class ReturnToSender
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, setterHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor);
+            return PreserveSourceUnavailability(
+                ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, setterHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor),
+                ex);
         }
     }
 
@@ -2143,6 +2151,14 @@ static class ReturnToSender
             []);
         return new Result(plan, "", FidelityCheck.CompileBackStatus.ContextFail, "", "", detail, MemberAnchor: memberAnchor);
     }
+
+    static Result PreserveSourceUnavailability(Result result, Exception exception)
+        => exception is CompileBackSourceUnavailableException
+            ? result with
+            {
+                Status = FidelityCheck.CompileBackStatus.FidelityUnavailable,
+            }
+            : result;
 
     static IReadOnlyDictionary<int, MemberAnchor> MemberAnchorsByMethodToken(PEReader pe)
     {
