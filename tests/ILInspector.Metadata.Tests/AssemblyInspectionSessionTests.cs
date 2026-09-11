@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 using Inspector.Resources;
 using ILInspector.MetadataPrimitives;
@@ -55,6 +56,27 @@ public class AssemblyInspectionSessionTests
             });
 
         Assert.Equal(SelfName, assemblyName);
+    }
+
+    [Fact]
+    public void Snapshot_MetadataTableProjectionRemainsUsableAfterSessionDisposal()
+    {
+        MetadataTableProjection projection;
+        using (var session = AssemblyInspectionSession.Open(SelfPath))
+        {
+            projection = session.Snapshot(
+                new MetadataProjectionOptions
+                {
+                    Tables = [TableIndex.Assembly],
+                },
+                static (snapshot, options) =>
+                    snapshot.Value.MetadataTables(options));
+        }
+
+        MetadataTableView table = Assert.Single(projection.Tables);
+        Assert.Equal(TableIndex.Assembly, table.Index);
+        Assert.Equal("Assembly", table.Name);
+        Assert.Single(table.Rows);
     }
 
     [Fact]
