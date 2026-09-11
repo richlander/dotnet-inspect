@@ -59,7 +59,8 @@ It does not own:
 - View Facet Registry membership, labels, applicability, ordering, or
   availability;
 - immersive Diff or Clone viewer internals;
-- the existing same-member PDB-versus-decompiled Member Diff experience; or
+- the separately owned method-body and paired authored-Source comparison
+  evidence reused by immersive viewers; or
 - page-level shell, navigation-pane, action-row, responsive, or data-bar
   placement.
 
@@ -257,11 +258,13 @@ Retrieval score remains separate from any independently issued checked
 relation. **Explore** opens only an owner-issued destination for the selected
 pair.
 
-The existing PDB-versus-decompiled Member Diff remains a separate operation
-until its owning designs reconcile that representation-comparison axis with
-cross-version Compare under
-[#6491](https://github.com/richlander/dotnet-inspect/issues/6491). This owner
-neither retires it nor presents the two axes as interchangeable.
+The legacy contextual **Compare method bodies** and
+**Compare authored source** actions and dialogs are retired under
+[#6491](https://github.com/richlander/dotnet-inspect/issues/6491). Their
+managed method-body and paired authored-Source evidence remains separately
+owned substrate that an immersive Omni destination may consume. Compare does
+not recreate the retired dialogs or treat representation comparison and
+cross-version comparison as interchangeable.
 
 ## Identity and aggregation
 

@@ -8,8 +8,9 @@ first profile of publication step 5 in
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706).
 The borrowed-input profile is implemented by `DirectMemberComparisonQuery`
 in `DotnetInspector.ResearchQueries` and consumed by CLI `match --body` (#5967)
-and Browser Method Body Diff (#5990). The Release gates below cover publication;
-the Browser owner supplies its own facade and interaction gates.
+and the retained Browser method-body comparison facade projection from #5990.
+The Release gates below cover publication; the Browser owner supplies its own
+facade gates after retirement of the contextual dialog.
 
 `DotnetInspector.Queries` is the sole architectural owner. The optional
 `DotnetInspector.ResearchQueries` companion supplies the physical dependency
