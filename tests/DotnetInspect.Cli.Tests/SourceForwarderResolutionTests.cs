@@ -1674,6 +1674,7 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void TypeBodyShapesAcquisition_PreservesDesignatedCoreLibraryRows()
     {
         string path = typeof(System.Text.StringBuilder).Assembly.Location;

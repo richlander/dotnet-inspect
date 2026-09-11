@@ -912,6 +912,7 @@ public class CatalogMemberCorrespondencePlanTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CompilerProducedVararg_PreservesCallingConvention()
     {
         string assemblyPath =

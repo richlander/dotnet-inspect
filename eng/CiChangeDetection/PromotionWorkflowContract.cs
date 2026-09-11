@@ -57,6 +57,12 @@ internal static class PromotionWorkflowContract
           artifacts/inspect-web-compiler-publish/async-lowering.json \
           artifacts/inspect-web-coreclr-publish/async-lowering.json
         """;
+    private const string CoreClrPackageOperationCheck =
+        """
+        INSPECT_WEB_PACKAGE_ADOPTION_SITE="$GITHUB_WORKSPACE/artifacts/inspect-web-coreclr-publish/wwwroot" \
+          eng/test-inspect-web-package-adoption-gate.sh \
+            --grep 'drives the production opening, join, occurrence, and rejection contracts'
+        """;
     internal static void AssertMutations(string repository)
     {
         string promotionPath = Path.Combine(
@@ -326,16 +332,16 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging contract accepted runtime verification without its mapped cohort feeds.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
-            "            -p:PublishReadyToRun=true \\\n",
+            "            -p:PublishReadyToRun=false \\\n",
             "",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted implicit ReadyToRun behavior.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
-            "            -p:PublishReadyToRunComposite=false \\\n",
+            "            eng/test-inspect-web-package-adoption-gate.sh \\\n",
             "",
             ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted implicit composite ReadyToRun behavior.");
+            "CoreCLR staging contract accepted a skipped package operation.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
             "            -p:WasmBuildNative=false \\\n",
@@ -1184,7 +1190,7 @@ internal static class PromotionWorkflowContract
 
         YamlSequenceNode publishSteps =
             GetRequiredSequence(publishJob, "steps", "CoreCLR jobs.publish");
-        if (publishSteps.Children.Count != 14)
+        if (publishSteps.Children.Count != 15)
         {
             throw new InvalidOperationException(
                 "CoreCLR publish must build and deploy the promoted product identity.");
@@ -1423,9 +1429,7 @@ internal static class PromotionWorkflowContract
                     targetFramework: $target_framework,
                     configuration: {
                       asyncLowering: "runtime",
-                      publishReadyToRun: true,
-                      publishReadyToRunComposite: false,
-                      readyToRunContainer: "wasm",
+                      publishReadyToRun: false,
                       wasmBuildNative: false
                     },
                     workload: {
@@ -1467,6 +1471,7 @@ internal static class PromotionWorkflowContract
                 ["run"] =
                     "npm ci\n" +
                     "npm run build\n" +
+                    "npx playwright install --with-deps firefox\n" +
                     "grep -q '<script type=\"importmap\"></script>' dist/index.html\n" +
                     "grep -Eq '<link rel=\"preload\" id=\"webassembly\"[[:space:]]*/?>' dist/index.html\n",
             },
@@ -1529,8 +1534,7 @@ internal static class PromotionWorkflowContract
               -p:BuildTimestampUtc="$built_at" \
               -p:Features=runtime-async=on \
               -p:UseMonoRuntime=false \
-              -p:PublishReadyToRun=true \
-              -p:PublishReadyToRunComposite=false \
+              -p:PublishReadyToRun=false \
               -p:WasmBuildNative=false \
               -p:WasmNestedPublishAppDependsOn= \
               -p:WasmEnableExceptionHandling=true \
@@ -1542,11 +1546,6 @@ internal static class PromotionWorkflowContract
               artifacts/inspect-web-coreclr-runtime-cohort/workload-list.txt \
               artifacts/inspect-web-coreclr-runtime-cohort/runtime-cohort.json \
               artifacts/inspect-web-coreclr-publish/runtime-cohort/
-            node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
-              --record \
-              artifacts/inspect-web-coreclr-publish/wwwroot \
-              inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
-              artifacts/inspect-web-coreclr-publish/runtime-cohort
             """;
         if (GetRequiredScalar(
                 publish,
@@ -1566,10 +1565,35 @@ internal static class PromotionWorkflowContract
             RuntimeAsyncDeploymentCheck,
             "runtime-async deployment verification step");
 
-        ValidateManagedApiPublish(
+        YamlMappingNode packageOperation =
             RequireStep(
                 publishSteps,
                 8,
+                "Test CoreCLR package operation",
+                "CoreCLR jobs.build");
+        RequireExactKeys(
+            packageOperation,
+            ["name", "shell", "run"],
+            "CoreCLR package operation step");
+        RequireScalarValue(
+            packageOperation,
+            "shell",
+            "bash",
+            "CoreCLR package operation step");
+        if (GetRequiredScalar(
+                packageOperation,
+                "run",
+                "CoreCLR package operation step").TrimEnd()
+            != CoreClrPackageOperationCheck)
+        {
+            throw new InvalidOperationException(
+                "CoreCLR package operation does not match the trusted contract.");
+        }
+
+        ValidateManagedApiPublish(
+            RequireStep(
+                publishSteps,
+                9,
                 "Publish MSDL managed API",
                 "CoreCLR jobs.build"),
             "artifacts/inspect-web-coreclr-publish/api",
@@ -1578,7 +1602,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode buildVerify =
             RequireStep(
                 publishSteps,
-                9,
+                10,
                 "Verify CoreCLR site artifact",
                 "CoreCLR jobs.build");
         ValidateCoreClrArtifactVerification(
@@ -1588,7 +1612,7 @@ internal static class PromotionWorkflowContract
         ValidateAsyncDeploymentCheck(
             RequireStep(
                 publishSteps,
-                10,
+                11,
                 "Compare compiler-async and runtime-async receipts",
                 "CoreCLR jobs.build"),
             PairedAsyncDeploymentCheck,
@@ -1597,7 +1621,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode upload =
             RequireStep(
                 publishSteps,
-                11,
+                12,
                 "Upload CoreCLR staged site artifact",
                 "CoreCLR jobs.build");
         RequireExactKeys(
@@ -1627,14 +1651,14 @@ internal static class PromotionWorkflowContract
         YamlMappingNode deployVerify =
             RequireStep(
                 publishSteps,
-                12,
+                13,
                 "Verify CoreCLR staged site artifact");
         ValidateCoreClrArtifactVerification(
             deployVerify,
             "CoreCLR staging artifact verification step");
 
         YamlMappingNode deployStep =
-            RequireStep(publishSteps, 13, "Deploy to CoreCLR staging");
+            RequireStep(publishSteps, 14, "Deploy to CoreCLR staging");
         RequireExactKeys(
             deployStep,
             ["name", "uses", "with"],
@@ -1906,11 +1930,6 @@ internal static class PromotionWorkflowContract
               cohort={{publishRoot}}/runtime-cohort
               test -f "$cohort/dotnet-info.txt"
               test -f "$cohort/workload-list.txt"
-              node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
-                --verify \
-                "$site" \
-                inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
-                "$cohort"
               jq -e '
                 .schema == 2
                 and .sdk == {
@@ -1929,27 +1948,9 @@ internal static class PromotionWorkflowContract
                 and .targetFramework == "net11.0"
                 and .configuration == {
                   asyncLowering: "runtime",
-                  publishReadyToRun: true,
-                  publishReadyToRunComposite: false,
-                  readyToRunContainer: "wasm",
+                  publishReadyToRun: false,
                   wasmBuildNative: false
                 }
-                and .readyToRun.evidenceFile == "ready-to-run-assets.json"
-                and (.readyToRun.evidenceSha256 | test("^[0-9a-f]{64}$"))
-                and .readyToRun.format == "crossgen2-webassembly"
-                and .readyToRun.mode == "per-assembly"
-                and .readyToRun.publishedManagedAssetCount > 0
-                and .readyToRun.readyToRunAssetCount
-                  == (.readyToRun.publishedManagedAssetCount - 3)
-                and .readyToRun.readyToRunBytes > 0
-                and .readyToRun.inspectWebApplicationAssetCount == 8
-                and .readyToRun.ilOnlyAssets == [
-                  "System.ComponentModel.wasm",
-                  "System.Xml.Linq.wasm",
-                  "System.wasm"
-                ]
-                and all(.readyToRun.frameworkPayload[];
-                  .fileCount > 0 and .bytes > 0)
                 and .workload == {
                   id: "wasm-tools",
                   manifestVersion: "{{CoreClrDotnetSdkVersion}}",

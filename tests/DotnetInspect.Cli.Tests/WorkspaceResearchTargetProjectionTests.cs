@@ -43,6 +43,7 @@ public sealed class WorkspaceResearchTargetProjectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome()
     {
         var audit = new WorkspaceProjectionContractAudit();

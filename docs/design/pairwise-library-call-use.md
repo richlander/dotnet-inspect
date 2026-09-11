@@ -5,9 +5,14 @@ Pairwise Library call-use answers one focused question:
 > Which methods in either of two admitted libraries directly call or construct
 > methods defined by the other library?
 
-Tracking: [#6523](https://github.com/richlander/dotnet-inspect/issues/6523),
-as a focused prerequisite for the broader feature-relationship experience in
-[#6313](https://github.com/richlander/dotnet-inspect/issues/6313).
+Tracking:
+
+- [#6523](https://github.com/richlander/dotnet-inspect/issues/6523) — exact
+  pair occurrence evidence;
+- [#6602](https://github.com/richlander/dotnet-inspect/issues/6602) — direct-use
+  summary projections;
+- [#6313](https://github.com/richlander/dotnet-inspect/issues/6313) — broader
+  feature-relationship experience.
 
 This document owns the L1 pair result: participant identity, admitted
 occurrence kinds, physical evidence, ordering, and completion. Analysis owns
@@ -31,6 +36,18 @@ changing stored edge direction:
 
 - local source members that use APIs in the other library;
 - target APIs in the other library that the local source members use.
+
+The first summary vocabulary is deliberately mechanical:
+
+- a **consumer use site** is one attributed source method with one or more
+  exact pair occurrences;
+- a **provider API type** is the structured declaring type of one or more
+  exact selected target methods.
+
+These summaries expose useful typed surfaces before the product has a semantic
+feature-cluster owner. They do not claim that a direct use site is a public
+entry point or feature, or that a provider declaring type is a public API
+boundary or cohesive capability.
 
 The Browser/Wasm host can consume the same host-neutral query after it has a
 two-library selection surface. The query must not depend on CLI paths, console
@@ -183,6 +200,38 @@ Occurrences are ordered by:
 This order is independent of request argument order and preserves repeated
 physical call sites.
 
+## Direct-use projections
+
+`AssemblyPairCallUseProjection` derives two summary row sets from the exact
+ordered occurrences. It does not reopen either image, rebuild correspondence,
+or alter pair completion.
+
+Each occurrence appears exactly once in each projection:
+
+1. **Consumer use sites** group by source registration, source module version
+   ID, source MethodDef token, and target registration. A row retains the exact
+   source method, the distinct structured target declaring types, the distinct
+   target methods, and the indexes of every supporting occurrence.
+2. **Provider API types** group by source registration, target registration,
+   target module version ID, and the structured target declaring type. A row
+   retains the distinct source methods, the distinct target methods, and the
+   indexes of every supporting occurrence.
+
+Registration, module, token, and structured type identity establish group
+membership. Display spelling is not identity. Occurrence indexes address the
+original `AssemblyPairCallUseResult.Occurrences` array and therefore retain the
+complete physical receipts without copying or reminting evidence.
+
+Groups and their retained distinct values are ordered by first supporting
+occurrence. Because the occurrence order is deterministic and independent of
+request argument order, both projections inherit those properties. Repeated
+physical sites increase the call-site count but do not increase distinct
+method or type counts.
+
+Positive summary rows remain useful when pair evidence is incomplete. The
+projection preserves the pair result and its completion state; it never turns
+partial positive evidence into a complete breadth or absence claim.
+
 ## CLI projection
 
 `graph libraries` initially lowers the typed occurrence rows as a table-shaped
@@ -196,9 +245,31 @@ remains visible even when it equals the attributed source method so generated-
 body locations cannot appear to belong to the declared method. Structured
 formats retain the exact occurrence rows, including full assembly identities,
 source and target MVIDs and method tokens, and the evidence method MVID and
-token.
-Row windows apply once before human summaries and table rendering. Counts
-operate on the same windowed occurrences, not unique methods.
+token. Row windows apply once before human summaries and call-site table
+rendering. Counts operate on the same windowed occurrences, not unique methods.
+
+The command exposes three sections:
+
+| Section | Meaning |
+| --- | --- |
+| `Consumer Use Sites` | One row per attributed source method and directed target participant, with distinct provider-type and target-member counts |
+| `Provider API Types` | One row per structured target declaring type and directed source participant, with distinct source- and target-member counts |
+| `Call Sites` | The exact physical occurrence rows |
+
+Omitting `-S` preserves the exact call-site view. Bare `-S` selects the two
+summary sections; an exact section name selects one projection, and normal
+section discovery describes their schemas without acquiring the libraries.
+Tabular streams require one selected section, while Markdown and JSON may
+carry several.
+
+Row windows apply independently to the selected section rows after summary
+groups are formed. A selected summary row retains counts for its complete
+group; limiting summary rows does not change the group's underlying occurrence
+set. Summary `Call Site Rows` values are one-based references to the default
+call-site output, matching `--rows`; the typed projection continues to retain
+zero-based indexes into the result array. `--count` counts selected rows after
+that window, using the normal multi-section count map when several sections are
+selected.
 
 If a later slice projects the result into `InspectionGraphDocument`, every
 rolled-up library edge must retain the member-level occurrence receipts behind
@@ -212,7 +283,7 @@ This L1 contract does not include:
 - inheritance or interface implementation;
 - field access;
 - delegate, reflection, or dynamic-dispatch inference;
-- public-entrypoint reachability;
+- public-entrypoint reachability or local root-to-use-site paths;
 - transitive dependency paths;
 - automatic feature naming or clustering;
 - breadth, depth, leverage, or importance scores;
@@ -235,9 +306,14 @@ Contract tests cover:
 - request-order independence;
 - exclusion of same-library and third-participant calls;
 - unresolved correspondence making absence incomplete;
-- participant acquisition and invalid-image failures.
+- participant acquisition and invalid-image failures;
+- summary groups retaining every exact occurrence once;
+- repeated sites affecting site counts without inflating distinct counts;
+- bidirectional and request-order-independent summary ordering.
 
 Repository dogfood uses `DotnetInspector.Presentation` and
 `DotnetInspector.MetadataRendering` against their resolved Markout library.
-The result must reproduce the exact existing Markout call-use examples before
-feature clustering or breadth/depth measures are designed.
+The focused relationship has two consumer use sites and four provider API
+types; the broader relationship has thirteen consumer use sites and four
+provider API types. Both must retain the existing six and seventy-two exact
+call sites before feature clustering or breadth/depth measures are designed.

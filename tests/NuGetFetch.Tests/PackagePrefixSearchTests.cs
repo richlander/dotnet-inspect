@@ -117,6 +117,118 @@ public sealed class PackagePrefixSearchTests
     }
 
     [Fact]
+    public async Task Gallery_PageProjectionOmitsVersionHistoryAndPreservesMetadata()
+    {
+        const string response = """
+            {
+              "data": [{
+                "id": "AWSSDK.Core",
+                "version": "4.0.102.5",
+                "description": "Core runtime support for the AWS SDK for .NET",
+                "totalDownloads": "9007199254740993",
+                "verified": true,
+                "owners": ["Amazon Web Services"],
+                "versions": [
+                  {"version": null, "downloads": "not-a-count"},
+                  {"version": "not-a-version", "downloads": -1}
+                ]
+              }]
+            }
+            """;
+        var handler = new PagingHandler(new Page(response));
+        using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(), handler);
+
+        await using IAsyncEnumerator<
+            PackageSourceOperationResult<PackageSearchResult>> enumerator =
+            source.SearchByPrefixPagesAsync(
+                "AWSSDK.",
+                take: 1,
+                cancellationToken: TestContext.Current.CancellationToken)
+                .GetAsyncEnumerator(TestContext.Current.CancellationToken);
+        Assert.True(await enumerator.MoveNextAsync());
+
+        PackageSearchMatch match = Assert.Single(
+            AssertPage(
+                source,
+                enumerator.Current,
+                PackageSearchTruncationReason.RequestedLimit,
+                "AWSSDK.Core").Matches);
+        Assert.Equal("4.0.102.5", match.Metadata.Version);
+        Assert.Equal(
+            "Core runtime support for the AWS SDK for .NET",
+            match.Metadata.Description);
+        Assert.Equal(9007199254740993, match.Metadata.TotalDownloads);
+        Assert.True(match.Metadata.Verified);
+        Assert.Equal(["Amazon Web Services"], match.Metadata.Owners);
+        Assert.Null(match.Metadata.Versions);
+        Assert.False(await enumerator.MoveNextAsync());
+    }
+
+    [Fact]
+    public async Task Gallery_MaterializedSearchRetainsVersionHistory()
+    {
+        const string response = """
+            {
+              "data": [{
+                "id": "AWSSDK.Core",
+                "version": "4.0.102.5",
+                "versions": [
+                  {"version": "4.0.102.5", "downloads": 42},
+                  {"version": "4.0.102.4", "downloads": 40}
+                ]
+              }]
+            }
+            """;
+        var handler = new PagingHandler(new Page(response));
+        using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(), handler);
+
+        PackageSearchResult result = AssertPage(
+            source,
+            await source.SearchByPrefixAsync(
+                "AWSSDK.",
+                take: 1,
+                cancellationToken: TestContext.Current.CancellationToken),
+            PackageSearchTruncationReason.RequestedLimit,
+            "AWSSDK.Core");
+        IReadOnlyList<SearchVersion> versions =
+            Assert.IsAssignableFrom<IReadOnlyList<SearchVersion>>(
+                Assert.Single(result.Matches).Metadata.Versions);
+        Assert.Equal(
+            ["4.0.102.5", "4.0.102.4"],
+            versions.Select(version => version.Version));
+    }
+
+    [Theory]
+    [InlineData("""{"data":[{"version":"1.0.0"}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso.Package"}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso/Package","version":"1.0.0"}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""")]
+    public async Task Gallery_PageProjectionRejectsInvalidTopLevelIdentity(
+        string response)
+    {
+        var handler = new PagingHandler(new Page(response));
+        using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(), handler);
+
+        await using IAsyncEnumerator<
+            PackageSourceOperationResult<PackageSearchResult>> enumerator =
+            source.SearchByPrefixPagesAsync(
+                Prefix,
+                cancellationToken: TestContext.Current.CancellationToken)
+                .GetAsyncEnumerator(TestContext.Current.CancellationToken);
+
+        Assert.True(await enumerator.MoveNextAsync());
+        AssertFailure(
+            source,
+            enumerator.Current,
+            PackageSourceFailureKind.InvalidResponse);
+        Assert.False(await enumerator.MoveNextAsync());
+        AssertRequests(handler, [0]);
+    }
+
+    [Fact]
     public async Task Gallery_EmptyFilteredPageDoesNotProveExhaustion()
     {
         var handler = new PagingHandler(

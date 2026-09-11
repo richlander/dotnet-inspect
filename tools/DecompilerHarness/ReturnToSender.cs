@@ -2448,11 +2448,22 @@ static class ReturnToSender
         ArtifactQueryLease? lease = null;
         try
         {
+            bool hasDependencyManifest =
+                File.Exists(Path.ChangeExtension(targetPath, ".deps.json"));
             var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
             {
                 ExcludeTargetAssembly = true,
                 SnapshotAssemblyImages = true,
                 AllowPlatformAssemblyVersionRollForward = true,
+                // The process TPA describes the harness closure, not platform
+                // authority for the inspected artifact. Resolve platform
+                // references from their actual binding requests instead.
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeInstalledPlatformFallback = true,
+                // A matching application manifest already defines the local
+                // dependency graph; sibling scanning would register its assets
+                // again with unrelated provenance.
+                IncludeSiblingAssemblies = !hasDependencyManifest,
             });
             ResolvedAssemblyReference targetAssembly =
                 resolver.AcquireTargetAssembly()
@@ -2474,12 +2485,8 @@ static class ReturnToSender
                     .OfType<AssemblyDependencyAcquisition.Acquired>()
                     .Select(acquired => acquired.Assembly)
                     .DistinctBy(assembly => assembly.Registration)];
-            AssemblyReferenceIdentity[] platformFamilies =
-                [.. candidates
-                    .Where(candidate => candidate.Provenance is AssemblyResolutionProvenance.PlatformAsset)
-                    .Select(candidate => candidate.Identity)];
             AssemblyBindingRequest[] platformRequests =
-                PlatformRequests(targetAssembly, candidates, platformFamilies);
+                PlatformRequests(resolver, targetAssembly, candidates);
 
             CompileReferencePlatformPolicy policy = RequireReady(
                 CompileReferencePlatformPolicy.PrepareAsync(
@@ -2494,14 +2501,17 @@ static class ReturnToSender
             lease = owner.IssueLease(owner.CreateQueryAuthorization());
             CompileReferenceInventory frozenInventory =
                 RequireReady(policy.Discover(lease, static _ => { }));
-            AssemblyReferenceIdentity[] preparedPlatformFamilies =
-                [.. policy.Bindings.Select(binding =>
-                    ((AssemblyBindingTarget.AssemblyReference)binding.Request.Target).Identity)];
+            ArtifactIdentity[] preparedPlatformArtifacts =
+                [.. policy.Bindings
+                    .SelectMany(binding =>
+                        new[] { binding.PlatformArtifact, binding.AgreementArtifact })
+                    .Distinct()];
             CompileReferenceRequest[] exactRequests =
                 [.. frozenInventory.Candidates
                     .Where(candidate =>
                         !candidate.IsSameModuleAs(frozenInventory.Source)
-                        && !IsPlatformFamily(candidate.Identity, preparedPlatformFamilies))
+                        && !preparedPlatformArtifacts.Any(
+                            artifact => ReferenceEquals(artifact, candidate.InventoryId)))
                     .Select(candidate => new CompileReferenceRequest(candidate.Identity))];
             CompileReferenceSet referenceSet =
                 RequireReady(policy.Select(frozenInventory, exactRequests));
@@ -2516,9 +2526,9 @@ static class ReturnToSender
     }
 
     static AssemblyBindingRequest[] PlatformRequests(
+        AssemblyDependencyResolver resolver,
         ResolvedAssemblyReference source,
-        IReadOnlyList<ResolvedAssemblyReference> candidates,
-        IReadOnlyList<AssemblyReferenceIdentity> platformFamilies)
+        IReadOnlyList<ResolvedAssemblyReference> candidates)
     {
         var requests = new List<AssemblyBindingRequest>();
         var pending = new Queue<ResolvedAssemblyReference>();
@@ -2538,49 +2548,91 @@ static class ReturnToSender
             foreach (AssemblyReferenceHandle handle in reader.AssemblyReferences)
             {
                 AssemblyReferenceIdentity identity = AssemblyReferenceIdentity.From(reader, handle);
-                if (IsPlatformFamily(identity, platformFamilies))
+                ResolvedAssemblyReference[] exactCandidates =
+                    [.. candidates.Where(candidate =>
+                        candidate.Provenance is not AssemblyResolutionProvenance.PlatformAsset
+                        && identity.IsEquivalentTo(candidate.Identity))];
+                var request = new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(identity),
+                    AssemblyBindingOrigin.FromAssembly(origin),
+                    AssemblyResolutionScope.Platform);
+                AssemblyBindingSelection.Selected? platform =
+                    SelectPlatform(resolver, request);
+                if (exactCandidates.Length != 0)
                 {
-                    if (!requests.Any(request =>
-                        request.Origin is AssemblyBindingOrigin.RequestingAssembly existing
-                        && ReferenceEquals(existing.Registration, origin.Registration)
-                        && request.Target is AssemblyBindingTarget.AssemblyReference target
-                        && target.Identity.IsEquivalentTo(identity)))
+                    // An exact package or application asset precedes platform
+                    // roll-forward. Preserve agreement checks only when the
+                    // owner selected the same complete identity as platform.
+                    foreach (ResolvedAssemblyReference candidate in exactCandidates)
+                        pending.Enqueue(candidate);
+                    if (platform is not null
+                        && identity.IsEquivalentTo(platform.Assembly.Identity))
                     {
-                        requests.Add(new(
-                            AssemblyBindingTarget.Reference(identity),
-                            AssemblyBindingOrigin.FromAssembly(origin),
-                            AssemblyResolutionScope.Platform));
+                        AddPlatformRequest(requests, request, origin.Registration);
                     }
                     continue;
                 }
-                foreach (ResolvedAssemblyReference candidate in candidates.Where(candidate =>
-                    identity.IsEquivalentTo(candidate.Identity)))
+
+                if (platform is not null)
                 {
-                    pending.Enqueue(candidate);
+                    AddPlatformRequest(requests, request, origin.Registration);
+                    pending.Enqueue(platform.Assembly);
                 }
             }
         }
 
-        foreach (ResolvedAssemblyReference platform in candidates.Where(candidate =>
-            candidate.Provenance is AssemblyResolutionProvenance.PlatformAsset))
+        foreach (ResolvedAssemblyReference candidate in candidates.Where(candidate =>
+            candidate.Provenance is not AssemblyResolutionProvenance.PlatformAsset))
         {
-            if (requests.Any(request =>
-                    request.Target is AssemblyBindingTarget.AssemblyReference target
-                    && IsPlatformFamily(target.Identity, [platform.Identity]))
-                || !candidates.Any(candidate =>
-                    candidate.Provenance is not AssemblyResolutionProvenance.PlatformAsset
-                    && candidate.Identity.IsEquivalentTo(platform.Identity)))
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(candidate.Identity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+            if (requests.Any(existingRequest =>
+                    existingRequest.Target is AssemblyBindingTarget.AssemblyReference target
+                    && IsPlatformFamily(target.Identity, [candidate.Identity]))
+                || resolver.Select(request).Selection
+                    is not AssemblyBindingSelection.Selected
+                    {
+                        Assembly.Provenance: AssemblyResolutionProvenance.PlatformAsset,
+                    } selected
+                || !candidate.Identity.IsEquivalentTo(selected.Assembly.Identity))
             {
                 continue;
             }
 
-            requests.Add(new(
-                AssemblyBindingTarget.Reference(platform.Identity),
-                AssemblyBindingOrigin.Global(),
-                AssemblyResolutionScope.Platform));
+            requests.Add(request);
         }
 
         return [.. requests];
+    }
+
+    static AssemblyBindingSelection.Selected? SelectPlatform(
+        AssemblyDependencyResolver resolver,
+        AssemblyBindingRequest request) =>
+        resolver.Select(request).Selection
+            is AssemblyBindingSelection.Selected
+            {
+                Assembly.Provenance: AssemblyResolutionProvenance.PlatformAsset,
+            } selected
+                ? selected
+                : null;
+
+    static void AddPlatformRequest(
+        ICollection<AssemblyBindingRequest> requests,
+        AssemblyBindingRequest request,
+        AssemblyAcquisitionRegistration origin)
+    {
+        AssemblyReferenceIdentity identity =
+            ((AssemblyBindingTarget.AssemblyReference)request.Target).Identity;
+        if (!requests.Any(existingRequest =>
+            existingRequest.Origin is AssemblyBindingOrigin.RequestingAssembly existing
+            && ReferenceEquals(existing.Registration, origin)
+            && existingRequest.Target is AssemblyBindingTarget.AssemblyReference target
+            && target.Identity.IsEquivalentTo(identity)))
+        {
+            requests.Add(request);
+        }
     }
 
     static bool IsPlatformFamily(
