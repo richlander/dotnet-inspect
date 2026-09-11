@@ -113,7 +113,7 @@ npm run lint
 ```
 
 The managed suite is an xUnit in-process executable. It covers the
-`DotnetInspect.Web` host, Core implementation, and domain-specific
+`DotnetInspect.Web` host, Core and Networking implementation, and domain-specific
 `DotnetInspect.Web.Interop.*` export assemblies. The frontend gates cover the
 generated public facade contracts and browser application without renaming the
 published `inspect-web-*` modules.

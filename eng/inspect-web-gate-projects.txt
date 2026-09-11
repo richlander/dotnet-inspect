@@ -4,8 +4,8 @@ src/Inspector.Artifacts
 src/Inspector.Artifacts.Local
 src/Inspector.Artifacts.Workspaces
 src/DotnetInspector.Core
-src/DotnetInspector.Networking
 src/DotnetInspector.Ecosystems
+src/DotnetInspector.Networking
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
 src/DotnetInspector.Platforms
