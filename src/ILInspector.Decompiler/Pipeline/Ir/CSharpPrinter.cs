@@ -1338,7 +1338,7 @@ public sealed partial class CSharpPrinter
         => type.Kind is not (TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
             && (TypeFamilies.Of(type) == StackFamily.O
                 || type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
-                || _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Reference);
+                || _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference);
 
     bool CanAssignType(TypeRef source, TypeRef target)
     {
@@ -1359,11 +1359,11 @@ public sealed partial class CSharpPrinter
             return true;
         if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
             return true;
-        if (_function.TypeShapes.GetValueOrDefault(type) == TypeShape.Reference)
+        if (_function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference)
             return true;
         return type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
             && type.DeclaredValueTypeHint != ValueTypeHint.ValueType
-            && _function.TypeShapes.GetValueOrDefault(type) is not (TypeShape.ValueType or TypeShape.Enum)
+            && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) is not (TypeShape.ValueType or TypeShape.Enum)
             && !TypeFamilies.IsNumericPrimitive(type);
     }
 
@@ -1375,7 +1375,7 @@ public sealed partial class CSharpPrinter
             return true;
         if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
             return true;
-        if (_function.TypeShapes.GetValueOrDefault(type) == TypeShape.Reference)
+        if (_function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference)
             return true;
         return type.Kind is TypeRefKind.SzArray or TypeRefKind.Array;
     }
@@ -4476,7 +4476,8 @@ public sealed partial class CSharpPrinter
         // narrow-backed enum's out-of-range/negative value in `unchecked`, e.g.
         // `unchecked((U)(-1))`); naming flag combinations is a later slice. A
         // long-backed enum keeps its `long` payload.
-        Constant { Value: int or long, Type: { } enumType } c when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
+        Constant { Value: int or long, Type: { } enumType } c
+            when CoercionRendering.IsEnum(enumType, _function.TypeShapes)
             => WithNodeKind(c, EnumConstantText(c, enumType), "ConversionExpression"),
         Constant { Value: float value } c when !float.IsFinite(value)
             => WithNodeKind(c, SingleText(value), "MemberAccessExpression"),
@@ -4940,10 +4941,10 @@ public sealed partial class CSharpPrinter
                 return null;   // a float is never a branch operand
         }
 
-        // No primitive family. A generic instance is provably a reference; a
-        // bare definition resolves by its same-assembly shape.
+        // A nested enum inside a generic owner is represented as a generic
+        // instance even though its definition-keyed shape is an enum.
         if (type.Kind == TypeRefKind.GenericInstance)
-            return reference;
+            return CoercionRendering.IsEnum(type, _function.TypeShapes) ? integer : reference;
 
         switch (type.DeclaredValueTypeHint)
         {
@@ -4953,7 +4954,7 @@ public sealed partial class CSharpPrinter
                 return integer;
         }
 
-        return _function.TypeShapes.GetValueOrDefault(type) switch
+        return _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) switch
         {
             TypeShape.Reference => reference,
             TypeShape.Enum => integer,
@@ -5044,7 +5045,7 @@ public sealed partial class CSharpPrinter
         return TypeFamilies.Of(source) == StackFamily.O
             || source.Kind is TypeRefKind.SzArray or TypeRefKind.Array
             || source.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
-            || _function.TypeShapes.GetValueOrDefault(source) == TypeShape.Reference;
+            || _function.TypeShapes.GetValueOrDefault(NamedDefinition(source)) == TypeShape.Reference;
     }
 
     /// <summary>
@@ -5271,10 +5272,10 @@ public sealed partial class CSharpPrinter
     {
         TypeRefKind.Definition =>
             !IsNullableDefinition(type)
-            && _function.TypeShapes.GetValueOrDefault(type) != TypeShape.Reference,
+            && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) != TypeShape.Reference,
         TypeRefKind.GenericInstance =>
             !TypeFamilies.IsNullableType(type)
-            && _function.TypeShapes.GetValueOrDefault(type) != TypeShape.Reference,
+            && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) != TypeShape.Reference,
         _ => false,
     };
 
@@ -6372,7 +6373,8 @@ public sealed partial class CSharpPrinter
     bool IsValueTypeTarget(TypeRef type)
         => TypeFamilies.IsNumericPrimitive(type)
             || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
-            || _function.TypeShapes.GetValueOrDefault(type) is TypeShape.ValueType or TypeShape.Enum;
+            || !TypeFamilies.IsNullableType(type)
+                && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) is TypeShape.ValueType or TypeShape.Enum;
 
     /// <summary>The operator form of an op_* call, or null when the name has no spelling (op_True/op_False and friends stay as calls).</summary>
     string? OperatorSpelling(Call call)
@@ -6941,7 +6943,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string? EnumMemberName(Constant constant)
         => constant.Value is int or long
-            && _function.EnumMembers.TryGetValue(constant.Type, out var members)
+            && _function.EnumMembers.TryGetValue(NamedDefinition(constant.Type), out var members)
             && members.TryGetValue(constant.Value is int i ? i : (long)constant.Value!, out var name)
             ? $"{TypeQualifierText(constant.Type)}.{name}"
             : null;
@@ -6965,7 +6967,7 @@ public sealed partial class CSharpPrinter
         if (_options.EnumCaseLabelOrder != EnumCaseLabelOrder.Alphabetical
             || enumType is null
             || section.Labels.Length < 2
-            || !_function.EnumMembers.TryGetValue(enumType, out var members))
+            || !_function.EnumMembers.TryGetValue(NamedDefinition(enumType), out var members))
         {
             return section.Labels;
         }
