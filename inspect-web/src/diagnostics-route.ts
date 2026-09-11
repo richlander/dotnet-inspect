@@ -6,6 +6,7 @@ import {
 export const DIAGNOSTICS_PATH = ROUTED_ENTRY_PATHS.diagnostics;
 
 const DIAGNOSTICS_HISTORY_KEY = "inspectWebDiagnosticsEntry";
+const DIAGNOSTICS_HISTORY_TOKEN = globalThis.crypto.randomUUID();
 
 function historyRecord(value: unknown): Record<string, unknown> {
   const record: Record<string, unknown> = {};
@@ -25,12 +26,13 @@ export function diagnosticsHistoryState(
 ): Record<string, unknown> {
   return {
     ...historyRecord(currentState),
-    [DIAGNOSTICS_HISTORY_KEY]: true,
+    [DIAGNOSTICS_HISTORY_KEY]: DIAGNOSTICS_HISTORY_TOKEN,
   };
 }
 
 export function isDiagnosticsHistoryEntry(state: unknown): boolean {
   return typeof state === "object"
     && state !== null
-    && Reflect.get(state, DIAGNOSTICS_HISTORY_KEY) === true;
+    && Reflect.get(state, DIAGNOSTICS_HISTORY_KEY)
+      === DIAGNOSTICS_HISTORY_TOKEN;
 }

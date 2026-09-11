@@ -149,6 +149,7 @@ interface HomeDemoFixture {
 }
 
 interface DiagnosticsFixture {
+  runtimeFailure?: boolean;
   buildIdentity?: "ready" | "pending" | "failed";
   cacheFailure?: boolean;
   cachePending?: boolean;
@@ -234,12 +235,23 @@ async function installFacades(
   const modules: Record<string, string> = {
     host: `
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
-      export async function createRuntime() { return {}; }
+      export async function createRuntime() {
+        if (diagnosticsOptions.runtimeFailure) {
+          throw new Error("Runtime unavailable");
+        }
+        return {};
+      }
       export function configureHost() {}
       export async function runEntryPoint() { return 0; }
       export function registerEpochWorkReporter() {}
       export async function drainEpochWorkReporter() {}
       export function unregisterEpochWorkReporter() {}
+      export async function asyncLoweringCanary() {
+        if (diagnosticsOptions.runtimeFailure) {
+          throw new Error("Runtime unavailable");
+        }
+        return "inspect-web-async-lowering-ok";
+      }
       export async function buildIdentity() {
         if (diagnosticsOptions.buildIdentity === "pending") {
           document.documentElement.dataset.buildIdentityPending = "true";
@@ -893,6 +905,40 @@ test("Diagnostics cache refresh does not reclaim relinquished heading focus", as
   await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
 });
 
+test("Diagnostics treats a refreshed history entry as direct", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page);
+  await page.goto(root);
+  await page.locator("#application-menu-button").click();
+  await page.locator('[data-application-action="settings"]').click();
+  await page.locator("#settings-diagnostics-open").click();
+  await expect(page).toHaveURL(/\/diagnostics$/);
+
+  await page.reload();
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await page.goForward();
+  await expect(page).toHaveURL("/");
+});
+
+test("Diagnostics renders absent framework timing as unavailable", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page);
+  await page.goto("/diagnostics");
+  await expect(page.locator(".diagnostics-runtime-state-ready")).toBeVisible();
+
+  const runtimeCard = page.locator(".diagnostics-runtime-card");
+  const factValue = (label: string) =>
+    runtimeCard.getByText(label, { exact: true }).locator("..").locator("dd");
+  await expect(factValue("Download")).toHaveText("Unavailable");
+  await expect(factValue("Framework assets")).toHaveText("Unavailable");
+  await expect(factValue("Transferred")).toHaveText("Unavailable");
+  await expect(factValue("Decoded")).toHaveText("Unavailable");
+});
+
 test("Diagnostics preserves commit-link focus through cache refresh", async ({
   page,
 }) => {
@@ -913,16 +959,36 @@ test("Diagnostics preserves commit-link focus through cache refresh", async ({
 test("Diagnostics keeps startup and package-cache failures visible in place", async ({
   page,
 }) => {
-  await installDiagnosticsFacades(page, { buildIdentity: "failed" });
+  await installDiagnosticsFacades(page, { runtimeFailure: true });
   await page.goto("/diagnostics");
 
   await expect(page.locator(".diagnostics-runtime-state-failed"))
     .toContainText("did not start");
   await expect(page.locator(".diagnostics-failure-detail"))
     .not.toBeEmpty();
-  await expect(page.locator(".diagnostics-inline-failed"))
+  const cacheCard = page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-cache-heading") });
+  await expect(cacheCard.locator(".diagnostics-inline-failed"))
     .toContainText("inspection engine did not start");
   await expect(page).toHaveURL(/\/diagnostics$/);
+});
+
+test("Diagnostics isolates a build-identity failure from runtime and cache", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "failed" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  const buildCard = page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-build-heading") });
+  await expect(buildCard.locator(".diagnostics-inline-failed"))
+    .toContainText("Product build identity is unavailable");
+  const cacheCard = page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-cache-heading") });
+  await expect(cacheCard).toContainText("Packages");
+  await expect(cacheCard.locator(".diagnostics-inline-failed")).toHaveCount(0);
 });
 
 test("Diagnostics discloses a package-cache statistics failure", async ({

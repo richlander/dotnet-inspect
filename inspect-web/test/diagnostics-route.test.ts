@@ -15,8 +15,16 @@ test("Diagnostics recognizes hosted entry paths", () => {
 
 test("Diagnostics marks in-app history without discarding retained state", () => {
   const state = diagnosticsHistoryState({ retainedWorkspaceId: "workspace-1" });
+  const marker = Object.entries(state)
+    .find(([key]) => key !== "retainedWorkspaceId");
 
   assert.equal(state.retainedWorkspaceId, "workspace-1");
+  assert.ok(marker);
+  assert.equal(typeof marker[1], "string");
   assert.equal(isDiagnosticsHistoryEntry(state), true);
+  assert.equal(isDiagnosticsHistoryEntry({
+    ...state,
+    [marker[0]]: "previous-document",
+  }), false);
   assert.equal(isDiagnosticsHistoryEntry({}), false);
 });

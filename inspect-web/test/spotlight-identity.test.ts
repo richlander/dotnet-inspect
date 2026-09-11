@@ -2472,7 +2472,9 @@ test("dependency graph render identity includes truncation and navigation", () =
 });
 
 test("data bar shows versioned linked build provenance", () => {
-  assert.match(appSource, /state\.buildIdentity = await engineClient\.host\.buildIdentity\(\)/);
+  assert.match(
+    appSource,
+    /state\.buildIdentity = await engineClient\.host\.buildIdentity\(\);[\s\S]*state\.buildIdentityStatus = "ready";[\s\S]*state\.buildIdentityStatus = "failed"/);
   assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 4);
   assert.match(
     appSource,
@@ -2514,7 +2516,7 @@ test("Diagnostics is a routed typed surface outside the Application menu", () =>
     /<h1 id="diagnostics-heading" tabindex="-1">Diagnostics<\/h1>/);
   assert.match(
     diagnosticsViewSource,
-    /runtimeCardHtml\(model\.runtime[\s\S]*buildCardHtml\(model\.buildIdentity[\s\S]*cacheCardHtml\(model\.packageCache/);
+    /runtimeCardHtml\(model\.runtime[\s\S]*buildCardHtml\(model\.build[\s\S]*cacheCardHtml\(model\.packageCache/);
   assert.match(
     diagnosticsRouteSource,
     /DIAGNOSTICS_PATH = ROUTED_ENTRY_PATHS\.diagnostics[\s\S]*isRoutedEntryPath\(pathname, DIAGNOSTICS_PATH\)/);

@@ -450,6 +450,7 @@ import {
   diagnosticsViewHtml,
   type DiagnosticsPackageCacheState,
   type DiagnosticsRuntimeState,
+  type DiagnosticsBuildState,
   type RuntimeStartupDiagnostics,
 } from "./diagnostics-view.ts";
 import {
@@ -1028,6 +1029,8 @@ const initialState = {
   retryAction: null,
   diag: null,
   buildIdentity: null,
+  buildIdentityStatus: "loading" as "loading" | "ready" | "failed",
+  buildIdentityError: "",
   packageCacheStats: null,
   packageCacheStatsStatus: "idle" as
     "idle" | "loading" | "ready" | "failed",
@@ -1085,6 +1088,7 @@ interface StateOverrides {
   retryAction: ErrorRetryAction;
   diag: RuntimeStartupDiagnostics | null;
   buildIdentity: BrowserBuildIdentity | null;
+  buildIdentityStatus: "loading" | "ready" | "failed";
   packageCacheStats: BrowserPackageCacheStats | null;
   packageCacheStatsStatus: "idle" | "loading" | "ready" | "failed";
   diagnosticsCapturedAtUtc: string | null;
@@ -1437,6 +1441,8 @@ function captureRetainedHostState() {
     engineStatus: state.engineStatus,
     diag: state.diag,
     buildIdentity: state.buildIdentity,
+    buildIdentityStatus: state.buildIdentityStatus,
+    buildIdentityError: state.buildIdentityError,
     packageCacheStats: state.packageCacheStats,
     packageCacheStatsStatus: state.packageCacheStatsStatus,
     packageCacheStatsError: state.packageCacheStatsError,
@@ -10783,6 +10789,23 @@ function diagnosticsPackageCacheState(): DiagnosticsPackageCacheState {
   return { kind: "loading" };
 }
 
+function diagnosticsBuildState(): DiagnosticsBuildState {
+  if (state.buildIdentityStatus === "failed") {
+    return {
+      kind: "failed",
+      message: state.buildIdentityError
+        || "Product build identity is unavailable.",
+    };
+  }
+  if (state.buildIdentityStatus === "ready" && state.buildIdentity) {
+    return {
+      kind: "ready",
+      identity: state.buildIdentity,
+    };
+  }
+  return { kind: "loading" };
+}
+
 function renderDiagnosticsPage() {
   const activeId = document.activeElement?.id;
   const focusTargetId = diagnosticsHeadingFocusPending
@@ -10797,7 +10820,7 @@ function renderDiagnosticsPage() {
   document.title = "Diagnostics · dotnet-inspect";
   app.innerHTML = diagnosticsViewHtml({
     runtime: diagnosticsRuntimeState(),
-    buildIdentity: state.buildIdentity,
+    build: diagnosticsBuildState(),
     packageCache: diagnosticsPackageCacheState(),
     capturedAtUtc: state.diagnosticsCapturedAtUtc,
   }, value => escapeHtml(value));
@@ -14987,6 +15010,12 @@ function showEngineFailure(error: unknown) {
   state.errorDetail = error instanceof Error
     ? error.stack || error.message
     : String(error);
+  if (state.buildIdentityStatus !== "ready") {
+    state.buildIdentity = null;
+    state.buildIdentityStatus = "failed";
+    state.buildIdentityError =
+      "Product build identity is unavailable because the inspection engine did not start.";
+  }
   state.retryAction = () => window.location.reload();
   if (!state.credits) render();
 }
@@ -14996,6 +15025,9 @@ async function bootstrap() {
   state.engineReady = false;
   state.engineStartupFailed = false;
   state.engineStatus = "Loading browser WebAssembly…";
+  state.buildIdentity = null;
+  state.buildIdentityStatus = "loading";
+  state.buildIdentityError = "";
   state.error = "";
   state.retryAction = null;
   render();
@@ -15011,7 +15043,16 @@ async function bootstrap() {
     reportEngineStatus("Loading .NET WebAssembly…");
     await startEngine(window.location.origin);
     reportEngineStatus("Reading package assemblies…");
-    state.buildIdentity = await engineClient.host.buildIdentity();
+    try {
+      state.buildIdentity = await engineClient.host.buildIdentity();
+      state.buildIdentityStatus = "ready";
+    } catch (error) {
+      state.buildIdentity = null;
+      state.buildIdentityStatus = "failed";
+      state.buildIdentityError =
+        `Product build identity is unavailable: ${errorMessage(error)}`;
+      console.error("Product build identity is unavailable.", error);
+    }
     const tEngine = performance.now();
     try {
       const vocabulary = await engineClient.catalog.listVocabulary();
@@ -15125,13 +15166,13 @@ function computeDiagnostics(
   }
   const hasAssets = assets.length > 0 && Number.isFinite(firstStart);
   return {
-    downloadMs: hasAssets ? lastEnd - firstStart : 0,
+    downloadMs: hasAssets ? lastEnd - firstStart : null,
     startupMs: hasAssets ? Math.max(0, tEngine - lastEnd) : tEngine - tStart,
     precomputeMs: tReady - tEngine,
     totalMs: tReady - tStart,
-    transfer,
-    decoded,
-    assets: assets.length
+    transfer: hasAssets ? transfer : null,
+    decoded: hasAssets ? decoded : null,
+    assets: hasAssets ? assets.length : null
   };
 }
 

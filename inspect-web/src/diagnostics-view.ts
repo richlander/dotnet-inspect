@@ -4,13 +4,13 @@ import type { BrowserPackageCacheStats } from "./facades/inspect-web-package.d.t
 import { renderBrand } from "./brand.ts";
 
 export interface RuntimeStartupDiagnostics {
-  downloadMs: number;
+  downloadMs: number | null;
   startupMs: number;
   precomputeMs: number;
   totalMs: number;
-  transfer: number;
-  decoded: number;
-  assets: number;
+  transfer: number | null;
+  decoded: number | null;
+  assets: number | null;
 }
 
 export type DiagnosticsRuntimeState =
@@ -42,9 +42,22 @@ export type DiagnosticsPackageCacheState =
       message: string;
     };
 
+export type DiagnosticsBuildState =
+  | {
+      kind: "loading";
+    }
+  | {
+      kind: "ready";
+      identity: BrowserBuildIdentity;
+    }
+  | {
+      kind: "failed";
+      message: string;
+    };
+
 export interface DiagnosticsViewModel {
   runtime: DiagnosticsRuntimeState;
-  buildIdentity: BrowserBuildIdentity | null;
+  build: DiagnosticsBuildState;
   packageCache: DiagnosticsPackageCacheState;
   capturedAtUtc: string;
 }
@@ -54,21 +67,24 @@ export interface DiagnosticsViewActions {
   onHome: () => void;
 }
 
-function formatDuration(milliseconds: number): string {
-  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "Unavailable";
+function formatDuration(milliseconds: number | null): string {
+  if (milliseconds === null
+    || !Number.isFinite(milliseconds)
+    || milliseconds < 0) return "Unavailable";
   if (milliseconds < 1000) return `${Math.round(milliseconds)} ms`;
   const seconds = milliseconds / 1000;
   return `${seconds.toFixed(seconds < 10 ? 2 : 1)} s`;
 }
 
-function formatInteger(value: number): string {
-  return Number.isFinite(value) && value >= 0
+function formatInteger(value: number | null): string {
+  return value !== null && Number.isFinite(value) && value >= 0
     ? Math.round(value).toLocaleString("en-US")
     : "Unavailable";
 }
 
-function formatBytes(value: number): string {
-  if (!Number.isFinite(value) || value < 0) return "Unavailable";
+function formatBytes(value: number | null): string {
+  if (value === null || !Number.isFinite(value) || value < 0)
+    return "Unavailable";
   return value === 0 ? "0 B" : fmtBytes(value);
 }
 
@@ -103,8 +119,11 @@ function factHtml(
   </div>`;
 }
 
-function phaseWidth(value: number, total: number): string {
-  if (!Number.isFinite(value) || value <= 0 || total <= 0) return "0";
+function phaseWidth(value: number | null, total: number): string {
+  if (value === null
+    || !Number.isFinite(value)
+    || value <= 0
+    || total <= 0) return "0";
   return Math.max(0, Math.min(100, value / total * 100)).toFixed(3);
 }
 
@@ -118,7 +137,9 @@ function runtimeCardHtml(
   if (runtime.kind === "ready" && runtime.diagnostics) {
     const diagnostics = runtime.diagnostics;
     const measuredTotal = Math.max(
-      diagnostics.downloadMs + diagnostics.startupMs + diagnostics.precomputeMs,
+      (diagnostics.downloadMs ?? 0)
+        + diagnostics.startupMs
+        + diagnostics.precomputeMs,
       diagnostics.totalMs,
       0,
     );
@@ -177,11 +198,13 @@ function runtimeStateHtml(
 }
 
 function buildCardHtml(
-  identity: BrowserBuildIdentity | null,
+  build: DiagnosticsBuildState,
   escapeHtml: (value: string) => string,
 ): string {
-  const facts = [];
-  if (identity) {
+  let body = "";
+  if (build.kind === "ready") {
+    const facts = [];
+    const { identity } = build;
     const version = identity.version.trim();
     facts.push(
       factHtml("Version", version || "Unavailable", escapeHtml),
@@ -203,19 +226,26 @@ function buildCardHtml(
         escapeHtml,
       ),
     );
+    facts.push(factHtml("Host", "Browser / WebAssembly", escapeHtml));
+    body = `<dl class="diagnostics-facts">${facts.join("")}</dl>`;
+  } else if (build.kind === "failed") {
+    body = `<div class="diagnostics-inline-state diagnostics-inline-failed">
+      <span aria-hidden="true">!</span>
+      <p>${escapeHtml(build.message)}</p>
+    </div>`;
   } else {
-    facts.push(
-      factHtml("Build identity", "Unavailable", escapeHtml),
-    );
+    body = `<div class="diagnostics-inline-state">
+      <span class="diagnostics-inline-spinner" aria-hidden="true"></span>
+      <p>Reading product build identity.</p>
+    </div>`;
   }
-  facts.push(factHtml("Host", "Browser / WebAssembly", escapeHtml));
 
   return `<section class="diagnostics-card" aria-labelledby="diagnostics-build-heading">
     <div class="diagnostics-card-head">
       <h2 id="diagnostics-build-heading">Build</h2>
       <span class="diagnostics-owner">Host identity</span>
     </div>
-    <dl class="diagnostics-facts">${facts.join("")}</dl>
+    ${body}
   </section>`;
 }
 
@@ -279,7 +309,7 @@ export function diagnosticsViewHtml(
       ${runtimeStateHtml(model.runtime, escapeHtml)}
       <div class="diagnostics-grid">
         ${runtimeCardHtml(model.runtime, escapeHtml)}
-        ${buildCardHtml(model.buildIdentity, escapeHtml)}
+        ${buildCardHtml(model.build, escapeHtml)}
         ${cacheCardHtml(model.packageCache, escapeHtml)}
       </div>
     </main>

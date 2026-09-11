@@ -28,11 +28,14 @@ const ready: DiagnosticsViewModel = {
       assets: 42,
     },
   },
-  buildIdentity: {
-    version: "1.2.3",
-    commit: "0123456789abcdef0123456789abcdef01234567",
-    builtAtUtc: "2026-01-23T15:41:12Z",
-    commitUrl: "https://github.com/richlander/dotnet-inspect/commit/0123456789abcdef0123456789abcdef01234567",
+  build: {
+    kind: "ready",
+    identity: {
+      version: "1.2.3",
+      commit: "0123456789abcdef0123456789abcdef01234567",
+      builtAtUtc: "2026-01-23T15:41:12Z",
+      commitUrl: "https://github.com/richlander/dotnet-inspect/commit/0123456789abcdef0123456789abcdef01234567",
+    },
   },
   packageCache: {
     kind: "ready",
@@ -101,7 +104,9 @@ test("Diagnostics keeps loading and unavailable data visible without zeroes", ()
       kind: "loading",
       message: "Starting <runtime>.",
     },
-    buildIdentity: null,
+    build: {
+      kind: "loading",
+    },
     packageCache: {
       kind: "loading",
     },
@@ -109,10 +114,39 @@ test("Diagnostics keeps loading and unavailable data visible without zeroes", ()
   }, escapeHtml);
 
   assert.match(html, /Starting &lt;runtime&gt;\./);
-  assert.match(html, /Build identity/);
-  assert.match(html, />Unavailable</);
+  assert.match(html, /Reading product build identity\./);
+  assert.match(html, /Captured Unavailable/);
   assert.match(html, /Reading aggregate package-cache statistics\./);
   assert.doesNotMatch(html, />0</);
+});
+
+test("Diagnostics renders unavailable framework evidence and build failure", () => {
+  const html = diagnosticsViewHtml({
+    ...ready,
+    runtime: {
+      kind: "ready",
+      message: "Ready.",
+      diagnostics: {
+        downloadMs: null,
+        startupMs: 522,
+        precomputeMs: 308,
+        totalMs: 830,
+        transfer: null,
+        decoded: null,
+        assets: null,
+      },
+    },
+    build: {
+      kind: "failed",
+      message: "Build <identity> unavailable.",
+    },
+  }, escapeHtml);
+
+  assert.match(html, /Download[\s\S]*Unavailable/);
+  assert.match(html, /Framework assets[\s\S]*Unavailable/);
+  assert.match(html, /Transferred[\s\S]*Unavailable/);
+  assert.match(html, /Decoded[\s\S]*Unavailable/);
+  assert.match(html, /Build &lt;identity&gt; unavailable\./);
 });
 
 test("Diagnostics renders explicit runtime and cache failures with escaped detail", () => {
