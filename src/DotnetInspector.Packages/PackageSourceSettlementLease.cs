@@ -226,6 +226,41 @@ public sealed class PackageSourceSettlementLease : IDisposable
             operation).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Authorizes and settles complete version discovery under one explicit
+    /// package-owner contract.
+    /// </summary>
+    public async Task<PackageVersionDiscoveryResult>
+        DiscoverVersionsAsync(
+        string packageId,
+        IPackageSourceAuthorization sourceAuthorization,
+        PackageVersionDiscoveryContract contract,
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
+    {
+        ThrowIfRetired();
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        ArgumentNullException.ThrowIfNull(contract);
+        using NuGetOperationContext? ownedOperation =
+            operationContext is null
+                ? CreateOperationContext(cancellationToken)
+                : null;
+        NuGetOperationContext operation =
+            operationContext ?? ownedOperation!;
+        cancellationToken = operation.ResolveInvocationToken(
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        PackageSourceAuthorization authorization =
+            sourceAuthorization.AuthorizeSourcesFor(packageId);
+        return await DiscoverVersionsCoreAsync(
+            packageId,
+            authorization,
+            contract,
+            cancellationToken,
+            operation).ConfigureAwait(false);
+    }
+
     internal async Task<PackageVersionDiscoveryResult>
         DiscoverVersionsAsync(
         string packageId,

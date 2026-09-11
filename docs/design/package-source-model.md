@@ -73,6 +73,18 @@ The lease carries the live authority to:
   lease and caller-supplied authority-scoped package stores, retaining the
   exact source-result identity beside the configured authority.
 
+`PackageVersionDiscoveryContract.CompleteVersionEnumeration` is the public
+owner-issued contract for consumers that need every listed version, including
+prereleases, before applying domain-specific selection. The public lease
+operation accepts package-ID source authorization and returns the same
+authoritative, partial, or failed evidence used by PackageHouse. A consumer
+may filter an authoritative result but must use `SelectCandidate` to preserve
+the exact reporting-authority set when it later acquires a selected version.
+Package-backed Platform target discovery in
+[#6561](https://github.com/richlander/dotnet-inspect/issues/6561) is the first
+consumer; family, target-framework, and Platform version projection remain
+outside this owner.
+
 One lease owns one candidate-issuer identity. It accepts only source results
 whose association and client identity match the exact configured authority
 being settled. PackageHouse, desktop composition, and host-neutral query
@@ -111,6 +123,10 @@ additionally gates retained generation, producer, and origin. Existing
 `ConfiguredPayloadAcquisitionTests` remain the Release gates for cache/source
 ordering, failover, not-found evidence, and typed payload failures through the
 shared candidate-payload implementation.
+`CompleteVersionDiscoveryIssuesReporterBoundCandidate` and
+`CompleteVersionDiscoveryPreservesAuthoritativeEmpty` gate the public
+complete-enumeration contract, configured-authority aggregation, candidate
+issuance, and authoritative empty result.
 
 ## Identity roles
 
