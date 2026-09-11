@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
@@ -311,9 +312,10 @@ public class CompilerFeatureOptionsTests
             ]);
         using var updated = Compile(
             """
-            public static class C
+            public sealed class C
             {
-                public static int M() => 1;
+                public int P => 1;
+                public int M() => 1;
             }
             """,
             updatedOptions,
@@ -322,7 +324,8 @@ public class CompilerFeatureOptionsTests
             updated.Image,
             version: 99);
         string path = Path.Combine(
-            Path.GetTempPath(),
+            Path.GetDirectoryName(
+                FixtureCatalog.DecompilerUnsafeNew.AssemblyPath())!,
             $"unsupported-compile-back-{Guid.NewGuid():N}.dll");
         File.WriteAllBytes(path, unsupported);
         try
@@ -384,6 +387,41 @@ public class CompilerFeatureOptionsTests
             Assert.Contains(
                 "memory-safety-mode-unavailable",
                 row.Detail);
+
+            var target = new ReturnToSender.RequestedTarget(
+                "C",
+                "M",
+                Overload: 0);
+            ReturnToSender.Result returnToSender = Assert.Single(
+                ReturnToSender.CompileBackTargets(path, [target]));
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.FidelityUnavailable,
+                returnToSender.Status);
+            Assert.Contains(
+                DiagnosticIds.MemorySafetyModeUnavailable,
+                returnToSender.Detail);
+
+            ReturnToSender.Result propertyGetter =
+                ReturnToSender.CompileBackFirstPropertyGetter(path);
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.FidelityUnavailable,
+                propertyGetter.Status);
+            Assert.Contains(
+                DiagnosticIds.MemorySafetyModeUnavailable,
+                propertyGetter.Detail);
+
+            ReturnToSenderSourceProbeResult sourceProbe = Assert.Single(
+                ReturnToSenderSourceProbe.EvaluateTargets(path, [target]));
+            Assert.Equal(
+                ReturnToSenderSourceOutcome.SourceUnavailable,
+                sourceProbe.Outcome);
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.FidelityUnavailable,
+                sourceProbe.CompileBackStatus);
+            Assert.Equal("fidelity-unavailable", sourceProbe.Reason);
+            Assert.Contains(
+                DiagnosticIds.MemorySafetyModeUnavailable,
+                sourceProbe.Detail);
 
             using (var source = MetadataSource.OpenWithoutSymbols(path))
             {

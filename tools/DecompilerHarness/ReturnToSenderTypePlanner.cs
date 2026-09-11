@@ -414,6 +414,11 @@ internal sealed record ProductTargetBody(
     bool RequiresAsyncModifier = false,
     bool RequiresUnsafeModifier = false);
 
+internal sealed class CompileBackSourceUnavailableException(string message)
+    : InvalidOperationException(message)
+{
+}
+
 internal sealed record ExplicitInterfaceEventInfo(
     TypeDefinitionHandle InterfaceType,
     EventDefinitionHandle InterfaceEvent,
@@ -455,6 +460,14 @@ public static class CompileBackSourceComposer
             string detail = produced.Projection.Diagnostics.Count == 0
                 ? produced.Status.ToString()
                 : string.Join("; ", produced.Projection.Diagnostics);
+            if (produced.Projection.Diagnostics.Any(
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable))
+            {
+                throw new CompileBackSourceUnavailableException(
+                    $"Could not produce {fullType}::{methodName}: {detail}.");
+            }
+
             throw new InvalidOperationException($"Could not produce {fullType}::{methodName}: {detail}.");
         }
         function = produced.RaisedFunction;
