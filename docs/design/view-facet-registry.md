@@ -285,8 +285,7 @@ was the pre-issuance baseline before Workspace/Package adoption:
 | `root.package-dependencies` | Dependencies | Declared package dependencies for the selected target framework. | Root | 200 | — |
 | `root.overview` | Overview | Coordinate identity, selected target, and available structural subjects. | Root | 300 | Root overview |
 | `library.references` | References | Direct assembly references for the active Library. | Library | 100 | Library references |
-| `library.integrations` | Integrations | Framework and ecosystem integrations found in the active Library. | Library | 200 | — |
-| `library.opportunities` | Opportunities | Framework and ecosystem integrations the active Library could adopt. | Library | 300 | — |
+| `library.integrations` | Integrations | Framework and ecosystem integrations found in, or suggested for, the active Library. | Library | 200 | — |
 | `library.analysis` | Analysis | Static analysis findings and code characteristics for the active Library. | Library | 400 | — |
 | `library.metadata` | Metadata | Physical ECMA-335 metadata and PE structure for the active Library. | Library | 500 | — |
 | `type.api` | API | API shape and member inventory for the active Type. | Type | 100 | Type API |

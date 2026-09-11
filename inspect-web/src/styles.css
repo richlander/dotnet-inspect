@@ -1736,7 +1736,13 @@ kbd {
 .signal-name { font: 13px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signal-ns { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signal-kind { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
-.library-integrations-with-controls { grid-template-rows: 40px auto minmax(0, 1fr) 34px; }
+.integration-inspector { grid-template-rows: 40px auto minmax(0, 1fr) 34px; }
+.integration-inspector.library-integrations-with-controls,
+.integration-inspector.library-opportunities-with-controls { grid-template-rows: 40px auto auto minmax(0, 1fr) 34px; }
+.integration-mode-tabs { display: flex; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.integration-mode-tabs button { min-height: 36px; padding: 6px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; }
+.integration-mode-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); }
+.integration-mode-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .library-integrations-controls { min-width: 0; padding: 8px 16px; border-bottom: 1px solid var(--line); }
 .library-integrations-controls .platform-library-select { min-width: 0; width: 100%; max-width: 420px; height: 30px; }
 .library-integrations-scroll { overflow-wrap: anywhere; }
@@ -1748,7 +1754,6 @@ kbd {
 .library-integrations-scroll .signal-ns { overflow: visible; white-space: normal; }
 .library-integrations-scroll .signal-kind { min-width: 0; max-width: 24ch; justify-self: end; padding: 0; border: 0; border-radius: 0; }
 .library-integrations-scroll > .metadata-warning { margin: 0; padding: 14px 16px; border-inline: 0; border-top: 0; border-radius: 0; }
-.library-opportunities-with-controls { grid-template-rows: 40px auto minmax(0, 1fr) 34px; }
 .library-opportunities-controls { min-width: 0; padding: 8px 16px; border-bottom: 1px solid var(--line); }
 .library-opportunities-controls .platform-library-select { min-width: 0; width: 100%; max-width: 420px; height: 30px; }
 .library-opportunities-scroll { overflow-wrap: anywhere; }

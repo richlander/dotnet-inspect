@@ -297,7 +297,6 @@ const libraryStrip: readonly (
   ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
   ["references", "References", scopeBarShortLabel("References"), "⇄"],
   ["integrations", "Integrations", scopeBarShortLabel("Integrations"), "◇"],
-  ["opportunities", "Opportunities", scopeBarShortLabel("Opportunities"), "△"],
   ["analysis", "Analysis", scopeBarShortLabel("Analysis"), "⌁"],
   ["metadata", "Metadata", scopeBarShortLabel("Metadata"), "≡"],
 ];

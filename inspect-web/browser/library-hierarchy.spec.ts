@@ -1837,17 +1837,86 @@ async function openIntegrations(page: Page, location = root) {
 }
 
 async function openOpportunities(page: Page, location = root) {
-  await page.goto(location);
-  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  if (await page.locator('[data-library-lens="references"]').count()) {
-    await page.keyboard.press("ArrowRight");
-  }
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("Enter");
-  await expect(page.locator('[data-library-lens="opportunities"]'))
+  await openIntegrations(page, location);
+  await page.locator('[data-integration-mode="opportunities"]').click();
+  await expect(page.locator('[data-integration-mode="opportunities"]'))
     .toHaveAttribute("aria-selected", "true");
 }
+
+for (const width of [1440, 390]) {
+  test(`Integration tabs preserve the Library and use manual keyboard activation at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await openIntegrations(page);
+    const frame = page.locator(".integration-inspector");
+    const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
+    const opportunities = frame.getByRole("tab", { name: "Opportunities", exact: true });
+    await expect(page.locator('[data-library-lens="opportunities"]')).toHaveCount(0);
+    await expect(integrations).toHaveAttribute("aria-selected", "true");
+    await expect(opportunities).toBeInViewport({ ratio: 1 });
+    await expect(frame.locator(".signal-row")).toHaveCount(3);
+    expect(await page.locator("html").getAttribute("data-opportunity-request")).toBeNull();
+    await integrations.focus();
+    await integrations.press("ArrowRight");
+    await expect(opportunities).toBeFocused();
+    await expect(integrations).toHaveAttribute("aria-selected", "true");
+    expect(await page.locator("html").getAttribute("data-opportunity-request")).toBeNull();
+    await opportunities.press("Enter");
+    await expect(opportunities).toHaveAttribute("aria-selected", "true");
+    await expect(opportunities).toBeFocused();
+    await expect(frame.locator(".opp-row")).toHaveCount(3);
+    await expect(frame.locator("h1")).toHaveText("Integrations");
+    await expect(frame.locator("footer")).toContainText(core.asset);
+    await expect(page.locator('[data-library-lens="integrations"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await page.screenshot({ path: testInfo.outputPath("integration-tabs-opportunities.png") });
+
+    await opportunities.press("Home");
+    await expect(integrations).toBeFocused();
+    await expect(opportunities).toHaveAttribute("aria-selected", "true");
+    await integrations.press("Space");
+    await expect(integrations).toHaveAttribute("aria-selected", "true");
+    await expect(frame.locator(".signal-row")).toHaveCount(3);
+    await expect(frame.locator("footer")).toContainText(core.asset);
+    await page.screenshot({ path: testInfo.outputPath("integration-tabs-integrations.png") });
+    await integrations.press("End");
+    await opportunities.press("Space");
+    await expect(frame.locator(".opp-row")).toHaveCount(3);
+
+    await frame.locator("[data-opp-type]").first().click();
+    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+    await expect(opportunities).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    await page.locator('[data-scope="type"]').press("ArrowLeft");
+    await expect(opportunities).toHaveAttribute("aria-selected", "true");
+    await expect(frame.locator(".opp-row")).toHaveCount(3);
+  });
+}
+
+test("Integration tabs retain selected mode and focus when an inactive scan settles", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "deferred", undefined, "deferred");
+  await openIntegrations(page);
+  const frame = page.locator(".integration-inspector");
+  const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
+  const opportunities = frame.getByRole("tab", { name: "Opportunities", exact: true });
+  await expect(frame).toContainText("Scanning integrations");
+  await opportunities.click();
+  await expect(frame).toContainText("Scanning opportunities");
+  await opportunities.press("ArrowLeft");
+  await expect(integrations).toBeFocused();
+  await releaseFacade(page, "fixture-integrations-ready:asset:core");
+  await expect(frame).toContainText("Scanning opportunities");
+  await expect(opportunities).toHaveAttribute("aria-selected", "true");
+  await expect(integrations).toBeFocused();
+  await releaseFacade(page, "fixture-opportunities-ready:asset:core");
+  await expect(frame.locator(".opp-row")).toHaveCount(3);
+  await expect(integrations).toBeFocused();
+  await expect(opportunities).toHaveAttribute("aria-selected", "true");
+  await integrations.press("Enter");
+  await expect(frame.locator(".signal-row")).toHaveCount(3);
+});
 
 async function openAnalysis(page: Page, location = root) {
   await page.goto(location);
@@ -2091,7 +2160,8 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await openPlatform(page, { mismatchedFile: true });
     await page.getByTitle("Inspect System.Facade", { exact: true }).click();
-    await page.locator('[data-library-lens="opportunities"]').click();
+    await page.locator('[data-library-lens="integrations"]').click();
+    await page.locator('[data-integration-mode="opportunities"]').click();
     const frame = page.locator(".library-opportunities-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
     const picker = frame.locator(".library-opportunities-controls select");
@@ -2129,7 +2199,8 @@ test("stale Platform Opportunities acquisition cannot replace a newer family sel
     "button",
     { name: /System.Text.Json Implementation netcore.app/ },
   ).click();
-  await page.locator('[data-library-lens="opportunities"]').click();
+  await page.locator('[data-library-lens="integrations"]').click();
+  await page.locator('[data-integration-mode="opportunities"]').click();
   const picker = page.locator(
     ".library-opportunities-controls .platform-library-select",
   );
@@ -2192,7 +2263,6 @@ test("production Opportunities keeps deferred Library results out of the incomin
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
   await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Enter");
   await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");

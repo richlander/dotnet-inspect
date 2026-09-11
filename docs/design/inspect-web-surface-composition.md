@@ -799,7 +799,7 @@ At narrow widths, the `Types` return control shares the quiet header, controls
 wrap within their row, and header and footer values may elide as complete
 strings. The surface creates no page-level horizontal overflow. This slice
 does not change dependency selection, graph construction or navigation,
-Package Overview, Integrations, Opportunities, Analysis, Package Metadata, or
+Package Overview, Integrations, Analysis, Package Metadata, or
 the Metadata Explorer.
 
 ### Library References
@@ -843,13 +843,46 @@ separate work.
 
 ### Library Integrations
 
-Library Integrations uses a quiet count/state header, an optional platform
-Library selector, one full-area results scroller, and bottom assembly context.
+Library has one **Integrations** inspector with **Integrations** and
+**Opportunities** tabs inside its working surface, following Compare's
+one-inspector/two-modes composition. Integrations shows detected ecosystem
+support; Opportunities shows suggestions for support the Library could adopt.
+Opportunities is not a second persistent inspector or a separate view facet.
+
+The selected tab defaults to Integrations and is session-local presentation
+state in the retained browser Workspace. Changing tabs preserves the selected
+Library. Ordinary Library, Type, and inspector navigation, Back/Forward, and
+returning from a row action retain the current tab. Sharing a Workspace carries
+the Integrations inspector, not its transient tab selection; a fresh session
+opens Integrations. Retired Opportunities inspector tokens follow ordinary
+unknown-lens handling rather than introducing a second routing vocabulary.
+
+Only the selected tab requests its existing scan. Previously obtained results
+remain subject to their existing Library/coordinate freshness checks. Each tab
+retains its own counts, loading, failure, partial, and empty states; changing tabs
+does not combine evidence or infer one scan's outcome from the other.
+
+The tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
+select, and asynchronous result rendering preserves tab focus. The selected tab
+labels the results panel. Both full labels remain available at narrow widths.
+
+The shared frame uses a quiet count/state header, an optional platform Library
+selector, one full-area results scroller, and bottom assembly context.
 It replaces the generic Library hero, repeated summary heading/noninteractive
 category chips, and inset signal cards.
 
+The motivating real asset is `Microsoft.Extensions.AI@10.0.0`: examining its
+Dependency Injection and OpenTelemetry entry points, or whether any suggestions
+apply, belongs to the same ecosystem inspection task, not separate navigation
+destinations. [#6651](https://github.com/richlander/dotnet-inspect/issues/6651)
+has one Browser adoption step: compose the existing typed scan renderers under
+the tabs and retire standalone Opportunities navigation. The shared View Facet
+catalog describes the same consolidated inspector; no scanner, acquisition, CLI
+section, or result contract changes.
+
 ```text
 Integrations                             category/signal count or state
+[Integrations]  Opportunities
 optional platform Library selector
 category headings and full-width signal rows
 Library asset and assembly identity              TFM · package@version
@@ -870,27 +903,31 @@ At narrow widths the existing Types/details control shares the quiet header.
 Category names, signal names/qualifiers, and kind text wrap within the pane.
 Many rows scroll locally while header, selector, and bottom context stay put.
 
-The explicitly approved browser-only presentation scope has
-[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6202):
-wire production Library Integrations to this frame and retire only that
-consumer's old composition. Browser HTML lowering consumes the existing typed
+The original full-area Integrations frame was adopted under
+[#6202](https://github.com/richlander/dotnet-inspect/issues/6202).
+Browser HTML lowering consumes the existing typed
 `BrowserPackageIntegrations` result. References and Metadata supply the local
 layout conventions; this is not a new inspection or rendering architecture.
 
 Focused renderer and production-composition browser gates cover wide/narrow,
 long/many results, state distinctions, Library switching, and platform controls.
 Scan classification, catalog ownership, other lenses, and subject-strip
-interaction remain separate work.
+interaction remain separate work. `inspect-web/test/integration-inspector.test.ts`
+and the Integration tab scenarios in
+`inspect-web/browser/library-hierarchy.spec.ts` gate the consolidated frame,
+manual activation, same-Library mode changes, navigation retention, and an
+inactive scan settling without replacing the selected mode or keyboard focus.
 
-### Library Opportunities
+#### Opportunities tab
 
-Library Opportunities uses a quiet count/state header, an optional platform
-Library selector, one full-area results scroller, and bottom assembly context.
+Opportunities uses the same Integrations frame, an optional platform Library
+selector, one full-area results scroller, and bottom assembly context.
 It replaces the generic Library hero, repeated summary/noninteractive category
 chips, and inset opportunity cards while retaining every live row action.
 
 ```text
-Opportunities                           area/suggestion count or state
+Integrations                            area/suggestion count or state
+Integrations  [Opportunities]
 optional platform Library selector
 compact interaction guidance
 category headings and full-width opportunity rows
@@ -913,10 +950,9 @@ Category names, API identities, integration-kind text, package names, and search
 hints wrap within the pane. Many rows scroll locally while header, selector, and
 bottom context stay put.
 
-The explicitly approved browser-only presentation scope has
-[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6273):
-wire production Library Opportunities to this frame and retire only that
-consumer's old composition. Browser HTML lowering consumes the existing typed
+The original full-area Opportunities frame was adopted under
+[#6273](https://github.com/richlander/dotnet-inspect/issues/6273); its content is
+now the Opportunities tab. Browser HTML lowering consumes the existing typed
 `BrowserPackageOpportunities` result. Integrations and References supply the
 local layout conventions; this is not a new analysis or rendering architecture.
 

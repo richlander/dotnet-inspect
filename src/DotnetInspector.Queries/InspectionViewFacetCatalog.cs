@@ -21,9 +21,6 @@ public static class InspectionViewFacetCatalog
             "library.integrations",
             InspectionViewFacetExecution.LibraryIntegrations),
         Binding(
-            "library.opportunities",
-            InspectionViewFacetExecution.LibraryOpportunities),
-        Binding(
             "library.analysis",
             InspectionViewFacetExecution.LibraryAnalysis),
         Binding(
@@ -101,18 +98,9 @@ public static class InspectionViewFacetCatalog
                 "library.integrations",
                 StructuralSubjectKind.Library,
                 "Integrations",
-                "Framework and ecosystem integrations found in the active Library.",
+                "Framework and ecosystem integrations found in, or suggested for, the active Library.",
                 200),
-            "Framework and ecosystem integrations found in the active Library.",
-            AppliesToLibrary),
-        Active(
-            Descriptor(
-                "library.opportunities",
-                StructuralSubjectKind.Library,
-                "Opportunities",
-                "Framework and ecosystem integrations the active Library could adopt.",
-                300),
-            "Framework and ecosystem integrations the active Library could adopt.",
+            "Framework and ecosystem integrations found in, or suggested for, the active Library.",
             AppliesToLibrary),
         Active(
             Descriptor(
@@ -263,7 +251,6 @@ internal enum InspectionViewFacetExecution
     PackageDependencies,
     LibraryReferences,
     LibraryIntegrations,
-    LibraryOpportunities,
     LibraryAnalysis,
     LibraryMetadata,
     TypeApi,

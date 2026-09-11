@@ -1,4 +1,5 @@
 import type { BrowserPackageIntegrations } from "./facades/inspect-web-analysis.d.ts";
+import { renderIntegrationInspector } from "./integration-inspector.ts";
 
 export interface LibraryIntegrationsOptions {
   libraryName: string;
@@ -15,8 +16,8 @@ export interface LibraryIntegrationsOptions {
 
 export function renderLibraryIntegrationsSurface(options: LibraryIntegrationsOptions): string {
   const {
-    libraryName, assemblyIdentity, assetPath, coordinate,
-    requireLibrary, pickerHtml, loading, error, data, escapeHtml,
+    libraryName,
+    requireLibrary, loading, error, data, escapeHtml,
   } = options;
   let status: string;
   let content: string;
@@ -65,19 +66,7 @@ export function renderLibraryIntegrationsSurface(options: LibraryIntegrationsOpt
       : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${escapeHtml(libraryName)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
     content = `${warning}${categories.length ? blocks : empty}`;
   }
-  const identity = assetPath ? `${assetPath} \u00b7 ${assemblyIdentity}` : assemblyIdentity;
-  return `<section class="library-integrations-surface${pickerHtml ? " library-integrations-with-controls" : ""}" aria-labelledby="library-integrations-title">
-    <header class="api-surface-head">
-      <h1 id="library-integrations-title">Integrations</h1>
-      <p title="${escapeHtml(status)}">${escapeHtml(status)}</p>
-    </header>
-    ${pickerHtml ? `<section class="library-integrations-controls" aria-label="Integration scan library">${pickerHtml}</section>` : ""}
-    <div class="library-integrations-scroll">${content}</div>
-    <footer class="metadata-surface-footer">
-      <span title="${escapeHtml(identity)}">${escapeHtml(identity)}</span>
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-    </footer>
-  </section>`;
+  return renderIntegrationInspector(options, "integrations", status, content);
 }
 
 // Split before parameter/generic lists so their dots cannot become the name boundary.
