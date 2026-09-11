@@ -59,7 +59,8 @@ public sealed record MemberBodyProductionResult(
 public sealed record MemberRenderResult(
     MemberBodyProductionStatus Status,
     string? Text,
-    IReadOnlyList<string> Namespaces)
+    IReadOnlyList<string> Namespaces,
+    DecompilerResult? Failure = null)
 {
     public bool IsComplete => Status == MemberBodyProductionStatus.Complete;
 }
@@ -656,9 +657,6 @@ public static class MemberBodyProducer
         Pipeline.MetadataContext? context,
         Pipeline.PrinterOptions? printerOptions)
     {
-        if (type.Kind is "delegate")
-            return new TypeCompositionResult(Text: null);
-
         try
         {
             if (locateType() is not { } definition)
@@ -685,6 +683,10 @@ public static class MemberBodyProducer
                     using var pipelineSource = openPipelineSource(
                         definition,
                         context);
+                    ThrowIfMemorySafetyModeUnavailable(pipelineSource);
+                    if (type.Kind is "delegate")
+                        return new TypeCompositionResult(Text: null);
+
                     var union = TryUnionDeclaration(reader, typeHandle, type);
 
                     var sb = new StringBuilder();
@@ -767,9 +769,6 @@ public static class MemberBodyProducer
         Pipeline.PrinterOptions? printerOptions,
         MemberRenderAttributeMode attributeMode)
     {
-        if (type.Kind is "delegate")
-            return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
-
         try
         {
             if (locateType() is not { } definition)
@@ -791,6 +790,15 @@ public static class MemberBodyProducer
                 using var pipelineSource = openPipelineSource(
                     definition,
                     context);
+                ThrowIfMemorySafetyModeUnavailable(pipelineSource);
+                if (type.Kind is "delegate")
+                {
+                    return new MemberRenderResult(
+                        MemberBodyProductionStatus.Absent,
+                        Text: null,
+                        []);
+                }
+
                 var union = TryUnionDeclaration(reader, typeHandle, type);
 
                 // The same body/attribute namespaces the whole-type listing
@@ -866,12 +874,6 @@ public static class MemberBodyProducer
                 results.TryAdd(member, result);
         }
 
-        if (type.Kind is "delegate")
-        {
-            FillMissing(absent);
-            return results;
-        }
-
         try
         {
             if (locateType() is not { } definition)
@@ -899,6 +901,13 @@ public static class MemberBodyProducer
                 using var pipelineSource = openPipelineSource(
                     definition,
                     context);
+                ThrowIfMemorySafetyModeUnavailable(pipelineSource);
+                if (type.Kind is "delegate")
+                {
+                    FillMissing(absent);
+                    return results;
+                }
+
                 var union = TryUnionDeclaration(reader, typeHandle, type);
 
                 foreach (var member in type.Members)
@@ -956,11 +965,23 @@ public static class MemberBodyProducer
             ? new(
                 MemberBodyProductionStatus.Failed,
                 DiagnosticComment(projection.Result),
-                [])
+                [],
+                projection.Result)
             : new(
                 MemberBodyProductionStatus.Failed,
                 $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
                 []);
+
+    static void ThrowIfMemorySafetyModeUnavailable(
+        Pipeline.MetadataSource source)
+    {
+        if (Pipeline.CSharpPrinter.MemorySafetyModeUnavailableResult(
+                source.MemorySafetyMode)
+            is { } unavailable)
+        {
+            throw new DecompilerProjectionException(unavailable);
+        }
+    }
 
     sealed record UnionDeclarationInfo(
         IReadOnlyList<string> CaseTypes,

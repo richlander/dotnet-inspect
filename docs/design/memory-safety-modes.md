@@ -36,8 +36,11 @@ Production hosts preserve that diagnostic at their source boundary. An
 explicitly requested CLI source section fails instead of disappearing from a
 successful command, and the browser's source-unavailable result retains the
 decompiler reason instead of replacing it with only a generic acquisition
-failure. Harness reports admit the same decision before mode-sensitive passes
-instead of silently omitting them or measuring them under an invented mode.
+failure. Whole-type and member composition admit the module decision before
+type-kind and body-presence branches, so enums, delegates, empty interfaces,
+and abstract members cannot bypass the same refusal. Harness reports admit the
+same decision before mode-sensitive passes instead of silently omitting them or
+measuring them under an invented mode.
 Compile-back and portfolio reports retain unavailable methods as explicit
 coverage. Aggregate harness analyses whose result shapes have no
 unavailable-row contract fail before composing source or running passes when

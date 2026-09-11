@@ -1976,6 +1976,57 @@ public class SourceForwarderResolutionTests
         }
     }
 
+    [Theory]
+    [InlineData(
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionEnum")]
+    [InlineData(
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionDelegate")]
+    [InlineData(
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyExtensionInterface")]
+    [InlineData(
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyAbstractFixture")]
+    public async Task BodylessTypeDecompilerAcquisition_ReportsUnavailableMemorySafetyMode(
+        string typeName)
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = WriteUnsupportedMemorySafetyAssembly(directory);
+            var source = CreateApiSource(path, SourceKind.Library) with
+            {
+                TypeName = typeName,
+            };
+            var options = new TypeOptions
+            {
+                TypeName = typeName,
+                Select = [SectionNames.DecompiledSource],
+                DocsExplicitlySet = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Minimal,
+            };
+            var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
+                ApiServices.LoadTypeApi(source, options));
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    options,
+                    source,
+                    loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("DEC0016", error);
+            Assert.Contains(
+                "module memory-safety rules are Unsupported",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task MemberDecompilerAcquisition_ReportsUnavailableMemorySafetyMode()
     {
@@ -1993,6 +2044,52 @@ public class SourceForwarderResolutionTests
             {
                 TypeName = TypeName,
                 MemberFilter = ["FirstValueHashCode"],
+                OverloadIndex = 1,
+                Select = [SectionNames.DecompiledSource],
+                DocsExplicitlySet = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Minimal,
+            };
+            var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
+                ApiServices.LoadTypeApi(source, options));
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteResolvedAsync(
+                    options,
+                    source,
+                    loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("DEC0016", error);
+            Assert.Contains(
+                "module memory-safety rules are Unsupported",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AbstractMemberDecompilerAcquisition_ReportsUnavailableMemorySafetyMode()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = WriteUnsupportedMemorySafetyAssembly(directory);
+            const string TypeName =
+                "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyAbstractFixture";
+            var source = CreateApiSource(path, SourceKind.Library) with
+            {
+                TypeName = TypeName,
+            };
+            var options = new MemberOptions
+            {
+                TypeName = TypeName,
+                MemberFilter = ["Read"],
                 OverloadIndex = 1,
                 Select = [SectionNames.DecompiledSource],
                 DocsExplicitlySet = true,

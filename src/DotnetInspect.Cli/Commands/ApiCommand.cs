@@ -2815,6 +2815,44 @@ public class ApiCommand
         }
 
         if (options is MemberOptions
+            {
+                MemberHasNoBody: true,
+                DllPath: { } memberDllPath,
+                OverloadIndex: not null,
+            }
+            && type.Members.Count == 1
+            && GetRequestedMemberSections(type, options)
+                .Contains(SectionNames.DecompiledSource))
+        {
+            var resolver = ApiAnalysisInspection.CreateReferenceResolver(
+                memberDllPath,
+                options);
+            using var metadata =
+                new Decompiler.Pipeline.MetadataContext(resolver);
+            ResolvedAssemblyReference? projectionAssembly =
+                memberCodeSourceAssembly ?? sourceAssembly;
+            Decompiler.MemberRenderResult projection =
+                projectionAssembly is null
+                    ? Decompiler.MemberBodyProducer.ProduceMember(
+                        type,
+                        type.Members[0],
+                        memberDllPath,
+                        options.PdbPath,
+                        resolver,
+                        metadata,
+                        options.RenderOptions)
+                    : Decompiler.MemberBodyProducer.ProduceMember(
+                        type,
+                        type.Members[0],
+                        projectionAssembly,
+                        resolver,
+                        metadata,
+                        options.RenderOptions);
+            if (TryWriteMemorySafetyModeUnavailable(projection.Failure))
+                return 1;
+        }
+
+        if (options is MemberOptions
             && GetRequestedMemberSections(type, options)
                 .Contains(SectionNames.DecompiledSource)
             && TryWriteMemorySafetyModeUnavailable(

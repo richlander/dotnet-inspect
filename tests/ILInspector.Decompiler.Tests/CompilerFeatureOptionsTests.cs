@@ -312,6 +312,22 @@ public class CompilerFeatureOptionsTests
             ]);
         using var updated = Compile(
             """
+            public enum E
+            {
+                Value,
+            }
+
+            public delegate void D();
+
+            public interface I
+            {
+            }
+
+            public abstract class A
+            {
+                public abstract int Missing();
+            }
+
             public sealed class C
             {
                 public int P => 1;
@@ -333,8 +349,9 @@ public class CompilerFeatureOptionsTests
             using (var pe = new PEReader(
                 new MemoryStream(unsupported, writable: false)))
             {
+                ApiSurface surface = ApiSurfaceExtractor.Extract(pe);
                 ApiType type = Assert.Single(
-                    ApiSurfaceExtractor.Extract(pe).Types,
+                    surface.Types,
                     candidate => candidate.FullName == "C");
                 DecompilerResult typeProjection =
                     MemberBodyProducer.Project(type, path, pdbPath: null);
@@ -359,6 +376,63 @@ public class CompilerFeatureOptionsTests
                 Assert.Contains(
                     DiagnosticIds.MemorySafetyModeUnavailable,
                     memberProjection.Text);
+
+                foreach (string bodylessTypeName in new[] { "E", "D", "I", "A" })
+                {
+                    ApiType bodylessType = Assert.Single(
+                        surface.Types,
+                        candidate => candidate.FullName == bodylessTypeName);
+                    DecompilerResult bodylessProjection =
+                        MemberBodyProducer.Project(
+                            bodylessType,
+                            path,
+                            pdbPath: null);
+                    Assert.False(bodylessProjection.Succeeded);
+                    Assert.Contains(
+                        bodylessProjection.Diagnostics,
+                        diagnostic => diagnostic.Id
+                            == DiagnosticIds.MemorySafetyModeUnavailable);
+                }
+
+                ApiType abstractType = Assert.Single(
+                    surface.Types,
+                    candidate => candidate.FullName == "A");
+                ApiMember abstractMember = Assert.Single(
+                    abstractType.Members,
+                    candidate => candidate.Name == "Missing");
+                MemberRenderResult abstractProjection =
+                    MemberBodyProducer.ProduceMember(
+                        abstractType,
+                        abstractMember,
+                        path,
+                        pdbPath: null);
+                Assert.Equal(
+                    MemberBodyProductionStatus.Failed,
+                    abstractProjection.Status);
+                Assert.Contains(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    abstractProjection.Text);
+                Assert.Contains(
+                    abstractProjection.Failure!.Diagnostics,
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable);
+
+                IReadOnlyDictionary<ApiMember, MemberRenderResult>
+                    abstractBatch =
+                        MemberBodyProducer.ProduceMembers(
+                            abstractType,
+                            path,
+                            pdbPath: null);
+                Assert.Equal(
+                    MemberBodyProductionStatus.Failed,
+                    abstractBatch[abstractMember].Status);
+                Assert.Contains(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    abstractBatch[abstractMember].Text);
+                Assert.Contains(
+                    abstractBatch[abstractMember].Failure!.Diagnostics,
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable);
             }
 
             ValidityCheck.MethodResult validity = Assert.Single(
