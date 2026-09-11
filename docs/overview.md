@@ -178,7 +178,10 @@ substrates, and inspection producers that will extend that space.
   [Platform Library Population Declaration](design/platform-library-population-declaration.md)
   additionally owns resource-free platform-population relevance over the
   lower owner-issued family without target, view, source, or acquisition
-  policy. Host adapter adoption remains staged under #5602 and #6012;
+  policy. Its
+  [Exact Library Source Coordinate](design/exact-library-source-coordinate.md)
+  owns the corresponding exact package/Platform Library value over retained
+  source identity and Metadata assembly identity before realization. Host adapter adoption remains staged under #5602 and #6012;
   package-set identities remain in the application catalog.
 - Target `src/DotnetInspector.Platforms/` owns the
   [Platform Target Currency](design/platform-target-currency.md): shared
