@@ -370,6 +370,41 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                         participant));
     }
 
+    [Fact]
+    public void ExecuteParticipant_DoesNotFuzzyMatchWithinSelectedParticipant()
+    {
+        const string typeNamespace =
+            "DotnetInspector.Queries.Tests.Fuzzy";
+        const string typeName = "Widget";
+        string fullName = $"{typeNamespace}.{typeName}";
+        var policy = new TestBindingPolicy();
+        TestAssembly selected =
+            TestAssembly.CreateWithGenericCollision(
+                "selected fuzzy collision",
+                policy,
+                "SelectedFuzzyCollision",
+                typeNamespace,
+                typeName,
+                typeof(IDisposable),
+                typeof(IAsyncDisposable));
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [selected.Participant]);
+
+        AssemblyContextTypeDependencyResult result =
+            AssemblyContextTypeDependencyQuery.ExecuteParticipant(
+                group,
+                selected.Participant,
+                fullName);
+
+        Assert.False(result.Dependency.Found);
+        Assert.Empty(result.Dependency.Relationships);
+        Assert.IsType<
+            AssemblyContextTypeDependencyEntry.Completed>(
+                Assert.Single(result.Participants));
+    }
+
     sealed class TestAssembly
     {
         private int openCount;
@@ -454,6 +489,52 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                     | TypeAttributes.Class);
             type.AddInterfaceImplementation(interfaceType);
             type.CreateType();
+            using var stream = new MemoryStream();
+            assembly.Save(stream);
+            byte[] bytes = stream.ToArray();
+            using var peReader =
+                new PEReader(
+                    new MemoryStream(bytes, writable: false));
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            return Create(
+                bytes,
+                identity,
+                label,
+                policy,
+                selectedName: null);
+        }
+
+        internal static TestAssembly CreateWithGenericCollision(
+            string label,
+            IAssemblyBindingPolicy policy,
+            string assemblyName,
+            string typeNamespace,
+            string typeName,
+            Type selectedInterface,
+            Type fuzzyInterface)
+        {
+            var assembly = new PersistedAssemblyBuilder(
+                new AssemblyName(assemblyName),
+                typeof(object).Assembly);
+            ModuleBuilder module =
+                assembly.DefineDynamicModule(assemblyName);
+            TypeBuilder selected = module.DefineType(
+                $"{typeNamespace}.{typeName}",
+                TypeAttributes.NotPublic
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Class);
+            selected.AddInterfaceImplementation(selectedInterface);
+            selected.CreateType();
+            TypeBuilder fuzzy = module.DefineType(
+                $"{typeNamespace}.{typeName}`1",
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Class);
+            fuzzy.DefineGenericParameters("T");
+            fuzzy.AddInterfaceImplementation(fuzzyInterface);
+            fuzzy.CreateType();
             using var stream = new MemoryStream();
             assembly.Save(stream);
             byte[] bytes = stream.ToArray();

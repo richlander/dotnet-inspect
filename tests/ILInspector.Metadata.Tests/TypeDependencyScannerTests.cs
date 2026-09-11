@@ -93,6 +93,7 @@ public class TypeDependencyScannerTests
         // IComparable<T> is a leaf interface
         var result = TypeDependencyScanner.BuildDependencyTree("IComparable", RefAssemblies);
 
+        Assert.True(result.Found);
         Assert.Empty(result.Tree);
     }
 

@@ -66,10 +66,11 @@ public static class AssemblyContextTypeDependencyQuery
     /// <summary>
     /// Scans the complete group while selecting the target type from one exact
     /// participant. The selected participant is staged first so another
-    /// participant's same-named type cannot become the dependency root, and
-    /// the Metadata-issued match registration verifies that the selected
-    /// participant contributed the root. Published outcomes retain the
-    /// group's committed participant order.
+    /// participant's same-named type cannot become the dependency root.
+    /// Participant-qualified lookup requires the exact normalized type name,
+    /// and the Metadata-issued match registration verifies that the selected
+    /// participant contributed the root. Published outcomes retain the group's
+    /// committed participant order.
     /// </summary>
     public static AssemblyContextTypeDependencyResult ExecuteParticipant(
         AssemblyContextGroup group,
@@ -158,9 +159,13 @@ public static class AssemblyContextTypeDependencyQuery
         }
 
         TypeDependencyPopulationResult population =
-            TypeDependencyScanner.BuildDependencyPopulation(
-                targetType,
-                retained.ToImmutable());
+            rootParticipant is null
+                ? TypeDependencyScanner.BuildDependencyPopulation(
+                    targetType,
+                    retained.ToImmutable())
+                : TypeDependencyScanner.BuildExactDependencyPopulation(
+                    targetType,
+                    retained.ToImmutable());
         var metadataOutcomes =
             new Dictionary<
                 AssemblyAcquisitionRegistration,

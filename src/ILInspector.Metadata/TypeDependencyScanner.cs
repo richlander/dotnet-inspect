@@ -349,7 +349,10 @@ public static class TypeDependencyScanner
             }
 
             DependencyGraphBuild graph =
-                BuildGraph(targetType, typeIndex);
+                BuildGraph(
+                    targetType,
+                    typeIndex,
+                    requireExactMatch: false);
             return graph.Dependency with
             {
                 Rejections = rejections,
@@ -368,7 +371,30 @@ public static class TypeDependencyScanner
     /// </summary>
     public static TypeDependencyPopulationResult BuildDependencyPopulation(
         string targetType,
-        IReadOnlyList<ResolvedAssemblyReference> assemblies)
+        IReadOnlyList<ResolvedAssemblyReference> assemblies) =>
+        BuildDependencyPopulationCore(
+            targetType,
+            assemblies,
+            requireExactMatch: false);
+
+    /// <summary>
+    /// Builds dependency graph facts only when the target resolves by its exact
+    /// normalized type name.
+    /// </summary>
+    public static TypeDependencyPopulationResult
+        BuildExactDependencyPopulation(
+            string targetType,
+            IReadOnlyList<ResolvedAssemblyReference> assemblies) =>
+        BuildDependencyPopulationCore(
+            targetType,
+            assemblies,
+            requireExactMatch: true);
+
+    private static TypeDependencyPopulationResult
+        BuildDependencyPopulationCore(
+            string targetType,
+            IReadOnlyList<ResolvedAssemblyReference> assemblies,
+            bool requireExactMatch)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetType);
         ArgumentNullException.ThrowIfNull(assemblies);
@@ -495,7 +521,10 @@ public static class TypeDependencyScanner
             ImmutableArray<TypeDependencyCandidateOutcome> candidates =
                 outcomes.MoveToImmutable();
             DependencyGraphBuild graph =
-                BuildGraph(targetType, typeIndex);
+                BuildGraph(
+                    targetType,
+                    typeIndex,
+                    requireExactMatch);
             TypeDependencyPopulationResult result = new(
                 graph.Dependency,
                 candidates,
@@ -598,7 +627,8 @@ public static class TypeDependencyScanner
 
     private static DependencyGraphBuild BuildGraph(
         string targetType,
-        Dictionary<string, IndexedType> typeIndex)
+        Dictionary<string, IndexedType> typeIndex,
+        bool requireExactMatch)
     {
         string normalizedTarget =
             FqnParser.NormalizeTypeName(targetType);
@@ -606,8 +636,10 @@ public static class TypeDependencyScanner
         // identity when metadata contains case-distinct type names.
         string? matchKey = typeIndex.ContainsKey(normalizedTarget)
             ? normalizedTarget
-            : typeIndex.Keys.FirstOrDefault(key =>
-                TypeMatcher.Matches(key, normalizedTarget));
+            : requireExactMatch
+                ? null
+                : typeIndex.Keys.FirstOrDefault(key =>
+                    TypeMatcher.Matches(key, normalizedTarget));
         if (matchKey is null)
             return new(
                 new TypeDependencyResult(null, []),

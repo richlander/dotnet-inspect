@@ -212,6 +212,55 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryTypeProjection_DoesNotUseFuzzyDependencyRoot()
+    {
+        const string packageId =
+            "Browser.TypeDependencies.Fuzzy.Root";
+        const string assemblyName =
+            "Browser.TypeDependencies.Fuzzy.Root";
+        const string typeName =
+            "Browser.TypeDependencies.Fuzzy.Widget";
+
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildFuzzyTypeDependencyCollisionImage(
+                    assemblyName,
+                    typeName,
+                    typeof(IDisposable),
+                    typeof(IAsyncDisposable)),
+                $"lib/net11.0/{assemblyName}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{assemblyName}.dll",
+            typeName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Contains(
+            metadata.GraphEdges,
+            edge => edge.FromId == typeName
+                && edge.ToId == typeof(IDisposable).FullName);
+        Assert.DoesNotContain(
+            metadata.GraphEdges,
+            edge => edge.FromId == typeName
+                && edge.ToId == typeof(IAsyncDisposable).FullName);
+        Assert.Contains(
+            metadata.InspectionFailures,
+            failure => failure.Contains(
+                "could not certify the selected type",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void TypeProjectionRequests_RequireExactlyOneActiveCoordinate()
     {
         InvalidOperationException failure =
@@ -273,6 +322,37 @@ public sealed partial class BrowserEngineBoundaryTests
                 | TypeAttributes.Class);
         type.AddInterfaceImplementation(dependency);
         type.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildFuzzyTypeDependencyCollisionImage(
+        string assemblyName,
+        string typeName,
+        Type selectedDependency,
+        Type fuzzyDependency)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder selected = module.DefineType(
+            typeName,
+            TypeAttributes.NotPublic
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        selected.AddInterfaceImplementation(selectedDependency);
+        selected.CreateType();
+        TypeBuilder fuzzy = module.DefineType(
+            $"{typeName}`1",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        fuzzy.DefineGenericParameters("T");
+        fuzzy.AddInterfaceImplementation(fuzzyDependency);
+        fuzzy.CreateType();
 
         using var stream = new MemoryStream();
         assembly.Save(stream);

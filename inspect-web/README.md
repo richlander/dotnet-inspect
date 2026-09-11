@@ -614,10 +614,11 @@ type shape and known derived types from the selected compile participant, then
 runs the shared participant-qualified type-dependency query over the complete
 surface group. The exact selected participant remains the dependency root even
 when another package defines the same full type name; if that participant does
-not contribute the dependency-scanner root, the query reports the type as
-uncertified rather than borrowing the other definition. The Type Relationships
-graph therefore retains participant-local derived types while expanding base-
-class and interface chains through other loaded package participants.
+not contribute the exact normalized dependency-scanner root, the query reports
+the type as uncertified rather than borrowing another definition or a fuzzy
+same-participant match. The Type Relationships graph therefore retains
+participant-local derived types while expanding base-class and interface chains
+through other loaded package participants.
 Rejected participants remain visible as relationship incompleteness, and the
 frontend request identity includes the complete package coordinate set so
 another retained Workspace cannot reuse those facts. A graph node or

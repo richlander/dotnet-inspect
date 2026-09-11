@@ -1587,15 +1587,15 @@ canaries:
   Ordinary population lookup scans the committed participant order. Its
   participant-qualified entry point stages the selected participant first so a
   same-named type in another participant cannot become the root, and verifies
-  the Metadata-issued registration that contributed the match rather than
-  borrowing another definition when the selected participant contributed no
-  public dependency root. Published outcomes retain committed participant
-  order. The query returns resource-free subjects, graph facts, and typed
-  per-participant failures. The CLI `depends` host projects package diagnostics
-  without inventing filesystem paths; Inspect Web's Type Relationships metadata
-  surface composes the participant-qualified facts over its retained active
-  package Workspace while keeping selected-participant shape and derived types
-  separate.
+  the exact normalized root name and Metadata-issued registration that
+  contributed the match rather than borrowing another definition or a fuzzy
+  same-participant match when the selected participant contributed no public
+  dependency root. Published outcomes retain committed participant order. The
+  query returns resource-free subjects, graph facts, and typed per-participant
+  failures. The CLI `depends` host projects package diagnostics without
+  inventing filesystem paths; Inspect Web's Type Relationships metadata surface
+  composes the participant-qualified facts over its retained active package
+  Workspace while keeping selected-participant shape and derived types separate.
 
 The motivating real asset is
 `Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`. Its
