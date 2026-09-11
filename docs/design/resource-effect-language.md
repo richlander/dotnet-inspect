@@ -604,9 +604,9 @@ The finite version-1 schema is:
 | `move` | `source`, `target`, `when` | `kind` |
 | `consume` | `source`, `target` | `kind` |
 | `release` | `source`, `when` | `kind`, `correspondence`, `observation` |
-| `borrow` | `source`, `target`, `access`, `scope` | `kind`, `lender` |
+| `borrow` | `source`, `target`, `access`, `scope` | `kind`, `lender`, `materialization` |
 | `derive` | `source`, `target`, `relation` | `guard` |
-| `pass` | `source`, `target` | none |
+| `pass` | `source`, `target` | `identity` |
 | `independent` | `source`, `target` | none |
 | `callback` | `delegate`, `scope`, `execution`, `cardinality` | none |
 | `accept` | `source`, `target`, `when` | `kind`, `order` |
@@ -620,6 +620,11 @@ must identify the returned awaitable. `correspondence` names issuer authority;
 `execution` is `synchronous` in version 1, and `cardinality` is
 `exactly-once`. `relation` is `same-value`, `alias`, or `borrow`. `boundary`
 is `transparent` or `ordinary`; `throws` is `never` or `possible`.
+`borrow.materialization` accepts only `none`; omission makes no claim that the
+borrow avoids an independent full representation.
+`pass.identity` accepts only `preserve`; omission forwards the value
+relationship without claiming reference identity or absence of a replacement
+producer.
 
 `authority.key` is either tracked `value` identity or a
 `singleton[type-variable-list]`. A type-level `resource.value` is
