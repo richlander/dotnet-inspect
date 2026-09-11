@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Text;
 
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
@@ -42,11 +43,8 @@ public class ProjectCommand
         ProjectReadmeSection,
     ];
 
-    private static readonly IReadOnlyDictionary<string, string[]> ProjectCategories =
-        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
-        {
-            [SelectResolver.AllSelector] = ProjectSectionNames,
-        };
+    private static readonly IReadOnlyDictionary<string, string[]> NoCategories =
+        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
 
     public static Task<int> ExecuteAsync(ProjectOptions options)
         => Task.FromResult(Execute(options));
@@ -60,8 +58,8 @@ public class ProjectCommand
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
             options.Select,
             ProjectSectionNames,
-            infoSections: [],
-            ProjectCategories,
+            infoSections: [ProjectSkillsSection],
+            NoCategories,
             selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selection))
             return 1;
@@ -79,7 +77,7 @@ public class ProjectCommand
                 jsonl: options.Format == OutputFormat.Jsonl,
                 markdown: options.Format == OutputFormat.Markdown,
                 plainText: options.Format == OutputFormat.PlainText,
-                sectionCategories: ProjectCategories,
+                sectionCategories: NoCategories,
                 rootLabel: ProjectTitle);
         }
 
@@ -492,10 +490,16 @@ public class ProjectCommand
             }
         }
 
-        var projected = new List<ShapeProjectionRow>();
+        var numberedDocuments =
+            new List<(int Row, ProjectDocumentRow Document)>(
+                section.Documents.Count);
         for (int index = 0; index < section.Documents.Count; index++)
+            numberedDocuments.Add((index + 1, section.Documents[index]));
+
+        var projected = new List<ShapeProjectionRow>();
+        foreach ((int row, ProjectDocumentRow document) in
+                 RowWindow.Apply(options.Rows, numberedDocuments))
         {
-            ProjectDocumentRow document = section.Documents[index];
             string? value = kind switch
             {
                 ShapeProjectionKind.Paths => document.Path,
@@ -506,7 +510,7 @@ public class ProjectCommand
                 continue;
 
             projected.Add(new ShapeProjectionRow(
-                index + 1,
+                row,
                 section.Name,
                 value,
                 Label: document.Package,
@@ -596,15 +600,25 @@ public class ProjectCommand
                 options.Format == OutputFormat.Jsonl,
                 options.JsonArray,
                 options.Bare,
-                new ProjectionDestination(options.OutputPath, options.Rows)));
+                new ProjectionDestination(
+                    options.OutputPath,
+                    options.Rows,
+                    ExactTransfer:
+                        section.Name.Equals(
+                            ProjectReadmeSection,
+                            StringComparison.OrdinalIgnoreCase)
+                        && HasUnstructuredOutputPath(options)
+                        && options.ContentScope
+                            == PackageFileContentScope.Full)));
     }
 
     private static PrintableContent ReadPrintableContent(
         ProjectDocumentRow document,
         ProjectOptions options)
     {
+        byte[] exactContent = File.ReadAllBytes(document.FullPath);
         string content = MarkdownContent.ApplyScope(
-            File.ReadAllText(document.FullPath),
+            ReadText(exactContent),
             options.ContentScope);
         if (document.Kind == ProjectDocumentKind.Skill)
         {
@@ -615,7 +629,28 @@ public class ProjectCommand
         }
 
         return new PrintableContent(
-            GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content));
+            GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content),
+            ExactBytes:
+                options.ContentScope == PackageFileContentScope.Full
+                && HasUnstructuredOutputPath(options)
+                    ? exactContent
+                    : null);
+    }
+
+    private static bool HasUnstructuredOutputPath(ProjectOptions options)
+        => !string.IsNullOrEmpty(options.OutputPath)
+            && options.Format is not OutputFormat.Json
+            && options.Format is not OutputFormat.Jsonl
+            && !options.JsonArray;
+
+    private static string ReadText(byte[] content)
+    {
+        using var stream = new MemoryStream(content, writable: false);
+        using var reader = new StreamReader(
+            stream,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
     }
 
     private static int WriteCounts(

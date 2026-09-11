@@ -34623,11 +34623,46 @@ public partial class CommandExecutionTests
     public async Task Project_Discover_ListsSupportedDocumentSections()
     {
         var (exit, output, error) = await RunAppAsync("project", "-D");
+        var all = await RunAppAsync("project", "-S", "@All");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("Skills", output);
         Assert.Contains("Package README file", output);
+        Assert.DoesNotContain("@All", output);
+        Assert.Equal(1, all.Exit);
+        Assert.Empty(all.Output);
+        Assert.Contains("Select value '@All' not found", all.Error);
+    }
+
+    [Fact]
+    public async Task Project_BareSelect_UsesSkillsOverview()
+    {
+        var skill = CompliantProjectSkill("skills/default/SKILL.md", "default");
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.DefaultSelect",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [skill]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## Skills", output);
+            Assert.Contains("Test.Project.DefaultSelect", output);
+            Assert.DoesNotContain("## Package README file", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -34767,6 +34802,60 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Equal("second", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_ReadmePaths_AppliesRowsBeforeRowSelection()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.FirstReadme",
+                "1.0.0",
+                "README.md",
+                "first"),
+            new ProjectDocPackage(
+                "B.Project.SecondReadme",
+                "1.0.0",
+                "README.md",
+                "second"));
+
+        try
+        {
+            var selected = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--paths",
+                "--rows", "2..2",
+                "--row", "2",
+                "--json");
+            var excluded = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--paths",
+                "--rows", "2..2",
+                "--row", "1",
+                "--json");
+
+            Assert.Equal(0, selected.Exit);
+            Assert.Empty(selected.Error);
+            using (JsonDocument json = JsonDocument.Parse(selected.Output))
+            {
+                Assert.Equal(
+                    2,
+                    json.RootElement.GetProperty("row").GetInt32());
+                Assert.Equal(
+                    "B.Project.SecondReadme",
+                    json.RootElement.GetProperty("label").GetString());
+            }
+
+            Assert.Equal(1, excluded.Exit);
+            Assert.Empty(excluded.Output);
+            Assert.Contains("row 1 is not in this section", excluded.Error);
         }
         finally
         {
@@ -35037,6 +35126,52 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/docs/guide.md", output);
             Assert.DoesNotContain("github.com/owner/repo/blob", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_ReadmeSection_FullOutputPreservesExactBytes()
+    {
+        const string packageId = "Test.Project.ExactReadme";
+        const string version = "1.0.0";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                packageId,
+                version,
+                "README.md",
+                "placeholder"));
+
+        try
+        {
+            byte[] content =
+            [
+                .. Encoding.UTF8.Preamble,
+                .. Encoding.UTF8.GetBytes(
+                    "See https://github.com/owner/repo/blob/main/docs/guide.md\r\n"),
+            ];
+            string readmePath = Path.Combine(
+                tempDir,
+                "packages",
+                packageId.ToLowerInvariant(),
+                version,
+                "README.md");
+            File.WriteAllBytes(readmePath, content);
+            string outputPath = Path.Combine(tempDir, "README.out");
+
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--print",
+                "--out", outputPath);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            Assert.Equal(content, File.ReadAllBytes(outputPath));
         }
         finally
         {
