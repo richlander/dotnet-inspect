@@ -399,7 +399,10 @@ internal static class MetadataLensRenderer
                 // Source-less COFF metadata intentionally has no PE/RVA root
                 // identity, so it retains the established session projection.
                 using var session = AssemblyInspectionSession.Open(path);
-                projection = session.MetadataTables(options);
+                projection = session.Snapshot(
+                    options,
+                    static (snapshot, projectionOptions) =>
+                        snapshot.Value.MetadataTables(projectionOptions));
             }
         }
         catch (Exception ex)

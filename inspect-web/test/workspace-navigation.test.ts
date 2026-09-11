@@ -1345,7 +1345,7 @@ test("location persistence contains sync failures but leaves direct build failur
   });
 
   persistence.sync(workspaceState(), { entry: "workspace" });
-  persistence.push("/", { route: "query" });
+  assert.equal(persistence.push("/", { route: "query" }), true);
   assert.equal(persistence.replace("/valid"), true);
   const replacedEntry = replaced[0];
   assert.ok(replacedEntry);
@@ -1375,7 +1375,7 @@ test("location persistence contains sync failures but leaves direct build failur
   });
   assert.doesNotThrow(() => blocked.sync(workspaceState()));
   assert.equal(blocked.replace("/valid"), false);
-  assert.doesNotThrow(() => blocked.push("/"));
+  assert.equal(blocked.push("/"), false);
   assert.throws(
     () => persistence.build(workspaceState()),
     /selected context is not projectable/);
@@ -1395,13 +1395,31 @@ for (const navigate of ["push", "replace"] as const) {
     });
 
     persistence.sync(workspaceState());
-    persistence[navigate]("/credits");
+    assert.equal(persistence[navigate]("/credits"), true);
     encode.resolve(encoded());
     await new Promise(resolve => setTimeout(resolve, 0));
 
     assert.deepEqual(writes, [{ kind: navigate, url: "/credits" }]);
   });
 }
+
+test("asynchronous location persistence reports rejected direct writes", () => {
+  const current = locationSnapshot("https://inspect.example/");
+  const persistence = createAsyncWorkspaceLocationPersistence({
+    current: () => current,
+    replace: () => {
+      throw new DOMException("blocked");
+    },
+    push: () => {
+      throw new DOMException("blocked");
+    },
+    decode: async () => rejected("unused"),
+    encode: async () => encoded(),
+  });
+
+  assert.equal(persistence.replace("/valid"), false);
+  assert.equal(persistence.push("/"), false);
+});
 
 function linkClick(overrides: Partial<LinkNavigationClick> = {}): LinkNavigationClick {
   return {

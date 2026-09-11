@@ -48,6 +48,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Platform Manifest Formats](design/platform-manifest-formats.md) | Host-neutral bounded interpretation of shared-framework runtime configurations and dependency manifests, independent of installed, package, or Browser/Wasm acquisition. |
 | [PlatformHouse Realization and Reference Processing](design/platform-house-reference-processing.md) | Sole product-facing platform target/version settlement, realization, and reference-processing facade with provenance-retaining bare-library handoff and transparent .NET Standard forwarding through Metadata. |
 | [Installed Reference-Pack Realization](design/installed-reference-pack-realization.md) | Package-free explicit-hive reference target discovery, immutable reference-pack population realization, and PlatformHouse contribution mapping. |
+| [Package-backed Platform Realization](design/package-backed-platform-realization.md) | Source-authorized package-backed Platform target discovery plus reference and RID-specific manifest-defined implementation-pack realization for shared CLI and Browser/Wasm adoption. |
 | [Platform Library Population Declaration](design/platform-library-population-declaration.md) | Resource-free .NET runtime and ASP.NET Core population relevance, distinct from target/view selection, source realization, and support closure. |
 | [Repository xUnit Test Host](design/xunit-test-host.md) | Microsoft Testing Platform execution and aggregate non-vacuity for repository xUnit executables. |
 | [Repository CI Change Plan](design/ci-change-plan.md) | Typed candidate provenance, exact changed-path interpretation, immutable CI validation selection, scoped evidence, and visible planner refusal. |
@@ -62,6 +63,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [SourceLink Exposure](sourcelink-exposure.md) | Where SourceLink appears in package/library/type/member flows and how PDB/network costs are controlled. |
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
 | [SourceHouse Composition](design/source-house.md) | Content-first source settlement over SourceLink-authored and C#-decompiled producers with independent consumer-selected source and PDB policy. |
+| [DocumentationHouse Composition](design/documentation-house.md) | Library-scoped compiled-XML and authored-source documentation settlement with independent channel attempts, field provenance, and conflict preservation. |
 | [Local Repository Source Acquisition](design/local-repository-source-acquisition.md) | When caller-supplied Git clones may provide checksum-verified PDB source; local locator meaning, decline/fallback, and execution limits. |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs. |
 | [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |
@@ -134,6 +136,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Member Body Substrate](design/member-body-substrate.md) | One base for skeleton/full/merged/diff body rendering: `ApiType` shape, `MemberAnchor` address, one scope, and `MemberBody`'s scalar (whole-body) and vector (offset-keyed) shapes. |
 | [NuGet API Selection](design/nuget.md) | Scenario-to-API decisions, endpoint roles, first/last-result performance evidence, and current versus proposed adoption. |
 | [NuGet Catalog Acquisition](design/nuget-catalog-acquisition.md) | Bounded incremental acquisition of advertised Catalog event windows with source identity, horizon, completion, and typed failure. |
+| [GitHub NuGet Advisory Evidence](design/github-nuget-advisory-evidence.md) | Bounded reviewed-advisory acquisition and exact-coordinate current-affected and explicitly-fixed evidence with honest category availability. |
 | [NuGet Gallery Discovery](design/nuget-gallery-discovery.md) | Proposed NuGetFetch termless/type-filtered Gallery search, source orders, search-facet discovery, and bounded row-source delegation, with CLI/browser adoption tracked separately. |
 | [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID and explicit-prefix selection for Inspect Web, plus retained explicit Gallery input for other shared Query consumers. |
 | [Package Query Inspection Evidence](design/package-query-inspection-evidence.md) | Inspection-produced item counts and bounded previews, distinct from query-wide context. |
@@ -159,7 +162,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Workspace Research Target Composition](design/research-workspace-target-composition.md) | Queries-owned association from a workspace facade through Metadata forwarding evidence and the Queries-to-Research population receipt to one exact Research target attempt. |
 | [Direct-member Comparison](design/direct-member-comparison.md) | Queries-owned designated local C#/IL comparison, explicit Research/publication prerequisites, and production adoption and legacy-retirement ledger. |
 | [Local Comparison Publication](design/local-comparison-publication.md) | Queries-owned result association and terminal evidence for the first borrowed-input, two-host method-comparison route. |
-| [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md) | Explicit same-assembly pair interaction, managed feature projection, and typed Browser Method Body Diff presentation. |
+| [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md) | Retained same-assembly method-pair projection and generated-facade evidence; the former contextual dialog is retired. |
 | [Inspect Web Package Reference Result](design/inspect-web-package-reference-result.md) | Native C# reference-list or failure results, generated TypeScript consumption, and settled reference-view diagnostics. |
 | [Inspect Web Graph Source State](design/inspect-web-graph-source-state.md) | One feature-owned Graph Source modal state with distinct pending, available, failed, and cancelled outcomes. |
 | [Inspect Web Document Viewer State](design/inspect-web-document-viewer-state.md) | One feature-owned package document modal state with distinct pending, available, and failed outcomes. |
