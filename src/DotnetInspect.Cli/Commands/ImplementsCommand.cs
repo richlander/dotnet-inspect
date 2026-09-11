@@ -172,11 +172,6 @@ public class ImplementsCommand
 
                 results = selected.RowSets[0].Values.ToList();
             }
-            else if (outputRows is { } legacyRows)
-            {
-                results = RowWindow.Apply(legacyRows, results).ToList();
-                outputRows = null;
-            }
 
             if (results.Count == 0)
                 NamespacePrefixHints.WriteIfLikelyNamespacePrefix(targetType);

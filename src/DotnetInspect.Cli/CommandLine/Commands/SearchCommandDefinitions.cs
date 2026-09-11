@@ -282,7 +282,9 @@ public static class SearchCommandDefinitions
         implCommand.Options.Add(opts.Columns);
         implCommand.Options.Add(opts.Fields);
         opts.AddCountOptionTo(implCommand);
-        opts.AddOutputOptionsTo(implCommand);
+        opts.AddOutputOptionsTo(
+            implCommand,
+            validateLegacyRowWindow: static _ => false);
         opts.AddNuGetOptionsTo(implCommand);
 
         implCommand.SetAction(async (parseResult, ct) =>

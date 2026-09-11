@@ -97,6 +97,37 @@ public sealed class ImplementsCommandTests
             CountRenderedWorkspaceImplementationRows(output));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_LegacyRowsFallbackWindowsRenderedTypeNameOrder(
+        bool tabular)
+    {
+        var options = new ImplementsOptions
+        {
+            TargetType = typeof(ILegacyRenderedOrderingMarker).FullName!,
+            Assemblies = [typeof(ImplementsCommandTests).Assembly.Location],
+            IncludeAll = true,
+            Rows = RowWindow.Range(1, 1),
+            Tabular = tabular,
+        };
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => ImplementsCommand.ExecuteAsync(
+                    options,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            typeof(LegacyRenderedA).FullName!,
+            output);
+        Assert.DoesNotContain(
+            typeof(LegacyRenderedZ).FullName!,
+            output);
+    }
+
     [Fact]
     public async Task ExecuteAsync_LegacyRowsFallbackWindowsCountOnce()
     {
@@ -153,6 +184,102 @@ public sealed class ImplementsCommandTests
         Assert.Equal(
             typeof(WorkspaceImplementationC).FullName,
             rows[0].GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task CommandLine_SemanticPrefixRangeSelectionAcceptsSharedRowsGrammar()
+    {
+        string assembly = typeof(ImplementsCommandTests).Assembly.Location;
+        var result = await ExecuteCommandLineAsync(
+            "implements",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "--json",
+            "--rows",
+            "..3");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            [
+                typeof(WorkspaceImplementation).FullName!,
+                typeof(WorkspaceImplementationA).FullName!,
+                typeof(WorkspaceImplementationB).FullName!,
+            ],
+            ReadJsonTypes(result.Output));
+    }
+
+    [Fact]
+    public async Task CommandLine_SemanticSuffixRangeSelectionAcceptsSharedRowsGrammar()
+    {
+        string assembly = typeof(ImplementsCommandTests).Assembly.Location;
+        var result = await ExecuteCommandLineAsync(
+            "implements",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "--json",
+            "--rows",
+            "2..");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            [
+                typeof(WorkspaceImplementationA).FullName!,
+                typeof(WorkspaceImplementationB).FullName!,
+                typeof(WorkspaceImplementationC).FullName!,
+            ],
+            ReadJsonTypes(result.Output));
+    }
+
+    [Fact]
+    public async Task CommandLine_SemanticOrderedSelectionAcceptsLimitThenRange()
+    {
+        string assembly = typeof(ImplementsCommandTests).Assembly.Location;
+        var result = await ExecuteCommandLineAsync(
+            "implements",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "--json",
+            "-n",
+            "1",
+            "--rows",
+            "2..3");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Implementers row selection stage 2 requires row 3, but only 1 implementer rows are available.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task CommandLine_SemanticOrderedSelectionPreservesArgumentOrder()
+    {
+        string assembly = typeof(ImplementsCommandTests).Assembly.Location;
+        var result = await ExecuteCommandLineAsync(
+            "implements",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "--json",
+            "--rows",
+            "2..3",
+            "-n",
+            "1");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            [typeof(WorkspaceImplementationA).FullName!],
+            ReadJsonTypes(result.Output));
     }
 
     [Fact]
@@ -244,6 +371,28 @@ public sealed class ImplementsCommandTests
                 implementationPrefix,
                 StringComparison.Ordinal));
     }
+
+    private static async Task<(int ExitCode, string Output, string Error)> ExecuteCommandLineAsync(
+        params string[] arguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] processed = CommandLineBuilder.PreprocessArgs(arguments, root);
+        return await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed));
+    }
+
+    private static string[] ReadJsonTypes(string output)
+    {
+        using JsonDocument document = JsonDocument.Parse(output);
+        return
+        [
+            .. document.RootElement
+                .EnumerateArray()
+                .Select(row => row.GetProperty("type").GetString()!)
+        ];
+    }
 }
 
 public interface IWorkspaceImplementationMarker;
@@ -259,3 +408,11 @@ public sealed class WorkspaceImplementationB :
 
 public sealed class WorkspaceImplementationC :
     IWorkspaceImplementationMarker;
+
+public interface ILegacyRenderedOrderingMarker;
+
+public sealed class LegacyRenderedZ :
+    ILegacyRenderedOrderingMarker;
+
+public sealed class LegacyRenderedA :
+    ILegacyRenderedOrderingMarker;
