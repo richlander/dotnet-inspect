@@ -840,7 +840,9 @@ public static class SearchCommandDefinitions
                 SourceOptions = sourceOptions
             };
 
-            var outcome = await DependsCommand.ExecuteTypeDependsAsync(options);
+            var outcome = await DependsCommand.ExecuteTypeDependsAsync(
+                options,
+                ct);
 
             // Type not found — fall back to library mode if the name could be a
             // library. A source option makes the positional argument

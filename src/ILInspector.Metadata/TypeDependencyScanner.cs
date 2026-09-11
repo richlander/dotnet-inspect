@@ -119,6 +119,83 @@ public record TypeDependencyResult(string? MatchedType, List<TypeDependencyNode>
 }
 
 /// <summary>
+/// One acquisition-issued candidate's resource-free dependency-scan outcome.
+/// </summary>
+public abstract class TypeDependencyCandidateOutcome
+{
+    private protected TypeDependencyCandidateOutcome(
+        AssemblyAcquisitionRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        Registration = registration;
+    }
+
+    public AssemblyAcquisitionRegistration Registration { get; }
+
+    /// <summary>The candidate contributed its complete staged metadata rows.</summary>
+    public sealed class Completed : TypeDependencyCandidateOutcome
+    {
+        internal Completed(
+            AssemblyAcquisitionRegistration registration)
+            : base(registration)
+        {
+        }
+    }
+
+    /// <summary>The candidate was excluded before any staged rows were published.</summary>
+    public sealed class Rejected : TypeDependencyCandidateOutcome
+    {
+        internal Rejected(
+            AssemblyAcquisitionRegistration registration,
+            CandidateOpenFailure failure)
+            : base(registration)
+        {
+            ArgumentNullException.ThrowIfNull(failure);
+            Failure = failure;
+        }
+
+        public CandidateOpenFailure Failure { get; }
+    }
+}
+
+/// <summary>
+/// Dependency graph facts and ordered candidate outcomes for one retained
+/// descriptor population.
+/// </summary>
+public sealed class TypeDependencyPopulationResult
+{
+    internal TypeDependencyPopulationResult(
+        TypeDependencyResult dependency,
+        ImmutableArray<TypeDependencyCandidateOutcome> candidates)
+    {
+        ArgumentNullException.ThrowIfNull(dependency);
+        Dependency = dependency;
+        Candidates = candidates;
+    }
+
+    public TypeDependencyResult Dependency { get; }
+    public ImmutableArray<TypeDependencyCandidateOutcome> Candidates { get; }
+
+    /// <summary>
+    /// Whether at least one candidate contributed its complete staged rows.
+    /// </summary>
+    public bool HasSurvivingParticipant =>
+        Candidates.Any(
+            static candidate =>
+                candidate is TypeDependencyCandidateOutcome.Completed);
+
+    /// <summary>
+    /// Whether at least one candidate survived and every selected candidate
+    /// completed.
+    /// </summary>
+    public bool IsComplete =>
+        HasSurvivingParticipant
+        && Candidates.All(
+            static candidate =>
+                candidate is TypeDependencyCandidateOutcome.Completed);
+}
+
+/// <summary>
 /// Walks the inheritance and interface implementation graph upward from a type.
 /// This is the inverse of <see cref="TypeHierarchyScanner.FindImplementers"/> —
 /// it shows what a type depends on, not what depends on it.
@@ -135,17 +212,9 @@ public static class TypeDependencyScanner
         IReadOnlyList<string> assemblyPaths,
         int? maximumDepth = null)
     {
-        if (maximumDepth is < 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(maximumDepth),
-                maximumDepth,
-                "A maximum dependency depth cannot be negative.");
-        }
-
-        var typeIndex = new Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)>(
-            StringComparer.Ordinal);
-        var peReaders = new List<PEReader>();
+        ValidateMaximumDepth(maximumDepth);
+        var typeIndex = CreateTypeIndex();
+        var images = new List<CandidateImage>();
         var rejections = new List<TypeDependencyRejection>();
         var admittedAny = false;
         ExceptionDispatchInfo? firstInvalidImage = null;
@@ -162,66 +231,20 @@ public static class TypeDependencyScanner
             {
                 try
                 {
-                    var stream = File.OpenRead(path);
-                    PEReader peReader;
-                    try
-                    {
-                        peReader = new PEReader(stream);
-                    }
-                    catch
-                    {
-                        stream.Dispose();
-                        throw;
-                    }
-                    peReaders.Add(peReader);
+                    CandidateImage image =
+                        CandidateImage.Open(() => File.OpenRead(path));
+                    images.Add(image);
 
                     try
                     {
-                        if (!MetadataFormatAdmission.AdmitImage(peReader))
+                        CandidateStage stage =
+                            StageCandidate(
+                                image.PeReader,
+                                descriptor: null);
+                        if (!stage.HasManagedMetadata)
                             continue;
 
-                        MetadataReader mdReader =
-                            MetadataFormatAdmission.GetMetadataReader(peReader);
-
-                        // Stage this participant's rows separately. A rejection
-                        // must exclude the whole participant, so rows decoded
-                        // before a later failure cannot be allowed to reach the
-                        // shared index — they would shadow a healthy same-name
-                        // definition under TryAdd and make the emitted tree
-                        // wrong rather than merely incomplete.
-                        var staged =
-                            new Dictionary<string, (PEReader, MetadataReader, TypeDefinition)>(
-                                StringComparer.Ordinal);
-                        foreach (var typeDefHandle in mdReader.TypeDefinitions)
-                        {
-                            var typeDef = mdReader.GetTypeDefinition(typeDefHandle);
-                            if (!typeDef.IsPublic)
-                                continue;
-
-                            var name = mdReader.GetString(typeDef.Name);
-                            if (TypeFilters.IsCompilerGenerated(name))
-                                continue;
-
-                            var ns = mdReader.GetString(typeDef.Namespace);
-                            var fullName = TypeResolver.GetFullName(ns, name);
-
-                            // Decode the relationship facts the tree will need
-                            // while still inside this participant's rejection
-                            // scope. Names alone are not enough: a malformed
-                            // base-type or interface token throws only when the
-                            // tree is built, which happens after every
-                            // participant has published and is therefore
-                            // unscoped. Reaching them here keeps a relationship
-                            // failure attributable to the participant that
-                            // caused it.
-                            ValidateRelationships(mdReader, typeDef);
-
-                            // Index by ECMA name for lookup
-                            staged.TryAdd(fullName, (peReader, mdReader, typeDef));
-                        }
-
-                        foreach (var entry in staged)
-                            typeIndex.TryAdd(entry.Key, entry.Value);
+                        PublishStage(typeIndex, stage);
 
                         // Only a participant that decoded all the way through
                         // counts as surviving. A partially indexed one cannot
@@ -333,70 +356,364 @@ public static class TypeDependencyScanner
                     invalidImageCauses);
             }
 
-            // Find the target type
-            var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
-            // User lookup stays fuzzy, but exact casing selects the exact CLR
-            // identity when metadata contains case-distinct type names.
-            string? matchKey = typeIndex.ContainsKey(normalizedTarget)
-                ? normalizedTarget
-                : typeIndex.Keys.FirstOrDefault(k =>
-                    TypeMatcher.Matches(k, normalizedTarget));
-            if (matchKey == null)
-                return new TypeDependencyResult(null, []) { Rejections = rejections };
-
-            var match = typeIndex[matchKey];
-            var treeExpansionBudgets =
-                new Dictionary<string, int>(StringComparer.Ordinal);
-            var relationshipExpansionBudgets =
-                new Dictionary<string, int>(StringComparer.Ordinal);
-            var emittedRelationships =
-                new HashSet<(
-                    string Source,
-                    string Target,
-                    TypeDependencyRelationshipKind Kind)>();
-            var activeDefinitions =
-                new HashSet<string>(StringComparer.Ordinal)
-                {
-                    matchKey,
-                };
-            var relationships = new List<TypeDependencyRelationship>();
-            var depthBoundaries =
-                new Dictionary<string, TypeDependencyDepthBoundary>(
-                    StringComparer.Ordinal);
-            string matchedType = TypeResolver.FormatDisplayName(matchKey);
-            var tree = BuildNode(
-                matchedType,
-                match.MdReader,
-                match.TypeDef,
-                GenericContext.ForType(match.MdReader, match.TypeDef),
-                typeIndex,
-                treeExpansionBudgets,
-                relationshipExpansionBudgets,
-                emittedRelationships,
-                activeDefinitions,
-                relationships,
-                depthBoundaries,
-                includeTree: true,
-                collectRelationships: true,
-                currentDepth: 0,
-                maximumDepth);
-            return new TypeDependencyResult(TypeResolver.FormatDisplayName(matchKey), tree)
+            TypeDependencyResult dependency =
+                BuildGraph(targetType, typeIndex, maximumDepth);
+            return dependency with
             {
-                Relationships = relationships,
-                DepthBoundaries =
-                [
-                    .. depthBoundaries.Values.OrderBy(
-                        static boundary => boundary.TypeName,
-                        StringComparer.Ordinal),
-                ],
                 Rejections = rejections,
             };
         }
         finally
         {
-            foreach (var pr in peReaders)
-                pr.Dispose();
+            foreach (CandidateImage image in images)
+                image.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Builds dependency graph facts over acquisition-issued descriptors while
+    /// retaining one ordered, registration-keyed outcome per candidate.
+    /// </summary>
+    public static TypeDependencyPopulationResult BuildDependencyPopulation(
+        string targetType,
+        IReadOnlyList<ResolvedAssemblyReference> assemblies,
+        int? maximumDepth = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetType);
+        ArgumentNullException.ThrowIfNull(assemblies);
+        ValidateMaximumDepth(maximumDepth);
+
+        var typeIndex = CreateTypeIndex();
+        var images = new List<CandidateImage>();
+        var outcomes =
+            ImmutableArray.CreateBuilder<TypeDependencyCandidateOutcome>(
+                assemblies.Count);
+        var registrations =
+            new HashSet<AssemblyAcquisitionRegistration>(
+                ReferenceEqualityComparer.Instance);
+
+        try
+        {
+            foreach (ResolvedAssemblyReference assembly in assemblies)
+            {
+                if (assembly is null)
+                {
+                    throw new ArgumentException(
+                        "A dependency-scan candidate cannot be null.",
+                        nameof(assemblies));
+                }
+                if (!registrations.Add(assembly.Registration))
+                {
+                    throw new ArgumentException(
+                        "An acquisition registration may appear only once in a dependency-scan population.",
+                        nameof(assemblies));
+                }
+
+                CandidateImage? image = null;
+                bool outcomeEstablished = false;
+                try
+                {
+                    image = CandidateImage.Open(assembly.OpenRead);
+                    CandidateStage stage =
+                        StageCandidate(image.PeReader, assembly);
+                    if (!stage.HasManagedMetadata)
+                    {
+                        outcomes.Add(
+                            Rejected(
+                                assembly,
+                                CandidateOpenFailureKind.InvalidImage,
+                                "The selected image has no managed metadata."));
+                        outcomeEstablished = true;
+                        continue;
+                    }
+
+                    images.Add(image);
+                    image = null;
+                    PublishStage(typeIndex, stage);
+                    outcomes.Add(
+                        new TypeDependencyCandidateOutcome.Completed(
+                            assembly.Registration));
+                }
+                catch (UnsupportedMetadataFormatException)
+                {
+                    outcomes.Add(
+                        Rejected(
+                            assembly,
+                            CandidateOpenFailureKind
+                                .UnsupportedMetadataFormat,
+                            "The selected image uses an unsupported metadata format."));
+                    outcomeEstablished = true;
+                }
+                catch (MalformedMetadataRootException ex)
+                {
+                    outcomes.Add(
+                        Rejected(
+                            assembly,
+                            CandidateOpenFailureKind.InvalidImage,
+                            $"The selected image has a malformed metadata root ({ex.Reason}).",
+                            ex.Reason));
+                    outcomeEstablished = true;
+                }
+                catch (Exception ex) when (
+                    ex is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ObjectDisposedException)
+                {
+                    outcomes.Add(
+                        Rejected(
+                            assembly,
+                            CandidateOpenFailureKind.Unreadable,
+                            "The selected image could not be read."));
+                    outcomeEstablished = true;
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException
+                        or OverflowException)
+                {
+                    outcomes.Add(
+                        Rejected(
+                            assembly,
+                            CandidateOpenFailureKind.InvalidImage,
+                            "The selected image contains invalid metadata."));
+                    outcomeEstablished = true;
+                }
+                catch (Exception ex)
+                {
+                    OwnedResourceCleanup.DisposeAfterFailure(
+                        image,
+                        ex);
+                    image = null;
+                    throw;
+                }
+                finally
+                {
+                    if (outcomeEstablished)
+                    {
+                        OwnedResourceCleanup
+                            .DisposeWithoutReplacingOutcome(
+                                image);
+                    }
+                    else
+                    {
+                        image?.Dispose();
+                    }
+                }
+            }
+
+            ImmutableArray<TypeDependencyCandidateOutcome> candidates =
+                outcomes.MoveToImmutable();
+            TypeDependencyPopulationResult result = new(
+                BuildGraph(targetType, typeIndex, maximumDepth),
+                candidates);
+            DisposeAll(images);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            foreach (CandidateImage image in images)
+            {
+                OwnedResourceCleanup.DisposeAfterFailure(
+                    image,
+                    ex);
+            }
+            images.Clear();
+            throw;
+        }
+        finally
+        {
+            foreach (CandidateImage image in images)
+            {
+                OwnedResourceCleanup
+                    .DisposeWithoutReplacingOutcome(image);
+            }
+        }
+    }
+
+    private static Dictionary<string, IndexedType> CreateTypeIndex() =>
+        new(StringComparer.Ordinal);
+
+    private static CandidateStage StageCandidate(
+        PEReader peReader,
+        ResolvedAssemblyReference? descriptor)
+    {
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
+            return CandidateStage.Descriptorless;
+
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
+        if (descriptor is not null)
+        {
+            descriptor.ValidateArtifactContent(peReader);
+            if (!reader.IsAssembly)
+            {
+                throw new BadImageFormatException(
+                    "The opened image is a module, not an assembly.");
+            }
+
+            AssemblyReferenceIdentity actual =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    reader);
+            if (!AssemblyImageSnapshot.IdentityMatches(
+                    descriptor.Identity,
+                    actual))
+            {
+                throw new BadImageFormatException(
+                    "The opened image identity does not match the acquisition descriptor.");
+            }
+        }
+
+        // Stage this participant's rows separately. A rejection must exclude
+        // the whole participant, including rows decoded before a later
+        // relationship failure.
+        var staged =
+            new Dictionary<string, IndexedType>(
+                StringComparer.Ordinal);
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            TypeDefinition definition =
+                reader.GetTypeDefinition(handle);
+            if (!definition.IsPublic)
+                continue;
+
+            string name = reader.GetString(definition.Name);
+            if (TypeFilters.IsCompilerGenerated(name))
+                continue;
+
+            string ns = reader.GetString(definition.Namespace);
+            string fullName = TypeResolver.GetFullName(ns, name);
+            ValidateRelationships(reader, definition);
+            staged.TryAdd(
+                fullName,
+                new IndexedType(reader, definition));
+        }
+
+        return new CandidateStage(staged);
+    }
+
+    private static void PublishStage(
+        Dictionary<string, IndexedType> typeIndex,
+        CandidateStage stage)
+    {
+        foreach ((string name, IndexedType type) in stage.Types)
+            typeIndex.TryAdd(name, type);
+    }
+
+    private static TypeDependencyResult BuildGraph(
+        string targetType,
+        Dictionary<string, IndexedType> typeIndex,
+        int? maximumDepth)
+    {
+        string normalizedTarget =
+            FqnParser.NormalizeTypeName(targetType);
+        // User lookup stays fuzzy, but exact casing selects the exact CLR
+        // identity when metadata contains case-distinct type names.
+        string? matchKey = typeIndex.ContainsKey(normalizedTarget)
+            ? normalizedTarget
+            : typeIndex.Keys.FirstOrDefault(key =>
+                TypeMatcher.Matches(key, normalizedTarget));
+        if (matchKey is null)
+            return new TypeDependencyResult(null, []);
+
+        IndexedType match = typeIndex[matchKey];
+        var treeExpansionBudgets =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        var relationshipExpansionBudgets =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        var emittedRelationships =
+            new HashSet<(
+                string Source,
+                string Target,
+                TypeDependencyRelationshipKind Kind)>();
+        var activeDefinitions =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                matchKey,
+            };
+        var relationships = new List<TypeDependencyRelationship>();
+        var depthBoundaries =
+            new Dictionary<string, TypeDependencyDepthBoundary>(
+                StringComparer.Ordinal);
+        string matchedType = TypeResolver.FormatDisplayName(matchKey);
+        List<TypeDependencyNode> tree = BuildNode(
+            matchedType,
+            match.Reader,
+            match.Definition,
+            GenericContext.ForType(match.Reader, match.Definition),
+            typeIndex,
+            treeExpansionBudgets,
+            relationshipExpansionBudgets,
+            emittedRelationships,
+            activeDefinitions,
+            relationships,
+            depthBoundaries,
+            includeTree: true,
+            collectRelationships: true,
+            currentDepth: 0,
+            maximumDepth);
+        return new TypeDependencyResult(matchedType, tree)
+        {
+            Relationships = relationships,
+            DepthBoundaries =
+            [
+                .. depthBoundaries.Values.OrderBy(
+                    static boundary => boundary.TypeName,
+                    StringComparer.Ordinal),
+            ],
+        };
+    }
+
+    private static void ValidateMaximumDepth(int? maximumDepth)
+    {
+        if (maximumDepth is < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumDepth),
+                maximumDepth,
+                "A maximum dependency depth cannot be negative.");
+        }
+    }
+
+    private static TypeDependencyCandidateOutcome.Rejected Rejected(
+        ResolvedAssemblyReference assembly,
+        CandidateOpenFailureKind kind,
+        string detail,
+        MetadataRootMalformedReason? metadataRootReason = null) =>
+        new(
+            assembly.Registration,
+            new CandidateOpenFailure(kind, detail)
+            {
+                MetadataRootReason = metadataRootReason,
+            });
+
+    private static void DisposeAll(
+        List<CandidateImage> images)
+    {
+        List<Exception>? failures = null;
+        foreach (CandidateImage image in images)
+        {
+            try
+            {
+                image.Dispose();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ex);
+            }
+        }
+        images.Clear();
+
+        if (failures is null)
+            return;
+        if (failures.Count == 1)
+        {
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        }
+
+        throw new AggregateException(
+            "One or more dependency-scan images could not be released.",
+            failures);
     }
 
     /// <summary>
@@ -454,7 +771,7 @@ public static class TypeDependencyScanner
         MetadataReader reader,
         TypeDefinition typeDef,
         GenericContext context,
-        Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
+        Dictionary<string, IndexedType> typeIndex,
         Dictionary<string, int> treeExpansionBudgets,
         Dictionary<string, int> relationshipExpansionBudgets,
         HashSet<(
@@ -606,7 +923,7 @@ public static class TypeDependencyScanner
     /// </summary>
     private static void CollectTransitive(
         string typeName,
-        Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
+        Dictionary<string, IndexedType> typeIndex,
         HashSet<string> result,
         HashSet<string> visited)
     {
@@ -618,7 +935,8 @@ public static class TypeDependencyScanner
         if (!typeIndex.TryGetValue(normalized, out var match))
             return;
 
-        var (_, mdReader, typeDef) = match;
+        MetadataReader mdReader = match.Reader;
+        TypeDefinition typeDef = match.Definition;
         GenericContext context =
             ContextForConstructedType(mdReader, typeDef, typeName);
 
@@ -737,7 +1055,7 @@ public static class TypeDependencyScanner
 
     private static List<TypeDependencyNode> ResolveChildren(
         string typeName,
-        Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
+        Dictionary<string, IndexedType> typeIndex,
         Dictionary<string, int> treeExpansionBudgets,
         Dictionary<string, int> relationshipExpansionBudgets,
         HashSet<(
@@ -763,11 +1081,11 @@ public static class TypeDependencyScanner
         {
             return BuildNode(
                 typeName,
-                match.MdReader,
-                match.TypeDef,
+                match.Reader,
+                match.Definition,
                 ContextForConstructedType(
-                    match.MdReader,
-                    match.TypeDef,
+                    match.Reader,
+                    match.Definition,
                     typeName),
                 typeIndex,
                 treeExpansionBudgets,
@@ -812,5 +1130,82 @@ public static class TypeDependencyScanner
     {
         return typeName is "System.Object" or "System.ValueType" or "System.Enum"
             or "System.Delegate" or "System.MulticastDelegate";
+    }
+
+    private sealed record IndexedType(
+        MetadataReader Reader,
+        TypeDefinition Definition);
+
+    private sealed class CandidateStage
+    {
+        private CandidateStage(
+            bool hasManagedMetadata,
+            IReadOnlyDictionary<string, IndexedType> types)
+        {
+            HasManagedMetadata = hasManagedMetadata;
+            Types = types;
+        }
+
+        internal static CandidateStage Descriptorless { get; } =
+            new(
+                hasManagedMetadata: false,
+                new Dictionary<string, IndexedType>());
+
+        internal CandidateStage(
+            IReadOnlyDictionary<string, IndexedType> types)
+            : this(hasManagedMetadata: true, types)
+        {
+        }
+
+        internal bool HasManagedMetadata { get; }
+        internal IReadOnlyDictionary<string, IndexedType> Types { get; }
+    }
+
+    private sealed class CandidateImage : IDisposable
+    {
+        private readonly Stream stream;
+
+        private CandidateImage(
+            Stream stream,
+            PEReader peReader)
+        {
+            this.stream = stream;
+            PeReader = peReader;
+        }
+
+        internal PEReader PeReader { get; }
+
+        internal static CandidateImage Open(
+            Func<Stream> openRead)
+        {
+            Stream? stream = null;
+            try
+            {
+                stream = openRead();
+                if (stream is null || !stream.CanRead)
+                {
+                    throw new IOException(
+                        "The assembly opener did not return a readable stream.");
+                }
+
+                var peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
+                return new CandidateImage(stream, peReader);
+            }
+            catch (Exception ex)
+            {
+                OwnedResourceCleanup.DisposeAfterFailure(
+                    stream,
+                    ex);
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            PeReader.Dispose();
+            stream.Dispose();
+        }
     }
 }
