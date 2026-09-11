@@ -22,7 +22,6 @@
     <ProjectReference Include="..\Inspector.Resources\Inspector.Resources.csproj" />
     <PackageReference Include="NuGet.Versioning" />
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
-    <InternalsVisibleTo Include="DotnetInspector.PackageQueries" />
     <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
     <InternalsVisibleTo Include="DotnetInspect.Web.Core" />
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
