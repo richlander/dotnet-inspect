@@ -20,14 +20,15 @@ directly and no production path calls `CustomAttribute.DecodeValue`. The
 paired-walker hazards described under
 [How this design changed](#how-this-design-changed) are gone from the code.
 Slice 3's compiler-produced fixture gate landed in #5148. The
-[pinned package gate](#pinned-package-fidelity-gate) additionally covers a named
-eight-assembly package snapshot; neither establishes an SDK-wide fidelity
-claim or a continuous certified producer range. Slice 4 retires
+[pinned package gate](#pinned-package-fidelity-gate) additionally covers two
+named package snapshots; neither establishes an SDK-wide fidelity claim or a
+continuous certified producer range. Slice 4 retires
 the temporary guard bridge and its validation-only mode. D2 now has focused
 resource-failure propagation evidence (#5397), using deterministic fault
-injection rather than actual memory pressure. D1's generative cost gate
-(#5733), exhaustive D2 coverage, and broader D3 certification remain open, so
-the full invariants below remain targets rather than gated facts.
+injection rather than actual memory pressure. D1's known amplification paths
+now have focused product gates (#5733); an exhaustive absence claim, exhaustive
+D2 coverage, and broader D3 certification remain open, so the full invariants
+below remain targets rather than gated facts.
 
 ## Responsibility
 
@@ -192,6 +193,14 @@ length of a name that is invariant across the loop.** Rendering violates it;
 so do content comparison and per-row hashing. The
 [enum-resolution name-work gate](#enum-resolution-name-work-gate) now contains
 both products through one cumulative per-decode budget.
+
+Across attribute rows, one extraction-scoped materialization context memoizes
+each deterministic constructor/value-blob/decode-mode combination. Whole-blob
+work is charged and decoded once per cache key, rather than once per row.
+Caller-supplied resolver callbacks remain uncached because their state and
+failure provenance are caller facts, not metadata facts. The
+[shared value-blob gate](#shared-value-blob-gate) covers the resulting
+row-count/blob-size product.
 
 D1 is deliberately stated over aggregate cost rather than per-element
 repetition. "Perform this work once per distinct input" is the right *fix* for
@@ -839,12 +848,13 @@ encoding.
 
 ## Enforcement gates
 
-**Current state: focused D1 and D2 properties and the defaulted-width signal
-are gated; full D1, D2, and D3 remain `unverified`.**
+**Current state: D1's known amplification paths, focused D2 properties, and the
+defaulted-width signal are gated; exhaustive D1, D2, and D3 remain
+`unverified`.**
 
 | Invariant | Gate | State |
 | --- | --- | --- |
-| **D1** | `CustomAttributeGenericContextTests` measures generic-prefix traversal (#5098). `CustomAttributeBoundedCostTests` jointly varies unresolved references, definitions, and invariant name bytes; its product-owned counters enforce candidate/frame and name-work budgets (#5091, #5757, #5758). Broad scaling matrices are `Speed=Slow`; small controls and budget boundaries remain in PR CI. | Partial: #5098 reuse and the per-decode enum-resolution work products are gated. The cross-row #5132 gap remains, so full D1 is unverified. |
+| **D1** | `CustomAttributeGenericContextTests` measures generic-prefix traversal (#5098). `CustomAttributeBoundedCostTests` jointly varies unresolved references, definitions, and invariant name bytes; its product-owned counters enforce candidate/frame and name-work budgets (#5091, #5757, #5758). `ApiSurfaceExtractorBoundsTests` jointly varies rows and one shared value blob through the extraction-scoped decode cache (#5132). Broad scaling matrices are `Speed=Slow`; small controls and budget boundaries remain in PR CI. | Gated for every enumerated known amplification path. No exhaustive absence claim is made, so full D1 remains unverified. |
 | **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. Slice 4 exercises those fixtures through `AttributeDecoder` directly. The [resource-failure propagation gate](#resource-failure-propagation-gate) covers raw `OutOfMemoryException` propagation from SRM string materialization. | Focused refusal, callback, width-signal, and injected resource-failure cases are gated; exhaustive D2 coverage remains unverified. |
 | **D3** | `CustomAttributeFidelityTests.CompilerProducedValues_EqualIndependentSrm` and `RetainedCrossAssemblyEnums_EqualProducerTruth` enforce the fixture subset. `CustomAttributeCorpusTests.PinnedPackages_AllAttributeRowsEqualIndependentOracle` covers the two named package snapshots and records their producer, oracle, and companion-fixture identities. | Bounded fixture and package coverage; broader producer coverage remains unverified. |
 | **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. `DetailedDecode_ReportsDefaultedAndResolvedWidths` and `DetailedDecode_LegacyFuncIsAuthoritative_ButUnresolvedDefaults` gate it. | Gated, landed in #5815. |
@@ -1160,8 +1170,56 @@ exactly 4,194,304 charged bytes.
 
 This gate establishes the per-decode name-work bound, **not full D1**.
 The unused standalone `EnumUnderlyingPrimitive.TryFromSerializedName` scan is
-not a current decoder path and is not claimed by this gate. Work multiplied
-across attribute rows remains #5132.
+not a current decoder path and is not claimed by this gate.
+
+### Shared value-blob gate
+
+Across one API-surface extraction, deterministic custom-attribute decodes are
+memoized by constructor handle, value `BlobHandle`, serialized-name mode,
+and trusted resolver identity (#5132). The materialization context is scoped to
+one reader and one extraction; there is no global `MetadataReader` cache. Both
+a decoded value and a deterministic refusal are reusable. The whole value-blob
+charge now occurs at the decoder's cache-miss boundary, before parsing, rather
+than in the rendering caller before every row.
+
+Public caller-supplied enum resolver callbacks are deliberately outside the
+cache. They may be stateful or throw, so each call still invokes the resolver
+and reports its work. An observer failure also escapes without installing a
+cache entry. Internal closed resolver dictionaries are cacheable by reference
+identity. Detailed decoding is also outside the cache because it carries
+additional defaulted-width flags and is not used by the extraction consumer.
+
+`ApiSurfaceExtractorBoundsTests.SharedCustomAttributeBlob_DecodeWorkIsAdditive`
+generates public types whose rows share one complete, array-valued attribute
+blob. Arrays are not faithfully renderable by `AttributeReader`, so the
+extracted surface retains no attribute argument output that could explain
+repeated work. One 4,096-element row and 512 one-element rows are the fast
+one-dimension controls. Their 512-row by 4,096-element combination must also
+extract within the same product-owned decode-work budget. The 16-case joint
+matrix is `Speed=Slow` and runs with the full metadata suite in Deep Inspect.
+Neighboring decoder tests gate successful-value and refusal reuse, mode and
+trusted-resolver separation, and non-caching of detailed decodes, caller
+resolvers, or observer failures.
+
+At pre-repair instrumentation head
+`ee932f23f184d2412816845359ca210179220ce0`, both one-dimension controls
+extracted, while the 512 by 4,096 combination returned
+`ApiSurfaceExtractionResult.Exceeded`. The failure was therefore in the
+row-count/blob-size product rather than either admitted dimension alone.
+
+The already pinned `dotnet-inspect.any` 0.25.0 package demonstrates the shape in
+ordinary compiler output. In its `dotnet-inspect.dll`, 54,962 attribute rows
+collapse to 1,282 constructor/blob pairs; 53,983 rows belong to repeated
+groups, and the largest pair is reused 17,597 times. Per-row value-blob bytes
+total 445,245, compared with 63,818 bytes across unique constructor/blob pairs.
+The 0.14.0 snapshot shows the same reuse shape. The package gate preserves both
+checksum-verified assets; this D1 gate uses generated boundaries because the
+real packages are D3 certification inputs rather than stable cost limits.
+
+This gate covers transient decode/parser/materialization work. It does not
+claim that repeated attributes produce sublinear final output: retaining or
+serializing one rendered attribute per surfaced row remains output
+materialization admitted by D1.
 
 ## Known gaps
 
@@ -1170,11 +1228,8 @@ component's current behavior. They are listed rather than omitted, because a
 design document describing only intended behavior would misrepresent the
 component.
 
-| Legacy gap | Gap | Invariant | Issue |
-| --- | --- | --- | --- |
-| 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` from `Θ(A + B)` metadata. | D1 | #5132 |
-
-Gap 4 is cross-row, so no per-decode budget can address it.
+No verified custom-attribute decoding gaps remain. This is not an exhaustive
+absence claim; newly demonstrated divergences return here before repair.
 
 ### Gaps changed by the inversion
 
@@ -1183,6 +1238,7 @@ place it.
 
 | Former gap | Was | Disposition |
 | --- | --- | --- |
+| `A` attribute rows sharing one `B`-byte blob were decoded independently, costing `Θ(A × B)` from `Θ(A + B)` metadata. | D1 gap 4 (#5132) | **Repaired.** One extraction-scoped materialization context caches each deterministic constructor/blob/mode result or refusal, covered by the [shared value-blob gate](#shared-value-blob-gate). |
 | Building the type-definition index cost `Θ(P × L)` for `P` definitions sharing an `L`-character namespace. | D1 gap 7 (#5757) | **Contained.** TypeDef-index metadata name bytes share one cumulative 4 MiB per-decode budget, covered by the [enum-resolution name-work gate](#enum-resolution-name-work-gate). |
 | A definition scan performed `O(L)` work per row on one loop-invariant TypeRef name, costing `Θ(T × L)`. | D1 gap 8 (#5758) | **Contained on the active handle path.** TypeRef match name bytes share the same 4 MiB budget and gate. The unused standalone serialized-name scan is not claimed as a product path. |
 | A failed handle-derived enum resolution scanned every type definition, so `P` distinct unresolvable arguments cost `Θ(P × T)`. | D1 gap 1 (#5091) | **Repaired.** Candidate visits and structural-match frames share one aggregate 65,536-operation budget per decode, covered by the [enum-resolution work gate](#enum-resolution-work-gate). Blob-authored names use the existing type-definition index rather than this scan. |
@@ -1207,9 +1263,10 @@ slice 2. Both are now settled.
   budget against it and slice 2 does not retune them (#5733 owns the D1 cost
   gate that would). Serialized-string byte charges are preserved and charged
   raw (not slot-multiplied); existing type-name rendering and type-definition
-  index charges are also preserved. Every count is validated before its slot
-  charge, and every observer invocation is wrapped in a provenance sentinel so
-  a throwing observer is never absorbed as malformed metadata.
+  index charges are also preserved. The complete value blob is charged once at
+  each deterministic decode cache miss. Every count is validated before its
+  slot charge, and every observer invocation is wrapped in a provenance
+  sentinel so a throwing observer is never absorbed as malformed metadata.
 - **The decoder's name and surface.** Slice 2 retained
   `CustomAttributeValueGuard` and a temporary public `IsSafeToDecode` bridge
   while tests migrated. Slice 4 replaces that component with the internal
@@ -1235,11 +1292,11 @@ slice 2. Both are now settled.
 | #5085 | Repaired in #5815: observer-exception provenance is preserved. |
 | #5091 | Repaired: candidate visits and structural-match frames share one aggregate per-decode budget; the focused fast boundary and slow joint-dimension matrix measure product operations. |
 | #5130 | #5815 retired the paired walk's single-slot memos; #5098 repairs the transferred generic-context cost. |
-| #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
+| #5132 | Repaired: deterministic constructor/blob/mode results and refusals are reused across one extraction; focused fast controls and the slow joint matrix measure the row-count/blob-size product. |
 | #5148 | Merged: fixtures-first D3 value equality and retained-image producer truth. Broader package certification remains outstanding in #5065. |
 | #5304 | Stage 2 exhaustive per-position enumeration. |
 | #5397 | Gated: a one-shot SRM string-materialization fault propagates unchanged through all three public decode surfaces. This is fault-injection evidence, not actual memory-pressure testing or exhaustive D2 coverage. |
-| #5733 | Partial: #5098, #5091, #5757, and the active #5758 path have product-work gates; cross-row #5132 remains. #5065 measures fidelity, not cost. |
+| #5733 | Every enumerated known D1 amplification path now has a focused product-work gate through #5098, #5091, #5757, #5758, and #5132. This is not an exhaustive absence claim. #5065 measures fidelity, not cost. |
 | #5742 | Implemented in #5815: the opt-in defaulted-width signal mitigates D3's row-three carve-out. |
 | #5755 | Retained-name evidence and the representation-bound revisit point if the output-shape hold is lifted. |
 | #5757 | Contained by the cumulative per-decode enum-resolution name-work budget and gate. |
