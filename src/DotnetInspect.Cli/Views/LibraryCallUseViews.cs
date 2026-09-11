@@ -9,6 +9,19 @@ internal static class LibraryCallUseViewSections
     internal const string CallSites = "Call Sites";
 }
 
+internal static class LibraryCallUseViewText
+{
+    internal static string Contain(string value) =>
+        LibraryViewText.Contain(value) ?? "";
+
+    internal static string ContainDescription(string value) =>
+        string.Join(
+            "\n",
+            value.ReplaceLineEndings("\n")
+                .Split('\n')
+                .Select(Contain));
+}
+
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
     DescriptionProperty = nameof(Description),
@@ -16,10 +29,18 @@ internal static class LibraryCallUseViewSections
 public sealed class LibraryCallUseHeaderView
 {
     [MarkoutIgnore]
-    public string Title { get; init; } = "Library Call Use";
+    public string Title
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    } = LibraryCallUseViewText.Contain("Library Call Use");
 
     [MarkoutIgnore]
-    public required string Description { get; init; }
+    public required string Description
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.ContainDescription(value);
+    }
 
     [MarkoutSection(Name = "Header", Headless = true)]
     public List<MarkoutField>? Content => null;
@@ -32,11 +53,19 @@ public sealed class LibraryCallUseHeaderView
 public sealed class LibraryCallUseConsumerUseSitesView
 {
     [MarkoutIgnore]
-    public string Title { get; init; } =
-        LibraryCallUseViewSections.ConsumerUseSites;
+    public string Title
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    } = LibraryCallUseViewText.Contain(
+        LibraryCallUseViewSections.ConsumerUseSites);
 
     [MarkoutIgnore]
-    public required string Description { get; init; }
+    public required string Description
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.ContainDescription(value);
+    }
 
     [MarkoutSection(
         Name = LibraryCallUseViewSections.ConsumerUseSites,
@@ -51,11 +80,19 @@ public sealed class LibraryCallUseConsumerUseSitesView
 public sealed class LibraryCallUseProviderApiTypesView
 {
     [MarkoutIgnore]
-    public string Title { get; init; } =
-        LibraryCallUseViewSections.ProviderApiTypes;
+    public string Title
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    } = LibraryCallUseViewText.Contain(
+        LibraryCallUseViewSections.ProviderApiTypes);
 
     [MarkoutIgnore]
-    public required string Description { get; init; }
+    public required string Description
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.ContainDescription(value);
+    }
 
     [MarkoutSection(
         Name = LibraryCallUseViewSections.ProviderApiTypes,
@@ -70,10 +107,18 @@ public sealed class LibraryCallUseProviderApiTypesView
 public sealed class LibraryCallUseCallSitesView
 {
     [MarkoutIgnore]
-    public required string Title { get; init; }
+    public required string Title
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
     [MarkoutIgnore]
-    public required string Description { get; init; }
+    public required string Description
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.ContainDescription(value);
+    }
 
     [MarkoutSection(
         Name = LibraryCallUseViewSections.CallSites,
@@ -97,74 +142,195 @@ public sealed class LibraryCallUseSelectedView
 [MarkoutSerializable]
 public sealed class LibraryCallUseConsumerUseSiteRow
 {
-    public required string SourceLibrary { get; init; }
+    public required string SourceLibrary
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
     [MarkoutPropertyName("Source MVID")]
-    public required string SourceMvid { get; init; }
+    public required string SourceMvid
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
-    public required string SourceMember { get; init; }
-    public required string SourceToken { get; init; }
-    public required string TargetLibrary { get; init; }
+    public required string SourceMember
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string SourceToken
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string TargetLibrary
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
     [MarkoutPropertyName("Target MVID")]
-    public required string TargetMvid { get; init; }
+    public required string TargetMvid
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
     public int ProviderTypes { get; init; }
     public int TargetMembers { get; init; }
     public int CallSites { get; init; }
-    public required string CallSiteRows { get; init; }
+    public required string CallSiteRows
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 }
 
 [MarkoutSerializable]
 public sealed class LibraryCallUseProviderApiTypeRow
 {
-    public required string SourceLibrary { get; init; }
+    public required string SourceLibrary
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
     [MarkoutPropertyName("Source MVID")]
-    public required string SourceMvid { get; init; }
+    public required string SourceMvid
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
-    public required string TargetLibrary { get; init; }
+    public required string TargetLibrary
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
     [MarkoutPropertyName("Target MVID")]
-    public required string TargetMvid { get; init; }
+    public required string TargetMvid
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
-    public required string TargetType { get; init; }
+    public required string TargetType
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
     public int SourceMembers { get; init; }
     public int TargetMembers { get; init; }
     public int CallSites { get; init; }
-    public required string CallSiteRows { get; init; }
+    public required string CallSiteRows
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 }
 
 [MarkoutSerializable]
 public sealed class LibraryCallUseCallSiteRow
 {
-    public required string SourceLibrary { get; init; }
+    public required string SourceLibrary
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
     [MarkoutPropertyName("Source MVID")]
-    public required string SourceMvid { get; init; }
+    public required string SourceMvid
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
-    public required string SourceMember { get; init; }
-    public required string SourceToken { get; init; }
-    public required string TargetLibrary { get; init; }
+    public required string SourceMember
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string SourceToken
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string TargetLibrary
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
     [MarkoutPropertyName("Target MVID")]
-    public required string TargetMvid { get; init; }
+    public required string TargetMvid
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
-    public required string TargetMember { get; init; }
-    public required string TargetToken { get; init; }
-    public required string Call { get; init; }
-    public required string EvidenceMethod { get; init; }
+    public required string TargetMember
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string TargetToken
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string Call
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string EvidenceMethod
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
     [MarkoutPropertyName("Evidence MVID")]
-    public required string EvidenceMvid { get; init; }
+    public required string EvidenceMvid
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
-    public required string EvidenceToken { get; init; }
+    public required string EvidenceToken
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
     [MarkoutPropertyName("IL Offset")]
-    public required string IlOffset { get; init; }
+    public required string IlOffset
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 
-    public required string OperandToken { get; init; }
-    public required string ExactTarget { get; init; }
+    public required string OperandToken
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string ExactTarget
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
 }
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
