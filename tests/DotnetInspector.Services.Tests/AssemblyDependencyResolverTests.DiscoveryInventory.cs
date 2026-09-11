@@ -507,8 +507,6 @@ public partial class AssemblyDependencyResolverTests
         { "deps", """{"targets":{"net10.0":{"P/1.0.0":{"runtime":{"P.dll":{}}}}},"libraries":{"P/1.0.0":{"path":"../outside"}}}""" },
         { "deps", """{"targets":{"net10.0":{"P/1.0.0":{"runtime":{"../outside.dll":{}}}}},"libraries":{"P/1.0.0":{"path":"p/1.0.0"}}}""" },
         { "deps", """{"targets":{"net10.0":{"P/1.0.0":{"runtime":{}}}},"libraries":{"P/1.0.0":{"path":""}}}""" },
-        { "deps", """{"targets":{"net10.0":{"P/1.0.0":{"runtime":{"P.dll":{}}}}},"libraries":{"P/1.0.0":{"type":"project","path":null}}}""" },
-        { "deps", """{"targets":{"net10.0":{"P/1.0.0":{"runtime":{"P.dll":{}}}}},"libraries":{"P/1.0.0":{"type":"project","path":""}}}""" },
         { "project", """{"targets":{"net10.0":{"P/1.0.0":{"compile":{}}}},"libraries":{"P/1.0.0":{"path":"../outside"}}}""" },
         { "project", """{"targets":{"net10.0":{"P/1.0.0":{"compile":{"../outside.dll":{}}}}},"libraries":{"P/1.0.0":{"path":"p/1.0.0"}}}""" },
         { "project", """{"targets":{"net10.0":{"P/1.0.0":{"compile":{}}}},"libraries":{"P/1.0.0":{"path":""}}}""" },
@@ -521,6 +519,30 @@ public partial class AssemblyDependencyResolverTests
     {
         using var files = new DiscoveryFiles();
         var resolver = new AssemblyDependencyResolver(DiscoveryDocumentOptions(files, document, content));
+        Assert.Empty(resolver.ResolveAll());
+        var failed = Assert.IsType<AssemblyDependencyDiscoveryResult.Failed>(
+            resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
+        Assert.Empty(failed.PartialEntries);
+        Assert.Equal(AssemblyDependencyDiscoveryFailureKind.InvalidDocument,
+            Assert.Single(failed.DiscoveryFailures).Kind);
+    }
+
+    public static TheoryData<string> RejectedProjectPackagePaths => new()
+    {
+        { """{"targets":{"net10.0":{"P/1.0.0":{"runtime":{"P.dll":{}}}}},"libraries":{"P/1.0.0":{"type":"project","path":null}}}""" },
+        { """{"targets":{"net10.0":{"P/1.0.0":{"runtime":{"P.dll":{}}}}},"libraries":{"P/1.0.0":{"type":"project","path":""}}}""" },
+    };
+
+    [Theory]
+    [MemberData(nameof(RejectedProjectPackagePaths))]
+    public void CaptureDiscoveryInventory_RejectsProjectPackagePathWithoutEnablingApplicationFallback(
+        string content)
+    {
+        using var files = new DiscoveryFiles();
+        files.Write("P.dll", BuildAssembly("P", []));
+        var resolver = new AssemblyDependencyResolver(
+            DiscoveryDocumentOptions(files, "deps", content));
+
         Assert.Empty(resolver.ResolveAll());
         var failed = Assert.IsType<AssemblyDependencyDiscoveryResult.Failed>(
             resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
