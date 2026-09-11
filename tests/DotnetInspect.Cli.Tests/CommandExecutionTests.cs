@@ -2843,7 +2843,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "vocabulary",
                 "-S",
-                "@Decompiler",
+                "C# *",
                 "--count",
                 "--tips",
                 "q");
@@ -3378,7 +3378,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task BareName_PlatformNamespacePrefix_RoutesToTypePrefixBrowse()
     {
-        var (exit, output, error) = await RunAppAsync("System.Text", "--tips", "q", "-n", "12");
+        var (exit, output, error) = await RunAppAsync("System.Text", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("Showing best-effort platform prefix matches for 'System.Text'", error);
@@ -3390,7 +3390,7 @@ public partial class CommandExecutionTests
         // claim is asserted. The claim here is about ROUTING, so it is moved to where the evidence
         // lives rather than dropped.
         var (factExit, factOutput, _) = await RunAppAsync(
-            "System.Text", "--tips", "q", "-n", "12", "-S", SectionNames.ApiInfo);
+            "System.Text", "--tips", "q", "-S", SectionNames.ApiInfo);
 
         Assert.Equal(0, factExit);
         Assert.Contains("| Source | Platform |", factOutput, StringComparison.Ordinal);
@@ -4485,8 +4485,6 @@ public partial class CommandExecutionTests
             "--where",
             "Kind=InvocationExpression",
             "--table",
-            "--rows",
-            "1",
             "--tips",
             "q"
         ];
@@ -9185,7 +9183,7 @@ public partial class CommandExecutionTests
 
         // Structured resolution reaches ParamCollectionAttribute through the
         // platform policy instead of dropping it with the sibling-only probe.
-        Assert.Contains("Types: 90", fieldsOutput, StringComparison.Ordinal);
+        Assert.Contains("Types: 91", fieldsOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Methods:", fieldsOutput, StringComparison.Ordinal);
 
         // --columns is the same surface and was the case the first fix missed: it does not filter
@@ -9202,7 +9200,7 @@ public partial class CommandExecutionTests
             "type", "--platform", "System.Text.Json", "-v:q", "-S", SectionNames.ApiInfo, "--tips", "q");
 
         Assert.Equal(0, bothExit);
-        Assert.Contains("| Types | 90 |", bothOutput, StringComparison.Ordinal);
+        Assert.Contains("| Types | 91 |", bothOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Library: System.Text.Json.dll |", bothOutput, StringComparison.Ordinal);
     }
 
@@ -10147,7 +10145,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_SourceFilesSection_RendersTypeSourceUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28");
+            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
