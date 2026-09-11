@@ -113,6 +113,7 @@ function platformRow(assembly: string, kind: PlatformAssemblyRow["kind"], inRefe
 }
 const platformTarget: PlatformCatalogTarget = {
   tfm: "net11.0", version: platformVersion,
+  supplies: [],
   rows: [
     platformRow("System.Text.Json", "impl"),
     platformRow("System.Facade", "facade"),
@@ -122,6 +123,7 @@ const platformTarget: PlatformCatalogTarget = {
 };
 const historicalPlatformTarget: PlatformCatalogTarget = {
   tfm: "netstandard2.1", version: "2.1.0",
+  supplies: [],
   rows: [{
     ...platformRow("netstandard", "ref", true, false),
     tfm: "netstandard2.1", pack: "netstandard", packVersion: "2.1.0", version: "2.1.0.0",
@@ -687,7 +689,7 @@ async function installFacades(
   await page.route("**/assets/platform-index.json", route =>
     route.fulfill(platform ? {
       contentType: "application/json",
-      body: JSON.stringify({ schemaVersion: 1, defaultFramework: "net11.0", targets: [catalogTarget, historicalPlatformTarget] }),
+      body: JSON.stringify({ schemaVersion: 2, defaultFramework: "net11.0", targets: [catalogTarget, historicalPlatformTarget] }),
     } : { status: 404, body: "Platform catalog is not part of this fixture." }));
   await page.route("**/*", route =>
     route.request().resourceType() === "document"

@@ -155,12 +155,13 @@ public class DemoCommandTests
         Assert.True(DemoScenarioRunner.TryCreateOptions(resolved, OutputFormat.Markdown, noHeader: false, out var options, out var error), error);
         var type = Assert.IsType<TypeOptions>(options);
         Assert.Equal("System.Text.Json.JsonSerializer", type.TypeName);
-        Assert.Equal("System.Text.Json@10.0.0", type.PackagePath);
+        Assert.Null(type.PackagePath);
+        Assert.Equal("System.Text.Json", type.PlatformAssembly);
+        Assert.Equal("runtime@10.0.12", type.PlatformFramework);
         Assert.Equal("net10.0", type.Tfm);
         Assert.Equal(
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.Methods },
             type.IncludeSections);
-        Assert.Null(type.PlatformAssembly);
     }
 
     [Fact]
@@ -199,7 +200,9 @@ public class DemoCommandTests
             error);
         var member = Assert.IsType<MemberOptions>(options);
         Assert.Equal("System.Text.Json.JsonSerializer", member.TypeName);
-        Assert.Equal("System.Text.Json@10.0.0", member.PackagePath);
+        Assert.Null(member.PackagePath);
+        Assert.Equal("System.Text.Json", member.PlatformAssembly);
+        Assert.Equal("runtime@10.0.12", member.PlatformFramework);
         Assert.Equal("1dc14dd1fb", member.MemberDigest);
         Assert.Contains("Serialize", member.MemberFilter);
         Assert.True(member.MermaidOutput);

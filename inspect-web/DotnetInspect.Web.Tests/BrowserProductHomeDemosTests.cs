@@ -1,7 +1,9 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
+using NuGet.Versioning;
 
 using DotnetInspect.Web.Interop.Catalog;
 
@@ -70,7 +72,7 @@ public sealed class BrowserProductHomeDemosTests
     }
 
     [Fact]
-    public void ResolveHomeDemo_StjSerializer_ProjectsPackageAndTypeView()
+    public void ResolveHomeDemo_StjSerializer_ProjectsPlatformAndTypeView()
     {
         using var document = JsonDocument.Parse(
             DotnetInspect.Web.Interop.Catalog.CatalogExports.ResolveHomeDemo(ProductDemoIds.StjSerializer));
@@ -81,9 +83,12 @@ public sealed class BrowserProductHomeDemosTests
 
         var members = root.GetProperty("workspaceMembers");
         Assert.Equal(1, members.GetArrayLength());
-        Assert.Equal("package", members[0].GetProperty("kind").GetString());
-        Assert.Equal("System.Text.Json", members[0].GetProperty("id").GetString());
-        Assert.Equal("10.0.0", members[0].GetProperty("version").GetString());
+        Assert.Equal("platform", members[0].GetProperty("kind").GetString());
+        Assert.Equal("runtime", members[0].GetProperty("id").GetString());
+        Assert.Equal(
+            "System.Text.Json",
+            members[0].GetProperty("assembly").GetString());
+        Assert.Equal("10.0.12", members[0].GetProperty("version").GetString());
         Assert.Equal("net10.0", members[0].GetProperty("framework").GetString());
 
         Assert.Equal(0, root.GetProperty("focusTabIndex").GetInt32());
@@ -148,15 +153,106 @@ public sealed class BrowserProductHomeDemosTests
                 Select(ProductDemoIds.StjSerializer).Scenario);
 
         Assert.Single(plan.Requests);
-        BrowserPackageRequest request = Assert.IsType<
-            BrowserHomeDemoRunRequest.Package>(plan.Requests[0]).Request;
-        Assert.Equal("System.Text.Json", request.PackageId);
-        Assert.Equal("10.0.0", request.Version);
+        BrowserHomeDemoRunRequest.Platform request = Assert.IsType<
+            BrowserHomeDemoRunRequest.Platform>(plan.Requests[0]);
+        Assert.Equal("runtime", request.Family);
+        Assert.Equal("System.Text.Json", request.Assembly);
+        Assert.Equal("10.0.12", request.Version);
         Assert.Equal("net10.0", request.TargetFramework);
         Assert.Equal(0, plan.FocusRequestIndex);
         Assert.Equal("System.Text.Json.JsonSerializer", plan.TypeId);
         Assert.Equal(ProductDemoSections.Methods, plan.Section);
         Assert.Null(plan.Member);
+    }
+
+    [Fact]
+    public void StjPlatformDemos_JoinExactSupplyAndCatalogEvidence()
+    {
+        const string packageId = "System.Text.Json";
+        const string packageVersion = "10.0.0";
+        const string platformFamily = "runtime";
+        const string platformFrameworkFamily = "Microsoft.NETCore.App";
+        const string platformPack = "netcore.app";
+        const string platformVersion = "10.0.12";
+        const string framework = "net10.0";
+
+        using JsonDocument document = JsonDocument.Parse(
+            File.ReadAllText(
+                Path.Combine(
+                    RepositoryRoot(),
+                    "inspect-web",
+                    "assets",
+                    "platform-index.json")));
+        JsonElement target = Assert.Single(
+            document.RootElement
+                .GetProperty("targets")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("tfm").GetString() == framework
+                && candidate.GetProperty("version").GetString()
+                    == platformVersion);
+        JsonElement[] supplies =
+        [
+            .. target.GetProperty("supplies").EnumerateArray()
+                .Where(candidate =>
+                    candidate.GetProperty("family").GetString()
+                        == platformFrameworkFamily),
+        ];
+        var inventory = PlatformPruneInventory.FromExactFamily(
+            new PlatformPruneTarget(
+                platformFrameworkFamily,
+                framework,
+                NuGetVersion.Parse(platformVersion)),
+            supplies.Select(supply =>
+                $"{supply.GetProperty("package").GetString()}"
+                + $"|{supply.GetProperty("version").GetString()}"));
+        PlatformSupplyReceipt receipt = PlatformPrunePolicy.Evaluate(
+            inventory,
+            new PackageCoordinate(
+                packageId,
+                packageVersion,
+                framework));
+        Assert.True(receipt.Supply.DelegatesToPlatform);
+        Assert.Equal(
+            platformFrameworkFamily,
+            receipt.Supply.Family);
+        Assert.Equal(
+            NuGetVersion.Parse(platformVersion),
+            receipt.Supply.SuppliedVersion);
+
+        JsonElement supply = Assert.Single(
+            supplies,
+            candidate =>
+                candidate.GetProperty("package").GetString() == packageId);
+        Assert.Equal(
+            platformPack,
+            supply.GetProperty("pack").GetString());
+        JsonElement library = Assert.Single(
+            target.GetProperty("rows").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("pack").GetString() == platformPack
+                && candidate.GetProperty("assembly").GetString()
+                    == packageId);
+        Assert.True(
+            library.GetProperty("hasImplementation").GetBoolean());
+
+        foreach (string scenarioId in new[]
+        {
+            ProductDemoIds.StjSerializer,
+            ProductDemoIds.StjSerializeCallGraph,
+            ProductDemoIds.StjGetDecimalCallGraph,
+        })
+        {
+            BrowserHomeDemoRunPlan plan =
+                BrowserProductHomeDemos.ToRunPlan(Select(scenarioId).Scenario);
+            BrowserHomeDemoRunRequest.Platform request = Assert.IsType<
+                BrowserHomeDemoRunRequest.Platform>(
+                    Assert.Single(plan.Requests));
+            Assert.Equal(platformFamily, request.Family);
+            Assert.Equal(packageId, request.Assembly);
+            Assert.Equal(platformVersion, request.Version);
+            Assert.Equal(framework, request.TargetFramework);
+        }
     }
 
     [Fact]
@@ -553,4 +649,18 @@ public sealed class BrowserProductHomeDemosTests
     private static EcosystemDemoSelection Select(string scenarioId) =>
         Assert.IsType<EcosystemDemoSelectionResult.Known>(
             EcosystemPackCatalog.SelectDemo(scenarioId)).Selection;
+
+    private static string RepositoryRoot()
+    {
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
+            directory is not null;
+            directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+                return directory.FullName;
+        }
+
+        throw new DirectoryNotFoundException(
+            "Could not locate the dotnet-inspect repository root.");
+    }
 }
