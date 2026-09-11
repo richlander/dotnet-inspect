@@ -543,7 +543,8 @@ public sealed class DirectMemberComparisonQueryTests
                     Projected.Admission.Inputs.Select(input =>
                         new ResearchTargetInputRoleAssignment(input, ResearchTargetInputRole.Implementation)),
                     [new ResearchCarriedMemberSelection(Projected.Receipt.Questions[Identity.Question],
-                        "DiffFixtureSample.DiffSample", MemberTargetSelector.Parse("Stable"))]))).Resolution;
+                        TypeName("DiffFixtureSample", "DiffSample"),
+                        MemberTargetSelector.Parse("Stable"))]))).Resolution;
             Pair = Assert.IsType<ResearchDesignatedPairOutcome.Admitted>(
                 ResearchDesignatedPairAdmission.Admit(Projected.Admission, resolution,
                     resolution.Attempts.Single(attempt => ReferenceEquals(attempt.Request.Input,
@@ -558,6 +559,12 @@ public sealed class DirectMemberComparisonQueryTests
         internal ProjectedQueryPopulation Projected { get; }
         internal ResearchDesignatedPair Pair { get; }
         internal LocalComparisonPublication Publication { get; }
+
+        static MetadataTypeDefinitionName TypeName(
+            string @namespace,
+            string name) =>
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(@namespace, [name])).Name;
         public void Dispose() => _index.ReleaseCallGraphCaches();
     }
 
