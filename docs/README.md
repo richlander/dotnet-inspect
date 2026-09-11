@@ -48,6 +48,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Platform Manifest Formats](design/platform-manifest-formats.md) | Host-neutral bounded interpretation of shared-framework runtime configurations and dependency manifests, independent of installed, package, or Browser/Wasm acquisition. |
 | [PlatformHouse Realization and Reference Processing](design/platform-house-reference-processing.md) | Sole product-facing platform target/version settlement, realization, and reference-processing facade with provenance-retaining bare-library handoff and transparent .NET Standard forwarding through Metadata. |
 | [Installed Reference-Pack Realization](design/installed-reference-pack-realization.md) | Package-free explicit-hive reference target discovery, immutable reference-pack population realization, and PlatformHouse contribution mapping. |
+| [Package-backed Platform Realization](design/package-backed-platform-realization.md) | Source-authorized package-backed Platform target discovery plus reference and RID-specific manifest-defined implementation-pack realization for shared CLI and Browser/Wasm adoption. |
 | [Platform Library Population Declaration](design/platform-library-population-declaration.md) | Resource-free .NET runtime and ASP.NET Core population relevance, distinct from target/view selection, source realization, and support closure. |
 | [Repository xUnit Test Host](design/xunit-test-host.md) | Microsoft Testing Platform execution and aggregate non-vacuity for repository xUnit executables. |
 | [Repository CI Change Plan](design/ci-change-plan.md) | Typed candidate provenance, exact changed-path interpretation, immutable CI validation selection, scoped evidence, and visible planner refusal. |
@@ -62,6 +63,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [SourceLink Exposure](sourcelink-exposure.md) | Where SourceLink appears in package/library/type/member flows and how PDB/network costs are controlled. |
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
 | [SourceHouse Composition](design/source-house.md) | Content-first source settlement over SourceLink-authored and C#-decompiled producers with independent consumer-selected source and PDB policy. |
+| [DocumentationHouse Composition](design/documentation-house.md) | Library-scoped compiled-XML and authored-source documentation settlement with independent channel attempts, field provenance, and conflict preservation. |
 | [Local Repository Source Acquisition](design/local-repository-source-acquisition.md) | When caller-supplied Git clones may provide checksum-verified PDB source; local locator meaning, decline/fallback, and execution limits. |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs. |
 | [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |

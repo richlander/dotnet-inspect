@@ -1828,7 +1828,9 @@ public static class WorkspaceContextLoader
                         () => OpenPackageEntry(
                             acquired.Content,
                             asset.EntryPath),
-                        provenance);
+                        provenance,
+                        lastWriteTimeUtc: null,
+                        assetFileName: asset.FileName);
                 if (assembly is null)
                     continue;
 

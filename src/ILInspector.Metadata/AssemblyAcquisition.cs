@@ -294,6 +294,7 @@ public sealed class ResolvedAssemblyReference
         AssemblyAcquisitionRegistration registration,
         AssemblyReferenceIdentity identity,
         string? path,
+        string? assetFileName,
         Func<Stream> openRead,
         AssemblyResolutionProvenance provenance,
         DateTime? lastWriteTimeUtc)
@@ -301,6 +302,7 @@ public sealed class ResolvedAssemblyReference
         Registration = registration;
         Identity = identity;
         Path = path;
+        AssetFileName = assetFileName;
         OpenRead = openRead;
         Provenance = provenance;
         LastWriteTimeUtc = lastWriteTimeUtc;
@@ -322,6 +324,7 @@ public sealed class ResolvedAssemblyReference
             new AssemblyAcquisitionRegistration(),
             selectedIdentity,
             path,
+            path is null ? null : System.IO.Path.GetFileName(path),
             openRead,
             provenance,
             lastWriteTimeUtc);
@@ -377,9 +380,27 @@ public sealed class ResolvedAssemblyReference
         Func<Stream> openRead,
         AssemblyResolutionProvenance provenance,
         DateTime? lastWriteTimeUtc = null)
+        => SelectFromStream(
+            openRead,
+            provenance,
+            lastWriteTimeUtc,
+            assetFileName: null);
+
+    /// <summary>
+    /// Selects an assembly descriptor from a repeatable stream while retaining
+    /// the acquisition-owned physical asset file name separately from metadata
+    /// identity and local path.
+    /// </summary>
+    public static AssemblyDescriptorSelectionResult SelectFromStream(
+        Func<Stream> openRead,
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc,
+        string? assetFileName)
     {
         ArgumentNullException.ThrowIfNull(openRead);
         ArgumentNullException.ThrowIfNull(provenance);
+        if (assetFileName is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(assetFileName);
 
         Stream? source = openRead();
         if (source is null || !source.CanRead)
@@ -394,9 +415,11 @@ public sealed class ResolvedAssemblyReference
         {
             return SelectDescriptor(
                 stream,
-                identity => Create(
+                identity => new ResolvedAssemblyReference(
+                    new AssemblyAcquisitionRegistration(),
                     identity,
                     path: null,
+                    assetFileName,
                     openRead,
                     provenance,
                     lastWriteTimeUtc));
@@ -428,11 +451,28 @@ public sealed class ResolvedAssemblyReference
         Func<Stream> openRead,
         AssemblyResolutionProvenance provenance,
         DateTime? lastWriteTimeUtc = null)
+        => CreateFromStreamIfManaged(
+            openRead,
+            provenance,
+            lastWriteTimeUtc,
+            assetFileName: null);
+
+    /// <summary>
+    /// Creates a descriptor for a managed assembly served by a repeatable
+    /// stream factory while retaining its acquisition-owned physical asset
+    /// file name.
+    /// </summary>
+    public static ResolvedAssemblyReference? CreateFromStreamIfManaged(
+        Func<Stream> openRead,
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc,
+        string? assetFileName)
         => DescriptorOrNull(
             SelectFromStream(
                 openRead,
                 provenance,
-                lastWriteTimeUtc));
+                lastWriteTimeUtc,
+                assetFileName));
 
     /// <summary>
     /// Projects one authorized artifact registration into a managed assembly
@@ -533,6 +573,7 @@ public sealed class ResolvedAssemblyReference
                 registration,
                 identity,
                 path: null,
+                assetFileName: null,
                 openRead,
                 provenance,
                 lastWriteTimeUtc);
@@ -818,6 +859,7 @@ public sealed class ResolvedAssemblyReference
             registration,
             projection.Identity,
             path: null,
+            assetFileName: null,
             openRead,
             provenance,
             lastWriteTimeUtc);
@@ -913,6 +955,7 @@ public sealed class ResolvedAssemblyReference
             registration,
             identity ?? fallbackIdentity,
             path: null,
+            assetFileName: null,
             openRead,
             provenance,
             lastWriteTimeUtc);
@@ -961,6 +1004,12 @@ public sealed class ResolvedAssemblyReference
     public AssemblyAcquisitionRegistration Registration { get; }
     public AssemblyReferenceIdentity Identity { get; }
     public string? Path { get; }
+    /// <summary>
+    /// Acquisition-owned physical file name for this asset, when available.
+    /// This is separate from both the metadata identity and a local filesystem
+    /// path.
+    /// </summary>
+    public string? AssetFileName { get; }
     /// <summary>
     /// Opens a fresh readable stream for this descriptor.
     /// </summary>
@@ -1054,6 +1103,7 @@ public sealed class ResolvedAssemblyReference
                 Registration,
                 Identity,
                 path: null,
+                AssetFileName,
                 OpenRead,
                 Provenance,
                 LastWriteTimeUtc);
@@ -1067,6 +1117,7 @@ public sealed class ResolvedAssemblyReference
             Registration,
             Identity,
             Path,
+            AssetFileName,
             openRead,
             Provenance,
             lastWriteTimeUtc);

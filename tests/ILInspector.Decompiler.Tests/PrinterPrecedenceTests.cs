@@ -44,6 +44,43 @@ public class PrinterPrecedenceTests
     }
 
     [Fact]
+    public void StoreIndirect_IncrementTarget_ParenthesizesDereference()
+    {
+        var address = new LoadArgument(0, "address", s_nuint);
+        var store = new StoreIndirect(
+            s_int,
+            address,
+            new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadIndirect(s_int, new LoadArgument(0, "address", s_nuint)),
+                new Constant(1, s_int)));
+        var block = new Block();
+        block.Add(store);
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("address", s_nuint)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+        string output = result.Output!;
+
+        Assert.Contains("(*(int*)address)++;", output);
+        Assert.DoesNotContain("*(int*)address++;", output);
+        Assert.True(result.RequiresUnsafeBodyModifier);
+        AssertCompiles("public static unsafe void M(nuint address)", output);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     [Trait("Area", "Fidelity")]
     public void StoreElement_CompoundArrayReceiver_RecompilesExactly()

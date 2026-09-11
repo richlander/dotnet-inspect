@@ -9,6 +9,11 @@ import type {
   BrowserPackageSurface,
   BrowserTypeSurface,
 } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  BrowserCallGraph,
+  BrowserHomeDemoCatalogEntry,
+  BrowserHomeDemoRunResult,
+} from "../src/facades/inspect-web-catalog.d.ts";
 import type { PlatformAssemblyRow, PlatformCatalogTarget } from "../src/platform-index.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
@@ -136,6 +141,11 @@ interface PlatformFixture {
   mismatchedFile?: boolean;
 }
 
+interface HomeDemoFixture {
+  catalog: readonly BrowserHomeDemoCatalogEntry[];
+  results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
+}
+
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
 async function installFacades(
@@ -147,6 +157,7 @@ async function installFacades(
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
+  homeDemos?: HomeDemoFixture,
 ) {
   const catalogTarget: PlatformCatalogTarget = {
     ...platformTarget,
@@ -610,8 +621,19 @@ async function installFacades(
     source: "",
     "call-graph": "",
     catalog: `
+      const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
+      const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
       export function listVocabulary() { return { schema_version: 1, sections: [] }; }
-      export function listHomeDemos() { return { demos: [] }; }
+      export function listHomeDemos() { return { demos: homeDemos }; }
+      export async function runHomeDemo(id) {
+        document.documentElement.dataset.homeDemoRun = id;
+        return homeDemoResults[id] ?? {
+          found: false,
+          packages: [],
+          activation: null,
+          callGraph: null,
+        };
+      }
       export function encodeWorkspaceShareState(json) {
         return { succeeded: true, packet: btoa(json), failure: null };
       }
@@ -693,6 +715,314 @@ async function releaseFacade(page: Page, name: string): Promise<void> {
 }
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
+
+const peerSurface: BrowserPackageSurface = {
+  ...surface,
+  package: "Peer.Package",
+  defaultAssemblyId: other.id,
+  assemblies: [other],
+  types: [type("Example.Neighbor", other)],
+  totalMembers: 1,
+};
+
+const platformFocusAssembly: BrowserAssemblySurface = {
+  id: "System.Text.Json",
+  name: "System.Text.Json",
+  version: "11.0.0.0",
+  culture: null,
+  publicKeyToken: null,
+  asset: "System.Text.Json.dll",
+  publicTypes: 1,
+  publicMembers: 1,
+  platformPack: "netcore.app",
+};
+const platformPeerAssembly: BrowserAssemblySurface = {
+  id: "System.Runtime",
+  name: "System.Runtime",
+  version: "11.0.0.0",
+  culture: null,
+  publicKeyToken: null,
+  asset: "System.Runtime.dll",
+  publicTypes: 0,
+  publicMembers: 0,
+  platformPack: "netcore.app",
+};
+const platformFocusType: BrowserTypeSurface = {
+  ...type("Example.Widget", platformFocusAssembly),
+  accessibility: "internal",
+  accessibilityId: "internal",
+  platformPack: "netcore.app",
+};
+const platformFocusSurface: BrowserPackageSurface = {
+  ...surface,
+  package: "Microsoft.NETCore.App",
+  version: platformVersion,
+  frameworks: ["net11.0"],
+  activeFramework: "net11.0",
+  defaultAssemblyId: platformFocusAssembly.id,
+  assemblies: [platformFocusAssembly],
+  types: [platformFocusType],
+  accessibility: [
+    {
+      id: "public",
+      label: "Public",
+      order: 0,
+      isDefault: true,
+      count: 0,
+    },
+    {
+      id: "internal",
+      label: "Internal",
+      order: 1,
+      isDefault: false,
+      count: 1,
+    },
+  ],
+  totalMembers: 1,
+};
+const platformPeerSurface: BrowserPackageSurface = {
+  ...platformFocusSurface,
+  defaultAssemblyId: platformPeerAssembly.id,
+  assemblies: [platformPeerAssembly],
+  types: [],
+  totalMembers: 0,
+};
+
+function demoCallGraph(
+  assembly: string,
+  typeFullName: string,
+): BrowserCallGraph {
+  const node = {
+    label: "Run",
+    status: "Analyzed",
+    inLoop: false,
+    source: null,
+    children: [],
+    assembly,
+    typeFullName,
+    memberName: "Run",
+  };
+  return {
+    mermaid: 'flowchart TD\n  run["Run"]',
+    callers: node,
+    callees: node,
+    scope: {
+      packages: 1,
+      assemblies: 1,
+      callerAssemblies: 1,
+      calleeScope: "Workspace",
+    },
+    targets: [],
+    diagnostics: {
+      incompleteNodes: 0,
+      incompleteEdges: 0,
+      bindingIdentityConflicts: 0,
+      hasUnexploredTraversalBoundary: false,
+      hasAnalysisFailureBoundary: false,
+      isIncomplete: false,
+    },
+    noBody: false,
+  };
+}
+
+function homeDemoResult(
+  section: "Methods" | "Call Graph",
+  focusKind: "package" | "platform",
+): BrowserHomeDemoRunResult {
+  const platform = focusKind === "platform";
+  const callGraph = section === "Call Graph";
+  return {
+    found: true,
+    packages: platform
+      ? [platformPeerSurface, platformFocusSurface]
+      : [peerSurface, surface],
+    activation: {
+      focusKind,
+      focusId: platform ? "runtime" : surface.package,
+      focusVersion: platform ? platformVersion : surface.version,
+      focusFramework: platform ? "net11.0" : surface.activeFramework,
+      focusAssembly: platform ? platformFocusAssembly.name : null,
+      typeId: platform ? platformFocusType.id : surface.types[0]!.id,
+      section,
+      memberName: callGraph ? run.name : null,
+      memberKind: callGraph ? run.kind : null,
+      memberAnchorDigest: callGraph ? run.anchorDigest : null,
+      memberSection: callGraph ? "call-graph" : null,
+    },
+    callGraph: callGraph
+      ? demoCallGraph(
+        platform ? platformFocusAssembly.name : core.name,
+        "Example.Widget")
+      : null,
+  };
+}
+
+async function installHomeDemo(
+  page: Page,
+  section: "Methods" | "Call Graph",
+  focusKind: "package" | "platform",
+): Promise<string> {
+  const id = `${focusKind}-${section === "Methods" ? "methods" : "graph"}`;
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    focusKind === "platform" ? {} : undefined,
+    "ready",
+    "ready",
+    {
+      catalog: [{
+        id,
+        title: `${focusKind} ${section}`,
+        summary: "Typed product demo",
+      }],
+      results: { [id]: homeDemoResult(section, focusKind) },
+    });
+  return id;
+}
+
+async function openHomeDemo(
+  page: Page,
+  section: "Methods" | "Call Graph",
+  focusKind: "package" | "platform",
+): Promise<unknown> {
+  const id = await installHomeDemo(page, section, focusKind);
+  await page.goto("/demos");
+  await page.locator(`[data-workspace-demo="${id}"]`).click();
+  await expect(page.locator("html")).toHaveAttribute("data-home-demo-run", id);
+  await page.waitForFunction(() =>
+    new URL(location.href).searchParams.has("w"));
+  const json = await page.evaluate(() => {
+    const packet = new URL(location.href).searchParams.get("w");
+    if (!packet) throw new Error("The home demo did not publish a workspace packet.");
+    return atob(packet);
+  });
+  const share: unknown = JSON.parse(json);
+  return share;
+}
+
+test("package Methods demo retains all returned coordinates and publishes its exact type", async ({
+  page,
+}) => {
+  const share = await openHomeDemo(page, "Methods", "package");
+  await expect(page.locator('[data-scope="type"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  expect(share).toMatchObject({
+    tabs: [
+      { id: "t0", source: "Peer.Package" },
+      { id: "t1", source: "Example.Package" },
+    ],
+    contexts: expect.arrayContaining([{
+      id: "g2",
+      tabIds: ["t0", "t1"],
+    }]),
+    activeTabId: "t1",
+    selectedContextId: "g2",
+    view: {
+      type: surface.types[0]!.id,
+      memberAnchor: null,
+      section: null,
+      libraries: [core.id],
+    },
+  });
+});
+
+test("package Call Graph demo applies the returned member and graph", async ({
+  page,
+}) => {
+  const share = await openHomeDemo(page, "Call Graph", "package");
+  await expect(page.locator('[data-scope="member"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-member-section="call-graph"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#call-graph-diagram svg")).toBeVisible();
+  expect(share).toMatchObject({
+    view: {
+      type: surface.types[0]!.id,
+      memberAnchor: run.anchorDigest,
+      section: "call-graph",
+      libraries: [core.id],
+    },
+  });
+});
+
+test("Platform Methods demo uses its non-first engine surface without reloading it", async ({
+  page,
+}) => {
+  const share = await openHomeDemo(page, "Methods", "platform");
+  await expect(page.locator('[data-scope="type"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await expect(page.locator(
+    `[data-type="${platformFocusType.id}"]`,
+  )).toBeVisible();
+  await expect(page.locator("html"))
+    .not.toHaveAttribute("data-platform-library-request", /.+/);
+  expect(share).toMatchObject({
+    tabs: [{
+      kind: "group",
+      source: ":Platform",
+      version: platformVersion,
+      framework: "net11.0",
+    }],
+    view: {
+      type: platformFocusType.id,
+      memberAnchor: null,
+      section: null,
+      libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
+    },
+  });
+});
+
+test("Platform Call Graph demo publishes the exact Library and member", async ({
+  page,
+}) => {
+  const share = await openHomeDemo(page, "Call Graph", "platform");
+  await expect(page.locator('[data-scope="member"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-member-section="call-graph"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#call-graph-diagram svg")).toBeVisible();
+  await expect(page.locator("html"))
+    .not.toHaveAttribute("data-platform-library-request", /.+/);
+  expect(share).toMatchObject({
+    view: {
+      type: platformFocusType.id,
+      memberAnchor: run.anchorDigest,
+      section: "call-graph",
+      libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
+    },
+  });
+});
+
+test("home demo history failure restores the catalog without publication", async ({
+  page,
+}) => {
+  const id = await installHomeDemo(page, "Methods", "package");
+  await page.goto("/demos");
+  const retainedBefore = await page.locator("[data-workspace-switch]").count();
+  await page.evaluate(() => {
+    Object.defineProperty(history, "pushState", {
+      configurable: true,
+      value: () => {
+        throw new DOMException("History blocked");
+      },
+    });
+  });
+  await page.locator(`[data-workspace-demo="${id}"]`).click();
+  await expect(page.locator(".query-notice-text"))
+    .toContainText("could not commit its destination");
+  await expect(page).toHaveURL(/\/demos$/);
+  await expect(page.getByRole("tabpanel", { name: "Workspace" }))
+    .toBeVisible();
+  await expect(page.locator("[data-workspace-switch]"))
+    .toHaveCount(retainedBefore);
+});
 
 async function openPlatform(page: Page, options: PlatformFixture = {}) {
   await installFacades(page, surface, [], "ready", "ready", options);
