@@ -3091,21 +3091,23 @@ test("foreground package reload resets filters before selecting its first type",
     /if \(deep\) \{[\s\S]*applyDeepLink\(deep\);[\s\S]*\} else \{\s*resetMemberFilters\(\);\s*state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);/);
 });
 
-test("home demos restore the complete parsed location", () => {
+test("home demos execute typed results and commit canonical navigation", () => {
   const runHomeDemo =
     appSource.match(/function runHomeDemo\([\s\S]*?\n}\n\n\/\/ Return to the intro/)?.[0]
     ?? "";
+  const resolveDemo =
+    appSource.match(/async function resolveAndRunHomeDemo\([\s\S]*?\n}\n\nfunction openWorkspacePackagePicker/)?.[0]
+    ?? "";
+  assert.match(
+    resolveDemo,
+    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*const construction =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);[\s\S]*prepareUnpublishedWorkspace\(\);\s*await runEngineHomeDemo\(\s*kind,\s*construction\.rollbackSnapshot \?\? snapshot,\s*construction\.retainedSnapshot,\s*navigationSeq,/);
   assert.match(
     runHomeDemo,
-    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = await parseWorkspaceHref\(destination\);[\s\S]*stageDemoNavigation\(navigationSeq, destination\);\s*const construction =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);[\s\S]*await restoreWorkspaceCatalogEntry\(\s*loc,\s*navigationSeq,\s*construction\.rollbackSnapshot \?\? snapshot,\s*construction\.retainedSnapshot,/);
-  assert.match(
-    runHomeDemo,
-    /async function restoreWorkspaceCatalogEntry\([\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*loc,\s*navigationSeq,\s*snapshot,\s*false,\s*fail,\s*false\);[\s\S]*publishCurrentWorkspace\(previousSnapshot\);[\s\S]*commitDemoNavigation\(navigationSeq\)[\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\);[\s\S]*function failDemoWorkspaceOpen\([\s\S]*failWorkspaceCatalogAction\(\s*`Demo failed: \$\{message\}`,\s*snapshot,\s*retryable \? \(\) => runHomeDemo\(demoId\) : null,\s*\(\) => restoreWorkspaceFocus\(document, \{ kind: "demo", id: demoId \}\)/);
-  assert.match(
-    runHomeDemo,
-    /try \{\s*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = await parseWorkspaceHref\(destination\);\s*\} catch \(error\) \{[\s\S]*failDemoWorkspaceOpen\([\s\S]*\}\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*stageDemoNavigation\(navigationSeq, destination\)/);
+    /finally \{\s*cancelDemoNavigation\(navigationSeq\);[\s\S]*function failDemoWorkspaceOpen\([\s\S]*failWorkspaceCatalogAction\(\s*`Demo failed: \$\{message\}`,\s*snapshot,\s*retryable \? \(\) => runHomeDemo\(demoId\) : null,\s*\(\) => restoreWorkspaceFocus\(document, \{ kind: "demo", id: demoId \}\)/);
   assert.doesNotMatch(runHomeDemo, /workspaceLocation\.replace\("\/demos"/);
-  assert.doesNotMatch(runHomeDemo, /type: loc\.type/);
+  assert.doesNotMatch(
+    resolveDemo,
+    /\bresolveHomeDemo\(|productHomeDemoLocationHref|parseWorkspaceHref/);
   const restoreWorkspace =
     appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction failWorkspaceRoute/)?.[0]
     ?? "";
@@ -3115,26 +3117,30 @@ test("home demos restore the complete parsed location", () => {
   assert.match(
     appSource,
     /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.rootKind = loc\.rootKind;\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*if \(loc\.hasWorkspaceState\s*&& state\.atPackageRoot\s*&& loc\.packageLens === "dependencies"\) \{\s*state\.dependenciesGroupIndex = null;\s*\}\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
-  const callGraphDemo =
-    appSource.match(/async function runCallGraphDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
+  const engineDemo =
+    appSource.match(/async function runEngineHomeDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
-  assert.match(callGraphDemo, /result = await inspectRunHomeDemo\(demoId\)/);
-  assert.doesNotMatch(callGraphDemo, /callGraphDemoRunnerSpec|loadPackage\(/);
+  assert.match(engineDemo, /result = await inspectRunHomeDemo\(demoId\)/);
+  assert.match(engineDemo, /prepareProductHomeDemoSource\(result\)/);
+  assert.doesNotMatch(
+    engineDemo,
+    /resolveHomeDemo|productHomeDemoLocationHref|loadPackage\(/);
   assert.match(
-    callGraphDemo,
-    /const activation = result\.activation;\s*if \(activation\.focusKind !== "package"\) \{[\s\S]*return;\s*\}\s*const packages = result\.packages\.map\(createNuGetPackageModel\)/);
+    appSource,
+    /async function installPlatformHomeDemoSource\([\s\S]*platformGraphLibraryForTarget\([\s\S]*platformLibraryMatchesDescriptor\([\s\S]*openPlatformLibrary\([\s\S]*scopeOnly: true,[\s\S]*navigationSeq,[\s\S]*tfm: target\.tfm,[\s\S]*version: target\.version/);
   assert.match(
-    callGraphDemo,
-    /clearWorkspacePackages\(\);\s*for \(const packageModel of packages\)/);
+    engineDemo,
+    /if \(source\.kind === "package"\) \{[\s\S]*installPackageHomeDemoSource\(source\);[\s\S]*\} else \{[\s\S]*installPlatformHomeDemoSource\([\s\S]*\}/);
   assert.match(
-    callGraphDemo,
-    /state\.loading = false;\s*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*stageDemoNavigation\(navigationSeq, destination\);\s*render\(\);\s*let renderResult = await renderMermaidCallGraph\(\);\s*while \(renderResult\.status === "superseded"[\s\S]*renderResult = await renderMermaidCallGraph\(\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*if \(renderResult\.status === "superseded"\) \{\s*fail\("The call graph demo was superseded before publication\."\);[\s\S]*if \(renderResult\.status === "failed"\) \{\s*throw new Error\(renderResult\.message\);[\s\S]*if \(!commitDemoNavigation\(navigationSeq\)\)/);
+    engineDemo,
+    /state\.loading = false;\s*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*stageDemoNavigation\(navigationSeq, destination\);\s*render\(\);\s*if \(isCallGraph && result\.callGraph\) \{\s*let renderResult = await renderMermaidCallGraph\(\);[\s\S]*const publication = stageCurrentWorkspacePublication\(\s*previousSnapshot,\s*destination\);\s*if \(!commitStagedWorkspaceNavigation\(navigationSeq, publication\)\)/);
   assert.match(
-    callGraphDemo,
-    /publishCurrentWorkspace\(previousSnapshot\);\s*if \(!commitDemoNavigation\(navigationSeq\)\)[\s\S]*syncUrl\(\);\s*render\(\{ synchronizeUrl: false \}\);\s*focusInspectionResult\(navigationSeq\)/);
+    engineDemo,
+    /if \(!commitStagedWorkspaceNavigation\(navigationSeq, publication\)\)[\s\S]*syncUrl\(\);\s*render\(\{ synchronizeUrl: false \}\);\s*focusInspectionResult\(navigationSeq\)/);
+  assert.doesNotMatch(engineDemo, /publishCurrentWorkspace\(/);
   assert.match(
-    callGraphDemo,
-    /state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);\s*state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.atLibraryRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
+    appSource,
+    /function applyProductHomeDemoSelection\([\s\S]*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);[\s\S]*revealTypeInFilters\(type\);[\s\S]*state\.selectedTypeId = type\.id;[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = false;[\s\S]*resetMemberSectionState\(\);[\s\S]*state\.memberBrowseTypeId = member \? type\.id : "";[\s\S]*state\.selectedMemberKey = member\?\.key \?\? "";[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberCallGraph = result\.callGraph/);
   assert.match(
     restoreWorkspace,
     /await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler, commitHistory\)\) return;\s*if \(focusResult\) \{\s*focusInspectionResult\(navigationSeq\);/);
@@ -3461,7 +3467,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*methodBodyComparison\.dispose\(\);\s*sourceComparison\.dispose\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -3621,7 +3627,7 @@ test("browser history reuses available identities and publishes only unavailable
     /if \(snapshot\.state\.packages\.length === 0 && !snapshot\.state\.platformSelection\) \{\s*snapshot\.state\.workspaceSubjectOpen = true;\s*snapshot\.state\.atPackageRoot = true;\s*snapshot\.state\.atLibraryRoot = false;/);
   assert.match(
     appSource,
-    /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const methodBodyDiff = state\.methodBodyDiff;\s*const sourceDiff = state\.sourceDiff;[\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);\s*Object\.assign\(methodBodyDiff, snapshot\.state\.methodBodyDiff\);\s*Object\.assign\(sourceDiff, snapshot\.state\.sourceDiff\);\s*state\.methodBodyDiff = methodBodyDiff;\s*state\.sourceDiff = sourceDiff;[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);
+    /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);
   assert.match(
     appSource,
     /function cloneCanonicalWorkspaceSnapshotForRetention\([\s\S]*const platformIndex = snapshot\.state\.platformIndex;\s*const cloned = structuredClone\(\{\s*\.\.\.snapshot\.state,\s*platformIndex: null,[\s\S]*const retainedState: AppState = \{\s*\.\.\.cloned,\s*platformIndex,/);
@@ -3862,7 +3868,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| state\.methodBodyDiff\.open\s*\|\| state\.sourceDiff\.open\s*\|\| graphExplorer\.isOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
@@ -4325,7 +4331,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     ?? "";
   const annotatedAction =
     appSource.match(
-      /function applyAnnotatedSourceAction\(action: AnnotatedSourceAction\)[\s\S]*?\n}\n\n\/\/ Method Body Diff/)?.[0]
+      /function applyAnnotatedSourceAction\(action: AnnotatedSourceAction\)[\s\S]*?\n}\n\nfunction openFindingInstanceFromFacts/)?.[0]
     ?? "";
   const factsRenderer = readFileSync(
     new URL("../src/member-facts.ts", import.meta.url), "utf8");
@@ -7110,7 +7116,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /assemblyDescriptorForType\(pkg\.assemblies, type\)/);
   assert.match(
     appSource,
-    /activatePackage\(targetPackage, \{ resetAccessibility: true \}\)/);
+    /activatePackage\((?:target|source\.focusPackage), \{ resetAccessibility: true \}\)/);
 });
 
 test("member documentation state is scoped to the exact request", () => {

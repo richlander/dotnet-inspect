@@ -66,8 +66,12 @@ resource, not for PackageHouse or another consumer.
 The lease carries the live authority to:
 
 - authorize and settle one caller-pinned package coordinate;
-- discover dependency versions across one explicit source authorization; and
-- acquire one exact manifest through a candidate issued by the same lease.
+- discover complete versions under one explicit discovery contract and source
+  authorization;
+- acquire one exact manifest through a candidate issued by the same lease; and
+- acquire one admitted retained payload through a candidate issued by the same
+  lease and caller-supplied authority-scoped package stores, retaining the
+  exact source-result identity beside the configured authority.
 
 One lease owns one candidate-issuer identity. It accepts only source results
 whose association and client identity match the exact configured authority
@@ -81,6 +85,15 @@ package stores, artifact content, or Workspace participants. Completed result
 values retain their existing evidence semantics after retirement; no
 PackageHouse receipt stores the live source-settlement lease.
 
+Candidate payload acquisition consults every authorized cache before cold
+acquisition, then tries the same stable local-before-HTTP authority order used
+for candidate manifests. The result preserves the serving configured authority,
+producer identity, retained-content generation, cache/download origin,
+not-found authorities, and attributed failures. The lease does not create or
+select stores: the caller supplies one store per configured authority and
+producer, preserving host choice between filesystem, in-memory Browser/Wasm,
+or another package-owned storage implementation.
+
 This ownership correction preserves the existing `IDisposable` lifetime and
 async operation shapes. It does not define borrowing or transfer across an
 `await` boundary; [#6544](https://github.com/richlander/dotnet-inspect/issues/6544)
@@ -89,9 +102,15 @@ House-named API remains unverified by user choice.
 
 `PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient`
 and
-`PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation`
-are the Release gates for retirement, caller-owned resources, candidate
-identity, and exact source association.
+`PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation`,
+together with the configured payload and PackageHouse execution suites, are
+the Release gates for retirement, caller-owned resources, candidate identity,
+exact source association, discovery completeness, and payload settlement.
+`PackageSourceSettlementLeaseAcquiresPayloadAndRetiresWithoutDisposingClient`
+additionally gates retained generation, producer, and origin. Existing
+`ConfiguredPayloadAcquisitionTests` remain the Release gates for cache/source
+ordering, failover, not-found evidence, and typed payload failures through the
+shared candidate-payload implementation.
 
 ## Identity roles
 
@@ -400,6 +419,13 @@ Cold acquisition preserves NuGet's local-before-HTTP source tiers. There is no
 precedence within one tier. A cached payload may answer before an uncached
 authority is probed only when its retained authority is currently authorized
 for that coordinate.
+
+`PackageSourceSettlementLease.AcquireCandidatePayloadAsync` owns this
+candidate-bound operation. Its result carries the exact
+`PackageSourceResultIdentity` that produced or authorized the payload; a
+higher consumer does not reconstruct source or producer identity from the
+configured endpoint or payload text. Desktop composition delegates its
+payload work to this source-owned operation during PackageHouse adoption.
 
 Symbols, manifests, RID companions, tool-wrapper redirects, and projected
 platform packs independently reapply the package-ID and coordinate authority

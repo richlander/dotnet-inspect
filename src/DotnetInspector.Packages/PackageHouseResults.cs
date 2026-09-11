@@ -1160,6 +1160,12 @@ public abstract class PackageHouseResult
 
         PackageVersionResolutionReceipt? resolution =
             evidence.Decision?.VersionResolution;
+        if (typeof(TReceipt)
+                == typeof(PackageVersionResolutionReceipt.Failed)
+            && evidence.HasOperationTimeout)
+        {
+            return;
+        }
         if (resolution is null)
         {
             throw new ArgumentException(
