@@ -64,12 +64,20 @@ Empty filtered pages are valid: they do not prove source exhaustion.
   JSON remain failures; semantically invalid entries inside the syntactically
   valid, unconsumed `versions` property do not invalidate a prefix candidate.
 
-Gallery still requests 100 raw rows per page, advances by the raw response
-count, and applies its existing 3,000 maximum skip and 100-page client ceiling.
-Metadata byte limits, repeat-page rejection, candidate limits, and exact
-manifest validation remain in force. One retained source page is permitted;
-this does not promise one network row per Browser credit or avoid scanning
-nonmatching candidates to establish the next match.
+Gallery candidate pages initially request 20 raw rows. When a completed raw
+page admits fewer than half as many new literal-prefix matches as raw rows, the
+next request doubles monotonically through 40 and 80 to the existing 100-row
+ceiling. Dense prefixes therefore retain a 20-row acquisition window, while
+sparse prefixes recover the established scan throughput. Materialized prefix
+search retains 100-row requests because its caller has already requested one
+aggregate rather than demand-driven pages.
+
+Pagination advances by the raw response count and retains the existing 3,000
+maximum skip and 100-page client ceiling. Metadata byte limits, repeat-page
+rejection, candidate limits, and exact manifest validation remain in force.
+One retained source page is permitted; this does not promise one network row
+per Browser credit or avoid scanning nonmatching candidates to establish the
+next match.
 
 ## Work and deadline ownership
 
@@ -96,13 +104,13 @@ behavioral reference.
 
 ## Evidence and non-claims
 
-`PackagePrefixSearchTests` gates demand, order, filtering, limits, late failures,
-cancellation, idle-time exclusion, cumulative active budget, caller-context
-ownership, top-level metadata preservation, version-history omission, and
-top-level identity failure. `PackageProfileQueryTests` gates manifest work
-before later search pages, disposal, and partial-result accounting.
-`PackageQueryTests` gates the consumer's existing limits and failure projection.
-These gates run in Release.
+`PackagePrefixSearchTests` gates demand, order, filtering, adaptive request
+sizes, limits, late failures, cancellation, idle-time exclusion, cumulative
+active budget, caller-context ownership, top-level metadata preservation,
+version-history omission, and top-level identity failure.
+`PackageProfileQueryTests` gates manifest work before later search pages,
+disposal, and partial-result accounting. `PackageQueryTests` gates the
+consumer's existing limits and failure projection. These gates run in Release.
 
 The pathological case is a useful first page followed by a blocked or failed
 second page: the first manifest result must already be observable, and the
@@ -116,8 +124,19 @@ production projection transfers only the prototype's top-level-field selection;
 it continues to use the existing source client, request containment, result
 factory, and page contract.
 
+The adaptive-page prototype at `724774adf` ran the same published Browser
+artifact and NativeAOT comparator three times for twelve prefixes on both
+fernie and merritt. The first request was 20 rows in all 72 Browser samples,
+and all samples paused at the initial 20-match credit. `AWSSDK.*` row-20
+latency fell from 7.920 to 2.468 seconds on fernie and from 6.120 to 1.672
+seconds on merritt; descendant-process RSS growth fell from about 75 to 31 MB
+and from about 78 to 40 MB respectively. The sparse `Grpc.*` witness grew to
+100-row requests and completed source exhaustion within 0.4 seconds of the
+fixed-100 baseline on both hosts.
+
 This slice does not claim a fixed first-row latency, reduce NuGet round-trip
-time, reduce the 100-row raw page size, yield individual candidates before one
-raw page completes, parallelize manifests, virtualize the DOM, or move Wasm into
-a Worker. The production measurements in #5816 explain the motivation, not a
-deterministic latency guarantee.
+time, yield individual candidates before one raw page completes, isolate
+decompression from JSON processing, parallelize manifests, virtualize the DOM,
+or change the Worker credit protocol. The production measurements in #5816
+explain the motivation and observed result, not a deterministic latency
+guarantee.
