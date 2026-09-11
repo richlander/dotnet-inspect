@@ -87,7 +87,7 @@ The guard is enabled by default in `Program.cs`:
 // Network guard is always on to catch unintended network access.
 // Disabled for offline mode (OfflineHandler handles it) and detailed verbosity.
 if (!offline)
-    DotnetInspector.Core.HttpClientFactory.DenyNetwork();
+    DotnetInspector.Networking.HttpClientFactory.DenyNetwork();
 #endif
 ```
 
@@ -97,7 +97,7 @@ Commands opt out when they legitimately need network (`AssemblyCommand.cs`):
 #if DEBUG
 // Detailed verbosity legitimately needs network for PDB/SourceLink
 if (options.Verbosity >= Verbosity.Detailed || options.IncludeSourcelinkAudit)
-    DotnetInspector.Core.HttpClientFactory.AllowNetwork();
+    DotnetInspector.Networking.HttpClientFactory.AllowNetwork();
 #endif
 ```
 

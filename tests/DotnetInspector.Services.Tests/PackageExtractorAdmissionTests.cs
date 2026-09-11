@@ -88,13 +88,13 @@ public sealed class PackageExtractorAdmissionTests
             Assert.NotNull(nupkgPath);
             File.Delete(nupkgPath);
 
-            bool wasOffline = DotnetInspector.Core.HttpClientFactory.IsOffline;
-            DotnetInspector.Core.HttpClientFactory.Initialize(
-                new DotnetInspector.Core.HttpClientFactoryOptions
+            bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
                 {
                     Offline = true,
                 });
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             try
             {
                 using var client = new HttpClient(new FailingHandler());
@@ -117,12 +117,12 @@ public sealed class PackageExtractorAdmissionTests
             }
             finally
             {
-                DotnetInspector.Core.HttpClientFactory.Initialize(
-                    new DotnetInspector.Core.HttpClientFactoryOptions
+                DotnetInspector.Networking.HttpClientFactory.Initialize(
+                    new DotnetInspector.Networking.HttpClientFactoryOptions
                     {
                         Offline = wasOffline,
                     });
-                DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+                DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             }
         }
         finally
@@ -169,13 +169,13 @@ public sealed class PackageExtractorAdmissionTests
                 File.Delete(nuspec);
             }
 
-            bool wasOffline = DotnetInspector.Core.HttpClientFactory.IsOffline;
-            DotnetInspector.Core.HttpClientFactory.Initialize(
-                new DotnetInspector.Core.HttpClientFactoryOptions
+            bool wasOffline = DotnetInspector.Networking.HttpClientFactory.IsOffline;
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
                 {
                     Offline = true,
                 });
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             try
             {
                 using var client = new HttpClient(new FailingHandler());
@@ -194,12 +194,12 @@ public sealed class PackageExtractorAdmissionTests
             }
             finally
             {
-                DotnetInspector.Core.HttpClientFactory.Initialize(
-                    new DotnetInspector.Core.HttpClientFactoryOptions
+                DotnetInspector.Networking.HttpClientFactory.Initialize(
+                    new DotnetInspector.Networking.HttpClientFactoryOptions
                     {
                         Offline = wasOffline,
                     });
-                DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+                DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
             }
         }
         finally

@@ -456,6 +456,7 @@ test("NuGet projection selects the declared assembly and preserves package total
   assert.equal(model.totalTypes, 7);
   assert.equal(model.inspectionError, "one assembly could not be inspected");
   assert.deepEqual(model.source, { kind: "nuget.org" });
+  assert.equal(model.producerLabel, "NuGet.org");
   assert.equal(model.isRuntimePack, false);
 
   assert.throws(
@@ -463,6 +464,14 @@ test("NuGet projection selects the declared assembly and preserves package total
       defaultAssemblyId: "missing",
     })),
     /did not return its selected assembly descriptor/);
+});
+
+test("runtime projection owns its compact platform producer label", () => {
+  const model = createRuntimePackageModel(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+
+  assert.deepEqual(model.source, { kind: "platform" });
+  assert.equal(model.producerLabel, "Platform");
 });
 
 test("package projection copies only application-owned mutable collections", () => {

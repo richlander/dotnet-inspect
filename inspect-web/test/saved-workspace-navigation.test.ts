@@ -4,7 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
-import { createCatalogRequests, type DotnetRelease } from "../src/catalog-requests.ts";
+import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
   type ComparisonPackage,
@@ -16,7 +16,6 @@ import {
   typeLensesFor,
 } from "../src/data.ts";
 import type {
-  BrowserHomeDemoResolveResult,
   BrowserWorkspaceShareDecodeResult,
   BrowserWorkspaceShareEncodeResult,
   BrowserWorkspaceShareState,
@@ -34,7 +33,6 @@ import {
 import { workspaceDependencyKey } from "../src/package-inspection.ts";
 import {
   isProductHomeDemosPath,
-  productHomeDemoLocationHref,
 } from "../src/product-home-demos.ts";
 import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
@@ -203,28 +201,6 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function resolvedDemo(): BrowserHomeDemoResolveResult {
-  const members = sharedState().tabs.map(tab => ({
-    kind: "package",
-    id: tab.source,
-    version: tab.version,
-    framework: tab.framework,
-    assembly: null,
-  }));
-  return {
-    found: true,
-    demo: {
-      id: "demo",
-      title: "Example demo",
-      summary: "Open a two-package workspace.",
-      workspaceMembers: members,
-      tabs: members.map((member, index) => ({ id: `demo-${index}`, member })),
-      focusTabIndex: 1,
-      view: { library: null, type: null, memberAnchor: null, memberKey: null, section: null },
-    },
-  };
-}
-
 function harness() {
   const state = {
     home: false, credits: false, packageQueryOpen: false,
@@ -261,7 +237,6 @@ function harness() {
       }[];
     } | null,
     dependenciesGroupIndex: null as number | null,
-    dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
     platformStack: [] as object[], platformRecent: [], recentPackages: [],
@@ -283,14 +258,12 @@ function harness() {
   };
   const catalogRequests = createCatalogRequests({
     state,
-    queryDotnetReleases: async () => [],
     queryPackageVersions: async pkg => ({
       versions: [pkg.version],
       currentVersionInsertionIndex: 0,
       previousVersion: null,
       previousVersionUnavailableReason: null,
     }),
-    updatePlatformVersionSelect: () => {},
     updatePackageVersionSelect: () => {},
   });
   const packageComparisonTargets = createPackageComparisonTargets(() => state.packages);
@@ -345,8 +318,7 @@ function harness() {
     resets: number;
   } = { current: null, opens: 0, resets: 0 };
   const operations: Promise<unknown>[] = [];
-  const demoResolutions: string[] = [];
-  const callGraphRuns: { id: string; navigationSeq: number }[] = [];
+  const demoRuns: { id: string; navigationSeq: number }[] = [];
   const controls = {
     share: sharedState(),
     encodeResult: {
@@ -363,10 +335,9 @@ function harness() {
     acquisition: async (_id: string): Promise<boolean> => true,
     queryPackage: async (_id: string, _version: string, _framework: string) => packageSurface(),
     selection: async (): Promise<void> => {},
-    resolveHomeDemo: async (_id: string): Promise<BrowserHomeDemoResolveResult> => resolvedDemo(),
-    demoHref: productHomeDemoLocationHref,
-    callGraph: async (): Promise<void> => {},
+    demo: async (): Promise<void> => {},
     savedFocusAvailable: true,
+    pushError: null as Error | null,
   };
   function decode(value: string): BrowserWorkspaceShareDecodeResult {
     decoded.push(value);
@@ -384,7 +355,10 @@ function harness() {
       encoded.push(JSON.parse(json));
       return controls.encodeResult;
     },
-    push: (url, entryState) => write("push", url, entryState),
+    push: (url, entryState) => {
+      if (controls.pushError) throw controls.pushError;
+      write("push", url, entryState);
+    },
     replace: (url, entryState) => write("replace", url, entryState),
   });
   const asyncWorkspaceLocation = {
@@ -464,6 +438,22 @@ function harness() {
     publishCurrentWorkspace: (snapshot: unknown) => {
       publications.push(snapshot);
       context.activeWorkspaceUrl = null;
+    },
+    stageCurrentWorkspacePublication: (
+      snapshot: unknown,
+      url: string,
+    ) => ({ snapshot, url }),
+    commitStagedWorkspaceNavigation: (
+      navigationSeq: number,
+      publication: { snapshot: unknown },
+    ) => {
+      const committed = runInNewContext(
+        `commitDemoNavigation(${navigationSeq})`,
+        context,
+      ) === true;
+      if (!committed) return false;
+      context.publishCurrentWorkspace(publication.snapshot);
+      return true;
     },
     ensureCurrentWorkspacePublished: () => {
       if (state.packages.length === 1 && state.packages[0]?.id !== sourcePackage.id) {
@@ -587,24 +577,14 @@ function harness() {
         navigationHistory.record();
       }
     },
-    engineClient: {
-      catalog: {
-        resolveHomeDemo: (id: string) => {
-          demoResolutions.push(id);
-          return controls.resolveHomeDemo(id);
-        },
-      },
-    },
-    productHomeDemoLocationHref: (...args: Parameters<typeof productHomeDemoLocationHref>) =>
-      controls.demoHref(...args),
-    runCallGraphDemo: (
+    runEngineHomeDemo: (
       id: string,
       _snapshot: unknown,
       _previousSnapshot: unknown,
       navigationSeq: number,
     ) => {
-      callGraphRuns.push({ id, navigationSeq });
-      return controls.callGraph();
+      demoRuns.push({ id, navigationSeq });
+      return controls.demo();
     },
     inspectEncodeWorkspaceShareState: () => controls.encodeResult,
     platformCoordinate: (tab: BrowserWorkspaceShareState["tabs"][number]) =>
@@ -643,7 +623,7 @@ function harness() {
     acquisitions, focus, effects, operations, navigationHistory, navigationSequence,
     queries, retained, recent, invalidations, toasts, clipboard, picker, previousEntries,
     catalogRequests, packageComparisonTargets,
-    demoResolutions, callGraphRuns, publications,
+    demoRuns, publications,
     capture: async (): Promise<string> => {
       const result: unknown =
         await runInNewContext("captureSavedWorkspacePacket()", context);
@@ -1330,7 +1310,9 @@ test("failed Open uses Workspace fallback only when the saved action is no longe
 test("neighboring demo opening retains the shared transactional failure orchestration", async () => {
   const h = harness();
   const href = h.location.href;
-  h.controls.acquisition = async () => false;
+  h.controls.demo = async () => {
+    throw new Error("Demo unavailable");
+  };
   h.demo();
   await h.settle();
   assert.equal(h.location.href, href);
@@ -1342,10 +1324,10 @@ test("neighboring demo opening retains the shared transactional failure orchestr
   assert.deepEqual(h.focus, [{ kind: "demo", id: "demo" }]);
 });
 
-test("demo resolution waits before acquisition and commits its complete location with the same navigation sequence", async () => {
+test("demo execution starts under one observed navigation sequence", async () => {
   const h = harness();
-  const resolution = deferred<BrowserHomeDemoResolveResult>();
-  h.controls.resolveHomeDemo = () => resolution.promise;
+  const execution = deferred<void>();
+  h.controls.demo = () => execution.promise;
   const href = h.location.href;
   const entryState = h.history.state;
   h.demo();
@@ -1355,77 +1337,35 @@ test("demo resolution waits before acquisition and commits its complete location
   assert.equal(h.location.href, href);
   assert.equal(h.history.state, entryState);
   assert.equal(h.writes.length, 0);
-  assert.deepEqual(h.acquisitions, []);
-  assert.deepEqual(h.decoded, []);
   assert.deepEqual(h.focus, []);
   assert.equal(h.context.pendingDemoNavigation?.navigationSeq, sequence);
-
-  resolution.resolve(resolvedDemo());
-  await h.settle();
+  assert.deepEqual(h.demoRuns, [{ id: "demo", navigationSeq: sequence }]);
+  execution.resolve();
+  await h.operations[0];
   assert.equal(h.navigationSequence.current(), sequence);
-  assert.equal(h.state.package?.id, "Beta", h.state.queryNotice);
-  assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
-  assert.equal(h.location.searchParams.get("w"), packet);
   assert.equal(h.context.pendingDemoNavigation, null);
-  assert.equal(h.publications.length, 1);
-  assert.notEqual(h.publications[0], null);
-  h.flushFocus();
-  assert.deepEqual(h.focus, ["heading"]);
 });
 
-for (const failure of ["resolution", "unknown", "projection", "decode"] as const) {
-  test(`demo ${failure} failure retains the source location and existing retry/focus policy`, async () => {
-    const h = harness();
-    const href = h.location.href;
-    const entryState = h.history.state;
-    if (failure === "resolution")
-      h.controls.resolveHomeDemo = async () => { throw new Error("Resolution unavailable"); };
-    if (failure === "unknown")
-      h.controls.resolveHomeDemo = async () => ({ found: false, demo: null });
-    if (failure === "projection")
-      h.controls.demoHref = () => { throw new Error("Projection unavailable"); };
-    if (failure === "decode")
-      h.controls.decodeError = new Error("Decoder unavailable");
-    h.demo();
-    await h.settle();
-    assert.equal(h.location.href, href);
-    assert.equal(h.history.state, entryState);
-    assert.equal(h.writes.length, 0);
-    assert.deepEqual(h.state.packages, [sourcePackage]);
-    assert.equal(h.state.loading, false);
-    assert.match(h.state.queryNotice, /^Demo failed:/);
-    assert.equal(Boolean(h.state.queryNoticeRetryAction), failure === "resolution");
-    assert.equal(h.context.pendingDemoNavigation, null);
-    assert.deepEqual(h.acquisitions, []);
-    assert.deepEqual(h.callGraphRuns, []);
-    h.flushFocus();
-    assert.deepEqual(h.focus, [{ kind: "demo", id: "demo" }]);
-  });
-}
-
-test("a demo resolution retry reacquires the result under a new navigation sequence", async () => {
+test("a demo execution retry starts a new navigation sequence", async () => {
   const h = harness();
-  h.controls.resolveHomeDemo = async () => { throw new Error("Try again"); };
+  h.controls.demo = async () => { throw new Error("Try again"); };
   h.demo();
   await h.settle();
   const failedSequence = h.navigationSequence.current();
   assert.ok(h.state.queryNoticeRetryAction);
-  h.controls.resolveHomeDemo = async () => resolvedDemo();
+  h.controls.demo = async () => {};
   h.state.queryNoticeRetryAction();
   await h.settle();
   assert.ok(h.navigationSequence.current() > failedSequence);
-  assert.deepEqual(h.demoResolutions, ["demo", "demo"]);
-  assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
-  h.flushFocus();
-  assert.deepEqual(h.focus, ["heading"]);
+  assert.deepEqual(h.demoRuns.map(run => run.id), ["demo", "demo"]);
 });
 
-for (const outcome of ["success", "unknown", "failure"] as const) {
-  test(`superseded demo resolution ${outcome} cannot disturb a newer saved-workspace open`, async () => {
+for (const rejected of [false, true]) {
+  test(`superseded demo execution ${rejected ? "failure" : "success"} cannot disturb a newer saved-workspace open`, async () => {
     const h = harness();
-    const resolution = deferred<BrowserHomeDemoResolveResult>();
+    const execution = deferred<void>();
     const selection = deferred<void>();
-    h.controls.resolveHomeDemo = () => resolution.promise;
+    h.controls.demo = () => execution.promise;
     h.demo();
     h.controls.selection = () => selection.promise;
     h.open();
@@ -1434,14 +1374,14 @@ for (const outcome of ["success", "unknown", "failure"] as const) {
     const snapshot = structuredClone(h.state);
     const effects = [...h.effects];
     const acquisitions = [...h.acquisitions];
-    if (outcome === "failure") resolution.reject(new Error("Stale failure"));
-    else resolution.resolve(outcome === "unknown" ? { found: false, demo: null } : resolvedDemo());
+    if (rejected) execution.reject(new Error("Stale failure"));
+    else execution.resolve();
     await h.operations[0];
     assert.equal(h.context.pendingDemoNavigation, pending);
     assert.deepEqual(structuredClone(h.state), snapshot);
     assert.deepEqual(h.effects, effects);
     assert.deepEqual(h.acquisitions, acquisitions);
-    assert.deepEqual(h.callGraphRuns, []);
+    assert.deepEqual(h.demoRuns.map(run => run.id), ["demo"]);
     assert.equal(h.writes.length, 0);
     h.flushFocus();
     assert.deepEqual(h.focus, []);
@@ -1452,28 +1392,6 @@ for (const outcome of ["success", "unknown", "failure"] as const) {
     assert.deepEqual(h.focus, ["heading"]);
   });
 }
-
-test("call-graph demo execution receives the resolution navigation sequence and stays observed", async () => {
-  const h = harness();
-  const resolution = deferred<BrowserHomeDemoResolveResult>();
-  const execution = deferred<void>();
-  h.controls.resolveHomeDemo = () => resolution.promise;
-  h.controls.demoHref = async () => null;
-  h.controls.callGraph = () => execution.promise;
-  h.demo();
-  const sequence = h.navigationSequence.current();
-  assert.deepEqual(h.callGraphRuns, []);
-  resolution.resolve(resolvedDemo());
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(h.callGraphRuns, [{ id: "demo", navigationSeq: sequence }]);
-  assert.equal(h.navigationSequence.current(), sequence);
-  assert.equal(h.context.pendingDemoNavigation?.navigationSeq, sequence);
-  assert.equal(h.operations.length, 1);
-  assert.equal(h.writes.length, 0);
-  execution.resolve();
-  await h.settle();
-  assert.equal(h.context.pendingDemoNavigation, null);
-});
 
 function inspectionSelection(h: ReturnType<typeof harness>) {
   const s = h.state;
@@ -2032,7 +1950,7 @@ test("failed demo construction restores the Home presentation", async () => {
   const h = harness();
   h.state.home = true;
   h.state.workspaceSubjectOpen = false;
-  h.controls.resolveHomeDemo = async () => {
+  h.controls.demo = async () => {
     throw new Error("Demo unavailable");
   };
 

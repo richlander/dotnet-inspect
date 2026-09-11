@@ -2882,15 +2882,18 @@ public sealed partial class BrowserEngineBoundaryTests
     [InlineData(true)]
     public async Task HomeDemo_ReleasesScopeAfterQuery(bool missingType)
     {
-        byte[] image = File.ReadAllBytes(
-            missingType
-                ? typeof(BrowserEngineBoundaryTests).Assembly.Location
-                : typeof(JsonSerializer).Assembly.Location);
+        byte[] image = missingType
+            ? BuildIntegrationImage(
+                "System.Text.Json",
+                "Example.Missing")
+            : File.ReadAllBytes(typeof(JsonSerializer).Assembly.Location);
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
-                "System.Text.Json",
-                "10.0.0",
-                Package(image, "lib/net10.0/System.Text.Json.dll"),
+                "microsoft.netcore.app.runtime.linux-x64",
+                "10.0.12",
+                PlatformPackage(
+                    "net10.0",
+                    ("System.Text.Json.dll", image)),
                 fromCache: false));
 
         if (missingType)
@@ -2899,7 +2902,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 await Assert.ThrowsAsync<InvalidOperationException>(
                     () => DotnetInspect.Web.Interop.Catalog.CatalogExports.RunHomeDemo(ProductDemoIds.StjSerializer));
             Assert.Contains(
-                "resolved to 0 browser surface rows",
+                "resolved to 0 Browser Platform surface rows",
                 failure.Message,
                 StringComparison.Ordinal);
         }
@@ -2911,14 +2914,23 @@ public sealed partial class BrowserEngineBoundaryTests
                         await DotnetInspect.Web.Interop.Catalog.CatalogExports.RunHomeDemo(ProductDemoIds.StjSerializer),
                         BrowserCatalogJsonContext.Default.BrowserHomeDemoRunResult));
             Assert.True(result.Found);
-            Assert.Equal("System.Text.Json", Assert.Single(result.Packages).Package);
+            Assert.Equal(
+                BrowserPlatformIdentity.PackageName,
+                Assert.Single(result.Packages).Package);
+            BrowserHomeDemoRunActivation activation =
+                Assert.IsType<BrowserHomeDemoRunActivation>(
+                    result.Activation);
+            Assert.Equal("platform", activation.FocusKind);
+            Assert.Equal("runtime", activation.FocusId);
         }
 
         using var pressure =
             await BrowserPackageWorkspace.ReservePackageDownloadAsync(
                 $"home-demo.after-query.{Guid.NewGuid():N}@1.0.0",
                 128L * MiB);
-        Assert.Equal(128L * MiB, BrowserPackageWorkspace.Stats().ResidentBytes);
+        Assert.Equal(
+            128L * MiB,
+            BrowserPackageWorkspace.Stats().ResidentBytes);
     }
 
     [Fact]
@@ -5698,7 +5710,7 @@ public sealed partial class BrowserEngineBoundaryTests
         const string version = "11.0.304";
         const string framework = "net11.0-platform-home-demo-methods";
         byte[] nupkg = PlatformPackage(
-            ("DotnetInspect.Web.Tests.dll",
+            ("PhysicalPayload.dll",
                 File.ReadAllBytes(
                     typeof(BrowserEngineBoundaryTests).Assembly.Location)),
             ("System.Private.CoreLib.dll",
@@ -5771,6 +5783,12 @@ public sealed partial class BrowserEngineBoundaryTests
             result.Packages,
             surface => surface.DefaultAssemblyId
                 == activation.FocusAssembly);
+        Assert.Equal(
+            "PhysicalPayload.dll",
+            Assert.Single(
+                surface.Assemblies,
+                assembly => assembly.Name
+                    == activation.FocusAssembly).Asset);
         Assert.Equal(
             $"DotnetInspect.Web.Tests:{typeof(BrowserEngineBoundaryTests).FullName}",
             activation.TypeId);
@@ -8849,6 +8867,11 @@ public sealed partial class BrowserEngineBoundaryTests
 
     static byte[] PlatformPackage(
         params (string Name, byte[] Content)[] assemblies)
+        => PlatformPackage("net11.0", assemblies);
+
+    static byte[] PlatformPackage(
+        string framework,
+        params (string Name, byte[] Content)[] assemblies)
     {
         using var content = new MemoryStream();
         using (var archive =
@@ -8861,7 +8884,7 @@ public sealed partial class BrowserEngineBoundaryTests
             {
                 using Stream entry = archive
                     .CreateEntry(
-                        $"runtimes/linux-x64/lib/net11.0/{name}",
+                        $"runtimes/linux-x64/lib/{framework}/{name}",
                         CompressionLevel.NoCompression)
                     .Open();
                 entry.Write(bytes);

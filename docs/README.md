@@ -48,7 +48,9 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Platform Manifest Formats](design/platform-manifest-formats.md) | Host-neutral bounded interpretation of shared-framework runtime configurations and dependency manifests, independent of installed, package, or Browser/Wasm acquisition. |
 | [PlatformHouse Realization and Reference Processing](design/platform-house-reference-processing.md) | Sole product-facing platform target/version settlement, realization, and reference-processing facade with provenance-retaining bare-library handoff and transparent .NET Standard forwarding through Metadata. |
 | [Installed Reference-Pack Realization](design/installed-reference-pack-realization.md) | Package-free explicit-hive reference target discovery, immutable reference-pack population realization, and PlatformHouse contribution mapping. |
+| [Package-backed Platform Realization](design/package-backed-platform-realization.md) | Source-authorized package-backed Platform target discovery plus reference and RID-specific manifest-defined implementation-pack realization for shared CLI and Browser/Wasm adoption. |
 | [Platform Library Population Declaration](design/platform-library-population-declaration.md) | Resource-free .NET runtime and ASP.NET Core population relevance, distinct from target/view selection, source realization, and support closure. |
+| [Exact Library Source Coordinate](design/exact-library-source-coordinate.md) | Resource-free exact managed Library identity within an exact package coordinate or declared Platform population, preserving source-domain distinction before realization. |
 | [Repository xUnit Test Host](design/xunit-test-host.md) | Microsoft Testing Platform execution and aggregate non-vacuity for repository xUnit executables. |
 | [Repository CI Change Plan](design/ci-change-plan.md) | Typed candidate provenance, exact changed-path interpretation, immutable CI validation selection, scoped evidence, and visible planner refusal. |
 | [Repository Dependency Policy](dependency-policy.md) | Evaluated project and compiled assembly dependency rules, JSON policy semantics, and the Release CI gate. |
@@ -62,6 +64,8 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [SourceLink Exposure](sourcelink-exposure.md) | Where SourceLink appears in package/library/type/member flows and how PDB/network costs are controlled. |
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
 | [SourceHouse Composition](design/source-house.md) | Content-first source settlement over SourceLink-authored and C#-decompiled producers with independent consumer-selected source and PDB policy. |
+| [DocumentationHouse Composition](design/documentation-house.md) | Library-scoped compiled-XML and authored-source documentation settlement with independent channel attempts, field provenance, and conflict preservation. |
+| [Library Ownership and Borrowing](design/library-ownership-and-borrowing.md) | Resource-free realized-Library references, owner-issued async operation authority, synchronous scoped content borrowing, and aggregate content release. |
 | [Local Repository Source Acquisition](design/local-repository-source-acquisition.md) | When caller-supplied Git clones may provide checksum-verified PDB source; local locator meaning, decline/fallback, and execution limits. |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs. |
 | [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |
@@ -201,6 +205,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [C# Declared-Type Self-Name Admission](design/csharp-declared-type-self-name.md) | Proposed typed admission from one exact Metadata leaf to the identifier shared by a type header, constructors, and finalizers. |
 | [C# Memory-Safety Declaration Spelling](design/csharp-memory-safety-spelling.md) | Proposed CSharp-owned spelling of caller contracts independently from pointer syntax and body-context requirements. |
 | [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
+| [Source Availability Audit](design/source-availability-audit.md) | Operation-scoped source reachability and origin-validated positive reuse. |
 | [Untrusted Data Threat Model](design/untrusted-data-threat-model.md) | Trust boundaries, existing controls, and the security-scope rationale for untrusted internet-origin data. |
 | [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |
 | [Call Graph Projection](design/call-graph-projection.md) | Projecting the inspection graph into a call graph. |
