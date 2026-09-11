@@ -10358,18 +10358,22 @@ function bindHomeEvents(preservedFocus: HomeFocusTarget | null) {
   if (diagnosticsDestinationFocusPending) return;
   const destinationFocusGeneration = diagnosticsDestinationFocusGeneration;
   if (destinationFocusGeneration !== null) {
-    afterCurrentNavigationFrame(() => {
-      if (diagnosticsDestinationFocusGeneration
-        !== destinationFocusGeneration) return;
-      if (documentFocusGeneration !== destinationFocusGeneration) {
-        diagnosticsDestinationFocusGeneration = null;
-        return;
-      }
-      if (focusLevelOneHeading()) {
-        diagnosticsDestinationFocusGeneration = documentFocusGeneration;
-      }
-    });
-    return;
+    if (documentFocusGeneration !== destinationFocusGeneration) {
+      diagnosticsDestinationFocusGeneration = null;
+    } else {
+      afterCurrentNavigationFrame(() => {
+        if (diagnosticsDestinationFocusGeneration
+          !== destinationFocusGeneration) return;
+        if (documentFocusGeneration !== destinationFocusGeneration) {
+          diagnosticsDestinationFocusGeneration = null;
+          return;
+        }
+        if (focusLevelOneHeading()) {
+          diagnosticsDestinationFocusGeneration = documentFocusGeneration;
+        }
+      });
+      return;
+    }
   }
   if (preservedFocus && restoreHomeFocus(preservedFocus)) return;
   afterCurrentNavigationFrame(() => {

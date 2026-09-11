@@ -1101,6 +1101,30 @@ test("Diagnostics Back keeps Home heading focus through a later Build rerender",
   await expect(page.locator("main h1")).toBeFocused();
 });
 
+test("Diagnostics Back honors a later Home focus selection", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(credits).toBeFocused();
+  await expect(page.locator("main h1")).not.toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
 test("Diagnostics starts runtime and cache evidence while Build identity is pending", async ({
   page,
 }) => {
