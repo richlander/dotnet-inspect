@@ -155,7 +155,7 @@ stderr rather than mixed into structured output.
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, package dependencies, reference graphs, extension methods/properties, implementors, and subclasses. |
-| Direct dependency evidence | `dependency-evidence` | One normalized snapshot of the direct dependencies declared by named package, nuspec, restored-project, or package-prefix roots, with framework scopes, version constraints, restored resolution evidence, and root-set completion. Unlike `depends`, it does not walk the transitive tree. |
+| Dependency inspection | `depends` | Depth-controlled graphs plus normalized explicit-root declarations, framework groups, restored evidence, and completion. Select evidence sections without `Dependency Graph` to avoid transitive package acquisition. `dependency-evidence` remains available for direct evidence. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
@@ -179,7 +179,7 @@ stderr rather than mixed into structured output.
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
 | `graph libraries` | Show exact resolved `call`, `callvirt`, and `newobj` occurrences crossing between two explicit local libraries. |
-| `depends X` | Walk type, package, or library dependency graphs with lossless shared edges; emit tree, Mermaid, table, TSV, JSONL, JSON, or edge-count output. |
+| `depends [type]` | A positional subject selects type relationships in the supplied search scope. Without it, repeat `--package`, `--nuspec`, `--library`, and `--project` to inspect ordered asset roots, or use exclusive `--package-prefix`. Select graph and evidence sections independently. |
 | `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -538,11 +538,11 @@ inspect each side on its own.
 ```bash
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
-dotnet-inspect dependency-evidence --package Newtonsoft.Json --tfm net8.0
-dotnet-inspect dependency-evidence \
+dotnet-inspect depends --package Newtonsoft.Json -S Dependencies
+dotnet-inspect depends \
   --project ./src/DotnetInspect.Cli \
   --nuspec ./artifacts/package.nuspec \
-  -v:n
+  --depth 1 -v:n
 dotnet-inspect implements IEquatable --project ./src/DotnetInspect.Cli -v:q
 dotnet-inspect extensions string --project ./src/DotnetInspect.Cli -v:q
 dotnet-inspect graph integrations \
@@ -556,6 +556,28 @@ dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
 ```
+
+`depends Type` always means type relationships; a missing type never falls back
+to a library. Use `depends --library System.Text.Json` for assembly references.
+Asset roots retain their command-line order, including failed attempts beside
+usable siblings. Project files and directories only locate an existing
+`project.assets.json`; the command never evaluates, builds, or restores them.
+
+The default `Dependency Graph` section counts one logical edge per row.
+`--depth 1` admits direct edges only; omitting depth traverses the authorized
+graph. Package roots can expand through configured sources. Nuspec and prefix
+roots stop at their declarations; restored roots stay within their assets
+graph and never continue into package-source traversal.
+
+Use `-v:n` for roots, declarations, restored edges, and failures, or
+`-S @Dependencies` for all dependency sections. Evidence-only selections such
+as `-S Dependencies` do not traverse transitive package manifests and reject
+`--depth`. Markdown and JSON support multiple sections; table, TSV, and JSONL
+require one selected table. Standalone tree and Mermaid require only
+`Dependency Graph`. Row windows and counts use the selected section's row
+currency. Partial or failed requested work returns nonzero; intentional depth
+and source boundaries succeed. `dependency-evidence` remains supported during
+the migration.
 
 ### Workspace sharing and built-in guidance
 

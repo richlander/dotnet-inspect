@@ -561,7 +561,8 @@ public class SharedOptions
     /// Resolves the output format from parse result.
     /// Precedence: explicit CLI flags (--json, --markdown, -v:*) → DOTNET_INSPECT_FORMAT env → <paramref name="defaultFormat"/>.
     /// </summary>
-    public OutputFormat ResolveFormat(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown)
+    public OutputFormat ResolveFormat(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown,
+        bool verbositySelectsSections = false)
     {
         bool jsonFlag = parseResult.GetValue(Json);
         bool markdownFlag = parseResult.GetValue(Markdown);
@@ -572,7 +573,8 @@ public class SharedOptions
         bool jsonlFlag = IsExplicitTrue(parseResult, Jsonl);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag || jsonlFlag, hasVerbosity);
+        ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag || jsonlFlag,
+            hasVerbosity && !verbositySelectsSections);
         if (ShouldSuppressEnvironmentTabularFormat(
             parseResult,
             tableFlag || tsvFlag || jsonlFlag,
@@ -581,7 +583,9 @@ public class SharedOptions
             return defaultFormat;
         }
 
-        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, mermaidFlag, tableFlag, tsvFlag, jsonlFlag, defaultFormat);
+        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag,
+            verbositySelectsSections && (tableFlag || tsvFlag || jsonlFlag) ? null : verbosity,
+            plainTextFlag, mermaidFlag, tableFlag, tsvFlag, jsonlFlag, defaultFormat);
     }
 
     /// <summary>

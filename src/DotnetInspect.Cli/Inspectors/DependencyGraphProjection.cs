@@ -12,7 +12,8 @@ namespace DotnetInspect.Cli.Inspectors;
 internal static class DependencyGraphProjection
 {
     internal static DependencyGraphDocument Type(
-        TypeDependencyResult result)
+        TypeDependencyResult result,
+        int? maximumDepth = null)
     {
         ArgumentNullException.ThrowIfNull(result);
         if (result.MatchedType is null)
@@ -43,7 +44,14 @@ internal static class DependencyGraphProjection
                 evidenceIdentity: null);
         }
 
-        return builder.Build();
+        DependencyGraphDocument graph = builder.Build();
+        return graph with
+        {
+            Boundaries = [.. graph.Nodes.Where(node =>
+                node.Identity is DependencyGraphNodeIdentity.Type type
+                && result.DepthBoundaryTypeNames.Contains(type.Name))
+                .Select(node => new DependencyGraphBoundary(1, node.Id, "Depth", maximumDepth))],
+        };
     }
 
     internal static DependencyGraphDocument Library(

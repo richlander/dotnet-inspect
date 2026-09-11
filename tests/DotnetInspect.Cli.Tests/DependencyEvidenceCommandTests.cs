@@ -759,6 +759,49 @@ public sealed class DependencyEvidenceCommandTests
 
     // ---- package prefix (no live network) -----------------------------------
 
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(5, false)]
+    [InlineData(5, true)]
+    public async Task Depends_PrefixRetainsSourceBoundariesAndPartialRootSets(int depth, bool missingRoot)
+    {
+        using var source = new FakePrefixSource(
+            missingRoot
+                ? [new SearchResult("Contoso.First", "1.0.0"), new SearchResult("Contoso.Missing", "1.0.0")]
+                : [new SearchResult("Contoso.First", "1.0.0")],
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["contoso.first@1.0.0"] = Manifest("Contoso.First", "1.0.0",
+                    """<dependency id="Third.Party" version="[3.0.0]" />"""),
+            });
+        var unexpected = new UnexpectedPrefixTraversal();
+        var document = await DependsCommand.BuildDocumentAsync(
+            new DependsOptions { PackagePrefix = "Contoso.", Depth = depth },
+            true, TestContext.Current.CancellationToken, unexpected, unexpected, source);
+        Assert.Equal(!missingRoot, document.IsSuccessful);
+        Assert.Equal(missingRoot ? Models.DependencyCompletion.Partial : Models.DependencyCompletion.SourceBounded,
+            document.Traversal);
+        Assert.Single(document.Graph.Edges);
+        Assert.Equal(PackageDependencyTraversalExpansionAuthority.DirectDeclarationsOnly,
+            Assert.Single(document.PackageTraversal!.Roots).Occurrence.Authority);
+        Assert.Same(source.Source, Assert.IsType<PackageDependencyEvidenceRootProvenance.Package>(
+            Assert.Single(document.EvidenceOutcome.Roots).Provenance).Source);
+        Assert.Equal(missingRoot ? 1 : 0, document.Evidence.Summary.PackagePrefix!.Failures);
+    }
+
+    private sealed class UnexpectedPrefixTraversal :
+        IPackageDependencyTraversalCandidateResolver, IPackageDependencyTraversalManifestAcquirer
+    {
+        public ValueTask<PackageDependencyTraversalCandidateResult> ResolveAsync(
+            PackageDependencyEvidenceDeclaration declaration, CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null) =>
+            throw new InvalidOperationException("A prefix root cannot resolve dependency candidates.");
+        public Task<PackageDependencyTraversalManifestResult> AcquireAsync(
+            PackageAcquisitionCandidate candidate, CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null) =>
+            throw new InvalidOperationException("A prefix root cannot acquire child manifests.");
+    }
+
     [Fact]
     public async Task PackagePrefix_RetainsCompletionMatchesAndFailures()
     {

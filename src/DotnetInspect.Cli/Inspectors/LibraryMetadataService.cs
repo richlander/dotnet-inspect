@@ -909,6 +909,8 @@ internal static class LibraryMetadataService
         int? maxDepth = null,
         bool failOnReadError = false)
     {
+        if (maxDepth == 0)
+            return new AssemblyReferenceGraph(rootIdentity, [], []);
         string fullAssemblyPath = Path.GetFullPath(assemblyPath);
         StringComparer pathComparer = ReferenceTreePathComparer(
             OperatingSystem.IsWindows());
@@ -1046,6 +1048,20 @@ internal static class LibraryMetadataService
                 PublicKeyToken = reference.PublicKeyToken,
                 Depth = next.Depth,
             };
+
+            if (retainRevisits && maxDepth is { } bound && next.Depth + 1 >= bound)
+            {
+                var endpoint = new DeduplicatedReferenceNode(node);
+                if (next.Parent is null)
+                    roots.Add(endpoint);
+                else
+                    next.Parent.Children.Add(endpoint);
+                relationships?.Add(new AssemblyReferenceRelationship(
+                    next.SourceIdentity ?? throw new InvalidOperationException("A graph edge requires its source identity."),
+                    new ManagedMetadataIdentity.Assembly(reference),
+                    reference, false, null, relationships.Count));
+                continue;
+            }
 
             AssemblyBindingSelection selection =
                 next.BindingPolicy.Select(
@@ -1223,6 +1239,13 @@ internal static class LibraryMetadataService
                         ex);
                 }
 
+                if (relationships is { Count: > 0 })
+                {
+                    node.ResolutionFailure = ex is BadImageFormatException
+                        ? AssemblyReferenceResolutionFailure.Rejected
+                        : AssemblyReferenceResolutionFailure.Unavailable;
+                    relationships[^1] = relationships[^1] with { ResolutionFailure = node.ResolutionFailure };
+                }
                 logger.LogWarning(
                     "Could not inspect a resolved assembly reference: "
                     + IdentifierConfusionAudit.DescribeFailure(

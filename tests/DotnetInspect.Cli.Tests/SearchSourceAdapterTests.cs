@@ -145,16 +145,20 @@ public class SearchSourceAdapterTests
                     Count = true,
                 },
                 TestContext.Current.CancellationToken),
-            "depends" => (await DependsCommand.ExecuteTypeDependsAsync(new DependsOptions
+            "depends" => await DependsCommand.ExecuteAsync(new DependsOptions
             {
                 TargetType = "System.String", SourceSelection = selection, Count = true,
-            })).ExitCode,
+                Roots = [new(DependencyRootKind.Type, "System.String")],
+            }, TestContext.Current.CancellationToken),
             _ => throw new InvalidOperationException(),
         });
 
-        Assert.Equal(command == "depends" ? DependsCommand.TypeNotFoundExitCode : 0, exit);
+        Assert.Equal(command == "depends" ? 1 : 0, exit);
         Assert.Equal(command == "depends" ? "" : "0", output.Trim());
-        Assert.Empty(error);
+        if (command == "depends")
+            Assert.Contains("not found in the specified scope", error);
+        else
+            Assert.Empty(error);
     }
 
     [Theory]

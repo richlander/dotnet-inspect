@@ -76,7 +76,9 @@ internal static class DependencyEvidenceAcquisition
         IPackageSourceAuthorization? authorization = null,
         DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
         DependencyEvidenceVersionDiscovery? discoverVersions = null,
-        Func<TimeSpan, DesktopPackageSourceComposition>? createComposition = null)
+        Func<TimeSpan, DesktopPackageSourceComposition>? createComposition = null,
+        Action<RestoredProjectDependencyTraversalResult>? onRestoredTraversal = null,
+        int? maximumDepth = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(httpClient);
@@ -149,7 +151,9 @@ internal static class DependencyEvidenceAcquisition
                     options.Tfm,
                     roots,
                     failures,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    onRestoredTraversal,
+                    maximumDepth).ConfigureAwait(false);
             }
         }
         finally
@@ -893,7 +897,9 @@ internal static class DependencyEvidenceAcquisition
         string? targetFramework,
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
         ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<RestoredProjectDependencyTraversalResult>? onTraversal = null,
+        int? maximumDepth = null)
     {
         InertString label = Label(path);
         bool isDirectAssets = IsDirectAssetsPath(path);
@@ -969,12 +975,38 @@ internal static class DependencyEvidenceAcquisition
             return;
         }
 
-        RestoredProjectDependencyFactsResult result =
-            RestoredProjectDependencyFactsQuery.Execute(
-                assetsBytes,
-                string.IsNullOrWhiteSpace(targetFramework)
-                    ? null
-                    : new RestoredProjectTargetRequest(targetFramework));
+        RestoredProjectTargetRequest? target = string.IsNullOrWhiteSpace(targetFramework)
+            ? null
+            : new RestoredProjectTargetRequest(targetFramework);
+        RestoredProjectDependencyFactsResult result;
+        if (onTraversal is null)
+        {
+            result = RestoredProjectDependencyFactsQuery.Execute(assetsBytes, target);
+        }
+        else
+        {
+            RestoredProjectDependencyTraversalResult traversal =
+                RestoredProjectDependencyTraversalQuery.Execute(
+                    assetsBytes,
+                    new RestoredProjectDependencyTraversalRequest(target, maximumDepth));
+            onTraversal(traversal);
+            result = traversal switch
+            {
+                RestoredProjectDependencyTraversalResult.Available available =>
+                    new RestoredProjectDependencyFactsResult.Available(available.Value.Facts),
+                RestoredProjectDependencyTraversalResult.Unavailable unavailable =>
+                    new RestoredProjectDependencyFactsResult.Available(unavailable.Facts),
+                RestoredProjectDependencyTraversalResult.Failed
+                {
+                    Failure: RestoredProjectDependencyTraversalFailure.Graph graph,
+                } => new RestoredProjectDependencyFactsResult.Available(graph.Facts),
+                RestoredProjectDependencyTraversalResult.Failed
+                {
+                    Failure: RestoredProjectDependencyTraversalFailure.Document document,
+                } => new RestoredProjectDependencyFactsResult.Failed(document.Failure),
+                _ => throw new InvalidOperationException("Unknown restored traversal outcome."),
+            };
+        }
         if (result is RestoredProjectDependencyFactsResult.Failed failed)
         {
             failures.Add(

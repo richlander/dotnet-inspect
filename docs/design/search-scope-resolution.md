@@ -145,15 +145,13 @@ Nuspec-only profile owned by
 [the package query CLI](package-query-cli.md). Its parser retains direct scope
 options and whether a search group was supplied so the command can reject
 incompatible API-search scope before network access. It does not apply type
-search normalization or expand the prefix. `depends` uses
-normalization only for type-hierarchy mode; its
-package-dependency and library-reference modes are unary source operations and
-do not acquire a search default.
+search normalization or expand the prefix. `depends` uses normalization only
+for positional type-hierarchy mode; its asset dependency mode accepts explicit
+ordered roots and does not acquire a search default.
 
-The target
+The
 [Dependency Inspection Command](dependency-inspection-command.md) preserves
-this ownership for type relationship mode while replacing the current unary
-asset modes with an explicit root set. In that target, a positional type keeps
+this ownership for type relationship mode. A positional type keeps
 `--package`, `--library`, and `--project` as search scope; without a positional
 type, those same options are dependency roots and never request a search
 default.
@@ -166,9 +164,8 @@ additional platform sources.
 
 That command-adapter obligation is distinct from the pure normalizer contract.
 The normalizer receives a complete typed declaration; it does not prove that
-every command declared all its syntax correctly. The source-free `depends`
-type-to-library convenience uses `UsesImplicitPlatform`, not a second
-flags-and-presence calculation.
+every command declared all its syntax correctly. A source-free `depends` type
+miss is still a type miss: it does not transition into library inspection.
 
 ## Implementation and gates
 

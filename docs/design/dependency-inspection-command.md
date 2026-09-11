@@ -3,9 +3,11 @@
 This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
-**Status:** design target. The current `depends` and `dependency-evidence`
-commands remain implemented separately until the migration slices named here
-land.
+**Status:** adopted by `depends` under #5994, using the shared evidence and
+traversal owners. `dependency-evidence` remains functional until the separate
+retirement slice (#5995). Restored roots stop at their existing assets graph:
+there is no owner-issued correspondence bridge from restored nodes to package
+source traversal.
 
 ## Owner and claim
 
@@ -613,6 +615,11 @@ Human columns render safe labels beside those typed fields. Typed JSON uses
 discriminated endpoint identities rather than forcing type, library, project,
 and package identities into one string grammar. `-D "Dependency Graph"`
 exposes that common schema without acquiring roots.
+
+For structured restored and declaration identities, table, TSV, and JSONL
+identity cells carry compact typed JSON. Separate label columns remain
+human-readable. This preserves selection digests and declaration association
+without asking a consumer to reconstruct identity from a package label.
 
 [#3320](https://github.com/richlander/dotnet-inspect/issues/3320) supplies the
 pathological acceptance case: a shared package dependency reached through

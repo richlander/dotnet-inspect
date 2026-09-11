@@ -137,6 +137,28 @@ public class TypeDependencyScannerTests
     }
 
     [Fact]
+    public void DepthOne_RetainsDirectRelationshipsWithoutExpandingTheirHierarchy()
+    {
+        TypeDependencyResult result = TypeDependencyScanner.BuildDependencyTree(
+            "Int128", RefAssemblies, maximumDepth: 1);
+        Assert.True(result.Found);
+        Assert.True(result.IsDepthBounded);
+        Assert.NotEmpty(result.DepthBoundaryTypeNames);
+        Assert.All(result.Relationships, edge => Assert.Equal(result.MatchedType, edge.SourceTypeName));
+        Assert.All(result.Tree, node => Assert.Empty(node.Children));
+    }
+
+    [Fact]
+    public void DepthOne_KnownLeafRemainsComplete()
+    {
+        TypeDependencyResult result = TypeDependencyScanner.BuildDependencyTree(
+            "IDisposable", RefAssemblies, maximumDepth: 1);
+        Assert.True(result.Found);
+        Assert.False(result.IsDepthBounded);
+        Assert.Empty(result.Relationships);
+    }
+
+    [Fact]
     public void Relationships_ExpandDistinctConstructedGenericTypes()
     {
         TypeDependencyResult result =

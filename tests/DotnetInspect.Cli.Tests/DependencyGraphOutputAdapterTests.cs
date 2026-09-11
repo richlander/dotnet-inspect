@@ -14,6 +14,30 @@ namespace DotnetInspect.Cli.Tests;
 public sealed class DependencyGraphOutputAdapterTests
 {
     [Fact]
+    public async Task TreeKeepsRootRelativeAdmissionAndRepeatedExplicitRootContext()
+    {
+        DependencyGraphDocument graph = new(
+            [new(0, 0), new(1, 1)],
+            [
+                new(0, new DependencyGraphNodeIdentity.Type("A"), new InertString(TextPolicy.Field, "A")),
+                new(1, new DependencyGraphNodeIdentity.Type("Shared"), new InertString(TextPolicy.Field, "Shared")),
+                new(2, new DependencyGraphNodeIdentity.Type("Leaf"), new InertString(TextPolicy.Field, "Leaf")),
+            ],
+            [
+                new(0, 0, 1, "interface", [0], 1, DependencyGraphResolutionState.Declared, null),
+                new(1, 1, 2, "interface", [1], 1, DependencyGraphResolutionState.Declared, null),
+            ])
+        {
+            Boundaries = [new(0, 1, "Depth", 1)],
+        };
+        string tree = await RenderAsync(graph, DependencyGraphOutputAdapter.EdgeRows(graph), OutputFormat.PlainText);
+        Assert.Contains("Shared (depth 1)", tree);
+        Assert.True(tree.IndexOf("Leaf", StringComparison.Ordinal)
+            > tree.IndexOf("(revisit) Shared", StringComparison.Ordinal), tree);
+        Assert.Equal(1, Occurrences(tree, "Leaf"));
+    }
+
+    [Fact]
     public async Task SharedDag_PreservesEdgesAndRootAcrossGraphSinks()
     {
         DependencyGraphDocument document = SharedDag();

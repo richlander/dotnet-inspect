@@ -20,27 +20,30 @@ project references), `--package Foo` (repeatable), `--library path.dll`,
 `--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (current
 Microsoft.* sets), and `--tfm net9.0`. For `implements` and `extensions`, use
 `--package-prefix Azure.AI` to search up to 500 packages under a NuGet ID
-prefix; the command warns when that bound is reached. `depends` does not accept
-`--package-prefix`.
+prefix; the command warns when that bound is reached. These source options are
+search scope for `depends Type`; without a positional type, `depends` treats
+explicit package, nuspec, library, and project options as repeatable asset roots.
+Its `--package-prefix` is exclusive with explicit roots.
 
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
 
 ## What does the root declare directly?
 
-`dependency-evidence` reports one normalized snapshot of the direct
+`depends -S Dependencies` reports one normalized snapshot of the direct
 dependencies declared by explicit package, nuspec, restored-project, or
 package-prefix roots. It preserves framework scopes, version constraints,
 restored resolution evidence, and root-set completion without walking the
-transitive dependency tree. Use `depends` when traversal is the goal.
+transitive dependency tree. Select `Dependency Graph` to request traversal
+independently of evidence. `dependency-evidence` also remains supported.
 
 ```bash
-dnx dotnet-inspect -y -- dependency-evidence \
-  --package Newtonsoft.Json --tfm net8.0
-dnx dotnet-inspect -y -- dependency-evidence \
-  --project ./src/App/App.csproj --nuspec ./artifacts/App.nuspec -v:n
-dnx dotnet-inspect -y -- dependency-evidence \
-  --package-prefix Microsoft.Extensions --tfm net10.0 --jsonl
+dnx dotnet-inspect -y -- depends --package Newtonsoft.Json -S Dependencies
+dnx dotnet-inspect -y -- depends \
+  --project ./src/App/App.csproj --nuspec ./artifacts/App.nuspec \
+  -S Roots -S Dependencies -S "Restored Edges"
+dnx dotnet-inspect -y -- depends \
+  --package-prefix Microsoft.Extensions --tfm net10.0 -S Dependencies --jsonl
 ```
 
 ## What implements or extends it?
@@ -59,17 +62,28 @@ dnx dotnet-inspect -y -- extensions string --project ./src/App/App.csproj -v:n
 
 ## What does it depend on?
 
-`depends Type` walks dependency graphs upward — type hierarchy, library
-references, or package dependencies, depending on scope. Shared targets remain
-distinct incoming edges and appear as revisits in tree output. `--table`,
-`--tsv`, `--jsonl`, `--count`, `--rows`, and `-n` address the same ordered
-logical edges; `--json` retains the existing type-tree contract.
+`depends Type` walks the type hierarchy in the supplied scope; it never falls
+back to library inspection. Omit the type to inspect asset roots. `--depth 1`
+includes direct edges; larger bounds admit additional levels. Nuspec and
+prefix roots stop at direct declarations. Project roots traverse only their
+existing assets graph, not package sources.
+
+Shared targets retain every incoming edge and appear as revisits in trees.
+The default section is `Dependency Graph`; `-v:n` adds evidence, and
+`-S @Dependencies` selects the full catalog. Evidence-only selections do not
+traverse package manifests and reject `--depth`. Markdown and typed JSON can
+contain several sections. Table, TSV, and JSONL require one selected table;
+standalone tree and Mermaid require only the graph. `--count`, `--rows`, and
+`-n` address the selected section's rows, not tree context or root headings.
+Partial or failed work returns nonzero even when usable rows remain.
 
 ```bash
 dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
 dnx dotnet-inspect -y -- depends Int128 --table --rows 1..10
+dnx dotnet-inspect -y -- depends --library System.Text.Json --depth 1
+dnx dotnet-inspect -y -- depends --project ./src/App/App.csproj --depth 2 -v:n
 ```
 
 ## Who calls it? (reverse edges)

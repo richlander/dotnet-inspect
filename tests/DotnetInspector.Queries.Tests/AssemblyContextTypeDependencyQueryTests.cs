@@ -19,6 +19,21 @@ public interface AssemblyContextTypeDependencyRoot :
 public sealed class AssemblyContextTypeDependencyQueryTests
 {
     [Fact]
+    public void Execute_PassesDepthToTheMetadataOwner()
+    {
+        var policy = new TestBindingPolicy();
+        TestAssembly source = TestAssembly.Create("depth bound", policy);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([source.Participant]);
+        AssemblyContextTypeDependencyResult result = AssemblyContextTypeDependencyQuery.Execute(
+            group, typeof(AssemblyContextTypeDependencyRoot).FullName!, maximumDepth: 0);
+        Assert.True(result.Dependency.Found);
+        Assert.True(result.Dependency.IsDepthBounded);
+        Assert.Empty(result.Dependency.Relationships);
+        Assert.Single(result.Dependency.DepthBoundaryTypeNames);
+    }
+
+    [Fact]
     public void Execute_FoundAndAllHealthyIsComplete()
     {
         var policy = new TestBindingPolicy();

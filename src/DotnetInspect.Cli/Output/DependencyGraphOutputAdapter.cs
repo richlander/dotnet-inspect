@@ -8,6 +8,8 @@ using ILInspector.Metadata;
 using InertText;
 using Markout;
 using Markout.Formatting;
+using DotnetInspector.Queries;
+using DotnetInspector.Packages;
 
 namespace DotnetInspect.Cli.Output;
 
@@ -44,7 +46,11 @@ internal sealed record DependencyGraphJsonNodeIdentity(
     string Kind,
     string? Type,
     DependencyGraphJsonLibraryIdentity? Library,
-    DependencyGraphJsonPackageIdentity? Package);
+    DependencyGraphJsonPackageIdentity? Package,
+    DependencyEvidenceGraphParentIdentityJson? Restored = null,
+    DependencyEvidenceDeclarationIdentityJson? Declaration = null,
+    int? ProjectionIndex = null,
+    string? Authority = null);
 
 internal sealed record DependencyGraphJsonNode(
     int Id,
@@ -55,7 +61,15 @@ internal sealed record DependencyGraphJsonNode(
 internal sealed record DependencyGraphJsonEvidenceIdentity(
     string Kind,
     DependencyGraphJsonLibraryIdentity? AssemblyReference,
-    string? PackageVersionConstraint);
+    string? PackageVersionConstraint,
+    DependencyEvidenceDeclarationIdentityJson? Declaration = null,
+    DependencyEvidenceEdgeIdentityJson? RestoredPackage = null,
+    DependencyEvidenceGraphParentIdentityJson? ProjectParent = null,
+    DependencyEvidenceGraphParentIdentityJson? ProjectDependency = null,
+    int? SourceProjectionIndex = null,
+    int? TargetProjectionIndex = null,
+    string? Authority = null,
+    int? TraversalEdgeIndex = null);
 
 internal sealed record DependencyGraphJsonEdge(
     int Id,
@@ -67,11 +81,50 @@ internal sealed record DependencyGraphJsonEdge(
     DependencyGraphJsonNodeIdentity TargetIdentity,
     int MinimumDepth,
     string Resolution,
-    DependencyGraphJsonEvidenceIdentity? EvidenceIdentity);
+    DependencyGraphJsonEvidenceIdentity? EvidenceIdentity,
+    Dictionary<int, int>? RootDistances = null);
+
+internal sealed record DependencyGraphPackageProjectionJson(
+    int Index,
+    int NodeIndex,
+    int DocumentNodeId,
+    string Kind,
+    string Expansion,
+    int? RootOccurrenceIndex,
+    DependencyEvidenceRootIdentityJson? RootIdentity,
+    DependencyEvidenceGroupIdentityJson? SelectedGroup,
+    string? SelectionStatus,
+    string? RequestedFramework,
+    string? SelectedFramework,
+    DependencyEvidenceSourceIdentityJson? Source,
+    int? CandidateCorrespondence,
+    DependencyEvidencePackageCoordinateJson? CandidateCoordinate,
+    string? CandidateKind,
+    string? DiscoveryContract);
+
+internal sealed record DependencyGraphPackageRootJson(
+    int OccurrenceIndex,
+    int DocumentOccurrenceIndex,
+    int NodeIndex,
+    int ProjectionIndex,
+    string Completion,
+    IReadOnlyDictionary<int, int> NodeDistances,
+    IReadOnlyDictionary<int, int> ProjectionDistances,
+    IReadOnlyDictionary<int, int> EdgeDistances);
+
+internal sealed record DependencyGraphRestoredTraversalJson(
+    int RootOccurrence,
+    DependencyEvidenceRestoredSelectionIdentityJson Selection,
+    string TopologyDigest,
+    string Completion);
 
 internal sealed record DependencyGraphJsonDocument(
     DependencyGraphJsonNode[] Nodes,
-    DependencyGraphJsonEdge[] Edges);
+    DependencyGraphJsonEdge[] Edges,
+    DependencyGraphPackageProjectionJson[]? PackageProjections = null,
+    DependencyGraphBoundary[]? Boundaries = null,
+    DependencyGraphPackageRootJson[]? PackageRoots = null,
+    DependencyGraphRestoredTraversalJson[]? RestoredTraversals = null);
 
 internal sealed record DependencyGraphJsonLine(
     int[] RootOccurrences,
@@ -105,12 +158,13 @@ internal partial class DependencyGraphCompactJsonContext :
 internal static class DependencyGraphOutputAdapter
 {
     internal static List<DependencyGraphEdgeRow> EdgeRows(
-        DependencyGraphDocument document)
+        DependencyGraphDocument document,
+        RowWindow? window = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         return
         [
-            .. document.Edges.Select(edge =>
+            .. RowWindow.Apply(window, document.Edges).Select(edge =>
             {
                 DependencyGraphNode source =
                     document.Nodes[edge.SourceNodeId];
@@ -147,11 +201,7 @@ internal static class DependencyGraphOutputAdapter
     {
         if (tree)
         {
-            WriteGraph(
-                document,
-                rows,
-                new PlainTextFormatter(),
-                markWindowedFragments: true);
+            WriteTree(Console.Out, document, rows);
             return;
         }
 
@@ -182,11 +232,7 @@ internal static class DependencyGraphOutputAdapter
                     markWindowedFragments: false);
                 break;
             default:
-                WriteGraph(
-                    document,
-                    rows,
-                    new PlainTextFormatter(),
-                    markWindowedFragments: true);
+                WriteTree(Console.Out, document, rows);
                 break;
         }
     }
@@ -214,6 +260,12 @@ internal static class DependencyGraphOutputAdapter
             OutputFormatter.CreateTableWriterOptions(
                 tsv: format == OutputFormat.Tsv,
                 jsonl: false));
+        WriteRows(writer, rows);
+        writer.Flush();
+    }
+
+    internal static void WriteRows(MarkoutWriter writer, IReadOnlyList<DependencyGraphEdgeRow> rows)
+    {
         writer.WriteTable(
             [
                 "Roots",
@@ -260,7 +312,6 @@ internal static class DependencyGraphOutputAdapter
                     row.EvidenceIdentity ?? "",
                 }),
             ]);
-        writer.Flush();
     }
 
     private static void WriteJsonLines(
@@ -292,6 +343,20 @@ internal static class DependencyGraphOutputAdapter
         DependencyGraphDocument document,
         IReadOnlyList<DependencyGraphEdgeRow> rows,
         bool compact)
+    {
+        DependencyGraphJsonDocument json = ToJson(document, rows);
+        Console.WriteLine(JsonSerializer.Serialize(json,
+            compact ? DependencyGraphCompactJsonContext.Default.DependencyGraphJsonDocument
+                : DependencyGraphJsonContext.Default.DependencyGraphJsonDocument));
+    }
+
+    internal static DependencyGraphJsonDocument ToJson(
+        DependencyGraphDocument document,
+        IReadOnlyList<DependencyGraphEdgeRow> rows,
+        PackageDependencyTraversalOutcome? traversal = null,
+        DependencyEvidenceSourceTokens? tokens = null,
+        IReadOnlyList<int>? packageRootOccurrences = null,
+        IReadOnlyDictionary<int, RestoredProjectDependencyTraversalResult>? restoredTraversals = null)
     {
         HashSet<int> selectedEdgeIds =
         [
@@ -339,20 +404,80 @@ internal static class DependencyGraphOutputAdapter
                             document.Nodes[edge.TargetNodeId].Identity),
                         edge.MinimumDepth,
                         edge.Resolution.ToString().ToLowerInvariant(),
-                        JsonEvidenceIdentity(
-                            edge.EvidenceIdentity))),
-            ]);
-        Console.WriteLine(
-            JsonSerializer.Serialize(
-                json,
-                compact
-                    ? DependencyGraphCompactJsonContext.Default
-                        .DependencyGraphJsonDocument
-                    : DependencyGraphJsonContext.Default
-                        .DependencyGraphJsonDocument));
+                        JsonEvidenceIdentity(edge.EvidenceIdentity),
+                        edge.RootDistances.Count == 0 ? null : edge.RootDistances.ToDictionary())),
+            ], Boundaries: [.. document.Boundaries.Where(boundary => selectedNodeIds.Contains(boundary.NodeId))]);
+        if (restoredTraversals is not null)
+            json = json with
+            {
+                RestoredTraversals = [.. restoredTraversals.OrderBy(pair => pair.Key)
+                    .Where(pair => pair.Value is RestoredProjectDependencyTraversalResult.Available)
+                    .Select(pair =>
+                    {
+                        var restored = ((RestoredProjectDependencyTraversalResult.Available)pair.Value).Value;
+                        return new DependencyGraphRestoredTraversalJson(pair.Key,
+                            DependencyEvidenceRestoredSelectionIdentityJson.Create(restored.Identity.Selection),
+                            restored.Identity.TopologyDigest, restored.Completion.ToString());
+                    })],
+            };
+        if (traversal is null)
+            return json;
+        var correspondences = new Dictionary<PackageAcquisitionCandidateCorrespondence, int>();
+        var packageNodes = document.Nodes.Where(node => node.Identity is DependencyGraphNodeIdentity.Coordinate)
+            .ToDictionary(node => ((DependencyGraphNodeIdentity.Coordinate)node.Identity).Value, node => node.Id);
+        foreach (var projection in traversal.Projections)
+        {
+            if (projection.Candidate is { } candidate && !correspondences.ContainsKey(candidate.Correspondence))
+                correspondences.Add(candidate.Correspondence, correspondences.Count);
+            if (projection.Evidence?.Provenance is PackageDependencyEvidenceRootProvenance.Package package)
+                tokens?.Project(package.Source);
+        }
+        HashSet<int> visiblePackageNodes = [.. traversal.Nodes.Select((node, index) => (node, index))
+            .Where(pair => selectedNodeIds.Contains(packageNodes[pair.node.Coordinate])).Select(pair => pair.index)];
+        HashSet<int> visibleProjections = [.. traversal.Projections.Select((projection, index) => (projection, index))
+            .Where(pair => visiblePackageNodes.Contains(pair.projection.NodeIndex)).Select(pair => pair.index)];
+        HashSet<int> visibleTraversalEdges = [.. document.Edges.Where(edge => selectedEdgeIds.Contains(edge.Id))
+            .Select(edge => edge.EvidenceIdentity).OfType<DependencyGraphEvidenceIdentity.Declaration>()
+            .Select(evidence => evidence.TraversalEdgeIndex)];
+        return json with
+        {
+            PackageProjections = [.. traversal.Projections.Select((projection, index) => (projection, index))
+                .Where(pair => visibleProjections.Contains(pair.index)).Select(pair =>
+            {
+                var (projection, index) = pair;
+                int? correspondence = projection.Candidate is { } candidate
+                    ? correspondences[candidate.Correspondence] : null;
+                int documentNode = packageNodes[traversal.Nodes[projection.NodeIndex].Coordinate];
+                return new DependencyGraphPackageProjectionJson(index, projection.NodeIndex, documentNode,
+                    projection.Kind.ToString(), projection.Expansion.ToString(),
+                    projection.RootOccurrenceIndex,
+                    DependencyEvidenceRootIdentityJson.CreateOptional(projection.Evidence?.Identity),
+                    DependencyEvidenceGroupIdentityJson.CreateOptional(projection.Evidence?.Selection.SelectedGroup),
+                    projection.Evidence?.Selection.Status.ToString(),
+                    projection.Evidence?.Selection.RequestedFramework?.ToString(),
+                    projection.Evidence?.Selection.SelectedFramework?.ToString(),
+                    tokens?.Project(projection.Evidence?.Provenance is
+                        PackageDependencyEvidenceRootProvenance.Package package ? package.Source : null),
+                    correspondence,
+                    projection.Candidate is { } value
+                        ? DependencyEvidencePackageCoordinateJson.Create(value.Coordinate) : null,
+                    projection.Candidate?.Kind.ToString(),
+                    projection.Candidate?.DiscoveryContract?.ToString());
+            })],
+            PackageRoots = [.. traversal.Roots.Select(root =>
+            {
+                PackageDependencyTraversalReachability reachability = traversal.RootReachability[root.OccurrenceIndex];
+                return new DependencyGraphPackageRootJson(root.OccurrenceIndex,
+                    packageRootOccurrences is not null ? packageRootOccurrences[root.OccurrenceIndex] : root.OccurrenceIndex,
+                    root.NodeIndex, root.ProjectionIndex, root.Completion.ToString(),
+                    reachability.NodeDistances.Where(pair => visiblePackageNodes.Contains(pair.Key)).ToDictionary(),
+                    reachability.ProjectionDistances.Where(pair => visibleProjections.Contains(pair.Key)).ToDictionary(),
+                    reachability.EdgeDistances.Where(pair => visibleTraversalEdges.Contains(pair.Key)).ToDictionary());
+            })],
+        };
     }
 
-    private static Markout.Graph ToGraph(
+    internal static Markout.Graph ToGraph(
         DependencyGraphDocument document,
         IReadOnlyList<DependencyGraphEdgeRow> rows,
         bool markWindowedFragments)
@@ -382,8 +507,8 @@ internal static class DependencyGraphOutputAdapter
                     .Select(node => new Markout.GraphNode(
                         Key(node.Id),
                         fragmentNodeIds.Contains(node.Id)
-                            ? $"(fragment) {node.Label}"
-                            : node.Label.ToString())
+                            ? $"(fragment) {GraphLabel(node)}"
+                            : GraphLabel(node))
                     {
                         Emphasized = rootNodeIds.Contains(node.Id),
                     }),
@@ -398,7 +523,133 @@ internal static class DependencyGraphOutputAdapter
                         : null,
                 }),
             ]);
+
+        string GraphLabel(DependencyGraphNode node) =>
+            node.Label.ToString()
+            + string.Concat(
+                document.Boundaries
+                    .Where(boundary => boundary.NodeId == node.Id)
+                    .Select(BoundarySuffix)
+                    .Where(static suffix => suffix.Length > 0)
+                    .Distinct(StringComparer.Ordinal));
     }
+
+    internal static void WriteTree(
+        TextWriter output,
+        DependencyGraphDocument document,
+        IReadOnlyList<DependencyGraphEdgeRow> rows)
+    {
+        var outgoing = rows.GroupBy(row => row.SourceNodeId)
+            .ToDictionary(group => group.Key, group => group.ToArray());
+        var emitted = new HashSet<int>();
+        var seenNodes = new HashSet<int>();
+        var forest = new List<TreeNode>();
+        foreach (DependencyGraphRootOccurrence root in document.Roots)
+        {
+            var children = new List<TreeNode>();
+            string marker = seenNodes.Add(root.NodeId) ? "" : "(revisit) ";
+            forest.Add(new TreeNode(marker + Label(root.NodeId, root.OccurrenceIndex)) { Children = children });
+            Populate(root.NodeId, root.OccurrenceIndex, children);
+        }
+        // A row window can remove the path from every explicit root. Render its
+        // remaining component without drawing an unselected connecting edge.
+        foreach (DependencyGraphEdgeRow row in rows)
+        {
+            if (emitted.Contains(row.EdgeId))
+                continue;
+            int root = row.RootOccurrences.FirstOrDefault();
+            var children = new List<TreeNode>();
+            forest.Add(new TreeNode("(fragment) " + Label(row.SourceNodeId, root)) { Children = children });
+            seenNodes.Add(row.SourceNodeId);
+            Populate(row.SourceNodeId, root, children);
+        }
+        var writer = MarkoutWriter.Create(output, new PlainTextFormatter(), new MarkoutWriterOptions());
+        foreach (TreeNode root in forest)
+        {
+            output.WriteLine(root.Text);
+            writer.WriteTree([.. root.Children ?? []]);
+            writer.Flush();
+        }
+
+        string Label(int node, int root)
+        {
+            string label = document.Nodes[node].Label.ToString();
+            foreach (DependencyGraphBoundary boundary in document.Boundaries
+                .Where(boundary => boundary.NodeId == node && boundary.RootOccurrence == root))
+                label += BoundarySuffix(boundary);
+            return label;
+        }
+
+        void Populate(int start, int root, List<TreeNode> children)
+        {
+            var active = new HashSet<int> { start };
+            var stack = new Stack<(int Node, int Next, List<TreeNode> Children)>();
+            stack.Push((start, 0, children));
+            while (stack.TryPop(out var frame))
+            {
+                if (!outgoing.TryGetValue(frame.Node, out var edges) || frame.Next >= edges.Length)
+                {
+                    active.Remove(frame.Node);
+                    continue;
+                }
+
+                DependencyGraphEdgeRow edge = edges[frame.Next];
+                stack.Push((frame.Node, frame.Next + 1, frame.Children));
+                if (!edge.RootOccurrences.Contains(root))
+                    continue;
+                bool first = !emitted.Contains(edge.EdgeId);
+                if (!first && !CanReachUnemitted(edge.TargetNodeId, root, active))
+                    continue;
+                emitted.Add(edge.EdgeId);
+                bool cycle = active.Contains(edge.TargetNodeId);
+                bool revisit = !seenNodes.Add(edge.TargetNodeId);
+                string marker = cycle ? "(cycle) (revisit) " : revisit || !first ? "(revisit) " : "";
+                var nested = new List<TreeNode>();
+                frame.Children.Add(new TreeNode(marker + Label(edge.TargetNodeId, root)) { Children = nested });
+                if (cycle)
+                    continue;
+                active.Add(edge.TargetNodeId);
+                stack.Push((edge.TargetNodeId, 0, nested));
+            }
+        }
+
+        bool CanReachUnemitted(int start, int root, HashSet<int> active)
+        {
+            var visited = new HashSet<int>(active);
+            var pending = new Stack<int>();
+            pending.Push(start);
+            while (pending.TryPop(out int node))
+            {
+                if (!visited.Add(node) || !outgoing.TryGetValue(node, out var edges))
+                    continue;
+                foreach (DependencyGraphEdgeRow edge in edges)
+                {
+                    if (!edge.RootOccurrences.Contains(root))
+                        continue;
+                    if (!emitted.Contains(edge.EdgeId))
+                        return true;
+                    pending.Push(edge.TargetNodeId);
+                }
+            }
+            return false;
+        }
+    }
+
+    private static string BoundarySuffix(
+        DependencyGraphBoundary boundary) =>
+        boundary.Kind switch
+        {
+            "Depth" => $" (depth {boundary.MaximumDepth})",
+            "Source" => " (source boundary)",
+            nameof(PackageDependencyEvidenceSelectionStatus.NoDependencyGroups) =>
+                " (no dependency groups)",
+            nameof(PackageDependencyEvidenceSelectionStatus
+                .NoMatchingTargetFramework) =>
+                " (no matching target framework)",
+            nameof(PackageDependencyEvidenceSelectionStatus.Unavailable) =>
+                " (dependency selection unavailable)",
+            _ => "",
+        };
 
     private static HashSet<int> WindowedFragmentNodeIds(
         DependencyGraphDocument document,
@@ -538,7 +789,7 @@ internal static class DependencyGraphOutputAdapter
     private static string Kind(DependencyGraphNodeIdentity identity) =>
         identity.Kind.ToString().ToLowerInvariant();
 
-    private static InertString IdentityText(
+    internal static InertString IdentityText(
         DependencyGraphNodeIdentity identity) =>
         identity switch
         {
@@ -550,11 +801,16 @@ internal static class DependencyGraphOutputAdapter
                 InertString.Format(
                     TextPolicy.Field,
                     $"{Field(package.Id)}@{Field(package.Version)}"),
+            DependencyGraphNodeIdentity.Coordinate package =>
+                Field($"{package.Value.PackageId}@{package.Value.Version}"),
+            DependencyGraphNodeIdentity.Declaration or DependencyGraphNodeIdentity.Restored =>
+                Field(JsonSerializer.Serialize(JsonIdentity(identity),
+                    DependencyDocumentCompactJsonContext.Default.DependencyGraphJsonNodeIdentity)),
             _ => throw new InvalidOperationException(
                 "Unknown dependency graph node identity."),
         };
 
-    private static DependencyGraphJsonNodeIdentity JsonIdentity(
+    internal static DependencyGraphJsonNodeIdentity JsonIdentity(
         DependencyGraphNodeIdentity identity) =>
         identity switch
         {
@@ -575,6 +831,16 @@ internal static class DependencyGraphOutputAdapter
                 new DependencyGraphJsonPackageIdentity(
                     Field(package.Id).ToString(),
                     Field(package.Version).ToString())),
+            DependencyGraphNodeIdentity.Coordinate package => new(
+                Kind(identity), null, null,
+                new(package.Value.PackageId, package.Value.Version)),
+            DependencyGraphNodeIdentity.Restored restored => new(
+                Kind(identity), null, null, null,
+                Restored: DependencyEvidenceGraphParentIdentityJson.Create(restored.Value)),
+            DependencyGraphNodeIdentity.Declaration declaration => new(
+                Kind(identity), null, null, null,
+                Declaration: DependencyEvidenceDeclarationIdentityJson.Create(declaration.Value),
+                ProjectionIndex: declaration.ProjectionIndex, Authority: declaration.Authority.ToString()),
             _ => throw new InvalidOperationException(
                 "Unknown dependency graph node identity."),
         };
@@ -630,6 +896,9 @@ internal static class DependencyGraphOutputAdapter
                 "assembly-reference",
             DependencyGraphEvidenceIdentity.PackageVersionConstraint =>
                 "package-version-constraint",
+            DependencyGraphEvidenceIdentity.Declaration => "package-declaration",
+            DependencyGraphEvidenceIdentity.RestoredPackage => "restored-package",
+            DependencyGraphEvidenceIdentity.RestoredProject => "project-reference",
             _ => throw new InvalidOperationException(
                 "Unknown dependency evidence identity."),
         };
@@ -644,11 +913,15 @@ internal static class DependencyGraphOutputAdapter
                     assembly.Identity)),
             DependencyGraphEvidenceIdentity.PackageVersionConstraint
                 constraint => constraint.Value,
+            DependencyGraphEvidenceIdentity.Declaration or DependencyGraphEvidenceIdentity.RestoredPackage
+                or DependencyGraphEvidenceIdentity.RestoredProject =>
+                Field(JsonSerializer.Serialize(JsonEvidenceIdentity(identity),
+                    DependencyDocumentCompactJsonContext.Default.DependencyGraphJsonEvidenceIdentity)),
             _ => throw new InvalidOperationException(
                 "Unknown dependency evidence identity."),
         };
 
-    private static DependencyGraphJsonEvidenceIdentity?
+    internal static DependencyGraphJsonEvidenceIdentity?
         JsonEvidenceIdentity(
             DependencyGraphEvidenceIdentity? identity) =>
         identity switch
@@ -667,6 +940,21 @@ internal static class DependencyGraphOutputAdapter
                     "package-version-constraint",
                     AssemblyReference: null,
                     constraint.Value.ToString()),
+            DependencyGraphEvidenceIdentity.Declaration declaration => new(
+                "package-declaration", null, declaration.Value.CanonicalVersionConstraint,
+                Declaration: DependencyEvidenceDeclarationIdentityJson.Create(declaration.Value.Identity),
+                SourceProjectionIndex: declaration.SourceProjectionIndex,
+                TargetProjectionIndex: declaration.TargetProjectionIndex,
+                Authority: declaration.Authority.ToString(),
+                TraversalEdgeIndex: declaration.TraversalEdgeIndex),
+            DependencyGraphEvidenceIdentity.RestoredPackage restored => new(
+                "restored-package", null, restored.Value.CanonicalVersionConstraint,
+                RestoredPackage: DependencyEvidenceEdgeIdentityJson.Create(restored.Value.Identity)),
+            DependencyGraphEvidenceIdentity.RestoredProject restored => new(
+                "project-reference", null, null,
+                ProjectParent: DependencyEvidenceGraphParentIdentityJson.Create(restored.Value.Parent),
+                ProjectDependency: DependencyEvidenceGraphParentIdentityJson.Create(
+                    new RestoredProjectGraphParentIdentity.Project(restored.Value.Dependency))),
             _ => throw new InvalidOperationException(
                 "Unknown dependency evidence identity."),
         };

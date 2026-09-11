@@ -486,7 +486,7 @@ public static class SearchCommandDefinitions
 
     public static Command CreateDependsCommand(SharedOptions opts)
     {
-        var dependsCommand = new Command("depends", "Walk dependency graphs upward (type hierarchy, library references, or package dependencies)");
+        var dependsCommand = new Command("depends", "Inspect type relationships or explicit asset dependency roots, with depth-controlled graphs and normalized evidence");
 
         var targetTypeArg = new Argument<string?>("type")
         {
@@ -496,12 +496,14 @@ public static class SearchCommandDefinitions
 
         var packageOption = new Option<string[]>("--package")
         {
-            Description = "Search in package(s) (name or name@version). Can repeat.",
+            Description = "Package root (ID, ID@VERSION, or .nupkg), or type search scope. Can repeat.",
+            Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
         };
         var assemblyOption = new Option<string[]>("--library")
         {
-            Description = "Search in library file(s). Can repeat.",
+            Description = "Library root, or type search scope. Can repeat.",
+            Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
@@ -518,8 +520,31 @@ public static class SearchCommandDefinitions
         };
         var projectOption = new Option<string[]>("--project")
         {
-            Description = "Search project dependencies via project.assets.json. Can repeat.",
+            Description = "Existing project.assets.json, project file, or directory: root or type search scope. Can repeat.",
+            Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
+        };
+        var nuspecOption = new Option<string[]>("--nuspec")
+        {
+            Description = "Direct nuspec root (no recursive source acquisition). Can repeat.",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var prefixOption = new Option<string?>("--package-prefix")
+        {
+            Description = "Bounded NuGet Gallery manifest roots; exclusive with explicit roots",
+        };
+        var previewOption = new Option<bool>("--preview")
+        {
+            Description = "Allow prerelease versions for latest remote package roots",
+        };
+        var maxPackagesOption = new Option<int?>("--max-packages")
+        {
+            Description = "Package-prefix limit (1 to 1000, default 500)",
+        };
+        var depthOption = new Option<int?>("--depth")
+        {
+            Description = "Maximum dependency edge distance from each root (positive integer; 1 = direct)",
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
@@ -534,6 +559,11 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(extensionsOption);
         dependsCommand.Options.Add(aspnetcoreOption);
         dependsCommand.Options.Add(projectOption);
+        dependsCommand.Options.Add(nuspecOption);
+        dependsCommand.Options.Add(prefixOption);
+        dependsCommand.Options.Add(previewOption);
+        dependsCommand.Options.Add(maxPackagesOption);
+        dependsCommand.Options.Add(depthOption);
         dependsCommand.Options.Add(tfmOption);
         dependsCommand.Options.Add(shareOption);
         dependsCommand.Options.Add(opts.Json);
@@ -542,28 +572,55 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(opts.Markdown);
         dependsCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(dependsCommand);
-        dependsCommand.Options.Add(opts.Tree);
+        opts.AddSectionOptionsTo(dependsCommand);
+        dependsCommand.Options.Add(opts.Effective);
         opts.AddCountOptionTo(dependsCommand);
         opts.AddOutputOptionsTo(dependsCommand);
         opts.AddNuGetOptionsTo(dependsCommand);
 
         dependsCommand.Validators.Add(result =>
         {
+            bool typeMode = result.GetValue(targetTypeArg) is not null;
+            if (typeMode)
+            {
+                foreach (Option option in new Option[] { nuspecOption, prefixOption, previewOption, maxPackagesOption })
+                {
+                    if (result.GetResult(option) is { Implicit: false })
+                        result.AddError($"{option.Name} is not applicable in type relationship mode.");
+                }
+            }
+            else
+            {
+                foreach (Option option in new Option[] { platformOption, platformLibraryOption, extensionsOption, aspnetcoreOption })
+                {
+                    if (result.GetResult(option) is { Implicit: false })
+                        result.AddError($"{option.Name} is type search scope, not an asset root.");
+                }
+                if (result.GetResult(prefixOption) is not null
+                    && new Option[] { packageOption, assemblyOption, projectOption, nuspecOption }
+                        .Any(option => result.GetResult(option) is { Implicit: false }))
+                {
+                    result.AddError("--package-prefix cannot be combined with explicit roots.");
+                }
+            }
+            if (result.GetResult(depthOption) is { Tokens.Count: > 0 } depth
+                && int.TryParse(depth.Tokens[0].Value, out int maximumDepth) && maximumDepth <= 0)
+                result.AddError("--depth must be a positive integer.");
             if (result.GetValue(opts.Tree)
+                && result.GetResult(opts.Discover) is null
                 && result.GetValue(opts.Mermaid))
             {
                 result.AddError(
                     "--tree and --mermaid are alternate graph renderings; choose one.");
             }
             if (result.GetValue(opts.Tree)
+                && result.GetResult(opts.Discover) is null
                 && (result.GetValue(opts.Json)
                     || result.GetValue(opts.Markdown)
                     || result.GetValue(opts.PlainText)
                     || result.GetValue(opts.Table)
                     || result.GetValue(opts.Tsv)
-                    || result.GetValue(opts.Jsonl)
-                    || result.GetResult(opts.Verbosity)
-                        is { Implicit: false }))
+                    || result.GetValue(opts.Jsonl)))
             {
                 result.AddError(
                     "--tree is a standalone graph rendering and cannot combine with another output format.");
@@ -576,12 +633,12 @@ public static class SearchCommandDefinitions
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
-            OutputFormat outputFormat = opts.ResolveFormat(parseResult);
+            OutputFormat outputFormat = opts.ResolveFormat(parseResult, verbositySelectsSections: true);
             RowWindow? rows = ParseDependsRows(parseResult, opts);
             WorkspaceShareFormat? shareFormat =
                 WorkspaceShareOption.Parse(parseResult, shareOption);
             bool hasNonPackageShareInput =
-                !string.IsNullOrEmpty(targetType)
+                targetType is not null
                 || packages.Length != 1
                 || assemblies.Length > 0
                 || projects.Length > 0
@@ -597,64 +654,34 @@ public static class SearchCommandDefinitions
                 return 1;
             }
 
-            // Mode detection: no type arg → library or package dependency mode
-            if (string.IsNullOrEmpty(targetType))
-            {
-                var commonOptions = new DependsOptions
-                {
-                    Tfm = parseResult.GetValue(tfmOption),
-                    ShareFormat = shareFormat,
-                    Format = outputFormat,
-                    JsonOutput = outputFormat == OutputFormat.Json,
-                    CompactJson = parseResult.GetValue(compactOption),
-                    MermaidOutput = outputFormat == OutputFormat.Mermaid,
-                    EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
-                    Tree = parseResult.GetValue(opts.Tree),
-                    Rows = rows,
-                    Count = parseResult.GetValue(opts.Count),
-                    NoHeader = parseResult.GetValue(opts.NoHeaders),
-                    Verbose = parseResult.GetValue(opts.Verbose),
-                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
-                    LineWindowExplicitlySet =
-                        parseResult.GetResult(opts.Limit) is { Implicit: false }
-                        || parseResult.GetResult(opts.Head) is { Implicit: false }
-                        || parseResult.GetResult(opts.Tail) is { Implicit: false },
-                    OutputFormatExplicitlySet =
-                        opts.IsFormatFlagExplicitlySet(parseResult),
-                };
-
-                if (assemblies.Length == 1 && packages.Length == 0 && projects.Length == 0)
-                    return await DependsCommand.ExecuteLibraryDependsAsync(commonOptions with { LibraryName = assemblies[0] });
-
-                if (packages.Length == 1 && assemblies.Length == 0 && projects.Length == 0)
-                    return await DependsCommand.ExecutePackageDependsAsync(
-                        commonOptions with { PackageName = packages[0] },
-                        ct);
-
-                return TipWriter.MissingArgumentWithTips(dependsCommand,
-                    "Type, package, or library required.",
-                    "depends IFloatingPointIeee754 --platform   # type hierarchy",
-                    "depends --library Microsoft.Extensions.AI   # assembly references",
-                    "depends --package System.Text.Json          # NuGet dependencies");
-            }
-
             var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
-            var intent = SearchSourceAdapter.Declare(
-                parseResult, packageOption, assemblyOption, projectOption, platformOption,
-                platformLibraryOption, extensionsOption, aspnetcoreOption);
-            var (selection, sources) = await SearchSourceAdapter.BindAsync(
-                intent, HttpClientFactory.Shared, parseResult.GetValue(opts.Verbose), sourceOptions);
-
             var options = new DependsOptions
             {
-                SourceSelection = selection,
-                TargetType = targetType,
-                Packages = [.. sources.Packages],
-                Assemblies = [.. sources.Assemblies],
-                PlatformAssemblies = [.. sources.PlatformAssemblies],
-                PlatformFrameworks = [.. sources.PlatformFrameworks],
-                Projects = [.. sources.Projects],
+                TargetType = targetType ?? "",
+                HasPackageScopeGesture = packages.Length > 0
+                    || parseResult.GetValue(extensionsOption) || parseResult.GetValue(aspnetcoreOption),
+                Packages = packages,
+                Assemblies = assemblies,
+                Projects = projects,
+                Nuspecs = parseResult.GetValue(nuspecOption) ?? [],
+                PackagePrefix = parseResult.GetValue(prefixOption),
+                IncludePrerelease = parseResult.GetValue(previewOption),
+                MaxPackages = parseResult.GetValue(maxPackagesOption),
+                Depth = parseResult.GetValue(depthOption),
+                Roots = targetType is not null
+                    ? [new(DependencyRootKind.Type, targetType)]
+                    : ParseDependencyRoots(parseResult, packageOption, nuspecOption, assemblyOption, projectOption),
+                Verbosity = opts.ParseVerbosity(parseResult),
+                Discover = opts.ParseDiscover(parseResult),
+                Effective = parseResult.GetValue(opts.Effective),
+                Schema = opts.ParseSchema(parseResult),
+                Select = opts.ParseSelect(parseResult),
+                SelectDefault = opts.ParseSelectDefault(parseResult),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
                 Tfm = parseResult.GetValue(tfmOption),
+                ShareFormat = shareFormat,
+                PackageName = packages.Length == 1 ? packages[0] : null,
                 Format = outputFormat,
                 JsonOutput = outputFormat == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
@@ -665,58 +692,54 @@ public static class SearchCommandDefinitions
                 Count = parseResult.GetValue(opts.Count),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Verbose = parseResult.GetValue(opts.Verbose),
-                SourceOptions = sourceOptions
+                SourceOptions = sourceOptions,
+                LineWindowExplicitlySet =
+                    parseResult.GetResult(opts.Limit) is { Implicit: false }
+                    || parseResult.GetResult(opts.Head) is { Implicit: false }
+                    || parseResult.GetResult(opts.Tail) is { Implicit: false },
+                OutputFormatExplicitlySet = opts.IsFormatFlagExplicitlySet(parseResult),
             };
-
-            var outcome = await DependsCommand.ExecuteTypeDependsAsync(
-                options,
-                ct);
-
-            // Type not found — fall back to library mode if the name could be a
-            // library. A source option makes the positional argument
-            // unambiguously a type, so no fallback applies.
-            if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode &&
-                selection.UsesImplicitPlatform &&
-                !targetType!.Contains('<'))
+            return await DependsCommand.ExecuteAsync(options, ct, async () =>
             {
-                var libOptions = new DependsOptions
+                var intent = SearchSourceAdapter.Declare(
+                    parseResult, packageOption, assemblyOption, projectOption, platformOption,
+                    platformLibraryOption, extensionsOption, aspnetcoreOption);
+                var (selection, sources) = await SearchSourceAdapter.BindAsync(
+                    intent, HttpClientFactory.Shared, options.Verbose, sourceOptions);
+                return options with
                 {
-                    LibraryName = targetType,
-                    Tfm = parseResult.GetValue(tfmOption),
-                    Format = outputFormat,
-                    JsonOutput = outputFormat == OutputFormat.Json,
-                    CompactJson = parseResult.GetValue(compactOption),
-                    MermaidOutput = outputFormat == OutputFormat.Mermaid,
-                    EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
-                    Tree = parseResult.GetValue(opts.Tree),
-                    Rows = rows,
-                    Count = parseResult.GetValue(opts.Count),
-                    NoHeader = parseResult.GetValue(opts.NoHeaders),
-                    Verbose = parseResult.GetValue(opts.Verbose),
-                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                    SourceSelection = selection,
+                    Packages = [.. sources.Packages],
+                    Assemblies = [.. sources.Assemblies],
+                    PlatformAssemblies = [.. sources.PlatformAssemblies],
+                    PlatformFrameworks = [.. sources.PlatformFrameworks],
+                    Projects = [.. sources.Projects],
                 };
-
-                // Library mode resolves the name itself and never consults the
-                // excluded candidate, so its answer stands on its own. It is
-                // also unreachable while a candidate was excluded: an explicit
-                // source option is what makes exclusion possible, and that same
-                // option suppresses this fallback.
-                return await DependsCommand.ExecuteLibraryDependsAsync(
-                    libOptions);
-            }
-
-            if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode)
-            {
-                CommandError.Write($"Type '{targetType}' not found in the specified scope.");
-                return outcome.Uncertified
-                    ? DependsCommand.UncertifiedScanExitCode
-                    : 1;
-            }
-
-            return outcome.ExitCode;
+            });
         });
 
         return dependsCommand;
+    }
+
+    private static DependencyRootRequest[] ParseDependencyRoots(
+        ParseResult result,
+        Option<string[]> package,
+        Option<string[]> nuspec,
+        Option<string[]> library,
+        Option<string[]> project)
+    {
+        var roots = new Dictionary<System.CommandLine.Parsing.Token, DependencyRootRequest>(
+            ReferenceEqualityComparer.Instance);
+        foreach ((Option<string[]> option, DependencyRootKind kind) in new[]
+        {
+            (package, DependencyRootKind.Package), (nuspec, DependencyRootKind.Nuspec),
+            (library, DependencyRootKind.Library), (project, DependencyRootKind.Project),
+        })
+        {
+            foreach (var token in result.GetResult(option)?.Tokens ?? [])
+                roots.Add(token, new(kind, token.Value));
+        }
+        return [.. result.Tokens.Where(roots.ContainsKey).Select(token => roots[token])];
     }
 
     private static RowWindow? ParseDependsRows(

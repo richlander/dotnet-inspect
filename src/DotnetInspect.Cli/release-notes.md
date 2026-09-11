@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Breaking:** `depends` now selects type mode solely from its positional
+  subject, without type-miss-to-library fallback. Without a type, package,
+  nuspec, library, and restored-project roots may repeat and combine in order;
+  package-prefix roots are exclusive. `--depth` bounds graph production,
+  while section selection independently controls explicit-root evidence.
+  Markdown and typed JSON share one dependency document; row streams select
+  one table, and tree/Mermaid select only `Dependency Graph`. Restored graphs
+  never expand into package sources, and project locators never restore or
+  build. `dependency-evidence` remains supported (#5994).
 - **Breaking:** Simplifies `vocabulary` into a flat section catalog. Bare
   output now shows only section name, summary, and value count; `-D` lists
   sections without category doors; exact names, stable section IDs, and globs

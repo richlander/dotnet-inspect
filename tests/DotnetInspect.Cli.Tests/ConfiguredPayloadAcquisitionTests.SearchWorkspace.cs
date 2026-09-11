@@ -223,7 +223,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "Type 'No.Such.Type' not found in the specified scope.",
             result.Error,
             StringComparison.Ordinal);
-        Assert.Equal("", result.Output.Trim());
+        using var document = System.Text.Json.JsonDocument.Parse(result.Output);
+        Assert.Equal("Failed", document.RootElement.GetProperty("summary").GetProperty("traversal").GetString());
     }
 
     [Fact]
@@ -256,7 +257,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "Type 'No.Such.Type' not found",
             result.Error,
             StringComparison.Ordinal);
-        Assert.Equal("", result.Output.Trim());
+        using var document = System.Text.Json.JsonDocument.Parse(result.Output);
+        Assert.Equal("Failed", document.RootElement.GetProperty("summary").GetProperty("traversal").GetString());
     }
 
     [Theory]

@@ -7378,17 +7378,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Depends_NamespacePrefixInput_PrintsPrefixBrowseHint()
+    public async Task Depends_NamespacePrefixInput_RemainsATypeMiss()
     {
         var (dependsExit, dependsOutput, dependsError) = await RunAppAsync(
             "depends", "System.Text", "--tips", "q");
 
         Assert.Equal(1, dependsExit);
-        Assert.Empty(dependsOutput);
-        Assert.Contains("Could not resolve 'System.Text'", dependsError);
-        Assert.Contains("looks like a namespace prefix", dependsError);
-        Assert.Contains("type System.Text", dependsError);
-        Assert.Contains("find \"System.Text*\" --platform", dependsError);
+        Assert.Contains("Failed", dependsOutput);
+        Assert.Contains("Type 'System.Text' not found", dependsError);
+        Assert.DoesNotContain("Could not resolve", dependsError);
     }
 
     [Fact]
@@ -15263,7 +15261,6 @@ public partial class CommandExecutionTests
             Assert.Equal(
                 DependsCommand.UncertifiedScanExitCode,
                 exit);
-            Assert.NotEqual(DependsCommand.TypeNotFoundExitCode, exit);
             Assert.Contains(
                 Path.GetFileName(unsupported),
                 error,
@@ -15301,9 +15298,8 @@ public partial class CommandExecutionTests
                 "--count");
 
             Assert.Equal(DependsCommand.UncertifiedScanExitCode, exit);
-            Assert.True(
-                int.TryParse(output.Trim(), out var count) && count > 0,
-                $"expected the healthy neighbor to still resolve, got: {output}");
+            Assert.Empty(output);
+            Assert.Contains("cannot report an exact", error);
             Assert.Contains(
                 Path.GetFileName(unsupported),
                 error,
@@ -15426,7 +15422,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Depends_TypeJsonRetainsCompatibilityTreeShape()
+    public async Task Depends_TypeJsonUsesTheDependencyDocument()
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.Int128",
@@ -15435,8 +15431,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
-        Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        Assert.Single(document.RootElement.GetProperty("dependency_graph").GetProperty("edges").EnumerateArray());
+        Assert.Equal("Complete", document.RootElement.GetProperty("summary").GetProperty("traversal").GetString());
     }
 
     [Fact]
@@ -15496,8 +15493,9 @@ public partial class CommandExecutionTests
             JsonValueKind.Object,
             document.RootElement.ValueKind);
         Assert.True(
-            document.RootElement.GetProperty("edges").GetArrayLength() > 0);
+            document.RootElement.GetProperty("dependency_graph").GetProperty("edges").GetArrayLength() > 0);
         JsonElement evidence = document.RootElement
+            .GetProperty("dependency_graph")
             .GetProperty("edges")[0]
             .GetProperty("evidence_identity");
         Assert.Equal(
@@ -15534,7 +15532,7 @@ public partial class CommandExecutionTests
             using JsonDocument document =
                 JsonDocument.Parse(graph.Output);
             JsonElement root = Assert.Single(
-                document.RootElement.GetProperty("nodes")
+                document.RootElement.GetProperty("dependency_graph").GetProperty("nodes")
                     .EnumerateArray());
             JsonElement library = root.GetProperty("identity")
                 .GetProperty("library");
@@ -15549,8 +15547,32 @@ public partial class CommandExecutionTests
                 library.GetProperty("module_version_id")
                     .GetGuid());
             Assert.Empty(
-                document.RootElement.GetProperty("edges")
+                document.RootElement.GetProperty("dependency_graph").GetProperty("edges")
                     .EnumerateArray());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Depends_MissingLibraryReferenceIsPartialUnlessDepthBoundsResolution()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"depends-missing-{Guid.NewGuid():N}.netmodule");
+        const string missing = "DotnetInspect.DoesNotExist";
+        WriteNetmodule(path, missing);
+        try
+        {
+            var bounded = await RunAppAsync("depends", "--library", path, "--depth", "1", "--json", "--tips", "q");
+            Assert.Equal(0, bounded.Exit);
+            var complete = await RunAppAsync("depends", "--library", path, "-S", "@Dependencies", "--json", "--tips", "q");
+            Assert.Equal(1, complete.Exit);
+            using var json = JsonDocument.Parse(complete.Output);
+            Assert.Equal("Partial", json.RootElement.GetProperty("summary").GetProperty("traversal").GetString());
+            JsonElement failure = Assert.Single(json.RootElement.GetProperty("failures").EnumerateArray());
+            Assert.Equal(missing, failure.GetProperty("target_identity").GetProperty("library").GetProperty("name").GetString());
+            Assert.Single(json.RootElement.GetProperty("dependency_graph").GetProperty("edges").EnumerateArray());
         }
         finally
         {
@@ -15575,7 +15597,7 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             using JsonDocument document = JsonDocument.Parse(output);
             JsonElement edge =
-                document.RootElement.GetProperty("edges")
+                document.RootElement.GetProperty("dependency_graph").GetProperty("edges")
                     .EnumerateArray()
                     .First();
             Assert.Equal(

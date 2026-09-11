@@ -10,18 +10,57 @@ namespace DotnetInspect.Cli.Options;
 /// </summary>
 public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
 {
+    public string[] Nuspecs { get; init; } = [];
+    public string? PackagePrefix { get; init; }
+    public bool IncludePrerelease { get; init; }
+    public int? MaxPackages { get; init; }
+    public int? Depth { get; init; }
+    internal DependencyRootRequest[] Roots { get; init; } = [];
+    internal bool HasPackageScopeGesture { get; init; }
+    public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
+    public string[]? Discover { get; init; }
+    public bool Effective { get; init; }
+    public bool Schema { get; init; }
+    public string[]? Select { get; init; }
+    public bool SelectDefault { get; init; }
+    public string[]? Columns { get; init; }
+    public string[]? Fields { get; init; }
+
+    internal DependencyEvidenceOptions EvidenceOptions => new()
+    {
+        Packages = Packages,
+        Nuspecs = Nuspecs,
+        Projects = Projects,
+        PackagePrefix = PackagePrefix,
+        Tfm = Tfm,
+        IncludePrerelease = IncludePrerelease,
+        MaxPackages = MaxPackages,
+        Verbosity = Verbosity,
+        JsonOutput = JsonOutput,
+        CompactJson = CompactJson,
+        Tabular = Format is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl,
+        Tsv = Format == OutputFormat.Tsv,
+        Jsonl = Format == OutputFormat.Jsonl,
+        NoHeader = NoHeader,
+        Discover = Discover,
+        Tree = Tree,
+        Schema = Schema,
+        Select = Select,
+        SelectDefault = SelectDefault,
+        Columns = Columns,
+        Fields = Fields,
+        Count = Count,
+        Rows = Rows,
+        Verbose = Verbose,
+        SourceOptions = SourceOptions,
+    };
     /// <summary>
     /// Target type name to walk dependencies for (type mode).
     /// </summary>
     public string TargetType { get; init; } = "";
 
     /// <summary>
-    /// Library mode: show assembly reference dependencies.
-    /// </summary>
-    public string? LibraryName { get; init; }
-
-    /// <summary>
-    /// Package mode: show NuGet package dependencies.
+    /// The sole package coordinate for Workspace sharing.
     /// </summary>
     public string? PackageName { get; init; }
 
@@ -139,18 +178,15 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
             or OutputFormat.Tsv
             or OutputFormat.Jsonl;
 
-    /// <summary>
-    /// True when in type dependency mode (default when no --library/--package).
-    /// </summary>
-    public bool IsTypeMode => LibraryName == null && PackageName == null;
-
-    /// <summary>
-    /// True when in library dependency mode.
-    /// </summary>
-    public bool IsLibraryMode => LibraryName != null;
-
-    /// <summary>
-    /// True when in package dependency mode.
-    /// </summary>
-    public bool IsPackageMode => PackageName != null;
 }
+
+internal enum DependencyRootKind
+{
+    Package,
+    Nuspec,
+    Library,
+    Project,
+    Type,
+}
+
+internal sealed record DependencyRootRequest(DependencyRootKind Kind, string Value);

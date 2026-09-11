@@ -186,21 +186,24 @@ public static class DependencyEvidenceCommand
     /// </summary>
     internal static bool Validate(
         DependencyEvidenceOptions options,
-        HashSet<string>? selectedSections)
+        HashSet<string>? selectedSections,
+        int additionalRoots = 0,
+        bool expandLocalPackages = false,
+        string commandName = Name)
     {
         // The prefix option is an explicit gesture as soon as it is present. Treating an empty
         // value as absence would silently accept '--package-prefix ""' alone as "no root at
         // all", and silently ignore it when combined with an explicit root, instead of
         // reporting the malformed prefix the caller actually named.
         bool hasPrefix = options.PackagePrefix is not null;
-        if (!options.HasExplicitRoots && !hasPrefix)
+        if (!options.HasExplicitRoots && additionalRoots == 0 && !hasPrefix)
         {
             CommandError.Write(
-                $"{Name} requires at least one --package, --nuspec, --project, or --package-prefix root.");
+                $"{commandName} requires at least one --package, --nuspec, --project, or --package-prefix root.");
             return false;
         }
 
-        if (hasPrefix && options.HasExplicitRoots)
+        if (hasPrefix && (options.HasExplicitRoots || additionalRoots > 0))
         {
             CommandError.Write(
                 "--package-prefix cannot be combined with --package, --nuspec, or --project; its root-set accounting owns the whole request.");
@@ -256,7 +259,9 @@ public static class DependencyEvidenceCommand
             }
 
             PackageRootTargets targets = ClassifyPackageTargets(options.Packages);
-            if (hasSourceOverrides && !targets.HasRemote)
+            if (hasSourceOverrides && !targets.HasRemote
+                && !(expandLocalPackages && options.Packages.Any(
+                    DependencyEvidenceAcquisition.IsLocalArchiveTarget)))
             {
                 CommandError.Write(
                     "--source, --add-source, and --nugetconfig apply only to a remote --package target.");
@@ -349,7 +354,7 @@ public static class DependencyEvidenceCommand
         return false;
     }
 
-    private static async Task<(
+    internal static async Task<(
         PackageDependencyEvidenceRequest Request,
         PackageProfileSummary Summary)> AcquirePrefixAsync(
             DependencyEvidenceOptions options,

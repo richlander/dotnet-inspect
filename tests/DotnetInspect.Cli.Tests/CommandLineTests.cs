@@ -474,7 +474,6 @@ public class CommandLineTests
     [InlineData("--table")]
     [InlineData("--tsv")]
     [InlineData("--jsonl")]
-    [InlineData("-v:q")]
     public void DependsCommand_TreeWithAnotherFormat_IsRejected(string format)
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(

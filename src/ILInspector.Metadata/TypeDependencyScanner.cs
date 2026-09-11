@@ -92,6 +92,8 @@ public sealed class AllCandidatesRejectedException : AggregateException
 public record TypeDependencyResult(string? MatchedType, List<TypeDependencyNode> Tree)
 {
     public bool Found => MatchedType != null;
+    public bool IsDepthBounded { get; init; }
+    public IReadOnlyList<string> DepthBoundaryTypeNames { get; init; } = [];
 
     /// <summary>
     /// Direct owner-issued relationships in deterministic traversal order.
@@ -195,8 +197,10 @@ public static class TypeDependencyScanner
     /// </summary>
     public static TypeDependencyResult BuildDependencyTree(
         string targetType,
-        IReadOnlyList<string> assemblyPaths)
+        IReadOnlyList<string> assemblyPaths,
+        int? maximumDepth = null)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumDepth ?? 0);
         var typeIndex = CreateTypeIndex();
         var images = new List<CandidateImage>();
         var rejections = new List<TypeDependencyRejection>();
@@ -341,7 +345,7 @@ public static class TypeDependencyScanner
             }
 
             TypeDependencyResult dependency =
-                BuildGraph(targetType, typeIndex);
+                BuildGraph(targetType, typeIndex, maximumDepth);
             return dependency with
             {
                 Rejections = rejections,
@@ -360,10 +364,12 @@ public static class TypeDependencyScanner
     /// </summary>
     public static TypeDependencyPopulationResult BuildDependencyPopulation(
         string targetType,
-        IReadOnlyList<ResolvedAssemblyReference> assemblies)
+        IReadOnlyList<ResolvedAssemblyReference> assemblies,
+        int? maximumDepth = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetType);
         ArgumentNullException.ThrowIfNull(assemblies);
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumDepth ?? 0);
 
         var typeIndex = CreateTypeIndex();
         var images = new List<CandidateImage>();
@@ -487,7 +493,7 @@ public static class TypeDependencyScanner
             ImmutableArray<TypeDependencyCandidateOutcome> candidates =
                 outcomes.MoveToImmutable();
             TypeDependencyPopulationResult result = new(
-                BuildGraph(targetType, typeIndex),
+                BuildGraph(targetType, typeIndex, maximumDepth),
                 candidates);
             DisposeAll(images);
             return result;
@@ -584,7 +590,8 @@ public static class TypeDependencyScanner
 
     private static TypeDependencyResult BuildGraph(
         string targetType,
-        Dictionary<string, IndexedType> typeIndex)
+        Dictionary<string, IndexedType> typeIndex,
+        int? maximumDepth)
     {
         string normalizedTarget =
             FqnParser.NormalizeTypeName(targetType);
@@ -599,8 +606,8 @@ public static class TypeDependencyScanner
 
         IndexedType match = typeIndex[matchKey];
         var treeSeen = new HashSet<string>(StringComparer.Ordinal);
-        var relationshipSeen =
-            new HashSet<string>(StringComparer.Ordinal);
+        var relationshipSeen = new Dictionary<string, int>(StringComparer.Ordinal);
+        var depthBoundaries = new HashSet<string>(StringComparer.Ordinal);
         var activeDefinitions =
             new HashSet<string>(StringComparer.Ordinal)
             {
@@ -608,6 +615,7 @@ public static class TypeDependencyScanner
             };
         var relationships = new List<TypeDependencyRelationship>();
         string matchedType = TypeResolver.FormatDisplayName(matchKey);
+        relationshipSeen[ExpansionKey(matchedType)] = 0;
         List<TypeDependencyNode> tree = BuildNode(
             matchedType,
             match.Reader,
@@ -619,10 +627,19 @@ public static class TypeDependencyScanner
             activeDefinitions,
             relationships,
             includeTree: true,
-            collectRelationships: true);
+            collectRelationships: true,
+            depth: 0,
+            maximumDepth,
+            depthBoundaries);
         return new TypeDependencyResult(matchedType, tree)
         {
-            Relationships = relationships,
+            Relationships = [.. relationships
+                .DistinctBy(edge => (edge.SourceTypeName, edge.TargetTypeName, edge.Kind))
+                .Select((edge, ordinal) => edge with { Ordinal = ordinal })],
+            IsDepthBounded = depthBoundaries.Any(key =>
+                !relationshipSeen.TryGetValue(key, out int distance) || distance >= maximumDepth),
+            DepthBoundaryTypeNames = [.. depthBoundaries.Where(key =>
+                !relationshipSeen.TryGetValue(key, out int distance) || distance >= maximumDepth)],
         };
     }
 
@@ -724,11 +741,14 @@ public static class TypeDependencyScanner
         GenericContext context,
         Dictionary<string, IndexedType> typeIndex,
         HashSet<string> treeSeen,
-        HashSet<string> relationshipSeen,
+        Dictionary<string, int> relationshipSeen,
         HashSet<string> activeDefinitions,
         List<TypeDependencyRelationship> relationships,
         bool includeTree,
-        bool collectRelationships)
+        bool collectRelationships,
+        int depth,
+        int? maximumDepth,
+        HashSet<string> depthBoundaries)
     {
         // Gather all declared dependencies (base type + interfaces)
         var allDeps =
@@ -759,6 +779,11 @@ public static class TypeDependencyScanner
 
         if (allDeps.Count == 0)
             return [];
+        if (maximumDepth is { } limit && depth >= limit)
+        {
+            depthBoundaries.Add(ExpansionKey(sourceTypeName));
+            return [];
+        }
 
         // Compute transitive closure for each dep to find which are redundant
         var transitivelyReachable = new HashSet<string>(StringComparer.Ordinal);
@@ -793,8 +818,12 @@ public static class TypeDependencyScanner
 
             var normalized = FqnParser.NormalizeTypeName(dep.Name);
             bool expandTree = includeTree && treeSeen.Add(normalized);
+            string expansion = ExpansionKey(dep.Name);
             bool expandRelationships = collectRelationships
-                && relationshipSeen.Add(ExpansionKey(dep.Name));
+                && (!relationshipSeen.TryGetValue(expansion, out int previous)
+                    || depth + 1 < previous);
+            if (expandRelationships)
+                relationshipSeen[expansion] = depth + 1;
             List<TypeDependencyNode> children =
                 expandTree || expandRelationships
                     ? ResolveChildren(
@@ -805,7 +834,10 @@ public static class TypeDependencyScanner
                         activeDefinitions,
                         relationships,
                         expandTree,
-                        expandRelationships)
+                        expandRelationships,
+                        depth + 1,
+                        maximumDepth,
+                        depthBoundaries)
                     : [];
 
             if (!includeTree)
@@ -943,11 +975,14 @@ public static class TypeDependencyScanner
         string typeName,
         Dictionary<string, IndexedType> typeIndex,
         HashSet<string> treeSeen,
-        HashSet<string> relationshipSeen,
+        Dictionary<string, int> relationshipSeen,
         HashSet<string> activeDefinitions,
         List<TypeDependencyRelationship> relationships,
         bool includeTree,
-        bool collectRelationships)
+        bool collectRelationships,
+        int depth,
+        int? maximumDepth,
+        HashSet<string> depthBoundaries)
     {
         var normalizedName = FqnParser.NormalizeTypeName(typeName);
 
@@ -972,7 +1007,10 @@ public static class TypeDependencyScanner
                 activeDefinitions,
                 relationships,
                 includeTree,
-                collectRelationships);
+                collectRelationships,
+                depth,
+                maximumDepth,
+                depthBoundaries);
         }
         finally
         {

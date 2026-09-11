@@ -101,7 +101,8 @@ internal static class DependencyGraphService
                         context =>
                             AssemblyContextTypeDependencyQuery.Execute(
                                 context.Group,
-                                options.TargetType),
+                                options.TargetType,
+                                options.Depth),
                         cancellationToken).ConfigureAwait(false);
             if (execution is null)
                 return TypeDependencyExecutionResult.Unavailable();
@@ -147,7 +148,8 @@ internal static class DependencyGraphService
                 TypeDependencyResult dependency =
                     TypeDependencyScanner.BuildDependencyTree(
                         options.TargetType,
-                        assemblyPaths);
+                        assemblyPaths,
+                        options.Depth);
                 cancellationToken.ThrowIfCancellationRequested();
                 return TypeDependencyExecutionResult.FromLegacy(
                     dependency);
@@ -158,7 +160,9 @@ internal static class DependencyGraphService
         HttpClient httpClient,
         string libraryName,
         NuGetSourceOptions? sourceOptions,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        int? maximumDepth = null,
+        string? targetFramework = null)
     {
         string? assemblyPath = null;
         AssemblySet? ownedAssemblySet = null;
@@ -170,7 +174,7 @@ internal static class DependencyGraphService
             {
                 ownedAssemblySet = await AssemblySetResolver.CollectAsync(
                     httpClient,
-                    new AssemblySetRequest { Assemblies = [libraryName], TempDirPrefix = TempDirPrefix },
+                    new AssemblySetRequest { Assemblies = [libraryName], TempDirPrefix = TempDirPrefix, Tfm = targetFramework },
                     logger.Log);
                 AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
                 assemblyPath = ownedAssemblySet.Assemblies.FirstOrDefault()?.Path;
@@ -179,7 +183,7 @@ internal static class DependencyGraphService
             {
                 ownedAssemblySet = await AssemblySetResolver.CollectAsync(
                     httpClient,
-                    new AssemblySetRequest { PlatformAssemblies = [libraryName], TempDirPrefix = TempDirPrefix },
+                    new AssemblySetRequest { PlatformAssemblies = [libraryName], TempDirPrefix = TempDirPrefix, Tfm = targetFramework },
                     logger.Log);
                 if (ownedAssemblySet.Assemblies.Count > 0)
                 {
@@ -204,6 +208,7 @@ internal static class DependencyGraphService
                         SourceOptions = sourceOptions,
                         TempDirPrefix = TempDirPrefix,
                         PackageSelectionMode = AssemblySetPackageSelectionMode.LibAssembliesDescending,
+                        Tfm = targetFramework,
                     },
                     logger.Log);
 
@@ -222,8 +227,6 @@ internal static class DependencyGraphService
                 AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
             }
 
-            var (refs, _) =
-                AssemblyInspector.ExtractReferenceIdentitiesAndCompany(assemblyPath);
             ManagedMetadataIdentity? rootIdentity =
                 AssemblyInspector.ExtractManagedMetadataIdentity(assemblyPath);
             var assemblyName = rootIdentity switch
@@ -235,6 +238,21 @@ internal static class DependencyGraphService
                 _ => Path.GetFileNameWithoutExtension(assemblyPath),
             };
 
+            if (maximumDepth == 0 && rootIdentity is not null)
+                return new LibraryDependencyGraphResult.Empty(assemblyName, rootIdentity);
+            List<AssemblyReferenceIdentity> refs;
+            try
+            {
+                (refs, _) = AssemblyInspector.ExtractReferenceIdentitiesAndCompany(assemblyPath);
+            }
+            catch (Exception exception) when (rootIdentity is not null
+                && exception is IOException or UnauthorizedAccessException or BadImageFormatException)
+            {
+                return new LibraryDependencyGraphResult.Partial(
+                    assemblyName, rootIdentity,
+                    exception is BadImageFormatException
+                        ? AssemblyReferenceResolutionFailure.Rejected : AssemblyReferenceResolutionFailure.Unavailable);
+            }
             if (refs.Count == 0)
             {
                 if (rootIdentity is null)
@@ -257,7 +275,8 @@ internal static class DependencyGraphService
                     refs,
                     assemblyPath,
                     rootIdentity,
-                    logger);
+                    logger,
+                    maxDepth: maximumDepth);
 
             return new LibraryDependencyGraphResult.Graph(
                 assemblyName,
@@ -824,6 +843,11 @@ internal abstract record LibraryDependencyGraphResult
 
     public sealed record NoMetadata(
         string AssemblyName) : LibraryDependencyGraphResult;
+
+    public sealed record Partial(
+        string AssemblyName,
+        ManagedMetadataIdentity Identity,
+        AssemblyReferenceResolutionFailure Failure) : LibraryDependencyGraphResult;
     /// <summary>
     /// A resolution failure whose message embeds the caller's subject.
     /// </summary>
