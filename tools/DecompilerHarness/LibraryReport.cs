@@ -56,7 +56,6 @@ internal static class LibraryReport
         var reports = new List<AssemblyReport>();
         using var metadata = CorpusMetadata.Create(assemblies);
         var references = ValidityCheck.RuntimeReferences();
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary,
             allowUnsafe: true,
@@ -75,7 +74,6 @@ internal static class LibraryReport
                 assembly,
                 metadata,
                 references,
-                parseOptions,
                 compileOptions,
                 compileCap,
                 maxExamples,
@@ -110,7 +108,6 @@ internal static class LibraryReport
         string path,
         MetadataContext metadata,
         ImmutableArray<MetadataReference> references,
-        CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
         int compileCap,
         int maxExamples,
@@ -122,6 +119,8 @@ internal static class LibraryReport
         try
         {
             using var source = MetadataSource.Open(path, context: metadata);
+            CompilerFeatureOptions.Resolution featureOptions =
+                CompilerFeatureOptions.Resolve(path);
             report.Assembly = source.AssemblyName;
             report.AvailableMethods = source.Reader.MethodDefinitions
                 .Count(handle => source.Reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0);
@@ -131,6 +130,37 @@ internal static class LibraryReport
             {
                 report.TotalMethods++;
                 var id = $"{typeName}::{methodName}";
+                if (featureOptions
+                    is CompilerFeatureOptions.Resolution.Unavailable unavailable)
+                {
+                    RecordCompileBackUnavailable(
+                        report,
+                        buckets,
+                        id,
+                        unavailable.Reason,
+                        maxExamples);
+                    continue;
+                }
+                if (function.MemorySafetyMode
+                    is MemorySafetyModeDecision.Unavailable modeUnavailable)
+                {
+                    RecordCompileBackUnavailable(
+                        report,
+                        buckets,
+                        id,
+                        MemorySafetyModeDecision.DescribeUnavailable(
+                            modeUnavailable.Rules),
+                        maxExamples);
+                    continue;
+                }
+                if (featureOptions
+                    is not CompilerFeatureOptions.Resolution.Available available)
+                {
+                    throw new InvalidOperationException(
+                        "Unknown compiler feature resolution.");
+                }
+                CSharpParseOptions parseOptions = available.Options;
+
                 try
                 {
                     var context = new PassContext(
@@ -261,6 +291,21 @@ internal static class LibraryReport
         return report.ToReport(buckets);
     }
 
+    static void RecordCompileBackUnavailable(
+        MutableReport report,
+        Dictionary<string, Bucket> buckets,
+        string id,
+        string reason,
+        int maxExamples)
+    {
+        report.CompileBackUnavailableMethods++;
+        Record(
+            buckets,
+            "compile-back-unavailable",
+            $"{id}: {reason}",
+            maxExamples);
+    }
+
     static void Record(Dictionary<string, Bucket> buckets, string key, string example, int maxExamples)
     {
         if (!buckets.TryGetValue(key, out var bucket))
@@ -315,6 +360,7 @@ internal static class LibraryReport
             methodCap,
             semanticCompileCap,
             reports.Sum(report => report.PassBugs),
+            reports.Sum(report => report.CompileBackUnavailableMethods),
             [.. allPatterns.Where(pattern => IsCorrectnessDefect(pattern.Name))],
             PromotionCandidates(reports),
             [.. allPatterns
@@ -361,6 +407,9 @@ internal static class LibraryReport
             Console.WriteLine($"Showing top {Math.Max(1, limit)} libraries by unsupported-pattern load.");
         else
             Console.WriteLine($"Showing all {report.Libraries.Count} libraries.");
+        Console.WriteLine(
+            $"Compile-back unavailable methods: "
+            + $"{report.TotalCompileBackUnavailableMethods}.");
         if (report.MethodCap != int.MaxValue)
             Console.WriteLine($"Methods are a deterministic hash-ranked sample of at most {report.MethodCap} per library.");
         if (report.SemanticCompileCap != int.MaxValue)
@@ -411,13 +460,13 @@ internal static class LibraryReport
         Console.WriteLine();
         Console.WriteLine("## Libraries");
         Console.WriteLine();
-        Console.WriteLine("| Assembly | Methods | Full | Fully raised | Full malformed | Bound Full defects | Pass bugs | Top patterns |");
-        Console.WriteLine("| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
+        Console.WriteLine("| Assembly | Methods | Full | Fully raised | Compile-back unavailable | Full malformed | Bound Full defects | Pass bugs | Top patterns |");
+        Console.WriteLine("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
         foreach (var library in report.Libraries)
         {
             var top = library.Patterns.Take(Math.Min(3, patternLimit))
                 .Select(p => $"{p.Count} {Escape(p.Name)}");
-            Console.WriteLine($"| {Escape(library.Assembly)} | {MethodCount(library)} | {CountPercent(library.FullMethods, library.TotalMethods)} | {CountPercent(library.FullyRaisedMethods, library.TotalMethods)} | {library.FullMalformed} | {library.SemanticDefectMethods}/{library.SemanticChecked} | {library.PassBugs} | {string.Join("<br>", top)} |");
+            Console.WriteLine($"| {Escape(library.Assembly)} | {MethodCount(library)} | {CountPercent(library.FullMethods, library.TotalMethods)} | {CountPercent(library.FullyRaisedMethods, library.TotalMethods)} | {library.CompileBackUnavailableMethods} | {library.FullMalformed} | {library.SemanticDefectMethods}/{library.SemanticChecked} | {library.PassBugs} | {string.Join("<br>", top)} |");
         }
 
         foreach (var library in report.Libraries)
@@ -471,6 +520,7 @@ internal static class LibraryReport
         public int SemanticChecked { get; set; }
         public int SemanticDefectMethods { get; set; }
         public int PassBugs { get; set; }
+        public int CompileBackUnavailableMethods { get; set; }
 
         public AssemblyReport ToReport(Dictionary<string, Bucket> buckets)
             => new(
@@ -490,7 +540,8 @@ internal static class LibraryReport
                 [.. buckets.Values
                     .OrderByDescending(b => b.Count)
                     .ThenBy(b => b.Name, StringComparer.Ordinal)
-                    .Select(b => new PatternReport(b.Name, b.Count, [.. b.Examples]))]);
+                    .Select(b => new PatternReport(b.Name, b.Count, [.. b.Examples]))],
+                CompileBackUnavailableMethods);
     }
 
     sealed class Bucket(string name)
@@ -515,7 +566,8 @@ internal sealed record AssemblyReport(
     int SemanticChecked,
     int SemanticDefectMethods,
     int PassBugs,
-    IReadOnlyList<PatternReport> Patterns);
+    IReadOnlyList<PatternReport> Patterns,
+    int CompileBackUnavailableMethods = 0);
 
 internal sealed record PatternReport(string Name, int Count, IReadOnlyList<string> Examples);
 
@@ -523,6 +575,7 @@ internal sealed record LibraryPortfolioReport(
     int MethodCap,
     int SemanticCompileCap,
     int TotalPassBugs,
+    int TotalCompileBackUnavailableMethods,
     IReadOnlyList<PatternSummary> DefectClasses,
     IReadOnlyList<PromotionCandidate> PromotionCandidates,
     IReadOnlyList<PatternSummary> TopPatterns,

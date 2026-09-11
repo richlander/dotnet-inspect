@@ -51,6 +51,41 @@ public sealed class PackagePrefixSearchTests
         AssertRequests(handler, [0, 1, 2], prerelease);
     }
 
+    [Fact]
+    public async Task Gallery_CandidatePagesStartSmallAndGrowAfterLowPrefixYield()
+    {
+        string[] firstPage = Enumerable.Range(0, 20)
+            .Select(index => $"Contoso.Dense.{index}").ToArray();
+        string[] sparsePage =
+        [
+            .. Enumerable.Range(0, 4)
+                .Select(index => $"Contoso.Sparse.{index}"),
+            .. Enumerable.Range(0, 16)
+                .Select(index => $"Other.Package.{index}"),
+        ];
+        string[] emptyFilteredPage = Enumerable.Range(16, 40)
+            .Select(index => $"Other.Package.{index}").ToArray();
+        var handler = new PagingHandler(
+            JsonPage(firstPage),
+            JsonPage(sparsePage),
+            JsonPage(emptyFilteredPage),
+            JsonPage());
+        using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(), handler);
+
+        await foreach (PackageSourceOperationResult<PackageSearchResult> _ in
+            source.SearchByPrefixPagesAsync(
+                Prefix,
+                cancellationToken: TestContext.Current.CancellationToken))
+        {
+        }
+
+        AssertRequests(
+            handler,
+            skips: [0, 20, 40, 80],
+            takes: [20, 20, 40, 80]);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -113,7 +148,7 @@ public sealed class PackagePrefixSearchTests
         Assert.Equal(["Contoso.Zulu", "contoso.Alpha"],
             first.Matches.Select(match => match.Metadata.Id));
         Assert.All(first.Matches, match => Assert.Equal("1.0.0", match.Metadata.Version));
-        AssertRequests(handler, [0, 4, 7]);
+        AssertRequests(handler, [0, 4, 7], takes: [20, 20, 40]);
     }
 
     [Fact]
@@ -248,11 +283,11 @@ public sealed class PackagePrefixSearchTests
         Assert.True(await enumerator.MoveNextAsync());
         AssertPage(source, enumerator.Current, PackageSearchTruncationReason.None,
             "contoso.Match");
-        AssertRequests(handler, [0, 2]);
+        AssertRequests(handler, [0, 2], takes: [20, 40]);
         Assert.True(await enumerator.MoveNextAsync());
         AssertPage(source, enumerator.Current, PackageSearchTruncationReason.None);
         Assert.False(await enumerator.MoveNextAsync());
-        AssertRequests(handler, [0, 2, 3]);
+        AssertRequests(handler, [0, 2, 3], takes: [20, 40, 40]);
     }
 
     [Theory]
@@ -342,7 +377,7 @@ public sealed class PackagePrefixSearchTests
         Assert.True(await enumerator.MoveNextAsync());
         AssertFailure(source, enumerator.Current, PackageSourceFailureKind.InvalidResponse);
         Assert.False(await enumerator.MoveNextAsync());
-        AssertRequests(handler, [0, 100]);
+        AssertRequests(handler, [0, 100], takes: [20, 40]);
     }
 
     [Theory]
@@ -378,8 +413,22 @@ public sealed class PackagePrefixSearchTests
         }
 
         Assert.False(await enumerator.MoveNextAsync());
-        AssertRequests(handler,
-            Enumerable.Range(0, pageCount).Select(page => page * rawPageSize).ToArray());
+        int[] takes = rawPageSize == 100
+            ? Enumerable.Range(0, pageCount)
+                .Select(page => page switch
+                {
+                    0 => 20,
+                    1 => 40,
+                    2 => 80,
+                    _ => 100,
+                })
+                .ToArray()
+            : Enumerable.Repeat(20, pageCount).ToArray();
+        AssertRequests(
+            handler,
+            Enumerable.Range(0, pageCount)
+                .Select(page => page * rawPageSize).ToArray(),
+            takes: takes);
     }
 
     [Fact]
@@ -598,7 +647,10 @@ public sealed class PackagePrefixSearchTests
         Assert.Equal(streamedIds, aggregate.Matches.Select(match => match.Metadata.Id));
         int[] skips = take == 3 ? [0, 2] : [0, 2, 5];
         AssertRequests(streamingHandler, skips);
-        AssertRequests(materializedHandler, skips);
+        AssertRequests(
+            materializedHandler,
+            skips,
+            takes: Enumerable.Repeat(100, skips.Length).ToArray());
     }
 
     [Fact]
@@ -616,7 +668,7 @@ public sealed class PackagePrefixSearchTests
                 Prefix,
                 cancellationToken: TestContext.Current.CancellationToken),
             PackageSourceFailureKind.InvalidResponse);
-        AssertRequests(handler, [0, 1]);
+        AssertRequests(handler, [0, 1], takes: [100, 100]);
     }
 
     private static PackageSearchResult AssertPage(
@@ -657,13 +709,17 @@ public sealed class PackagePrefixSearchTests
     private static void AssertRequests(
         PagingHandler handler,
         int[] skips,
-        bool prerelease = false)
+        bool prerelease = false,
+        int[]? takes = null)
     {
+        takes ??= Enumerable.Repeat(20, skips.Length).ToArray();
+        Assert.Equal(skips.Length, takes.Length);
         Assert.Equal(
-            skips.Select(skip =>
+            skips.Zip(takes, (skip, take) =>
                 $"{GallerySearch}?q={Uri.EscapeDataString(Prefix)}"
                 + $"&skip={skip.ToString(CultureInfo.InvariantCulture)}"
-                + $"&take=100&prerelease={(prerelease ? "true" : "false")}&semVerLevel=2.0.0"),
+                + $"&take={take.ToString(CultureInfo.InvariantCulture)}"
+                + $"&prerelease={(prerelease ? "true" : "false")}&semVerLevel=2.0.0"),
             handler.Requests.Select(uri => uri.AbsoluteUri));
     }
 
