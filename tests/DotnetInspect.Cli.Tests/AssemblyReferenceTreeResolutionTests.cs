@@ -47,7 +47,11 @@ public class AssemblyReferenceTreeResolutionTests
                         ownerPath)
                         ?? throw new InvalidOperationException(
                             "The fixture must expose managed metadata."),
-                    new VerboseLogger(enabled: false));
+                    new VerboseLogger(enabled: false),
+                    maxDepth: null,
+                    failOnReadError: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
 
             Assert.Equal(5, graph.Relationships.Count);
             Assert.Equal(
@@ -77,6 +81,78 @@ public class AssemblyReferenceTreeResolutionTests
                     && document.Nodes[edge.SourceNodeId].Identity
                         is DependencyGraphNodeIdentity.Library library
                     && library.Identity.Name == "Shared");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReferenceGraph_DepthBoundaryRetainsManagedEndpointIdentity()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-boundary-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly("Owner", "Left"));
+            File.WriteAllBytes(
+                Path.Combine(root, "Left.dll"),
+                BuildAssembly("Left", "Leaf"));
+            File.WriteAllBytes(
+                Path.Combine(root, "Leaf.dll"),
+                BuildAssembly("Leaf"));
+
+            LibraryMetadataService.AssemblyReferenceGraph graph =
+                LibraryMetadataService.BuildTransitiveReferenceGraph(
+                    AssemblyInspector.ExtractReferenceIdentities(
+                        ownerPath),
+                    ownerPath,
+                    AssemblyInspector.ExtractManagedMetadataIdentity(
+                        ownerPath)
+                        ?? throw new InvalidOperationException(
+                            "The fixture must expose managed metadata."),
+                    new VerboseLogger(enabled: false),
+                    maxDepth: 1,
+                    failOnReadError: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+            Assert.True(graph.DepthBounded);
+            LibraryMetadataService.AssemblyReferenceDepthBoundary boundary =
+                Assert.Single(graph.DepthBoundaries);
+            Assert.Equal(1, boundary.MaximumDepth);
+            var identity = Assert.IsType<
+                ManagedMetadataIdentity.Assembly>(
+                    boundary.Identity);
+            Assert.Equal("Left", identity.Identity.Name);
+            Assert.DoesNotContain(
+                graph.Relationships,
+                relationship =>
+                    relationship.Source.Name == "Left");
+
+            DependencyGraphDocument document =
+                DependencyGraphProjection.Library(
+                    new LibraryDependencyGraphResult.Graph(
+                        "Owner",
+                        graph));
+            DependencyGraphDepthBoundary projected =
+                Assert.Single(document.DepthBoundaries);
+            Assert.Equal(
+                DependencyGraphDepthBoundaryProducerKind.Library,
+                projected.Producer);
+            Assert.Equal(1, projected.MaximumDepth);
+            Assert.Equal([1], projected.RootOccurrences);
+            var projectedIdentity = Assert.IsType<
+                DependencyGraphNodeIdentity.Library>(
+                    document.Nodes[projected.NodeId].Identity);
+            Assert.True(
+                identity.Identity.IsEquivalentTo(
+                    Assert.IsType<ManagedMetadataIdentity.Assembly>(
+                        projectedIdentity.Identity).Identity));
         }
         finally
         {
@@ -127,6 +203,50 @@ public class AssemblyReferenceTreeResolutionTests
     }
 
     [Fact]
+    public void ReferenceGraph_CancellationIsObservedByTraversal()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-cancellation-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly("Owner", "Sibling"));
+            File.WriteAllBytes(
+                Path.Combine(root, "Sibling.dll"),
+                BuildAssembly("Sibling"));
+            List<AssemblyReferenceIdentity> references =
+                AssemblyInspector.ExtractReferenceIdentities(ownerPath);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            OperationCanceledException exception =
+                Assert.Throws<OperationCanceledException>(
+                    () =>
+                        LibraryMetadataService.BuildTransitiveReferenceGraph(
+                            references,
+                            ownerPath,
+                            AssemblyInspector.ExtractManagedMetadataIdentity(
+                                ownerPath)
+                                ?? throw new InvalidOperationException(
+                                    "The fixture must expose managed metadata."),
+                            new VerboseLogger(enabled: false),
+                            maxDepth: null,
+                            failOnReadError: false,
+                            cancellationToken: cancellation.Token));
+
+            Assert.Equal(
+                cancellation.Token,
+                exception.CancellationToken);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReferenceGraph_CoalescesEquivalentUnresolvedIdentities()
     {
         string root = Directory.CreateTempSubdirectory(
@@ -157,7 +277,6 @@ public class AssemblyReferenceTreeResolutionTests
                     new LibraryDependencyGraphResult.Graph(
                         "Owner",
                         graph));
-
             Assert.Equal(2, graph.Relationships.Count);
             Assert.Equal(2, document.Edges.Length);
             Assert.Equal(2, document.Nodes.Length);
@@ -256,7 +375,11 @@ public class AssemblyReferenceTreeResolutionTests
                         ownerPath)
                         ?? throw new InvalidOperationException(
                             "The fixture must expose managed metadata."),
-                    new VerboseLogger(enabled: false));
+                    new VerboseLogger(enabled: false),
+                    maxDepth: null,
+                    failOnReadError: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
             LibraryMetadataService.AssemblyReferenceRelationship relationship =
                 Assert.Single(graph.Relationships);
             Assert.True(relationship.IsResolved);
@@ -320,12 +443,18 @@ public class AssemblyReferenceTreeResolutionTests
                         ownerPath)
                         ?? throw new InvalidOperationException(
                             "The fixture must expose managed metadata."),
-                    new VerboseLogger(enabled: false));
+                    new VerboseLogger(enabled: false),
+                    maxDepth: null,
+                    failOnReadError: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
 
             LibraryMetadataService.AssemblyReferenceRelationship relationship =
                 Assert.Single(graph.Relationships);
+            Assert.True(graph.HasFailures);
             Assert.False(relationship.IsResolved);
             Assert.Null(relationship.ResolutionFailure);
+            Assert.NotNull(relationship.MissingDisposition);
 
             DependencyGraphDocument document =
                 DependencyGraphProjection.Library(
