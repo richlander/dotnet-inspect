@@ -147,7 +147,7 @@ The target dependency direction is:
 ```text
 Metadata ------------------------------> exact documentation subject
 CSharpText ----------------------------> owner-issued XML and comment results
-SourceHouse ---------------------------> settled AuthoredOnly result
+SourceHouse ---------------------------> deferred AuthoredOnly provider
 
 Package documentation adapter --------> PackageHouse + DocumentationHouse
 Platform documentation adapter -------> PlatformHouse + DocumentationHouse
@@ -158,13 +158,16 @@ Queries -------------------------------> DocumentationHouse
 CLI / Browser -------------------------> Queries
 ```
 
-DocumentationHouse consumes only an already-settled matching SourceHouse
-`AuthoredOnly` result. It never invokes SourceHouse, chooses PDB policy, or
-widens source authorization. SourceHouse does not reference
-DocumentationHouse. PackageHouse and PlatformHouse likewise do not call
-DocumentationHouse; integration assemblies above both owners bind their
-owner-issued evidence to the source-neutral House contribution contract. This
-keeps every dependency acyclic and avoids
+DocumentationHouse invokes only a source-neutral deferred authored-
+documentation provider after the operation reaches the source stage. The
+SourceHouse integration assembly implements that provider over one
+pre-authorized exact `AuthoredOnly` request and plan. DocumentationHouse never
+references SourceHouse types, chooses PDB policy, or widens source
+authorization. SourceHouse does not reference DocumentationHouse. PackageHouse
+and PlatformHouse likewise do not call DocumentationHouse; integration
+assemblies above both owners bind their owner-issued evidence to the
+source-neutral House contribution contract. This keeps every dependency
+acyclic and avoids
 `PackageHouse -> DocumentationHouse -> PackageHouse` and equivalent platform
 and source cycles.
 
@@ -174,6 +177,10 @@ only the narrow contribution DocumentationHouse consumes. The application
 orchestrator retains the source owner's original receipt separately; the
 source-neutral contribution carries an opaque owner-issued evidence reference,
 not a concrete PackageHouse, PlatformHouse, SourceHouse, or Workspace type.
+The deferred provider is a source-neutral operation capability, not a
+SourceHouse result or evidence that authored documentation is available.
+It is cold: construction performs no SourceHouse, filesystem, repository,
+content-store, or network work and does not start a background task.
 
 ## Exact documentation subject
 
@@ -220,8 +227,8 @@ a path bundle. It supplies:
 - content and artifact generation identity;
 - an opaque owner-issued source reference and source kind;
 - zero or more compiled-XML contributions;
-- an optional already-settled authored-source contribution with exact
-  reference-to-implementation and physical-declaration correspondence; and
+- optional exact reference-to-implementation correspondence that a deferred
+  source provider may consume; and
 - the issuer-provided lifetime under which each contribution can be borrowed.
 
 The representation does not prove that documentation exists. It only binds
@@ -232,7 +239,7 @@ PackageHouse and PlatformHouse own construction and validation of their
 representations. Separately compiled adapters above both owners construct the
 source-neutral contribution; neither source owner references DocumentationHouse.
 DocumentationHouse does not reopen a package, resolve a platform target, derive
-a sibling path, enumerate an ambient directory, invoke SourceHouse, or
+a sibling path, enumerate an ambient directory, directly invoke SourceHouse, or
 reacquire content already supplied.
 
 ## Documentation demand
@@ -243,7 +250,7 @@ The initial demand is closed:
 - **AuthoredSourceDocumentation** requests only documentation attached to the
   exact declaration in SourceHouse-authored source; and
 - **CompiledXmlAndAuthoredSourceDocumentation** requests both independent
-  attempts.
+  attempts, executed in that order.
 
 The House requires an explicit demand. Product hosts may use `CompiledXml` as
 their inexpensive default, but that is a host gesture lowered to typed demand,
@@ -254,23 +261,58 @@ source acquisition. SourceHouse failure does not suppress available XML.
 Requesting both channels means both attempts are retained; it is not an
 authored-source fallback hidden behind an XML miss.
 
+Compiled XML is always the cheap first stage. Its contribution is already
+realized, local or in-memory content, and the attempt performs no acquisition
+or network work. For combined demand, DocumentationHouse completes the
+compiled-XML attempt before invoking the deferred authored provider. It does
+not start both effects concurrently.
+
+The sequence does not short-circuit the explicitly requested authored attempt
+when XML is available. Consumers that need only the inexpensive result request
+`CompiledXml`; a future cheap-first fallback demand would be a distinct policy,
+not a reinterpretation of the combined demand.
+
 ## Host-authorized operation plan
 
 The immutable plan contains only capabilities authorized for this operation:
 
 - compiled-XML contribution access;
-- an optional already-settled authored-source contribution derived from an
-  exact matching SourceHouse `AuthoredOnly` result;
+- an optional source-neutral deferred authored-documentation provider bound by
+  its adapter to one exact pre-authorized SourceHouse `AuthoredOnly` request and
+  operation plan;
 - XML, source-document, character, candidate, field, and deadline limits;
 - operation identity and policy generation; and
 - caller cancellation.
 
 The plan is capability, not evidence. A content lease does not prove an XML
-entry exists. A source contribution does not prove documentation is attached
-to the mapped declaration. DocumentationHouse never turns availability of a
-desktop filesystem, HTTP client, SourceHouse service, PDB, or source path into
-authorization. The caller must settle any SourceHouse work separately before
-constructing this plan.
+entry exists. A deferred provider does not prove SourceHouse will produce
+authored source or that documentation is attached to its mapped declaration.
+DocumentationHouse never turns availability of a desktop filesystem, HTTP
+client, SourceHouse service, PDB, or source path into authorization. The
+source integration adapter captures the caller-authorized SourceHouse request,
+PDB policy, acquisition capabilities, bounds, and policy generation before
+constructing the provider.
+
+The provider is single-invocation and receives the current DocumentationHouse
+operation identity, remaining source/document/character/deadline ledger, and
+caller cancellation when the House reaches the authored stage. It cannot spend
+work before invocation, exceed the remaining House limits, or publish a result
+for a different operation.
+
+Operation ordering is closed:
+
+1. validate the exact request, representation, demand, and plan;
+2. for `CompiledXml` or combined demand, settle compiled XML first;
+3. for `AuthoredSourceDocumentation` alone, invoke the deferred provider
+   immediately after validation;
+4. for combined demand, invoke the deferred provider only after the compiled
+   attempt reaches its terminal state; and
+5. compose the retained channel attempts and field evidence.
+
+A terminal compiled attempt of **Available**, **Absent**, **Unavailable**,
+**Ambiguous**, **Failed**, or **Incomplete** does not suppress the requested
+authored attempt. A request-level rejection or caller cancellation prevents
+subsequent effects because the operation itself cannot continue.
 
 ## Compiled XML contribution
 
@@ -309,9 +351,11 @@ framework spelling, package layout, or file timestamps.
 ## Authored-source documentation contribution
 
 Authored-source documentation starts with one exact implementation target and
-one matching, completed SourceHouse `AuthoredOnly` request and result.
-DocumentationHouse never requests source and decompiled C# is never a
-documentation producer.
+one deferred source-neutral provider bound to a matching SourceHouse
+`AuthoredOnly` request and operation plan. When invoked, the provider requests
+that exact source operation and returns a detached authored-documentation
+contribution or its typed non-success. Decompiled C# is never a documentation
+producer.
 
 SourceHouse owns:
 
@@ -323,14 +367,17 @@ SourceHouse owns:
 - source-unit scope and partiality; and
 - the authored-source attempt and receipt.
 
-The contribution is eligible only when its SourceHouse evidence matches the
-documentation request's exact implementation target, source-ready
-representation generation, SourceHouse policy generation, PDB-access policy,
-request identity, result identity, source-document identity, checksum
-evidence, mapping evidence, and trusted physical-declaration correspondence
-identity and generation from #6584. A result from a different request,
-generation, policy, target, document, or declaration is rejected rather than
-reused.
+Before invocation, the provider binding is eligible only when its exact
+implementation target, source-ready representation generation, SourceHouse
+policy generation, PDB-access policy, request identity, and operation-plan
+identity match the DocumentationHouse request and plan.
+
+After invocation, the returned contribution is eligible only when its
+SourceHouse receipt confirms that binding and supplies the matching result
+identity, source-document identity, checksum evidence, mapping evidence, and
+trusted physical-declaration correspondence identity and generation from
+issue #6584. A result from a different request, generation, policy, target,
+document, or declaration is rejected rather than reused.
 
 The source integration adapter passes the owner-issued authored source and
 correlation evidence to the CSharpText operation owned by #6583. That focused
@@ -477,7 +524,8 @@ Metadata subject contracts / CSharpText result contracts
                |
                v
 DotnetInspector.DocumentationHouse.Contracts
-  - source-neutral request, contribution, result, and receipt shapes
+  - source-neutral request, deferred-provider, contribution, result, and
+    receipt shapes
   - opaque source references; no PackageHouse, PlatformHouse, SourceHouse,
     direct-library, or Workspace types
                |
@@ -493,6 +541,7 @@ DotnetInspector.DocumentationHouse.Platform
 
 DotnetInspector.DocumentationHouse.Source
   -> SourceHouse contracts + CSharpText operation + DocumentationHouse contracts
+  - implements the deferred provider without exposing SourceHouse types
 
 DotnetInspector.DocumentationHouse.Direct
   -> direct artifact contracts + DocumentationHouse contracts
@@ -502,8 +551,10 @@ PackageHouse, PlatformHouse, SourceHouse, direct-artifact owners, and Workspace
 do not depend on DocumentationHouse contracts or implementation. Integration
 assemblies depend toward both the source owner and the source-neutral
 DocumentationHouse floor and cannot change either owner's evidence. The
-DocumentationHouse core does not reference an integration assembly. Queries
-and hosts compose the applicable adapter above both owners.
+DocumentationHouse core does not reference an integration assembly; it invokes
+only the source-neutral deferred-provider contract. Queries and hosts compose
+the applicable adapter above both owners and capture explicit authorization
+before the House operation starts.
 
 The product implementation belongs in a host-neutral `DotnetInspector`
 boundary above Metadata, CSharpText, and source-neutral artifact content. It
@@ -538,9 +589,9 @@ distinct terminal reference and implementation suppliers.
 ### XML is absent and authored source is available
 
 The exact package companion is authoritatively absent. The caller separately
-settled an `AuthoredOnly` SourceHouse request before constructing the
-DocumentationHouse plan. The completed result retains XML absence and
-available authored documentation.
+authorized an `AuthoredOnly` SourceHouse plan through the deferred provider.
+DocumentationHouse records XML absence, then invokes the provider and retains
+the available authored documentation.
 
 ### Documentation fields disagree
 
@@ -655,7 +706,8 @@ Implementation and adoption slices own these Release gates:
 | --- | --- |
 | Library-scoped subject | Equal XML IDs in two assemblies cannot cross-satisfy one request. |
 | Generation correspondence | A handoff and live content from different generations reject before parsing. |
-| Explicit authorization | An XML miss performs no SourceHouse, filesystem, or network work unless the plan authorizes that channel. |
+| Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred provider. Guarded reads of already-realized file-backed XML remain authorized by compiled demand. |
+| Cheap-first ordering | Provider construction starts no source work; combined demand reaches a terminal compiled-XML attempt before the deferred provider is invoked once with the remaining ledger, and XML availability does not suppress the requested source attempt. |
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
 | Independent channels | Success, absence, failure, or incompleteness in one channel does not rewrite the other. |
@@ -681,8 +733,9 @@ This design does not:
 
 - create a global XML-documentation-ID namespace;
 - infer package, platform, assembly, or source identity from a file name;
-- acquire a package, platform, assembly, PDB, source document, or network
-  resource;
+- implement package, platform, assembly, PDB, source-document, or network
+  acquisition; a pre-authorized deferred provider may perform SourceHouse work
+  under its owning policy;
 - redefine PackageHouse, PlatformHouse, SourceHouse, Metadata, SourceLink,
   CSharpText, artifact, or resource-owner internals;
 - treat decompiled C# as authored documentation;

@@ -889,7 +889,7 @@ facts that a separately owned documentation adapter may bind into a
 
 The platform documentation adapter, not PlatformHouse, associates an XML
 companion with that terminal supplier evidence. A separate source integration
-adapter may bind an already-settled matching SourceHouse `AuthoredOnly` result
+adapter may bind a pre-authorized deferred SourceHouse `AuthoredOnly` provider
 to the exact implementation supplier and view correspondence.
 DocumentationHouse owns channel demand, compiled-XML and authored-source
 attempts, field provenance, conflict preservation, and terminal documentation
