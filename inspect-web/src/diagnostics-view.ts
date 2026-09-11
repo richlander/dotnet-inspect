@@ -188,7 +188,7 @@ function buildCardHtml(
     );
     const commit = identity.commit?.trim() ?? "";
     const commitHtml = commit && identity.commitUrl
-      ? `<a href="${escapeHtml(identity.commitUrl)}" target="_blank" rel="noopener noreferrer"><code>${escapeHtml(commit)}</code></a>`
+      ? `<a id="diagnostics-commit" href="${escapeHtml(identity.commitUrl)}" target="_blank" rel="noopener noreferrer"><code>${escapeHtml(commit)}</code></a>`
       : commit
         ? `<code>${escapeHtml(commit)}</code>`
         : undefined;

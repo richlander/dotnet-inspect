@@ -893,6 +893,23 @@ test("Diagnostics cache refresh does not reclaim relinquished heading focus", as
   await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
 });
 
+test("Diagnostics preserves commit-link focus through cache refresh", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cachePending: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+  const commitLink = page.locator("#diagnostics-commit");
+  await commitLink.focus();
+  await expect(commitLink).toBeFocused();
+
+  await releaseFacade(page, "finish-package-cache-stats");
+  await expect(commitLink).toBeFocused();
+  await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
+});
+
 test("Diagnostics keeps startup and package-cache failures visible in place", async ({
   page,
 }) => {

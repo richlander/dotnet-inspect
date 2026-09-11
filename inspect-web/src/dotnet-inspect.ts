@@ -10788,7 +10788,9 @@ function renderDiagnosticsPage() {
   const focusTargetId = diagnosticsHeadingFocusPending
     || activeId === "diagnostics-heading"
     ? "diagnostics-heading"
-    : activeId === "diagnostics-product" || activeId === "diagnostics-back"
+    : activeId === "diagnostics-product"
+      || activeId === "diagnostics-commit"
+      || activeId === "diagnostics-back"
       ? activeId
       : null;
   state.diagnosticsCapturedAtUtc ??= new Date().toISOString();

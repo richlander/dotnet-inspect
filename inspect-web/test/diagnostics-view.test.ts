@@ -56,6 +56,7 @@ test("Diagnostics renders runtime, build, and package-cache evidence in order", 
   assert.match(html, /Framework assets/);
   assert.match(html, />42</);
   assert.match(html, /0123456789abcdef0123456789abcdef01234567/);
+  assert.match(html, /id="diagnostics-commit"/);
   assert.match(html, /Browser \/ WebAssembly/);
   assert.match(html, /Resident payloads/);
   assert.match(html, /12 MB/);
