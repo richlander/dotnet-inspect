@@ -1124,7 +1124,7 @@ export interface WorkspaceLocationPersistence {
   build(state: WorkspaceUrlState, base?: string): URL;
   sync(state: WorkspaceUrlState, historyState?: unknown): void;
   replace(url: string, historyState?: unknown): boolean;
-  push(url: string, historyState?: unknown): void;
+  push(url: string, historyState?: unknown): boolean;
 }
 
 export interface WorkspaceLocationPreflight {
@@ -1149,7 +1149,7 @@ export interface AsyncWorkspaceLocationPersistence {
   build(state: WorkspaceUrlState, base?: string): Promise<URL>;
   sync(state: WorkspaceUrlState, historyState?: unknown): void;
   replace(url: string, historyState?: unknown): boolean;
-  push(url: string, historyState?: unknown): void;
+  push(url: string, historyState?: unknown): boolean;
 }
 
 export interface AsyncWorkspaceLocationPreflight {
@@ -1219,8 +1219,10 @@ export function createAsyncWorkspaceLocationPersistence(
       syncRevision++;
       try {
         dependencies.push(url, historyState);
+        return true;
       } catch {
         // Sandboxed frames may reject browser-history changes.
+        return false;
       }
     },
   };
@@ -1274,8 +1276,10 @@ export function createWorkspaceLocationPersistence(
     push(url, historyState = null) {
       try {
         dependencies.push(url, historyState);
+        return true;
       } catch {
         // Sandboxed frames may reject browser-history changes.
+        return false;
       }
     },
   };
