@@ -22,6 +22,7 @@ public sealed record AssemblySetRequest
     public bool IncludePackageRuntimeAssemblies { get; init; }
     public AssemblySetPackageSelectionMode PackageSelectionMode { get; init; } =
         AssemblySetPackageSelectionMode.TargetFramework;
+    public CancellationToken CancellationToken { get; init; }
     public IReadOnlyList<AssemblySetSourceKind> SourceOrder { get; init; } =
     [
         AssemblySetSourceKind.Package,
@@ -115,6 +116,8 @@ public static class AssemblySetResolver
         AssemblySetRequest request,
         Action<string>? log = null)
     {
+        CancellationToken cancellationToken = request.CancellationToken;
+        cancellationToken.ThrowIfCancellationRequested();
         List<AssemblySetEntry> assemblies = [];
         List<AssemblySetDiagnostic> diagnostics = [];
         List<string> tempDirs = [];
@@ -125,15 +128,19 @@ public static class AssemblySetResolver
         {
             foreach (var pkg in request.Packages)
             {
-                var outcome = await PackageExtractor.ExtractPackageAsync(
-                    httpClient,
-                    pkg,
-                    log,
-                    request.TempDirPrefix,
-                    request.SourceOptions);
+                cancellationToken.ThrowIfCancellationRequested();
+                var outcome =
+                    await PackageExtractor.ExtractPackageWithCancellationAsync(
+                        httpClient,
+                        pkg,
+                        log,
+                        request.TempDirPrefix,
+                        request.SourceOptions,
+                        cancellationToken: cancellationToken);
 
                 if (!outcome.IsSuccess)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     Warn(outcome.ErrorMessage ?? $"Package '{pkg}' could not be resolved.");
                     continue;
                 }
@@ -141,9 +148,11 @@ public static class AssemblySetResolver
                 var extracted = outcome.Result!;
                 if (extracted.TempDir != null)
                     tempDirs.Add(extracted.TempDir);
+                cancellationToken.ThrowIfCancellationRequested();
                 AddExtractedPackage(
                     extracted, pkg, request.Tfm, request.IncludePackageRuntimeAssemblies,
-                    request.PackageSelectionMode, assemblies, diagnostics);
+                    request.PackageSelectionMode, assemblies, diagnostics,
+                    cancellationToken);
             }
         }
 
@@ -151,6 +160,7 @@ public static class AssemblySetResolver
         {
             foreach (var asmPath in request.Assemblies)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!File.Exists(asmPath))
                 {
                     Warn($"Library not found '{asmPath}', skipping.");
@@ -169,6 +179,7 @@ public static class AssemblySetResolver
         {
             foreach (var projectPath in request.Projects)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!ProjectAssetsParser.TryFindAssets(projectPath, out var assetsPath, out var status))
                 {
                     Warn(ProjectAssetsParser.DescribeMissingAssets(projectPath, status));
@@ -178,6 +189,7 @@ public static class AssemblySetResolver
                 log?.Invoke($"Using assets: {assetsPath}");
                 foreach (var (asmPath, packageName, packageVersion) in ProjectAssetsParser.Parse(assetsPath, request.Tfm, log))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     assemblies.Add(new AssemblySetEntry(
                         asmPath,
                         packageName,
@@ -191,23 +203,83 @@ public static class AssemblySetResolver
         {
             foreach (var platformAsm in request.PlatformAssemblies)
             {
-                var (assemblyPath, resolvedFramework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
-                    platformAsm,
-                    httpClient,
-                    log,
-                    request.PlatformAssemblyFrameworkHint,
-                    sourceOptions: request.SourceOptions);
-
-                if (error != null)
+                cancellationToken.ThrowIfCancellationRequested();
+                IReadOnlyList<string?> frameworkSpecs;
+                if (request.PlatformAssemblyFrameworkHint is { } hint)
                 {
+                    frameworkSpecs = [hint];
+                }
+                else if (request.Tfm is { } targetFramework)
+                {
+                    if (!PlatformResolver
+                            .TryGetFrameworkSpecsForTargetFramework(
+                                targetFramework,
+                                out IReadOnlyList<string> selectedSpecs))
+                    {
+                        Warn(
+                            $"Target framework '{targetFramework}' cannot select an installed platform library, skipping '{platformAsm}'.");
+                        continue;
+                    }
+                    frameworkSpecs = [.. selectedSpecs];
+                }
+                else
+                {
+                    frameworkSpecs = [null];
+                }
+
+                (string? AssemblyPath, string? Framework, string? Version,
+                    string? Error) resolution = default;
+                var errors = new List<string>();
+
+                if (request.PlatformAssemblyFrameworkHint is null
+                    && request.Tfm is not null)
+                {
+                    foreach (string? frameworkSpec in frameworkSpecs)
+                    {
+                        resolution = PlatformResolver.ResolveAssembly(
+                            platformAsm,
+                            frameworkSpec);
+                        if (resolution.AssemblyPath is not null)
+                            break;
+                        if (!string.IsNullOrWhiteSpace(resolution.Error))
+                            errors.Add(resolution.Error);
+                    }
+                }
+
+                if (resolution.AssemblyPath is null)
+                {
+                    foreach (string? frameworkSpec in frameworkSpecs)
+                    {
+                        resolution =
+                            await PlatformResolver.ResolveAssemblyAsync(
+                                platformAsm,
+                                httpClient,
+                                log,
+                                frameworkSpec,
+                                sourceOptions: request.SourceOptions);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (resolution.AssemblyPath is not null)
+                            break;
+                        if (!string.IsNullOrWhiteSpace(resolution.Error))
+                            errors.Add(resolution.Error);
+                    }
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (resolution.AssemblyPath is null)
+                {
+                    string error = errors.Count > 0
+                        ? string.Join("; ", errors.Distinct())
+                        : resolution.Error
+                            ?? $"Library '{platformAsm}' could not be resolved.";
                     Warn($"{error}, skipping.");
                     continue;
                 }
 
                 assemblies.Add(new AssemblySetEntry(
-                    assemblyPath!,
-                    resolvedFramework ?? "platform",
-                    version,
+                    resolution.AssemblyPath,
+                    resolution.Framework ?? "platform",
+                    resolution.Version,
                     AssemblySetSourceKind.PlatformAssembly));
             }
         }
@@ -225,12 +297,14 @@ public static class AssemblySetResolver
                         log,
                         sourceOptions: request.SourceOptions))
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                     }
                 }
             }
 
             foreach (var framework in request.PlatformFrameworks)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var (refPath, resolvedVersion, error) = PlatformResolver.ResolveFramework(framework);
                 if (error != null)
                 {
@@ -243,6 +317,7 @@ public static class AssemblySetResolver
 
                 foreach (var asmInfo in frameworkAssemblies)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     assemblies.Add(new AssemblySetEntry(
                         asmInfo.Path,
                         framework,
@@ -256,6 +331,7 @@ public static class AssemblySetResolver
         {
             foreach (var dir in request.Directories)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!Directory.Exists(dir))
                 {
                     Warn($"Directory not found '{dir}', skipping.");
@@ -267,6 +343,7 @@ public static class AssemblySetResolver
 
                 foreach (var dll in dlls)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     assemblies.Add(new AssemblySetEntry(
                         dll,
                         System.IO.Path.GetFileName(dir),
@@ -304,6 +381,7 @@ public static class AssemblySetResolver
         {
             foreach (var sourceKind in sourceOrder)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 switch (sourceKind)
                 {
                     case AssemblySetSourceKind.Package:
@@ -330,6 +408,7 @@ public static class AssemblySetResolver
                 }
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             return new AssemblySet(assemblies, diagnostics, tempDirs);
         }
         catch
@@ -357,7 +436,8 @@ public static class AssemblySetResolver
         {
             AddExtractedPackage(
                 extracted, extracted.PackageName ?? extracted.ExtractPath, tfm,
-                includeRuntimeAssemblies, selectionMode, assemblies, diagnostics);
+                includeRuntimeAssemblies, selectionMode, assemblies, diagnostics,
+                CancellationToken.None);
             return new AssemblySet(assemblies, diagnostics, tempDirs);
         }
         catch
@@ -374,7 +454,8 @@ public static class AssemblySetResolver
         bool includeRuntimeAssemblies,
         AssemblySetPackageSelectionMode selectionMode,
         List<AssemblySetEntry> assemblies,
-        List<AssemblySetDiagnostic> diagnostics)
+        List<AssemblySetDiagnostic> diagnostics,
+        CancellationToken cancellationToken)
     {
         IEnumerable<string> dlls;
         string? selectedTfm = null;
@@ -401,6 +482,7 @@ public static class AssemblySetResolver
         bool foundAssembly = false;
         foreach (string dll in dlls)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             foundAssembly = true;
             assemblies.Add(new AssemblySetEntry(
                 dll, extracted.PackageName ?? package, extracted.Version,
