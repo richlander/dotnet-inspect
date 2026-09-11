@@ -230,8 +230,11 @@ the model-local slot through its defining consume source and resource kind.
 Equivalent consume relationships therefore normalize equally even when their
 models use different local numbers, while independent resource domains may
 reuse the same number without colliding. Inconsistent or cyclic definitions of
-one model-local slot reject the atomic model. Field selectors are always rooted
-in another location.
+one model-local slot reject the atomic model. Every normalized atomic model
+must retain the defining consume for each resolved operation location it
+references, including every link in a consume chain; the resolved location is
+an identity, not standalone proof that the transfer declaration remains
+present. Field selectors are always rooted in another location.
 
 A callback location is valid in any effect associated with a callback
 declaration for that delegate parameter. It cannot appear in an unrelated
@@ -254,6 +257,11 @@ target but no longer retains the local selector spelling. A normalized consume
 target retains the exact resolved source and resource kind that identify its
 logical operation slot. The typed boundary rejects any retained local alias or
 resolved consume target inconsistent with that consume's source and kind.
+Compatible structural selector policies compare operation slots on their
+shared occurrence domain rather than by serialized selector spelling. Thus an
+unconstrained and an exact-version declaration of the same consume relationship
+compose on the exact version, while genuinely different sources, kinds, or
+destinations remain distinct.
 
 ## Cross-resource composition
 
@@ -373,6 +381,10 @@ ownership hidden elsewhere in an object graph.
 Transfers an obligation into the operation at call entry. The callee owns the
 obligation in a named `operation[N]` location on every subsequent normal and
 exceptional path unless another declared effect transfers it out.
+The source and every operation slot reached through a consume chain are
+successive locations for one obligation, not independent obligations.
+Overlapping terminal effects through two points in that lineage are therefore
+checked as effects on the same obligation.
 
 ### `release`
 

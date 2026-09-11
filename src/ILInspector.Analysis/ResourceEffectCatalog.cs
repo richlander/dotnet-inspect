@@ -1091,6 +1091,40 @@ public static class ResourceEffectCatalogBuilder
                 Effect = resolved,
             };
         }
+
+        var resolvedOperationDeclarations =
+            declarations
+                .Where(declaration =>
+                    declaration.Effect is ResourceEffect.Consume
+                    {
+                        Target: ResourceEffectLocation.ResolvedOperation,
+                    })
+                .Select(declaration =>
+                {
+                    var consume = (ResourceEffect.Consume)declaration.Effect;
+                    return (
+                        Target: ResourceEffectCanonicalizer.Target(declaration.Target),
+                        Slot: (ResourceEffectLocation.ResolvedOperation)consume.Target);
+                })
+                .ToHashSet();
+        foreach (ParsedDeclaration declaration in declarations)
+        {
+            string target = ResourceEffectCanonicalizer.Target(declaration.Target);
+            foreach (ResourceEffectLocation location in Locations(declaration.Effect))
+            {
+                foreach (ResourceEffectLocation.ResolvedOperation operation
+                         in ResolvedOperationLocations(location))
+                {
+                    if (!resolvedOperationDeclarations.Contains((target, operation)))
+                    {
+                        return Failure(
+                            declaration,
+                            ResourceEffectDiagnosticKind.UnresolvedOperation,
+                            "A resolved operation location references no defining consume declaration in the atomic model.");
+                    }
+                }
+            }
+        }
         return null;
 
         ResourceEffectLocation.ResolvedOperation? ResolveOperation(
@@ -1223,6 +1257,36 @@ public static class ResourceEffectCatalogBuilder
             case ResourceEffectLocation.ResolvedOperation operation:
                 foreach (ResourceEffectLocation.Operation nested
                          in LocalOperationLocations(operation.Source))
+                {
+                    yield return nested;
+                }
+                break;
+        }
+    }
+
+    static IEnumerable<ResourceEffectLocation.ResolvedOperation> ResolvedOperationLocations(
+        ResourceEffectLocation location)
+    {
+        switch (location)
+        {
+            case ResourceEffectLocation.ResolvedOperation operation:
+                yield return operation;
+                foreach (ResourceEffectLocation.ResolvedOperation nested
+                         in ResolvedOperationLocations(operation.Source))
+                {
+                    yield return nested;
+                }
+                break;
+            case ResourceEffectLocation.Field field:
+                foreach (ResourceEffectLocation.ResolvedOperation nested
+                         in ResolvedOperationLocations(field.Root))
+                {
+                    yield return nested;
+                }
+                break;
+            case ResourceEffectLocation.ResolvedField field:
+                foreach (ResourceEffectLocation.ResolvedOperation nested
+                         in ResolvedOperationLocations(field.Root))
                 {
                     yield return nested;
                 }
@@ -1588,13 +1652,16 @@ public static class ResourceEffectCatalogBuilder
         TerminalEffect? right = Terminal(second);
         if (left is null || right is null)
             return false;
-        if (!LocationsCanOverlap(left.Source, right.Source)
-            || !KindsOverlap(left.Kind, right.Kind))
+        if (!ObligationsCanOverlap(
+                left.Source,
+                left.Kind,
+                right.Source,
+                right.Kind))
             return false;
         if (!CompletionsOverlap(left.When, right.When))
             return false;
-        return left.Transition != right.Transition
-            || left.When != right.When;
+        return !CompletionsEquivalentOnOverlap(left.When, right.When)
+            || !TerminalTransitionsEquivalent(left.Effect, right.Effect);
     }
 
     static TerminalEffect? Terminal(ResourceEffect effect)
@@ -1604,18 +1671,41 @@ public static class ResourceEffectCatalogBuilder
                 move.Source,
                 move.Kind,
                 move.When,
-                ResourceEffectCanonicalizer.Transition(move)),
+                move),
             ResourceEffect.Release release => new(
                 release.Source,
                 release.Kind,
                 release.When,
-                ResourceEffectCanonicalizer.Transition(release)),
+                release),
             ResourceEffect.Accept accept => new(
                 accept.Source,
                 accept.Kind,
                 accept.When,
-                ResourceEffectCanonicalizer.Transition(accept)),
+                accept),
             _ => null,
+        };
+
+    static bool TerminalTransitionsEquivalent(
+        ResourceEffect first,
+        ResourceEffect second)
+        => (first, second) switch
+        {
+            (ResourceEffect.Move left, ResourceEffect.Move right) =>
+                left.Kind == right.Kind
+                && LocationsCanOverlap(left.Target, right.Target),
+            (ResourceEffect.Release left, ResourceEffect.Release right) =>
+                left.Kind == right.Kind
+                && OptionalLocationsEquivalentOnOverlap(
+                    left.Correspondence,
+                    right.Correspondence)
+                && OptionalLocationsEquivalentOnOverlap(
+                    left.Observation,
+                    right.Observation),
+            (ResourceEffect.Accept left, ResourceEffect.Accept right) =>
+                left.Kind == right.Kind
+                && left.Order == right.Order
+                && LocationsCanOverlap(left.Target, right.Target),
+            _ => false,
         };
 
     static bool OperationConflict(
@@ -1644,12 +1734,25 @@ public static class ResourceEffectCatalogBuilder
         EntryEffect? right = Entry(second);
         if (left is null || right is null)
             return false;
-        if (!LocationsCanOverlap(left.Source, right.Source)
-            || !KindsOverlap(left.Kind, right.Kind))
+        if (left.Effect is ResourceEffect.Consume
+            && right.Effect is ResourceEffect.Consume)
+        {
+            if (!LocationsCanOverlap(left.Source, right.Source)
+                || !KindsOverlap(left.Kind, right.Kind))
+            {
+                return false;
+            }
+            return !EntryTransitionsEquivalent(left.Effect, right.Effect);
+        }
+        if (!ObligationsCanOverlap(
+                left.Source,
+                left.Kind,
+                right.Source,
+                right.Kind))
             return false;
         if (left.IsBorrow || right.IsBorrow)
             return left.IsBorrow != right.IsBorrow;
-        return left.Transition != right.Transition;
+        return !EntryTransitionsEquivalent(left.Effect, right.Effect);
     }
 
     static EntryEffect? Entry(ResourceEffect effect)
@@ -1659,14 +1762,12 @@ public static class ResourceEffectCatalogBuilder
                 borrow.Source,
                 borrow.Kind,
                 IsBorrow: true,
-                Transition: ""),
+                borrow),
             ResourceEffect.Consume consume => new(
                 consume.Source,
                 consume.Kind,
                 IsBorrow: false,
-                Transition:
-                    "consume:"
-                    + ResourceEffectCanonicalizer.Location(consume.Target)),
+                consume),
             ResourceEffect.Move
                 {
                     When: ResourceEffectCompletion.Entry,
@@ -1674,7 +1775,7 @@ public static class ResourceEffectCatalogBuilder
                     move.Source,
                     move.Kind,
                     IsBorrow: false,
-                    ResourceEffectCanonicalizer.Transition(move)),
+                    move),
             ResourceEffect.Release
                 {
                     When: ResourceEffectCompletion.Entry,
@@ -1682,7 +1783,7 @@ public static class ResourceEffectCatalogBuilder
                     release.Source,
                     release.Kind,
                     IsBorrow: false,
-                    ResourceEffectCanonicalizer.Transition(release)),
+                    release),
             ResourceEffect.Accept
                 {
                     When: ResourceEffectCompletion.Entry,
@@ -1690,9 +1791,54 @@ public static class ResourceEffectCatalogBuilder
                     accept.Source,
                     accept.Kind,
                     IsBorrow: false,
-                    ResourceEffectCanonicalizer.Transition(accept)),
+                    accept),
             _ => null,
         };
+
+    static bool EntryTransitionsEquivalent(
+        ResourceEffect first,
+        ResourceEffect second)
+        => (first, second) switch
+        {
+            (ResourceEffect.Consume left, ResourceEffect.Consume right) =>
+                left.Kind == right.Kind
+                && LocationsCanOverlap(left.Target, right.Target),
+            (ResourceEffect.Move left, ResourceEffect.Move right) =>
+                left.Kind == right.Kind
+                && LocationsCanOverlap(left.Target, right.Target),
+            (ResourceEffect.Release left, ResourceEffect.Release right) =>
+                left.Kind == right.Kind
+                && OptionalLocationsEquivalentOnOverlap(
+                    left.Correspondence,
+                    right.Correspondence)
+                && OptionalLocationsEquivalentOnOverlap(
+                    left.Observation,
+                    right.Observation),
+            (ResourceEffect.Accept left, ResourceEffect.Accept right) =>
+                left.Kind == right.Kind
+                && left.Order == right.Order
+                && LocationsCanOverlap(left.Target, right.Target),
+            _ => false,
+        };
+
+    static bool OptionalLocationsEquivalentOnOverlap(
+        ResourceEffectLocation? first,
+        ResourceEffectLocation? second)
+        => first is null
+            ? second is null
+            : second is not null && LocationsCanOverlap(first, second);
+
+    static bool CompletionsEquivalentOnOverlap(
+        ResourceEffectCompletion first,
+        ResourceEffectCompletion second)
+    {
+        if (first == second)
+            return true;
+        return first is ResourceEffectCompletion.ResolvedOutcome left
+            && second is ResourceEffectCompletion.ResolvedOutcome right
+            && left.Test == right.Test
+            && LocationsCanOverlap(left.Source, right.Source);
+    }
 
     static bool TargetsCanOverlap(
         ResourceEffectTargetSelector first,
@@ -1743,6 +1889,51 @@ public static class ResourceEffectCatalogBuilder
             || second is null
             || (first.Identity == second.Identity
                 && first.Arguments.Length == second.Arguments.Length);
+
+    static bool ObligationsCanOverlap(
+        ResourceEffectLocation firstLocation,
+        ResourceKindReference? firstKind,
+        ResourceEffectLocation secondLocation,
+        ResourceKindReference? secondKind)
+    {
+        if (!TryResolveObligationOrigin(
+                firstLocation,
+                firstKind,
+                out ResourceEffectLocation? firstOrigin,
+                out ResourceKindReference? firstResolvedKind)
+            || !TryResolveObligationOrigin(
+                secondLocation,
+                secondKind,
+                out ResourceEffectLocation? secondOrigin,
+                out ResourceKindReference? secondResolvedKind))
+        {
+            return false;
+        }
+        return KindsOverlap(firstResolvedKind, secondResolvedKind)
+            && LocationsCanOverlap(firstOrigin, secondOrigin);
+    }
+
+    static bool TryResolveObligationOrigin(
+        ResourceEffectLocation location,
+        ResourceKindReference? kind,
+        out ResourceEffectLocation origin,
+        out ResourceKindReference? resolvedKind)
+    {
+        while (location is ResourceEffectLocation.ResolvedOperation operation)
+        {
+            if (!KindsOverlap(kind, operation.Kind))
+            {
+                origin = location;
+                resolvedKind = kind;
+                return false;
+            }
+            kind ??= operation.Kind;
+            location = operation.Source;
+        }
+        origin = location;
+        resolvedKind = kind;
+        return true;
+    }
 
     static bool LocationsCanOverlap(
         ResourceEffectLocation first,
@@ -2336,12 +2527,12 @@ public static class ResourceEffectCatalogBuilder
         ResourceEffectLocation Source,
         ResourceKindReference? Kind,
         bool IsBorrow,
-        string Transition);
+        ResourceEffect Effect);
     sealed record TerminalEffect(
         ResourceEffectLocation Source,
         ResourceKindReference? Kind,
         ResourceEffectCompletion When,
-        string Transition);
+        ResourceEffect Effect);
 
     sealed class SemanticDeclarationKey : IEquatable<SemanticDeclarationKey>
     {

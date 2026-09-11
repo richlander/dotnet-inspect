@@ -1014,6 +1014,38 @@ public class ResourceEffectLanguageTests
             ResourceEffectDiagnosticKind.UnresolvedOperation,
             Assert.IsType<ResourceEffectCatalogOutcome.Rejected>(outcome)
                 .Diagnostics.Single().Diagnostic.Kind);
+
+        ResourceEffectModelIdentity chainedModel =
+            new("example.operation-normalized-chain-definition");
+        ResourceEffectCatalog chained = Build(
+            Model(
+                chainedModel,
+                SimpleOperationTarget(),
+                [
+                    "consume(kind=example.resource,source=parameter[0],target=operation[0])",
+                    "consume(kind=example.resource,source=operation[0],target=operation[1])",
+                    "release(source=operation[1],when=normal-return)",
+                ],
+                [Kind(chainedModel, "example.resource", 0)]));
+        ResourceEffectCatalogOutcome missingInnerConsume =
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    new ResourceEffectModelDefinition(
+                        ResourceEffectLanguageIdentity.Version1,
+                        chainedModel,
+                        chained.ResourceKinds,
+                        [],
+                        [.. chained.Declarations.Where(declaration =>
+                            declaration.Effect is not ResourceEffect.Consume
+                            {
+                                Source: ResourceEffectLocation.Parameter,
+                            })]),
+                ]);
+
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.UnresolvedOperation,
+            Assert.IsType<ResourceEffectCatalogOutcome.Rejected>(missingInnerConsume)
+                .Diagnostics.Single().Diagnostic.Kind);
     }
 
     [Fact]
@@ -1224,6 +1256,26 @@ public class ResourceEffectLanguageTests
                             "consume(source=parameter[0],target=operation[0])",
                             "release(source=operation[0],when=normal-return)",
                         ]),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_ComposesEquivalentConsumesAcrossCompatibleFieldPolicies()
+    {
+        ResourceEffectModelIdentity anyModel =
+            new("example.field-consume-overlap.any");
+        ResourceEffectModelIdentity exactModel =
+            new("example.field-consume-overlap.exact");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    FieldPolicyConsumeModel(
+                        anyModel,
+                        ResourceAssemblyVersionPolicy.Any),
+                    FieldPolicyConsumeModel(
+                        exactModel,
+                        ResourceAssemblyVersionPolicy.Exact(new Version(1, 0, 0, 0))),
                 ]));
     }
 
@@ -1517,6 +1569,41 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void Catalog_RejectsTerminalConflictsAcrossConsumeLineage()
+    {
+        ResourceEffectModelIdentity direct = new("example.operation-lineage-direct");
+        AssertConflict(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        direct,
+                        SimpleOperationTarget(),
+                        [
+                            "consume(kind=example.resource,source=parameter[0],target=operation[0])",
+                            "release(source=parameter[0],when=normal-return)",
+                            "move(source=operation[0],target=return,when=normal-return)",
+                        ],
+                        [Kind(direct, "example.resource", 0)]),
+                ]));
+
+        ResourceEffectModelIdentity chained = new("example.operation-lineage-chain");
+        AssertConflict(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        chained,
+                        SimpleOperationTarget(),
+                        [
+                            "consume(kind=example.resource,source=parameter[0],target=operation[0])",
+                            "consume(kind=example.resource,source=operation[0],target=operation[1])",
+                            "release(source=operation[0],when=normal-return)",
+                            "move(source=operation[1],target=return,when=normal-return)",
+                        ],
+                        [Kind(chained, "example.resource", 0)]),
+                ]));
+    }
+
+    [Fact]
     public void Catalog_RejectsCyclicModelLocalOperationSlotsWithoutThrowing()
     {
         ResourceEffectModelIdentity model = new("example.operation-cycle");
@@ -1553,6 +1640,41 @@ public class ResourceEffectLanguageTests
 
         Assert.Equal(original.Declarations, roundTrip.Declarations);
         Assert.Equal(original.Receipt.SemanticHash, roundTrip.Receipt.SemanticHash);
+    }
+
+    [Fact]
+    public void Catalog_RequiresDefiningConsumesForNormalizedOperationSlots()
+    {
+        ResourceEffectModelIdentity model =
+            new("example.operation-normalized-definition");
+        ResourceEffectCatalog original = Build(
+            Model(
+                model,
+                SimpleOperationTarget(),
+                [
+                    "consume(kind=example.resource,source=parameter[0],target=operation[0])",
+                    "release(source=operation[0],when=normal-return)",
+                ],
+                [Kind(model, "example.resource", 0)]));
+        NormalizedResourceEffectDeclaration release =
+            Assert.Single(
+                original.Declarations,
+                declaration => declaration.Effect is ResourceEffect.Release);
+
+        ResourceEffectCatalogOutcome outcome = ResourceEffectCatalogBuilder.Build(
+            [
+                new ResourceEffectModelDefinition(
+                    ResourceEffectLanguageIdentity.Version1,
+                    model,
+                    original.ResourceKinds,
+                    [],
+                    [release]),
+            ]);
+
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.UnresolvedOperation,
+            Assert.IsType<ResourceEffectCatalogOutcome.Rejected>(outcome)
+                .Diagnostics.Single().Diagnostic.Kind);
     }
 
     [Fact]
@@ -1869,6 +1991,39 @@ public class ResourceEffectLanguageTests
                 new ResourceEffectTargetDeclaration(
                     SimpleOperationTarget(),
                     [Source(model, model.Value, 1, terminal)]),
+            ]);
+
+    static ResourceEffectModelDefinition FieldPolicyConsumeModel(
+        ResourceEffectModelIdentity model,
+        ResourceAssemblyVersionPolicy fieldVersion)
+        => new(
+            ResourceEffectLanguageIdentity.Version1,
+            model,
+            [Kind(model, "example.resource", 0)],
+            [
+                new ResourceEffectTargetDeclaration(
+                    FieldTarget("Child", fieldVersion),
+                    [
+                        Source(
+                            model,
+                            model.Value,
+                            0,
+                            "resource(kind=example.resource,value=declared-field,selector=child)"),
+                    ]),
+                new ResourceEffectTargetDeclaration(
+                    SimpleOperationTarget(),
+                    [
+                        Source(
+                            model,
+                            model.Value,
+                            1,
+                            "consume(kind=example.resource,source=receiver.field[child],target=operation[0])"),
+                        Source(
+                            model,
+                            model.Value,
+                            2,
+                            "release(source=operation[0],when=normal-return)"),
+                    ]),
             ]);
 
     static ResourceEffectModelDefinition FieldPolicyTerminalModel(
