@@ -216,7 +216,7 @@ public class SearchScopeResolutionTests
             "System.String",
             "--bin",
             missingDirectory,
-            "-t",
+            "-n",
             "1",
             "--tips",
             "q");
@@ -296,7 +296,7 @@ public class SearchScopeResolutionTests
             option.Description,
             StringComparison.OrdinalIgnoreCase);
         Assert.Contains(
-            $"-t up to {FindCommand.PackageProfileMaximumLimit}",
+            $"--take up to {FindCommand.PackageProfileMaximumLimit}",
             option.Description,
             StringComparison.OrdinalIgnoreCase);
     }
