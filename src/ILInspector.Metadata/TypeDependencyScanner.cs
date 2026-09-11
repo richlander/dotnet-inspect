@@ -152,15 +152,23 @@ public sealed class TypeDependencyPopulationResult
 {
     internal TypeDependencyPopulationResult(
         TypeDependencyResult dependency,
-        ImmutableArray<TypeDependencyCandidateOutcome> candidates)
+        ImmutableArray<TypeDependencyCandidateOutcome> candidates,
+        AssemblyAcquisitionRegistration? matchedRegistration)
     {
         ArgumentNullException.ThrowIfNull(dependency);
         Dependency = dependency;
         Candidates = candidates;
+        MatchedRegistration = matchedRegistration;
     }
 
     public TypeDependencyResult Dependency { get; }
     public ImmutableArray<TypeDependencyCandidateOutcome> Candidates { get; }
+
+    /// <summary>
+    /// The acquisition registration that contributed the selected root, or
+    /// <see langword="null"/> when the target was not found.
+    /// </summary>
+    public AssemblyAcquisitionRegistration? MatchedRegistration { get; }
 
     /// <summary>
     /// Whether at least one candidate contributed its complete staged rows.
@@ -340,9 +348,9 @@ public static class TypeDependencyScanner
                     invalidImageCauses);
             }
 
-            TypeDependencyResult dependency =
+            DependencyGraphBuild graph =
                 BuildGraph(targetType, typeIndex);
-            return dependency with
+            return graph.Dependency with
             {
                 Rejections = rejections,
             };
@@ -486,9 +494,12 @@ public static class TypeDependencyScanner
 
             ImmutableArray<TypeDependencyCandidateOutcome> candidates =
                 outcomes.MoveToImmutable();
+            DependencyGraphBuild graph =
+                BuildGraph(targetType, typeIndex);
             TypeDependencyPopulationResult result = new(
-                BuildGraph(targetType, typeIndex),
-                candidates);
+                graph.Dependency,
+                candidates,
+                graph.MatchedRegistration);
             DisposeAll(images);
             return result;
         }
@@ -568,7 +579,10 @@ public static class TypeDependencyScanner
             ValidateRelationships(reader, definition);
             staged.TryAdd(
                 fullName,
-                new IndexedType(reader, definition));
+                new IndexedType(
+                    reader,
+                    definition,
+                    descriptor?.Registration));
         }
 
         return new CandidateStage(staged);
@@ -582,7 +596,7 @@ public static class TypeDependencyScanner
             typeIndex.TryAdd(name, type);
     }
 
-    private static TypeDependencyResult BuildGraph(
+    private static DependencyGraphBuild BuildGraph(
         string targetType,
         Dictionary<string, IndexedType> typeIndex)
     {
@@ -595,7 +609,9 @@ public static class TypeDependencyScanner
             : typeIndex.Keys.FirstOrDefault(key =>
                 TypeMatcher.Matches(key, normalizedTarget));
         if (matchKey is null)
-            return new TypeDependencyResult(null, []);
+            return new(
+                new TypeDependencyResult(null, []),
+                MatchedRegistration: null);
 
         IndexedType match = typeIndex[matchKey];
         var treeSeen = new HashSet<string>(StringComparer.Ordinal);
@@ -620,10 +636,12 @@ public static class TypeDependencyScanner
             relationships,
             includeTree: true,
             collectRelationships: true);
-        return new TypeDependencyResult(matchedType, tree)
-        {
-            Relationships = relationships,
-        };
+        return new(
+            new TypeDependencyResult(matchedType, tree)
+            {
+                Relationships = relationships,
+            },
+            match.Registration);
     }
 
     private static TypeDependencyCandidateOutcome.Rejected Rejected(
@@ -1009,7 +1027,12 @@ public static class TypeDependencyScanner
 
     private sealed record IndexedType(
         MetadataReader Reader,
-        TypeDefinition Definition);
+        TypeDefinition Definition,
+        AssemblyAcquisitionRegistration? Registration);
+
+    private sealed record DependencyGraphBuild(
+        TypeDependencyResult Dependency,
+        AssemblyAcquisitionRegistration? MatchedRegistration);
 
     private sealed class CandidateStage
     {

@@ -1583,10 +1583,44 @@ canaries:
   Browser-Wasm composes those two typed results without parsing XML or opening
   an assembly session.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
-  binding-consistent group and invokes the Metadata-owned population scan once
-  over the committed participant order. It returns resource-free subjects,
-  graph facts, and typed per-participant failures; the CLI `depends` host
-  projects package diagnostics without inventing filesystem paths.
+  binding-consistent group and invokes the Metadata-owned population scan once.
+  Ordinary population lookup scans the committed participant order. Its
+  participant-qualified entry point stages the selected participant first so a
+  same-named type in another participant cannot become the root, and verifies
+  the Metadata-issued registration that contributed the match rather than
+  borrowing another definition when the selected participant contributed no
+  public dependency root. Published outcomes retain committed participant
+  order. The query returns resource-free subjects, graph facts, and typed
+  per-participant failures. The CLI `depends` host projects package diagnostics
+  without inventing filesystem paths; Inspect Web's Type Relationships metadata
+  surface composes the participant-qualified facts over its retained active
+  package Workspace while keeping selected-participant shape and derived types
+  separate.
+
+The motivating real asset is
+`Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`. Its
+`Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension`
+type exposes
+`Microsoft.EntityFrameworkCore.Infrastructure.RelationalOptionsExtension` as
+its root-package base type. Adding
+`Microsoft.EntityFrameworkCore.Relational@8.0.4` to the same population reveals
+the next
+`Microsoft.EntityFrameworkCore.Infrastructure.IDbContextOptionsExtension`
+interface relationship. Reproduce the observation with:
+
+```bash
+dnx dotnet-inspect -y -- depends \
+  Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --package Microsoft.EntityFrameworkCore.Relational@8.0.4 \
+  --tfm net8.0
+```
+
+The Browser consumer gates the same cross-package expansion with generated
+managed assemblies so ordinary CI remains deterministic and offline; vendoring
+the two third-party package archives solely for this facade seam would add
+disproportionate repository weight. The exact nuget.org coordinates and command
+above preserve the real-asset observation.
 - `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`
   and `Extension Methods`. The CLI adds path-based Finding provenance and
   compatibility projections after query execution.

@@ -557,7 +557,7 @@ archive responses. Run the gate after building the frontend and publishing
 | Operation | Workspace | Query that owns the session |
 | --- | --- | --- |
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
-| `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
+| `QueryTypeProjection` | complete active package Workspace; one selected compile participant | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` and `AssemblyContextTypeDependencyQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberFindingCensus` | one package/version/framework | one `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` carrying Facts and Annotated Source identity |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
@@ -608,13 +608,29 @@ partial API surface are summarized there too, so healthy rows remain usable
 without presenting an incomplete surface as complete. The site folds that field
 into its query notice.
 
-`QueryTypeProjection` and `QueryMemberAnnotatedSource` run over one group
-participant. The Research queries own the `MetadataSource` and the whole-assembly
-`LibraryBodyIndex` themselves, take no filesystem path, and resolve references
-through the participant's own binding policy rather than by matching simple
-names. Type projection stays on the compile participant. Annotated source moves
-to its matching implementation participant and asks `CallGraphMemberResolver`
-to validate the surface's `MethodDef` token or remap it by the opaque structural
+`QueryTypeProjection` opens the complete exact package-coordinate set retained
+by the active Browser Workspace. Under one protected scope lease, it projects
+type shape and known derived types from the selected compile participant, then
+runs the shared participant-qualified type-dependency query over the complete
+surface group. The exact selected participant remains the dependency root even
+when another package defines the same full type name; if that participant does
+not contribute the dependency-scanner root, the query reports the type as
+uncertified rather than borrowing the other definition. The Type Relationships
+graph therefore retains participant-local derived types while expanding base-
+class and interface chains through other loaded package participants.
+Rejected participants remain visible as relationship incompleteness, and the
+frontend request identity includes the complete package coordinate set so
+another retained Workspace cannot reuse those facts. A graph node or
+related-type chip navigates only when exactly one loaded Workspace surface owns
+that type identity; ambiguous and external nodes remain static. Platform-only
+type projection keeps its existing isolated runtime-pack scope.
+
+`QueryMemberAnnotatedSource` runs over one group participant. The Research query
+owns the `MetadataSource` and the whole-assembly `LibraryBodyIndex`, takes no
+filesystem path, and resolves references through the participant's own binding
+policy rather than by matching simple names. Annotated source moves to its
+matching implementation participant and asks `CallGraphMemberResolver` to
+validate the surface's `MethodDef` token or remap it by the opaque structural
 selector when `ref/` and `lib/` row numbers differ. It then returns the product's portable
 `AnnotatedSourceDocument` serialized by its owning
 `AnnotatedSourceDocumentJsonContext` — the same artifact the CLI writes and the

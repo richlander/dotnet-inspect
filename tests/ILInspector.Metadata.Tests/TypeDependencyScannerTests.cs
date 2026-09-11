@@ -403,6 +403,9 @@ public class TypeDependencyScannerTests
             [consumer.Registration, reference.Registration],
             result.Candidates.Select(
                 static candidate => candidate.Registration));
+        Assert.Same(
+            consumer.Registration,
+            result.MatchedRegistration);
         Assert.All(
             result.Candidates,
             static candidate =>
@@ -429,6 +432,7 @@ public class TypeDependencyScannerTests
         Assert.False(result.Dependency.Found);
         Assert.Empty(result.Dependency.Tree);
         Assert.Empty(result.Dependency.Relationships);
+        Assert.Null(result.MatchedRegistration);
     }
 
     [Fact]
