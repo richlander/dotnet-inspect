@@ -477,7 +477,7 @@ public static partial class DependsCommand
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
                 or BadImageFormatException or AllCandidatesRejectedException
                 or HttpRequestException or NuGetRequestTimeoutException or NuGetOperationTimeoutException
-                or DotnetInspector.Core.OfflineException)
+                or OfflineException)
             {
                 AddFailure(index, "Root", "MetadataRejected", exception.Message);
             }
