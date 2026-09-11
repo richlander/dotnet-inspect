@@ -25,7 +25,7 @@ The package source model consumes these owner-issued inputs:
 | HTTP endpoint admission and local-source classification inputs | Package configuration and [local package source identity](local-package-source-identity.md) | Classify before any source client or network authority exists. |
 | Local search, version, manifest, payload, and failure outcomes | [Local folder package source](local-folder-package-source.md) | Consume bounded local source evidence without reinterpreting paths, layout, or host failures. |
 | `PackageSourceAssociation`, `IPackageSourceClient`, `PackageSourceOperationResult<T>`, and source-result identity | [Browser package sources](browser-package-sources.md#nugetfetch-typed-source-result-identity) | Invoke protocol-independent operations and recover the exact caller authority from each result. |
-| `NuGetOperationContext` and typed deadline failures | [Browser package sources](browser-package-sources.md#operation-context-handoff) | Share one caller identity and operation ceiling across every selected authority and route. |
+| `NuGetOperationContext` and typed deadline failures | [Browser package sources](browser-package-sources.md#operation-context-handoff) | Own one lower-level context beneath each package-source operation lease so every selected authority and route shares one caller identity and operation ceiling. |
 | Plugin-authentication context and target authorization | [NuGet feed authentication](nuget-authentication.md#source-scoped-plugin-authentication-context) | Bind configurable V3 routes and compatibility requests to the selected configured authority. |
 | Package-store publication and cache lookup | [Cache concurrency and publication](cache-concurrency.md) | Admit only candidate and payload entries authorized by the current package authority. |
 
@@ -55,7 +55,7 @@ package-level acquisition composition remains
 package-profile projection remains owned by
 [#4806](https://github.com/richlander/dotnet-inspect/issues/4806).
 
-## Source-settlement lease
+## Source settlement ownership
 
 The package source model owns package-source settlement. Its
 `PackageSourceSettlementService` issues a
@@ -63,7 +63,7 @@ The package source model owns package-source settlement. Its
 client access and operation-context creation. The lease is named for that
 resource, not for PackageHouse or another consumer.
 
-The lease carries the live authority to:
+The root settlement generation establishes the authority to:
 
 - authorize and settle one caller-pinned package coordinate;
 - discover complete versions under one explicit discovery contract and source
@@ -75,15 +75,136 @@ The lease carries the live authority to:
 
 One lease owns one candidate-issuer identity. It accepts only source results
 whose association and client identity match the exact configured authority
-being settled. PackageHouse, desktop composition, and host-neutral query
-adapters may hold and use the owner-issued lease, but they do not mint, rename,
-or reinterpret it.
+being settled.
 
-Retiring the lease rejects new settlement and candidate use. It does not
-dispose caller-owned source clients, operation contexts, payload streams,
-package stores, artifact content, or Workspace participants. Completed result
-values retain their existing evidence semantics after retirement; no
-PackageHouse receipt stores the live source-settlement lease.
+### Current compatibility lifetime
+
+The current root lease directly exposes asynchronous settlement methods and
+accepts an optional caller-owned `NuGetOperationContext`. Current C# therefore
+permits the caller and an asynchronous state machine to retain ordinary aliases
+to live settlement authority. This remains a compatibility lifetime until the
+operation-ownership adoption tracked by
+[#6619](https://github.com/richlander/dotnet-inspect/issues/6619) lands. It is
+not a borrow under the shared
+[Resource Ownership and Borrowing](resource-ownership-and-borrowing.md)
+protocol, because no borrow crosses `await`.
+
+The adopted contract preserves the root lease's issuer and candidate identity
+while separating long-lived settlement lifetime from one asynchronous use.
+
+### Root lease and operation authorization
+
+`PackageSourceSettlementLease` is a declared asynchronous resource. Its caller
+owns the lease and must observe successful settlement before disposing the
+caller-owned source clients that back it. A synchronous borrow of the live
+lease may create one resource-free `PackageSourceSettlementAuthorization`.
+The authorization:
+
+- identifies the exact root settlement generation and candidate issuer;
+- permits the Package Source service to issue operation leases while that root
+  remains live;
+- contains no release obligation and does not keep a retired root usable;
+- may be retained by host composition and adapters that issue a fresh
+  operation lease for each supported call; and
+- never enters a candidate, package result, House receipt, Platform
+  contribution, or other durable evidence.
+
+This authorization is separate from `IPackageSourceAuthorization`, which
+selects the configured authorities eligible for one package ID. Only
+`PackageSourceSettlementService` issues the root or operation leases. A host
+adapter may hold the operation authorization and request a lease, but does not
+mint, rename, wrap, or reinterpret either resource. PackageHouse and
+package-backed Platform operations receive an already issued operation lease
+by ownership transfer.
+
+This follows the Artifact generation pattern of retaining a resource-free,
+revocable authorization while an owner-issued lease carries the release
+obligation. It differs where the resource requires it: root release is awaited
+settlement, and each package operation owns a lower-level deadline context plus
+private work children.
+
+Invoking root settlement revokes its operation authorization and rejects new
+operation leases and direct root settlement. Authorization validation,
+operation registration, and the transition to settling are one atomic
+issuer-owned decision: an operation is either rejected or registered before
+settlement can observe quiescence. Settlement then waits for every registered
+operation lease to release.
+
+An operation lease issued before retirement remains independently owned and
+may finish, including issuing or using candidates through the retained
+root-generation identity. The root does not dispose caller-owned source
+clients, package stores, retained content, or Workspace participants;
+successful observed root settlement is the signal that its caller may release
+those adjacent resources in their owner-declared order. Faulted or canceled
+root settlement does not establish quiescence.
+
+### Operation lease
+
+`PackageSourceOperationLease` is a declared synchronous resource issued for one
+top-level package operation. Issuance receives the request and operation
+deadlines plus caller cancellation, creates the exact lower-owner
+`NuGetOperationContext`, and transfers the new lease to the requesting caller.
+The operation lease owns that context and the temporary authority needed to use
+the root generation's configured clients and candidate issuer. Its issuance is
+registered with the root settlement; its release removes that registration.
+
+The operation lease:
+
+- preserves one caller cancellation identity and absolute operation ceiling
+  across every selected authority, retry, authentication exchange, manifest
+  read, payload route, and consumer-owned decision step within the same
+  top-level operation;
+- accepts only coordinates, authorizations, candidates, and source results
+  associated with its root settlement generation;
+- permits sequential source steps within the one top-level operation;
+- does not own source clients, stores, retained payload content, or detached
+  results; and
+- is released synchronously only after its current awaited source step has
+  settled.
+
+Public asynchronous Package Source operations use the operation lease rather
+than accepting a root lease, an independently supplied operation context, or
+both. The lease may transfer to PackageHouse or package-backed Platform, but
+their exact acceptance, terminal-path release, and result-handoff obligations
+belong to [#6622](https://github.com/richlander/dotnet-inspect/issues/6622) and
+the package-backed
+[Platform design](package-backed-platform-realization.md), respectively. A
+direct Package Source consumer may own the lease lexically for one operation.
+
+### Awaited work
+
+Borrowing an operation lease is synchronous. Each asynchronous Package Source
+method uses that borrow only to validate inputs and issue one private child work
+lease. The asynchronous state machine owns the child across suspension and
+releases it in its terminal cleanup; it does not capture a borrow of the parent
+operation lease.
+
+One operation lease has at most one live child work lease. Its owner awaits the
+current step before reuse or release. Package Source payload acquisition
+consumes lower-level response streams into caller-owned retained package
+content before the child settles, so no returned package result requires the
+operation or child lease to remain live.
+
+An attempted operation-lease release while a child remains active fails
+visibly and leaves the root registration intact. The supported lexical and
+transferred-owner paths await the source step before release; an idempotent
+second `Dispose` does not create another valid release obligation.
+
+The private child is implementation and Analysis evidence, not another public
+consumer capability. Its acquisition, parent-retention, transfer into the
+asynchronous state machine, release, and exceptional cleanup remain
+metadata-visible through the package-source ownership model.
+
+### Results and retirement
+
+Root retirement rejects candidate issuance or use through the direct
+compatibility surface and through newly requested operations. An operation
+issued before retirement retains generation-bound candidate authority until it
+releases. The current compatibility surface does not dispose an explicitly
+caller-supplied operation context; the adopted operation surface accepts no
+such context and owns the one it creates. Completed result values retain their
+existing evidence semantics after root or operation retirement; no package
+result or House receipt stores either live lease.
 
 Candidate payload acquisition consults every authorized cache before cold
 acquisition, then tries the same stable local-before-HTTP authority order used
@@ -94,18 +215,35 @@ select stores: the caller supplies one store per configured authority and
 producer, preserving host choice between filesystem, in-memory Browser/Wasm,
 or another package-owned storage implementation.
 
-This ownership correction preserves the existing `IDisposable` lifetime and
-async operation shapes. It does not define borrowing or transfer across an
-`await` boundary; [#6544](https://github.com/richlander/dotnet-inspect/issues/6544)
-owns that contract. Repository-wide absence of another issuer or the retired
-House-named API remains unverified by user choice.
+The adopted operation lease uses the shared marker defaults for direct
+construction, return transfer, ordinary resource parameters, and synchronous
+`Dispose`. The root lease's required `DisposeAsync`, operation authorization,
+root-to-operation registration, private-child effects, and caller-owned client
+release ordering require the Package Source external ownership model until
+dedicated metadata roles are separately justified. Current C# does not prevent
+aliasing, use after transfer, or unobserved async settlement; focused Release
+gates and generalized Resource Lifecycle Analysis cover the supported flow set
+and report unsupported flow as incomplete.
 
-`PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient`
-and
+Repository-wide absence of another issuer or the retired House-named API
+remains unverified by user choice.
+
+`PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient`,
 `PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation`,
-together with the configured payload and PackageHouse execution suites, are
-the Release gates for retirement, caller-owned resources, candidate identity,
-exact source association, discovery completeness, and payload settlement.
+`PackageSourceSettlementLeaseRetirementRevokesAuthorizationButAllowsIssuedOperation`,
+`PackageSourceSettlementLeaseIssuanceCannotRacePastSettlement`,
+`PackageSourceSettlementLeaseSettlementWaitsForIssuedOperations`,
+`PackageSourceSettlementLeaseSettlementLeavesClientsCallerOwnedAfterQuiescence`,
+`PackageSourceOperationLeaseOwnsOneContextAcrossSequentialSteps`,
+`PackageSourceOperationLeaseRejectsForeignGenerationEvidence`,
+`PackageSourceOperationAsyncStateOwnsChildInsteadOfLeaseBorrow`,
+`PackageSourceOperationLeaseRejectsReleaseWhileChildIsActive`,
+`PackageSourceOperationLeaseCancellationSettlesChildBeforeRelease`, and
+`PackageSourceOperationLeaseFailureSettlesChildBeforeRelease` are the Release
+gates for root settlement, caller-owned resources, operation ownership,
+candidate identity, exact source association, discovery completeness, and
+payload settlement. The PackageHouse and Platform owners add their own
+transfer-and-release gates.
 `PackageSourceSettlementLeaseAcquiresPayloadAndRetiresWithoutDisposingClient`
 additionally gates retained generation, producer, and origin. Existing
 `ConfiguredPayloadAcquisitionTests` remain the Release gates for cache/source
@@ -420,8 +558,8 @@ precedence within one tier. A cached payload may answer before an uncached
 authority is probed only when its retained authority is currently authorized
 for that coordinate.
 
-`PackageSourceSettlementLease.AcquireCandidatePayloadAsync` owns this
-candidate-bound operation. Its result carries the exact
+`PackageSourceOperationLease.AcquireCandidatePayloadAsync` owns this
+candidate-bound step. Its result carries the exact
 `PackageSourceResultIdentity` that produced or authorized the payload; a
 higher consumer does not reconstruct source or producer identity from the
 configured endpoint or payload text. Desktop composition delegates its
@@ -439,10 +577,11 @@ related package or symbol endpoint on another.
 
 ## Shared operation context and payload lifetime
 
-One public package operation creates or consumes one `NuGetOperationContext`
-and passes that exact instance to every selected authority and every route,
-including local routes. A new source, retry, compatibility request, redirect,
-or route fallback creates no new operation ceiling.
+One package-source operation lease owns one `NuGetOperationContext` and passes
+that exact instance to every selected authority and every route, including
+local routes. A new source, retry, compatibility request, redirect, or route
+fallback creates no new operation ceiling. Public adopted operations do not
+accept another context beside the lease.
 
 A request deadline can fail one route and permit another applicable route or
 authorized authority while time remains. An operation-ceiling timeout is
@@ -454,17 +593,18 @@ typed operation timeout.
 Caller cancellation remains cancellation carrying the original caller token.
 It does not become a source failure, partial result, or operation timeout.
 
-When a source operation returns a payload stream, the caller owns that stream
-and must keep the shared context alive until consumption or disposal
-completes. The package owner does not dispose an externally supplied context.
-It disposes only a context it created, and only after every owned source
-operation and payload stream has settled.
+Lower source clients may return a payload stream under the shared context. The
+package-source child work lease owns that stream and consumes or disposes it
+before the child settles. A successful package payload result contains
+caller-owned retained content, not the response stream or operation context.
+Releasing the parent operation lease disposes its context only after the
+current child has settled.
 
 The gates are
 `OperationContext_RequestTimeoutMayFailOverWithinRemainingCeiling`,
 `OperationContext_OperationTimeoutIsTerminalAcrossAuthorities`,
 `OperationContext_CallerCancellationRetainsOriginalIdentity`, and
-`PayloadLifetime_SharedContextOutlivesReturnedStream`.
+`PayloadLifetime_ChildWorkLeaseSettlesStreamBeforeOperationRelease`.
 
 ## Candidate and payload stores
 
