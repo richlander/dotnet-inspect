@@ -65,6 +65,8 @@ internal sealed record CliRowSelectionPreparation
 
     public IReadOnlyList<string>? Arguments { get; init; }
 
+    public IReadOnlyList<int>? ArgumentPositions { get; init; }
+
     public IReadOnlyList<Option>? PresenceOptions { get; init; }
 
     public bool HasCompatibilityError { get; init; }
@@ -156,13 +158,15 @@ internal static class CliRowSelectionCommandRegistry
             return CliRowSelectionPreparation.Inactive(
                 result.ParseResult) with
             {
-                Arguments = result.Arguments
+                Arguments = result.Arguments,
+                ArgumentPositions = result.ArgumentPositions
             };
         }
 
         return PrepareLowering(result, adoption) with
         {
             Arguments = result.Arguments,
+            ArgumentPositions = result.ArgumentPositions,
             PresenceOptions =
             [
                 adoption.Bindings.Head,

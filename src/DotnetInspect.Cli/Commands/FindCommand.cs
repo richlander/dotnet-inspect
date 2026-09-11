@@ -322,6 +322,14 @@ public class FindCommand
                 out IReadOnlyList<PackageAssemblyLiteralUseRow>
                     selectedMatchRows))
         {
+            view = PackageAssemblyQuerySections.WithSelectedMatches(
+                plan,
+                view,
+                []);
+            WriteAssemblyQueryOutput(
+                view,
+                options with { Count = false });
+            WriteAssemblyQueryDiagnostics(events);
             return 1;
         }
         view = PackageAssemblyQuerySections.WithSelectedMatches(
@@ -330,6 +338,14 @@ public class FindCommand
             selectedMatchRows);
         WriteAssemblyQueryOutput(view, options);
 
+        WriteAssemblyQueryDiagnostics(events);
+
+        return view.FailureCount == 0 ? 0 : 1;
+    }
+
+    private static void WriteAssemblyQueryDiagnostics(
+        IReadOnlyList<PackageAssemblyQueryEvent> events)
+    {
         foreach (PackageAssemblyQueryEvent.AcquisitionFailed failed
             in events.OfType<PackageAssemblyQueryEvent.AcquisitionFailed>())
         {
@@ -337,8 +353,6 @@ public class FindCommand
                 $"{failed.Value.Coordinate.PackageId}@{failed.Value.Coordinate.Version}: "
                 + failed.Value.Message);
         }
-
-        return view.FailureCount == 0 ? 0 : 1;
     }
 
     internal static void WriteAssemblyQueryOutput(
@@ -514,6 +528,7 @@ public class FindCommand
                 out IReadOnlyList<PackageProfileEvent> displayEvents,
                 out int packageRowCount))
         {
+            WritePackageProfileDiagnostics(displayEvents, summary);
             return 1;
         }
         if (options.Count

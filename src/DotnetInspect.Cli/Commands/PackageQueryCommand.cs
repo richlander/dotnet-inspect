@@ -50,6 +50,10 @@ internal static class PackageQueryCommand
         PackageQueryPlan plan = options.PackageQuery!.Plan;
         var events = await PackageQuery.ExecuteToArrayAsync(
             source, plan, contentProvider, cancellationToken).ConfigureAwait(false);
+        PackageQuerySummary summary = events
+            .OfType<PackageQueryEvent.Completed>()
+            .Single()
+            .Value;
         if (!FindCommand.TrySelectRowsPreservingContext(
                 options.RowSelection,
                 events,
@@ -59,12 +63,9 @@ internal static class PackageQueryCommand
                 out IReadOnlyList<PackageQueryEvent> displayEvents,
                 out int packageRowCount))
         {
+            WriteDiagnostics(displayEvents, summary);
             return 1;
         }
-        PackageQuerySummary summary = events
-            .OfType<PackageQueryEvent.Completed>()
-            .Single()
-            .Value;
         bool sourceComplete = summary.Completion is
             PackageQueryCompletionKind.Exhausted
             or PackageQueryCompletionKind.GalleryResponseComplete

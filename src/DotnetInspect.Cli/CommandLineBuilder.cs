@@ -250,7 +250,8 @@ public static class CommandLineBuilder
         CliExecutionBoundPreparation executionBound =
             CliExecutionBoundCommandRegistry.Prepare(
                 parseResult,
-                effectiveArguments);
+                effectiveArguments,
+                rowSelection.ArgumentPositions);
 
         // The adopted format guard retains its precedence over positional validation.
         if (rowSelection.HasCompatibilityError)

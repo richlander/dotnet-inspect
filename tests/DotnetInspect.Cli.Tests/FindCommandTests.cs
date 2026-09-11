@@ -1390,6 +1390,29 @@ public class FindCommandIntegrationTests
     }
 
     [Fact]
+    public void PackageProfileBareHead_PreservesExecutionBoundDiagnosticPosition()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Azure",
+                "-1",
+                "--take=nope",
+                "--rows=bad",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--take requires a positive whole number.",
+            error);
+        Assert.DoesNotContain(
+            "--rows requires",
+            error);
+    }
+
+    [Fact]
     public void PackageProfileRepeatedTake_UsesComposedConflictDiagnostic()
     {
         var (exit, output, error) = RunCli(

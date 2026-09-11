@@ -83,6 +83,7 @@ internal readonly record struct CliRowSelectionScopeDependentArgument(
 internal sealed class CliRowSelectionArgumentResult
 {
     private readonly ReadOnlyCollection<string> _arguments;
+    private readonly ReadOnlyCollection<int> _argumentPositions;
     private readonly ReadOnlyCollection<ParseError> _parseErrors;
     private readonly ReadOnlyCollection<CliRowSelectionArgumentFailure> _argumentFailures;
     private readonly ReadOnlyCollection<int> _requiredValuePositions;
@@ -93,6 +94,7 @@ internal sealed class CliRowSelectionArgumentResult
 
     public CliRowSelectionArgumentResult(
         string[] arguments,
+        int[] argumentPositions,
         ParseResult parseResult,
         IReadOnlyList<ParseError> parseErrors,
         IReadOnlyList<int> requiredValuePositions,
@@ -104,6 +106,7 @@ internal sealed class CliRowSelectionArgumentResult
         int? selectedCommandPosition)
     {
         ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(argumentPositions);
         ArgumentNullException.ThrowIfNull(parseResult);
         ArgumentNullException.ThrowIfNull(parseErrors);
         ArgumentNullException.ThrowIfNull(argumentFailures);
@@ -111,9 +114,17 @@ internal sealed class CliRowSelectionArgumentResult
         ArgumentNullException.ThrowIfNull(shadowedRowOptionPositions);
         ArgumentNullException.ThrowIfNull(scopeDependentArguments);
         ArgumentNullException.ThrowIfNull(occurrences);
+        if (arguments.Length != argumentPositions.Length)
+        {
+            throw new ArgumentException(
+                "Every normalized argument must retain one original position.",
+                nameof(argumentPositions));
+        }
 
         _arguments =
             Array.AsReadOnly((string[])arguments.Clone());
+        _argumentPositions =
+            Array.AsReadOnly((int[])argumentPositions.Clone());
         _parseErrors =
             Array.AsReadOnly(parseErrors.ToArray());
         _argumentFailures =
@@ -132,6 +143,9 @@ internal sealed class CliRowSelectionArgumentResult
     }
 
     public IReadOnlyList<string> Arguments => _arguments;
+
+    public IReadOnlyList<int> ArgumentPositions =>
+        _argumentPositions;
 
     public ParseResult ParseResult { get; }
 
@@ -293,6 +307,7 @@ internal static class CliRowSelectionArgumentAdapter
         {
             return new(
                 normalized.Arguments,
+                normalized.Positions,
                 authoritativeParse,
                 parseErrors,
                 requiredValuePositions,
@@ -315,6 +330,7 @@ internal static class CliRowSelectionArgumentAdapter
                     .ToHashSet());
         return new(
             normalized.Arguments,
+            normalized.Positions,
             authoritativeParse,
             parseErrors,
             requiredValuePositions,

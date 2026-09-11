@@ -57,10 +57,18 @@ internal static class CliExecutionBoundCommandRegistry
 
     public static CliExecutionBoundPreparation Prepare(
         ParseResult parseResult,
-        IReadOnlyList<string> arguments)
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<int>? argumentPositions = null)
     {
         ArgumentNullException.ThrowIfNull(parseResult);
         ArgumentNullException.ThrowIfNull(arguments);
+        if (argumentPositions is not null
+            && argumentPositions.Count != arguments.Count)
+        {
+            throw new ArgumentException(
+                "Every argument must have one source position.",
+                nameof(argumentPositions));
+        }
 
         if (!Adoptions.TryGetValue(
                 parseResult.CommandResult.Command,
@@ -86,7 +94,8 @@ internal static class CliExecutionBoundCommandRegistry
                     index + 1 < arguments.Count
                         ? arguments[index + 1]
                         : null;
-                occurrences.Add((index, value));
+                occurrences.Add(
+                    (argumentPositions?[index] ?? index, value));
                 index++;
                 continue;
             }
@@ -99,7 +108,9 @@ internal static class CliExecutionBoundCommandRegistry
                     StringComparison.Ordinal))
             {
                 occurrences.Add(
-                    (index, argument[(optionName.Length + 1)..]));
+                    (
+                        argumentPositions?[index] ?? index,
+                        argument[(optionName.Length + 1)..]));
             }
         }
 

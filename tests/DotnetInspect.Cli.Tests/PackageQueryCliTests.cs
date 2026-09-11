@@ -235,6 +235,33 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public async Task StrictWindowFailure_RetainsCandidateBoundDisclosure()
+    {
+        using var source = Source(out var fixture);
+        Assert.True(PackageQueryOptions.TryCreate("Contoso.",
+            ["facet=package.query.has-dependencies"], false, 1, null,
+            out var query, out var error), error.ToString());
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options(PackageQuery.HasDependenciesFacetId) with
+                {
+                    PackageQuery = query,
+                    RowSelection = RowSelectionIntent<string>.Create(
+                        [RowSelectionIntentOperation<string>.Window(1, 2)]),
+                },
+                source,
+                null));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(1, fixture.ManifestRequests);
+        Assert.Contains(
+            "Find row selection stage 1",
+            result.Error);
+        Assert.Contains("CandidateLimitReached", result.Error);
+    }
+
+    [Fact]
     public async Task PartialManifestFailure_RetainsMatchesAndNonzeroExit()
     {
         using var source = Source(out var fixture);

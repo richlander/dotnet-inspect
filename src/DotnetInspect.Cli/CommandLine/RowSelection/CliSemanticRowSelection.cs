@@ -64,7 +64,10 @@ internal static class CliSemanticRowSelection
                 formatFailure,
                 out IReadOnlyList<T> selectedRows))
         {
-            selectedEvents = [];
+            selectedEvents =
+            [
+                .. events.Where(item => !isRow(item)),
+            ];
             return false;
         }
 
