@@ -206,7 +206,9 @@ activation.
 `ActivateCurrentPlatformLibrary` preserves the active Workspace and invokes
 the exact host-local Platform action. It never represents Platform as a
 Package, manufactures package ancestry, or promotes a package merely because
-the Library has a package counterpart.
+the Library has a package counterpart. A Platform Library that is already
+realized remains on this Browser-local action path when selected again; it
+does not become a shared `NavigateCurrent` subject.
 
 Shared Scope and Navigation currently have no Platform structural subject.
 Unifying Platform Library activation with the shared
@@ -333,6 +335,8 @@ supersession, and visible failure.
 The model checks:
 
 - same-name Platform and package candidates retain different coverage;
+- a realized Platform Library selected again retains its exact Browser-local
+  Platform action;
 - every overlapping registration contribution remains in the exact ordered
   coverage projection;
 - package-origin Library focus consumes the exact retained or newly issued
@@ -393,6 +397,7 @@ owners.
 | Select a package matched by a current package-prefix registration | The exact package becomes current membership and focus is requested there |
 | Select a package-origin Library covered only by an exact-Library registration | Its exact enclosing package is admitted in the current Workspace; no other package asset is inferred as the destination |
 | Select the Platform and package forms of `System.Text.Json` with only Platform registered | The Platform row preserves the Workspace; the package row creates a new Workspace |
+| Select the Platform `System.Text.Json` Library again after it is realized | The exact Browser Platform action runs again; shared Navigation is not substituted |
 | Add a package-prefix contribution covering `System.Text.Json` and obtain fresh results | The exact package row now preserves the current Workspace; the Platform row remains distinct |
 | Remove or replace the covering registration before selection or completion | The stale action does not mutate or publish and reports its exact stale outcome |
 | Scope commits a selected Package and Navigation then fails | Membership remains committed; focus failure is visible; no fallback Workspace is created |

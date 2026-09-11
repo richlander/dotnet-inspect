@@ -23,6 +23,7 @@ StaleFreshPublication == "StaleFreshPublication"
 WrongLibraryOccurrence == "WrongLibraryOccurrence"
 PublishFailedFreshActivation == "PublishFailedFreshActivation"
 DualCurrentAndFreshPublication == "DualCurrentAndFreshPublication"
+RepeatPlatformNavigation == "RepeatPlatformNavigation"
 
 Mutations ==
     {NoMutation,
@@ -35,7 +36,8 @@ Mutations ==
      StaleFreshPublication,
      WrongLibraryOccurrence,
      PublishFailedFreshActivation,
-     DualCurrentAndFreshPublication}
+     DualCurrentAndFreshPublication,
+     RepeatPlatformNavigation}
 
 ASSUME Mutation \in Mutations
 
@@ -44,12 +46,14 @@ CoveredPackageScenario == "CoveredPackage"
 LibraryScenario == "Library"
 ExactLibraryScenario == "ExactLibrary"
 OverlapScenario == "Overlap"
+RepeatPlatformScenario == "RepeatPlatform"
 Scenarios ==
     {SourcePairScenario,
      CoveredPackageScenario,
      LibraryScenario,
      ExactLibraryScenario,
-     OverlapScenario}
+     OverlapScenario,
+     RepeatPlatformScenario}
 
 ASSUME Scenario \in Scenarios
 
@@ -222,16 +226,19 @@ PlanFor(occurrences, realizedLibraries, coverage, destination) ==
     IF /\ destination \in PackageDestinations
        /\ OccurrenceFor(occurrences, destination) # NoOccurrence
     THEN NavigateCurrent
+    ELSE IF destination = PlatformJsonLibrary
+    THEN
+        IF /\ Mutation = RepeatPlatformNavigation
+           /\ destination \in realizedLibraries
+        THEN NavigateCurrent
+        ELSE IF Len(coverage) > 0
+        THEN ActivateCurrentPlatform
+        ELSE UnavailableLibrary
     ELSE IF destination \in realizedLibraries
     THEN NavigateCurrent
     ELSE IF /\ destination = PackageJsonLibrary
             /\ OccurrenceFor(occurrences, destination) # NoOccurrence
     THEN ActivateCurrentPackageLibrary
-    ELSE IF destination = PlatformJsonLibrary
-    THEN
-        IF Len(coverage) > 0
-        THEN ActivateCurrentPlatform
-        ELSE UnavailableLibrary
     ELSE IF destination = PackageJsonLibrary
     THEN
         IF Len(coverage) > 0
@@ -265,6 +272,8 @@ AllowedDestination(token, destination) ==
         IF token = 1
         THEN destination = PackageJsonLibrary
         ELSE destination = ExistingPackage
+      [] Scenario = RepeatPlatformScenario ->
+        destination = PlatformJsonLibrary
       [] OTHER -> FALSE
 
 AllowedReplacementProfile(profile) ==
@@ -272,6 +281,7 @@ AllowedReplacementProfile(profile) ==
       [] Scenario = LibraryScenario -> profile = 3
       [] Scenario = ExactLibraryScenario -> profile = 2
       [] Scenario = OverlapScenario -> profile = 3
+      [] Scenario = RepeatPlatformScenario -> profile = 2
       [] OTHER -> profile \in {2, 3}
 
 NoAttempt ==
@@ -1113,6 +1123,12 @@ ExactSourceIdentityControlsClassification ==
                   => attempts[token].plan = UnavailableLibrary)
         ELSE TRUE
 
+PlatformSelectionsUsePlatformAction ==
+    \A token \in Tokens :
+        /\ attempts[token].state # Unused
+        /\ attempts[token].destination = PlatformJsonLibrary
+        => attempts[token].plan = ActivateCurrentPlatform
+
 CapturedCoverageIsCompleteAndOrdered ==
     \A token \in Tokens :
         attempts[token].state # Unused
@@ -1214,6 +1230,12 @@ NoPlatformActivation ==
     \A token \in Tokens :
         ~(/\ attempts[token].plan = ActivateCurrentPlatform
           /\ results[token] = PlatformActivated)
+
+NoRepeatedPlatformActivation ==
+    ~(/\ attempts[1].destination = PlatformJsonLibrary
+      /\ results[1] = PlatformActivated
+      /\ attempts[2].destination = PlatformJsonLibrary
+      /\ results[2] = PlatformActivated)
 
 NoFreshWorkspacePublication ==
     \A token \in Tokens :
