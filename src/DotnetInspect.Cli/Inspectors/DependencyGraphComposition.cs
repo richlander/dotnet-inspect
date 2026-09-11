@@ -222,6 +222,9 @@ internal sealed class DependencyGraphComposition
                 RootOccurrences = [.. distances.Keys.Order()],
                 MinimumDepth = distances.Values.Min(),
                 RootDistances = distances,
+                Resolution = MergeResolution(
+                    previous.Resolution,
+                    resolution),
             };
             return;
         }
@@ -229,6 +232,30 @@ internal sealed class DependencyGraphComposition
         _edgeIds.Add(identity, id);
         _edges.Add(new(id, source, target, relationship, [.. distances.Keys.Order()],
             distances.Values.Min(), resolution, evidence) { RootDistances = distances });
+    }
+
+    private static DependencyGraphResolutionState MergeResolution(
+        DependencyGraphResolutionState left,
+        DependencyGraphResolutionState right)
+    {
+        if (left == right)
+            return left;
+        if (left == DependencyGraphResolutionState.Resolved
+            || right == DependencyGraphResolutionState.Resolved)
+        {
+            return DependencyGraphResolutionState.Resolved;
+        }
+        if (left == DependencyGraphResolutionState.Rejected
+            || right == DependencyGraphResolutionState.Rejected)
+        {
+            return DependencyGraphResolutionState.Rejected;
+        }
+        if (left == DependencyGraphResolutionState.Unavailable
+            || right == DependencyGraphResolutionState.Unavailable)
+        {
+            return DependencyGraphResolutionState.Unavailable;
+        }
+        return DependencyGraphResolutionState.Declared;
     }
 
     private static InertString Field(string value) => new(TextPolicy.Field, value);

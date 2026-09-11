@@ -330,29 +330,39 @@ public sealed class UnifiedDependsCommandTests : IDisposable
     [Fact]
     public async Task SharedLibraryRelationshipsMergeRootReachability()
     {
-        var result = await Run(
-            "--library", "System.Linq",
-            "--library", "System.Collections",
-            "--depth", "2",
-            "--json");
+        foreach (string[] roots in new[]
+        {
+            new[] { "System.Linq", "System.Collections" },
+            new[] { "System.Collections", "System.Linq" },
+        })
+        {
+            var result = await Run(
+                "--library", roots[0],
+                "--library", roots[1],
+                "--depth", "2",
+                "--json");
 
-        Assert.Equal(0, result.ExitCode);
-        using var json = JsonDocument.Parse(result.Output);
-        JsonElement shared = Assert.Single(
-            json.RootElement.GetProperty("dependency_graph")
-                .GetProperty("edges")
-                .EnumerateArray(),
-            edge =>
-                edge.GetProperty("source_identity")
-                    .GetProperty("library")
-                    .GetProperty("name").GetString()
-                    == "System.Collections"
-                && edge.GetProperty("target_identity")
-                    .GetProperty("library")
-                    .GetProperty("name").GetString()
-                    == "System.Private.CoreLib");
-        Assert.Equal(2, shared.GetProperty("root_distances")
-            .EnumerateObject().Count());
+            Assert.Equal(0, result.ExitCode);
+            using var json = JsonDocument.Parse(result.Output);
+            JsonElement shared = Assert.Single(
+                json.RootElement.GetProperty("dependency_graph")
+                    .GetProperty("edges")
+                    .EnumerateArray(),
+                edge =>
+                    edge.GetProperty("source_identity")
+                        .GetProperty("library")
+                        .GetProperty("name").GetString()
+                        == "System.Collections"
+                    && edge.GetProperty("target_identity")
+                        .GetProperty("library")
+                        .GetProperty("name").GetString()
+                        == "System.Private.CoreLib");
+            Assert.Equal(
+                "resolved",
+                shared.GetProperty("resolution").GetString());
+            Assert.Equal(2, shared.GetProperty("root_distances")
+                .EnumerateObject().Count());
+        }
     }
 
     [Fact]
