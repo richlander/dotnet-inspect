@@ -801,6 +801,20 @@ public sealed class PackageHouseContractTests
             operation.Identity,
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Acquire).Identity);
+
+        PackageHouseOperation maximum = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Settle,
+            NuGetOperationContext.MaximumTimeout,
+            NuGetOperationContext.MaximumTimeout);
+        Assert.Equal(
+            NuGetOperationContext.MaximumTimeout,
+            maximum.RequestTimeout);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle,
+                NuGetOperationContext.MaximumTimeout
+                    + TimeSpan.FromTicks(1),
+                NuGetOperationContext.MaximumTimeout));
     }
 
     [Fact]
