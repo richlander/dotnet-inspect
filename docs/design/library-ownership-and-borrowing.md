@@ -6,7 +6,7 @@ This document is the normative owner for the lifetime, reference, operation
 authority, and synchronous content-borrowing contract of one realized managed
 Library.
 
-It expands step 10 of
+It expands step 13 of
 [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md) and is
 tracked end to end by
 [#6621](https://github.com/richlander/dotnet-inspect/issues/6621).
@@ -180,7 +180,7 @@ or partially transferred ownership. Failure while accepting multiple children
 settles already accepted children and returns or leaves unaccepted children
 with the caller according to the concrete consuming API.
 
-The concrete artifact child contract is blocked on step 9 of #6544. This design
+The concrete artifact child contract is blocked on step 12 of #6544. This design
 does not bless the current `ArtifactContentReference` shape that captures an
 `ArtifactQueryLease`. The Library implementation must consume the future
 Artifact-owner-issued ownership and borrowing contract instead.
@@ -423,7 +423,7 @@ The host-neutral contract and implementation belong in target
 The project may depend on:
 
 - `Inspector.Resources`;
-- the Artifact contract floor after #6544 step 9;
+- the Artifact contract floor after #6544 step 12;
 - `ILInspector.MetadataPrimitives` for exact assembly identity; and
 - `DotnetInspector.SourceSelection` for the owner-issued exact source
   coordinate.
@@ -451,7 +451,7 @@ focused slices:
 
 1. lock this Library ownership and borrowing design;
 2. implement `DotnetInspector.Libraries` contracts and Release declaration
-   gates after #6544 step 9;
+   gates after #6544 step 12;
 3. implement owner construction, operation transfer, scoped content snapshots,
    release, and pathological `System.Text.Json` gates;
 4. adopt the contract in PackageHouse;
@@ -462,7 +462,7 @@ focused slices:
 
 Each adoption changes one owner and retires that owner's consumer-specific
 ready wrapper or hidden captured lease. The implementation slices update
-the corresponding #6544 steps 13 through 15, 17, and 18 without combining
+the corresponding #6544 steps 16 through 18, 20, and 21 without combining
 those owners into one PR.
 
 The direct product result is DocumentationHouse reading the compiled XML

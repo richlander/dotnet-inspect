@@ -128,7 +128,7 @@ test("package options retain prerelease without Gallery controls", () => {
   for (const request of [
     null,
     createQueryRequest("Newtonsoft.Json"),
-    createQueryRequest("", "gallery"),
+    createQueryRequest("Newtonsoft.*"),
   ]) {
     const html = renderPackageQueryView({
       state: {
@@ -374,7 +374,7 @@ test("query context renders once while package summaries remain on their cards",
 
   const html = renderPackageQueryView({
     state: {
-      request: createQueryRequest("", "gallery"),
+      request: createQueryRequest("Contoso.*"),
       outcome: appendRows(emptyOutcome(), [first, second]),
     },
     availableFacets: [],
@@ -393,12 +393,12 @@ test("query context renders once while package summaries remain on their cards",
     /<article class="query-row">[\s\S]*Selected by producer ranking\./);
 });
 
-test("Gallery completion text retains the finite bound and estimate with or without rows", () => {
+test("bounded prefix completion text remains visible with or without rows", () => {
   for (const rows of [[], [row("Producer.Result")]]) {
-    const reason = "one finite Gallery response (capacity 200 candidates); acquired 3 candidates; estimated total hits: 0 (estimate only)";
+    const reason = "first 20 matches";
     const html = renderPackageQueryView({
       state: {
-        request: createQueryRequest("", "gallery"),
+        request: createQueryRequest("Contoso.*"),
         outcome: withCompletion(appendRows(emptyOutcome(), rows), {
           kind: "bounded",
           reason,
@@ -658,12 +658,12 @@ test("assembly rows carry the opaque Root request on workspace opening", () => {
   assert.match(html, /1 assembly match · streaming…/);
 });
 
-test("Gallery rows ignore Root requests and keep coordinate opening", () => {
+test("package rows ignore Root requests and keep coordinate opening", () => {
   const html = renderPackageQueryView({
     state: {
       request: createQueryRequest("Contoso"),
       outcome: appendRows(emptyOutcome(), [{
-        ...row("Contoso.Gallery"),
+        ...row("Contoso.Package"),
         rootRequest: "assembly-only-root",
       }]),
     },
@@ -674,7 +674,7 @@ test("Gallery rows ignore Root requests and keep coordinate opening", () => {
 
   assert.match(
     html,
-    /data-query-row-open="Contoso\.Gallery" data-query-row-version="1\.0\.0"/);
+    /data-query-row-open="Contoso\.Package" data-query-row-version="1\.0\.0"/);
   assert.doesNotMatch(html, /data-query-root-request/);
 });
 

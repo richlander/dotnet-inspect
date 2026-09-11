@@ -11,11 +11,14 @@ The user approved the paired goal:
 1. define one coherent ownership and borrowing contract; and
 2. ensure dotnet-inspect resource-lifecycle analysis can discover violations.
 
-The protocol defines the shared lifecycle vocabulary and declaration boundary.
-It does not migrate any existing owner in this document. Analysis is the first
-adopter through a separate focused effort, using the existing ArrayPool
-ownership flow and Resource Triage product path as its implementation and
-corpus baseline. Artifact, Library, PackageHouse, PlatformHouse, SourceHouse,
+The protocol defines the shared lifecycle vocabulary and the semantic
+requirements declarations must express. The
+[Resource Effect Language](resource-effect-language.md) separately owns the
+portable attribute and JSON language, structural API matching, declaration
+validation, and normalization boundary. Analysis is the first adopter through
+separate focused efforts, using the existing ArrayPool ownership flow and
+Resource Triage product path as its implementation and corpus baseline.
+Artifact, Library, PackageHouse, PlatformHouse, SourceHouse,
 DocumentationHouse, Workspace, CLI, and Browser/Wasm adoption remain
 independently reviewed steps in the tracker.
 
@@ -64,8 +67,7 @@ The owner defines:
 - the explicit residual risk when current C# cannot prevent a violation;
 - the boundary between synchronous release and required asynchronous
   settlement;
-- the owner-neutral declaration sources normalized for Analysis;
-- the minimum ownership effects every declaration must expose;
+- the semantic ownership effects a declaration must be able to express;
 - the requirement that supported violations and incomplete analysis remain
   visible; and
 - the correspondence to future compiler-supported `IResource`, `Drop`,
@@ -205,7 +207,7 @@ manual mechanics.
 | Authorization | Issuer-provided permission to request or issue a lease. It is not itself temporary use of the resource. | Yes |
 | Lease | The uniquely owned value carrying temporary authority and the obligation to release or settle it. | Yes |
 | Borrow | Temporary non-owning access whose lifetime is bounded by a live owner or lease. | Yes, but never independently |
-| Snapshot callback | One synchronous read-only borrow whose scoped view is available only during an owner-controlled callback. The callback result is the snapshot; no prior copy or retained generation is implied. | Only during the callback |
+| Snapshot callback | One synchronous read-only borrow whose scoped view is available only during an owner-controlled callback. The callback result is the snapshot; the owner neither copies the complete source before the callback nor substitutes another result afterward. | Only during the callback |
 | Reference | Resource identity and correspondence used to address a resource under separately supplied authority. | No |
 | Receipt | Durable evidence of a completed decision, transfer, or settlement. | No |
 | Transfer | Movement of the release obligation from one owner to another. | Yes |
@@ -510,20 +512,27 @@ The current-C# contract floor uses:
 
 The contract is:
 
-1. the owner begins one synchronous read-only borrow;
+1. the owner begins one synchronous read-only borrow over the live resource
+   without first materializing an independent complete representation;
 2. the owner constructs a ref-like snapshot view and invokes the callback
    exactly once;
 3. the snapshot view exposes the borrowed resource only inside that callback;
 4. the callback completes synchronously and returns one result;
-5. the owner ends the borrow before returning that result; and
+5. the owner ends the borrow before returning that result directly—preserving
+   object identity for reference results and ordinary return-value transport
+   for value results, with no second producer, clone, or projection; and
 6. exceptional callback completion also ends the borrow before propagating the
    failure.
 
 The callback result is the snapshot. The owner does not first copy the complete
 resource, retain a point-in-time generation, or create a heap-escapable snapshot
-object. A string produced by synchronous serialization is one detached result;
-an immutable projection, hash, count, or independently owned value may be
-another.
+object. It also does not create a replacement for the callback result after the
+borrow ends. A string produced by synchronous serialization is one detached
+result; an immutable projection, hash, count, or independently owned value may
+be another.
+These are purpose-preserving correctness requirements, not optional
+performance guidance. Violating either may conserve every ownership obligation
+while still invalidating the snapshot contract.
 
 The generic result channel is necessary for those useful results. It also makes
 the current enforcement limit visible: when the borrowed resource is a class,
@@ -607,7 +616,7 @@ enforcement and does not make the annotated code safe by itself.
 At the current repository head, only compiler ref safety, explicit
 `using`/`await using`, resource-specific runtime checks, and API-specific
 Resource Triage are implemented. The generalized declaration-driven Analysis
-column is the planned result of tracker steps 2 through 5, not a current
+column is the planned result of tracker steps 2 through 8, not a current
 guarantee.
 
 The current enforcement plan is therefore layered:
@@ -676,86 +685,16 @@ remain Artifact-owned.
 ## Declarative ownership contract
 
 Analysis consumes one normalized ownership contract independent of how the
-contract was declared.
+contract was encoded. The
+[Resource Effect Language](resource-effect-language.md) owns the encoding,
+source composition, structural matching, validation, versioning, and
+normalization mechanics.
 
-### Declaration sources
-
-The initial architecture supports five source families:
-
-1. configured fully qualified ownership attribute names, initially including
-   a resource-type marker and a consuming-receiver method marker;
-2. future canonical compiler/runtime ownership metadata, including resource
-   interfaces and receiver effects;
-3. built-in models for framework APIs such as `ArrayPool<T>`; and
-4. the host-neutral snapshot callback interface and its ref-like view; and
-5. external contract manifests for APIs that cannot carry an attribute or
-   need effects beyond the marker defaults.
-
-All five normalize to the same semantic model before ownership-flow analysis.
-Analysis never branches its lifecycle rules by declaration source.
-
-The configured attribute mechanism matches metadata names and assigns each
-name one declared role. Repository-owned resources may use
-`Inspector.Resources.ResourceOwnershipAttribute` and consuming instance
-methods may use
-`Inspector.Resources.ConsumesResourceReceiverAttribute`. External resources
-may use configured fully qualified attribute names instead. Analysis does not
-require a dependency on the declaring assembly and does not load inspected
-code.
-
-The initial attribute vocabulary is deliberately small:
-
-- a resource marker opts a type into the proposal-compatible defaults; and
-- a consuming-receiver marker changes one instance receiver from its default
-  borrow into ownership transfer.
-
-The consuming-receiver marker is Analysis metadata for a deliberate extension,
-not a claim that the pinned C# proposal or current compiler recognizes that
-receiver effect.
-
-APIs that need other non-default parameter, factory, release, wrapper, or
-borrow effects use a built-in model or external manifest until another
-metadata role is separately justified.
-
-### Marker defaults
-
-For a marker-only resource type, normalization uses proposal-compatible
-defaults:
-
-- direct construction produces ownership;
-- a direct resource return transfers ownership to the caller;
-- an ordinary resource parameter consumes ownership;
-- an ordinary instance receiver is a mutable borrow;
-- a receiver carrying recognized compiler or explicit-model read-only-borrow
-  metadata is a read-only borrow;
-- a receiver carrying the configured consuming-receiver marker consumes
-  ownership;
-- current CLR `in`, `ref`, `out`, `ref` return, and `ref readonly` return shapes
-  require an explicit built-in, manifest, or future compiler model because the
-  ref kind alone does not establish class-target mutability, ownership
-  replacement, transfer-on-success, or the owner-derived lifetime;
-- `Dispose` is the release when the type implements only `IDisposable`;
-- `DisposeAsync` is the required release when the type implements
-  `IAsyncDisposable`;
-- implementing both disposal interfaces is ambiguous until an explicit model
-  declares whether either terminal is sufficient or async settlement is
-  required; and
-- a span or ref-like value returned from a borrowed receiver inherits that
-  receiver's borrow lifetime.
-
-If the marker defaults cannot identify a terminal release, identify an
-acquisition, or resolve an ambiguous effect, the declaration is incomplete.
-Analysis does not treat the type as clean.
-
-The marker name is configuration, not trust. An analyzed assembly can make an
-incorrect claim; the declaration must still be structurally valid and its IL
-must still satisfy the normalized lifecycle.
-
-### Normalized effects
-
-The declaration layer supplies Analysis with:
+This protocol requires that the language can express:
 
 - exact resource type identity;
+- simultaneous obligations from multiple admitted resource kinds in one body,
+  including a declared owner that acquires or retains an ArrayPool obligation;
 - acquisition operations;
 - ownership-bearing return and field shapes;
 - mutable-borrowed, read-only-borrowed, and consuming receivers;
@@ -770,8 +709,10 @@ The declaration layer supplies Analysis with:
   correctness-sensitive order; and
 - declaration failures or unsupported effects.
 
-Analysis owns how those effects are represented internally and how far it can
-prove them.
+The effect-language owner decides how those concepts become machine-readable.
+Analysis owns how far it can prove them from metadata and IL. A declaration
+does not provide compiler enforcement and is not proof that its implementation
+is correct.
 
 No ownership declaration source infers ownership from type names such as `Lease`,
 `Owner`, or `Resource`, or from method names such as `Rent`, `Return`,
@@ -788,6 +729,10 @@ in metadata and IL. The first Analysis adoption must be able to classify:
 - use, borrow, release, or transfer after release;
 - use, borrow, release, or transfer after ownership moved;
 - an owning copy or alias where the declaration requires uniqueness;
+- a declared non-materializing snapshot borrow that first copies the complete
+  source resource;
+- a declared identity-preserving snapshot return that invokes another
+  producer, clones, re-projects, or otherwise substitutes the callback result;
 - a child obligation lost, duplicated, or released incorrectly during
   aggregate acceptance or transfer;
 - a borrow escaping its owner-supported lifetime;
@@ -892,57 +837,65 @@ owner-adoption steps.
 ## Production adoption
 
 [#6544](https://github.com/richlander/dotnet-inspect/issues/6544) is the
-end-to-end tracker. Its current total is 18 steps:
+end-to-end tracker. Its current total is 21 steps:
 
 1. lock this focused ownership, borrowing, snapshot-callback, and declaration
    protocol;
-2. define the machine-readable resource, consuming-receiver,
-   snapshot-callback, and external contract model;
-3. normalize ArrayPool, declared-resource, and future compiler-issued
-   ownership metadata into one Analysis input contract;
-4. generalize Resource Lifecycle Analysis while preserving explicit
-   incompleteness;
-5. dogfood the contract against current repository leases and retain useful
-   corpus sensors;
-6. implement the host-neutral snapshot callback interface and ref-like view,
+2. lock the portable Resource Effect Language, its attribute and JSON
+   encodings, and its normalized declaration boundary under #6631;
+3. implement the bounded parser, validator, provenance, and resource-neutral
+   normalized model;
+4. express ArrayPool and its supported wrapper relationships as a shipped
+   typed C# mapping through that language;
+5. adapt one generic flow engine to reproduce the ArrayPool fixture and corpus
+   oracle plus the declared-owner/ArrayPool composition witness;
+6. adopt generic evidence in `LibraryBodyIndex`, `LeakTriageAnalyzer`, the
+   corpus sensor, and Resource Lifecycle Analysis, then retire the
+   ArrayPool-specific lifecycle semantic path;
+7. adopt generic ownership-flow evidence in Research and retire
+   ArrayPool-specific flow records;
+8. express `Inspector.Resources` and `AssemblyInspectionSession` through
+   compiled effect attributes and prove equivalent normalization from JSON
+   test inputs;
+9. implement the host-neutral snapshot callback interface and ref-like view,
    including the generic detached-result channel and its Analysis effects;
-7. expose generalized Resource Triage through the CLI;
-8. expose the same typed Resource Triage contract through Inspect Web
+10. expose generalized Resource Triage through the CLI;
+11. expose the same typed Resource Triage contract through Inspect Web
    Browser/Wasm;
-9. adopt the protocol in artifact acquisition, access, and scoped content
+12. adopt the protocol in artifact acquisition, access, and scoped content
    borrowing;
-10. define the shared
+13. define the shared
    [Library ownership and borrowing](library-ownership-and-borrowing.md)
    contract used by PackageHouse, PlatformHouse, direct-library adapters,
    Workspace, and Library consumers, tracked by #6621;
-11. adopt the protocol in the package-source owner: step 11a issues the
-    resource-named root lease, completed by #6548; step 11b, tracked by #6619,
-    declares awaited root settlement, directly issued operation-scoped leases,
-    and async state-machine ownership effects;
-12. adopt Package Source ownership in PackageHouse: step 12a retires the
-    House-issued root predecessor, completed by #6548; step 12b consumes and
-    settles one Package Source operation lease per House execution, tracked by
-    #6622;
-13. adopt the Library ownership contract in PackageHouse;
-14. adopt the Library ownership contract in PlatformHouse;
-15. adopt the Library ownership contract in Workspace and its Workspace-owned
-    direct-library adapter;
-16. extend the `JsExportSurface` wire-evidence owner to authenticate
+14. adopt the protocol in the package-source owner: step 14a issues the
+   resource-named root lease, completed by #6548; step 14b, tracked by #6619,
+   declares awaited root settlement, directly issued operation-scoped leases,
+   and async state-machine ownership effects;
+15. adopt Package Source ownership in PackageHouse: step 15a retires the
+   House-issued root predecessor, completed by #6548; step 15b consumes and
+   settles one Package Source operation lease per House execution, tracked by
+   #6622;
+16. adopt the Library ownership contract in PackageHouse;
+17. adopt the Library ownership contract in PlatformHouse;
+18. adopt the Library ownership contract in Workspace and its Workspace-owned
+   direct-library adapter;
+19. extend the `JsExportSurface` wire-evidence owner to authenticate
     witness-bearing host snapshot serializers, preserving the existing
     `ts-jsexport` typed facade through its compiler and Browser/Wasm canaries;
-17. adopt Library and companion-content ownership and borrowing in
+20. adopt Library and companion-content ownership and borrowing in
     SourceHouse; and
-18. adopt Library and companion-content ownership and borrowing in
+21. adopt Library and companion-content ownership and borrowing in
     DocumentationHouse.
 
-Each implementation step changes one owner. Step 10 replaces the
+Each implementation step changes one owner. Step 13 replaces the
 consumer-specific "source-ready library representation" direction in
 SourceHouse step 2; the SourceHouse tracker and owner document are corrected
 in that focused adoption effort rather than normatively changed here.
 
-The 11a/11b and 12a/12b sub-slices preserve the 18-step count. Step 11b is
-Package Source-owned. Step 12b is a separately reviewed PackageHouse adoption;
-neither is folded into package-backed Platform implementation.
+The 14a/14b and 15a/15b sub-slices remain within the 21-step count. Step 14b
+is Package Source-owned. Step 15b is a separately reviewed PackageHouse
+adoption; neither is folded into package-backed Platform implementation.
 
 The dogfood step may discover another independently owned public lease
 contract. Adding its focused adoption requires an explicit tracker and count
@@ -966,10 +919,9 @@ This specification is design-only. Its behavioral properties remain
 
 The declaration and Analysis steps must gate:
 
-- exact configured resource and consuming-receiver metadata-name matching
-  without inspected-assembly loading;
-- equivalent normalization from attributes, built-in models, external
-  manifests, and future compiler metadata;
+- exact configured effect-carrier, structural member, generic, signature, and
+  ref-kind matching without inspected-assembly loading;
+- equivalent normalization from compiled attributes and JSON mappings;
 - every supported acquisition, transfer, mutable and read-only borrow, child
   resource, consuming receiver, release, and asynchronous settlement effect;
 - validation-before-transfer and consume-with-return aggregate failure
@@ -986,9 +938,15 @@ The declaration and Analysis steps must gate:
 - incomplete decode, resolution, dispatch, alias, body, and control-flow
   evidence remaining visible;
 - compatibility with the existing ArrayPool corpus and Finding identities;
+- one declared owner and ArrayPool model composing in the same body without
+  selecting separate lifecycle engines;
 - repository dogfood that distinguishes complete violations, complete clean
   lifecycles, and unsupported or incomplete ownership flow; and
 - equivalent typed outcomes in CLI and Browser/Wasm consumers.
+
+The claim that no hidden ArrayPool-specific semantic path remains has no
+dedicated absence gate by operator choice in #6631. Positive normalization and
+oracle gates do not claim to prove that repository-composition absence.
 
 Each resource-issuer adoption must gate:
 
@@ -996,6 +954,10 @@ Each resource-issuer adoption must gate:
 - transfer invalidating the prior owner in the supported Analysis model;
 - scoped borrows not escaping;
 - snapshot callback results not retaining owner-derived resources;
+- snapshot callbacks borrowing the live resource without an independent full
+  source materialization;
+- snapshot operations returning the exact callback result without
+  substitution;
 - release on success, failure, and cancellation;
 - required asynchronous quiescence being awaited;
 - references and receipts carrying no hidden lease; and

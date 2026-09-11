@@ -1038,8 +1038,8 @@ the main thread.
 
 That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
 the Worker-only adoption host. Its facade-grouped `client` provides Promise
-results for build identity, vocabulary, home demos, Package Query facets, and
-Gallery discovery. Concurrent reads share one bootstrap without replacing one
+results for build identity, vocabulary, home demos, and Package Query facets.
+Concurrent reads share one bootstrap without replacing one
 another, and disposal rejects outstanding reads. Generated JSON-shaped results
 use a bounded transport string (1,048,576 UTF-16 code units per result) and
 generated-typed decoding; failures remain visible. The production application

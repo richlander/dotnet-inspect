@@ -182,9 +182,6 @@ function packageQueryRequest(
   maximumMatches: number,
   includePrerelease: boolean,
   initialMatchCredit: number,
-  packageType: string | null,
-  sourceOrderId: string | null,
-  discovery: boolean,
 ): QueryRequest {
   if (initialMatchCredit !== PACKAGE_QUERY_INITIAL_MATCH_CREDIT) {
     throw new Error(
@@ -196,7 +193,6 @@ function packageQueryRequest(
     throw new TypeError("Package Query facet IDs must be a JSON string array.");
   }
   return {
-    inputKind: discovery ? "gallery" : "package",
     scopeQuery: searchText,
     facets: rawFacetIds.map(key => ({
       key,
@@ -205,8 +201,6 @@ function packageQueryRequest(
     })),
     requestedLimit: maximumCandidates,
     requestedMatchLimit: maximumMatches,
-    packageType,
-    sourceOrderId,
     includePrerelease,
   };
 }
@@ -229,13 +223,10 @@ function packageAssemblyQueryRequest(
       "Package Query coordinates must be a JSON string array.");
   }
   return {
-    inputKind: "package",
     scopeQuery: "",
     facets: [],
     requestedLimit: Math.max(1, rawCoordinates.length),
     requestedMatchLimit: Math.max(1, rawCoordinates.length),
-    packageType: null,
-    sourceOrderId: null,
     includePrerelease: false,
     assemblyPattern: {
       patternId,
@@ -503,9 +494,6 @@ export function bindPackageQueryFacade(
       includePrerelease,
       initialMatchCredit,
       eventSink,
-      packageType,
-      sourceOrderId,
-      discovery,
     ) {
       return run(
         operationId,
@@ -516,9 +504,6 @@ export function bindPackageQueryFacade(
           maximumMatches,
           includePrerelease,
           initialMatchCredit,
-          packageType,
-          sourceOrderId,
-          discovery,
         ),
         eventSink,
       );
