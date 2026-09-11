@@ -647,6 +647,34 @@ public sealed class ApiSurfaceExtractorBoundsTests
         AssertSharedCustomAttributeBlobExtracts(attributeCount, elementCount);
     }
 
+    [Fact]
+    public void DecodeLocalBudgetRefusal_DoesNotBecomeSharedBlobRefusal()
+    {
+        ApiSurface cold = ExtractSharedBudgetLifecycleImage(warmIndex: false);
+        Assert.Empty(
+            Assert.Single(cold.Types, type => type.Name == "Target1")
+                .Attributes);
+        Assert.Single(
+            Assert.Single(cold.Types, type => type.Name == "Target2")
+                .Attributes);
+
+        ApiSurface warm = ExtractSharedBudgetLifecycleImage(warmIndex: true);
+        Assert.Single(
+            Assert.Single(warm.Types, type => type.Name == "Target1")
+                .Attributes);
+        Assert.Single(
+            Assert.Single(warm.Types, type => type.Name == "Target2")
+                .Attributes);
+    }
+
+    static ApiSurface ExtractSharedBudgetLifecycleImage(bool warmIndex)
+    {
+        byte[] image = BuildSharedBudgetLifecycleImage(warmIndex);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        return ApiSurfaceExtractor.Extract(peReader);
+    }
+
     static void AssertSharedCustomAttributeBlobExtracts(
         int attributeCount,
         int elementCount)
@@ -3679,6 +3707,137 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.AddCustomAttribute(type, constructor, valueHandle);
         }
 
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSharedBudgetLifecycleImage(bool warmIndex)
+    {
+        const int DefinitionCount = 700;
+        const int NameLength = 2_048;
+        MetadataBuilder metadata = Metadata("SharedBudgetLifecycle");
+        AssemblyReferenceHandle external = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("External.Enums"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            external,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        StringHandle longName = metadata.GetOrAddString(
+            new string('E', NameLength));
+        StringHandle longNamespace = metadata.GetOrAddString(
+            new string('N', NameLength));
+        TypeReferenceHandle enumReference = metadata.AddTypeReference(
+            external,
+            metadata.GetOrAddString("Match"),
+            longName);
+
+        var warmSignature = new BlobBuilder();
+        new BlobEncoder(warmSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Object());
+        MemberReferenceHandle warmConstructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(warmSignature));
+
+        var targetSignature = new BlobBuilder();
+        new BlobEncoder(targetSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                2,
+                returnType => returnType.Void(),
+                parameters =>
+                {
+                    parameters.AddParameter().Type().Object();
+                    parameters.AddParameter().Type().Type(
+                        enumReference,
+                        isValueType: true);
+                });
+        MemberReferenceHandle targetConstructor =
+            metadata.AddMemberReference(
+                attributeType,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(targetSignature));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        for (int index = 0; index < DefinitionCount; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                longNamespace,
+                longName,
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        TypeDefinitionHandle warm = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Warm"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target1 = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target2 = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target2"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var warmValue = new BlobBuilder();
+        warmValue.WriteUInt16(1);
+        warmValue.WriteByte(0x55);
+        warmValue.WriteSerializedString("Missing.Enum");
+        warmValue.WriteInt32(0);
+        warmValue.WriteUInt16(0);
+        if (warmIndex)
+        {
+            metadata.AddCustomAttribute(
+                warm,
+                warmConstructor,
+                metadata.GetOrAddBlob(warmValue));
+        }
+
+        var targetValue = new BlobBuilder();
+        targetValue.WriteUInt16(1);
+        targetValue.WriteByte(0x55);
+        targetValue.WriteSerializedString("Missing.Enum");
+        targetValue.WriteInt32(0);
+        targetValue.WriteInt32(0);
+        targetValue.WriteUInt16(0);
+        BlobHandle sharedTargetValue = metadata.GetOrAddBlob(targetValue);
+        metadata.AddCustomAttribute(
+            target1,
+            targetConstructor,
+            sharedTargetValue);
+        metadata.AddCustomAttribute(
+            target2,
+            targetConstructor,
+            sharedTargetValue);
         return Serialize(metadata);
     }
 

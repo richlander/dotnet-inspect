@@ -1178,9 +1178,13 @@ Across one API-surface extraction, deterministic custom-attribute decodes are
 memoized by constructor handle, value `BlobHandle`, serialized-name mode,
 and trusted resolver identity (#5132). The materialization context is scoped to
 one reader and one extraction; there is no global `MetadataReader` cache. Both
-a decoded value and a deterministic refusal are reusable. The whole value-blob
-charge now occurs at the decoder's cache-miss boundary, before parsing, rather
-than in the rendering caller before every row.
+a decoded value and a metadata-intrinsic deterministic refusal are reusable.
+Decode-local enum operation/name-budget exhaustion is not cached: one decode
+can materialize the shared TypeDef index before exhausting its remaining local
+budget, allowing a later decode of the same key to succeed without rebuilding
+the index. The whole value-blob charge now occurs at the decoder's cache-miss
+boundary, before parsing, rather than in the rendering caller before every
+row.
 
 Public caller-supplied enum resolver callbacks are deliberately outside the
 cache. They may be stateful or throw, so each call still invokes the resolver
@@ -1199,7 +1203,17 @@ extract within the same product-owned decode-work budget. The 16-case joint
 matrix is `Speed=Slow` and runs with the full metadata suite in Deep Inspect.
 Neighboring decoder tests gate successful-value and refusal reuse, mode and
 trusted-resolver separation, and non-caching of detailed decodes, caller
-resolvers, or observer failures.
+resolvers, observer failures, or decode-local budget refusals.
+
+The first review candidate
+`27b0ca5a834b832c8a71ea2c52b1e9a68e9f5b48` cached every `false` decode
+outcome. A public-extractor probe with 700 definitions sharing
+2,048-character names and namespaces produced no attributes for two repeated
+target rows; adding an unrelated earlier row that warmed the TypeDef index made
+both targets appear. `DecodeLocalBudgetRefusal_DoesNotBecomeSharedBlobRefusal`
+preserves the corrected lifecycle: a cold first row may spend its own budget
+and refuse, but that refusal cannot suppress a later same-key row whose fresh
+budget can use the now-materialized index.
 
 At pre-repair instrumentation head
 `ee932f23f184d2412816845359ca210179220ce0`, both one-dimension controls

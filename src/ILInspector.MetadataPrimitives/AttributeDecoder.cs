@@ -447,12 +447,13 @@ public static class AttributeDecoder
         }
 
         CustomAttributeValue<string>? decoded;
+        bool canCache;
         try
         {
             Observe(
                 beforeMaterialize,
                 reader.GetBlobReader(attribute.Value).Length);
-            decoded = CustomAttributeValueDecoder.TryDecode(
+            bool succeeded = CustomAttributeValueDecoder.TryDecodeClassified(
                     reader,
                     attribute,
                     preserveSerializedTypeNames,
@@ -461,9 +462,13 @@ public static class AttributeDecoder
                     enumUnderlyingType,
                     out CustomAttributeValue<string> value,
                     out _,
-                    out _)
-                ? value
-                : null;
+                    out _,
+                    out CustomAttributeValueDecoder.DecodeRefusalKind refusal);
+            decoded = succeeded ? value : null;
+            canCache =
+                succeeded
+                || refusal
+                    == CustomAttributeValueDecoder.DecodeRefusalKind.Intrinsic;
         }
         catch (CallerCallbackException ex)
         {
@@ -474,14 +479,18 @@ public static class AttributeDecoder
             ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
             decoded = null;
+            canCache = true;
         }
 
-        context?.CacheDecodedAttribute(
-            attribute.Constructor,
-            attribute.Value,
-            preserveSerializedTypeNames,
-            resolverIdentity,
-            decoded);
+        if (canCache)
+        {
+            context?.CacheDecodedAttribute(
+                attribute.Constructor,
+                attribute.Value,
+                preserveSerializedTypeNames,
+                resolverIdentity,
+                decoded);
+        }
         return decoded;
     }
 
