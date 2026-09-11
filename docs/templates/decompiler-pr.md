@@ -6,6 +6,28 @@ structuring, validity, fidelity, or corpus behavior. There is no alternate
 template for focused validity fixes. Delete sections that do not apply. Keep
 generated tables generated; do not re-key metric rows by hand.
 
+Every evidence lens must name its scope: one method, one fixture assembly, a
+fixed corpus population, a source build, or a baseline manifest. When two
+lenses inspect the same logical method through different physical artifacts
+(for example, no-PDB and PDB-bearing builds), say so explicitly. Do not make
+the reader infer whether examples are the same method, neighboring methods, or
+different fixtures.
+
+Roll every lens up to **Better**, **Same**, **Worse**, or **Not directional**
+before presenting raw per-system evidence. Also label the evidence kind:
+product quality, evidence coverage, or population accounting. Structural
+correspondence explains what changed and how much was comparable; validity,
+correctness, and fidelity decide product quality. `Unsupported` and
+`Ambiguous` are unordered coverage reasons, not quality levels.
+
+Directional product A/B comparisons require the same population and sampling
+identity. Hold input bytes, working directory, normalized input paths, method
+caps, and sampling policy constant. A build-contract lens may compare different
+physical artifacts only when it names what changed, what stayed fixed, and the
+contract that determines direction. Report fixture membership or sampling
+identity changes separately as Not directional population accounting rather
+than presenting their aggregate counts as product improvement or regression.
+
 Every output-changing decompiler PR must acquire exact base/head product
 documents, run `DecompilerHarness --structural-review`, and keep Structural
 review status, Before, After, and Evidence. This is a mandatory attempt, not
@@ -87,6 +109,44 @@ or explicit non-actions, and each reviewer's final verdict.
 > Should we accept this change?
 
 **Conclusion:** **PASS/REVIEW/BLOCKED** — {one sentence with the decisive reason}.
+
+### Evidence map
+
+<!--
+List every evidence lens before its raw output. Scope names the exact method,
+fixture, corpus, source build, or manifest. Compared names the two sides. Held
+constant names the shared artifact, product, harness, or source identity that
+makes the comparison meaningful.
+-->
+
+| Evidence | Scope | Compared | Held constant | Answers |
+| --- | --- | --- | --- | --- |
+| Structural review | **One method**: `{Type::Method}` | Base product → head product | One pinned assembly | What structure changed? |
+| PDB Source → After | **The same logical source method**, through a separate PDB-bearing build | Authored source → head product | Source document and checksum | How does the head render differ from source? |
+| Render A/B | **One fixture or corpus**: {count and identity} | Base product → head product | Input bytes, working directory, paths, and sampling policy | Which rendered methods changed? |
+| Same-population quality | **Fixed corpus**: {assemblies and method count} | Base product → head product | The same binaries and sampling identity | Did product quality improve or regress? |
+| Fixture activation | **One or more fixture builds**: {count and identity} | Base-built inputs → head-built inputs | One harness and explicit activation contract | Does the fixture exercise its intended compiler feature? |
+| Population accounting | **Fixture manifests**: {baseline and head identities} | Baseline manifest → head manifest | Not applicable | Which coverage growth or reduction is accepted? |
+
+### Shared judgment
+
+<!--
+Use only Better, Same, Worse, or Not directional. "Better" and "Worse" apply
+to the named evidence kind, not automatically to overall product quality.
+Structural coverage may improve when more nodes have supported correspondence,
+but Unsupported and Ambiguous must never be ordered against each other.
+Population changes are Not directional.
+-->
+
+| Lens | Evidence kind | Direction | Comparison | What decides the judgment |
+| --- | --- | --- | --- | --- |
+| Validity | Product quality | **Better/Same/Worse** | Baseline {result} → Head {result} | {legality rule} |
+| Correctness | Product quality | **Better/Same/Worse** | Baseline {result} → Head {result} | {observable-behavior rule} |
+| IL fidelity | Product quality | **Better/Same/Worse** | Baseline {result} → Head {result} | {compile-back rule} |
+| Structural correspondence | Evidence coverage | **Better/Same/Worse** | {supported and gap counts} → {supported and gap counts} | More supported correspondence is better; gap reasons are unordered. |
+| PDB source similarity | Product quality | **Not directional** | Source {result} → After {result} | Textual similarity alone does not decide validity, correctness, or fidelity. |
+| Fixture activation | Product quality | **Better/Same/Worse** | Base-built {result} → Head-built {result} | The explicit feature-activation contract, not aggregate population size. |
+| Fixture population | Population accounting | **Not directional** | {count} → {count} | Coverage movement is reported separately from fixed-population quality. |
 
 ### Raise contract
 
@@ -211,6 +271,17 @@ validity, correctness, fidelity, taste, and commit verdicts.
 
 #### Before → After: structural raise delta
 
+Scope: **One method** — `{Type::Method}` from one pinned physical assembly.
+
+Correspondence coverage: **{Same/More/Less}** — {supported correspondence and
+Before/After gap counts}.
+
+**Shared judgment: {Same/Better/Worse} evidence coverage** — map More coverage
+to Better and Less coverage to Worse. `Unsupported` and `Ambiguous` are
+unordered reasons; do not describe movement between them as improvement or
+regression. This judgment covers evidence availability only. It does not
+decide whether the product output is better or worse.
+
 Structural review status: {Generated — complete / Generated — partial; claimed
 change appears in supported generated row(s) / Attempted — unavailable for the
 claimed change: exact result}
@@ -219,6 +290,12 @@ claimed change: exact result}
 the claimed change; otherwise retain the standalone Before and After bodies}
 
 #### PDB Source → After: source convergence
+
+Scope: **The same logical source method**, through a separate PDB-bearing build
+when the structural review uses a no-PDB artifact.
+
+**Shared judgment: Not directional** — source-text similarity describes the
+render but does not decide validity, correctness, or fidelity.
 
 Source convergence status: {Different / Identical / PDB Source unavailable}
 
@@ -259,7 +336,9 @@ dotnet-inspect member {Type} {MethodSelector} {scope} -S "Decompiled Source"
 Acquire with `dotnet-inspect -S "Decompiled Source"` at the base commit, rather
 than hand-transcribing. Include the method signature line, matching the PDB
 source reference's shape, not just the body — a bare body is harder to line up
-against that reference.
+against that reference. When the generated structural artifact already contains
+the complete Before block, replace the duplicate code fence below with a
+reference to that generated block; retain every verdict.
 -->
 
 ```csharp
@@ -280,6 +359,9 @@ against that reference.
 <!--
 Acquire with `dotnet-inspect -S "Decompiled Source"` at this PR's head. Include
 the method signature line here too, for the same reason.
+When the generated structural artifact already contains the complete After
+block, replace the duplicate code fence below with a reference to that
+generated block; retain every verdict.
 -->
 
 ```csharp
@@ -325,6 +407,12 @@ every check that has a pass/fail or count outcome. A Head-only "Pass" or
 "{n} passed" hides regressions: it cannot show whether failures are
 pre-existing (same on Baseline) or newly introduced by this PR, and total
 counts can rise even while some previously-passing test starts failing.
+
+For directional product A/B rows, Baseline and Head must use the same input
+population, working directory, normalized paths, caps, and sampling policy. Put
+an intentional build-contract comparison in its own scoped evidence lens.
+Move fixture membership or sampling-identity changes to Population accounting
+and mark them Not directional.
 -->
 
 | Check | Baseline | Head |
@@ -364,8 +452,9 @@ the affected population. Do not invent a witness or switch templates.
 **Conclusion:** **PASS/ADVISORY/BLOCKED** — {baseline-versus-head validity
 verdict and decisive evidence}.
 
-Run: {corpus, focused census, or reduced-fixture population}, Baseline versus
-Head.
+Scope: **Fixed population** — {corpus, focused census, or reduced fixture;
+assembly and method counts}. Baseline and Head use the same input bytes,
+working directory, normalized paths, caps, and sampling policy.
 
 | Metric | Baseline | Head |
 | --- | ---: | ---: |
@@ -395,16 +484,40 @@ For the full local delta, see
 **Conclusion:** **PASS/ADVISORY/BLOCKED** — {pinned gate verdict, then any
 aggregate advisory in one sentence}.
 
+### Same-population quality judgment
+
+<!--
+This is the directional product comparison. Every row uses one fixed method
+population and sampling identity. Add or remove rows to match the relevant
+quality axes, but keep Goal and Direction explicit.
+-->
+
+Scope: **Fixed corpus** — {assemblies and method count}. Baseline and Head
+inspect the same binaries from the same working directory and normalized paths
+with the same caps and sampling policy.
+
+| Metric | Goal | Baseline | Head | Direction |
+| --- | --- | ---: | ---: | --- |
+| Full malformed | Lower | {count} | {count} | **Better/Same/Worse** |
+| Correctness defects | Lower | {count} | {count} | **Better/Same/Worse** |
+| Fidelity exact | Higher | {count} | {count} | **Better/Same/Worse** |
+| Fidelity opcode diffs | Lower | {count} | {count} | **Better/Same/Worse** |
+| Detected lowering residue | Lower | {count/rate} | {count/rate} | **Better/Same/Worse** |
+| Forward-merge stops | Lower | {count/rate} | {count/rate} | **Better/Same/Worse** |
+| Fully raised | Higher | {count/rate} | {count/rate} | **Better/Same/Worse** |
+| Pass bugs | Lower | {count} | {count} | **Better/Same/Worse** |
+
 ### PR quick gate
 
-Run: PR quick corpus, hash-stable 100 methods per assembly; {coverage summary}.
+Run: PR quick corpus, hash-stable 100 methods per assembly over the same
+population and sampling identity; {coverage summary}.
 
-| Metric (goal) | Baseline | PR | Rate delta |
-| --- | ---: | ---: | ---: |
-| Detected lowering residue (-) | {%} | {%} | {pp} |
-| Conditional-branch residue (-) | {%} | {%} | {pp} |
-| Pass bugs (-) | 0 | 0 | 0 |
-| Fully raised (+) | {%} | {%} | {pp} |
+| Metric | Goal | Baseline | PR | Direction |
+| --- | --- | ---: | ---: | --- |
+| Detected lowering residue | Lower | {%} | {%} | **Better/Same/Worse** |
+| Conditional-branch residue | Lower | {%} | {%} | **Better/Same/Worse** |
+| Pass bugs | Lower | 0 | 0 | **Same** |
+| Fully raised | Higher | {%} | {%} | **Better/Same/Worse** |
 
 > **Conclusion:** **PASS/FAIL** — {one-line gate verdict}.
 
@@ -412,14 +525,30 @@ Run: PR quick corpus, hash-stable 100 methods per assembly; {coverage summary}.
 
 Corpus: {assemblies}, {methods}. Baseline drift: {none or concise drift}.
 
-| Metric (goal) | Baseline | PR |
-| --- | ---: | ---: |
-| Detected lowering residue (-) | {count/rate} | {count/rate} |
-| Conditional-branch residue (-) | {count/rate} | {count/rate} |
-| Forward-merge stops (-) | {count/rate} | {count/rate} |
-| Fully raised (+) | {count/rate} | {count/rate} |
+| Metric | Goal | Baseline | PR | Direction |
+| --- | --- | ---: | ---: | --- |
+| Detected lowering residue | Lower | {count/rate} | {count/rate} | **Better/Same/Worse** |
+| Conditional-branch residue | Lower | {count/rate} | {count/rate} | **Better/Same/Worse** |
+| Forward-merge stops | Lower | {count/rate} | {count/rate} | **Better/Same/Worse** |
+| Fully raised | Higher | {count/rate} | {count/rate} | **Better/Same/Worse** |
 
 > **Conclusion:** **PASS/ADVISORY/BLOCKED** — {one-line aggregate verdict}.
+
+### Population accounting
+
+<!--
+Keep only when fixture or corpus membership changes. This table is always Not
+directional. Do not use its totals as Baseline and Head values in the quality
+tables above.
+-->
+
+**Shared judgment: Not directional** — this is coverage accounting, not a
+product-quality comparison.
+
+| Assembly / population | Baseline | Head | Classification |
+| --- | ---: | ---: | --- |
+| `{fixture}` | {count} | {count} | Accepted growth / accepted removal / unchanged |
+| **Total** | **{count}** | **{count}** | **Coverage movement; not directional** |
 
 <!-- markdownlint-disable MD033 -->
 <details>
