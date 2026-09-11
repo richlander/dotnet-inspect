@@ -350,10 +350,10 @@ substrates, and inspection producers that will extend that space.
   Compare-authored-source interaction with zero compatibility rather than
   adding a parallel Diff experience.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
-  owns explicit same-assembly pair interaction, the managed feature projection,
-  and typed Method Body Diff presentation. It consumes Queries comparison,
-  existing member resolution, modal behavior, and operation lifetime without
-  redefining those owners.
+  owns the retained same-assembly pair projection and generated-facade
+  evidence after retirement of the contextual Method Body Diff UI. It
+  consumes Queries comparison, existing member resolution, and operation
+  lifetime without redefining those owners.
 - [Inspect Web Source-diff Transport](design/inspect-web-source-diff-transport.md)
   owns the proposed member source-diff worker feature payload: admission,
   complete typed encoding, and bounded browser decoding. It consumes Queries
