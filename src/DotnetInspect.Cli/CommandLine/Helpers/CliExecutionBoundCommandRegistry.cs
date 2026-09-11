@@ -121,16 +121,28 @@ internal static class CliExecutionBoundCommandRegistry
                     value is not null
                     && mapped[index + 1].Tokens.Any(
                         token =>
-                            optionValueOwners.TryGetValue(
+                            token.Value.Equals(
+                                value,
+                                StringComparison.Ordinal)
+                            && optionValueOwners.TryGetValue(
                                 token,
                                 out Option? owner)
                             && ReferenceEquals(
                                 owner,
                                 adoption.Option));
+                bool authoredOption =
+                    value is not null
+                    && (value.StartsWith(
+                            "--",
+                            StringComparison.Ordinal)
+                        || CliArgumentOwnership.FindOption(
+                            mapped[index + 1].Scope,
+                            value) is not null);
                 bool missingValue =
                     value is null
                     || (IsOptionToken(value)
-                        && !parserOwnsValue);
+                        && (!parserOwnsValue
+                            || authoredOption));
                 occurrences.Add(
                     (
                         argumentPositions?[index] ?? index,

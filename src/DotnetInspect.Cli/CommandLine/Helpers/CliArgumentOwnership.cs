@@ -28,7 +28,8 @@ internal static class CliArgumentOwnership
         var owners =
             new Dictionary<Token, Option>(ReferenceEqualityComparer.Instance);
         foreach (OptionResult option in GetOptionResults(parseResult))
-        foreach (Token token in option.Tokens)
+        foreach (Token token in option.Tokens.Where(
+            static token => token.Type == TokenType.Argument))
             owners.Add(token, option.Option);
         return owners;
     }
