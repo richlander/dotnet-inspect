@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -517,7 +518,9 @@ public static class SearchCommandDefinitions
 
     public static Command CreateDependsCommand(SharedOptions opts)
     {
-        var dependsCommand = new Command("depends", "Walk dependency graphs upward (type hierarchy, library references, or package dependencies)");
+        var dependsCommand = new Command(
+            "depends",
+            "Inspect dependency graphs and evidence for a type scope or explicit package, nuspec, library, project, or package-prefix roots");
 
         var targetTypeArg = new Argument<string?>("type")
         {
@@ -527,12 +530,20 @@ public static class SearchCommandDefinitions
 
         var packageOption = new Option<string[]>("--package")
         {
-            Description = "Search in package(s) (name or name@version). Can repeat.",
+            Description = "Type mode: package search scope. Asset mode: package root ID, ID@VERSION, or local .nupkg (repeatable).",
+            Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
         };
         var assemblyOption = new Option<string[]>("--library")
         {
-            Description = "Search in library file(s). Can repeat.",
+            Description = "Type mode: library search scope. Asset mode: library root path or name (repeatable).",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false
+        };
+        var nuspecOption = new Option<string[]>("--nuspec")
+        {
+            Description = "Asset-mode direct nuspec root (repeatable).",
+            Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
@@ -549,23 +560,57 @@ public static class SearchCommandDefinitions
         };
         var projectOption = new Option<string[]>("--project")
         {
-            Description = "Search project dependencies via project.assets.json. Can repeat.",
+            Description = "Type mode: restored-project search scope. Asset mode: csproj, directory, or project.assets.json root (repeatable).",
+            Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
         };
+        var packagePrefixOption = new Option<string?>("--package-prefix")
+        {
+            Description =
+                $"Exclusive bounded NuGet Gallery package root set ({DependencyEvidenceAcquisition.PackageProfileDefaultLimit} packages by default)"
+        };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
+        var previewOption = new Option<bool>("--preview")
+        {
+            Description =
+                "Allow latest remote asset-mode --package resolution to select a prerelease version"
+        };
+        var maxPackagesOption = new Option<int?>("--max-packages")
+        {
+            Description =
+                $"Bound --package-prefix discovery (1 to {DependencyEvidenceAcquisition.PackageProfileMaximumLimit}, default {DependencyEvidenceAcquisition.PackageProfileDefaultLimit})"
+        };
+        var depthOption = new Option<int?>("--depth")
+        {
+            Description =
+                "Maximum dependency depth; 1 includes direct relationships only"
+        };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var shareOption = WorkspaceShareOption.Create(
             "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
 
+        depthOption.Validators.Add(result =>
+        {
+            if (result.GetValue(depthOption) is <= 0)
+            {
+                result.AddError("--depth must be a positive integer.");
+            }
+        });
+
         dependsCommand.Arguments.Add(targetTypeArg);
         dependsCommand.Options.Add(packageOption);
         dependsCommand.Options.Add(assemblyOption);
+        dependsCommand.Options.Add(nuspecOption);
         dependsCommand.Options.Add(platformOption);
         dependsCommand.Options.Add(platformLibraryOption);
         dependsCommand.Options.Add(extensionsOption);
         dependsCommand.Options.Add(aspnetcoreOption);
         dependsCommand.Options.Add(projectOption);
+        dependsCommand.Options.Add(packagePrefixOption);
         dependsCommand.Options.Add(tfmOption);
+        dependsCommand.Options.Add(previewOption);
+        dependsCommand.Options.Add(maxPackagesOption);
+        dependsCommand.Options.Add(depthOption);
         dependsCommand.Options.Add(shareOption);
         dependsCommand.Options.Add(opts.Json);
         dependsCommand.Options.Add(compactOption);
@@ -573,7 +618,8 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(opts.Markdown);
         dependsCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(dependsCommand);
-        dependsCommand.Options.Add(opts.Tree);
+        opts.AddSectionOptionsTo(dependsCommand);
+        dependsCommand.Options.Add(opts.Effective);
         opts.AddCountOptionTo(dependsCommand);
         opts.AddOutputOptionsTo(dependsCommand);
         opts.AddNuGetOptionsTo(dependsCommand);
@@ -599,14 +645,74 @@ public static class SearchCommandDefinitions
                 result.AddError(
                     "--tree is a standalone graph rendering and cannot combine with another output format.");
             }
-            if (!string.IsNullOrEmpty(result.GetValue(targetTypeArg))
-                && result.GetResult(opts.Limit)
-                    is { Implicit: false }
-                && result.GetValue(opts.Limit) is int count
-                && count <= 0)
+            bool typeMode =
+                !string.IsNullOrEmpty(result.GetValue(targetTypeArg));
+            bool effective = result.GetValue(opts.Effective);
+            bool discovery =
+                result.GetResult(opts.Discover)
+                    is { Implicit: false };
+            if (effective && !discovery)
             {
-                result.AddError(
-                    "-n requires a positive whole number for type dependency rows.");
+                result.AddError("--effective requires -D/--discover.");
+            }
+            if (typeMode)
+            {
+                if (result.GetResult(opts.Limit)
+                    is { Implicit: false }
+                    && result.GetValue(opts.Limit) is int count
+                    && count <= 0)
+                {
+                    result.AddError(
+                        "-n requires a positive whole number for type dependency rows.");
+                }
+                if (effective)
+                {
+                    result.AddError(
+                        "--effective discovery is available only without a positional type.");
+                }
+                RejectTypeModeOption(nuspecOption, "--nuspec");
+                RejectTypeModeOption(
+                    packagePrefixOption,
+                    "--package-prefix");
+                RejectTypeModeOption(maxPackagesOption, "--max-packages");
+                RejectTypeModeOption(previewOption, "--preview");
+            }
+            else
+            {
+                RejectAssetModeOption(platformOption, "--platform");
+                RejectAssetModeOption(
+                    platformLibraryOption,
+                    "--platform-library");
+                RejectAssetModeOption(extensionsOption, "--extensions");
+                RejectAssetModeOption(aspnetcoreOption, "--aspnetcore");
+
+                bool hasPrefix =
+                    result.GetResult(packagePrefixOption)
+                        is { Implicit: false };
+                bool hasExplicitRoots =
+                    (result.GetValue(packageOption)?.Length ?? 0) > 0
+                    || (result.GetValue(nuspecOption)?.Length ?? 0) > 0
+                    || (result.GetValue(assemblyOption)?.Length ?? 0) > 0
+                    || (result.GetValue(projectOption)?.Length ?? 0) > 0;
+                if (hasPrefix && hasExplicitRoots)
+                {
+                    result.AddError(
+                        "--package-prefix cannot be combined with explicit --package, --nuspec, --library, or --project roots.");
+                }
+            }
+
+            return;
+
+            void RejectTypeModeOption(Option option, string name)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                    result.AddError($"{name} is available only without a positional type.");
+            }
+
+            void RejectAssetModeOption(Option option, string name)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                    result.AddError($"{name} is available only with a positional type.");
             }
         });
 
@@ -631,8 +737,10 @@ public static class SearchCommandDefinitions
             bool hasNonPackageShareInput =
                 !string.IsNullOrEmpty(targetType)
                 || packages.Length != 1
+                || (parseResult.GetValue(nuspecOption)?.Length ?? 0) > 0
                 || assemblies.Length > 0
                 || projects.Length > 0
+                || parseResult.GetValue(packagePrefixOption) is not null
                 || parseResult.GetValue(platformOption)
                 || (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) > 0
                 || parseResult.GetValue(extensionsOption)
@@ -648,10 +756,43 @@ public static class SearchCommandDefinitions
             // Mode detection: no type arg → library or package dependency mode
             if (string.IsNullOrEmpty(targetType))
             {
+                DependsAssetRoot[] assetRoots = ParseDependsAssetRoots(
+                    parseResult,
+                    packageOption,
+                    nuspecOption,
+                    assemblyOption,
+                    projectOption);
+                if ((!opts.IsDiscoveryMode(parseResult)
+                        || parseResult.GetValue(opts.Effective))
+                    && assetRoots.Length == 0
+                    && parseResult.GetValue(packagePrefixOption) is null)
+                {
+                    return TipWriter.MissingArgumentWithTips(
+                        dependsCommand,
+                        "Asset-mode depends requires at least one root.",
+                        "depends --project ./src/App/App.csproj",
+                        "depends --package System.Text.Json@10.0.0",
+                        "depends --nuspec ./artifacts/package.nuspec",
+                        "depends --library System.Text.Json",
+                        "depends --package-prefix Microsoft.Extensions",
+                        "depends --help");
+                }
                 var commonOptions = new DependsOptions
                 {
+                    AssetRoots = assetRoots,
+                    PackagePrefix =
+                        parseResult.GetValue(packagePrefixOption),
+                    IncludePrerelease =
+                        parseResult.GetValue(previewOption),
+                    MaxPackages =
+                        parseResult.GetValue(maxPackagesOption),
+                    Depth = parseResult.GetValue(depthOption),
                     Tfm = parseResult.GetValue(tfmOption),
+                    Verbosity = opts.ParseVerbosity(parseResult),
                     ShareFormat = shareFormat,
+                    PackageName = shareFormat is not null
+                        ? packages[0]
+                        : null,
                     Format = outputFormat,
                     JsonOutput = outputFormat == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
@@ -660,7 +801,17 @@ public static class SearchCommandDefinitions
                     Tree = parseResult.GetValue(opts.Tree),
                     Rows = rows,
                     Count = parseResult.GetValue(opts.Count),
+                    Tabular = opts.ResolveTabular(parseResult),
+                    Tsv = opts.ResolveTsv(parseResult),
+                    Jsonl = opts.ResolveJsonl(parseResult),
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
+                    Discover = opts.ParseDiscover(parseResult),
+                    Effective = parseResult.GetValue(opts.Effective),
+                    Schema = opts.ParseSchema(parseResult),
+                    Select = opts.ParseSelect(parseResult),
+                    SelectDefault = opts.ParseSelectDefault(parseResult),
+                    Columns = opts.ParseColumns(parseResult),
+                    Fields = opts.ParseFields(parseResult),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                     LineWindowExplicitlySet =
@@ -671,19 +822,26 @@ public static class SearchCommandDefinitions
                         opts.IsFormatFlagExplicitlySet(parseResult),
                 };
 
-                if (assemblies.Length == 1 && packages.Length == 0 && projects.Length == 0)
-                    return await DependsCommand.ExecuteLibraryDependsAsync(commonOptions with { LibraryName = assemblies[0] });
+                return await DependsCommand.ExecuteAssetDependsAsync(
+                    commonOptions,
+                    ct);
+            }
 
-                if (packages.Length == 1 && assemblies.Length == 0 && projects.Length == 0)
-                    return await DependsCommand.ExecutePackageDependsAsync(
-                        commonOptions with { PackageName = packages[0] },
-                        ct);
-
-                return TipWriter.MissingArgumentWithTips(dependsCommand,
-                    "Type, package, or library required.",
-                    "depends IFloatingPointIeee754 --platform   # type hierarchy",
-                    "depends --library Microsoft.Extensions.AI   # assembly references",
-                    "depends --package System.Text.Json          # NuGet dependencies");
+            var typePlanOptions = new DependsOptions
+            {
+                Depth = parseResult.GetValue(depthOption),
+                Verbosity = opts.ParseVerbosity(parseResult),
+                Discover = opts.ParseDiscover(parseResult),
+                Schema = opts.ParseSchema(parseResult),
+                Select = opts.ParseSelect(parseResult),
+                SelectDefault = opts.ParseSelectDefault(parseResult),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
+            };
+            if (!DependsCommand.ValidateTypeDepthSelectionBeforeAcquisition(
+                    typePlanOptions))
+            {
+                return 1;
             }
 
             var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
@@ -703,6 +861,8 @@ public static class SearchCommandDefinitions
                 PlatformFrameworks = [.. sources.PlatformFrameworks],
                 Projects = [.. sources.Projects],
                 Tfm = parseResult.GetValue(tfmOption),
+                Depth = parseResult.GetValue(depthOption),
+                Verbosity = opts.ParseVerbosity(parseResult),
                 Format = outputFormat,
                 JsonOutput = outputFormat == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
@@ -712,7 +872,17 @@ public static class SearchCommandDefinitions
                 Rows = rows,
                 TypeDependencyRows = typeDependencyRows,
                 Count = parseResult.GetValue(opts.Count),
+                Tabular = opts.ResolveTabular(parseResult),
+                Tsv = opts.ResolveTsv(parseResult),
+                Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
+                Discover = opts.ParseDiscover(parseResult),
+                Effective = parseResult.GetValue(opts.Effective),
+                Schema = opts.ParseSchema(parseResult),
+                Select = opts.ParseSelect(parseResult),
+                SelectDefault = opts.ParseSelectDefault(parseResult),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 SourceOptions = sourceOptions
             };
@@ -732,6 +902,8 @@ public static class SearchCommandDefinitions
                 {
                     LibraryName = targetType,
                     Tfm = parseResult.GetValue(tfmOption),
+                    Depth = parseResult.GetValue(depthOption),
+                    Verbosity = opts.ParseVerbosity(parseResult),
                     Format = outputFormat,
                     JsonOutput = outputFormat == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
@@ -740,7 +912,17 @@ public static class SearchCommandDefinitions
                     Tree = parseResult.GetValue(opts.Tree),
                     Rows = rows,
                     Count = parseResult.GetValue(opts.Count),
+                    Tabular = opts.ResolveTabular(parseResult),
+                    Tsv = opts.ResolveTsv(parseResult),
+                    Jsonl = opts.ResolveJsonl(parseResult),
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
+                    Discover = opts.ParseDiscover(parseResult),
+                    Effective = parseResult.GetValue(opts.Effective),
+                    Schema = opts.ParseSchema(parseResult),
+                    Select = opts.ParseSelect(parseResult),
+                    SelectDefault = opts.ParseSelectDefault(parseResult),
+                    Columns = opts.ParseColumns(parseResult),
+                    Fields = opts.ParseFields(parseResult),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };
@@ -751,7 +933,8 @@ public static class SearchCommandDefinitions
                 // source option is what makes exclusion possible, and that same
                 // option suppresses this fallback.
                 return await DependsCommand.ExecuteLibraryDependsAsync(
-                    libOptions);
+                    libOptions,
+                    ct);
             }
 
             if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode)
@@ -766,6 +949,49 @@ public static class SearchCommandDefinitions
         });
 
         return dependsCommand;
+    }
+
+    private static DependsAssetRoot[] ParseDependsAssetRoots(
+        ParseResult parseResult,
+        Option<string[]> packageOption,
+        Option<string[]> nuspecOption,
+        Option<string[]> libraryOption,
+        Option<string[]> projectOption)
+    {
+        var aliases = new Dictionary<string, DependsAssetRootKind>(
+            StringComparer.Ordinal)
+        {
+            [packageOption.Name] = DependsAssetRootKind.Package,
+            [nuspecOption.Name] = DependsAssetRootKind.Nuspec,
+            [libraryOption.Name] = DependsAssetRootKind.Library,
+            [projectOption.Name] = DependsAssetRootKind.Project,
+        };
+        var roots = new List<DependsAssetRoot>();
+        for (int index = 0; index < parseResult.Tokens.Count; index++)
+        {
+            Token token = parseResult.Tokens[index];
+            if (token.Type != TokenType.Option
+                || !aliases.TryGetValue(
+                    token.Value,
+                    out DependsAssetRootKind kind))
+            {
+                continue;
+            }
+
+            if (index + 1 >= parseResult.Tokens.Count
+                || parseResult.Tokens[index + 1].Type == TokenType.Option)
+            {
+                continue;
+            }
+
+            roots.Add(
+                new DependsAssetRoot(
+                    roots.Count + 1,
+                    kind,
+                    parseResult.Tokens[++index].Value));
+        }
+
+        return [.. roots];
     }
 
     private static RowWindow? ParseDependsRows(

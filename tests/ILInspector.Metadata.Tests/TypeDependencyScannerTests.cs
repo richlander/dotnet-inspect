@@ -138,6 +138,118 @@ public class TypeDependencyScannerTests
     }
 
     [Fact]
+    public void Relationships_DepthOneStopsAfterDirectEdges()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                "Int128",
+                RefAssemblies,
+                maximumDepth: 1);
+
+        Assert.NotEmpty(result.Relationships);
+        Assert.All(
+            result.Relationships,
+            relationship => Assert.Equal(
+                result.MatchedType,
+                relationship.SourceTypeName));
+        Assert.All(
+            result.Tree,
+            node => Assert.Empty(node.Children));
+    }
+
+    [Fact]
+    public void DepthBoundaries_RetainExactBoundedTypeIdentities()
+    {
+        TypeDependencyResult unbounded =
+            TypeDependencyScanner.BuildDependencyTree(
+                "Int128",
+                RefAssemblies);
+        TypeDependencyResult bounded =
+            TypeDependencyScanner.BuildDependencyTree(
+                "Int128",
+                RefAssemblies,
+                maximumDepth: 1);
+
+        Assert.NotEmpty(bounded.DepthBoundaries);
+        Assert.All(
+            bounded.DepthBoundaries,
+            boundary =>
+            {
+                Assert.Equal(1, boundary.MaximumDepth);
+                Assert.Contains(
+                    bounded.Relationships,
+                    relationship =>
+                        relationship.TargetTypeName
+                            == boundary.TypeName);
+                Assert.Contains(
+                    unbounded.Relationships,
+                    relationship =>
+                        relationship.SourceTypeName
+                            == boundary.TypeName);
+                Assert.DoesNotContain(
+                    bounded.Relationships,
+                    relationship =>
+                        relationship.SourceTypeName
+                            == boundary.TypeName);
+            });
+    }
+
+    [Fact]
+    public void Relationships_DepthBoundUsesShortestPathExpansionBudget()
+    {
+        const int maximumDepth = 4;
+        TypeDependencyResult unbounded =
+            TypeDependencyScanner.BuildDependencyTree(
+                "Int128",
+                RefAssemblies);
+        TypeDependencyResult bounded =
+            TypeDependencyScanner.BuildDependencyTree(
+                "Int128",
+                RefAssemblies,
+                maximumDepth);
+
+        var firstReachedDepth = new Dictionary<string, int>(
+            StringComparer.Ordinal)
+        {
+            [unbounded.MatchedType!] = 0,
+        };
+        foreach (TypeDependencyRelationship relationship
+            in unbounded.Relationships)
+        {
+            int sourceDepth = firstReachedDepth[relationship.SourceTypeName];
+            firstReachedDepth.TryAdd(
+                relationship.TargetTypeName,
+                sourceDepth + 1);
+        }
+
+        Dictionary<string, int> shortestDepth =
+            FindShortestDepths(unbounded);
+        string boundaryFirstType = Assert.Single(
+            firstReachedDepth
+                .Where(pair =>
+                    pair.Value == maximumDepth
+                    && shortestDepth[pair.Key] < maximumDepth
+                    && unbounded.Relationships.Any(relationship =>
+                        relationship.SourceTypeName == pair.Key))
+                .Select(static pair => pair.Key));
+
+        var expected = unbounded.Relationships
+            .Where(relationship =>
+                shortestDepth[relationship.SourceTypeName] < maximumDepth)
+            .Select(RelationshipIdentity)
+            .ToHashSet();
+        var actual = bounded.Relationships
+            .Select(RelationshipIdentity)
+            .ToHashSet();
+
+        Assert.Equal(actual.Count, bounded.Relationships.Count);
+        Assert.True(
+            expected.SetEquals(actual),
+            $"Expected bounded relationships for children of "
+                + $"{boundaryFirstType}.");
+    }
+
+    [Fact]
     public void Relationships_ExpandDistinctConstructedGenericTypes()
     {
         TypeDependencyResult result =
@@ -416,6 +528,32 @@ public class TypeDependencyScannerTests
     }
 
     [Fact]
+    public void DescriptorPopulation_DepthBoundRetainsTypedBoundaries()
+    {
+        Type target = typeof(TypeDependencyConstructedRoot);
+        ResolvedAssemblyReference assembly =
+            Descriptor(target.Assembly.Location);
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildDependencyPopulation(
+                target.FullName!,
+                [assembly],
+                maximumDepth: 1);
+
+        Assert.True(result.IsComplete);
+        Assert.NotEmpty(result.Dependency.Relationships);
+        Assert.All(
+            result.Dependency.Relationships,
+            relationship => Assert.Equal(
+                result.Dependency.MatchedType,
+                relationship.SourceTypeName));
+        Assert.NotEmpty(result.Dependency.DepthBoundaries);
+        Assert.All(
+            result.Dependency.DepthBoundaries,
+            boundary => Assert.Equal(1, boundary.MaximumDepth));
+    }
+
+    [Fact]
     public void DescriptorPopulation_NotFoundAndAllHealthyIsCertified()
     {
         ResolvedAssemblyReference assembly =
@@ -635,6 +773,45 @@ public class TypeDependencyScannerTests
     private static int CountNodes(IReadOnlyList<TypeDependencyNode> nodes) =>
         nodes.Count
         + nodes.Sum(static node => CountNodes(node.Children));
+
+    private static Dictionary<string, int> FindShortestDepths(
+        TypeDependencyResult result)
+    {
+        var depths = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [result.MatchedType!] = 0,
+        };
+        var pending = new Queue<string>();
+        pending.Enqueue(result.MatchedType!);
+
+        while (pending.TryDequeue(out string? source))
+        {
+            int childDepth = depths[source] + 1;
+            foreach (TypeDependencyRelationship relationship
+                in result.Relationships.Where(relationship =>
+                    relationship.SourceTypeName == source))
+            {
+                if (depths.TryAdd(
+                    relationship.TargetTypeName,
+                    childDepth))
+                {
+                    pending.Enqueue(relationship.TargetTypeName);
+                }
+            }
+        }
+
+        return depths;
+    }
+
+    private static (
+        string Source,
+        string Target,
+        TypeDependencyRelationshipKind Kind) RelationshipIdentity(
+            TypeDependencyRelationship relationship) =>
+        (
+            relationship.SourceTypeName,
+            relationship.TargetTypeName,
+            relationship.Kind);
 
     private static IEnumerable<string> TreeShape(
         IReadOnlyList<TypeDependencyNode> nodes,

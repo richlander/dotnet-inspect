@@ -622,8 +622,9 @@ fuzzy same-participant match. The Type Relationships graph therefore retains
 participant-local derived types while expanding base-class and interface chains
 through other loaded package participants. The managed operation constructs
 the same L2 type-dependency plan as the CLI. The current browser gesture
-supplies an empty relationship-row intent, while the managed boundary retains
-typed Head, Tail, and Window capability for future view policy or controls.
+supplies no traversal-depth bound and an empty relationship-row intent, while
+the managed boundary retains typed Head, Tail, and Window capability for
+future view policy or controls.
 Rejected participants remain visible as relationship incompleteness, and the
 frontend request identity includes the complete package coordinate set so
 another retained Workspace cannot reuse those facts. A graph node or

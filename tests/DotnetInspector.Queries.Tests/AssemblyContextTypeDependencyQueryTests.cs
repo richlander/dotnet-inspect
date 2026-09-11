@@ -13,6 +13,11 @@ public interface AssemblyContextTypeDependencyLeaf
 }
 
 public interface AssemblyContextTypeDependencyRoot :
+    AssemblyContextTypeDependencyMiddle
+{
+}
+
+public interface AssemblyContextTypeDependencyMiddle :
     AssemblyContextTypeDependencyLeaf
 {
 }
@@ -76,6 +81,69 @@ public sealed class AssemblyContextTypeDependencyQueryTests
         Assert.IsType<
             AssemblyContextTypeDependencyEntry.Completed>(
                 Assert.Single(result.Participants));
+    }
+
+    [Fact]
+    public void Execute_DepthBoundFlowsThroughPopulationScanner()
+    {
+        var policy = new TestBindingPolicy();
+        TestAssembly source =
+                TestAssembly.Create("bounded", policy);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup(
+                    [source.Participant]);
+
+        AssemblyContextTypeDependencyResult result =
+                AssemblyContextTypeDependencyQuery.Execute(
+                    group,
+                    typeof(AssemblyContextTypeDependencyRoot)
+                        .FullName!,
+                    maximumDepth: 1);
+
+        TypeDependencyRelationship relationship =
+                Assert.Single(result.Dependency.Relationships);
+        Assert.EndsWith(
+                nameof(AssemblyContextTypeDependencyMiddle),
+                relationship.TargetTypeName,
+                StringComparison.Ordinal);
+        TypeDependencyDepthBoundary boundary =
+                Assert.Single(result.Dependency.DepthBoundaries);
+        Assert.Equal(
+                relationship.TargetTypeName,
+                boundary.TypeName);
+        Assert.Equal(1, boundary.MaximumDepth);
+    }
+
+    [Fact]
+    public void ExecuteParticipant_DepthBoundFlowsThroughExactRoot()
+    {
+        var policy = new TestBindingPolicy();
+        TestAssembly source =
+            TestAssembly.Create("bounded participant", policy);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+
+        AssemblyContextTypeDependencyResult result =
+            AssemblyContextTypeDependencyQuery.ExecuteParticipant(
+                group,
+                source.Participant,
+                typeof(AssemblyContextTypeDependencyRoot)
+                    .FullName!,
+                maximumDepth: 1);
+
+        TypeDependencyRelationship relationship =
+            Assert.Single(result.Dependency.Relationships);
+        Assert.EndsWith(
+            nameof(AssemblyContextTypeDependencyMiddle),
+            relationship.TargetTypeName,
+            StringComparison.Ordinal);
+        TypeDependencyDepthBoundary boundary =
+            Assert.Single(result.Dependency.DepthBoundaries);
+        Assert.Equal(relationship.TargetTypeName, boundary.TypeName);
+        Assert.Equal(1, boundary.MaximumDepth);
     }
 
     [Fact]

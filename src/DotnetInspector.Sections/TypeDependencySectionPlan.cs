@@ -18,10 +18,18 @@ public sealed class TypeDependencySectionPlan
 {
     public TypeDependencySectionPlan(
         string targetType,
-        RowSelectionIntent<TypeDependencyRowOrder> relationshipRows)
+        RowSelectionIntent<TypeDependencyRowOrder> relationshipRows,
+        int? maximumDepth = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetType);
         ArgumentNullException.ThrowIfNull(relationshipRows);
+        if (maximumDepth is < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumDepth),
+                maximumDepth,
+                "A maximum dependency depth cannot be negative.");
+        }
         if (relationshipRows.Operations.Any(
                 static operation =>
                     operation.Kind is RowSelectionStageKind.Top))
@@ -34,6 +42,7 @@ public sealed class TypeDependencySectionPlan
 
         TargetType = targetType;
         RelationshipRows = relationshipRows;
+        MaximumDepth = maximumDepth;
     }
 
     public string TargetType { get; }
@@ -43,10 +52,15 @@ public sealed class TypeDependencySectionPlan
         get;
     }
 
-    public static TypeDependencySectionPlan All(string targetType) =>
+    public int? MaximumDepth { get; }
+
+    public static TypeDependencySectionPlan All(
+        string targetType,
+        int? maximumDepth = null) =>
         new(
             targetType,
-            RowSelectionIntent<TypeDependencyRowOrder>.Empty);
+            RowSelectionIntent<TypeDependencyRowOrder>.Empty,
+            maximumDepth);
 }
 
 public sealed class TypeDependencyRowSelectionResult
@@ -88,7 +102,8 @@ public static class TypeDependencySectionExecutor
         AssemblyContextTypeDependencyResult query =
             AssemblyContextTypeDependencyQuery.Execute(
                 group,
-                plan.TargetType);
+                plan.TargetType,
+                plan.MaximumDepth);
         return new(
             query,
             Select(query.Dependency, plan));
@@ -107,7 +122,8 @@ public static class TypeDependencySectionExecutor
             AssemblyContextTypeDependencyQuery.ExecuteParticipant(
                 group,
                 rootParticipant,
-                plan.TargetType);
+                plan.TargetType,
+                plan.MaximumDepth);
         return new(
             query,
             Select(query.Dependency, plan));

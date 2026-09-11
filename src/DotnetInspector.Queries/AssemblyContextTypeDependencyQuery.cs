@@ -57,11 +57,13 @@ public static class AssemblyContextTypeDependencyQuery
 
     public static AssemblyContextTypeDependencyResult Execute(
         AssemblyContextGroup group,
-        string targetType) =>
+        string targetType,
+        int? maximumDepth = null) =>
         ExecuteCore(
             group,
             rootParticipant: null,
-            targetType);
+            targetType,
+            maximumDepth);
 
     /// <summary>
     /// Scans the complete group while selecting the target type from one exact
@@ -75,7 +77,8 @@ public static class AssemblyContextTypeDependencyQuery
     public static AssemblyContextTypeDependencyResult ExecuteParticipant(
         AssemblyContextGroup group,
         AssemblyContextParticipant rootParticipant,
-        string targetType)
+        string targetType,
+        int? maximumDepth = null)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(rootParticipant);
@@ -92,13 +95,15 @@ public static class AssemblyContextTypeDependencyQuery
         return ExecuteCore(
             group,
             rootParticipant,
-            targetType);
+            targetType,
+            maximumDepth);
     }
 
     static AssemblyContextTypeDependencyResult ExecuteCore(
         AssemblyContextGroup group,
         AssemblyContextParticipant? rootParticipant,
-        string targetType)
+        string targetType,
+        int? maximumDepth)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetType);
@@ -162,10 +167,12 @@ public static class AssemblyContextTypeDependencyQuery
             rootParticipant is null
                 ? TypeDependencyScanner.BuildDependencyPopulation(
                     targetType,
-                    retained.ToImmutable())
+                    retained.ToImmutable(),
+                    maximumDepth)
                 : TypeDependencyScanner.BuildExactDependencyPopulation(
                     targetType,
-                    retained.ToImmutable());
+                    retained.ToImmutable(),
+                    maximumDepth);
         var metadataOutcomes =
             new Dictionary<
                 AssemblyAcquisitionRegistration,

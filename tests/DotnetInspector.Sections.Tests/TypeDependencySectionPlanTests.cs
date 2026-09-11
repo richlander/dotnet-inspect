@@ -72,6 +72,17 @@ public sealed class TypeDependencySectionPlanTests
                     ])));
     }
 
+    [Fact]
+    public void Plan_RetainsMaximumTraversalDepth()
+    {
+        TypeDependencySectionPlan plan =
+            TypeDependencySectionPlan.All(
+                "Demo.Consumer",
+                maximumDepth: 2);
+
+        Assert.Equal(2, plan.MaximumDepth);
+    }
+
     private static TypeDependencyResult Dependency() =>
         new(
             "Demo.Consumer",

@@ -189,27 +189,29 @@ PR #6664 is the first bounded adoption:
 - Queries continues to own population and participant-qualified execution,
   ordered participant outcomes, and resource-free results.
 - `DotnetInspector.Sections` owns `TypeDependencySectionPlan`, including the
-  exact target and semantic relationship-row intent, and applies the shared row
-  contract after complete query execution.
-- CLI `depends <type>` lowers its existing row gesture to that plan. Its
-  compatibility JSON tree remains a host projection; selected logical graph
-  edges come from the L2 result.
+  exact target, optional maximum traversal depth, and semantic
+  relationship-row intent. It applies depth during query execution and the
+  shared row contract to the resulting logical relationships.
+- CLI `depends <type>` lowers its existing `--depth` and row gestures to that
+  plan. Typed graph outputs consume selected logical edges from the L2 result.
 - Inspect Web Type Relationships constructs the same plan. Its current UI uses
-  the empty row intent, while its managed boundary and tests retain explicit
-  bounded-row capability.
+  no traversal bound and the empty row intent, while its managed boundary and
+  tests retain explicit bounded-row capability.
 - Inspect Web takes base and interface graph edges only from the selected L2
   dependency rows. It separately composes participant-local known-derived-type
   edges from Research; those reverse relationships remain a distinct row set
   rather than bypassing the dependency row plan.
 
-The pilot deliberately supplies no execution bound. Selecting the first
-relationship still scans the complete admitted population; the result is a
-complete query followed by semantic row selection.
+The optional maximum depth bounds dependency-graph expansion and returns the
+omitted frontier as typed depth-boundary evidence. It does not reduce the
+admitted participant population. Selecting the first relationship similarly
+does not authorize less query work: row selection follows the depth-bounded
+query result.
 
 The gates are:
 
 - `TypeDependencySectionPlanTests` for shared target/row planning and typed
-  failure;
+  traversal-depth retention and row failure;
 - `Depends_Count_AppliesRowsToLogicalEdges` and
   `Depends_LimitUsesLogicalEdgeRowsAcrossSinks` for CLI lowering and sinks;
 - `AssemblyContextTypeDependencyQueryTests` for query identity and participant

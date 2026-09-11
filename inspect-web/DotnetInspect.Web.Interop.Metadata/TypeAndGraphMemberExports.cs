@@ -96,7 +96,8 @@ public static partial class MetadataExports
                             member,
                             new TypeDependencySectionPlan(
                                 projection.Identity.FullName,
-                                typeDependencyRows)));
+                                typeDependencyRows,
+                                maximumDepth: null)));
                 });
         ResearchViews.TypeProjectionResult projection = result.Projection;
         (BrowserTypeGraphNode[] graphNodes,
