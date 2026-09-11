@@ -1147,14 +1147,14 @@ The flat product-demo projection preserves current order and appends Aspire:
 ```text
 Demos
 
-System.Text.Json                     Browse a real package API
+System.Text.Json                     Browse the Runtime Platform API
 Cross-package call graph             Trace calls across three packages
-Serialize call graph                 Dense package-local STJ graph
+Serialize call graph                 Trace the Runtime STJ implementation
 Configuration Bind                  Recursive binder call graph
 Options hub                         Inbound fan-in at AddOptions
 DI TryAdd hub                       Keyed/scoped Try* fan-in
 AddHttpClient                       HttpClient factory registration
-JsonElement.GetDecimal              STJ number parse path
+JsonElement.GetDecimal              Trace the Runtime number parse path
 Aspire AddPostgres                  PostgreSQL resource registration graph
 Aspire AddRedis                     Redis resource registration graph
 ```

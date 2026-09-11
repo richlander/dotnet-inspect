@@ -23,10 +23,18 @@ export interface PlatformAssemblyRow {
   readonly packVersion: string;
 }
 
+export interface PlatformPackageSupply {
+  readonly pack: "netcore.app" | "aspnetcore.app";
+  readonly family: "Microsoft.NETCore.App" | "Microsoft.AspNetCore.App";
+  readonly package: string;
+  readonly version: string;
+}
+
 export interface PlatformCatalogTarget {
   readonly tfm: string;
   readonly version: string;
   readonly rows: readonly PlatformAssemblyRow[];
+  readonly supplies: readonly PlatformPackageSupply[];
 }
 
 export interface PlatformIndex {
@@ -72,6 +80,9 @@ export function parsePlatformCatalogTarget(input: unknown): PlatformCatalogTarge
   if (!Array.isArray(target.rows) || target.rows.length === 0) {
     throw new Error("Platform catalog has no library inventory.");
   }
+  if (target.supplies !== undefined && !Array.isArray(target.supplies)) {
+    throw new Error("Platform catalog has invalid package supply evidence.");
+  }
   const identities = new Set<string>();
   const rows = target.rows.map((value: unknown): PlatformAssemblyRow => {
     const row = record(value, "library");
@@ -115,12 +126,47 @@ export function parsePlatformCatalogTarget(input: unknown): PlatformCatalogTarge
       packVersion: version,
     });
   });
-  return Object.freeze({ tfm, version, rows: Object.freeze(rows) });
+  const supplyIdentities = new Set<string>();
+  const supplies = (target.supplies ?? []).map(
+    (value: unknown): PlatformPackageSupply => {
+      const supply = record(value, "package supply");
+      const packageId = text(supply.package, "package supply identity");
+      const supplyVersion = text(supply.version, "package supply version");
+      const pack = supply.pack;
+      const family = supply.family;
+      if (pack !== "netcore.app" && pack !== "aspnetcore.app") {
+        throw new Error(`Invalid platform package supply pack for ${packageId}.`);
+      }
+      const expectedFamily = pack === "netcore.app"
+        ? "Microsoft.NETCore.App"
+        : "Microsoft.AspNetCore.App";
+      if (family !== expectedFamily) {
+        throw new Error(`Invalid platform package supply family for ${packageId}.`);
+      }
+      const identity = `${pack}\u0000${packageId.toLowerCase()}`;
+      if (supplyIdentities.has(identity)) {
+        throw new Error(`Duplicate platform package supply ${packageId}.`);
+      }
+      supplyIdentities.add(identity);
+      return Object.freeze({
+        pack,
+        family: expectedFamily,
+        package: packageId,
+        version: supplyVersion,
+      });
+    },
+  );
+  return Object.freeze({
+    tfm,
+    version,
+    rows: Object.freeze(rows),
+    supplies: Object.freeze(supplies),
+  });
 }
 
 export function parsePlatformIndex(input: unknown): PlatformIndex {
   const catalog = record(input, "document");
-  if (catalog.schemaVersion !== 1 || !Array.isArray(catalog.targets)) {
+  if (catalog.schemaVersion !== 2 || !Array.isArray(catalog.targets)) {
     throw new Error("Unsupported platform catalog format.");
   }
   const defaultFramework = text(catalog.defaultFramework, "default framework");
@@ -128,6 +174,12 @@ export function parsePlatformIndex(input: unknown): PlatformIndex {
   const defaults = new Map<string, PlatformCatalogTarget>();
   const key = (tfm: string, version: string) => `${tfm}\0${version}`;
   for (const value of catalog.targets) {
+    const shippedTarget = record(value, "target");
+    if (!Array.isArray(shippedTarget.supplies)) {
+      throw new Error(
+        "Shipped platform catalog target has no exact package supply inventory.",
+      );
+    }
     const target = parsePlatformCatalogTarget(value);
     const identity = key(target.tfm, target.version);
     if (targets.has(identity)) throw new Error(`Duplicate platform catalog target ${target.tfm}@${target.version}.`);
