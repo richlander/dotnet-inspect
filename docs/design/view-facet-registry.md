@@ -5,10 +5,9 @@ facets. It gives navigation, portable-definition owners, and other hosts one
 stable identity and descriptor space without turning a browser label, CLI
 section name, or command flag into a contract.
 
-The initial inspection-lens catalog is implemented in
-`DotnetInspector.Queries`. The [Workspace and Package
-cutover](#workspace-and-package-cutover) contract is planned, not implemented
-or issued by this document change.
+The inspection-lens catalog and the [Workspace and Package
+cutover](#workspace-and-package-cutover) are implemented in
+`DotnetInspector.Queries`.
 Adjacent Navigation, workspace-definition, and host consumers remain separate
 work.
 
@@ -122,7 +121,7 @@ A view-facet ID is an ordinal, case-sensitive ASCII string:
 <subject>.<name>
 ```
 
-After Workspace/Package cutover, `<subject>` is exactly `workspace`, `package`,
+`<subject>` is exactly `workspace`, `package`,
 `library`, `type`, or `member`. `<name>` is one or more lower-case ASCII
 alphanumeric words separated by `-`, begins with a letter, and ends with a
 letter or digit. The target grammar is:
@@ -131,10 +130,8 @@ letter or digit. The target grammar is:
 \A(workspace|package|library|type|member)\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*\z
 ```
 
-Until that cutover, the pre-issuance implementation grammar additionally
-admits `root`. Its current catalog remains internally consistent under that
-baseline grammar. The cutover removes the prefix and its three entries
-together.
+The pre-issuance implementation grammar additionally admitted `root`. The
+cutover removed that prefix and its three entries together.
 
 The `\A` and `\z` anchors require an absolute full-string match under .NET
 regular-expression semantics; in particular, a terminal line feed is not
@@ -205,10 +202,9 @@ boundaries as inert product-owned data.
 Sparse values allow additive insertion. Registration order, enum ordinal, ID,
 and localized title are not tie-breakers.
 
-Complete-catalog order after Workspace/Package adoption is Workspace, Package,
+Complete-catalog order is Workspace, Package,
 Library, Type, Member, then descriptor `Order`. The current implementation
-baseline instead has legacy Root, Library, Type, and Member kinds. Kind-scoped
-and target-aware discovery use descriptor `Order`.
+uses that order. Kind-scoped and target-aware discovery use descriptor `Order`.
 
 `Role` is optional semantic metadata for an adjacent product policy. The
 registry owns which descriptor carries a role; it does not define how
@@ -278,10 +274,10 @@ fallbacks.
 Resolution never selects a neighbor, default, or replacement. Adjacent owners
 consume the exact result.
 
-## Current implementation baseline
+## Pre-cutover implementation baseline
 
-The first implementation contains these inspection-lens descriptors. This is
-the pre-issuance baseline before Workspace/Package adoption:
+The first implementation contained these inspection-lens descriptors. This
+was the pre-issuance baseline before Workspace/Package adoption:
 
 | ID | Title | Summary | Kind | Order | Role |
 | -- | ----- | ------- | ---- | ----: | ---- |
@@ -302,17 +298,16 @@ the pre-issuance baseline before Workspace/Package adoption:
 | `member.source` | Source | Source or decompiled code for the active Member. | Member | 400 | — |
 | `member.annotated-source` | Annotated source | Source for the active Member with product analysis annotations. | Member | 500 | — |
 
-In that baseline, the two `root.package-*` facets apply only to a
-package-capable Root. `root.overview` applies to supported non-package Roots
-and is inapplicable to a package-capable Root. Applicability comes from typed
+In that baseline, the two `root.package-*` facets applied only to a
+package-capable Root. `root.overview` applied to supported non-package Roots
+and was inapplicable to a package-capable Root. Applicability came from typed
 root facts, never ID parsing or coordinate spelling.
 
 Distinct IDs may share presentation: Library Metadata and Type Metadata, Type
 and Member Source, and Root and Member Overview remain separate facets.
 
-These entries have no external compatibility obligation. Their implemented
-purposes and the current manifest remain exact baseline evidence until the
-consumer-paired cutover replaces them.
+These entries had no external compatibility obligation and were replaced by
+the consumer-paired cutover.
 
 ## Compare facet extension
 
@@ -628,19 +623,14 @@ restoration own stateful interactions.
 
 ## Implementation status
 
-The immutable registry, pre-issuance 16-facet catalog, private execution
+The immutable registry, Workspace/Package 16-facet catalog, private execution
 bindings, typed applicability and availability inputs, exact resolution
-outcomes, and current baseline manifest are implemented by
+outcomes, and first compatibility baseline are implemented by
 `ViewFacetRegistry.cs`, `InspectionViewFacetCatalog.cs`, and
 `eng/view-facet-compatibility.json`.
 
-Workspace/Package grammar, the three replacement descriptors, removal of all
-three Root descriptors and bindings, and establishment of the resulting
-manifest as the first compatibility baseline are not implemented here.
 The three Compare descriptors, bindings, availability facts, and focused gates
-are also not implemented. The current four-kind runtime and 16 pre-issuance
-manifest entries remain unchanged until their respective consumer-paired
-adoptions above.
+are not implemented.
 
 The initial contract is enforced by
 `ViewFacetRegistryTests.Catalog_IsCompleteUniqueAndDeterministicallyOrdered`,
@@ -650,9 +640,9 @@ The initial contract is enforced by
 `ViewFacetRegistryTests.StaticDiscovery_DoesNotExecuteOrAcquire`,
 `ViewFacetRegistryTests.TargetDiscovery_PreservesOrderAndFailureEvidence`,
 `ViewFacetRegistryTests.Lookup_DistinguishesEveryOutcome`,
-`ViewFacetRegistryTests.RootApplicability_PartitionsPackageAndNonPackageFacets`,
-and
-`ViewFacetRegistryTests.InitialInspectionLensInventory_MatchesContract`.
+`ViewFacetRegistryTests.WorkspacePackageApplicability_PartitionsFacets`,
+`ViewFacetRegistryTests.WorkspacePackageInventory_MatchesContract`, and
+`ViewFacetRegistryTests.WorkspacePackageCutover_PreservesExactLookupOutcomes`.
 
 Current transitional surfaces are:
 

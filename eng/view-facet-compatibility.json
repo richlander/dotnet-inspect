@@ -1,18 +1,18 @@
 [
   {
-    "id": "root.package-overview",
-    "kind": "Root",
+    "id": "workspace.overview",
+    "kind": "Workspace",
+    "purpose": "Current Workspace scope, ordered packages, and realization status."
+  },
+  {
+    "id": "package.overview",
+    "kind": "Package",
     "purpose": "Package identity, selected target, assets, and summary facts."
   },
   {
-    "id": "root.package-dependencies",
-    "kind": "Root",
+    "id": "package.dependencies",
+    "kind": "Package",
     "purpose": "Declared package dependencies for the selected target framework."
-  },
-  {
-    "id": "root.overview",
-    "kind": "Root",
-    "purpose": "Coordinate identity, selected target, and available structural subjects."
   },
   {
     "id": "library.references",
