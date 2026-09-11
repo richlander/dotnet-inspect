@@ -18,6 +18,7 @@ const ready: DiagnosticsViewModel = {
   runtime: {
     kind: "ready",
     message: ".NET is running in this browser.",
+    measurementsPending: false,
     diagnostics: {
       downloadMs: 1010,
       startupMs: 522,
@@ -73,6 +74,7 @@ test("Diagnostics distinguishes valid zero bytes from unavailable values", () =>
     runtime: {
       kind: "ready",
       message: "Ready.",
+      measurementsPending: false,
       diagnostics: {
         downloadMs: 0,
         startupMs: 0,
@@ -120,12 +122,31 @@ test("Diagnostics keeps loading and unavailable data visible without zeroes", ()
   assert.doesNotMatch(html, />0</);
 });
 
+test("Diagnostics reports runtime readiness while startup measurements finish", () => {
+  const html = diagnosticsViewHtml({
+    ...ready,
+    runtime: {
+      kind: "ready",
+      message: "Ready.",
+      diagnostics: null,
+      measurementsPending: true,
+    },
+  }, escapeHtml);
+
+  assert.match(html, /Browser inspection engine ready/);
+  assert.match(html, /Finishing startup measurements\./);
+  assert.doesNotMatch(
+    html,
+    /Startup measurements are unavailable for this session\./);
+});
+
 test("Diagnostics renders unavailable framework evidence and build failure", () => {
   const html = diagnosticsViewHtml({
     ...ready,
     runtime: {
       kind: "ready",
       message: "Ready.",
+      measurementsPending: false,
       diagnostics: {
         downloadMs: null,
         startupMs: 522,

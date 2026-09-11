@@ -1021,6 +1021,7 @@ const initialState = {
   loadingMessage: "Starting browser inspection engine…",
   loadingSubtitle: "",
   engineReady: false,
+  engineRuntimeReady: false,
   engineStartupFailed: false,
   engineStatus: "Loading browser WebAssembly…",
   error: "",
@@ -1122,6 +1123,7 @@ let packageCacheStatsRequest = 0;
 let diagnosticsHeadingFocusPending = false;
 let diagnosticsDestinationFocusPending = false;
 let diagnosticsDestinationFocusScheduled = false;
+let diagnosticsDestinationFocusGeneration: number | null = null;
 let platformLibraryRetry: RetryAction = null;
 let platformCatalogRetry: RetryAction = null;
 
@@ -1437,6 +1439,7 @@ function captureRetainedHostState() {
     settingsReturn: state.settingsReturn,
     keyboardHelp: state.keyboardHelp,
     engineReady: state.engineReady,
+    engineRuntimeReady: state.engineRuntimeReady,
     engineStartupFailed: state.engineStartupFailed,
     engineStatus: state.engineStatus,
     diag: state.diag,
@@ -10244,6 +10247,21 @@ function bindHomeEvents() {
   bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
   if (diagnosticsDestinationFocusPending) return;
+  const destinationFocusGeneration = diagnosticsDestinationFocusGeneration;
+  if (destinationFocusGeneration !== null) {
+    afterCurrentNavigationFrame(() => {
+      if (diagnosticsDestinationFocusGeneration
+        !== destinationFocusGeneration) return;
+      if (documentFocusGeneration !== destinationFocusGeneration) {
+        diagnosticsDestinationFocusGeneration = null;
+        return;
+      }
+      if (focusLevelOneHeading()) {
+        diagnosticsDestinationFocusGeneration = documentFocusGeneration;
+      }
+    });
+    return;
+  }
   afterCurrentNavigationFrame(() => {
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
@@ -10750,11 +10768,12 @@ function diagnosticsRuntimeState(): DiagnosticsRuntimeState {
       detail: state.errorDetail || state.error || null,
     };
   }
-  if (state.engineReady) {
+  if (state.engineRuntimeReady) {
     return {
       kind: "ready",
       message: ".NET is running in WebAssembly and ready for inspection.",
       diagnostics: state.diag,
+      measurementsPending: !state.engineReady,
     };
   }
   return {
@@ -10859,7 +10878,8 @@ function openDiagnosticsRoute() {
   state.diagnosticsCapturedAtUtc = new Date().toISOString();
   diagnosticsHeadingFocusPending = true;
   diagnosticsDestinationFocusPending = false;
-  if (state.engineReady) {
+  diagnosticsDestinationFocusGeneration = null;
+  if (state.engineRuntimeReady) {
     state.packageCacheStatsStatus = "loading";
     state.packageCacheStatsError = "";
   }
@@ -10867,7 +10887,7 @@ function openDiagnosticsRoute() {
     DIAGNOSTICS_PATH,
     diagnosticsHistoryState(history.state));
   render();
-  if (state.engineReady) refreshPackageStats();
+  if (state.engineRuntimeReady) refreshPackageStats();
 }
 
 function closeDiagnosticsRoute() {
@@ -10937,7 +10957,9 @@ function scheduleDiagnosticsDestinationFocus() {
     if (!heading) return;
     diagnosticsDestinationFocusPending = false;
     if (focusGeneration !== documentFocusGeneration) return;
-    focusLevelOneHeading();
+    if (focusLevelOneHeading()) {
+      diagnosticsDestinationFocusGeneration = documentFocusGeneration;
+    }
   });
 }
 
@@ -15002,6 +15024,7 @@ function isStyleOption(value: unknown): value is StyleOption {
 function showEngineFailure(error: unknown) {
   state.loading = false;
   state.engineReady = false;
+  state.engineRuntimeReady = false;
   state.engineStartupFailed = true;
   state.engineStatus = "";
   state.error =
@@ -15020,9 +15043,29 @@ function showEngineFailure(error: unknown) {
   if (!state.credits) render();
 }
 
+async function loadBuildIdentity() {
+  try {
+    state.buildIdentity = await engineClient.host.buildIdentity();
+    state.buildIdentityStatus = "ready";
+  } catch (error) {
+    state.buildIdentity = null;
+    state.buildIdentityStatus = "failed";
+    state.buildIdentityError =
+      `Product build identity is unavailable: ${errorMessage(error)}`;
+    console.error("Product build identity is unavailable.", error);
+  }
+  if (isDiagnosticsPath(location.pathname)) {
+    state.diagnosticsCapturedAtUtc = new Date().toISOString();
+    render();
+  } else if (state.engineReady && !state.credits) {
+    render();
+  }
+}
+
 async function bootstrap() {
   state.loading = !state.home;
   state.engineReady = false;
+  state.engineRuntimeReady = false;
   state.engineStartupFailed = false;
   state.engineStatus = "Loading browser WebAssembly…";
   state.buildIdentity = null;
@@ -15042,18 +15085,14 @@ async function bootstrap() {
     };
     reportEngineStatus("Loading .NET WebAssembly…");
     await startEngine(window.location.origin);
-    reportEngineStatus("Reading package assemblies…");
-    try {
-      state.buildIdentity = await engineClient.host.buildIdentity();
-      state.buildIdentityStatus = "ready";
-    } catch (error) {
-      state.buildIdentity = null;
-      state.buildIdentityStatus = "failed";
-      state.buildIdentityError =
-        `Product build identity is unavailable: ${errorMessage(error)}`;
-      console.error("Product build identity is unavailable.", error);
-    }
     const tEngine = performance.now();
+    state.engineRuntimeReady = true;
+    reportEngineStatus("Reading package assemblies…");
+    void loadBuildIdentity();
+    if (isDiagnosticsPath(location.pathname)) {
+      state.loading = false;
+      refreshPackageStats();
+    }
     try {
       const vocabulary = await engineClient.catalog.listVocabulary();
       const sections = vocabulary?.sections || [];
@@ -15104,8 +15143,7 @@ async function bootstrap() {
     if (isDiagnosticsPath(location.pathname)) {
       state.loading = false;
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
-      diagnosticsHeadingFocusPending = true;
-      refreshPackageStats();
+      render();
       return;
     }
     if (state.home) {
@@ -15916,6 +15954,7 @@ window.addEventListener("popstate", () => {
   if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
   if (isDiagnosticsPath(location.pathname)) {
     diagnosticsDestinationFocusPending = false;
+    diagnosticsDestinationFocusGeneration = null;
     clearNavigationError();
     state.packageQueryOpen = false;
     packageQueryController.cancel();
@@ -15924,12 +15963,12 @@ window.addEventListener("popstate", () => {
     state.loading = false;
     state.diagnosticsCapturedAtUtc = new Date().toISOString();
     diagnosticsHeadingFocusPending = true;
-    if (state.engineReady) {
+    if (state.engineRuntimeReady) {
       state.packageCacheStatsStatus = "loading";
       state.packageCacheStatsError = "";
     }
     render();
-    if (state.engineReady) refreshPackageStats();
+    if (state.engineRuntimeReady) refreshPackageStats();
     return;
   }
   if (isPackageQueryPath(location.pathname)) {

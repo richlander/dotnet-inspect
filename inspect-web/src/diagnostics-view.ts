@@ -22,6 +22,7 @@ export type DiagnosticsRuntimeState =
       kind: "ready";
       message: string;
       diagnostics: RuntimeStartupDiagnostics | null;
+      measurementsPending: boolean;
     }
   | {
       kind: "failed";
@@ -163,6 +164,11 @@ function runtimeCardHtml(
       ${factHtml("Transferred", formatBytes(diagnostics.transfer), escapeHtml)}
       ${factHtml("Decoded", formatBytes(diagnostics.decoded), escapeHtml)}
       </dl>
+    </div>`;
+  } else if (runtime.kind === "ready" && runtime.measurementsPending) {
+    body = `<div class="diagnostics-inline-state">
+      <span class="diagnostics-inline-spinner" aria-hidden="true"></span>
+      <p>Finishing startup measurements.</p>
     </div>`;
   } else if (runtime.kind === "ready") {
     body = `<p class="diagnostics-unavailable">Startup measurements are unavailable for this session.</p>`;

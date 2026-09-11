@@ -827,7 +827,7 @@ test("Diagnostics opens from Settings and Spotlight without entering the Applica
   await expect(page.locator("#inspector-panel h1")).toBeFocused();
 });
 
-test("Diagnostics retains its route geometry while runtime evidence loads on a narrow viewport", async ({
+test("Diagnostics retains its route geometry while Build evidence loads on a narrow viewport", async ({
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 720 });
@@ -835,8 +835,8 @@ test("Diagnostics retains its route geometry while runtime evidence loads on a n
   await page.goto("/diagnostics");
 
   await expect(page.locator("#diagnostics-heading")).toHaveText("Diagnostics");
-  await expect(page.locator(".diagnostics-runtime-state-loading"))
-    .toContainText("engine loading");
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
   await expect(page.locator(".diagnostics-card")).toHaveCount(3);
   expect(await page.evaluate(() =>
     document.documentElement.scrollWidth <= document.documentElement.clientWidth
@@ -851,8 +851,6 @@ test("Diagnostics retains its route geometry while runtime evidence loads on a n
   await expect(page.locator("html"))
     .toHaveAttribute("data-build-identity-pending", "true");
   await releaseFacade(page, "finish-build-identity");
-  await expect(page.locator(".diagnostics-runtime-state-ready"))
-    .toContainText("engine ready");
   await expect(page.locator(".diagnostics-card")
     .filter({ has: page.locator("#diagnostics-build-heading") }))
     .toContainText("fixture");
@@ -876,6 +874,50 @@ test("Diagnostics retains its route geometry while runtime evidence loads on a n
   await page.locator("#diagnostics-back").click();
   await expect(page).toHaveURL("/");
   await expect(page.locator("main h1")).toBeFocused();
+});
+
+test("Diagnostics Back keeps Home heading focus through a later Build rerender", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(page.locator("main h1")).toBeFocused();
+});
+
+test("Diagnostics starts runtime and cache evidence while Build identity is pending", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, {
+    buildIdentity: "pending",
+    cachePending: true,
+  });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+
+  await releaseFacade(page, "finish-build-identity");
+  await releaseFacade(page, "finish-package-cache-stats");
+  await expect(page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-build-heading") }))
+    .toContainText("fixture");
+  await expect(page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-cache-heading") }))
+    .toContainText("Packages");
 });
 
 test("Diagnostics cache refresh does not reclaim relinquished heading focus", async ({
