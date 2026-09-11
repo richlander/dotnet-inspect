@@ -793,8 +793,9 @@ test("Spotlight offers separate NuGet and Platform System.Text.Json destinations
     contentType: "application/json", body: JSON.stringify({ data: [{ id: "System.Text.Json", version: "11.0.0-preview.7" }] }),
   }));
   await page.goto("/");
-  await expect(page.getByRole("contentinfo")).toContainText("browser wasm ready");
-  await page.getByRole("combobox").fill("System.Text.Json");
+  const search = page.getByRole("combobox");
+  await expect(search).toBeEnabled();
+  await search.fill("System.Text.Json");
   await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toBeVisible();
   await expect(page.locator('[data-sl-platform-lib="System.Text.Json"]')).toContainText("Platform");
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");
