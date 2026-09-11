@@ -4,6 +4,8 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 using Markout;
 
@@ -21,6 +23,7 @@ public static class EcosystemCommand
     internal const string ToolPackagesSection = "Tool Packages";
     internal const string KnownIntegrationsSection = "Known Integrations";
     internal const string DemosSection = "Demos";
+    internal const string PruningSection = "Pruning";
 
     private const string CatalogDescription =
         "Product-configured ecosystem knowledge. This catalog is not an exhaustive description of the external ecosystems.";
@@ -325,7 +328,62 @@ public static class EcosystemCommand
             static pack => pack.ToolPackages));
         sections.Add(CreateKnownIntegrationsSection(scope, focus is null));
         sections.Add(CreateDemosSection(scope, focus is null));
+
+        // Only the platform ecosystem can answer which package identities a target subsumes, so
+        // the section exists only when it is the focus. That also keeps its cost off every other
+        // route: it is the one section here backed by an installed reference pack rather than a
+        // compiled-in descriptor, and its rows are produced on demand.
+        if (focus is not null && focus.Id == EcosystemPackIds.Platform)
+            sections.Add(CreatePruningSection());
+
         return [.. sections];
+    }
+
+    /// <summary>
+    /// The package identities the installed platform target subsumes.
+    /// </summary>
+    /// <remarks>
+    /// Read from the reference pack installed on this machine, so the answer is exact for the
+    /// pack actually present and needs no acquisition. <c>Kind</c> separates the two populations:
+    /// a frozen entry is subsumed for any plausible request, while a live entry tracks the pack
+    /// and turns on the version comparison.
+    /// </remarks>
+    private static EcosystemSection CreatePruningSection() =>
+        new(
+            PruningSection,
+            "Package identities the installed platform target supplies, so a reference to one resolves to the platform rather than the package.",
+            ["Package", "Supplied By", "Supplied", "Kind"],
+            ["package", "supplied_by", "supplied", "kind"],
+            BuildPruningRows,
+            "No platform prune inventory is installed for this target.",
+            StructuredEmptyRow: ["", "", "", ""]);
+
+    private static string[][] BuildPruningRows()
+    {
+        InstalledPlatformPruneSource.Result result =
+            InstalledPlatformPruneSource.Read("runtime");
+        if (result.Inventory is not { } inventory)
+        {
+            // A missing or unreadable pack is not an empty platform. Report it and render no
+            // rows rather than asserting that nothing is subsumed.
+            if (result.Error is { Length: > 0 } error)
+                CommandError.Write(error);
+            return [];
+        }
+
+        return
+        [
+            .. inventory.Entries.Select(entry => new[]
+            {
+                entry.PackageId,
+                entry.Family,
+                entry.SuppliedVersion.ToNormalizedString(),
+                entry.Precision == PlatformPrunePrecision.Exact
+                    && entry.SuppliedVersion == entry.SourcePackVersion
+                        ? "live"
+                        : "frozen",
+            }),
+        ];
     }
 
     private static EcosystemSection CreateCatalogSection(
@@ -708,13 +766,69 @@ public static class EcosystemCommand
         EcosystemSection section) =>
         writer.WriteTable(section.Labels, section.Ids, section.Rows);
 
-    private sealed record EcosystemSection(
-        string Name,
-        string Summary,
-        string[] Labels,
-        string[] Ids,
-        string[][] Rows,
-        string EmptyText,
-        string[]? StructuredEmptyRow = null,
-        bool WasLogicallyEmpty = false);
+    /// <summary>One rendered ecosystem section.</summary>
+    /// <remarks>
+    /// Rows are produced on demand rather than at construction. Every section this command
+    /// rendered originally read compiled-in descriptors, so materializing the whole set cost
+    /// nothing; a section backed by an installed reference pack does not have that property.
+    /// Deferring production keeps an unselected section free, which is what lets the section
+    /// ladder decide cost rather than the constructor.
+    /// </remarks>
+    private sealed record EcosystemSection
+    {
+        private readonly Func<string[][]> _rows;
+        private string[][]? _materialized;
+
+        internal EcosystemSection(
+            string Name,
+            string Summary,
+            string[] Labels,
+            string[] Ids,
+            Func<string[][]> Rows,
+            string EmptyText,
+            string[]? StructuredEmptyRow = null,
+            bool WasLogicallyEmpty = false)
+        {
+            this.Name = Name;
+            this.Summary = Summary;
+            this.Labels = Labels;
+            this.Ids = Ids;
+            _rows = Rows;
+            this.EmptyText = EmptyText;
+            this.StructuredEmptyRow = StructuredEmptyRow;
+            this.WasLogicallyEmpty = WasLogicallyEmpty;
+        }
+
+        internal EcosystemSection(
+            string Name,
+            string Summary,
+            string[] Labels,
+            string[] Ids,
+            string[][] Rows,
+            string EmptyText,
+            string[]? StructuredEmptyRow = null,
+            bool WasLogicallyEmpty = false)
+            : this(Name, Summary, Labels, Ids, () => Rows, EmptyText, StructuredEmptyRow, WasLogicallyEmpty)
+        {
+        }
+
+        public string Name { get; init; }
+        public string Summary { get; init; }
+        public string[] Labels { get; init; }
+        public string[] Ids { get; init; }
+        public string EmptyText { get; init; }
+        public string[]? StructuredEmptyRow { get; init; }
+        public bool WasLogicallyEmpty { get; init; }
+
+        /// <summary>The section's rows, produced once on first access.</summary>
+        public string[][] Rows
+        {
+            get => _materialized ??= _rows();
+            init
+            {
+                _materialized = value;
+                _rows = () => value;
+            }
+        }
+    }
 }

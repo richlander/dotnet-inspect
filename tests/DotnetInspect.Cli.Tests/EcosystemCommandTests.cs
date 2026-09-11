@@ -561,4 +561,55 @@ public sealed class EcosystemCommandTests
                 root.Parse(arguments),
                 arguments));
     }
+
+    [Fact]
+    public async Task Pruning_ListsWhatTheInstalledPlatformTargetSupplies()
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "platform",
+            Select = ["Pruning"],
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Pruning", result.Output);
+        Assert.Contains("System.Text.Json", result.Output);
+
+        // Both populations render. The distinction is what explains a result rather than
+        // restating it: a frozen entry is subsumed for any plausible request, while a live
+        // entry tracks the pack and turns on the version comparison.
+        Assert.Contains("| live |", result.Output);
+        Assert.Contains("| frozen |", result.Output);
+    }
+
+    [Fact]
+    public async Task Pruning_BelongsToThePlatformEcosystemAlone()
+    {
+        // Only the platform ecosystem can answer which identities a target subsumes, so the
+        // section is not selectable from the catalog-wide view or from another pack.
+        var catalogWide = await ExecuteAsync(new EcosystemOptions { Select = ["Pruning"] });
+        Assert.Equal(1, catalogWide.ExitCode);
+
+        var otherPack = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspire",
+            Select = ["Pruning"],
+        });
+        Assert.Equal(1, otherPack.ExitCode);
+    }
+
+    [Fact]
+    public async Task Pruning_CostsNothingWhenItIsNotSelected()
+    {
+        // It is the one section backed by an installed reference pack rather than a compiled-in
+        // descriptor. Rows are produced on demand, so routes that do not select it read no pack.
+        var catalog = await ExecuteAsync(new EcosystemOptions());
+        Assert.Equal(0, catalog.ExitCode);
+        Assert.DoesNotContain("## Pruning", catalog.Output);
+
+        var platformInfo = await ExecuteAsync(new EcosystemOptions { Ecosystem = "platform" });
+        Assert.Equal(0, platformInfo.ExitCode);
+        Assert.DoesNotContain("## Pruning", platformInfo.Output);
+        Assert.Empty(platformInfo.Error);
+    }
 }
