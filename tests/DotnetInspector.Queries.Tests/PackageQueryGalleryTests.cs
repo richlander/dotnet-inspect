@@ -134,6 +134,36 @@ public sealed class PackageQueryGalleryTests
     }
 
     [Fact]
+    public async Task AbsentMatchLimitReturnsTheCompleteAcquiredGalleryResponse()
+    {
+        using var handler = new GalleryHandler(
+            Envelope(Row("A", 30), Row("B", 20), Row("C", 10)));
+        using var source = Source(handler);
+        var request = new NuGetGalleryDiscoveryRequest(
+            PackageSourceDescriptor.NuGetGallery, 3);
+
+        var events = await PackageQuery.ExecuteToArrayAsync(
+            source,
+            Accepted(PackageQuery.PlanGallery(
+                request,
+                maximumMatches: null)),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ["A", "B", "C"],
+            events.OfType<PackageQueryEvent.Match>()
+                .Select(item => item.Value.Package.PackageId));
+        PackageQuerySummary summary =
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value;
+        Assert.Null(summary.MatchLimit);
+        Assert.Equal(3, summary.Candidates);
+        Assert.Equal(3, summary.Matches);
+        Assert.Equal(
+            PackageQueryCompletionKind.GalleryResponseComplete,
+            summary.Completion);
+    }
+
+    [Fact]
     public async Task CapacityDependentRankingDoesNotReplaceHeadWithSmallerAcquisition()
     {
         // Indexed membership is A, B, C; auxiliary lifetime order within K=3 is B, C, A.

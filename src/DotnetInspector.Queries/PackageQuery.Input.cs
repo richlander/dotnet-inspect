@@ -12,7 +12,7 @@ public static partial class PackageQuery
         string text,
         IReadOnlyCollection<string>? facetIds = null,
         int maximumCandidates = DefaultMaximumCandidates,
-        int maximumMatches = DefaultMaximumMatches,
+        int? maximumMatches = DefaultMaximumMatches,
         bool includePrerelease = false)
     {
         ArgumentNullException.ThrowIfNull(text);

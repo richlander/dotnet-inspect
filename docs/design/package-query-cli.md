@@ -39,15 +39,13 @@ owner in
 its first CLI host route has landed as `find --literal` plus
 `workspace --root-request` — see
 [The landed promoted-tier CLI route](#the-landed-promoted-tier-cli-route).
-Despite the Sections migration landing,
-`find --package-prefix`'s corpus limit is also still spelled `-t`, not the
-semantic `-n` target. [CLI execution bounds](cli-execution-bounds.md) now owns
-the separate `--take` work-bound grammar, and
-[#6547](https://github.com/richlander/dotnet-inspect/issues/6547) reconciles
-this owner's current `--candidates`/`--matches` binding before command-wide
-`find` adoption. Product behavior remains unchanged until that implementation
-slice lands. The reconciled CLI behavior and optional match-budget state below
-are unverified until their named Release gates land.
+The command-wide adoption tracked by
+[#6489](https://github.com/richlander/dotnet-inspect/issues/6489) now uses the
+semantic `-n` and `--rows` grammar for final package rows.
+[CLI execution bounds](cli-execution-bounds.md) owns the separate `--take`
+candidate-work grammar. The low-compatibility migration retires numeric `-t`,
+`--candidates`, and `--matches` from `find`; the optional match-budget state
+below preserves the shared query capability without imposing it on the CLI.
 
 Related docs:
 
@@ -833,23 +831,19 @@ the CLI's named facets as canonical for the browser's facet rail.
    provider and at most 20 candidates. `PackageQueryTests` and
    `PackageQueryPlanner_IsReachableFromBrowserConsumer` are the named Release
    gates.
-4. **CLI metadata facet binding — implemented by #6107.** The finite
-   `facet=<ID>` binding and the currently shipped
-   `--candidates`/`--matches` query budgets preserve
-   filter-before-match-bound behavior. They do not implement the reconciled
-   row-selection and execution-bound grammar or retire the ordinary profile's
-   `-t`.
+4. **CLI metadata facet binding — implemented by #6107 and reconciled under
+   #6489.** The finite `facet=<ID>` binding remains; candidate work is now
+   `--take`, and `-n`/`--rows` select matched package rows after authorized
+   candidate evaluation.
 5. **CLI package-content capability — implemented by #6107.**
    `--package-content` preserves the product-owned candidate cap, uses
    admitted payload acquisition, and retains visible failures. The focused
    Release gates are named in [CLI facet binding](#cli-facet-binding).
-6. **CLI limit reconciliation — designed by #6547, implementation pending
-   under #6489.** Retire `--candidates`/`--matches`, use candidate-work
-   `--take` and semantic `-n`, remove the implicit 100-match default, keep
-   `--take`/`-n` mode-neutral, add the shared optional match-budget state, and
-   preserve later failures by applying row selection after the authorized
-   candidate execution until source delegation proves an exact early stop. The
-   same command-wide slice retires numeric `-t` and adopts ordinary
+6. **CLI limit reconciliation — designed by #6547 and implemented under
+   #6489.** `--take` authorizes candidate work, semantic `-n`/`--rows` select
+   final rows, the implicit 100-match CLI default is gone, and later failures
+   remain visible because selection follows authorized candidate execution.
+   The same command-wide slice retires numeric `-t` and adopts ordinary
    package-profile `--take`/`-n`.
 7. **Compose the focused
    [assembly-pattern evaluator](package-query-assembly-evaluation.md) through

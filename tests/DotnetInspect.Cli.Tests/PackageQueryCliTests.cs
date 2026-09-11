@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using InertText;
 using NuGetFetch;
 using NuGetFetch.Plugins;
@@ -45,7 +46,7 @@ public class PackageQueryCliTests
     public void InvalidSelections_FailBeforeExecution(string expression, string message)
     {
         Assert.False(PackageQueryOptions.TryCreate("Contoso.", [expression], false,
-            null, null, false, null, out var options, out var error));
+            null, null, out var options, out var error));
         Assert.Null(options);
         Assert.Contains(message, error.ToString(), StringComparison.OrdinalIgnoreCase);
     }
@@ -55,46 +56,40 @@ public class PackageQueryCliTests
     {
         Assert.False(PackageQueryOptions.TryCreate("Contoso.",
             ["facet=package.query.has-dependencies", "facet=package.query.no-dependencies"],
-            false, null, null, false, null, out _, out _));
+            false, null, null, out _, out _));
         Assert.False(PackageQueryOptions.TryCreate("Contoso.",
             ["facet=package.query.dotnet-tool", "facet=package.query.dotnet-tool"],
-            false, null, null, false, null, out _, out _));
+            false, null, null, out _, out _));
         Assert.True(PackageQueryOptions.TryCreate("Contoso.",
             ["facet=package.query.dotnet-tool-v1", "facet=package.query.dotnet-tool-v2"],
-            true, null, null, false, null, out var options, out var error), error.ToString());
+            true, null, null, out var options, out var error), error.ToString());
         Assert.Equal(2, options!.Plan.Facets.Length);
     }
 
     [Theory]
-    [InlineData(0, null, false)]
-    [InlineData(1001, null, false)]
-    [InlineData(null, 0, false)]
-    [InlineData(null, 1001, false)]
-    [InlineData(21, null, true)]
-    public void InvalidBudgets_AreRejected(int? candidates, int? matches, bool content)
+    [InlineData(0, false)]
+    [InlineData(1001, false)]
+    [InlineData(21, true)]
+    public void InvalidBudgets_AreRejected(int? take, bool content)
     {
         string facet = content ? PackageQuery.EmbeddedSkillFacetId : PackageQuery.VerifiedFacetId;
         Assert.False(PackageQueryOptions.TryCreate("Contoso.", [$"facet={facet}"],
-            content, candidates, matches, false, null, out _, out _));
+            content, take, null, out _, out _));
     }
 
     [Fact]
-    public void Count_PreservesCandidateBudgetAndRejectsExplicitMatchBudget()
+    public void CandidateBudget_PreservesAnAbsentMatchBudget()
     {
         Assert.True(PackageQueryOptions.TryCreate("Contoso.",
-            ["facet=package.query.has-dependencies"], false, 300, null, true, null,
+            ["facet=package.query.has-dependencies"], false, 300, null,
             out var options, out var error), error.ToString());
         Assert.Equal(300, options!.Plan.MaximumCandidates);
-        Assert.Equal(300, options.Plan.MaximumMatches);
-        Assert.False(PackageQueryOptions.TryCreate("Contoso.",
-            [], false, null, 1, true, null, out _, out error));
-        Assert.Contains("--matches", error.ToString());
+        Assert.Null(options.Plan.MaximumMatches);
     }
 
     [Theory]
     [InlineData("--where", "facet=package.query.dotnet-tool")]
-    [InlineData("--candidates", "20")]
-    [InlineData("--matches", "5")]
+    [InlineData("--take", "20")]
     [InlineData("--package-content", null)]
     public async Task QueryDiscovery_RejectsExecutionGestures(string flag, string? value)
     {
@@ -106,14 +101,13 @@ public class PackageQueryCliTests
 
     [Theory]
     [InlineData("Type", "--where", "facet=package.query.dotnet-tool")]
-    [InlineData("Type", "--candidates", "2")]
-    [InlineData("Type", "--matches", "2")]
+    [InlineData("Type", "--take", "2")]
     public async Task ApiSearchRejectsQueryGesturesBeforePrefixExpansion(
         string pattern, string flag, string value)
     {
         var result = await Run("find", pattern, "--package-prefix", "Contoso.", flag, value);
         Assert.Equal(1, result.ExitCode);
-        Assert.Contains("require patternless", result.Error);
+        Assert.Contains("patternless", result.Error);
         Assert.Empty(result.Output);
     }
 
@@ -121,7 +115,7 @@ public class PackageQueryCliTests
     [InlineData("--package", "Contoso.")]
     [InlineData("--library", "/missing/query.dll")]
     [InlineData("--source", "https://example.invalid/index.json")]
-    [InlineData("-t", "2")]
+    [InlineData("--type", "*Json*")]
     public async Task UnsupportedScopesFailBeforeAcquisition(string flag, string value)
     {
         var result = await Run("find", "--package-prefix", "Contoso.",
@@ -139,25 +133,46 @@ public class PackageQueryCliTests
             "--where", "facet=package.query.has-dependencies", "-D", "Packages", "--json");
         Assert.Equal(0, profile.ExitCode);
         Assert.Equal(0, query.ExitCode);
-        Assert.Contains("Dependency", profile.Output);
+        Assert.DoesNotContain("Dependency", profile.Output);
         Assert.DoesNotContain("Dependency Version", query.Output);
         Assert.Contains("Evidence", query.Output);
     }
 
     [Fact]
-    public async Task Execution_FiltersBeforeMatchLimitAndKeepsOnePackagePerRow()
+    public async Task Execution_SelectsAfterCompleteCandidateEvaluation()
     {
         using var source = Source(out var fixture);
         var result = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(
-            Options(PackageQuery.HasDependenciesFacetId, matches: 1), source, null));
+            Options(PackageQuery.HasDependenciesFacetId, head: 1), source, null));
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Contoso.Second", result.Output);
         Assert.DoesNotContain("Contoso.First", result.Output);
         Assert.DoesNotContain("Contoso.Third", result.Output);
-        Assert.Equal(2, fixture.ManifestRequests);
+        Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
-        Assert.Contains("MatchLimitReached", result.Error);
+        Assert.DoesNotContain("MatchLimitReached", result.Error);
         Assert.Equal(2, result.Output.TrimEnd().Split('\n').Length);
+    }
+
+    [Fact]
+    public async Task SemanticHead_PreservesALaterCandidateFailure()
+    {
+        using var source = Source(out var fixture);
+        fixture.MissingManifest = "contoso.third";
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options(
+                    PackageQuery.HasDependenciesFacetId,
+                    head: 1),
+                source,
+                null));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(3, fixture.ManifestRequests);
+        Assert.Contains("Contoso.Second", result.Output);
+        Assert.DoesNotContain("Contoso.Third", result.Output);
+        Assert.Contains("ManifestAcquisition", result.Error);
     }
 
     [Theory]
@@ -171,7 +186,7 @@ public class PackageQueryCliTests
         using var source = Source(out _);
         var options = Options(PackageQuery.HasDependenciesFacetId) with
         {
-            Rows = RowWindow.Head(1),
+            RowSelection = Head(1),
             Count = format == "count",
             Tabular = format is "tsv" or "jsonl",
             Tsv = format == "tsv",
@@ -207,14 +222,15 @@ public class PackageQueryCliTests
     {
         using var source = Source(out var fixture);
         Assert.True(PackageQueryOptions.TryCreate("Contoso.",
-            ["facet=package.query.has-dependencies"], false, 1, null, true, null,
+            ["facet=package.query.has-dependencies"], false, 1, null,
             out var query, out var error), error.ToString());
         var result = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(
             Options(PackageQuery.HasDependenciesFacetId) with { PackageQuery = query, Count = true },
             source, null));
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal("0", result.Output.Trim());
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
         Assert.Equal(1, fixture.ManifestRequests);
+        Assert.Contains("Cannot count Package Query rows", result.Error);
         Assert.Contains("CandidateLimitReached", result.Error);
     }
 
@@ -243,8 +259,7 @@ public class PackageQueryCliTests
         fixture.SearchFails = true;
         var failed = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(options, source, null));
         Assert.Equal(1, failed.ExitCode);
-        Assert.Contains("Search", failed.Error);
-        Assert.Contains("Failed", failed.Error);
+        Assert.Contains("Cannot count Package Query rows", failed.Error);
     }
 
     [Theory]
@@ -258,7 +273,7 @@ public class PackageQueryCliTests
         await using var provider = ContentProvider(fixture, operation);
         Assert.True(PackageQueryOptions.TryCreate("Contoso.",
             ["facet=package.query.no-dependencies", "facet=package.query.embedded-skill"],
-            true, null, null, false, null, out var query, out var error), error.ToString());
+            true, null, null, out var query, out var error), error.ToString());
         var result = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(
             Options(PackageQuery.EmbeddedSkillFacetId, content: true) with { PackageQuery = query }, source, provider));
         Assert.Equal(invalidArchive ? 1 : 0, result.ExitCode);
@@ -303,12 +318,26 @@ public class PackageQueryCliTests
                 source, null, cancellation.Token));
     }
 
-    private static FindOptions Options(string facet, bool content = false, int? matches = null)
+    private static FindOptions Options(
+        string facet,
+        bool content = false,
+        int? head = null)
     {
         Assert.True(PackageQueryOptions.TryCreate("Contoso.", [$"facet={facet}"],
-            content, null, matches, false, null, out var query, out var error), error.ToString());
-        return new() { PackagePrefix = "Contoso.", PackageQuery = query, Tabular = true, Tsv = true };
+            content, null, null, out var query, out var error), error.ToString());
+        return new()
+        {
+            PackagePrefix = "Contoso.",
+            PackageQuery = query,
+            Tabular = true,
+            Tsv = true,
+            RowSelection = head is int count ? Head(count) : null,
+        };
     }
+
+    private static RowSelectionIntent<string> Head(int count) =>
+        RowSelectionIntent<string>.Create(
+            [RowSelectionIntentOperation<string>.Head(count)]);
 
     private static Task<(int ExitCode, string Output, string Error)> Run(params string[] args) =>
         ConsoleCapture.RunAsync(() =>

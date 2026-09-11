@@ -339,16 +339,20 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
-dotnet-inspect find --package-prefix Azure.AI -t 100 --tsv
+dotnet-inspect find --package-prefix Azure.AI --take 100 --rows 2..4 -n 2 --tsv
 ```
 
 Patternless `find --package-prefix PREFIX` streams latest listed package
 metadata and exact `.nuspec` manifests without downloading package archives.
-`-t` limits packages rather than flattened dependency rows. Supplying a pattern
-keeps API-search behavior and may acquire package archives:
+`--take` bounds the package candidates that may be attempted. `--rows` and
+`-n` then select successful package rows in authored order; dependencies are
+not expanded into separate rows. Supplying a pattern keeps API-search behavior
+and may acquire package archives. Add `--type GLOB` to constrain type matches
+or member matches by declaring type:
 
 ```bash
-dotnet-inspect find JsonSerializer --package-prefix System.Text
+dotnet-inspect find Serialize --members --type System.Text.Json.JsonSerializer \
+  --package-prefix System.Text
 ```
 
 Add `--where "facet=<ID>"` to run the shared Package Query engine instead,
@@ -358,19 +362,19 @@ executable IDs before constructing a query:
 ```bash
 dotnet-inspect find -Q Packages
 dotnet-inspect find --package-prefix dotnet-inspect -S Packages \
-  --where "facet=package.query.dotnet-tool" --candidates 5 --matches 5
+  --where "facet=package.query.dotnet-tool" --take 5 -n 5
 dotnet-inspect find --package-prefix dotnet-inspect --package-content \
-  --where "facet=package.query.dotnet-tool-v2" --candidates 5 --matches 5 --jsonl
+  --where "facet=package.query.dotnet-tool-v2" --take 5 -n 5 --jsonl
 ```
 
 Repeat `--where` to combine facets; the engine rejects incompatible selections.
-Tool v1 and v2 are compatible alternatives. `--candidates` bounds candidate
-work (default 200), while `--matches` stops after matching packages (default
-100); each has a CLI maximum of 1,000. Content facets require
+Tool v1 and v2 are compatible alternatives. `--take` bounds candidate work
+(default 200, maximum 1,000), while `-n` and `--rows` select final matched
+package rows after candidate evaluation. Content facets require
 `--package-content`, which defaults to and permits at most 20 candidates.
-Reached limits and partial failures are reported explicitly. `--count` counts
-windowed matching package rows within the candidate budget and cannot be
-combined with `--matches`. Query mode uses these bounds, not `-t`.
+Reached work bounds and partial failures are reported explicitly. `--count`
+counts selected matching package rows only when completion or the semantic
+selection proves the count exact.
 
 ### Package Queries over explicit packages
 

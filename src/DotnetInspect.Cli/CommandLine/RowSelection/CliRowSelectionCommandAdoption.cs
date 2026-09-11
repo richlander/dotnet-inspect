@@ -5,6 +5,15 @@ using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.CommandLine;
 
+internal enum CliSelectionFailureCategory
+{
+    Arity = 1,
+    Value = 2,
+    Conflict = 3,
+    Capability = 4,
+    Resolution = 5,
+}
+
 internal sealed class CliRowSelectionCommandAdoption
 {
     public CliRowSelectionCommandAdoption(
@@ -33,11 +42,15 @@ internal sealed record CliRowSelectionPreparation
     private CliRowSelectionPreparation(
         ParseResult parseResult,
         CliRowSelectionLowering<string>? lowering,
-        string? error)
+        string? error,
+        int? errorPosition,
+        CliSelectionFailureCategory? errorCategory)
     {
         ParseResult = parseResult;
         Lowering = lowering;
         Error = error;
+        ErrorPosition = errorPosition;
+        ErrorCategory = errorCategory;
     }
 
     public ParseResult ParseResult { get; }
@@ -45,6 +58,10 @@ internal sealed record CliRowSelectionPreparation
     public CliRowSelectionLowering<string>? Lowering { get; }
 
     public string? Error { get; }
+
+    public int? ErrorPosition { get; }
+
+    public CliSelectionFailureCategory? ErrorCategory { get; }
 
     public IReadOnlyList<string>? Arguments { get; init; }
 
@@ -55,17 +72,19 @@ internal sealed record CliRowSelectionPreparation
     public bool IsActive => Lowering is not null || Error is not null;
 
     public static CliRowSelectionPreparation Inactive(ParseResult parseResult) =>
-        new(parseResult, null, null);
+        new(parseResult, null, null, null, null);
 
     public static CliRowSelectionPreparation Success(
         ParseResult parseResult,
         CliRowSelectionLowering<string> lowering) =>
-        new(parseResult, lowering, null);
+        new(parseResult, lowering, null, null, null);
 
     public static CliRowSelectionPreparation Failed(
         ParseResult parseResult,
-        string error) =>
-        new(parseResult, null, error);
+        string error,
+        int position,
+        CliSelectionFailureCategory category) =>
+        new(parseResult, null, error, position, category);
 }
 
 internal static class CliRowSelectionCommandRegistry
@@ -165,7 +184,9 @@ internal static class CliRowSelectionCommandRegistry
         {
             return CliRowSelectionPreparation.Failed(
                 result.ParseResult,
-                FormatArgumentFailure(argumentFailure));
+                FormatArgumentFailure(argumentFailure),
+                argumentFailure.Position,
+                CliSelectionFailureCategory.Arity);
         }
 
         CliRowSelectionLoweringResult<string> loweringResult =
@@ -174,15 +195,23 @@ internal static class CliRowSelectionCommandRegistry
                 "An adopted row-selection parse produced no lowering result.");
         if (!loweringResult.IsSuccess)
         {
+            CliRowSelectionFailure failure =
+                loweringResult.Failure!;
             return CliRowSelectionPreparation.Failed(
                 result.ParseResult,
-                FormatLoweringFailure(loweringResult.Failure!));
+                FormatLoweringFailure(failure),
+                failure.Position,
+                FailureCategory(failure.Reason));
         }
 
         CliRowSelectionLowering<string> lowering = loweringResult.Value!;
         if (adoption.ValidateLowering?.Invoke(result.ParseResult, lowering) is { } error)
         {
-            return CliRowSelectionPreparation.Failed(result.ParseResult, error) with
+            return CliRowSelectionPreparation.Failed(
+                result.ParseResult,
+                error,
+                int.MaxValue,
+                CliSelectionFailureCategory.Resolution) with
             {
                 HasCompatibilityError = true
             };
@@ -287,6 +316,25 @@ internal static class CliRowSelectionCommandRegistry
             CliRowSelectionFailureReason.UnsupportedCapability =>
                 $"{OptionName(failure.OccurrenceKind)} is not available for this command.",
             _ => "The row-selection arguments are invalid."
+        };
+
+    private static CliSelectionFailureCategory FailureCategory(
+        CliRowSelectionFailureReason reason) =>
+        reason switch
+        {
+            CliRowSelectionFailureReason.MalformedValue
+                or CliRowSelectionFailureReason.NonPositiveValue
+                or CliRowSelectionFailureReason.OverflowValue
+                or CliRowSelectionFailureReason.InvalidWindowForm
+                or CliRowSelectionFailureReason.ReversedWindow =>
+                CliSelectionFailureCategory.Value,
+            CliRowSelectionFailureReason.RepeatedGesture
+                or CliRowSelectionFailureReason.ConflictingDirection
+                or CliRowSelectionFailureReason.ModifierRequiresCount =>
+                CliSelectionFailureCategory.Conflict,
+            CliRowSelectionFailureReason.UnsupportedCapability =>
+                CliSelectionFailureCategory.Capability,
+            _ => CliSelectionFailureCategory.Resolution,
         };
 
     public static string OptionName(

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Ecosystems;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
@@ -67,31 +68,19 @@ public static class DemoCommand
 
         IReadOnlyList<EcosystemDemoDescriptor> demos =
             EcosystemPackCatalog.DiscoverDemos();
-        if (rowSelection is not null)
-        {
-            RowsCohortResult<string, EcosystemDemoDescriptor> result =
-                RowsCohortExecutor.ApplyUnordered(
-                    [
-                        RowsCohortSequence<string, EcosystemDemoDescriptor>
-                            .Create(
-                                "Home demos",
-                                demos)
-                    ],
-                    rowSelection);
-            if (!result.IsSuccess)
-            {
-                RowsCohortSemanticFailure<string> failure =
-                    result.Failure!;
-                CommandError.Write(
+        if (!CliSemanticRowSelection.TrySelect(
+                rowSelection,
+                demos,
+                "Home demos",
+                failure =>
                     $"Demo row selection stage "
                     + $"{failure.Failure.StageNumber} requires row "
                     + $"{failure.Failure.RequiredPosition}, but only "
                     + $"{failure.Failure.AvailableCount} demo rows are "
-                    + "available.");
-                return 1;
-            }
-
-            demos = result.RowSets[0].Values;
+                    + "available.",
+                out demos))
+        {
+            return 1;
         }
 
         if (format == OutputFormat.Json)

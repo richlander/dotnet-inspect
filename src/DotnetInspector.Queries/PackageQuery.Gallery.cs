@@ -31,7 +31,7 @@ public static partial class PackageQuery
     public static PackageQueryPlanResult PlanGallery(
         NuGetGalleryDiscoveryRequest request,
         IReadOnlyCollection<string>? facetIds = null,
-        int maximumMatches = DefaultMaximumMatches)
+        int? maximumMatches = DefaultMaximumMatches)
     {
         ArgumentNullException.ThrowIfNull(request);
         string scopeEvidence = request.IsBrowse
@@ -183,13 +183,13 @@ public static partial class PackageQuery
             response.Matches.Length, response.EstimatedTotalHits);
         bool needsManifest = !plan.Definitions.IsEmpty;
         IReadOnlyList<NuGetGalleryDiscoveryMatch> input = response.Matches;
-        if (!needsManifest)
+        if (!needsManifest && plan.MaximumMatches is int maximumMatches)
         {
             // Selection applies only after acquisition of the exact K-sized input.
             input = RowSelectionExecutor.Apply(
                 input,
                 RowSelectionPlan<string>.Create(
-                    [RowSelectionStage<string>.Head(plan.MaximumMatches)])).Values;
+                    [RowSelectionStage<string>.Head(maximumMatches)])).Values;
         }
 
         int candidates = 0;

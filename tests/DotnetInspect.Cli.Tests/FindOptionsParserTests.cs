@@ -57,7 +57,7 @@ public class FindOptionsParserTests
     [InlineData("--bin", "bin")]
     [InlineData("--members", null)]
     [InlineData("--all", null)]
-    [InlineData("-t", "1")]
+    [InlineData("--type", "*Json*")]
     public void Literal_RejectsOtherSearchModesBeforeAcquisition(string option, string? value)
     {
         string[] extra = value is null ? [option] : [option, value];
@@ -67,6 +67,22 @@ public class FindOptionsParserTests
 
         Assert.Contains(result.Errors,
             error => error.Message.Contains("cannot be combined", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("-t")]
+    [InlineData("--candidates")]
+    [InlineData("--matches")]
+    public void RetiredFindOptions_AreNotRecognized(string option)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "Json*", option, "1"]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                option,
+                StringComparison.Ordinal));
     }
 
     [Theory]

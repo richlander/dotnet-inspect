@@ -468,7 +468,9 @@ namespace DotnetInspect.Web.Interop.Package
                         completed.Value.Prefix.ToString(),
                         completed.Value.Source.Producer.Display.ToString(),
                         completed.Value.CandidateLimit,
-                        completed.Value.MatchLimit,
+                        completed.Value.MatchLimit
+                            ?? throw new InvalidOperationException(
+                                "Browser Package Query requires a match limit."),
                         completed.Value.Candidates,
                         completed.Value.Matches,
                         completed.Value.Failures,

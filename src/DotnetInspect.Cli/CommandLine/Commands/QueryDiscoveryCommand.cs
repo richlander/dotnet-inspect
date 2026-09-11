@@ -106,7 +106,7 @@ internal static class QueryDiscoveryCommand
         if (result.CommandResult.Command.Name == "find")
         {
             foreach (Option option in result.CommandResult.Command.Options.Where(option =>
-                option.Name is "--candidates" or "--matches" or "--package-content"))
+                option.Name is "--take" or "--package-content"))
             {
                 if (result.GetResult(option) is { Implicit: false })
                 {

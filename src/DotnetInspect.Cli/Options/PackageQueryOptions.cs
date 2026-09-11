@@ -27,7 +27,7 @@ public sealed record PackageQueryOptions
     public static string DiscoverySummary =>
         "Use patternless find --package-prefix with repeated --where facet=... selections. "
         + "Independent selections are ANDed; compatible alternatives in one product selection group are ORed. "
-        + "--candidates bounds candidate work; --matches stops after matching packages. "
+        + "--take bounds candidate work; -n and --rows select final matching packages. "
         + "Package-content values require --package-content and at most "
         + PackageQuery.MaximumPackageContentCandidates + " candidates: "
         + string.Join(", ", PackageQuery.Facets
@@ -39,9 +39,7 @@ public sealed record PackageQueryOptions
         string prefix,
         IReadOnlyList<string> expressions,
         bool packageContent,
-        int? candidates,
-        int? matches,
-        bool count,
+        int? take,
         string? typeFilter,
         out PackageQueryOptions? options,
         out OptionError error)
@@ -49,12 +47,7 @@ public sealed record PackageQueryOptions
         options = null;
         if (typeFilter is not null)
         {
-            error = "Package Query uses --candidates and --matches, not -t/--type.";
-            return false;
-        }
-        if (count && matches is not null)
-        {
-            error = "--count cannot be combined with --matches; it counts matching rows within the candidate budget.";
+            error = "Package Query does not support the --type API filter.";
             return false;
         }
 
@@ -80,20 +73,20 @@ public sealed record PackageQueryOptions
             return false;
         }
 
-        int maximumCandidates = candidates ?? (packageContent
+        int maximumCandidates = take ?? (packageContent
             ? PackageQuery.MaximumPackageContentCandidates
             : PackageQuery.DefaultMaximumCandidates);
-        int maximumMatches = matches ?? (count
-            ? maximumCandidates
-            : PackageQuery.DefaultMaximumMatches);
-        if (maximumCandidates is <= 0 or > Commands.FindCommand.PackageProfileMaximumLimit
-            || maximumMatches is <= 0 or > Commands.FindCommand.PackageProfileMaximumLimit)
+        if (maximumCandidates is <= 0
+            or > Commands.FindCommand.PackageProfileMaximumLimit)
         {
-            error = "Package Query --candidates and --matches must be between 1 and 1000.";
+            error = "Package Query --take must be between 1 and 1000.";
             return false;
         }
         var request = new PackageQueryRequest(
-            prefix, ids.ToImmutable(), maximumCandidates, maximumMatches);
+            prefix,
+            ids.ToImmutable(),
+            maximumCandidates,
+            MaximumMatches: null);
         PackageQueryPlanResult result = PackageQuery.Plan(request);
         if (result is PackageQueryPlanResult.Rejected rejected)
         {

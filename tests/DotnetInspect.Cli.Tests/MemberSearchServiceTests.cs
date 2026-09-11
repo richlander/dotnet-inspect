@@ -23,7 +23,8 @@ public class MemberSearchServiceTests
         try
         {
             using var httpClient = new HttpClient();
-            var results = await MemberSearchService.FindMembersAsync(
+            FindSearchResult<MemberFindResult> search =
+                await MemberSearchService.FindMembersAsync(
                 new FindOptions
                 {
                     Pattern = SearchTargetMemberName,
@@ -36,7 +37,11 @@ public class MemberSearchServiceTests
                 httpClient,
                 TestContext.Current.CancellationToken);
 
-            var result = Assert.Single(results, r => r.Member == SearchTargetMemberName && r.Library == "CopiedMemberAssembly");
+            Assert.False(search.HasFailures);
+            var result = Assert.Single(
+                search.Rows,
+                r => r.Member == SearchTargetMemberName
+                    && r.Library == "CopiedMemberAssembly");
             Assert.Equal("method", result.Kind);
             Assert.Equal(typeof(MemberSearchServiceTests).FullName, result.DeclaringType);
             Assert.Equal(MatchKind.Exact, result.Match);
@@ -59,7 +64,8 @@ public class MemberSearchServiceTests
         try
         {
             using var httpClient = new HttpClient();
-            var results = await MemberSearchService.FindMembersAsync(
+            FindSearchResult<MemberFindResult> search =
+                await MemberSearchService.FindMembersAsync(
                 new FindOptions
                 {
                     Pattern = "FindMembersAsync_*",
@@ -72,9 +78,14 @@ public class MemberSearchServiceTests
                 httpClient,
                 TestContext.Current.CancellationToken);
 
-            Assert.NotEmpty(results);
-            Assert.All(results, r => Assert.Equal(MatchKind.Glob, r.Match));
-            Assert.Contains(results, r => r.Member == SearchTargetMemberName);
+            Assert.False(search.HasFailures);
+            Assert.NotEmpty(search.Rows);
+            Assert.All(
+                search.Rows,
+                r => Assert.Equal(MatchKind.Glob, r.Match));
+            Assert.Contains(
+                search.Rows,
+                r => r.Member == SearchTargetMemberName);
         }
         finally
         {
@@ -95,7 +106,7 @@ public class MemberSearchServiceTests
         {
             var capture = await ConsoleCapture.RunAsync(async () =>
             {
-                List<MemberFindResult> results =
+                FindSearchResult<MemberFindResult> search =
                     await MemberSearchService.FindMembersAsync(
                         new FindOptions
                         {
@@ -107,7 +118,8 @@ public class MemberSearchServiceTests
                         new VerboseLogger(enabled: false),
                         httpClient,
                         TestContext.Current.CancellationToken);
-                Assert.Empty(results);
+                Assert.Empty(search.Rows);
+                Assert.True(search.HasFailures);
                 return 0;
             });
 
@@ -123,12 +135,12 @@ public class MemberSearchServiceTests
     public async Task FindMembersAsync_WithLimitDoesNotResolveLaterSources()
     {
         using var httpClient = new HttpClient();
-        List<MemberFindResult>? results = null;
+        FindSearchResult<MemberFindResult>? search = null;
         var missingDirectory = Path.Combine(Path.GetTempPath(), $"missing-member-search-{Guid.NewGuid():N}");
 
         var capture = await ConsoleCapture.RunAsync(async () =>
         {
-            results = await MemberSearchService.FindMembersAsync(
+            search = await MemberSearchService.FindMembersAsync(
                 new FindOptions
                 {
                     Pattern = SearchTargetMemberName,
@@ -145,8 +157,40 @@ public class MemberSearchServiceTests
             return 0;
         });
 
-        Assert.NotNull(results);
-        Assert.NotEmpty(results);
+        Assert.NotNull(search);
+        Assert.NotEmpty(search.Rows);
+        Assert.False(search.HasFailures);
         Assert.DoesNotContain("Directory not found", capture.Error);
+    }
+
+    [Fact]
+    public async Task FindMembersAsync_TypeFilterPrecedesTrustedLimit()
+    {
+        using var httpClient = new HttpClient();
+        FindSearchResult<MemberFindResult> search =
+            await MemberSearchService.FindMembersAsync(
+                new FindOptions
+                {
+                    Pattern = "*",
+                    Assemblies =
+                    [
+                        typeof(MemberSearchServiceTests).Assembly.Location,
+                    ],
+                    IncludeAll = true,
+                    Members = true,
+                    TypeFilter =
+                        typeof(MemberSearchServiceTests).FullName,
+                    Limit = 1,
+                },
+                ["*"],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        MemberFindResult result = Assert.Single(search.Rows);
+        Assert.Equal(
+            typeof(MemberSearchServiceTests).FullName,
+            result.DeclaringType);
+        Assert.False(search.HasFailures);
     }
 }

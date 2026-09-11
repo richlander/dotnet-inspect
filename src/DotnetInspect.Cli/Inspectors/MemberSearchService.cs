@@ -23,20 +23,25 @@ internal static class MemberSearchService
     /// provenance of the assembly that supplied each match. This is the entry point for the
     /// <c>find --members</c> lens (and the leading-dot shortcut).
     /// </summary>
-    public static async Task<List<MemberFindResult>> FindMembersAsync(
+    public static async Task<FindSearchResult<MemberFindResult>> FindMembersAsync(
         FindOptions options,
         IReadOnlyList<string> patterns,
         VerboseLogger logger,
         HttpClient httpClient,
         CancellationToken cancellationToken = default)
     {
+        bool hasFailures = false;
+        void MarkFailure() => hasFailures = true;
         AssemblySetRequest request =
             FindSourceCollector.BuildFindRequest(options);
         if (ConfiguredPackageSearchWorkspace.IsEligible(
                 options.SourceSelection,
                 request,
                 options.Tfm,
-                options.Limit))
+                resultLimit:
+                    options.TypeFilter is null
+                        ? options.Limit
+                        : null))
         {
             await using ConfiguredPackageSearchWorkspace? configured =
                 await ConfiguredPackageSearchWorkspace.OpenAsync(
@@ -45,45 +50,60 @@ internal static class MemberSearchService
                     options.Tfm!,
                     logger.Log,
                     cancellationToken);
-            return configured is null
+            List<MemberFindResult> configuredResults =
+                configured is null
                 ? []
                 : await CollectMembersAsync(
                     options,
                     patterns,
                     logger,
                     configured,
+                    MarkFailure,
                     cancellationToken);
+            if (configured is null)
+                MarkFailure();
+            return new(configuredResults, hasFailures);
         }
 
         using var workspace = new AssemblySetInspectionWorkspace();
-        return await CollectMembersAsync(
-            options,
-            patterns,
-            logger,
-            httpClient,
-            workspace);
+        return new(
+            await CollectMembersAsync(
+                options,
+                patterns,
+                logger,
+                httpClient,
+                workspace,
+                MarkFailure),
+            hasFailures);
     }
 
     /// <summary>
     /// Resolves configured sources and searches their members through typed
-    /// participant queries. With a result limit, sources stream one at a time
-    /// and later sources are not resolved after the limit is met.
+    /// participant queries.
     /// </summary>
     private static async Task<List<MemberFindResult>> CollectMembersAsync(
         FindOptions options,
         IReadOnlyList<string> patterns,
         VerboseLogger logger,
         HttpClient httpClient,
-        AssemblySetInspectionWorkspace workspace)
+        AssemblySetInspectionWorkspace workspace,
+        Action markFailure)
     {
         List<MemberFindResult> results = [];
-
-        bool ReachedLimit() => options.Limit.HasValue && results.Count >= options.Limit.Value;
+        int? operationalLimit =
+            options.TypeFilter is null
+                ? options.Limit
+                : null;
+        bool ReachedLimit() =>
+            operationalLimit is int limit
+            && results.Count >= limit;
 
         async Task CollectAndScanAsync(AssemblySetRequest request)
         {
             using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
             AssemblySetDiagnosticWriter.Write(assemblySet);
+            if (assemblySet.Diagnostics.Count > 0)
+                markFailure();
 
             workspace.RunPerAssembly(
                 assemblySet,
@@ -92,27 +112,40 @@ internal static class MemberSearchService
                     group,
                     patterns,
                     options.IncludeAll,
-                    options.Limit.HasValue
-                        ? options.Limit.Value - results.Count
+                    operationalLimit is int limit
+                        ? limit - results.Count
                         : null),
                 (assembly, entry) => AddMembers(
                     results,
+                    options.TypeFilter,
                     SearchAssemblySource.FromAssemblySet(assembly),
                     entry,
-                    logger),
+                    logger,
+                    markFailure),
                 (assembly, failure) =>
+                {
+                    markFailure();
                     CommandError.WriteWarning(
-                        $"Could not read {assembly.Path}: {failure}"),
+                        $"Could not read {assembly.Path}: {failure}");
+                },
                 ReachedLimit);
         }
 
-        if (options.Limit.HasValue)
+        if (operationalLimit is not null)
         {
-            await FindSourceCollector.StreamSourcesAsync(options, ReachedLimit, CollectAndScanAsync);
+            await FindSourceCollector.StreamSourcesAsync(
+                options,
+                ReachedLimit,
+                CollectAndScanAsync);
             return results;
         }
 
         await CollectAndScanAsync(FindSourceCollector.BuildFindRequest(options));
+        if (options.Limit.HasValue
+            && results.Count > options.Limit.Value)
+        {
+            results = results.Take(options.Limit.Value).ToList();
+        }
         return results;
     }
 
@@ -121,6 +154,7 @@ internal static class MemberSearchService
         IReadOnlyList<string> patterns,
         VerboseLogger logger,
         ConfiguredPackageSearchWorkspace workspace,
+        Action markFailure,
         CancellationToken cancellationToken)
     {
         List<MemberFindResult> results = [];
@@ -133,7 +167,12 @@ internal static class MemberSearchService
                             patterns,
                             options.IncludeAll),
                     cancellationToken);
-        if (execution?.Sources is not { } sources
+        if (execution is null)
+        {
+            markFailure();
+            return results;
+        }
+        if (execution.Sources is not { } sources
             || execution.Result is not { } queryResult)
         {
             return results;
@@ -144,18 +183,27 @@ internal static class MemberSearchService
         {
             AddMembers(
                 results,
+                options.TypeFilter,
                 sources.SourceFor(entry.Subject),
                 entry,
-                logger);
+                logger,
+                markFailure);
+        }
+        if (options.Limit.HasValue
+            && results.Count > options.Limit.Value)
+        {
+            results = results.Take(options.Limit.Value).ToList();
         }
         return results;
     }
 
     private static void AddMembers(
         List<MemberFindResult> results,
+        string? typeFilter,
         SearchAssemblySource assembly,
         AssemblyContextEntry<AssemblyMemberMatches> entry,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        Action markFailure)
     {
         switch (entry)
         {
@@ -164,6 +212,14 @@ internal static class MemberSearchService
                 foreach (MemberSearchResult member
                     in available.Value.Members)
                 {
+                    if (typeFilter is not null
+                        && !TypeMatcher.MatchesTypeFilter(
+                            member.DeclaringType,
+                            typeFilter))
+                    {
+                        continue;
+                    }
+
                     results.Add(new MemberFindResult
                     {
                         Pattern = member.Pattern,
@@ -185,16 +241,19 @@ internal static class MemberSearchService
                 WriteInspectionFailures(
                     assembly,
                     available.Value.InspectionFailures,
-                    logger);
+                    logger,
+                    markFailure);
                 break;
             case AssemblyContextEntry<
                 AssemblyMemberMatches>.Rejected rejected:
+                markFailure();
                 CommandError.WriteWarning(
                     $"Could not read {assembly.DiagnosticSubject}: "
                     + rejected.Failure.Detail);
                 break;
             case AssemblyContextEntry<
                 AssemblyMemberMatches>.Failed failed:
+                markFailure();
                 CommandError.WriteWarning(
                     $"Could not read {assembly.DiagnosticSubject}: "
                     + failed.Error.Message);
@@ -205,11 +264,13 @@ internal static class MemberSearchService
     private static void WriteInspectionFailures(
         SearchAssemblySource assembly,
         ImmutableArray<ApiSurfaceInspectionFailure> failures,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        Action markFailure)
     {
         if (failures.IsEmpty)
             return;
 
+        markFailure();
         CommandError.WriteWarning(
             $"Member search in {assembly.DiagnosticSubject} skipped "
             + $"{failures.Length} metadata row(s).");

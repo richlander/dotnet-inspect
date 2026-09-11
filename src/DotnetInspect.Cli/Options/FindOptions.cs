@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 
 namespace DotnetInspect.Cli.Options;
@@ -66,19 +67,26 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public bool Members { get; init; }
 
     /// <summary>
-    /// Limit number of results.
+    /// Maximum package candidates or manifest enrichments authorized by
+    /// <c>--take</c> for the active package-prefix mode.
+    /// </summary>
+    public int? Take { get; init; }
+
+    /// <summary>
+    /// Internal operational limit used by trusted lookup consumers. The
+    /// <c>find</c> CLI does not lower semantic row selection into this value.
     /// </summary>
     public int? Limit { get; init; }
 
     /// <summary>
-    /// Raw value supplied to <c>-t</c>/<c>--type</c>.
+    /// Raw API type-filter value supplied to <c>--type</c>.
     /// </summary>
     public string? TypeFilter { get; init; }
 
     /// <summary>
-    /// Limit data rows per rendered table.
+    /// Ordered semantic row-selection intent prepared by the shared CLI grammar.
     /// </summary>
-    public RowWindow? Rows { get; init; }
+    public RowSelectionIntent<string>? RowSelection { get; init; }
 
     /// <summary>
     /// Output the number of rendered result rows.

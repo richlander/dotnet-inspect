@@ -4,19 +4,18 @@ using DotnetInspect.Cli.Services;
 
 namespace DotnetInspect.Cli.Inspectors;
 
+internal sealed record FindSearchResult<T>(
+    List<T> Rows,
+    bool HasFailures);
+
 /// <summary>
-/// Shared source-resolution skeleton for the <c>find</c> command's closed-set searches. Both the type
-/// search (<see cref="TypeSearchService"/>) and the member search (<see cref="MemberSearchService"/>)
-/// resolve the same six ordered sources into the same <see cref="AssemblySetRequest"/> shape and, when
-/// a result limit is active, stream one source at a time so later sources are never resolved once the
-/// limit is met. Only the per-source scan (types vs members) differs between the two callers.
+/// Shared source-request construction for the <c>find</c> command's
+/// closed-set type and member searches.
 /// </summary>
 internal static class FindSourceCollector
 {
     /// <summary>
-    /// Builds the find request. With no per-source overrides it targets every configured source; the
-    /// streaming callers pass a single populated source (and empty lists for the rest) so each source
-    /// is resolved and scanned in isolation.
+    /// Builds the complete ordered find request.
     /// </summary>
     public static AssemblySetRequest BuildFindRequest(
         FindOptions options,
@@ -54,19 +53,12 @@ internal static class FindSourceCollector
         };
     }
 
-    /// <summary>
-    /// Resolves each configured source one at a time in <see cref="AssemblySetSourceKind"/> order,
-    /// invoking <paramref name="process"/> for each, and short-circuits before resolving the next
-    /// source once <paramref name="reachedLimit"/> reports the caller's limit is met. This preserves
-    /// the find command's early-exit contract: a source that is never needed is never resolved (so a
-    /// missing bin directory past the limit never surfaces an error).
-    /// </summary>
     public static async Task StreamSourcesAsync(
         FindOptions options,
         Func<bool> reachedLimit,
         Func<AssemblySetRequest, Task> process)
     {
-        foreach (var package in options.Packages)
+        foreach (string package in options.Packages)
         {
             if (reachedLimit()) return;
             await process(BuildFindRequest(options,
@@ -74,7 +66,7 @@ internal static class FindSourceCollector
                 platformFrameworks: [], projects: [], directories: []));
         }
 
-        foreach (var assembly in options.Assemblies)
+        foreach (string assembly in options.Assemblies)
         {
             if (reachedLimit()) return;
             await process(BuildFindRequest(options,
@@ -82,7 +74,7 @@ internal static class FindSourceCollector
                 platformFrameworks: [], projects: [], directories: []));
         }
 
-        foreach (var platformAssembly in options.PlatformAssemblies)
+        foreach (string platformAssembly in options.PlatformAssemblies)
         {
             if (reachedLimit()) return;
             await process(BuildFindRequest(options,
@@ -90,7 +82,7 @@ internal static class FindSourceCollector
                 platformFrameworks: [], projects: [], directories: []));
         }
 
-        foreach (var framework in options.PlatformFrameworks)
+        foreach (string framework in options.PlatformFrameworks)
         {
             if (reachedLimit()) return;
             await process(BuildFindRequest(options,
@@ -98,7 +90,7 @@ internal static class FindSourceCollector
                 platformFrameworks: [framework], projects: [], directories: []));
         }
 
-        foreach (var project in options.Projects)
+        foreach (string project in options.Projects)
         {
             if (reachedLimit()) return;
             await process(BuildFindRequest(options,
@@ -106,7 +98,7 @@ internal static class FindSourceCollector
                 platformFrameworks: [], projects: [project], directories: []));
         }
 
-        foreach (var directory in options.BinPaths)
+        foreach (string directory in options.BinPaths)
         {
             if (reachedLimit()) return;
             await process(BuildFindRequest(options,

@@ -153,22 +153,22 @@ Package Query IDs. Use it with patternless `find --package-prefix`:
 ```bash
 dnx dotnet-inspect -y -- find -Q Packages --json
 dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect -S Packages \
-  --where "facet=package.query.dotnet-tool" --candidates 5 --matches 5
+  --where "facet=package.query.dotnet-tool" --take 5 -n 5
 dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect --package-content \
-  --where "facet=package.query.dotnet-tool-v2" --candidates 5 --matches 5 --jsonl
+  --where "facet=package.query.dotnet-tool-v2" --take 5 -n 5 --jsonl
 ```
 
 `--where` repeats select product facets, not arbitrary package-field
 expressions. Independent facets are ANDed; compatible tool v1/v2 alternatives
 are ORed. Query rows represent individual packages, with exact versions and
-product-authored evidence. `--candidates` bounds work (default 200) and
-`--matches` bounds semantic matches (default 100), each at most 1,000.
-Package-content facets need `--package-content` and at most 20 candidates;
-the flag sets that conservative default. `--rows` and `--count` operate on
-matched package rows. Count rejects explicit `--matches`; reached budgets and
-failures remain visible. Package Query does not accept `-t`, API-search scopes,
-source overrides, or ranking. Query-execution flags cannot be combined with
-`-Q`.
+product-authored evidence. `--take` bounds candidate work (default 200,
+maximum 1,000). Package-content facets need `--package-content` and at most 20
+candidates; the flag sets that conservative default. `-n` and `--rows` select
+matched package rows after candidate evaluation. `--count` succeeds only when
+completion or a satisfied finite row selection proves the selected count
+exact; reached work bounds and failures remain visible. Package Query does not
+accept API-search scopes, source overrides, or ranking. Query-execution flags
+cannot be combined with `-Q`.
 
 `library -Q Integrations` describes the ecosystem facet for the whole Integration
 family. All integrations are enabled by default; use
@@ -281,9 +281,10 @@ Prefer built-in limits to shell pipes:
   sliding. `-n N` may still limit the result.
 - `--count` counts rows in one selected table.
 
-Command-specific caps: `-t N` for type/find rows and `-m N` for members.
-Package `--versions` / `--versions-with-feed` and `demo list` use semantic rows.
-`-n N` selects complete items, while `-n N --lines` clips rendered lines.
-`--rows` on those surfaces accepts only `A..B`, `A..`, and `..B`; `-n` and
-`--rows` compose as stages in argv order. `--head` and `--tail` modify `-n`,
-not the range.
+`find`, package `--versions` / `--versions-with-feed`, and `demo list` use
+semantic rows. `-n N` selects complete items, while `-n N --lines` clips
+rendered lines. `--rows` on those surfaces accepts only `A..B`, `A..`, and
+`..B`; `-n` and `--rows` compose as stages in argv order. `--head` and
+`--tail` modify `-n`, not the range. On patternless
+`find --package-prefix`, `--take N` separately bounds package work before
+semantic row selection.

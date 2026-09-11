@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
@@ -49,25 +50,69 @@ internal static class PackageQueryCommand
         PackageQueryPlan plan = options.PackageQuery!.Plan;
         var events = await PackageQuery.ExecuteToArrayAsync(
             source, plan, contentProvider, cancellationToken).ConfigureAwait(false);
-        var view = PackageQuerySections.CreateDocument(plan.Prefix.ToString(), events, options.Rows);
+        if (!FindCommand.TrySelectRowsPreservingContext(
+                options.RowSelection,
+                events,
+                static queryEvent =>
+                    queryEvent is PackageQueryEvent.Match,
+                "package",
+                out IReadOnlyList<PackageQueryEvent> displayEvents,
+                out int packageRowCount))
+        {
+            return 1;
+        }
+        PackageQuerySummary summary = events
+            .OfType<PackageQueryEvent.Completed>()
+            .Single()
+            .Value;
+        bool sourceComplete = summary.Completion is
+            PackageQueryCompletionKind.Exhausted
+            or PackageQueryCompletionKind.GalleryResponseComplete
+            or PackageQueryCompletionKind.ExactPackageComplete;
+        if (options.Count
+            && (summary.Failures > 0
+                || !CliSemanticRowSelection.ProvidesExactCount(
+                    options.RowSelection,
+                    packageRowCount,
+                    sourceComplete)))
+        {
+            WriteDiagnostics(events, summary);
+            CommandError.Write(
+                "Cannot count Package Query rows because candidate evaluation is incomplete; "
+                + "use -n or a closed --rows range that is satisfied by the observed rows.");
+            return 1;
+        }
+        var view = PackageQuerySections.CreateDocument(
+            plan.Prefix.ToString(),
+            displayEvents);
         FindCommand.WritePackageOutput(
             view, options, PackageQuerySections.Catalog.Pipeline, view.Results.Count);
+        WriteDiagnostics(events, summary);
 
+        return ExitCode(summary);
+    }
+
+    private static void WriteDiagnostics(
+        IReadOnlyList<PackageQueryEvent> events,
+        PackageQuerySummary summary)
+    {
         foreach (var failure in events.OfType<PackageQueryEvent.Failure>())
         {
             CommandError.WriteWarning(
                 $"{failure.Value.PackageId ?? "Package Query"}: "
                 + $"{failure.Value.Kind}: {failure.Value.Message}");
         }
-        if (view.Summary.Completion != PackageQueryCompletionKind.Exhausted)
+        if (summary.Completion != PackageQueryCompletionKind.Exhausted)
         {
+            string matchProgress = summary.MatchLimit is int matchLimit
+                ? $"{summary.Matches}/{matchLimit} matches"
+                : $"{summary.Matches} matches";
             CommandError.WriteWarning(
-                $"Package Query completion: {view.Summary.Completion}; "
-                + $"{view.Summary.Candidates}/{view.Summary.CandidateLimit} candidates, "
-                + $"{view.Summary.Matches}/{view.Summary.MatchLimit} matches. "
+                $"Package Query completion: {summary.Completion}; "
+                + $"{summary.Candidates}/{summary.CandidateLimit} candidates, "
+                + $"{matchProgress}. "
                 + "These results are not an exhaustive Gallery total.");
         }
-        return ExitCode(view.Summary);
     }
 
     internal static int ExitCode(PackageQuerySummary summary) =>

@@ -243,6 +243,14 @@ public static class CommandLineBuilder
             return 1;
         }
         parseResult = rowSelection.ParseResult;
+        IReadOnlyList<string> effectiveArguments =
+            rowSelection.Arguments
+                ?? rawArgs
+                ?? [.. parseResult.Tokens.Select(static token => token.Value)];
+        CliExecutionBoundPreparation executionBound =
+            CliExecutionBoundCommandRegistry.Prepare(
+                parseResult,
+                effectiveArguments);
 
         // The adopted format guard retains its precedence over positional validation.
         if (rowSelection.HasCompatibilityError)
@@ -253,8 +261,7 @@ public static class CommandLineBuilder
 
         if (CliOptionValueValidation.FindError(
                 parseResult,
-                rowSelection.Arguments ?? rawArgs
-                    ?? [.. parseResult.Tokens.Select(static token => token.Value)],
+                effectiveArguments,
                 rowSelection.PresenceOptions) is { } optionValueError)
         {
             CommandError.Write(optionValueError);
@@ -264,9 +271,13 @@ public static class CommandLineBuilder
         if (WriteParseErrors(parseResult))
             return 1;
 
-        if (rowSelection.Error is not null)
+        string? preparedError =
+            SelectPreparedError(
+                rowSelection,
+                executionBound);
+        if (preparedError is not null)
         {
-            CommandError.Write(rowSelection.Error);
+            CommandError.Write(preparedError);
             return 1;
         }
 
@@ -334,6 +345,34 @@ public static class CommandLineBuilder
                 Console.SetOut(originalWriter);
             tailWriter?.FlushTail();
         }
+    }
+
+    private static string? SelectPreparedError(
+        CliRowSelectionPreparation rowSelection,
+        CliExecutionBoundPreparation executionBound)
+    {
+        if (rowSelection.Error is null)
+            return executionBound.Error;
+        if (executionBound.Error is null)
+            return rowSelection.Error;
+
+        CliSelectionFailureCategory rowCategory =
+            rowSelection.ErrorCategory
+                ?? CliSelectionFailureCategory.Resolution;
+        CliSelectionFailureCategory boundCategory =
+            executionBound.ErrorCategory
+                ?? CliSelectionFailureCategory.Resolution;
+        if (rowCategory != boundCategory)
+        {
+            return rowCategory < boundCategory
+                ? rowSelection.Error
+                : executionBound.Error;
+        }
+
+        return rowSelection.ErrorPosition
+            <= executionBound.ErrorPosition
+                ? rowSelection.Error
+                : executionBound.Error;
     }
 
     private static async Task<int> InvokeCoreAsync(ParseResult parseResult)

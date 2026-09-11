@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspector.Queries;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
@@ -265,7 +266,7 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void PackageProfileSection_BindsProfileQueryAndProjectsDependencySecond()
+    public void PackageProfileSection_BindsProfileQueryAndProjectsOnePackageRow()
     {
         PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
@@ -320,9 +321,9 @@ public class FindCommandTests
         string[] tsvLines = tsv.ReplaceLineEndings("\n")
             .TrimEnd()
             .Split('\n');
-        Assert.StartsWith("package\tdependency\t", tsvLines[0]);
+        Assert.StartsWith("package\tversion\t", tsvLines[0]);
         Assert.StartsWith(
-            "Contoso.Package\tThird.Party\t",
+            "Contoso.Package\t1.2.3\t",
             tsvLines[1]);
 
         string jsonl = RenderPackageProfileTable(
@@ -332,8 +333,8 @@ public class FindCommandTests
             jsonl: true);
         using JsonDocument jsonlDocument = JsonDocument.Parse(jsonl);
         Assert.Equal(
-            "Third.Party",
-            jsonlDocument.RootElement.GetProperty("dependency").GetString());
+            "Contoso.Package",
+            jsonlDocument.RootElement.GetProperty("package").GetString());
 
         string json = OutputFormatter.RenderProjectedJson(
             columns: null,
@@ -347,20 +348,20 @@ public class FindCommandTests
                     writerOptions));
         using JsonDocument jsonDocument = JsonDocument.Parse(json);
         Assert.Equal(
-            "Third.Party",
+            "Contoso.Package",
             jsonDocument.RootElement
                 .GetProperty("packages")[0]
-                .GetProperty("dependency")
+                .GetProperty("package")
                 .GetString());
 
         string markdown = MarkoutSerializer.Serialize(
             view,
             SearchViewContext.Default);
-        Assert.Contains("| Contoso.Package | Third.Party |", markdown);
+        Assert.Contains("| Contoso.Package | 1.2.3 |", markdown);
     }
 
     [Fact]
-    public void PackageProfileSection_KeepsFailuresAndTruncationVisible()
+    public void PackageProfileSection_KeepsFailuresAndTruncationAsContext()
     {
         PackageProfileEvent[] events =
         [
@@ -385,33 +386,101 @@ public class FindCommandTests
             "Contoso.",
             events);
 
-        Assert.Equal(2, view.Results!.Count);
-        Assert.Equal(
-            "InvalidManifest:IdentityMismatch",
-            view.Results[0].Status);
-        Assert.Equal("The manifest was invalid.", view.Results[0].Error);
-        Assert.Equal("truncated", view.Results[1].Status);
-        Assert.Contains(
-            "source pagination limit",
-            view.Results[1].Error);
-        Assert.Equal(
-            TestResults.Source.Producer.Display.ToString(),
-            view.Results[1].Source);
-        Assert.Equal(2, PackageProfileSections.CountRows(view));
-        Assert.Equal(
-            1,
-            PackageProfileSections.CountRows(
-                PackageProfileSections.CreateDocument(
+        Assert.Null(view.Results);
+        Assert.Equal(1, view.Failures);
+        Assert.True(view.Truncated);
+        Assert.Equal(0, PackageProfileSections.CountRows(view));
+    }
+
+    [Fact]
+    public void PackageProfileSelection_ComposesOverPackagesAndPreservesContext()
+    {
+        PackageProfileEvent.Match Match(int index, int dependencyCount) =>
+            new(
+                new PackageProfileMatch(
+                    $"Contoso.{index}",
+                    "1.0.0",
+                    ["Contoso"],
+                    index,
+                    true,
+                    TestResults.Source,
+                    ManifestFacts(
+                        $"Contoso.{index}",
+                        "1.0.0",
+                        "Contoso",
+                        [
+                            new DeclaredPackageDependencyGroup(
+                                "net8.0",
+                                [
+                                    .. Enumerable.Range(0, dependencyCount)
+                                        .Select(dependency =>
+                                            new DeclaredPackageDependency(
+                                                $"Dependency.{index}.{dependency}",
+                                                "1.0.0")),
+                                ]),
+                        ])));
+
+        PackageProfileEvent.Failure failure =
+            new(
+                new PackageProfileFailure(
+                    "Contoso.Broken",
+                    "1.0.0",
+                    TestResults.Source,
+                    PackageProfileFailureKind.InvalidManifest,
+                    "The manifest was invalid.",
+                    PackageManifestFailureReason.IdentityMismatch));
+        PackageProfileEvent.Completed completed =
+            new(
+                new PackageProfileSummary(
                     "Contoso.",
-                    events,
-                    RowWindow.Head(1))));
-        PackageProfileView tail = PackageProfileSections.CreateDocument(
-            "Contoso.",
-            events,
-            RowWindow.Tail(1));
+                    TestResults.Source,
+                    Candidates: 5,
+                    Matches: 4,
+                    Failures: 1,
+                    PackageSearchTruncationReason.RequestedLimit));
+        PackageProfileEvent[] events =
+        [
+            Match(1, 1),
+            failure,
+            Match(2, 100),
+            Match(3, 0),
+            Match(4, 10),
+            completed,
+        ];
+        var options = new FindOptions
+        {
+            RowSelection = RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Window(2, 4),
+                    RowSelectionIntentOperation<string>.Head(2),
+                ]),
+        };
+
+        Assert.True(
+            FindCommand.TrySelectRowsPreservingContext(
+                options.RowSelection,
+                events,
+                static profileEvent =>
+                    profileEvent is PackageProfileEvent.Match,
+                "package",
+                out IReadOnlyList<PackageProfileEvent> selectedEvents,
+                out int availableRows));
+
+        Assert.Equal(4, availableRows);
         Assert.Equal(
-            "truncated",
-            Assert.Single(tail.Results!).Status);
+            ["Contoso.2", "Contoso.3"],
+            selectedEvents
+                .OfType<PackageProfileEvent.Match>()
+                .Select(match => match.Value.PackageId));
+        Assert.Contains(failure, selectedEvents);
+        Assert.Contains(completed, selectedEvents);
+        PackageProfileView view =
+            PackageProfileSections.CreateDocument(
+                "Contoso.",
+                selectedEvents);
+        Assert.Equal(
+            ["Contoso.2", "Contoso.3"],
+            view.Results!.Select(row => row.Package));
     }
 
     [Fact]
@@ -552,8 +621,8 @@ public class FindCommandTests
         long allocated =
             GC.GetAllocatedBytesForCurrentThread() - before;
 
-        Assert.Equal(dependencyCount, view.Results!.Count);
-        Assert.Same(view.Results[0].Authors, view.Results[^1].Authors);
+        PackageProfileRow row = Assert.Single(view.Results!);
+        Assert.NotEmpty(row.Authors);
         Assert.True(
             allocated < 5_000_000,
             $"Expected shared package cells; allocated {allocated:N0} bytes.");
@@ -605,9 +674,8 @@ public class FindCommandTests
         long allocated =
             GC.GetAllocatedBytesForCurrentThread() - before;
 
-        Assert.Equal(5, view.Results!.Count);
-        Assert.Equal("Dependency.0", view.Results[0].Dependency);
-        Assert.Equal("Dependency.4", view.Results[^1].Dependency);
+        PackageProfileRow row = Assert.Single(view.Results!);
+        Assert.Equal("Contoso.Package", row.Package);
         Assert.True(
             allocated < 2_000_000,
             $"Expected windowed projection; allocated {allocated:N0} bytes.");
@@ -669,8 +737,8 @@ public class FindCommandTests
 
         foreach (string output in new[] { markdown, tsv, json })
         {
-            Assert.Contains("Dependency.Zero", output);
-            Assert.Contains("Dependency.One", output);
+            Assert.Contains("Contoso.Package", output);
+            Assert.DoesNotContain("Dependency.Zero", output);
             Assert.DoesNotContain("Dependency.Two", output);
         }
     }
@@ -1174,23 +1242,16 @@ public class FindCommandIntegrationTests
     }
 
     [Theory]
-    [InlineData("Azure", 0, "-t must be between 1 and 1000 for a package-prefix profile (got 0).")]
-    [InlineData("Azure", 1001, "-t must be between 1 and 1000 for a package-prefix profile (got 1001).")]
-    [InlineData("Azure ", 500, "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.")]
-    public async Task PackageProfileInvalidInput_UsesComposedDiagnostic(
+    [InlineData("Azure", "0", "--take requires a positive whole number.")]
+    [InlineData("Azure", "1001", "--take must be between 1 and 1000.")]
+    [InlineData("Azure ", "500", "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.")]
+    public void PackageProfileInvalidInput_UsesComposedDiagnostic(
         string prefix,
-        int limit,
+        string take,
         string expected)
     {
-        var options = new FindOptions
-        {
-            Pattern = "",
-            PackagePrefix = prefix,
-            Limit = limit,
-        };
-
-        var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => FindCommand.ExecuteAsync(options));
+        var (exit, output, error) = RunCli(
+            ["find", "--package-prefix", prefix, "--take", take]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1229,56 +1290,23 @@ public class FindCommandIntegrationTests
         Assert.DoesNotContain("Attempted:", error);
     }
 
-    [Theory]
-    [InlineData("-t")]
-    [InlineData("--type")]
-    public void PackageProfileCountWithPackageLimit_FailsBeforeNetwork(
-        string option)
+    [Fact]
+    public void PackageProfileTypeFilter_FailsBeforeNetwork()
     {
         var (exit, output, error) = RunCli(
             [
                 "find",
                 "--package-prefix",
-                "Microsoft",
-                option,
-                "2",
-                "--count",
+                "Azure.",
+                "--type",
+                "*Json*",
                 "--offline",
             ]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "--count cannot be combined with -t for a package-prefix search",
-            error);
-        Assert.DoesNotContain("Attempted:", error);
-    }
-
-    [Theory]
-    [InlineData("-t", "-D")]
-    [InlineData("-t", "--discover")]
-    [InlineData("--type", "-D")]
-    [InlineData("--type", "--discover")]
-    public void PackageProfileDiscoveryRejectsCountWithPackageLimit(
-        string limitOption,
-        string discoverOption)
-    {
-        var (exit, output, error) = RunCli(
-            [
-                "find",
-                "--package-prefix",
-                "Microsoft",
-                limitOption,
-                "2",
-                "--count",
-                discoverOption,
-                "--offline",
-            ]);
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "--count cannot be combined with -t for a package-prefix search",
+            "Package Profile does not support --type",
             error);
         Assert.DoesNotContain("Attempted:", error);
     }
@@ -1294,14 +1322,14 @@ public class FindCommandIntegrationTests
                 "find",
                 "--package-prefix",
                 "Azure",
-                "-t",
+                "--take",
                 limit,
                 "--offline",
             ]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("-t must be an integer between 1 and 1000", error);
+        Assert.Contains("--take requires a positive whole number", error);
         Assert.DoesNotContain("Attempted:", error);
         Assert.DoesNotContain("Arg_", error, StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -1310,18 +1338,15 @@ public class FindCommandIntegrationTests
             StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("-t")]
-    [InlineData("--type")]
-    public void PackageProfileSeparatedNegativeLimit_RemainsProfileInput(
-        string option)
+    [Fact]
+    public void PackageProfileSeparatedNegativeTake_RemainsProfileInput()
     {
         var (exit, output, error) = RunCli(
             [
                 "find",
                 "--package-prefix",
                 "Azure",
-                option,
+                "--take",
                 "-5",
                 "--offline",
             ]);
@@ -1329,9 +1354,62 @@ public class FindCommandIntegrationTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "-t must be between 1 and 1000 for a package-prefix profile",
+            "--take requires a positive whole number",
             error);
         Assert.DoesNotContain("Attempted:", error);
+    }
+
+    [Theory]
+    [InlineData(
+        "--rows", "bad", "--take", "nope",
+        "--rows requires N..M, N.., or ..M with positive positions.")]
+    [InlineData(
+        "--take", "nope", "--rows", "bad",
+        "--take requires a positive whole number.")]
+    public void PackageProfileMalformedSelectionAndTake_ReportFirstAuthoredValue(
+        string firstOption,
+        string firstValue,
+        string secondOption,
+        string secondValue,
+        string expected)
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Azure",
+                firstOption,
+                firstValue,
+                secondOption,
+                secondValue,
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+    }
+
+    [Fact]
+    public void PackageProfileRepeatedTake_UsesComposedConflictDiagnostic()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Azure",
+                "--take",
+                "1",
+                "--take",
+                "2",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--take may only be specified once.", error);
+        Assert.DoesNotContain(
+            "expects a single argument",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1381,7 +1459,7 @@ public class FindCommandIntegrationTests
             ]);
         var options = new FindOptions
         {
-            Columns = ["Package", "Dependency"],
+            Columns = ["Package", "Version"],
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -1393,8 +1471,8 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("| Package | Dependency |", output);
-        Assert.DoesNotContain("| Version |", output);
+        Assert.Contains("| Package | Version |", output);
+        Assert.DoesNotContain("| Owners |", output);
     }
 
     private static PackageManifestFacts ManifestFacts(
@@ -1703,6 +1781,29 @@ public class FindCommandIntegrationTests
     }
 
     [Fact]
+    public async Task Find_TypeFilter_RestrictsTypeMatches()
+    {
+        var options = new FindOptions
+        {
+            Pattern = "Json*",
+            TypeFilter = "System.Text.Json.JsonDocument",
+            PlatformAssemblies = ["System.Text.Json"],
+            JsonOutput = true,
+            CompactJson = true,
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        var result = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            "System.Text.Json.JsonDocument",
+            result.GetProperty("full_name").GetString());
+    }
+
+    [Fact]
     public async Task Find_WildcardPrefix_MatchesMultipleTypes()
     {
         var options = new FindOptions
@@ -1914,6 +2015,137 @@ public class FindCommandIntegrationTests
         Assert.Equal(0, exit);
         Assert.Equal("[]", output.Trim());
     }
+
+    [Fact]
+    public async Task Find_TypeFilter_RestrictsMemberDeclaringTypes()
+    {
+        var options = new FindOptions
+        {
+            Pattern = "Serialize",
+            Members = true,
+            TypeFilter = "System.Text.Json.JsonSerializer",
+            PlatformAssemblies = ["System.Text.Json"],
+            JsonOutput = true,
+            CompactJson = true,
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        var results = document.RootElement.EnumerateArray().ToArray();
+        Assert.NotEmpty(results);
+        Assert.All(
+            results,
+            result => Assert.Equal(
+                "System.Text.Json.JsonSerializer",
+                result.GetProperty("declaring_type").GetString()));
+    }
+
+    [Theory]
+    [InlineData(false, "type")]
+    [InlineData(true, "member")]
+    public void FindCount_IncompleteSourceDoesNotPublishANumber(
+        bool members,
+        string rowKind)
+    {
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-find-count-{Guid.NewGuid():N}");
+        var arguments = new List<string>
+        {
+            "find",
+            "*",
+            "--bin",
+            missingDirectory,
+            "--count",
+        };
+        if (members)
+            arguments.Add("--members");
+
+        var (exit, output, error) = RunCli([.. arguments]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Cannot count {rowKind} rows because one or more "
+            + "search sources were incomplete.",
+            error);
+        Assert.Contains("Directory not found", error);
+    }
+
+    [Theory]
+    [MemberData(nameof(ExactCountCases))]
+    public void FindCountSufficiency_FollowsOrderedSemanticSelection(
+        RowSelectionIntent<string>? selection,
+        int observedCount,
+        bool sourceComplete,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            CliSemanticRowSelection.ProvidesExactCount(
+                selection,
+                observedCount,
+                sourceComplete));
+    }
+
+    public static TheoryData<
+        RowSelectionIntent<string>?,
+        int,
+        bool,
+        bool> ExactCountCases =>
+        new()
+        {
+            { null, 3, false, false },
+            { null, 3, true, true },
+            {
+                RowSelectionIntent<string>.Create(
+                    [RowSelectionIntentOperation<string>.Head(5)]),
+                3,
+                false,
+                false
+            },
+            {
+                RowSelectionIntent<string>.Create(
+                    [RowSelectionIntentOperation<string>.Head(5)]),
+                5,
+                false,
+                true
+            },
+            {
+                RowSelectionIntent<string>.Create(
+                    [RowSelectionIntentOperation<string>.Tail(3)]),
+                3,
+                false,
+                true
+            },
+            {
+                RowSelectionIntent<string>.Create(
+                    [RowSelectionIntentOperation<string>.Window(null, 4)]),
+                4,
+                false,
+                true
+            },
+            {
+                RowSelectionIntent<string>.Create(
+                    [RowSelectionIntentOperation<string>.Window(2, null)]),
+                5,
+                false,
+                false
+            },
+            {
+                RowSelectionIntent<string>.Create(
+                    [
+                        RowSelectionIntentOperation<string>.Head(5),
+                        RowSelectionIntentOperation<string>.Window(2, null),
+                    ]),
+                5,
+                false,
+                true
+            },
+        };
 
     // ── Error handling tests ─────────────────────────────────────────
 

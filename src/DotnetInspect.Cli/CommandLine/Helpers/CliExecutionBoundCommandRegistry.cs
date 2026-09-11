@@ -1,0 +1,174 @@
+using System.CommandLine;
+using System.CommandLine.Parsing;
+using System.Globalization;
+using System.Runtime.CompilerServices;
+
+namespace DotnetInspect.Cli.CommandLine;
+
+internal sealed record CliExecutionBoundPreparation(
+    string? Error,
+    int? ErrorPosition,
+    CliSelectionFailureCategory? ErrorCategory);
+
+internal sealed class CliExecutionBoundAdoption
+{
+    public CliExecutionBoundAdoption(
+        Option option,
+        int maximum,
+        Func<ParseResult, bool> isActive)
+    {
+        Option = option;
+        Maximum = maximum;
+        IsActive = isActive;
+    }
+
+    public Option Option { get; }
+    public int Maximum { get; }
+    public Func<ParseResult, bool> IsActive { get; }
+}
+
+internal static class CliExecutionBoundCommandRegistry
+{
+    private static readonly ConditionalWeakTable<
+        Command,
+        CliExecutionBoundAdoption> Adoptions = new();
+
+    private static readonly ConditionalWeakTable<
+        ParseResult,
+        StrongBox<int>> Values = new();
+
+    public static void Register(
+        Command command,
+        Option option,
+        int maximum,
+        Func<ParseResult, bool> isActive)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(option);
+        ArgumentNullException.ThrowIfNull(isActive);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximum, 1);
+        Adoptions.Add(
+            command,
+            new CliExecutionBoundAdoption(
+                option,
+                maximum,
+                isActive));
+    }
+
+    public static CliExecutionBoundPreparation Prepare(
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        if (!Adoptions.TryGetValue(
+                parseResult.CommandResult.Command,
+                out CliExecutionBoundAdoption? adoption)
+            || !adoption.IsActive(parseResult))
+        {
+            return new(null, null, null);
+        }
+
+        string optionName = adoption.Option.Name;
+        var occurrences = new List<(int Position, string? Value)>();
+        for (int index = 0; index < arguments.Count; index++)
+        {
+            string argument = arguments[index];
+            if (argument == "--")
+                break;
+
+            if (argument.Equals(
+                    optionName,
+                    StringComparison.Ordinal))
+            {
+                string? value =
+                    index + 1 < arguments.Count
+                        ? arguments[index + 1]
+                        : null;
+                occurrences.Add((index, value));
+                index++;
+                continue;
+            }
+
+            if (argument.StartsWith(
+                    optionName + "=",
+                    StringComparison.Ordinal)
+                || argument.StartsWith(
+                    optionName + ":",
+                    StringComparison.Ordinal))
+            {
+                occurrences.Add(
+                    (index, argument[(optionName.Length + 1)..]));
+            }
+        }
+
+        if (occurrences.Count == 0)
+            return new(null, null, null);
+
+        foreach ((int position, string? value) in occurrences)
+        {
+            if (!TryParsePositive(value, out int parsed))
+            {
+                return new(
+                    $"{optionName} requires a positive whole number.",
+                    position,
+                    CliSelectionFailureCategory.Value);
+            }
+
+            if (parsed > adoption.Maximum)
+            {
+                return new(
+                    $"{optionName} must be between 1 and "
+                    + $"{adoption.Maximum.ToString(CultureInfo.InvariantCulture)}.",
+                    position,
+                    CliSelectionFailureCategory.Value);
+            }
+        }
+
+        if (occurrences.Count > 1)
+        {
+            return new(
+                $"{optionName} may only be specified once.",
+                occurrences[1].Position,
+                CliSelectionFailureCategory.Conflict);
+        }
+
+        Values.Add(
+            parseResult,
+            new StrongBox<int>(
+                int.Parse(
+                    occurrences[0].Value!,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture)));
+        return new(null, null, null);
+    }
+
+    public static int? GetPreparedValue(
+        ParseResult parseResult)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+        return Values.TryGetValue(
+            parseResult,
+            out StrongBox<int>? value)
+                ? value.Value
+                : null;
+    }
+
+    private static bool TryParsePositive(
+        string? value,
+        out int parsed)
+    {
+        parsed = 0;
+        return value is { Length: > 0 }
+            && value.All(
+                static character =>
+                    character is >= '0' and <= '9')
+            && int.TryParse(
+                value,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out parsed)
+            && parsed > 0;
+    }
+}
