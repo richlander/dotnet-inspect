@@ -1,12 +1,12 @@
+using DotnetInspector.Cache;
 using System.Net;
 using System.Text;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
 
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public class DependencyResolutionServiceTests
 {
     [Theory]
@@ -75,7 +75,7 @@ public class DependencyResolutionServiceTests
     [Fact]
     public async Task ResolveDependencyTree_MalformedTransitiveNuspec_PropagatesTypedRejection()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         var handler = new MalformedNuspecHandler();
         using var client = new HttpClient(handler);
         string packageId = $"typed-rejection-probe-{Guid.NewGuid():N}";
@@ -140,7 +140,7 @@ public class DependencyResolutionServiceTests
     [Fact]
     public async Task ResolveDependencyTree_UsesCallerSourcesForEveryTransitiveNuspec()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         const string index = "https://private.example/v3/index.json";
         const string flat = "https://private.example/v3-flatcontainer/";
         string suffix = Guid.NewGuid().ToString("N");
@@ -245,7 +245,7 @@ public class DependencyResolutionServiceTests
     [Fact]
     public async Task ResolveDependencyGraph_SharedTargetRetainsBothIncomingRelationships()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string suffix = Guid.NewGuid().ToString("N");
         string leftId = $"Left.Package.{suffix}";
         string rightId = $"Right.Package.{suffix}";
@@ -300,7 +300,7 @@ public class DependencyResolutionServiceTests
     [Fact]
     public async Task ResolveDependencyGraph_ExpandsDistinctVersionsWithoutChangingCompatibilityTree()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string suffix = Guid.NewGuid().ToString("N");
         string leftId = $"Left.Package.{suffix}";
         string rightId = $"Right.Package.{suffix}";
@@ -365,7 +365,7 @@ public class DependencyResolutionServiceTests
     [Fact]
     public async Task ResolveDependencyGraph_UnavailableTargetIsNotReportedAsResolved()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string packageId = $"Unavailable.Package.{Guid.NewGuid():N}";
         string index = $"https://private.example/{Guid.NewGuid():N}/v3/index.json";
         using var client = new HttpClient(

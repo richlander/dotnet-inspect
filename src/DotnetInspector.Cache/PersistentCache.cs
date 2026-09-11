@@ -2,14 +2,14 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace DotnetInspector.Core;
+namespace DotnetInspector.Cache;
 
 /// <summary>
 /// Generic disk cache with category-based partitioning.
 /// Uses SHA256-hashed keys and subdirectory bucketing for filesystem safety.
 /// Call <see cref="Initialize"/> before using any cache operations.
 /// </summary>
-public static class CoreCache
+public static class PersistentCache
 {
     private static string? _appName;
     private static string? _basePathOverride;
@@ -54,7 +54,7 @@ public static class CoreCache
     }
 
     private static string AppName => _appName
-        ?? throw new InvalidOperationException("CoreCache.Initialize(appName) must be called before using cache methods.");
+        ?? throw new InvalidOperationException("PersistentCache.Initialize(appName) must be called before using cache methods.");
 
     /// <summary>
     /// Gets the base path for all caches.
@@ -205,7 +205,6 @@ public static class CoreCache
             try
             {
                 var result = File.ReadAllText(path);
-                InfoTracker.RecordCacheHit();
                 CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Hit);
                 return result;
             }
@@ -215,7 +214,6 @@ public static class CoreCache
             }
         }
         CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Miss);
-        RecordCacheMiss();
         return null;
     }
 
@@ -231,7 +229,6 @@ public static class CoreCache
             try
             {
                 var result = File.ReadAllBytes(path);
-                InfoTracker.RecordCacheHit();
                 CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Hit);
                 return result;
             }
@@ -241,7 +238,6 @@ public static class CoreCache
             }
         }
         CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Miss);
-        RecordCacheMiss();
         return null;
     }
 
@@ -258,7 +254,6 @@ public static class CoreCache
             if (info.Exists && (DateTime.UtcNow - info.LastWriteTimeUtc) < maxAge)
             {
                 var result = File.ReadAllBytes(path);
-                InfoTracker.RecordCacheHit();
                 CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Hit);
                 return result;
             }
@@ -268,7 +263,6 @@ public static class CoreCache
             // Best-effort
         }
         CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Miss);
-        RecordCacheMiss();
         return null;
     }
 
@@ -285,7 +279,6 @@ public static class CoreCache
             if (info.Exists && (DateTime.UtcNow - info.LastWriteTimeUtc) < maxAge)
             {
                 var result = File.ReadAllText(path);
-                InfoTracker.RecordCacheHit();
                 CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Hit);
                 return result;
             }
@@ -295,7 +288,6 @@ public static class CoreCache
             // Best-effort
         }
         CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Miss);
-        RecordCacheMiss();
         return null;
     }
 
@@ -463,11 +455,6 @@ public static class CoreCache
         => category.Equals("symbol-misses", StringComparison.OrdinalIgnoreCase)
             ? $"{category}/{extension}"
             : category;
-
-    private static void RecordCacheMiss()
-    {
-        InfoTracker.RecordCacheMiss();
-    }
 
     /// <summary>
     /// Returns the aggregate versioned-category cleanup task so callers can

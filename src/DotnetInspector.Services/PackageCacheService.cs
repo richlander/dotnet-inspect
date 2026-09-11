@@ -1,4 +1,4 @@
-using DotnetInspector.Core;
+using DotnetInspector.Cache;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
@@ -68,10 +68,10 @@ public static class PackageCacheService
     /// </summary>
     public static long ClearCache()
     {
-        long totalFreed = CoreCache.Clear();
+        long totalFreed = PersistentCache.Clear();
 
         // Clean up legacy cache location (pre-XDG: ~/.local/share/dotnet-inspect)
-        var legacyPath = CoreCache.GetLegacyBasePath();
+        var legacyPath = PersistentCache.GetLegacyBasePath();
         if (legacyPath != null)
             totalFreed += DeleteCacheDirectory(legacyPath);
 
@@ -80,7 +80,7 @@ public static class PackageCacheService
 
     private static long DeleteCacheDirectory(string path)
     {
-        CoreCache.EnsurePathInCacheContext(path);
+        PersistentCache.EnsurePathInCacheContext(path);
         if (!Directory.Exists(path))
             return 0;
 

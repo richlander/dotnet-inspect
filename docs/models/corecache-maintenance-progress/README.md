@@ -1,15 +1,16 @@
-# CoreCache maintenance progress model
+# PersistentCache maintenance progress model
 
-`CoreCacheMaintenanceProgress.tla` models `CoreCache.CacheMaintenanceProgress`
-(`src/DotnetInspector.Core/CoreCache.cs`), the counter object that background
-maintenance tasks update and that `CancelAndWaitForMaintenance` reads and
-resets on a timed-out wait, described by
+`CoreCacheMaintenanceProgress.tla` models
+`DotnetInspector.Cache.PersistentCache.CacheMaintenanceProgress`
+(`src/DotnetInspector.Cache/PersistentCache.cs`), the counter object that
+background maintenance tasks update and that `CancelAndWaitForMaintenance`
+reads and resets on a timed-out wait, described by
 [`../../design/corecache-maintenance-lifecycle.md`](../../design/corecache-maintenance-lifecycle.md#maintenance-progress-accounting).
 
 ## Scope
 
-`CoreCache.cs` serializes every control operation (`RegisterVersionedCategory`,
-`Initialize`, `Clear`, `CancelAndWaitForMaintenance`,
+`PersistentCache.cs` serializes every control operation
+(`RegisterVersionedCategory`, `Initialize`, `Clear`, `CancelAndWaitForMaintenance`,
 `RequestVersionedCategoryCleanupAsync`) under one process-wide lock, so those
 operations never interleave with each other. The genuine concurrency this
 model isolates is between that single lock-holding control thread and the
@@ -72,8 +73,8 @@ The model does not cover:
 - a generation transition's `TakeSnapshot()` racing an already-outstanding
   aggregate task's `Snapshot()` (a third, distinct, self-correcting exposure
   for the same reason -- see the design doc);
-- `CoreCache`'s non-maintenance read/write cache paths;
-- `CacheTelemetry`; or
+- `PersistentCache`'s non-maintenance read/write cache paths;
+- `DotnetInspector.Cache.CacheTelemetry`; or
 - thread scheduling beyond the writer/reader interleaving above.
 
 ## Checked properties

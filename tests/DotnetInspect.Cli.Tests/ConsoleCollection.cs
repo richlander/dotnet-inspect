@@ -4,7 +4,7 @@ namespace DotnetInspect.Cli.Tests;
 /// Owns process-global console, cache, network-policy, and command-host state.
 /// </summary>
 /// <remarks>
-/// Tests in this collection may replace or delete the active <c>CoreCache</c>/
+/// Tests in this collection may replace or delete the active <c>PersistentCache</c>/
 /// <c>NuGetCache</c> root. Assembly-exclusive scheduling prevents any external
 /// collection from observing that temporary state (#4271).
 /// </remarks>

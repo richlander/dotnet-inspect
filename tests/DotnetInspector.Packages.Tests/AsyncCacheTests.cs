@@ -1,6 +1,6 @@
-using DotnetInspector.Core;
+using DotnetInspector.Packages;
 
-namespace DotnetInspector.Services.Tests;
+namespace DotnetInspector.Packages.Tests;
 
 public class AsyncCacheTests
 {

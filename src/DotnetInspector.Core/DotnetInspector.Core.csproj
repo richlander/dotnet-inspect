@@ -8,7 +8,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Core utilities for dotnet-inspect, including caching infrastructure</Description>
+    <Description>Transitional document readers and operational diagnostics for dotnet-inspect</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\InertText\InertText.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
   </ItemGroup>
 </Project>

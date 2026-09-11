@@ -1,5 +1,5 @@
+using DotnetInspector.Cache;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Packages;
@@ -242,98 +242,12 @@ public class CacheCommandTests : IDisposable
         }
         File.WriteAllText(Path.Combine(currentDir, "current.txt"), "keep");
 
-        CoreCache.RegisterVersionedCategory(prefix, current);
+        PersistentCache.RegisterVersionedCategory(prefix, current);
         long freed = PackageCacheService.ClearCache();
 
         Assert.False(Directory.Exists(_cacheBasePath));
         Assert.True(freed >= 256 * 1024);
         Assert.Equal(0, PackageCacheService.ClearCache());
-    }
-
-    [Fact]
-    public async Task CategoryClear_DoesNotConsumeMaintenanceAccounting()
-    {
-        string prefix = $"category-clear-accounting-{Guid.NewGuid():N}-v";
-        string current = prefix + "2";
-        var oldDir = Path.Combine(_cacheBasePath, prefix + "1");
-        Directory.CreateDirectory(oldDir);
-        File.WriteAllText(Path.Combine(oldDir, "old.txt"), new string('x', 4096));
-
-        CoreCache.RegisterVersionedCategory(prefix, current);
-        await CoreCache.RequestVersionedCategoryCleanupAsync();
-
-        Assert.Equal(0, CoreCache.Clear("metadata"));
-        Assert.True(CoreCache.Clear() >= 4096);
-    }
-
-    [Fact]
-    public async Task RegisteringVersionedCategory_CleansOnlyOlderContracts()
-    {
-        string prefix = $"registration-clean-{Guid.NewGuid():N}-v";
-        string current = prefix + "3";
-        var oldDir = Path.Combine(_cacheBasePath, prefix + "2");
-        var currentDir = Path.Combine(_cacheBasePath, current);
-        var futureDir = Path.Combine(_cacheBasePath, prefix + "4");
-        var malformedDir = Path.Combine(_cacheBasePath, prefix + "preview");
-        Directory.CreateDirectory(oldDir);
-        Directory.CreateDirectory(currentDir);
-        Directory.CreateDirectory(futureDir);
-        Directory.CreateDirectory(malformedDir);
-        File.WriteAllText(Path.Combine(oldDir, "old.txt"), new string('x', 4096));
-        File.WriteAllText(Path.Combine(currentDir, "current.txt"), "keep");
-
-        CoreCache.RegisterVersionedCategory(prefix, current);
-        await WaitForDeletionAsync(oldDir);
-
-        var cleanup = CoreCache.RequestVersionedCategoryCleanupAsync();
-        Assert.Same(cleanup, CoreCache.RequestVersionedCategoryCleanupAsync());
-        var result = await cleanup;
-
-        Assert.False(Directory.Exists(oldDir));
-        Assert.True(Directory.Exists(currentDir));
-        Assert.True(Directory.Exists(futureDir));
-        Assert.True(Directory.Exists(malformedDir));
-        Assert.True(result.BytesFreed > 0);
-        Assert.True(result.DirectoriesDeleted >= 1);
-    }
-
-    [Fact]
-    public async Task Initialize_RechecksContractsRecreatedByAnOlderTool()
-    {
-        string prefix = $"recreated-contract-{Guid.NewGuid():N}-v";
-        string current = prefix + "2";
-        var oldDir = Path.Combine(_cacheBasePath, prefix + "1");
-        Directory.CreateDirectory(oldDir);
-
-        CoreCache.RegisterVersionedCategory(prefix, current);
-        await CoreCache.RequestVersionedCategoryCleanupAsync();
-        Assert.False(Directory.Exists(oldDir));
-
-        Directory.CreateDirectory(oldDir);
-        File.WriteAllText(Path.Combine(oldDir, "recreated.txt"), "stale");
-
-        NuGetCache.Initialize(_appName, basePath: _cacheBasePath);
-        await WaitForDeletionAsync(oldDir);
-        await CoreCache.RequestVersionedCategoryCleanupAsync();
-
-        Assert.False(Directory.Exists(oldDir));
-    }
-
-    [Fact]
-    public async Task InitializeSameRoot_PreservesMaintenanceAccounting()
-    {
-        string prefix = $"same-root-accounting-{Guid.NewGuid():N}-v";
-        string current = prefix + "2";
-        var oldDir = Path.Combine(_cacheBasePath, prefix + "1");
-        Directory.CreateDirectory(oldDir);
-        File.WriteAllText(Path.Combine(oldDir, "old.txt"), new string('x', 4096));
-
-        CoreCache.RegisterVersionedCategory(prefix, current);
-        await CoreCache.RequestVersionedCategoryCleanupAsync();
-
-        NuGetCache.Initialize(_appName, basePath: _cacheBasePath);
-
-        Assert.True(PackageCacheService.ClearCache() >= 4096);
     }
 
     [Fact]
@@ -345,24 +259,13 @@ public class CacheCommandTests : IDisposable
 
         NuGetCache.Initialize(_appName, basePath: _cacheBasePath);
         await WaitForDeletionAsync(oldDir);
-        await CoreCache.RequestVersionedCategoryCleanupAsync();
+        await PersistentCache.RequestVersionedCategoryCleanupAsync();
 
         Assert.False(Directory.Exists(oldDir));
     }
 
     [Fact]
-    public void RegisterVersionedCategory_RequiresNumericContract()
-    {
-        string prefix = $"invalid-contract-{Guid.NewGuid():N}-v";
-
-        var error = Assert.Throws<ArgumentException>(
-            () => CoreCache.RegisterVersionedCategory(prefix, prefix + "preview"));
-
-        Assert.Contains("non-negative integer contract version", error.Message);
-    }
-
-    [Fact]
-    public async Task CoreCache_Clear_RejectsTraversalOutsideCacheRoot()
+    public async Task PersistentCache_Clear_RejectsTraversalOutsideCacheRoot()
     {
         // The guard throws and does not also write. It used to do both, and
         // the write was the uncontained copy: it interpolated the rejected path
@@ -370,7 +273,7 @@ public class CacheCommandTests : IDisposable
         // that contains it.
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
-            var thrown = Assert.Throws<InvalidOperationException>(() => CoreCache.Clear(".."));
+            var thrown = Assert.Throws<InvalidOperationException>(() => PersistentCache.Clear(".."));
             Assert.Contains("Refusing to delete path outside dotnet-inspect cache", thrown.Message);
             return Task.FromResult(0);
         });

@@ -63,7 +63,7 @@ The design adds only complexity required by observed correctness failures:
 The pathological case and the reproduced `BuiltDate`, partial-scan, and
 `RuntimeDependencies` divergences are the evidence that requires those
 mechanisms. The four outcome-level gates below are the required evidence
-without restating inherited platform or `CoreCache` properties.
+without restating inherited platform or `PersistentCache` properties.
 
 ## Owner and boundaries
 
@@ -81,7 +81,7 @@ It consumes:
 - a typed package-inspection production outcome whose success case carries the
   complete canonical filesystem-derived projection and whose incomplete case
   carries the producer's diagnostics; and
-- `CoreCache` storage under one versioned package-index contract.
+- `PersistentCache` storage under one versioned package-index contract.
 
 It returns either:
 
@@ -94,7 +94,7 @@ It does not own:
 - configured package authority, source mapping, producer identity, or payload
   authorization;
 - package download, extraction, admission, retention, or digest construction;
-- `CoreCache` paths, hashing, atomic file replacement, maintenance, or
+- `PersistentCache` paths, hashing, atomic file replacement, maintenance, or
   telemetry;
 - NuGet metadata enrichment, RID companion availability, symbol acquisition,
   tool-wrapper routing, or other request-current observations;
@@ -112,8 +112,9 @@ owner-mediated digest pattern. The durable package-content identity needed by
 this CLI path is the focused acquisition prerequisite tracked by
 [#5484](https://github.com/richlander/dotnet-inspect/issues/5484).
 [InertText](inert-text.md) owns persisted treated-text semantics.
-[Inspection space](../inspection-space.md#corecache) owns the repository-wide
-derived-cache rule, and `CoreCache` supplies only the storage mechanism.
+[Inspection space](../inspection-space.md#persistentcache) owns the
+repository-wide derived-cache rule, and `PersistentCache` supplies only the
+storage mechanism.
 
 ## Cache subject
 
@@ -333,17 +334,17 @@ owner-issued durable identity, or otherwise revoking eligibility makes the
 entry unreachable even when its bytes remain on disk.
 
 A projection-contract change selects a successor category. Older categories
-are never reinterpreted under the new contract. `CoreCache` may retire older
+are never reinterpreted under the new contract. `PersistentCache` may retire older
 numeric categories after the successor registers; that cleanup has no bearing
 on whether a current entry is semantically valid.
 
 ## Publication and concurrency
 
 `PackageIndexCache` delegates atomic file replacement and best-effort storage to
-`CoreCache`. It adds no lock, single-flight registry, or mutable publication
+`PersistentCache`. It adds no lock, single-flight registry, or mutable publication
 protocol.
 
-Within one host-local `CoreCache` root, concurrent producers may publish the
+Within one host-local `PersistentCache` root, concurrent producers may publish the
 same subject only when the subject proves that both consumed the same retained
 payload and projection contract. They observe the same host filesystem
 semantics, and the cache accepts only canonical projections, so their encodings
@@ -353,7 +354,7 @@ miss, never a partially written entry. Moving or sharing a cache root across
 hosts with different filesystem semantics is unsupported.
 
 No TLA+ model is required for this focused owner. Scheduling and filesystem
-publication are delegated to the existing `CoreCache` mechanism, while this
+publication are delegated to the existing `PersistentCache` mechanism, while this
 contract's correctness rests on immutable subject equality and complete-value
 validation rather than a new stateful interaction. A future mutable
 coordination protocol would require its own design and interaction model.
@@ -480,7 +481,7 @@ result usable while making the projection nonpublishable.
 This design does not:
 
 - make a package coordinate immutable;
-- make `CoreCache` a semantic cache owner;
+- make `PersistentCache` a semantic cache owner;
 - define a universal derived-cache abstraction or migrate another cache;
 - authorize sharing merely because two authorities produce equal bytes;
 - require persistent caching for an authority without a safe durable identity;

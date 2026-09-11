@@ -32,6 +32,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspect.Cli\DotnetInspect.Cli.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
     <ProjectReference Include="..\..\src\NuGetFetch\NuGetFetch.csproj" />

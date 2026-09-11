@@ -1,6 +1,6 @@
+using DotnetInspector.Cache;
 using System.Collections.Concurrent;
 
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
@@ -34,7 +34,7 @@ public class SourceFetch
     internal const long MaxSourceDownloadSize = 16_000_000;
 
     public SourceFetch(HttpClient httpClient)
-        : this(httpClient, CoreCacheSourceContentStore.Instance)
+        : this(httpClient, PersistentCacheSourceContentStore.Instance)
     {
     }
 
@@ -278,10 +278,10 @@ public class SourceFetch
         return string.Join('\n', result).TrimEnd();
     }
 
-    sealed class CoreCacheSourceContentStore
+    sealed class PersistentCacheSourceContentStore
         : ISourceContentStore
     {
-        internal static CoreCacheSourceContentStore Instance { get; } =
+        internal static PersistentCacheSourceContentStore Instance { get; } =
             new();
 
         public ValueTask<byte[]?> TryOpenAsync(
@@ -289,7 +289,7 @@ public class SourceFetch
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string? encoded = CoreCache.TryGet(
+            string? encoded = PersistentCache.TryGet(
                 ByteCacheCategory,
                 key,
                 extension: "base64");
@@ -313,7 +313,7 @@ public class SourceFetch
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CoreCache.Set(
+            PersistentCache.Set(
                 ByteCacheCategory,
                 key,
                 Convert.ToBase64String(content.Span),

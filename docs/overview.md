@@ -168,7 +168,9 @@ substrates, and inspection producers that will extend that space.
   control-flow or Finding policy.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
-  resolution. Its
+  resolution. Its internal `AsyncCache<TKey, TValue>` lives beside its sole
+  production consumer, `PackageExtractor`, and supplies that consumer's
+  process-local single-flight registry. Its
   [Package Version Selection](design/version-resolution.md) owner defines
   resource-free latest, prerelease, always-refresh, wildcard, and
   addressable-range requests plus the resolution receipt that binds one exact
@@ -314,10 +316,20 @@ substrates, and inspection producers that will extend that space.
   diagnostics. Its project and compiled assembly dependencies are restricted
   to the platform, `InertText`, and `NetworkAccess` by
   `networking-stays-below-core-and-hosts`.
-- `src/DotnetInspector.Core/` is a transitional runtime bucket beneath
-  Packages, Services, and the CLI. Its cache and combined request/cache
-  diagnostics, untrusted-document, CLI telemetry, and single-consumer helpers
-  move to subject owners under
+- `src/DotnetInspector.Cache/` owns
+  `DotnetInspector.Cache.PersistentCache` and `CacheTelemetry`: shared cache
+  roots, path-safe hashed keys, maintenance, atomic file publication, and
+  redacted request-aware cache observations. It depends only on the platform,
+  `InertText`, and `DotnetInspector.Networking`. This is step 3 of the
+  `DotnetInspector.Core` decomposition under
+  [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by
+  [#6671](https://github.com/richlander/dotnet-inspect/issues/6671).
+- `src/DotnetInspector.Core/` remains a transitional runtime bucket beneath
+  Packages, Services, and the CLI. `RequestMermaidDiagram` composes network,
+  cache, and breadcrumb observations; `InfoTracker` subscribes to network and
+  cache telemetry and counts hits and misses while excluding stores.
+  `CountingTextWriter` and the hardened JSON/XML readers remain. Later
+  subject-owned moves continue under
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis

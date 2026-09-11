@@ -1,6 +1,6 @@
+using DotnetInspector.Cache;
 using System.Buffers;
 using System.Text;
-using DotnetInspector.Core;
 using MarkdownTable.Formatting;
 
 namespace DotnetInspector.Services;
@@ -36,7 +36,7 @@ internal static class MetadataFieldCache
     /// </summary>
     public static Entry? TryGetEntry(string cacheKey)
     {
-        var bytes = CoreCache.TryGetBytes(Category, cacheKey, Ttl, extension: "md");
+        var bytes = PersistentCache.TryGetBytes(Category, cacheKey, Ttl, extension: "md");
         if (bytes is null) return null;
 
         try
@@ -146,7 +146,7 @@ internal static class MetadataFieldCache
             if (isAbsent)
             {
                 Write(buf, AbsentEntry);
-                CoreCache.SetBytes(
+                PersistentCache.SetBytes(
                     Category,
                     cacheKey,
                     buf.WrittenSpan.ToArray(),
@@ -227,7 +227,7 @@ internal static class MetadataFieldCache
                 }
             }
 
-            CoreCache.SetBytes(Category, cacheKey, buf.WrittenSpan.ToArray(), extension: "md");
+            PersistentCache.SetBytes(Category, cacheKey, buf.WrittenSpan.ToArray(), extension: "md");
         }
         catch
         {

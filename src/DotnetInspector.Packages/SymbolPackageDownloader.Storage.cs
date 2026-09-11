@@ -1,5 +1,5 @@
+using DotnetInspector.Cache;
 using System.Net;
-using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
 
@@ -168,7 +168,7 @@ public partial class SymbolPackageDownloader
         if (!_usePersistentMissCache)
             return false;
 
-        if (CoreCache.TryGet(SymbolMissCacheCategory, key, SymbolForbiddenCacheTtl, extension: "forbidden") != null)
+        if (PersistentCache.TryGet(SymbolMissCacheCategory, key, SymbolForbiddenCacheTtl, extension: "forbidden") != null)
         {
             log?.Invoke($"Using cached symbol miss: {source}");
             FeedFailureRecorder.Record(key, HttpStatusCode.Forbidden);
@@ -176,7 +176,7 @@ public partial class SymbolPackageDownloader
         }
 
         string? cachedStatus =
-            CoreCache.TryGet(
+            PersistentCache.TryGet(
                 SymbolMissCacheCategory,
                 key,
                 SymbolMissCacheTtl,
@@ -215,6 +215,6 @@ public partial class SymbolPackageDownloader
         if (extension is null)
             return;
 
-        CoreCache.Set(SymbolMissCacheCategory, key, ((int)statusCode).ToString(), extension);
+        PersistentCache.Set(SymbolMissCacheCategory, key, ((int)statusCode).ToString(), extension);
     }
 }

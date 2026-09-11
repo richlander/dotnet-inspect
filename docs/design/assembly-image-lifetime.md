@@ -16,7 +16,8 @@ Persistent derived-result ownership remains split. Each result's cache owner
 defines its complete semantic key and reuse policy;
 [artifact acquisition](artifact-acquisition-and-workspaces.md#artifactsetsession)
 supplies any content digest from retained bytes; and
-[CoreCache](../inspection-space.md#corecache) supplies infrastructure plus the
+[PersistentCache](../inspection-space.md#persistentcache) supplies
+infrastructure plus the
 repository-wide cutover constraints. This document neither replaces nor
 weakens those contracts.
 
@@ -193,7 +194,7 @@ correspondence between artifacts.
 Reader-local and session-local caches end with their image generation.
 
 Persistent derived-result caches follow the contract in
-[inspection-space.md](../inspection-space.md#corecache): the result owner
+[inspection-space.md](../inspection-space.md#persistentcache): the result owner
 defines the semantic key, acquisition computes any content digest over retained
 immutable bytes, and the cold gate, producer, and publication use that same
 snapshot. The immutable nuget.org coordinate scopes reacquisition and

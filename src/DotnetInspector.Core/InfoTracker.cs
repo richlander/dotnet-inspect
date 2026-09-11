@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using DotnetInspector.Cache;
 using DotnetInspector.Networking;
 
 namespace DotnetInspector.Core;
@@ -16,6 +17,7 @@ public static class InfoTracker
     private static int _cacheMisses;
     private static CountingTextWriter? _countingWriter;
     private static IDisposable? _networkSubscription;
+    private static IDisposable? _cacheSubscription;
     private static long _additionalCharsWritten;
     private static readonly object _detailsLock = new();
     private static readonly Dictionary<string, string> _details = new(StringComparer.OrdinalIgnoreCase);
@@ -34,6 +36,8 @@ public static class InfoTracker
         Console.SetOut(_countingWriter);
         _networkSubscription ??=
             NetworkTelemetry.Subscribe(new RequestCountObserver());
+        _cacheSubscription ??=
+            CacheTelemetry.Subscribe(new CacheCountObserver());
         _stopwatch.Start();
     }
 
@@ -73,6 +77,8 @@ public static class InfoTracker
         _countingWriter = null;
         _networkSubscription?.Dispose();
         _networkSubscription = null;
+        _cacheSubscription?.Dispose();
+        _cacheSubscription = null;
         _additionalCharsWritten = 0;
         lock (_detailsLock)
             _details.Clear();
@@ -85,6 +91,25 @@ public static class InfoTracker
     public static int HttpRequests => _httpRequests;
     public static int CacheHits => _cacheHits;
     public static int CacheMisses => _cacheMisses;
+
+    private sealed class CacheCountObserver : IObserver<CacheObservation>
+    {
+        public void OnNext(CacheObservation observation)
+        {
+            if (observation.Result == CacheAccessResult.Hit)
+                RecordCacheHit();
+            else if (observation.Result == CacheAccessResult.Miss)
+                RecordCacheMiss();
+        }
+
+        public void OnCompleted()
+        {
+        }
+
+        public void OnError(Exception error)
+        {
+        }
+    }
 
     private sealed class RequestCountObserver :
         IObserver<NetworkRequestObservation>

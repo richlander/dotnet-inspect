@@ -109,6 +109,7 @@ tests/CSharpText.Tests
 tests/DecompilerHarness.Tests
 tests/DotnetInspect.Cli.Tests
 tests/DotnetInspector.AssemblyOnlyHost.Fixture
+tests/DotnetInspector.Cache.Tests
 tests/DotnetInspector.Ecosystems.Consumer.Tests
 tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
@@ -116,6 +117,7 @@ tests/DotnetInspector.ILRoundtrip.Tests
 tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.Networking.Tests
 tests/DotnetInspector.PackageManifestCorpus
+tests/DotnetInspector.Packages.Tests
 tests/DotnetInspector.PlatformHouse.Installed.Tests
 tests/DotnetInspector.PlatformHouse.Tests
 tests/DotnetInspector.Platforms.Formats.Tests

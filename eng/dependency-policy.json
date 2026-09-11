@@ -80,6 +80,22 @@
       ]
     },
     {
+      "id": "cache-stays-within-owner-boundary",
+      "source": "docs/design/library-family-boundaries.md#dotnetinspector-the-broader-net-ecosystem",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Cache"
+      ],
+      "allowOnly": [
+        "$platform",
+        "InertText",
+        "DotnetInspector.Networking"
+      ]
+    },
+    {
       "id": "ecosystem-catalog-stays-in-approved-hosts",
       "source": "docs/design/ecosystem-packs.md#dependency-boundary",
       "graphs": [

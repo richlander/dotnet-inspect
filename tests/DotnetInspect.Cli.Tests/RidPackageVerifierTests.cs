@@ -1,8 +1,8 @@
+using DotnetInspector.Cache;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
 using System.Text;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
@@ -15,7 +15,7 @@ public class RidPackageVerifierTests
 {
     public RidPackageVerifierTests()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public class RidPackageVerifierTests
         string version,
         bool expected)
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string packageId =
             $"FallbackPackage.{Guid.NewGuid():N}.linux-x64";
         string normalizedPackageId = packageId.ToLowerInvariant();
@@ -111,7 +111,7 @@ public class RidPackageVerifierTests
     [Fact]
     public async Task VerifyAsync_MissingVersionIndexIsAbsent()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string packageId =
             $"MissingPackage.{Guid.NewGuid():N}.linux-x64";
         string normalizedPackageId = packageId.ToLowerInvariant();
@@ -155,7 +155,7 @@ public class RidPackageVerifierTests
     [Fact]
     public async Task VerifyAsync_MissingHttpServiceIndexIsUnknown()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         var handler = new StubHandler();
         using var client = new HttpClient(handler);
         var result = new InspectionResult
@@ -195,7 +195,7 @@ public class RidPackageVerifierTests
     [Fact]
     public async Task VerifyAsync_VersionIndexFailureIsUnknown()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string packageId =
             $"BrokenPackage.{Guid.NewGuid():N}.linux-x64";
         string normalizedPackageId = packageId.ToLowerInvariant();
@@ -237,7 +237,7 @@ public class RidPackageVerifierTests
     [Fact]
     public async Task VerifyAsync_OfflineVersionCheckIsUnknown()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string packageId =
             $"OfflinePackage.{Guid.NewGuid():N}.linux-x64";
         var handler = new StubHandler();
@@ -288,7 +288,7 @@ public class RidPackageVerifierTests
     [Fact]
     public async Task VerifyAsync_NonHttpSourceDoesNotMakeAbsenceUnknown()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string localSource = Directory.CreateTempSubdirectory(
             "dotnet-inspect-rid-source-").FullName;
         string packageId =
@@ -333,7 +333,7 @@ public class RidPackageVerifierTests
     public async Task VerifyAsync_NonHttpSourceDoesNotPoisonHttpAbsence(
         bool localSourceFirst)
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string localSource = Directory.CreateTempSubdirectory(
             "dotnet-inspect-rid-source-").FullName;
         string packageId =

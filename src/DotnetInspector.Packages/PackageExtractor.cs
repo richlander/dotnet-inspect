@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using DotnetInspector.Cache;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
@@ -2404,7 +2405,7 @@ public static class PackageExtractor
 
     static PackageExtractor()
     {
-        CoreCache.RegisterVersionedCategory(
+        PersistentCache.RegisterVersionedCategory(
             VersionCacheCategoryPrefix,
             VersionCacheCategory);
     }
@@ -2490,7 +2491,7 @@ public static class PackageExtractor
         if (latest is not null)
             return latest;
 
-        string? serializedListings = CoreCache.TryGet(
+        string? serializedListings = PersistentCache.TryGet(
             VersionCacheCategory,
             ListingsVersionCacheKey(sourceKey, normalizedName),
             VersionCacheTtl,
@@ -2513,7 +2514,7 @@ public static class PackageExtractor
         bool includePrerelease)
     {
         string? latest = NormalizeCandidateVersion(
-            CoreCache.TryGet(
+            PersistentCache.TryGet(
                 VersionCacheCategory,
                 LatestVersionCacheKey(
                     sourceKey,
@@ -2524,7 +2525,7 @@ public static class PackageExtractor
         if (includePrerelease && latest is not null)
         {
             string? stable = NormalizeCandidateVersion(
-                CoreCache.TryGet(
+                PersistentCache.TryGet(
                     VersionCacheCategory,
                     LatestVersionCacheKey(
                         sourceKey,
@@ -2646,7 +2647,7 @@ public static class PackageExtractor
                     if (!skipCache)
                     {
                         using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList);
-                        CoreCache.Set(
+                        PersistentCache.Set(
                             VersionCacheCategory,
                             LatestVersionCacheKey(
                                 NuGetCache.GetSourceKey(source.Url),
@@ -4053,7 +4054,7 @@ public static class PackageExtractor
                 normalizedName);
 
             string? cached = useCache
-                ? CoreCache.TryGet(
+                ? PersistentCache.TryGet(
                     VersionCacheCategory,
                     cacheKey,
                     VersionCacheTtl,
@@ -4106,7 +4107,7 @@ public static class PackageExtractor
 
             if (useCache && !fromCache && fetchedAuthoritative)
             {
-                CoreCache.Set(
+                PersistentCache.Set(
                     VersionCacheCategory,
                     cacheKey,
                     SerializeListings(listings),

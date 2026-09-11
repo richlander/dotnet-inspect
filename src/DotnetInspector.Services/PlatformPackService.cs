@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
@@ -26,19 +27,19 @@ public static class PlatformPackService
 
     static PlatformPackService()
     {
-        CoreCache.RegisterVersionedCategory(
+        PersistentCache.RegisterVersionedCategory(
             PacksCategoryPrefix,
             PacksCategory);
     }
 
     /// <summary>
-    /// Gets the app cache packs directory, or null if CoreCache is not initialized.
+    /// Gets the app cache packs directory, or null if PersistentCache is not initialized.
     /// </summary>
     public static string? GetPacksCachePath()
     {
         try
         {
-            return Path.Combine(CoreCache.GetBasePath(), PacksCategory);
+            return Path.Combine(PersistentCache.GetBasePath(), PacksCategory);
         }
         catch (InvalidOperationException)
         {
@@ -395,12 +396,12 @@ public static class PlatformPackService
         string? parentDir = Path.GetDirectoryName(targetPath)
             ?? throw new InvalidOperationException(
                 $"Pack cache path has no parent: {targetPath}");
-        CoreCache.EnsurePathInCacheContext(targetPath);
+        PersistentCache.EnsurePathInCacheContext(targetPath);
         Directory.CreateDirectory(parentDir);
         string stagingPath = Path.Combine(
             parentDir,
             $".{version}.tmp-{Guid.NewGuid():N}");
-        CoreCache.EnsurePathInCacheContext(stagingPath);
+        PersistentCache.EnsurePathInCacheContext(stagingPath);
 
         try
         {
@@ -471,7 +472,7 @@ public static class PlatformPackService
             var destDir = Path.Combine(destination, dirName);
             if (Directory.Exists(destDir))
             {
-                CoreCache.EnsurePathInCacheContext(destDir);
+                PersistentCache.EnsurePathInCacheContext(destDir);
                 Directory.Delete(destDir, recursive: true);
             }
             CopyDirectory(dir, destDir);

@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
@@ -30,7 +31,7 @@ internal sealed record CachedPackage(
 /// Uses platform-appropriate cache directories (XDG on Linux, ~/Library/Caches on macOS).
 /// Never writes to ~/.nuget/packages (read-only).
 /// Call <see cref="Initialize"/> before using app cache methods.
-/// Source content caching is delegated to <see cref="CoreCache"/>.
+/// Source content caching is delegated to <see cref="PersistentCache"/>.
 /// </summary>
 public static class NuGetCache
 {
@@ -48,7 +49,7 @@ public static class NuGetCache
     /// <summary>
     /// Initializes the cache with the application name used for the cache directory.
     /// Must be called before any app cache operations.
-    /// Also initializes <see cref="CoreCache"/> with the same app name.
+    /// Also initializes <see cref="PersistentCache"/> with the same app name.
     /// </summary>
     /// <param name="appName">Application name used as the cache subdirectory (e.g., "dotnet-inspect")</param>
     /// <param name="basePath">Optional override for the cache base directory</param>
@@ -58,11 +59,11 @@ public static class NuGetCache
         ArgumentException.ThrowIfNullOrWhiteSpace(appName);
         _appName = appName;
         _skipNuGetCache = skipNuGetCache;
-        CoreCache.Initialize(appName, basePath);
-        CoreCache.RegisterVersionedCategory(
+        PersistentCache.Initialize(appName, basePath);
+        PersistentCache.RegisterVersionedCategory(
             PackageContentCategoryPrefix,
             PackageContentCategory);
-        CoreCache.RegisterVersionedCategory(
+        PersistentCache.RegisterVersionedCategory(
             "package-authority-content-v",
             AuthorityPackageContentCategory);
     }
@@ -144,15 +145,15 @@ public static class NuGetCache
 
     /// <summary>
     /// Gets the base path for application caches (read-write).
-    /// Delegates to <see cref="CoreCache.GetBasePath"/>.
+    /// Delegates to <see cref="PersistentCache.GetBasePath"/>.
     /// </summary>
-    public static string GetAppCacheBasePath() => CoreCache.GetBasePath();
+    public static string GetAppCacheBasePath() => PersistentCache.GetBasePath();
 
     /// <summary>
     /// Gets the default (non-overridden) base path for application caches.
     /// Always returns the platform-default directory, ignoring isolation overrides.
     /// </summary>
-    public static string GetDefaultAppCacheBasePath() => CoreCache.GetDefaultBasePath();
+    public static string GetDefaultAppCacheBasePath() => PersistentCache.GetDefaultBasePath();
 
     /// <summary>
     /// Gets the legacy package-artifact root used by symbol caches.
@@ -169,7 +170,7 @@ public static class NuGetCache
     /// </summary>
     public static string GetPackageContentCachePath()
     {
-        return CoreCache.GetCategoryPath(PackageContentCategory);
+        return PersistentCache.GetCategoryPath(PackageContentCategory);
     }
 
     /// <summary>
@@ -245,7 +246,7 @@ public static class NuGetCache
     /// </summary>
     public static string GetSourceCachePath()
     {
-        return CoreCache.GetCategoryPath("sources");
+        return PersistentCache.GetCategoryPath("sources");
     }
 
     /// <summary>
@@ -361,7 +362,6 @@ public static class NuGetCache
                     if (!any)
                     {
                         any = true;
-                        InfoTracker.RecordCacheHit();
                         CacheTelemetry.Record(
                             "packages",
                             cacheKey,
@@ -396,7 +396,6 @@ public static class NuGetCache
                 if (!any)
                 {
                     any = true;
-                    InfoTracker.RecordCacheHit();
                     CacheTelemetry.Record(
                         "nuget-global-packages",
                         cacheKey,
@@ -410,7 +409,6 @@ public static class NuGetCache
         if (!any)
         {
             CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
-            InfoTracker.RecordCacheMiss();
         }
     }
 
@@ -621,7 +619,7 @@ public static class NuGetCache
                 $"Package cache path has no parent: {targetPath}");
 
         if (useAppCache)
-            CoreCache.EnsurePathInCacheContext(targetPath);
+            PersistentCache.EnsurePathInCacheContext(targetPath);
         Directory.CreateDirectory(parentDir);
 
         if (IsCommittedPackageValid(targetPath, markerContent))
@@ -654,7 +652,7 @@ public static class NuGetCache
             parentDir,
             $".{Path.GetFileName(targetPath)}.tmp-{Guid.NewGuid():N}");
         if (useAppCache)
-            CoreCache.EnsurePathInCacheContext(stagingPath);
+            PersistentCache.EnsurePathInCacheContext(stagingPath);
 
         try
         {

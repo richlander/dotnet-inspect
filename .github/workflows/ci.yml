@@ -1038,6 +1038,12 @@ jobs:
       - name: Run DotnetInspector.Networking tests
         run: dotnet run --project tests/DotnetInspector.Networking.Tests -c Release
 
+      - name: Run DotnetInspector.Cache tests
+        run: dotnet run --project tests/DotnetInspector.Cache.Tests -c Release
+
+      - name: Run DotnetInspector.Packages tests
+        run: dotnet run --project tests/DotnetInspector.Packages.Tests -c Release
+
       # NuGetFetch is the NuGet protocol and credential layer. Its live-network tests are tagged
       # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
       # depend on a third-party service, and the Azure DevOps ones need a private feed and a

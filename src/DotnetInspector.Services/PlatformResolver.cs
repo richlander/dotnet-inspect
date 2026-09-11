@@ -277,7 +277,7 @@ public static class PlatformResolver
     /// Discovers all installed frameworks with their versions across all packs directories.
     /// Default discovery is live because the active cache root, DOTNET_ROOT,
     /// and pack contents can change during a process. Gated by
-    /// GetInstalledFrameworks_DefaultDiscoveryRefreshesAfterCoreCacheRootChanges.
+    /// GetInstalledFrameworks_DefaultDiscoveryRefreshesAfterPersistentCacheRootChanges.
     /// </summary>
     public static List<FrameworkInfo> GetInstalledFrameworks(
         string? packsDirectory = null) =>

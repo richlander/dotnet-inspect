@@ -276,7 +276,7 @@ implementation belongs to separately tracked owner-scoped work.
 | Classification | Representative projects |
 | --- | --- |
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
-| Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Networking`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
+| Ecosystem and reusable product composition | `DotnetInspector.Cache`, `DotnetInspector.Packages`, `DotnetInspector.Networking`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
 | Subject-neutral inspection substrate | `Inspector.Artifacts`, `Inspector.Artifacts.Local`, `Inspector.Artifacts.Workspaces`, `Inspector.Findings`, `Inspector.Text` |
 | Independent domain roots | `NuGetFetch`, `NetworkAccess`, `CSharpText`, `InertText`; target `SourceFetch` and `UntrustedDocuments` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
@@ -288,19 +288,40 @@ The following dispositions close the existing ambiguous names:
 | `DotnetInspector.MetadataRendering` | Keep. | It is a focused Markout-based product presentation adapter over Metadata projections, shared by `mdi` and the CLI. No production `ILInspector.*` library references it. Keeping it above Metadata preserves the Markout-free IL inspection layer. |
 | `CSharpText.MemberSlicing` | Keep as adopted under [#6332](https://github.com/richlander/dotnet-inspect/issues/6332). | It consumes only the public `CSharpText` contract and operates on C# source structure. Its separate assembly preserves the enforced boundary that prevents access to lexer internals. “Member” is more accurate than “Body” because the result includes the complete declaration. |
 | `Inspector.Artifacts*` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | The family is source-neutral and the base is a dependency-free artifact contract floor. `ILInspector.Metadata` consumes its scoped content and identities to construct artifact-to-assembly correspondence without creating an engine-to-tool dependency exception. |
-| `DotnetInspector.Core` | Retire without a replacement assembly under [#6334](https://github.com/richlander/dotnet-inspect/issues/6334). | It groups unrelated cache, networking, untrusted-document, CLI telemetry, and single-consumer helpers by dependency depth instead of subject. |
+| `DotnetInspector.Cache` | Keep as adopted by step 3 of [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by [#6671](https://github.com/richlander/dotnet-inspect/issues/6671). | Persistent cache mechanisms and cache-access telemetry form one focused reusable product subject. The library depends only on the platform, `InertText`, and `DotnetInspector.Networking`; semantic cache identity, authorization, freshness, and validation remain with each consumer. |
+| `DotnetInspector.Core` | Retire without a replacement assembly under [#6334](https://github.com/richlander/dotnet-inspect/issues/6334). | The original bucket grouped unrelated cache, networking, untrusted-document, CLI telemetry, and single-consumer helpers by dependency depth instead of subject. Extracting focused owners does not give the remaining assembly a coherent subject. |
 | `Inspector.Findings` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Its observation, census, matching, transition, comparison, diff, and correlation contracts are a coherent domain-neutral semantic model shared by both inspection families. They do not belong in metadata primitives, which owns mechanical ECMA/SRM operations rather than semantic models. |
 | `Inspector.Text` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Generic text Findings and deterministic LF text construction are host-neutral and Markout-free, but not inherently IL- or C#-specific. The project continues to depend on `Inspector.Findings`. |
 | `DotnetInspector.Services` | Retire without a replacement assembly under [#6335](https://github.com/richlander/dotnet-inspect/issues/6335). | It groups unrelated package, platform, source, assembly-resolution, parser, and corpus components by role. Targeted `*Service` names remain valid, while Houses and helpers move to their subject owners. |
 
-`DotnetInspector.Core` decomposes by subject: shared cache behavior targets
-`DotnetInspector.Cache`; HTTP composition and product network telemetry moved
-to `DotnetInspector.Networking` under
+Step 3 of the `DotnetInspector.Core` decomposition, tracked by
+[#6671](https://github.com/richlander/dotnet-inspect/issues/6671), moves
+`PersistentCache` and `CacheTelemetry` to `src/DotnetInspector.Cache/` under
+the `DotnetInspector.Cache` namespace. The cache project depends only on the
+platform, `InertText`, and `DotnetInspector.Networking`. `AsyncCache` instead
+moves as an internal helper to `src/DotnetInspector.Packages/AsyncCache.cs`
+beside its sole production consumer, `PackageExtractor`.
+This placement-only refactor changes no runtime behavior or capability.
+
+The `cache-stays-within-owner-boundary` rule in `eng/dependency-policy.json`
+enforces the allowed dependencies over both evaluated project references and
+compiled assembly references. `CheckedInPolicyKeepsCacheWithinOwnerBoundary`
+provides non-vacuity coverage for both graphs; the Release dependency-policy
+validator checks the actual product closure. Networking grants Cache friend
+access to the existing request and traffic context rather than expanding those
+APIs or making Cache depend on Core.
+
+`DotnetInspector.Core` continues decomposing by subject. HTTP composition and
+product network telemetry moved to `DotnetInspector.Networking` under
 [#6572](https://github.com/richlander/dotnet-inspect/issues/6572); the
 destination-admission primitive shared with `NuGetFetch` lives in the
 independent `NetworkAccess` root; hardened JSON and XML entry points target the
 independent `UntrustedDocuments` root; CLI measurement moves to
 `DotnetInspect.Cli`; and single-consumer helpers move beside their consumers.
+Until those later moves, Core retains `RequestMermaidDiagram`, which composes
+network, cache, and breadcrumb telemetry; `InfoTracker`, which subscribes to
+cache telemetry for hit/miss counts while excluding stores;
+`CountingTextWriter`; and the hardened readers.
 
 `DotnetInspector.Networking` depends only on `InertText`, `NetworkAccess`, and
 the platform. `NuGetFetch` remains an independent root: package composition
@@ -342,7 +363,9 @@ The seven adoption tracks recorded by #6315 are:
    projections, and entry points under `DotnetInspect.Web.Interop`.
 4. Rename the C# member-slicing library under #6332.
 5. Adopt the shared `Inspector.*` family under #6333.
-6. Retire `DotnetInspector.Core` by subject under #6334.
+6. Retire `DotnetInspector.Core` by subject under #6334. Step 3, #6671,
+   extracts `DotnetInspector.Cache` and moves the single-consumer `AsyncCache`
+   helper to Packages.
 7. Retire `DotnetInspector.Services` by subject under #6335.
 
 Together, the host migrations prove that reusable `DotnetInspector.*`

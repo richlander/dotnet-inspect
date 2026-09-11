@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Net;
@@ -6,7 +7,6 @@ using System.Xml.Linq;
 
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Packages;
@@ -251,7 +251,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string packageName = $"RouteCandidate{Guid.NewGuid():N}.Package";
         string qualifiedName = $"{packageName}.Widget";
         var nugetOrg = NuGetFetch.PackageSource.NuGetOrg;
-        CoreCache.Set(
+        PersistentCache.Set(
             "versions-v5",
             PackageExtractor.GetLatestVersionCacheKey(
                 packageName,
@@ -2220,7 +2220,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         bool includePrerelease = false)
     {
         var source = new NuGetFetch.PackageSource("test", sourceUrl);
-        CoreCache.Set(
+        PersistentCache.Set(
             "versions-v5",
             PackageExtractor.GetLatestVersionCacheKey(
                 packageName,

@@ -19,7 +19,7 @@ namespace DotnetInspect.Cli.Tests;
 /// <para>
 /// The <c>cache clear</c> case passes <c>--session</c> deliberately. Plain
 /// <c>cache clear</c> also deletes the pre-XDG cache root, which
-/// <c>CoreCache.GetLegacyBasePath()</c> resolves from the user profile rather than
+/// <c>PersistentCache.GetLegacyBasePath()</c> resolves from the user profile rather than
 /// from <c>DOTNET_INSPECT_CACHE_DIR</c>, so on Linux and macOS it would delete a
 /// real directory belonging to whoever ran the suite. The <c>--session</c> form
 /// reaches the same parser scope, reports a missing session as success, and

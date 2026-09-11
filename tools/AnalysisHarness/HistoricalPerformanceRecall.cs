@@ -1,7 +1,7 @@
+using DotnetInspector.Cache;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace ILInspector.AnalysisHarness;
@@ -73,7 +73,7 @@ public static class HistoricalPerformanceRecall
 
         bool failed = false;
         int executable = 0;
-        CoreCache.Initialize("dotnet-inspect");
+        PersistentCache.Initialize("dotnet-inspect");
         using var client = new HttpClient();
         foreach (var reference in manifest.References)
         {

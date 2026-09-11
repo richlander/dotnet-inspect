@@ -3,7 +3,7 @@ using System.Diagnostics;
 using DotnetInspector.Networking;
 using InertText;
 
-namespace DotnetInspector.Core;
+namespace DotnetInspector.Cache;
 
 public static class CacheTelemetry
 {

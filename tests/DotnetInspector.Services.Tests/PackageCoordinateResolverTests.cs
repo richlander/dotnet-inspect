@@ -1,5 +1,5 @@
+using DotnetInspector.Cache;
 using System.Net;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -10,7 +10,7 @@ namespace DotnetInspector.Services.Tests;
 /// through the product's listing-aware source and version policy, and an exact
 /// pin performs no discovery at all.
 /// </summary>
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public sealed class PackageCoordinateResolverTests
 {
     static readonly PackageSource NuGetOrg = PackageSource.NuGetOrg;
@@ -1024,7 +1024,7 @@ public sealed class PackageCoordinateResolverTests
         string cachePath = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-version-cache-{Guid.NewGuid():N}");
-        CoreCache.Initialize("dotnet-inspect-test", cachePath);
+        PersistentCache.Initialize("dotnet-inspect-test", cachePath);
         using var client = new HttpClient(
             new ListedVersionsHandler("9.0.0-preview.1", "9.0.0-preview.2"));
         using var offline = new HttpClient(new FailingHandler());

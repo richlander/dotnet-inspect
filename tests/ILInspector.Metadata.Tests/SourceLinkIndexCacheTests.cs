@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -87,15 +88,15 @@ public class SourceLinkIndexCacheTests
     [Fact]
     public void TwoAssembliesFromOneOrigin_DoNotShareACachedTypeIndex()
     {
-        string corePath = typeof(DotnetInspector.Core.CoreCache).Assembly.Location;
+        string cachePath = typeof(PersistentCache).Assembly.Location;
         string nugetPath = typeof(NuGetFetch.ResponseCache).Assembly.Location;
-        Assert.NotEqual(corePath, nugetPath);
+        Assert.NotEqual(cachePath, nugetPath);
 
         var shared = new RecordingIndexCache();
 
-        string[] fromCore;
-        using (var first = SourceLinkService.Open(corePath, null, shared))
-            fromCore = first.GetTrackedFilesForType("CacheInfo");
+        string[] fromCache;
+        using (var first = SourceLinkService.Open(cachePath, null, shared))
+            fromCache = first.GetTrackedFilesForType("CacheInfo");
 
         string[] fromNuGet;
         using (var second = SourceLinkService.Open(nugetPath, null, shared))
@@ -103,12 +104,12 @@ public class SourceLinkIndexCacheTests
 
         // Non-vacuity: both assemblies really do declare the type, so an empty result would mean
         // the probe stopped exercising the collision rather than that the collision is gone.
-        Assert.NotEmpty(fromCore);
+        Assert.NotEmpty(fromCache);
         Assert.NotEmpty(fromNuGet);
 
-        Assert.Contains(fromCore, f => f.Replace('\\', '/').EndsWith("/DotnetInspector.Core/CoreCache.cs"));
+        Assert.Contains(fromCache, f => f.Replace('\\', '/').EndsWith("/DotnetInspector.Cache/PersistentCache.cs"));
         Assert.Contains(fromNuGet, f => f.Replace('\\', '/').EndsWith("/NuGetFetch/ResponseCache.cs"));
-        Assert.DoesNotContain(fromNuGet, f => f.Replace('\\', '/').EndsWith("/DotnetInspector.Core/CoreCache.cs"));
+        Assert.DoesNotContain(fromNuGet, f => f.Replace('\\', '/').EndsWith("/DotnetInspector.Cache/PersistentCache.cs"));
 
         // And when keys were formed at all, the two assemblies formed different ones.
         Assert.True(shared.Keys.Count is 0 or 2, $"expected 0 or 2 keys, saw {shared.Keys.Count}");

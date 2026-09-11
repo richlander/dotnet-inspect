@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.CommandLine;
@@ -13623,11 +13624,11 @@ public partial class CommandExecutionTests
 
         try
         {
-            await CoreCache.RequestVersionedCategoryCleanupAsync();
+            await PersistentCache.RequestVersionedCategoryCleanupAsync();
             foreach (string key in keys)
             {
-                CoreCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
-                Assert.NotNull(CoreCache.TryGet(legacyCategory, key, extension: "tsv"));
+                PersistentCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
+                Assert.NotNull(PersistentCache.TryGet(legacyCategory, key, extension: "tsv"));
             }
 
             var (exit, output, error) = await RunAppAsync(
@@ -13645,8 +13646,8 @@ public partial class CommandExecutionTests
         {
             foreach (string key in keys)
             {
-                DeleteIfPresent(CoreCache.GetFilePath(legacyCategory, key, extension: "tsv"));
-                DeleteIfPresent(CoreCache.GetFilePath(currentCategory, key, extension: "tsv"));
+                DeleteIfPresent(PersistentCache.GetFilePath(legacyCategory, key, extension: "tsv"));
+                DeleteIfPresent(PersistentCache.GetFilePath(currentCategory, key, extension: "tsv"));
             }
             Directory.Delete(directory, recursive: true);
         }
@@ -22587,7 +22588,7 @@ public partial class CommandExecutionTests
                     LibraryCommand.BuildEffectiveCacheKey(path, hash, hasSourceLink: true),
                 };
             })
-            .Select(key => CoreCache.GetFilePath(currentCategory, key, extension: "tsv"))];
+            .Select(key => PersistentCache.GetFilePath(currentCategory, key, extension: "tsv"))];
 
         try
         {

@@ -1,5 +1,5 @@
+using DotnetInspector.Cache;
 using System.Net;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetSource = NuGetFetch.PackageSource;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
@@ -12,7 +12,7 @@ namespace DotnetInspector.Services.Tests;
 /// with no listed flag; only the registration index exposes <c>catalogEntry.listed</c>, so version
 /// resolution must consult it and filter unlisted versions in one shared place.
 /// </summary>
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public class UnlistedVersionTests : IDisposable
 {
     private const string VersionCacheCategory = "versions-v5";
@@ -20,11 +20,11 @@ public class UnlistedVersionTests : IDisposable
 
     public UnlistedVersionTests()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
-        CoreCache.Clear(VersionCacheCategory);
+        PersistentCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Clear(VersionCacheCategory);
     }
 
-    public void Dispose() => CoreCache.Clear(VersionCacheCategory);
+    public void Dispose() => PersistentCache.Clear(VersionCacheCategory);
 
     // Version history shared by the enumeration/resolution tests: two unlisted versions
     // (a stable 2.0.0 and a prerelease 3.0.0-beta.1) interleaved with listed versions.
@@ -271,7 +271,7 @@ public class UnlistedVersionTests : IDisposable
             client, "UnlistedPkg", includePrerelease: false, limit: null, log: null);
 
         Assert.Equal(["2.0.0", "1.5.0", "1.0.0"], result);   // fail-open, unfiltered
-        Assert.Null(CoreCache.TryGet(
+        Assert.Null(PersistentCache.TryGet(
             VersionCacheCategory,
             PackageExtractor.GetListingsVersionCacheKey(
                 "UnlistedPkg",

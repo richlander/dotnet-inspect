@@ -19,8 +19,9 @@ from prose:
 
 The model abstracts these current paths:
 
-- `AsyncCache<TKey, TValue>` and the process-wide registry in
-  `PackageExtractor`;
+- the internal `AsyncCache<TKey, TValue>` in
+  `src/DotnetInspector.Packages/AsyncCache.cs` and the process-wide registry in
+  its sole production consumer, `PackageExtractor`;
 - package publication in `NuGetCache.CommitPackage`; and
 - package-cache lookup through `NuGetCache.EnumerateCachedPackageContent`.
 
@@ -51,6 +52,11 @@ This mapping is traceability, not a refinement proof. It identifies where the
 current implementation realizes a modeled concern and which Release gate
 checks the observable result. Exact runtime traces, scheduler steps, and formal
 equivalence between the TLA+ state machine and C# remain unverified.
+
+The focused `AsyncCacheTests` gates run in
+`tests/DotnetInspector.Packages.Tests`; `PackageExtractor` integration gates
+remain in
+`tests/DotnetInspect.Cli.Tests/PackageAcquisitionConcurrencyTests.cs`.
 
 | Modeled concern | Current implementation | Release evidence | Correspondence |
 | --- | --- | --- | --- |

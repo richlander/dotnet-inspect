@@ -1,4 +1,4 @@
-using DotnetInspector.Core;
+using DotnetInspector.Cache;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -23,7 +23,7 @@ public class AuditSignalRefreshTests
         var expectedA = PInvokeCount(pathA);
         var expectedB = PInvokeCount(pathB);
         Assert.NotEqual(expectedA, expectedB);
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
 
         var root = Path.Combine(Path.GetTempPath(), $"audit-refresh-{Guid.NewGuid():N}");
         var dirA = Path.Combine(root, "a");

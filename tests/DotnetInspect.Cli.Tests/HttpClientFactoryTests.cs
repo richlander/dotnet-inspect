@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -804,47 +805,14 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
-    public void CacheTelemetry_AddsActivityEventWithRequestCurrency()
-    {
-        using var activitySource = new System.Diagnostics.ActivitySource("test");
-        using var listener = new System.Diagnostics.ActivityListener
-        {
-            ShouldListenTo = source => source.Name == "test",
-            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) =>
-                System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded
-        };
-        System.Diagnostics.ActivitySource.AddActivityListener(listener);
-
-        using var activity = activitySource.StartActivity("command");
-        using (RequestTelemetry.Scope("package Markout", "package versions"))
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList))
-        {
-            CacheTelemetry.Record("versions", "https://api.nuget.org/v3/index.json?token=secret", CacheAccessResult.Hit);
-        }
-
-        var evt = Assert.Single(activity!.Events);
-        Assert.Equal(CacheTelemetry.CacheAccessEventName, evt.Name);
-        var tags = evt.Tags.ToDictionary(tag => tag.Key, tag => tag.Value);
-        Assert.Equal("versions", tags["dotnet_inspect.cache.category"]);
-        Assert.Equal("hit", tags["dotnet_inspect.cache.result"]);
-        Assert.Equal("package-version-list", tags["dotnet_inspect.network.kind"]);
-        Assert.Equal("package Markout", tags["dotnet_inspect.request.what"]);
-        Assert.Equal("package versions", tags["dotnet_inspect.request.why"]);
-        var key = Assert.IsType<string>(tags["dotnet_inspect.cache.key"]);
-        Assert.Equal("https://api.nuget.org/v3/index.json?REDACTED", key);
-        Assert.DoesNotContain("secret", key);
-        Assert.DoesNotContain("token=", key);
-    }
-
-    [Fact]
     public void CacheTelemetry_SymbolMissesIncludeExtensionInCategory()
     {
         using var diagram = RequestMermaidDiagram.Start();
         var key = $"https://example.test/symbols/{Guid.NewGuid():N}.pdb";
 
-        DotnetInspector.Core.CoreCache.Set("symbol-misses", key, "403", extension: "forbidden");
-        _ = DotnetInspector.Core.CoreCache.TryGet("symbol-misses", key, extension: "forbidden");
-        _ = DotnetInspector.Core.CoreCache.TryGet("symbol-misses", key, extension: "miss");
+        DotnetInspector.Cache.PersistentCache.Set("symbol-misses", key, "403", extension: "forbidden");
+        _ = DotnetInspector.Cache.PersistentCache.TryGet("symbol-misses", key, extension: "forbidden");
+        _ = DotnetInspector.Cache.PersistentCache.TryGet("symbol-misses", key, extension: "miss");
 
         var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
 

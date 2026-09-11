@@ -1,6 +1,6 @@
+using DotnetInspector.Cache;
 using System.Security.Cryptography;
 using System.Text;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using InertText;
@@ -149,13 +149,13 @@ internal static class PackageIndexCache
 
     static PackageIndexCache()
     {
-        CoreCache.RegisterVersionedCategory("pkg-index-v", Category);
+        PersistentCache.RegisterVersionedCategory("pkg-index-v", Category);
     }
 
     internal static InspectionResult? TryGet(PackageIndexCacheSubject subject)
     {
         ArgumentNullException.ThrowIfNull(subject);
-        byte[]? bytes = CoreCache.TryGetBytes(
+        byte[]? bytes = PersistentCache.TryGetBytes(
             Category,
             CacheKey(subject),
             extension: "bin");
@@ -311,7 +311,7 @@ internal static class PackageIndexCache
             writer.Write(EndMarker);
         }
 
-        CoreCache.SetBytes(
+        PersistentCache.SetBytes(
             Category,
             CacheKey(subject),
             stream.ToArray(),
