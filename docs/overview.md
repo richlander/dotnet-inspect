@@ -235,8 +235,10 @@ substrates, and inspection producers that will extend that space.
   not reference it. The
   [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md)
   is the focused one-way projection from a selected application pack and the
-  authored product-default sequence into lower immutable declarations; it does
-  not move catalog identity, display actions, or source execution downward.
+  Ecosystems-owned curated manifest into lower immutable declarations and one
+  newly constructed Workspace. Workspace construction itself remains empty and
+  has no curated option; the handoff does not move catalog identity, display
+  actions, or source execution downward.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -320,8 +322,9 @@ substrates, and inspection producers that will extend that space.
 - [Workspace registration and call-graph focal
   length](design/workspace-registration-and-call-graph-scope.md) is the
   operator-approved cross-owner target experience for inert registration,
-  shared fresh-Workspace ecosystem defaults, and consumer-selected call-graph
-  breadth. It retires traversal approval and permission semantics. Its
+  neutral empty Workspace construction, one Ecosystems-owned curated
+  composition, and consumer-selected call-graph breadth. It retires traversal
+  approval and permission semantics. Its
   owner-issued route prerequisite is the
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md);
   its catalog boundary is the
@@ -569,7 +572,8 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md):
   explicit application-pack correspondence, lower immutable retrieval,
   population, and Integration contributions, typed projection outcomes, and
-  one shared Platform/ASP.NET Core/Microsoft.Extensions default sequence.
+  Ecosystems-owned construction of the one curated
+  Platform/ASP.NET Core/Microsoft.Extensions Workspace.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,

@@ -2377,27 +2377,37 @@ artifact. The site is
 interpreter-only while CoreCLR native relinking remains outside the comparison
 scope. Mono staging stays on the repository's .NET 11 Preview 7 SDK. The
 CoreCLR workflow instead installs the exact runtime-main daily cohort
-`12.0.100-alpha.1.26454.116` SDK and
-`12.0.0-alpha.1.26454.116` runtime/workload packs from the `dotnet12` feed.
+`12.0.100-alpha.1.26459.112` SDK and
+`12.0.0-alpha.1.26459.112` runtime/workload packs from the `dotnet12` feed.
+The workload package identifies dotnet/dotnet VMR commit
+`7792b064d8573a30d8527944de8184b7e108837e`; the workflow verifies that
+provenance before publication.
 That cohort's browser workload still targets `net11.0`; the runtime is .NET 12
 CoreCLR even though the application graph retains its current target framework.
 The workflow enables `runtime-async=on` across this application graph and
-applies the `UseMonoRuntime=false`, `PublishReadyToRun=false`,
-`WasmBuildNative=false`,
+applies the `UseMonoRuntime=false`, `PublishReadyToRun=true`,
+`PublishReadyToRunComposite=false`, `WasmBuildNative=false`,
 `WasmNestedPublishAppDependsOn=`, and `WasmEnableExceptionHandling=true`
 overrides. This exercises runtime async only in the CoreCLR comparison
 deployment; Mono staging and ordinary non-AOT builds retain classic async
-lowering. The non-ReadyToRun deployment is deliberate; ReadyToRun is a separate
-comparison cohort. The artifact carries the exact `dotnet --info`, installed
-workload list, and a machine-readable SDK/runtime/workload receipt. That receipt
-also identifies the exact CoreCLR browser runtime asset bytes, which must match
-the published native JavaScript and Wasm. The workflow verifies the receipt and
-the CoreCLR-specific `GetDotNetRuntimeHeap` hook before artifact upload and
-again before deployment. Before the CoreCLR artifact crosses the upload
-boundary, the workflow compares its schema-5 runtime receipt with the triggering
-Mono run's schema-5 compiler receipt. This comparison is intentionally
-cross-toolchain: generated facade contracts and async-lowering evidence must
-remain equivalent between the .NET 11 Mono build and .NET 12 CoreCLR build.
+lowering. Crossgen2 emits non-composite per-assembly Wasm images into `R2R/`.
+`verify-coreclr-r2r-publication.ts` requires each emitted image to be a
+WebAssembly module and byte-identical to the corresponding fingerprinted
+published asset. It requires all eight `DotnetInspect.Web*` assets and
+`System.Private.CoreLib` to be ReadyToRun, rejects orphaned outputs, and records
+the three framework facades without Crossgen2 output as IL-only. The artifact
+carries that complete per-assembly manifest, its digest, exact `dotnet --info`,
+the installed workload list, uncompressed and compressed `/_framework/` sizes,
+and a machine-readable SDK/runtime/workload receipt. That receipt also
+identifies the exact CoreCLR browser runtime asset bytes, which must match the
+published native JavaScript and Wasm. The workflow regenerates and verifies the
+ReadyToRun evidence, receipt, and CoreCLR-specific `GetDotNetRuntimeHeap` hook
+before artifact upload and again before deployment. Before the CoreCLR artifact
+crosses the upload boundary, the workflow compares its schema-5 runtime receipt
+with the triggering Mono run's schema-5 compiler receipt. This comparison is
+intentionally cross-toolchain: generated facade contracts and async-lowering
+evidence must remain equivalent between the .NET 11 Mono build and .NET 12
+CoreCLR build.
 
 Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
 project that reaches `CoreCompile` fails unless its exact `Features` property

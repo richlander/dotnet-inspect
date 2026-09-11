@@ -983,6 +983,9 @@ jobs:
       - name: Run artifact contract tests
         run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
 
+      - name: Run resource ownership contract tests
+        run: dotnet run --project tests/Inspector.Resources.Tests -c Release
+
       - name: Run ecosystem registry tests
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
 

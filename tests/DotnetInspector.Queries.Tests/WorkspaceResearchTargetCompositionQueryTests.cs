@@ -500,7 +500,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         {
             "selected" => AssemblyBindingSelection.Found(descriptor),
             "ambiguous" => AssemblyBindingSelection.Multiple([descriptor, fixture.Nodes[1].Assembly]),
-            "shadow" => AssemblyBindingSelection.Found(fixture.Nodes[1].Assembly, [descriptor]),
+            "shadow" => AssemblyBindingCandidateDomain.Create(
+                [fixture.Nodes[1].Assembly, descriptor])
+                .Finalize([fixture.Nodes[1].Assembly]),
             _ => throw new ArgumentOutOfRangeException(nameof(selectionKind)),
         };
         var plan = fixture.Plan();

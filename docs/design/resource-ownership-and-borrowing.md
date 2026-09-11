@@ -499,8 +499,16 @@ owner.snapshot(
 snapshot-view.Value = borrowed resource
 ```
 
-The exact interface, delegate, and view names are implementation choices. The
-contract is:
+The current-C# contract floor uses:
+
+- `Inspector.Resources.IResourceSnapshotSource<TResource>` for the
+  owner-controlled operation;
+- `Inspector.Resources.ResourceSnapshotCallback<TResource, TState, TResult>`
+  for the synchronous callback; and
+- `Inspector.Resources.ReadOnlyResourceSnapshotView<TResource>` for the
+  scoped ref-like view.
+
+The contract is:
 
 1. the owner begins one synchronous read-only borrow;
 2. the owner constructs a ref-like snapshot view and invokes the callback
@@ -687,9 +695,13 @@ All five normalize to the same semantic model before ownership-flow analysis.
 Analysis never branches its lifecycle rules by declaration source.
 
 The configured attribute mechanism matches metadata names and assigns each
-name one declared role. It does not require the inspected assembly to reference
-a dotnet-inspect contracts assembly and it does not require dotnet-inspect to
-load inspected code.
+name one declared role. Repository-owned resources may use
+`Inspector.Resources.ResourceOwnershipAttribute` and consuming instance
+methods may use
+`Inspector.Resources.ConsumesResourceReceiverAttribute`. External resources
+may use configured fully qualified attribute names instead. Analysis does not
+require a dependency on the declaring assembly and does not load inspected
+code.
 
 The initial attribute vocabulary is deliberately small:
 

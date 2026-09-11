@@ -327,7 +327,7 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void CrossLibraryCalleeNeighborhood_DisclosesCorrespondenceLimits()
+    public void CrossLibraryCalleeNeighborhood_ResolvedVersionSkewStaysExternal()
     {
         using GraphContext context =
             GraphContext.Create(TargetV2Path, CallerPath);
@@ -346,16 +346,12 @@ public sealed class MemberCallGraphSessionTests
                     maxDepth: 1,
                     maxNodes: 10));
 
-        var evidence = Assert.IsType<
-            CallGraphCorrespondenceIncompleteEvidence>(
-                Assert.Single(
-                    document.Limits,
-                    limit => ReferenceEquals(
-                        limit.Descriptor,
-                        CallGraphInspectionGraphCatalog
-                            .CorrespondenceIncomplete))
-                    .Evidence);
-        Assert.True(evidence.IncompleteEdgeCount > 0);
+        Assert.DoesNotContain(
+            document.Limits,
+            limit => ReferenceEquals(
+                limit.Descriptor,
+                CallGraphInspectionGraphCatalog
+                    .CorrespondenceIncomplete));
     }
 
     [Fact]
@@ -1464,7 +1460,7 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void CrossLibrary_VersionSkewRetainsIncompleteDiagnostics()
+    public void CrossLibrary_ResolvedVersionSkewIsNotIncomplete()
     {
         using GraphContext context =
             GraphContext.Create(TargetV2Path, CallerPath);
@@ -1479,8 +1475,8 @@ public sealed class MemberCallGraphSessionTests
         Assert.DoesNotContain(
             view.CallerRoot!.Children,
             child => child.Member.Name == "Run");
-        Assert.True(view.Diagnostics.IsIncomplete);
-        Assert.True(view.Diagnostics.IncompleteEdgeCount > 0);
+        Assert.False(view.Diagnostics.IsIncomplete);
+        Assert.Equal(0, view.Diagnostics.IncompleteEdgeCount);
     }
 
     [Fact]

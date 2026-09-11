@@ -3,6 +3,7 @@ using DotnetInspector.Core;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -11,6 +12,54 @@ using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 
 namespace DotnetInspect.Cli.Inspectors;
+
+internal sealed record TypeDependencyScanDiagnostic(
+    string Subject,
+    CandidateOpenFailure Failure);
+
+internal sealed record TypeDependencyExecutionResult(
+    TypeDependencyResult Dependency,
+    IReadOnlyList<TypeDependencyScanDiagnostic> Diagnostics,
+    bool IsAvailable)
+{
+    internal static TypeDependencyExecutionResult Unavailable() =>
+        new(
+            new TypeDependencyResult(null, []),
+            [],
+            IsAvailable: false);
+
+    internal static TypeDependencyExecutionResult FromLegacy(
+        TypeDependencyResult dependency) =>
+        new(
+            dependency,
+            dependency.Rejections.Select(
+                static rejection =>
+                    new TypeDependencyScanDiagnostic(
+                        Path.GetFileName(rejection.AssemblyPath),
+                        new CandidateOpenFailure(
+                            rejection.Kind
+                                is TypeDependencyRejectionKind
+                                    .UnsupportedMetadataFormat
+                                ? CandidateOpenFailureKind
+                                    .UnsupportedMetadataFormat
+                                : CandidateOpenFailureKind.InvalidImage,
+                            rejection.Kind switch
+                            {
+                                TypeDependencyRejectionKind
+                                    .UnsupportedMetadataFormat =>
+                                    "unsupported metadata format (Windows Metadata)",
+                                TypeDependencyRejectionKind
+                                    .MalformedMetadataRoot =>
+                                    "malformed metadata root",
+                                _ => "invalid image",
+                            })
+                        {
+                            MetadataRootReason =
+                                rejection.MetadataRootReason,
+                        }))
+                .ToArray(),
+            IsAvailable: true);
+}
 
 /// <summary>
 /// Builds dependency graph data for the depends command.
@@ -21,21 +70,88 @@ internal static class DependencyGraphService
     private static readonly TimeSpan CachedVersionResolutionTimeout =
         TimeSpan.FromSeconds(1);
 
-    public static Task<TypeDependencyResult> BuildTypeDependencyTreeAsync(
+    public static async Task<TypeDependencyExecutionResult>
+        BuildTypeDependencyTreeAsync(
         HttpClient httpClient,
         DependsOptions options,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        CancellationToken cancellationToken = default)
     {
-        return WithAssemblySetAsync(
+        cancellationToken.ThrowIfCancellationRequested();
+        AssemblySetRequest request =
+            options.ToAssemblySetRequest(TempDirPrefix);
+        if (ConfiguredPackageSearchWorkspace.IsEligible(
+                options.SourceSelection,
+                request,
+                options.Tfm))
+        {
+            await using ConfiguredPackageSearchWorkspace? workspace =
+                await ConfiguredPackageSearchWorkspace.OpenAsync(
+                    httpClient,
+                    request,
+                    options.Tfm!,
+                    logger.Log,
+                    cancellationToken).ConfigureAwait(false);
+            if (workspace is null)
+                return TypeDependencyExecutionResult.Unavailable();
+
+            ConfiguredPackageSearchQueryResult<
+                AssemblyContextTypeDependencyResult>? execution =
+                    await workspace.QuerySurfaceAsync(
+                        context =>
+                            AssemblyContextTypeDependencyQuery.Execute(
+                                context.Group,
+                                options.TargetType),
+                        cancellationToken).ConfigureAwait(false);
+            if (execution is null)
+                return TypeDependencyExecutionResult.Unavailable();
+            if (execution.Result is null)
+            {
+                return new TypeDependencyExecutionResult(
+                    new TypeDependencyResult(null, []),
+                    [],
+                    IsAvailable: true);
+            }
+
+            PackageSearchQuerySources sources =
+                execution.Sources
+                ?? throw new InvalidOperationException(
+                    "A package Root dependency result requires source correspondence.");
+            IReadOnlyList<TypeDependencyScanDiagnostic> diagnostics =
+                execution.Result.Participants
+                    .OfType<
+                        AssemblyContextTypeDependencyEntry.Rejected>()
+                    .Select(
+                        rejected =>
+                            new TypeDependencyScanDiagnostic(
+                                sources.SourceFor(
+                                    rejected.Subject)
+                                    .DiagnosticSubject,
+                                rejected.Failure))
+                    .ToArray();
+            return new TypeDependencyExecutionResult(
+                execution.Result.Dependency,
+                diagnostics,
+                execution.Result.HasSurvivingParticipant);
+        }
+
+        return await WithAssemblySetAsync(
             httpClient,
-            options.ToAssemblySetRequest(TempDirPrefix),
+            request,
             logger,
             assemblySet =>
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for type {options.TargetType}");
                 var assemblyPaths = assemblySet.Assemblies.Select(a => a.Path).ToList();
-                return TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
-            });
+                TypeDependencyResult dependency =
+                    TypeDependencyScanner.BuildDependencyTree(
+                        options.TargetType,
+                        assemblyPaths);
+                cancellationToken.ThrowIfCancellationRequested();
+                return TypeDependencyExecutionResult.FromLegacy(
+                    dependency);
+            }).ConfigureAwait(false);
     }
 
     public static async Task<LibraryDependencyGraphResult> BuildLibraryDependencyTreeAsync(
