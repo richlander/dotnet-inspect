@@ -6,6 +6,7 @@ using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
@@ -130,10 +131,49 @@ public class ImplementsCommand
                 .Select(g => g.First())
                 .ToList();
 
+            if (options.RowSelection is not null)
+            {
+                results = results
+                    .OrderBy(r => r.TypeName, StringComparer.Ordinal)
+                    .ThenBy(r => r.Source, StringComparer.Ordinal)
+                    .ThenBy(r => r.SourceVersion, StringComparer.Ordinal)
+                    .ToList();
+            }
+
             // Apply limit
             if (options.Limit.HasValue && results.Count > options.Limit.Value)
             {
                 results = results.Take(options.Limit.Value).ToList();
+            }
+
+            if (options.RowSelection is { } rowSelection)
+            {
+                RowsCohortResult<string, ImplementerResult> selected =
+                    RowsCohortExecutor.ApplyUnordered(
+                        [
+                            RowsCohortSequence<string, ImplementerResult>.Create(
+                                "Implementers",
+                                results)
+                        ],
+                        rowSelection);
+                if (!selected.IsSuccess)
+                {
+                    RowsCohortSemanticFailure<string> failure =
+                        selected.Failure!;
+                    CommandError.Write(
+                        $"Implementers row selection stage "
+                        + $"{failure.Failure.StageNumber} requires row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} implementer rows "
+                        + "are available.");
+                    return 1;
+                }
+
+                results = selected.RowSets[0].Values.ToList();
+            }
+            else if (options.Rows is { } legacyRows)
+            {
+                results = RowWindow.Apply(legacyRows, results).ToList();
             }
 
             if (results.Count == 0)
