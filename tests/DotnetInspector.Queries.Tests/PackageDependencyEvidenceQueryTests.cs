@@ -89,6 +89,375 @@ public sealed class PackageDependencyEvidenceQueryTests
     }
 
     [Fact]
+    public void Execute_CurrentRuntimeManifestRetainsProviderIdentityTargetAndProvenance()
+    {
+        string assemblyName =
+            typeof(PackageDependencyEvidenceQueryTests).Assembly.GetName().Name!;
+        RuntimeDependencyFacts facts = RuntimeFacts(
+            File.ReadAllBytes(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    $"{assemblyName}.deps.json")));
+        var sourceLabel = new InertString(
+            TextPolicy.Field,
+            "test-host.deps.json");
+        PackageDependencyEvidenceOutcome outcome =
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest(
+                    [
+                        PackageDependencyEvidenceQuery
+                            .CreateRuntimeDependencyManifestInput(
+                                new RuntimeDependencyFactsResult.Available(facts),
+                                sourceLabel: sourceLabel),
+                    ]));
+        PackageDependencyEvidenceRoot root = Assert.Single(outcome.Roots);
+        var identity = Assert.IsType<
+            PackageDependencyEvidenceRootIdentity.RuntimeDependencyManifest>(
+                root.Identity);
+        var provenance = Assert.IsType<
+            PackageDependencyEvidenceRootProvenance.RuntimeDependencyManifest>(
+                root.Provenance);
+        PackageDependencyEvidenceRelationshipResult.Available relationships =
+            Assert.IsType<PackageDependencyEvidenceRelationshipResult.Available>(
+                root.Relationships);
+
+        Assert.Equal(facts.Root, identity.Identity);
+        Assert.Equal(facts.ContentProvenance, provenance.ContentProvenance);
+        Assert.Equal(
+            PackageDependencyEvidenceAcquisitionForm
+                .RuntimeDependencyManifest,
+            provenance.AcquisitionForm);
+        Assert.Equal("test-host.deps.json", provenance.SourceLabel?.ToString());
+        Assert.Equal(
+            PackageDependencyEvidenceInputKind.RuntimeDependencyManifest,
+            root.InputKind);
+        Assert.Equal(
+            PackageDependencyEvidenceDeclarationBasis.NotApplicable,
+            root.DeclarationBasis);
+        Assert.Equal(facts.Target, root.RuntimeTarget);
+        Assert.Null(root.RestoredTarget);
+        Assert.IsType<PackageDependencyEvidenceDeclarationResult.NotApplicable>(
+            root.Declaration);
+        Assert.Equal(
+            PackageDependencyEvidenceSelectionStatus.Unavailable,
+            root.Selection.Status);
+        Assert.Equal(facts.Graph.Packages.Length, relationships.Packages.Length);
+        Assert.Equal(facts.Graph.Edges.Length, relationships.Relationships.Length);
+        Assert.True(relationships.IsComplete);
+        Assert.All(
+            relationships.Packages,
+            package => Assert.IsType<
+                PackageDependencyEvidencePackageIdentity
+                    .RuntimeDependencyManifest>(package.Identity));
+        Assert.All(
+            relationships.Relationships,
+            relationship => Assert.IsType<
+                PackageDependencyEvidenceRelationshipIdentity
+                    .RuntimeDependencyManifest>(relationship.Identity));
+        PackageDependencyEvidenceProcessingResult.Available processing =
+            Assert.IsType<PackageDependencyEvidenceProcessingResult.Available>(
+                root.Processing);
+        Assert.Equal(
+            [
+                PackageDependencyEvidenceProcessingObservation
+                    .RuntimeDependencyProjection,
+            ],
+            processing.Observations);
+        Assert.True(processing.IsComplete);
+        Assert.Equal(1, outcome.Phases.Declarations.NotApplicable);
+        Assert.Equal(1, outcome.Phases.Relationships.Complete);
+        Assert.Equal(1, outcome.Phases.Processing.Complete);
+    }
+
+    [Fact]
+    public void PackageInput_RuntimeRelationshipsDoNotInventConstraintsRolesOrPruning()
+    {
+        PackageDependencyEvidenceRoot root = NormalizeRuntime(
+            new RuntimeDependencyFactsResult.Available(
+                RuntimeFacts(
+                    """
+                    {
+                      "runtimeTarget": { "name": "net8.0" },
+                      "targets": {
+                        "net8.0": {
+                          "Example.App/1.0.0": {
+                            "dependencies": {
+                              "Example.Package": "1.0.0"
+                            }
+                          },
+                          "Example.Package/1.0.0": {
+                            "dependencies": {
+                              "Example.Transitive": "2.0.0"
+                            }
+                          },
+                          "Example.Transitive/2.0.0": {}
+                        }
+                      },
+                      "libraries": {
+                        "Example.App/1.0.0": { "type": "project" },
+                        "Example.Package/1.0.0": { "type": "package" },
+                        "Example.Transitive/2.0.0": { "type": "package" }
+                      }
+                    }
+                    """)));
+        PackageDependencyEvidenceRelationshipResult.Available relationships =
+            Assert.IsType<PackageDependencyEvidenceRelationshipResult.Available>(
+                root.Relationships);
+        PackageDependencyEvidenceRelationship applicationRelationship =
+            relationships.Relationships.Single(relationship =>
+                relationship.ResolvedCoordinate.PackageId == "example.package");
+        PackageDependencyEvidenceRelationship packageRelationship =
+            relationships.Relationships.Single(relationship =>
+                relationship.ResolvedCoordinate.PackageId
+                    == "example.transitive");
+
+        Assert.IsType<
+            PackageDependencyEvidenceRelationshipParentIdentity
+                .RuntimeDependencyLibrary>(
+                applicationRelationship.Parent);
+        Assert.Equal(
+            PackageDependencyEvidenceAuthorship.Unattributed,
+            applicationRelationship.Authorship);
+        Assert.IsType<
+            PackageDependencyEvidenceRelationshipParentIdentity.Package>(
+                packageRelationship.Parent);
+        Assert.Equal(
+            PackageDependencyEvidenceAuthorship.LibraryDeclared,
+            packageRelationship.Authorship);
+        Assert.All(
+            relationships.Relationships,
+            relationship =>
+            {
+                Assert.Null(relationship.CanonicalRequestedConstraint);
+                Assert.Null(relationship.SourceRequestedConstraintSpelling);
+                Assert.Null(relationship.Role);
+                Assert.Null(relationship.DeclarationAssociation);
+            });
+
+        PackageDependencyEvidenceProcessingResult.Available processing =
+            Assert.IsType<PackageDependencyEvidenceProcessingResult.Available>(
+                root.Processing);
+        Assert.Equal(
+            [
+                PackageDependencyEvidenceProcessingObservation
+                    .RuntimeDependencyProjection,
+            ],
+            processing.Observations);
+        Assert.DoesNotContain(
+            PackageDependencyEvidenceProcessingObservation
+                .PackagePruningEvaluation,
+            processing.Observations);
+    }
+
+    [Fact]
+    public void Execute_RuntimeIncompleteFactsRetainUsableGraphAndFailures()
+    {
+        PackageDependencyEvidenceRoot root = NormalizeRuntime(
+            new RuntimeDependencyFactsResult.Available(
+                RuntimeFacts(
+                    """
+                    {
+                      "runtimeTarget": { "name": "net8.0" },
+                      "targets": {
+                        "net8.0": {
+                          "Example.App/1.0.0": {
+                            "dependencies": {
+                              "Example.Valid": "1.0.0",
+                              "Example.Missing": "2.0.0"
+                            }
+                          },
+                          "Example.Valid/1.0.0": {}
+                        }
+                      },
+                      "libraries": {
+                        "Example.App/1.0.0": { "type": "project" },
+                        "Example.Valid/1.0.0": { "type": "package" }
+                      }
+                    }
+                    """)));
+        PackageDependencyEvidenceRelationshipResult.Available relationships =
+            Assert.IsType<PackageDependencyEvidenceRelationshipResult.Available>(
+                root.Relationships);
+
+        Assert.False(relationships.IsComplete);
+        Assert.Single(relationships.Packages);
+        Assert.Single(relationships.Relationships);
+        var failure = Assert.IsType<
+            PackageDependencyEvidenceRelationshipFailure
+                .RuntimeDependencyManifest>(
+                Assert.Single(relationships.Failures));
+        Assert.Equal(
+            RuntimeDependencyGraphFailureReason.UnresolvedDependency,
+            failure.Failure.Reason);
+        Assert.Equal(1, failure.Failure.Count);
+        Assert.True(
+            Assert.IsType<PackageDependencyEvidenceProcessingResult.Available>(
+                root.Processing).IsComplete);
+    }
+
+    [Fact]
+    public void Execute_RuntimeCompleteEmptyGraphIsNotUnavailable()
+    {
+        PackageDependencyEvidenceRoot root = NormalizeRuntime(
+            new RuntimeDependencyFactsResult.Available(
+                RuntimeFacts(
+                    """
+                    {
+                      "runtimeTarget": { "name": "net8.0" },
+                      "targets": {
+                        "net8.0": {}
+                      },
+                      "libraries": {}
+                    }
+                    """)));
+        PackageDependencyEvidenceRelationshipResult.Available relationships =
+            Assert.IsType<PackageDependencyEvidenceRelationshipResult.Available>(
+                root.Relationships);
+
+        Assert.True(relationships.IsComplete);
+        Assert.Empty(relationships.Packages);
+        Assert.Empty(relationships.Relationships);
+        Assert.Empty(relationships.Failures);
+    }
+
+    [Fact]
+    public void Compare_RuntimeDeclarationNotApplicableIsDistinctFromIncomplete()
+    {
+        PackageDependencyEvidenceRoot runtime = NormalizeRuntime(
+            new RuntimeDependencyFactsResult.Available(
+                RuntimeFacts(
+                    """
+                    {
+                      "runtimeTarget": { "name": "net8.0" },
+                      "targets": {
+                        "net8.0": {}
+                      },
+                      "libraries": {}
+                    }
+                    """)));
+        PackageDependencyEvidenceRoot package = NormalizePackage(
+            Manifest("""<group targetFramework="net8.0" />"""),
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
+
+        PackageDependencyEvidenceComparison comparison =
+            PackageDependencyEvidenceQuery.Compare(runtime, package);
+
+        Assert.All(
+            [
+                comparison.Core,
+                comparison.Scoped,
+                comparison.SelectedCore,
+                comparison.SelectedScoped,
+            ],
+            result => Assert.Equal(
+                PackageDependencyEvidenceNotComparableReason
+                    .DeclarationNotApplicable,
+                Assert.IsType<
+                    PackageDependencyEvidenceComparisonResult.NotComparable>(
+                        result).Reason));
+    }
+
+    [Fact]
+    public void Execute_RuntimeProviderFailureBecomesFailedRoot()
+    {
+        RuntimeDependencyFactsResult result =
+            RuntimeDependencyFactsQuery.Execute(
+                Encoding.UTF8.GetBytes("{"));
+        PackageDependencyEvidenceOutcome outcome =
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest(
+                    [
+                        PackageDependencyEvidenceQuery
+                            .CreateRuntimeDependencyManifestInput(result),
+                    ]));
+
+        Assert.Empty(outcome.Roots);
+        var failure = Assert.IsType<
+            PackageDependencyEvidenceRootFailure.RuntimeDependencyManifest>(
+                Assert.Single(outcome.FailedRoots));
+        Assert.Equal(
+            RuntimeDependencyFailureReason.MalformedOrDuplicateBearingJson,
+            failure.Failure.Reason);
+        Assert.Equal(
+            PackageDependencyEvidenceRootSetCompletion.Incomplete,
+            outcome.RootSet.Completion);
+        Assert.Equal(0, outcome.RootSet.AdmittedRootCount);
+        Assert.Equal(1, outcome.RootSet.FailedRootCount);
+    }
+
+    [Fact]
+    public void CreateRuntimeDependencyManifestInput_RequiresRuntimeManifestAcquisition()
+    {
+        RuntimeDependencyFactsResult result =
+            new RuntimeDependencyFactsResult.Available(
+                RuntimeFacts(
+                    """
+                    {
+                      "runtimeTarget": { "name": "net8.0" },
+                      "targets": {
+                        "net8.0": {}
+                      },
+                      "libraries": {}
+                    }
+                    """));
+
+        Assert.Throws<ArgumentException>(() =>
+            PackageDependencyEvidenceQuery.CreateRuntimeDependencyManifestInput(
+                result,
+                PackageDependencyEvidenceAcquisitionForm.ProjectAssets));
+    }
+
+    [Fact]
+    public void RuntimeRoot_RequiresExclusiveMatchingTargetEvidence()
+    {
+        RuntimeDependencyFacts facts = RuntimeFacts(
+            """
+            {
+              "runtimeTarget": { "name": "net8.0" },
+              "targets": {
+                "net8.0": {}
+              },
+              "libraries": {}
+            }
+            """);
+        PackageDependencyEvidenceRoot runtime = NormalizeRuntime(
+            new RuntimeDependencyFactsResult.Available(facts));
+        PackageDependencyEvidenceRoot restored = NormalizeRestored(
+            Available(
+                RestoredProjectDependencyFactsQuery.Execute(
+                    File.ReadAllBytes(
+                        FixtureCatalog.RestoredProjectDependencyFacts.AssetPath(
+                            "project.assets.json")),
+                    new RestoredProjectTargetRequest("net11.0"))));
+
+        Assert.Throws<ArgumentException>(() =>
+            new PackageDependencyEvidenceRoot(
+                runtime.Identity,
+                runtime.Provenance,
+                runtime.Display,
+                runtime.Declaration,
+                runtime.Selection,
+                restored.RestoredTarget,
+                runtime.Relationships,
+                runtime.Processing,
+                runtime.RuntimeTarget));
+
+        RuntimeDependencyTarget mismatched =
+            facts.Target with { FrameworkIdentity = "net9.0" };
+        Assert.Throws<ArgumentException>(() =>
+            new PackageDependencyEvidenceRoot(
+                runtime.Identity,
+                runtime.Provenance,
+                runtime.Display,
+                runtime.Declaration,
+                runtime.Selection,
+                null,
+                runtime.Relationships,
+                runtime.Processing,
+                mismatched));
+    }
+
+    [Fact]
     public void Execute_AuthoredSyntaxRetainsTargetsDeclarationsAndProvenance()
     {
         var sourceLabel = new InertString(
@@ -1830,6 +2199,23 @@ public sealed class PackageDependencyEvidenceQueryTests
                                 result,
                                 sourceLabel: sourceLabel),
                     ])).Roots);
+
+    private static PackageDependencyEvidenceRoot NormalizeRuntime(
+        RuntimeDependencyFactsResult result) =>
+        Assert.Single(
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest(
+                    [
+                        PackageDependencyEvidenceQuery
+                            .CreateRuntimeDependencyManifestInput(result),
+                    ])).Roots);
+
+    private static RuntimeDependencyFacts RuntimeFacts(byte[] bytes) =>
+        Assert.IsType<RuntimeDependencyFactsResult.Available>(
+            RuntimeDependencyFactsQuery.Execute(bytes)).Value;
+
+    private static RuntimeDependencyFacts RuntimeFacts(string json) =>
+        RuntimeFacts(Encoding.UTF8.GetBytes(json));
 
     private static AuthoredProjectDependencyFactsResult AuthoredFacts(
         string projectXml) =>

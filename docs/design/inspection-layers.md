@@ -1581,6 +1581,11 @@ canaries:
   from an empty dependency set.
   Browser-Wasm composes those two typed results without parsing XML or opening
   an assembly session.
+- `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
+  binding-consistent group and invokes the Metadata-owned population scan once
+  over the committed participant order. It returns resource-free subjects,
+  graph facts, and typed per-participant failures; the CLI `depends` host
+  projects package diagnostics without inventing filesystem paths.
 - `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`
   and `Extension Methods`. The CLI adds path-based Finding provenance and
   compatibility projections after query execution.

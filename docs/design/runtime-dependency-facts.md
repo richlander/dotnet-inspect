@@ -29,9 +29,9 @@ assemblies, or choose a renderer.
 ## Consumer and delivery
 
 The immediate consumer is the **Package Dependency Evidence Query** specified
-by `docs/design/package-dependency-evidence.md`. Its adapter is a separate
-focused slice because normalized cross-input identity, authorship, processing,
-and relationship vocabulary belong to that owner.
+by `docs/design/package-dependency-evidence.md`. Its adapter is implemented as
+a separate focused slice because normalized cross-input identity, authorship,
+processing, and relationship vocabulary belong to that owner.
 
 The end-to-end tracker is #6266. Its eight-step path connects this provider and
 adapter to package-pruning policy in step 6, the CLI dependency experience in
@@ -277,5 +277,6 @@ Release tests in `RuntimeDependencyFactsQueryTests` gate:
 - framework-library absence remaining ordinary absence rather than pruning
   evidence.
 
-The normalized adapter and CLI/Browser sink retention remain unverified until
-their separately owned #6266 slices land.
+The normalized adapter is gated by
+`PackageDependencyEvidenceQueryTests`. CLI/Browser sink retention remains
+unverified until its separately owned #6266 slices land.

@@ -769,7 +769,8 @@ The design remains unverified until those focused stages land.
 
 This design does not define:
 
-- Workspace registration values, fresh defaults, call-graph focal lengths,
+- Workspace registration values, raw-versus-curated construction,
+  call-graph focal lengths,
   traversal direction or depth, graph nodes or edges, or rendering;
 - assembly identity equivalence, version roll-forward, designated/platform
   arbitration, candidate-domain eligibility, binding caches, type forwarding,
