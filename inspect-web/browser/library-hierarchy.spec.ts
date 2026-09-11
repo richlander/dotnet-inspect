@@ -961,6 +961,56 @@ test("Home preserves focus across adjacent startup rerenders", async ({
   await expect(page.locator("#spotlight-input")).not.toBeFocused();
 });
 
+test("Home default focus yields to a post-render user selection", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+  await page.locator(".home-title").click();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    fixtureWindow.homeFocusFrames = [];
+    fixtureWindow.homeFocusRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => {
+      fixtureWindow.homeFocusFrames!.push(callback);
+      return fixtureWindow.homeFocusFrames!.length;
+    };
+  });
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    const frames = fixtureWindow.homeFocusFrames ?? [];
+    if (fixtureWindow.homeFocusRequestAnimationFrame) {
+      window.requestAnimationFrame =
+        fixtureWindow.homeFocusRequestAnimationFrame;
+    }
+    delete fixtureWindow.homeFocusFrames;
+    delete fixtureWindow.homeFocusRequestAnimationFrame;
+    const timestamp = performance.now();
+    for (const frame of frames) frame(timestamp);
+  });
+
+  await expect(credits).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
 test("Home preserves focused Settings controls through delayed Build identity", async ({
   page,
 }) => {

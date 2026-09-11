@@ -10425,9 +10425,11 @@ function bindHomeEvents(preservedFocus: HomeFocusTarget | null) {
     }
     return;
   }
+  const focusGeneration = documentFocusGeneration;
   afterCurrentNavigationFrame(() => {
     if (focusRenderGeneration !== homeFocusRenderGeneration) return;
     if (pendingHomeFocusTarget) return;
+    if (focusGeneration !== documentFocusGeneration) return;
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
     if (input
