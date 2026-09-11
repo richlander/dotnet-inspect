@@ -557,19 +557,32 @@ public sealed partial class AssemblyDependencyResolver
             }
 
             var libraryPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var librariesWithDeclaredPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var projectLibraries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var library in libraries.EnumerateObject())
             {
                 if (strict && library.Value.ValueKind != JsonValueKind.Object)
                     throw new JsonException("A dependency library entry must be an object.");
-                if (strict && library.Value.TryGetProperty("path", out var declaredPath)
+                JsonElement declaredPath = default;
+                bool hasDeclaredPath =
+                    library.Value.ValueKind == JsonValueKind.Object
+                    && library.Value.TryGetProperty("path", out declaredPath);
+                if (strict && hasDeclaredPath
                     && (declaredPath.ValueKind != JsonValueKind.String
                         || string.IsNullOrEmpty(declaredPath.GetString())))
                     throw new JsonException("A declared dependency package path must be a nonempty string.");
-                if (library.Value.ValueKind == JsonValueKind.Object &&
-                    library.Value.TryGetProperty("path", out var pathElement) &&
-                    pathElement.ValueKind == JsonValueKind.String &&
-                    pathElement.GetString() is { Length: > 0 } path)
+                if (hasDeclaredPath)
+                    librariesWithDeclaredPaths.Add(library.Name);
+                if (declaredPath.ValueKind == JsonValueKind.String
+                    && declaredPath.GetString() is { Length: > 0 } path)
                     libraryPaths[library.Name] = path;
+                if (library.Value.ValueKind == JsonValueKind.Object
+                    && library.Value.TryGetProperty("type", out var typeElement)
+                    && typeElement.ValueKind == JsonValueKind.String
+                    && typeElement.GetString() == "project")
+                {
+                    projectLibraries.Add(library.Name);
+                }
             }
 
             foreach (var target in targets.EnumerateObject())
@@ -585,8 +598,27 @@ public sealed partial class AssemblyDependencyResolver
                 {
                     if (strict && library.Value.ValueKind != JsonValueKind.Object)
                         throw new JsonException("A dependency entry must be an object.");
-                    AddAssetGroup(targetDirectory, libraryPaths, library, "compile", addReference, strict);
-                    AddAssetGroup(targetDirectory, libraryPaths, library, "runtime", addReference, strict);
+                    bool isProjectLibrary = projectLibraries.Contains(library.Name);
+                    bool hasDeclaredPackagePath =
+                        librariesWithDeclaredPaths.Contains(library.Name);
+                    AddAssetGroup(
+                        targetDirectory,
+                        libraryPaths,
+                        library,
+                        "compile",
+                        isProjectLibrary,
+                        hasDeclaredPackagePath,
+                        addReference,
+                        strict);
+                    AddAssetGroup(
+                        targetDirectory,
+                        libraryPaths,
+                        library,
+                        "runtime",
+                        isProjectLibrary,
+                        hasDeclaredPackagePath,
+                        addReference,
+                        strict);
                 }
             }
         }
@@ -600,6 +632,8 @@ public sealed partial class AssemblyDependencyResolver
         IReadOnlyDictionary<string, string> libraryPaths,
         JsonProperty library,
         string groupName,
+        bool isProjectLibrary,
+        bool hasDeclaredPackagePath,
         Action<string> addReference,
         bool strict)
     {
@@ -619,9 +653,12 @@ public sealed partial class AssemblyDependencyResolver
 
             if (strict && asset.Value.ValueKind != JsonValueKind.Object)
                 throw new JsonException("A dependency asset entry must be an object.");
+            JsonElement localPathElement = default;
+            bool hasDeclaredLocalPath =
+                asset.Value.ValueKind == JsonValueKind.Object
+                && asset.Value.TryGetProperty("localPath", out localPathElement);
             string? resolvedLocalPath = null;
-            if (asset.Value.ValueKind == JsonValueKind.Object
-                && asset.Value.TryGetProperty("localPath", out var localPathElement))
+            if (hasDeclaredLocalPath)
             {
                 if (localPathElement.ValueKind == JsonValueKind.String
                     && localPathElement.GetString() is { Length: > 0 } localPath
@@ -653,6 +690,30 @@ public sealed partial class AssemblyDependencyResolver
                     throw new JsonException("A declared dependency package asset path was rejected.");
             }
 
+            string? resolvedProjectPath = null;
+            if (isProjectLibrary
+                && !hasDeclaredLocalPath
+                && !hasDeclaredPackagePath)
+            {
+                bool validAssetPath = StorePath.TryResolveUnderRoot(
+                    targetDirectory,
+                    asset.Name,
+                    out _);
+                int separator = asset.Name.LastIndexOf('/');
+                string fileName = asset.Name[(separator + 1)..];
+                if (validAssetPath
+                    && StorePath.TryResolveUnderRoot(
+                        targetDirectory,
+                        fileName,
+                        out resolvedProjectPath))
+                {
+                    if (!strict)
+                        addReference(resolvedProjectPath);
+                }
+                else if (strict)
+                    throw new JsonException("A dependency project asset path was rejected.");
+            }
+
             if (strict)
             {
                 string? selectedPath;
@@ -662,8 +723,14 @@ public sealed partial class AssemblyDependencyResolver
                 else if (resolvedAssetPath is not null
                     && DiscoveryFileExists(resolvedAssetPath, strict: true))
                     selectedPath = resolvedAssetPath;
+                else if (resolvedProjectPath is not null
+                    && DiscoveryFileExists(resolvedProjectPath, strict: true))
+                    selectedPath = resolvedProjectPath;
                 else
-                    selectedPath = resolvedLocalPath ?? resolvedAssetPath;
+                    selectedPath =
+                        resolvedLocalPath
+                        ?? resolvedAssetPath
+                        ?? resolvedProjectPath;
 
                 if (selectedPath is not null)
                     addReference(selectedPath);

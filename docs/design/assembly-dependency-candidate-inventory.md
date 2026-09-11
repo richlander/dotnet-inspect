@@ -30,13 +30,26 @@ candidate is evidence, not permission to remove its row.
 One `.deps.json` target asset is one logical candidate even when its manifest
 provides multiple physical locations. Services follows the .NET host's
 location order: a valid application-relative `localPath` first, then the
-valid package-root path. Capture validates every declared path, emits the
-first existing location, and emits one preferred unavailable location when
-none exists. The locations are not independent compiler candidates.
+valid package-root path. An SDK project library with neither location uses its
+asset filename beneath the application directory; ordinary generated project
+references identify their adjacent runtime asset this way. Capture validates
+the complete manifest asset path before extracting that filename, validates
+every declared or derived path, emits the first existing location, and emits
+one preferred unavailable location when none exists. A malformed declared
+location is not absence and never activates the application-relative fallback.
+The locations are not independent compiler candidates.
 This deliberately matches the hostpolicy behavior introduced by
 [dotnet/runtime#118297](https://github.com/dotnet/runtime/pull/118297);
 only its physical-location semantics transfer. Legacy `ResolveAll` and
-`Select` keep their existing behavior and effective location choice.
+`Select` keep their existing behavior and effective location choice for
+previously resolvable assets.
+
+The real motivating asset is the SDK-generated
+`DotnetInspector.Services.deps.json`: project libraries including
+`ILInspector.Metadata` and `InertText` carry `"type": "project"` and a runtime
+asset filename but no `localPath` or package `path`. #6587 makes those declared
+assets available to the stacked RTS consumer in #6558 without broad sibling
+discovery or a second provenance-bearing registration.
 
 This boundary inherits existing package-version, asset-directory, target-
 framework and optional-tier choices. It does not enumerate alternative
@@ -125,8 +138,15 @@ to its artifact owner, obtain owner digests and perform its tools-owned
 selection. That composition must preserve the distinction between discovery
 rows and request-selected fallback images.
 
-The user approved this focused prerequisite while resuming the tools-first
-migration after #6133. The frozen-reference adoption path has four steps:
+[#6587](https://github.com/richlander/dotnet-inspect/issues/6587) is the
+focused Services prerequisite for #6558 in the six-step RTS
+primary-harness and legacy-retirement tracker #6199. This slice changes only
+manifest asset location construction; the stacked consumer remains responsible
+for compiler-reference selection and the primary-harness transition.
+
+The user approved the original focused inventory prerequisite while resuming
+the tools-first migration after #6133. The frozen-reference adoption path has
+four steps:
 
 1. Exact frozen inventory, set and scoped API: #6006, landed.
 2. Explicit platform compatibility policy: #6133, landed.
@@ -149,7 +169,11 @@ compatibility baseline, not the new inventory's completeness oracle. Focused
 Release cases must exercise same-name/version-skewed entries, acquisition
 registration reuse and distinction, target-input roles, Metadata's
 descriptorless/rejected distinction, visible discovery/acquisition failure,
-budget exhaustion and unchanged legacy selection.
+budget exhaustion and unchanged legacy selection. SDK-project-shaped manifest
+cases gate application-relative acquisition, visible absence, and rejection of
+an asset name that escapes the application directory. Nested asset names gate
+the host-compatible filename projection, while malformed declared package
+locations gate fallback non-activation.
 
 `AssemblyDependencyResolverTests.CaptureDiscoveryInventory_*` gates the
 capture guarantees in Release. The existing `AssemblyDependencyResolverTests`,
