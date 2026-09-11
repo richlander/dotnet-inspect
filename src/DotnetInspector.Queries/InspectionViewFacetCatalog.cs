@@ -6,14 +6,14 @@ public static class InspectionViewFacetCatalog
     static readonly ViewFacetExecutionBinding[] Bindings =
     [
         Binding(
-            "root.package-overview",
+            "workspace.overview",
+            InspectionViewFacetExecution.WorkspaceOverview),
+        Binding(
+            "package.overview",
             InspectionViewFacetExecution.PackageOverview),
         Binding(
-            "root.package-dependencies",
+            "package.dependencies",
             InspectionViewFacetExecution.PackageDependencies),
-        Binding(
-            "root.overview",
-            InspectionViewFacetExecution.RootOverview),
         Binding(
             "library.references",
             InspectionViewFacetExecution.LibraryReferences),
@@ -59,33 +59,33 @@ public static class InspectionViewFacetCatalog
     [
         Active(
             Descriptor(
-                "root.package-overview",
-                StructuralSubjectKind.Root,
+                "workspace.overview",
+                StructuralSubjectKind.Workspace,
+                "Overview",
+                "Current Workspace scope, ordered packages, and realization status.",
+                100,
+                ViewFacetRole.WorkspaceOverview),
+            "Current Workspace scope, ordered packages, and realization status.",
+            AppliesToWorkspace),
+        Active(
+            Descriptor(
+                "package.overview",
+                StructuralSubjectKind.Package,
                 "Overview",
                 "Package identity, selected target, assets, and summary facts.",
                 100,
                 ViewFacetRole.PackageOverview),
             "Package identity, selected target, assets, and summary facts.",
-            AppliesToPackageRoot),
+            AppliesToPackage),
         Active(
             Descriptor(
-                "root.package-dependencies",
-                StructuralSubjectKind.Root,
+                "package.dependencies",
+                StructuralSubjectKind.Package,
                 "Dependencies",
                 "Declared package dependencies for the selected target framework.",
                 200),
             "Declared package dependencies for the selected target framework.",
-            AppliesToPackageRoot),
-        Active(
-            Descriptor(
-                "root.overview",
-                StructuralSubjectKind.Root,
-                "Overview",
-                "Coordinate identity, selected target, and available structural subjects.",
-                300,
-                ViewFacetRole.RootOverview),
-            "Coordinate identity, selected target, and available structural subjects.",
-            AppliesToNonPackageRoot),
+            AppliesToPackage),
         Active(
             Descriptor(
                 "library.references",
@@ -240,13 +240,11 @@ public static class InspectionViewFacetCatalog
         InspectionViewFacetExecution target) =>
         new(new ViewFacetId(id), target);
 
-    static bool AppliesToPackageRoot(ViewFacetTarget target) =>
-        target.Subject.Kind == StructuralSubjectKind.Root
-        && target.RootKind == ViewFacetRootKind.PackageCapable;
+    static bool AppliesToWorkspace(ViewFacetTarget target) =>
+        target.Subject.Kind == StructuralSubjectKind.Workspace;
 
-    static bool AppliesToNonPackageRoot(ViewFacetTarget target) =>
-        target.Subject.Kind == StructuralSubjectKind.Root
-        && target.RootKind == ViewFacetRootKind.NonPackage;
+    static bool AppliesToPackage(ViewFacetTarget target) =>
+        target.Subject.Kind == StructuralSubjectKind.Package;
 
     static bool AppliesToLibrary(ViewFacetTarget target) =>
         target.Subject.Kind == StructuralSubjectKind.Library;
@@ -260,9 +258,9 @@ public static class InspectionViewFacetCatalog
 
 internal enum InspectionViewFacetExecution
 {
+    WorkspaceOverview,
     PackageOverview,
     PackageDependencies,
-    RootOverview,
     LibraryReferences,
     LibraryIntegrations,
     LibraryOpportunities,

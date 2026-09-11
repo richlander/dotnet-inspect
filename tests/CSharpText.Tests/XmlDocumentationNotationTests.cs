@@ -7,23 +7,65 @@ public sealed class XmlDocumentationNotationTests
     {
         var identity = XmlDocumentationNotation.CreateMemberIdentity(
             "M",
-            "Samples.Outer+Inner",
+            "Samples",
+            ["Outer`1", "Inner"],
             "System.IEquatable<System.String>.Equals",
-            ["TType", "TMethod"],
-            ["TType"],
-            "Equals<TMethod>",
-            "int");
+            ["`0", "``0"],
+            methodGenericArity: 1,
+            conversionReturnType: "System.Int32");
 
         Assert.Equal(
-            "M:Samples.Outer.Inner.System#IEquatable{System#String}#Equals",
-            identity.LookupKey);
-        Assert.Equal(["T0", "M0"], identity.NormalizedParameters);
-        Assert.Equal("System.Int32", identity.NormalizedReturnType);
+            "M:Samples.Outer`1.Inner.System#IEquatable{System#String}#Equals"
+                + "``1(`0,``0)~System.Int32",
+            identity.Value);
+    }
+
+    [Fact]
+    public void CreateTypeIdentity_PreservesNestedSegmentArities()
+    {
+        XmlDocMemberIdentity identity =
+            XmlDocumentationNotation.CreateTypeIdentity(
+                "Samples",
+                ["Outer`1", "Inner`2"]);
+
+        Assert.Equal("T:Samples.Outer`1.Inner`2", identity.Value);
+    }
+
+    [Theory]
+    [InlineData(false, "M:Samples.C.M")]
+    [InlineData(true, "M:Samples.C.M()")]
+    public void CreateMemberIdentity_PreservesVarargSentinel(
+        bool isVararg,
+        string expected)
+    {
+        XmlDocMemberIdentity identity =
+            XmlDocumentationNotation.CreateMemberIdentity(
+                "M",
+                "Samples",
+                ["C"],
+                "M",
+                [],
+                isVararg: isVararg);
+
+        Assert.Equal(expected, identity.Value);
+
+        identity = XmlDocumentationNotation.CreateMemberIdentity(
+            "M",
+            "Samples",
+            ["C"],
+            "M",
+            ["System.Int32"],
+            isVararg: isVararg);
+        Assert.Equal(
+            isVararg
+                ? "M:Samples.C.M(System.Int32,)"
+                : "M:Samples.C.M(System.Int32)",
+            identity.Value);
     }
 
     [Theory]
     [InlineData(".ctor", "#ctor")]
-    [InlineData(".cctor", ".cctor")]
+    [InlineData(".cctor", "#cctor")]
     public void MemberNameNormalization_PreservesConstructorNotation(string input, string expected)
         => Assert.Equal(expected, XmlDocumentationNotation.NormalizeMemberName(input));
 

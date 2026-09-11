@@ -345,17 +345,17 @@ public sealed record NavigationLibraryInventory
 }
 
 /// <summary>
-/// Generation-free classified subject inventory over one realized coordinate.
+/// Generation-free classified subject inventory over one exact Package.
 /// </summary>
 public sealed record NavigationSubjectInventory
 {
     internal NavigationSubjectInventory(
-        StructuralSubjectIdentity.RootSubject root,
+        StructuralSubjectIdentity.PackageSubject package,
         ImmutableArray<NavigationLibraryInventory> libraries,
         NavigationTypeInventoryOutcome types,
         ImmutableArray<NavigationInitialLibraryCandidate> initialCandidates)
     {
-        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(types);
         if (libraries.IsDefault || initialCandidates.IsDefault)
         {
@@ -374,7 +374,7 @@ public sealed record NavigationSubjectInventory
                 initialCandidates[index];
             if (library is null
                 || candidate is null
-                || library.Subject.Coordinate != root.Coordinate
+                || library.Subject.Package != package
                 || candidate.Subject != library.Subject
                 || candidate.IsPrimary != library.IsPrimary
                 || !candidate.Types.Select(static item => item.Subject)
@@ -401,13 +401,13 @@ public sealed record NavigationSubjectInventory
                 nameof(types));
         }
 
-        Root = root;
+        Package = package;
         Libraries = libraries;
         Types = types;
         InitialCandidates = initialCandidates;
     }
 
-    public StructuralSubjectIdentity.RootSubject Root { get; }
+    public StructuralSubjectIdentity.PackageSubject Package { get; }
     public ImmutableArray<NavigationLibraryInventory> Libraries { get; }
     public NavigationTypeInventoryOutcome Types { get; }
     public ImmutableArray<NavigationInitialLibraryCandidate> InitialCandidates
@@ -418,7 +418,7 @@ public sealed record NavigationSubjectInventory
     public bool Equals(NavigationSubjectInventory? other) =>
         ReferenceEquals(this, other)
         || other is not null
-        && Root == other.Root
+        && Package == other.Package
         && Libraries.SequenceEqual(other.Libraries)
         && Types == other.Types
         && InitialCandidates.SequenceEqual(other.InitialCandidates);
@@ -426,7 +426,7 @@ public sealed record NavigationSubjectInventory
     public override int GetHashCode()
     {
         var hash = new HashCode();
-        hash.Add(Root);
+        hash.Add(Package);
         foreach (NavigationLibraryInventory library in Libraries)
             hash.Add(library);
         hash.Add(Types);
@@ -445,12 +445,12 @@ public sealed record NavigationSubjectInventory
 public static class NavigationSubjectInventoryClassification
 {
     public static NavigationSubjectInventory Classify(
-        StructuralSubjectIdentity.RootSubject root,
+        StructuralSubjectIdentity.PackageSubject package,
         ImmutableArray<WorkspaceContextMember> libraries,
         WorkspaceContextMember? primaryLibrary,
         AssemblyContextApiSurfaceResult surface)
     {
-        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(surface);
         if (libraries.IsDefault)
         {
@@ -459,7 +459,7 @@ public static class NavigationSubjectInventoryClassification
                 nameof(libraries));
         }
 
-        int primaryIndex = ValidateLibraries(root, libraries, primaryLibrary);
+        int primaryIndex = ValidateLibraries(package, libraries, primaryLibrary);
         ImmutableArray<AssemblyContextEntry<AssemblyApiSurface>> entries =
             surface.Assemblies?.Assemblies
             ?? throw new ArgumentException(
@@ -472,7 +472,9 @@ public static class NavigationSubjectInventoryClassification
         for (int index = 0; index < entries.Length; index++)
         {
             StructuralSubjectIdentity.LibrarySubject library =
-                StructuralSubjectIdentity.ForLibrary(libraries[index]);
+                StructuralSubjectIdentity.ForLibrary(
+                    package,
+                    libraries[index]);
             classified.Add(
                 new NavigationLibraryInventory(
                     library,
@@ -483,7 +485,9 @@ public static class NavigationSubjectInventoryClassification
         for (int index = entries.Length; index < libraries.Length; index++)
         {
             StructuralSubjectIdentity.LibrarySubject library =
-                StructuralSubjectIdentity.ForLibrary(libraries[index]);
+                StructuralSubjectIdentity.ForLibrary(
+                    package,
+                    libraries[index]);
             var omission = new NavigationInventoryEvidence.ProjectionOmitted(
                 library,
                 surface.Truncation!);
@@ -520,14 +524,14 @@ public static class NavigationSubjectInventoryClassification
                             ])),
             ];
         return new NavigationSubjectInventory(
-            root,
+            package,
             libraryInventory,
             types,
             initialCandidates);
     }
 
     static int ValidateLibraries(
-        StructuralSubjectIdentity.RootSubject root,
+        StructuralSubjectIdentity.PackageSubject package,
         ImmutableArray<WorkspaceContextMember> libraries,
         WorkspaceContextMember? primaryLibrary)
     {
@@ -536,15 +540,17 @@ public static class NavigationSubjectInventoryClassification
         StructuralSubjectIdentity.LibrarySubject? primarySubject =
             primaryLibrary is null
                 ? null
-                : StructuralSubjectIdentity.ForLibrary(primaryLibrary);
+                : StructuralSubjectIdentity.ForLibrary(
+                    package,
+                    primaryLibrary);
         int primaryIndex = -1;
         for (int index = 0; index < libraries.Length; index++)
         {
             WorkspaceContextMember? library = libraries[index];
-            if (library is null || library.Realized != root.Coordinate)
+            if (library is null || library.Realized != package.Coordinate)
             {
                 throw new ArgumentException(
-                    "Every Library must belong to the Root coordinate.",
+                    "Every Library must belong to the exact Package coordinate.",
                     nameof(libraries));
             }
 
@@ -557,7 +563,7 @@ public static class NavigationSubjectInventoryClassification
                     nameof(libraries));
             }
             if (primaryLibrary is not null
-                && StructuralSubjectIdentity.ForLibrary(library)
+                && StructuralSubjectIdentity.ForLibrary(package, library)
                     == primarySubject)
             {
                 primaryIndex = index;
