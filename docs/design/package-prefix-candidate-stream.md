@@ -8,6 +8,12 @@ requested, without changing candidate order, source identity, or search bounds.
 [Browser package sources](browser-package-sources.md) continues to own source
 result construction, transport, and request deadlines.
 
+Gallery's page stream uses a prefix-candidate projection: it decodes the
+top-level search metadata consumed by `PackageSearchMatch` but does not decode,
+validate, retain, or snapshot the response's version-history collection.
+Ordinary materialized search APIs retain their complete `SearchResult`
+projection because callers may consume that history.
+
 The production consumer is `PackageProfileQuery`, used by CLI
 `find --package-prefix` and the shared Package Query prefix path. End-to-end tracker
 [#5816](https://github.com/richlander/dotnet-inspect/issues/5816) records the broader
@@ -54,6 +60,11 @@ Empty filtered pages are valid: they do not prove source exhaustion.
 - Caller cancellation remains cancellation, and disposal requests no more
   work. Source outcomes retain their existing factory-issued identity and
   immutable snapshots.
+- Gallery prefix pages preserve top-level ID, latest version, description,
+  downloads, verification, and owners. `SearchResult.Versions` is absent on
+  those page-stream matches. Invalid top-level package identities and malformed
+  JSON remain failures; semantically invalid entries inside the syntactically
+  valid, unconsumed `versions` property do not invalidate a prefix candidate.
 
 Gallery still requests 100 raw rows per page, advances by the raw response
 count, and applies its existing 3,000 maximum skip and 100-page client ceiling.
@@ -88,17 +99,27 @@ behavioral reference.
 ## Evidence and non-claims
 
 `PackagePrefixSearchTests` gates demand, order, filtering, limits, late failures,
-cancellation, idle-time exclusion, cumulative active budget, and caller-context
-ownership. `PackageProfileQueryTests` gates manifest work before later search
-pages, disposal, and partial-result accounting. `PackageQueryTests` gates the
-consumer's existing limits and failure projection. These gates run in Release.
+cancellation, idle-time exclusion, cumulative active budget, caller-context
+ownership, top-level metadata preservation, version-history omission, and
+top-level identity failure. `PackageProfileQueryTests` gates manifest work
+before later search pages, disposal, and partial-result accounting.
+`PackageQueryTests` gates the consumer's existing limits and failure projection.
+These gates run in Release.
 
 The pathological case is a useful first page followed by a blocked or failed
 second page: the first manifest result must already be observable, and the
 second page must not start without further demand. A neighboring empty-filtered
 page must not incorrectly end the search.
 
+The retained performance witness is `AWSSDK.*`. The #6569 prototype measured
+that a 100-row response carried 125,094 version entries and about 16.7 MB of
+decompressed JSON, while Package Query consumed none of that history. The
+production projection transfers only the prototype's top-level-field selection;
+it continues to use the existing source client, request containment, result
+factory, and page contract.
+
 This slice does not claim a fixed first-row latency, reduce NuGet round-trip
-time, parallelize manifests, virtualize the DOM, or move Wasm into a Worker.
-The production measurements in #5816 explain the motivation, not a deterministic
-latency guarantee.
+time, reduce the 100-row raw page size, yield individual candidates before one
+raw page completes, parallelize manifests, virtualize the DOM, or move Wasm into
+a Worker. The production measurements in #5816 explain the motivation, not a
+deterministic latency guarantee.

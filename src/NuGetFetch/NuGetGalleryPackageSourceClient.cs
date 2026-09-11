@@ -193,7 +193,7 @@ internal sealed class NuGetGalleryPackageSourceClient : INuGetGalleryPackageSour
         cancellationToken = operationContext?.ResolveInvocationToken(
             cancellationToken) ?? cancellationToken;
         SearchService.PrefixSearchCursor cursor =
-            _search.CreatePrefixSearchCursor(
+            _search.CreatePrefixCandidateCursor(
                 prefix, take, prerelease, auth: null, MaximumSearchSkip);
         TimeSpan remaining = _options.OperationTimeout;
         while (!cursor.IsCompleted)
