@@ -969,6 +969,10 @@ workbenchShellBinding =
   bindWorkbenchShell(document, workbenchShellActions);
 bindSettingsPanel(document, {
   onClose: () => setApplicationDialog(null),
+  onOpenDiagnostics: () => {
+    document.body.dataset.diagnosticsOpened = "true";
+    setApplicationDialog(null);
+  },
   onOpen: () => setApplicationDialog("settings"),
   onTasteClear() {},
   onTasteToggle() {},

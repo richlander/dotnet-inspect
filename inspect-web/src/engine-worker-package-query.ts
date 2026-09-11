@@ -130,9 +130,6 @@ export type EngineWorkerPackageQueryInput =
       readonly maximumMatches: number;
       readonly includePrerelease: boolean;
       readonly initialMatchCredit: number;
-      readonly packageType: string | null;
-      readonly sourceOrderId: string | null;
-      readonly discovery: boolean;
     }
   | {
       readonly kind: "assembly";
@@ -372,9 +369,6 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
       "maximumMatches",
       "includePrerelease",
       "initialMatchCredit",
-      "packageType",
-      "sourceOrderId",
-      "discovery",
     ], "Package Query request");
     return {
       kind: "query",
@@ -401,17 +395,6 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
         input.initialMatchCredit,
         "Package Query initial match credit",
         1),
-      packageType: nullableText(
-        input.packageType,
-        "Package Query package type",
-        budget),
-      sourceOrderId: nullableText(
-        input.sourceOrderId,
-        "Package Query source order",
-        budget),
-      discovery: booleanValue(
-        input.discovery,
-        "Package Query discovery selection"),
     };
   }
   if (kindProperty.value === "assembly") {
@@ -671,7 +654,6 @@ function parseCompletion(
     "failures",
     "kind",
     "sourceCandidates",
-    "estimatedTotalHits",
     "semanticMisses",
     "notApplicable",
     "scope",
@@ -709,7 +691,6 @@ function parseCompletion(
         "SourcePageLimitReached",
         "ClientPageLimitReached",
         "Failed",
-        "GalleryResponseComplete",
         "ExactPackageComplete",
         "ExplicitCandidatesComplete",
       ] as const,
@@ -717,9 +698,6 @@ function parseCompletion(
     sourceCandidates: nullableInteger(
       completion.sourceCandidates,
       "Package Query source candidate count"),
-    estimatedTotalHits: nullableInteger(
-      completion.estimatedTotalHits,
-      "Package Query estimated total hits"),
     semanticMisses: nullableInteger(
       completion.semanticMisses,
       "Package Query semantic miss count"),
@@ -1142,9 +1120,6 @@ function encodeQueryRequest(
           maximumMatches: request.requestedMatchLimit,
           includePrerelease: request.includePrerelease,
           initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-          packageType: request.packageType,
-          sourceOrderId: request.sourceOrderId,
-          discovery: request.inputKind === "gallery",
         }
       : {
           kind: "assembly",
@@ -1301,10 +1276,7 @@ export function registerEngineWorkerPackageQueryOperation(
               input.maximumMatches,
               input.includePrerelease,
               input.initialMatchCredit,
-              eventSink,
-              input.packageType,
-              input.sourceOrderId,
-              input.discovery)
+              eventSink)
           : await packageFacade.runPackageAssemblyQuery(
               context.operation.operationId,
               input.patternId,
