@@ -400,7 +400,7 @@ public class PackageCommand
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
-            if (!DotnetInspector.Core.HttpClientFactory.IsOffline)
+            if (!DotnetInspector.Networking.HttpClientFactory.IsOffline)
                 return await ExecuteOnlineVersionQueryAsync(packageArgs[0], options, context);
 
             using var failureScope = FeedFailureTelemetry.Scope();
@@ -645,8 +645,8 @@ public class PackageCommand
 
                 if (FeedFailureTelemetry.Current?.Failures.Any(
                         failure => failure.Phase is
-                            NetworkTrafficKind.PackageSourceDiscovery
-                            or NetworkTrafficKind.PackageVersionList) == true)
+                            FeedFailurePhase.PackageSourceDiscovery
+                            or FeedFailurePhase.PackageVersionList) == true)
                     WriteVersionLookupFailure(
                         normalizedName,
                         $"Version '{versionQueryPinned}' of package '{normalizedName}' not found.");
@@ -720,7 +720,7 @@ public class PackageCommand
                 && options.Limit == 1
                 && !options.IncludeUnlisted
                 && !options.ListVersionsWithFeed
-                && DotnetInspector.Core.HttpClientFactory.IsOffline)
+                && DotnetInspector.Networking.HttpClientFactory.IsOffline)
             {
                 List<string>? singleVersions =
                     await PackageExtractor.GetSingleVersionListingAsync(
@@ -991,7 +991,7 @@ public class PackageCommand
         try
         {
             PackageExtractionOutcome outcome;
-            if (!target.IsLocalFile && !DotnetInspector.Core.HttpClientFactory.IsOffline)
+            if (!target.IsLocalFile && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
             {
                 outcome = PackageExtractor.TryNormalizePackageVersion(version, out string pinnedVersion)
                     ? await PackageExtractor.ExtractPinnedPackageAsync(
@@ -1645,8 +1645,8 @@ public class PackageCommand
     private static bool HasVersionSourceFailures() =>
         FeedFailureTelemetry.Current?.Failures.Any(
             failure => failure.Phase is
-                NetworkTrafficKind.PackageSourceDiscovery
-                or NetworkTrafficKind.PackageVersionList) == true;
+                FeedFailurePhase.PackageSourceDiscovery
+                or FeedFailurePhase.PackageVersionList) == true;
 
     private static void WritePartialVersionFeedWarning(
         string packageName)
@@ -1655,8 +1655,8 @@ public class PackageCommand
         [
             .. FeedFailureTelemetry.Current?.Failures.Where(
                 failure => failure.Phase is
-                    NetworkTrafficKind.PackageSourceDiscovery
-                    or NetworkTrafficKind.PackageVersionList)
+                    FeedFailurePhase.PackageSourceDiscovery
+                    or FeedFailurePhase.PackageVersionList)
                 ?? [],
         ];
         if (failures.Length == 0)
@@ -3763,7 +3763,7 @@ public class PackageCommand
                         $"package:{packageName}@{version}:{relativePath}",
                         relativePath),
                     context.HttpClient,
-                    DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch,
+                    DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch,
                     packageName,
                     version,
                     isPlatformAssembly: false,

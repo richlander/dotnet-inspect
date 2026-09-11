@@ -34,8 +34,8 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     public PackageAcquisitionConcurrencyTests()
     {
         _cachePath = Path.Combine(_testRoot, "cache");
-        Core.HttpClientFactory.Initialize(new Core.HttpClientFactoryOptions());
-        Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new DotnetInspector.Networking.HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         NuGetCache.Initialize(
             "dotnet-inspect-test",
             _cachePath,
@@ -44,8 +44,8 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
     public void Dispose()
     {
-        Core.HttpClientFactory.Initialize(new Core.HttpClientFactoryOptions());
-        Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new DotnetInspector.Networking.HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         if (Directory.Exists(_testRoot))
             Directory.Delete(_testRoot, recursive: true);
     }

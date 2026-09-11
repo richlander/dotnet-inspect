@@ -64,6 +64,22 @@
       ]
     },
     {
+      "id": "networking-stays-below-core-and-hosts",
+      "source": "docs/design/library-family-boundaries.md#dotnetinspector-the-broader-net-ecosystem",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Networking"
+      ],
+      "allowOnly": [
+        "$platform",
+        "InertText",
+        "NetworkAccess"
+      ]
+    },
+    {
       "id": "ecosystem-catalog-stays-in-approved-hosts",
       "source": "docs/design/ecosystem-packs.md#dependency-boundary",
       "graphs": [
@@ -212,9 +228,10 @@
       ]
     },
     {
-      "id": "nuget-fetch-external-dependencies",
-      "source": "docs/overview.md",
+      "id": "nuget-fetch-stays-independent",
+      "source": "docs/design/library-family-boundaries.md#independent-domain-roots",
       "graphs": [
+        "project",
         "assembly"
       ],
       "targets": [
@@ -222,7 +239,8 @@
       ],
       "allowOnly": [
         "$platform",
-        "$repository",
+        "InertText",
+        "NetworkAccess",
         "NuGet.Versioning",
         "System.Security.Cryptography.Pkcs"
       ]

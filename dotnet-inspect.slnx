@@ -125,6 +125,7 @@
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
+    <Project Path="src/DotnetInspector.Networking/DotnetInspector.Networking.csproj" />
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Installed/DotnetInspector.PlatformHouse.Installed.csproj" />
@@ -192,6 +193,7 @@
     <Project Path="tests/InertText.Tests/InertText.Tests.csproj" />
     <Project Path="tests/NetworkAccess.Tests/NetworkAccess.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.Networking.Tests/DotnetInspector.Networking.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PlatformHouse.Installed.Tests/DotnetInspector.PlatformHouse.Installed.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PlatformHouse.Tests/DotnetInspector.PlatformHouse.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Platforms.Formats.Tests/DotnetInspector.Platforms.Formats.Tests.csproj" />

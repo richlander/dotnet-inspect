@@ -35,7 +35,7 @@ public static class TimelineCommand
         try
         {
             string workingDirectory = Directory.GetCurrentDirectory();
-            await using PackageRangeExtraction? rangeExtraction = Core.HttpClientFactory.IsOffline
+            await using PackageRangeExtraction? rangeExtraction = DotnetInspector.Networking.HttpClientFactory.IsOffline
                 ? null
                 : await PackageExtractor.OpenPackageRangeAsync(
                     context.HttpClient, range!, context.Logger.Log, "inspect-timeline",

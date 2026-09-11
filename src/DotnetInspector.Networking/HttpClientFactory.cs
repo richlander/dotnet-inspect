@@ -4,7 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using NetworkAccess;
 
-namespace DotnetInspector.Core;
+namespace DotnetInspector.Networking;
 
 /// <summary>
 /// Process-wide configuration captured by clients when they are constructed.
@@ -183,7 +183,7 @@ public static class HttpClientFactory
 
     /// <summary>
     /// Creates the owned handler chain for a standard credential-free client.
-    /// Offline, telemetry, and counting policy are retained.
+    /// Offline and telemetry policy are retained.
     /// </summary>
     /// <remarks>The caller owns and must dispose the returned handler.</remarks>
     public static HttpMessageHandler CreateCredentialFreeHandler()
@@ -238,9 +238,6 @@ public static class HttpClientFactory
         if (_options.Offline)
             handler = new OfflineHandler(handler);
 
-        if (InfoTracker.Enabled)
-            handler = new CountingHandler(handler);
-
         handler = new NetworkTelemetryHandler(
             handler,
             NetworkClientKinds.Shared);
@@ -274,13 +271,10 @@ public static class HttpClientFactory
         if (options.Offline)
             handler = new OfflineHandler(handler);
 
-        if (InfoTracker.Enabled)
-            handler = new CountingHandler(handler);
-
         handler = new NetworkTelemetryHandler(handler, NetworkClientKinds.Shared);
 
-        // Outermost, so each replayed attempt is observed by the telemetry and counting
-        // handlers below it. A 401 followed by an authenticated retry really is two requests.
+        // Outermost, so each replayed attempt reaches the telemetry handler below it.
+        // A 401 followed by an authenticated retry really is two requests.
         if (includeAuthentication && _authenticationDecorator is not null)
         {
             handler = _authenticationDecorator(handler);
@@ -328,9 +322,6 @@ public static class HttpClientFactory
 
         if (_options.Offline)
             handler = new OfflineHandler(handler);
-
-        if (InfoTracker.Enabled)
-            handler = new CountingHandler(handler);
 
         handler = new NetworkTelemetryHandler(handler, NetworkClientKinds.UntrustedFetch);
 
@@ -401,9 +392,6 @@ public static class HttpClientFactory
         if (_options.Offline)
             handler = new OfflineHandler(handler);
 
-        if (InfoTracker.Enabled)
-            handler = new CountingHandler(handler);
-
         handler = new NetworkTelemetryHandler(handler, NetworkClientKinds.Shared);
 
         if (_authenticationDecorator is not null)
@@ -466,19 +454,6 @@ internal sealed class NetworkTelemetryHandler(HttpMessageHandler inner, string c
                 $"Network traffic '{NetworkTelemetry.CurrentTrafficKind.ToTelemetryName()}' requires explicit capability authorization. Attempted: {request.Method} {request.RequestUri}");
         }
 
-        return base.SendAsync(request, cancellationToken);
-    }
-}
-
-/// <summary>
-/// A handler that counts HTTP requests for <see cref="InfoTracker"/>.
-/// </summary>
-internal sealed class CountingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
-{
-    protected override Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        InfoTracker.RecordHttpRequest();
         return base.SendAsync(request, cancellationToken);
     }
 }
