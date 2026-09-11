@@ -11,6 +11,8 @@ Tracking:
   pair occurrence evidence;
 - [#6602](https://github.com/richlander/dotnet-inspect/issues/6602) — direct-use
   summary projections;
+- [#6694](https://github.com/richlander/dotnet-inspect/issues/6694) — typed
+  Markout serialization;
 - [#6313](https://github.com/richlander/dotnet-inspect/issues/6313) — broader
   feature-relationship experience.
 
@@ -255,6 +257,14 @@ The command exposes three sections:
 | `Consumer Use Sites` | One row per attributed source method and directed target participant, with distinct provider-type and target-member counts |
 | `Provider API Types` | One row per structured target declaring type and directed source participant, with distinct source- and target-member counts |
 | `Call Sites` | The exact physical occurrence rows |
+
+The CLI represents this document and its three row sets as typed Markout views.
+`MarkoutSerializer` and one generated serializer context own section schemas,
+projection, and format lowering. The command may choose the appropriate
+document or table view for the selected shape, but it does not construct a
+`MarkoutWriter`, manually write headings, paragraphs, or tables, or maintain a
+parallel list of rendered column labels. No host-specific rendering exception
+is approved for this command.
 
 Omitting `-S` preserves the exact call-site view. Bare `-S` selects the two
 summary sections; an exact section name selects one projection, and normal
