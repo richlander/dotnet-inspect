@@ -24,6 +24,10 @@ public sealed class PackageSourceOperationLease : IDisposable
         _context = context;
     }
 
+    internal TimeSpan RequestTimeout => _context.RequestTimeout;
+
+    internal TimeSpan OperationTimeout => _context.OperationTimeout;
+
     /// <summary>Checks the shared caller cancellation and operation ceiling.</summary>
     public void ThrowIfExpired()
     {

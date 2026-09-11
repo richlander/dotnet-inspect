@@ -90,14 +90,13 @@ without defining a third Package Source resource or retaining a root or
 operation-lease borrow across `await`. The root implements only
 `IAsyncDisposable`.
 
-PackageHouse retains its existing execution signature until
-[#6622](https://github.com/richlander/dotnet-inspect/issues/6622). Its internal
-compatibility bridge registers awaited work against the root generation and
-never disposes a caller-supplied `NuGetOperationContext`. This is not
-PackageHouse operation-lease ownership adoption. Existing direct source
-adapters likewise retain the root only through this scoped compatibility path
-until their owning consumers adopt transferred operation leases. Calls without
-an external context own a fresh operation lease, while existing
+PackageHouse adopts operation-lease ownership in
+[#6622](https://github.com/richlander/dotnet-inspect/issues/6622). Each House
+execution consumes one request-matched operation lease, owns it across every
+asynchronous suspension, and releases it on every terminal path. Existing
+direct source adapters retain the root only through the scoped compatibility
+path until their owning consumers adopt transferred operation leases. Calls
+without an external context own a fresh operation lease, while existing
 external-context calls use the internal registered-work bridge. Desktop
 composition owns the root and awaits root quiescence before releasing its
 clients.
@@ -162,12 +161,13 @@ The operation lease:
 
 Public asynchronous Package Source operations use the operation lease rather
 than accepting a root lease, an independently supplied operation context, or
-both. The lease may transfer to PackageHouse or package-backed Platform, but
-their exact acceptance, terminal-path release, and result-handoff obligations
-belong to [#6622](https://github.com/richlander/dotnet-inspect/issues/6622) and
-the package-backed
-[Platform design](package-backed-platform-realization.md), respectively. A
-direct Package Source consumer may own the lease lexically for one operation.
+both. PackageHouse consumes the lease under
+[#6622](https://github.com/richlander/dotnet-inspect/issues/6622); its exact
+acceptance, terminal-path release, and result-handoff obligations belong to
+the [PackageHouse design](package-house.md). Package-backed Platform adoption
+belongs to the
+[Platform design](package-backed-platform-realization.md). A direct Package
+Source consumer may own the lease lexically for one operation.
 
 ### Awaited work
 
