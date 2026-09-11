@@ -36,6 +36,13 @@ facade_pid=$!
 ) &
 worker_pid=$!
 
+(
+  cd "$frontend"
+  INSPECT_WEB_PUBLISHED_BENCHMARK_SITE="$site" \
+    npm run inspect-web-published-benchmark
+) &
+benchmark_pid=$!
+
 "$repo_root/eng/test-inspect-web-package-adoption-gate.sh" &
 package_pid=$!
 
@@ -49,6 +56,7 @@ failed=0
 for gate in \
   "published facade:$facade_pid" \
   "Worker browser gates:$worker_pid" \
+  "published benchmark bridge:$benchmark_pid" \
   "package adoption:$package_pid" \
   "Authored Source comparison:$source_pid" \
   "promotion validation:$promotion_pid"; do

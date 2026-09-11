@@ -84,10 +84,10 @@ internal static partial class WorkflowContract
             job,
             "steps",
             "jobs.repository-guards");
-        if (steps.Children.Count != 5)
+        if (steps.Children.Count != 4)
         {
             throw new InvalidOperationException(
-                "jobs.repository-guards must contain exactly five steps.");
+                "jobs.repository-guards must contain exactly four steps.");
         }
 
         YamlMappingNode checkout = RequireMapping(
@@ -167,13 +167,6 @@ internal static partial class WorkflowContract
 
         RequireNamedRunStep(
             steps.Children[3],
-            "Run repository line-ending guard",
-            "dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- " +
-                "--filter-class \"DotnetInspect.Cli.Tests.RepositoryLineEndingTests\" " +
-                "--minimum-expected-tests 2\n",
-            "jobs.repository-guards line-ending step");
-        RequireNamedRunStep(
-            steps.Children[4],
             "Run legacy source-identity guard",
             "dotnet run --project tests/NuGetFetch.Tests -c Release -- " +
                 "--filter-method \"*LegacyPackageSourceIdentitySurfaceMatchesMigrationSet\" " +
