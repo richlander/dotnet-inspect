@@ -1510,6 +1510,11 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 5);
 });
 
+test("Call graph presentation keeps renderer source internal", () => {
+  assert.doesNotMatch(appSource, /Mermaid source|class="graph-mermaid"/);
+  assert.doesNotMatch(stylesSource, /\.graph-mermaid/);
+});
+
 test("typed document inspection owns package document request coordination", () => {
   const documentLoader =
     appSource.match(/function openPackageDocument\(path: string\)[\s\S]*?\n}/)?.[0]
