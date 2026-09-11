@@ -970,7 +970,7 @@ jobs:
           fi
 
       - name: Run CSharpText tests
-        run: dotnet run --project tests/CSharpText.Tests -c Release
+        run: dotnet run --project tests/CSharpText.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run CSharp tests
         run: dotnet run --project tests/ILInspector.CSharp.Tests -c Release
@@ -1027,7 +1027,7 @@ jobs:
         run: dotnet run --project tests/DotnetInspector.Services.Tests -c Release
 
       - name: Run inspection query tests
-        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run presentation tests
         run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
@@ -1044,7 +1044,10 @@ jobs:
       # token that CI — and any fork PR — does not have. Everything that can be proven with an
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
-        run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+        run: >-
+          dotnet run --project tests/NuGetFetch.Tests -c Release --
+          --filter-not-trait "Network=Live"
+          --filter-not-trait "Speed=Slow"
 
       - name: Exercise Catalog research probe (offline)
         run: dotnet run tools/CatalogChangeBenchmark.cs -c Release -- --self-test

@@ -12,6 +12,7 @@ namespace ILInspector.Analysis.Tests
         // wrongly drop this `newobj`; the operand-token metadata path keeps it counted.
         // Non-vacuous: under the removed name-set shortcut this returned 0.
         [Fact]
+        [Trait("Speed", "Slow")]
         public void Allocations_ExternalRefTypeSharingNameWithInAssemblyStruct_StaysCounted()
         {
             var index = LibraryBodyIndex.Open(typeof(CrossAsmCollisionConsumer).Assembly.Location);
@@ -51,4 +52,3 @@ namespace CrossAsmCollision
         public SharedShape(int value) => Value = value;
     }
 }
-

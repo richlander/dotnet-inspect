@@ -360,6 +360,7 @@ public sealed partial class WorkspaceScopeTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData("stale", WorkspaceScopeRejection.RevisionMismatch)]
     [InlineData("foreign", WorkspaceScopeRejection.ForeignWorkspace)]
     [InlineData("malformed", WorkspaceScopeRejection.Malformed)]

@@ -285,6 +285,7 @@ public class AnalysisFindingsTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void InspectCallSites_DecodesCallIndirectSignatureStructurally()
     {
         var index = LibraryBodyIndex.Open(typeof(AnalysisFindingsTests).Assembly.Location);
