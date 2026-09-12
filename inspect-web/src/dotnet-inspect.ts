@@ -442,12 +442,7 @@ import {
   createPackageComparisonTargets,
   renderPackageComparisonTargets,
 } from "./package-comparison-targets.ts";
-import {
-  AGENT_SKILL_URL,
-  CLI_TOOL_URL,
-  dataBarHtml,
-  fmtBytes,
-} from "./data-bar.ts";
+import { dataBarHtml, fmtBytes } from "./data-bar.ts";
 import {
   DIAGNOSTICS_PATH,
   diagnosticsHistoryState,
@@ -877,6 +872,8 @@ const HOME_BOT_ANIMATION_DURATION_MS = 5500;
 const DEFAULT_REQUESTED_FRAMEWORK = "net10.0";
 let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
+let homeFocusRenderGeneration = 0;
+let pendingHomeFocusTarget: HomeFocusTarget | null = null;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
@@ -4312,6 +4309,89 @@ function typeDisplayName(
   return item?.displayName || item?.name || "";
 }
 
+type HomeFocusTarget =
+  | {
+    kind: "id";
+    surface: "home" | "settings";
+    id: string;
+  }
+  | {
+    kind: "link";
+    region: "home-bar" | "data-bar";
+    href: string;
+  }
+  | { kind: "spotlight-scope"; scope: string }
+  | { kind: "settings-theme"; theme: string }
+  | { kind: "settings-taste"; taste: string };
+
+function captureHomeFocus(
+  focused: HTMLElement | null,
+): HomeFocusTarget | null {
+  if (!focused) return null;
+  const surface = focused.closest("#settings-dialog")
+    ? "settings"
+    : focused.closest(".home")
+      ? "home"
+      : null;
+  if (!surface) return null;
+  if (focused.id) return { kind: "id", surface, id: focused.id };
+  if (surface === "settings") {
+    const theme = focused.dataset.theme;
+    if (theme) return { kind: "settings-theme", theme };
+    const taste = focused.dataset.taste;
+    return taste ? { kind: "settings-taste", taste } : null;
+  }
+  const spotlightScope = focused.dataset.slScope;
+  if (spotlightScope) {
+    return { kind: "spotlight-scope", scope: spotlightScope };
+  }
+  if (!(focused instanceof HTMLAnchorElement)) return null;
+  const region = focused.closest(".home-bar")
+    ? "home-bar"
+    : focused.closest(".data-bar")
+      ? "data-bar"
+      : null;
+  const href = focused.getAttribute("href");
+  return region && href ? { kind: "link", region, href } : null;
+}
+
+function restoreHomeFocus(target: HomeFocusTarget): boolean {
+  let element: HTMLElement | null = null;
+  if (target.kind === "id") {
+    element = document.getElementById(target.id);
+  } else if (target.kind === "spotlight-scope") {
+    element = [...document.querySelectorAll<HTMLElement>("[data-sl-scope]")]
+      .find(candidate => candidate.dataset.slScope === target.scope)
+      ?? null;
+  } else if (target.kind === "settings-theme") {
+    element = [...document.querySelectorAll<HTMLElement>(
+      "#settings-dialog [data-theme]",
+    )]
+      .find(candidate => candidate.dataset.theme === target.theme)
+      ?? null;
+  } else if (target.kind === "settings-taste") {
+    element = [...document.querySelectorAll<HTMLElement>(
+      "#settings-dialog [data-taste]",
+    )]
+      .find(candidate => candidate.dataset.taste === target.taste)
+      ?? null;
+  } else {
+    element = [...document.querySelectorAll<HTMLAnchorElement>(
+      `.${target.region} a[href]`,
+    )].find(candidate => candidate.getAttribute("href") === target.href)
+      ?? null;
+  }
+  if (!element) return false;
+  element.focus({ preventScroll: true });
+  return true;
+}
+
+function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
+  return target?.kind === "settings-theme"
+    || target?.kind === "settings-taste"
+    || (target?.kind === "id" && target.surface === "settings");
+}
+
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   const graphExplorerWasOpen = graphExplorer.isOpen;
@@ -4333,6 +4413,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const focusedElement = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
+  const homeFocus =
+    pendingHomeFocusTarget ?? captureHomeFocus(focusedElement);
   contentFrameFocusOwner = null;
   contentFrameReplacementAuthority = null;
   const scopeBarOwnsFocus = focusedElement
@@ -4398,7 +4480,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   retainFailedWorkspaceUrl();
   if (state.home) {
-    renderHomeView();
+    renderHomeView(homeFocus);
     return;
   }
   if (scope() === "platform") {
@@ -10207,8 +10289,8 @@ async function copyText(value: string, confirmation: string) {
 // search, and a few demo entry points. The search reuses the Spotlight machinery in place
 // (shared #spotlight-input / #spotlight-chips / #spotlight-results ids), so results, scope
 // chips, NuGet discovery, and result picking all behave exactly like the modal Spotlight.
-function renderHomeView() {
-  document.title = "dotnet-inspect -- Inspect any NuGet package: types, methods, metadata, decompilation.";
+function renderHomeView(preservedFocus: HomeFocusTarget | null) {
+  document.title = "dotnet-inspect -- Inspect .NET packages in your browser.";
   const enginePending = !state.engineReady;
   const showReadyGlint = state.engineReady && homeReadyGlintPending;
   if (showReadyGlint) homeReadyGlintPending = false;
@@ -10239,8 +10321,11 @@ function renderHomeView() {
       <main class="home-hero">
         <div class="home-copy">
           <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
-          <h1 class="home-title">Inspect any NuGet package: types, methods, metadata, decompilation.</h1>
-          <p class="home-lede">Explore NuGet packages and the .NET platform — types, members, public API surface, dependencies, call graphs, and decompiled C# — all computed locally in your browser. Nothing to install, nothing uploaded.</p>
+          <h1 class="home-title">Inspect .NET packages in your browser.</h1>
+          <p class="home-lede">
+            <span class="home-lede-wide">Search a package, type, or member. Explore APIs, metadata, dependencies, call graphs, and decompiled C# — computed locally in this tab.</span>
+            <span class="home-lede-narrow">Search packages, types, and members, then explore APIs, metadata, dependencies, and decompiled C#.</span>
+          </p>
           <div class="home-search ${enginePending ? "engine-pending" : ""}" role="search" aria-busy="${enginePending}">
             ${spotlight.inlineHtml(enginePending, showReadyGlint)}
             ${enginePending
@@ -10250,10 +10335,11 @@ function renderHomeView() {
                 </div>`
               : ""}
           </div>
-          <p class="home-availability">Also available as a <a href="${CLI_TOOL_URL}" target="_blank" rel="noopener noreferrer">CLI tool</a> and <a href="${AGENT_SKILL_URL}" target="_blank" rel="noopener noreferrer">agent skill</a>.</p>
-          <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
-            <span class="home-demos-label">Explore product demos</span>
+            <div class="home-demos-copy">
+              <strong>Product demos</strong>
+              <span>Start from a curated package query.</span>
+            </div>
             <div class="home-demo-row" aria-busy="${enginePending}">
               ${homeDemosEntryHtml(
                 enginePending,
@@ -10261,18 +10347,26 @@ function renderHomeView() {
                 escapeHtml)}
             </div>
           </div>
+          <p class="home-trust">Nothing to install. Package content stays in your browser.</p>
         </div>
-        <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">${homeArtSvg()}</aside>
+        <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">
+          ${homeArtSvg()}
+          <p class="home-art-caption">Types, methods, metadata, dependencies, source, analysis, and diffs.</p>
+        </aside>
       </main>
       ${dataBarHtml({
         buildIdentity: state.buildIdentity,
       }, escapeHtml)}
     </div>
     ${state.settings ? renderSettingsViewHtml() : ""}`;
-  bindHomeEvents();
+  bindHomeEvents(preservedFocus);
   if (state.settings) {
-    document.querySelector<HTMLElement>("#settings-title")
-      ?.focus({ preventScroll: true });
+    if (!preservedFocus
+      || !settingsOwnsHomeFocusTarget(preservedFocus)
+      || !restoreHomeFocus(preservedFocus)) {
+      document.querySelector<HTMLElement>("#settings-title")
+        ?.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -10286,31 +10380,46 @@ function homeArtSvg() {
 const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: dismissQueryNotice,
   onOpenDemos: openProductDemos,
-  onOpenCredits: openCredits,
   onToggleTheme: toggleTheme,
 };
 
-function bindHomeEvents() {
+function bindHomeEvents(preservedFocus: HomeFocusTarget | null) {
+  const focusRenderGeneration = ++homeFocusRenderGeneration;
   bindSettingsPanelEvents();
   bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
+  if (state.settings) return;
   if (diagnosticsDestinationFocusPending) return;
   const destinationFocusGeneration = diagnosticsDestinationFocusGeneration;
   if (destinationFocusGeneration !== null) {
-    afterCurrentNavigationFrame(() => {
-      if (diagnosticsDestinationFocusGeneration
-        !== destinationFocusGeneration) return;
-      if (documentFocusGeneration !== destinationFocusGeneration) {
-        diagnosticsDestinationFocusGeneration = null;
-        return;
-      }
-      if (focusLevelOneHeading()) {
-        diagnosticsDestinationFocusGeneration = documentFocusGeneration;
-      }
-    });
+    if (documentFocusGeneration !== destinationFocusGeneration) {
+      diagnosticsDestinationFocusGeneration = null;
+    } else {
+      afterCurrentNavigationFrame(() => {
+        if (diagnosticsDestinationFocusGeneration
+          !== destinationFocusGeneration) return;
+        if (documentFocusGeneration !== destinationFocusGeneration) {
+          diagnosticsDestinationFocusGeneration = null;
+          return;
+        }
+        if (focusLevelOneHeading()) {
+          diagnosticsDestinationFocusGeneration = documentFocusGeneration;
+        }
+      });
+      return;
+    }
+  }
+  if (preservedFocus && restoreHomeFocus(preservedFocus)) {
+    if (preservedFocus === pendingHomeFocusTarget) {
+      pendingHomeFocusTarget = null;
+    }
     return;
   }
+  const focusGeneration = documentFocusGeneration;
   afterCurrentNavigationFrame(() => {
+    if (focusRenderGeneration !== homeFocusRenderGeneration) return;
+    if (pendingHomeFocusTarget) return;
+    if (focusGeneration !== documentFocusGeneration) return;
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
     if (input
@@ -13705,12 +13814,18 @@ function openSettings(from: "home" | "workbench") {
 function closeSettings() {
   state.settings = false;
   reloadVisibleSource();
+  if (state.settingsReturn === "home") {
+    pendingHomeFocusTarget = {
+      kind: "id",
+      surface: "home",
+      id: "home-settings",
+    };
+    render();
+    return;
+  }
   render();
   requestAnimationFrame(() => {
-    const selector = state.settingsReturn === "workbench"
-      ? "#application-menu-button"
-      : "#home-settings";
-    document.querySelector<HTMLElement>(selector)
+    document.querySelector<HTMLElement>("#application-menu-button")
       ?.focus({ preventScroll: true });
   });
 }

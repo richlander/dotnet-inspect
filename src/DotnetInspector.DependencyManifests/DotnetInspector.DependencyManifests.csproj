@@ -5,20 +5,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Source-neutral artifact identity, acquisition, authorization, and lifetime contracts</Description>
+    <Description>Host-neutral SDK dependency manifest format interpretation</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../Inspector.Resources/Inspector.Resources.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <InternalsVisibleTo Include="Inspector.Artifacts.Workspaces" />
+    <ProjectReference Include="../DotnetInspector.Core/DotnetInspector.Core.csproj" />
   </ItemGroup>
 
 </Project>
