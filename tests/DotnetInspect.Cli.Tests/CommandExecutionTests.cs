@@ -3471,6 +3471,34 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Network traffic", error);
     }
 
+    [Fact]
+    public async Task DependencyEvidenceCommand_PointsToDependsWithoutRouting()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "dependency-evidence",
+            "--package",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "'dependency-evidence' has been removed.",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Use 'depends'",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "-S Dependencies",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Package 'dependency-evidence'", error);
+        Assert.DoesNotContain("Network traffic", error);
+    }
+
     // ── type command ─────────────────────────────────────────────────
 
     [Fact]
@@ -7383,7 +7411,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, dependsExit);
         Assert.Empty(dependsOutput);
-        Assert.Contains("Could not resolve 'System.Text'", dependsError);
+        Assert.Contains(
+            "Type 'System.Text' not found in the specified scope.",
+            dependsError,
+            StringComparison.Ordinal);
         Assert.Contains("looks like a namespace prefix", dependsError);
         Assert.Contains("type System.Text", dependsError);
         Assert.Contains("find \"System.Text*\" --platform", dependsError);
@@ -12265,11 +12296,11 @@ public partial class CommandExecutionTests
         Assert.Equal(
             new[]
             {
-                "dependency-evidence",
                 "depends",
                 "ecosystem",
                 "extensions",
                 "find",
+                "graph libraries",
                 "implements",
                 "library",
                 "member",

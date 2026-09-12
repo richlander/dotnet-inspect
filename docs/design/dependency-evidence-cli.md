@@ -3,17 +3,16 @@
 This document owns the command, input-binding, section, projection, and
 presentation contract for the CLI consumer tracked by #5534.
 
-**Status:** implementation target.
+**Status:** historical. The command was retired by #5995 after its supported
+capabilities moved to `depends`.
 
 > [!NOTE]
-> [Dependency Inspection Command](dependency-inspection-command.md) defines the
-> target convergence of this command and `depends` into one asset-driven
-> `depends` operation. This document remains the current implementation
-> contract until that migration and the explicit retirement of
-> `dependency-evidence` land. Its prior conclusion that heterogeneous root
-> cardinality requires a separate operation is superseded for that target:
-> the unified command closes one or several roots into one dependency document
-> and one per-root completion model.
+> [Dependency Inspection Command](dependency-inspection-command.md) is the sole
+> current command owner. This document records the retired
+> `dependency-evidence` contract and is not current product guidance. Its prior
+> conclusion that heterogeneous root cardinality requires a separate operation
+> was superseded: `depends` closes one or several roots into one dependency
+> document and one per-root completion model.
 
 ## Owner and claim
 

@@ -4,9 +4,9 @@ This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
 **Status:** implementation contract. Asset-mode `depends` implements the
-explicit-root, traversal, section, and output contract in #5994.
-`dependency-evidence` and the positional type-to-library fallback remain
-supported until the focused retirement and cleanup in #5995.
+explicit-root, traversal, section, and output contract. #5995 completed the
+convergence by retiring `dependency-evidence` and the positional
+type-to-library fallback.
 
 ## Owner and claim
 
@@ -72,12 +72,12 @@ labels, or create a second dependency-normalization model.
 
 ## User purpose
 
-The two current commands divide one user question along an implementation
+The two former commands divided one user question along an implementation
 boundary:
 
-- `depends` follows reachable relationships but drops most declaration,
+- `depends` followed reachable relationships but dropped most declaration,
   constraint, provenance, completion, and failure evidence; and
-- `dependency-evidence` retains that evidence but does not expand package
+- `dependency-evidence` retained that evidence but did not expand package
   manifests into a transitive traversal.
 
 That division creates both overlap and underlap. A user may need to know that a
@@ -96,7 +96,7 @@ Neither axis changes the admitted subject or operation arity, so the
 [Command Transition Model](command-transition-model.md) keeps them within
 `depends`.
 
-The current `dependency-evidence` design used heterogeneous root cardinality to
+The retired `dependency-evidence` design used heterogeneous root cardinality to
 justify a separate command. This target supersedes that conclusion. Root-set
 cardinality is source context inside the dependency operation: one or several
 roots still produce the same dependency document, per-root completion, graph
@@ -851,10 +851,9 @@ The change is **intentionally breaking** under
 requires a Breaking release-note entry, replacement examples, routing tests,
 and machine-contract tests for the new `depends` document.
 
-The current
-[Dependency Evidence CLI](dependency-evidence-cli.md) document remains the
-implementation contract until the retirement slice lands. At that point it
-becomes historical and this document is the sole command owner.
+The [Dependency Evidence CLI](dependency-evidence-cli.md) document is the
+historical record of the retired command. This document is the sole current
+command owner.
 
 ## Demonstration
 

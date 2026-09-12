@@ -920,55 +920,10 @@ public static class SearchCommandDefinitions
                 options,
                 ct);
 
-            // Type not found — fall back to library mode if the name could be a
-            // library. A source option makes the positional argument
-            // unambiguously a type, so no fallback applies.
-            if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode &&
-                selection.UsesImplicitPlatform &&
-                !targetType!.Contains('<'))
-            {
-                var libOptions = new DependsOptions
-                {
-                    LibraryName = targetType,
-                    Tfm = parseResult.GetValue(tfmOption),
-                    Depth = parseResult.GetValue(depthOption),
-                    Verbosity = opts.ParseVerbosity(parseResult),
-                    Format = outputFormat,
-                    JsonOutput = outputFormat == OutputFormat.Json,
-                    CompactJson = parseResult.GetValue(compactOption),
-                    MermaidOutput = outputFormat == OutputFormat.Mermaid,
-                    EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
-                    Tree = parseResult.GetValue(opts.Tree),
-                    Rows = rows,
-                    Count = parseResult.GetValue(opts.Count),
-                    Tabular = opts.ResolveTabular(parseResult),
-                    Tsv = opts.ResolveTsv(parseResult),
-                    Jsonl = opts.ResolveJsonl(parseResult),
-                    NoHeader = parseResult.GetValue(opts.NoHeaders),
-                    Discover = opts.ParseDiscover(parseResult),
-                    Effective = parseResult.GetValue(opts.Effective),
-                    Schema = opts.ParseSchema(parseResult),
-                    Select = opts.ParseSelect(parseResult),
-                    SelectDefault = opts.ParseSelectDefault(parseResult),
-                    Columns = opts.ParseColumns(parseResult),
-                    Fields = opts.ParseFields(parseResult),
-                    Verbose = parseResult.GetValue(opts.Verbose),
-                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
-                };
-
-                // Library mode resolves the name itself and never consults the
-                // excluded candidate, so its answer stands on its own. It is
-                // also unreachable while a candidate was excluded: an explicit
-                // source option is what makes exclusion possible, and that same
-                // option suppresses this fallback.
-                return await DependsCommand.ExecuteLibraryDependsAsync(
-                    libOptions,
-                    ct);
-            }
-
             if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode)
             {
                 CommandError.Write($"Type '{targetType}' not found in the specified scope.");
+                NamespacePrefixHints.WriteIfLikelyNamespacePrefix(targetType);
                 return outcome.Uncertified
                     ? DependsCommand.UncertifiedScanExitCode
                     : 1;

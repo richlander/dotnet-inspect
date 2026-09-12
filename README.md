@@ -155,7 +155,7 @@ stderr rather than mixed into structured output.
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
-| Direct dependency evidence | `depends -S Dependencies`, `dependency-evidence` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. `dependency-evidence` remains supported for its direct-evidence-only contract. |
+| Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document; selecting `Dependencies` reports declarations without transitive traversal. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
@@ -180,7 +180,6 @@ stderr rather than mixed into structured output.
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
 | `graph libraries` | Show exact resolved cross-library call sites or summarize the consumer methods and provider API types they connect. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
-| `dependency-evidence` | Report declarations and restored resolution evidence for explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots only; use `depends` to traverse. It remains supported until the planned retirement slice. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
@@ -556,11 +555,12 @@ dotnet-inspect depends \
   --max-packages 100 \
   -S @Dependencies
 dotnet-inspect depends --nuspec ./artifacts/local.nuspec -D --effective
-dotnet-inspect dependency-evidence --package Newtonsoft.Json --tfm net8.0
-dotnet-inspect dependency-evidence \
+dotnet-inspect depends --package Newtonsoft.Json --tfm net8.0 \
+  -S Dependencies
+dotnet-inspect depends \
   --project ./src/DotnetInspect.Cli \
   --nuspec ./artifacts/package.nuspec \
-  -v:n
+  -S "Dependencies,Failures"
 dotnet-inspect implements IEquatable --project ./src/DotnetInspect.Cli -v:q
 dotnet-inspect extensions string --project ./src/DotnetInspect.Cli -v:q
 dotnet-inspect graph integrations \

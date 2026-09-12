@@ -385,6 +385,22 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void DependencyEvidenceCommand_IsRemovedButReserved()
+    {
+        var rootCommand = CommandLineBuilder.CreateRootCommand();
+        var result = rootCommand.Parse(
+            ["dependency-evidence", "--package", "System.Text.Json"]);
+
+        Assert.DoesNotContain(
+            rootCommand.Subcommands,
+            command => command.Name == "dependency-evidence");
+        Assert.NotEmpty(result.Errors);
+        Assert.Contains(
+            "dependency-evidence",
+            ArgumentPreprocessor.KnownCommands);
+    }
+
+    [Fact]
     public void TypeCommand_WithoutType_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "--package", "System.Text.Json"]);

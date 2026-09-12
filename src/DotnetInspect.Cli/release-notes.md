@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Breaking:** Removes the overlapping `dependency-evidence` command and the
+  positional type-to-library fallback from `depends`. Use `depends` with the
+  same explicit `--package`, `--nuspec`, `--project`, or `--package-prefix`
+  roots; select `Dependencies` for declaration evidence without transitive
+  traversal, and use explicit `--library` for library roots. The removed
+  command token remains reserved and reports this replacement instead of
+  entering implicit package routing (#5995).
 - **Breaking:** Makes restored-project package documents fully section-driven.
   `project --agents-index` and `project --readme <package-id>` are removed; use
   `-S Skills` or `-S "Package README file"` and add `--print --row N` to emit

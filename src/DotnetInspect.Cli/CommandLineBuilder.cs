@@ -230,6 +230,15 @@ public static class CommandLineBuilder
         ArgumentPreprocessor.SetLineWindow(
             headLines: null,
             tailLines: null);
+        if (rawArgs is not null
+            && ArgumentPreprocessor.TryGetRemovedCommandError(
+                rawArgs,
+                out string? removedCommandError))
+        {
+            CommandError.Write(removedCommandError!);
+            return 1;
+        }
+
         CliRowSelectionPreparation rowSelection;
         try
         {
@@ -549,11 +558,6 @@ public static class CommandLineBuilder
 
         // Depends command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateDependsCommand(opts));
-
-        // Dependency evidence command (normalized direct declarations, not a traversal)
-        rootCommand.Subcommands.Add(
-            DependencyEvidenceCommandDefinitions
-                .CreateDependencyEvidenceCommand(opts));
 
         // Extensions command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateExtensionsCommand(opts));
