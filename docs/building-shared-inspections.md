@@ -9,8 +9,8 @@ The goal is a host-neutral operation that:
 - accepts typed semantic intent rather than CLI tokens or browser state;
 - executes through the product's acquisition, Workspace, query, and section
   owners;
-- returns useful, safe, typed results with explicit identity, provenance,
-  completion, and failure;
+- returns useful, safe, typed primary content through a shared inspection
+  envelope with visible diagnostics;
 - lets each client control applicable sections, rows, work bounds, and
   presentation; and
 - needs only thin adaptation for the CLI, Browser/Wasm, or another future
@@ -19,7 +19,8 @@ The goal is a host-neutral operation that:
 This is an implementation guide, not another architecture owner. The normative
 composition is [Inspection operation composition](design/inspection-operation-composition.md).
 The layer boundary is [Inspection layers](design/inspection-layers.md), and the
-whole-product context is [Inspection Space](inspection-space.md).
+terminal result seam is [Inspection envelope](design/inspection-envelope.md).
+The whole-product context is [Inspection Space](inspection-space.md).
 [#6639](https://github.com/richlander/dotnet-inspect/issues/6639) uses this
 guide to assess and modernize every CLI command family and its applicable
 website experience.
@@ -34,7 +35,7 @@ CLI argv / Web gesture / restored Workspace definition
   -> typed subject and inspection intent
   -> House settlement and Workspace admission
   -> host-neutral query and section plans
-  -> typed resource-free result
+  -> InspectionEnvelope<TContent>
   -> CLI or Web projection
 ```
 
@@ -48,6 +49,8 @@ A successful capability usually has:
 - an L1 query that accepts content-shaped inputs and returns typed results;
 - an L2 inspection or section plan when the capability has user-visible
   sections, row sets, ordering, or shaping;
+- an `InspectionEnvelope<TContent>` carrying the unchanged owner-issued result
+  and typed diagnostics at the terminal host-neutral boundary;
 - PackageHouse, PlatformHouse, SourceHouse, DocumentationHouse, or another
   owning House when settlement crosses multiple lower owners;
 - a Workspace-backed execution path when multiple admitted artifacts,
@@ -122,6 +125,61 @@ The shared result is the leverage point. Make it rich enough that hosts can
 project useful experiences without reopening content or reverse-engineering
 display text.
 
+### Use the shared envelope baseline
+
+The final host-neutral operation returns
+`InspectionEnvelope<TContent>`. The CLI consumes that envelope as the shared
+minimum. Inspect Web consumes the same envelope and may compose additional
+owner-issued results and Browser-owned experience state around it.
+
+`TContent` remains the semantic result owned by the query, section, or focused
+inspection. The envelope does not replace its facts, rows, provenance,
+completion, or typed success and failure variants. Its initial common
+supplement is an immutable ordered diagnostic sequence.
+
+Use one envelope at the final shared boundary, not around every prerequisite
+query or intermediate. An operation with an L2 result envelopes that result;
+an operation with no L2 owner may envelope its final L1 result.
+
+For the same admitted content generation, exact subject, and semantic plan,
+the CLI and Web baseline content and diagnostics must agree. A broader Web
+experience requests additional shared content explicitly:
+
+```text
+CLI experience
+  InspectionEnvelope<SharedContent>
+
+Browser experience
+  InspectionEnvelope<SharedContent>
+  additional owner-issued result(s)
+  Share, navigation, interaction, and presentation
+```
+
+Do not add rows or facts privately to the shared `TContent`. Do not make a
+Browser transport DTO an alternate envelope. Browser composition may use CLR
+inheritance or containment, but it must preserve the baseline as one
+identifiable value; containment is normally simpler for generated transport
+contracts.
+
+Add envelope fields only for demonstrated cross-host concerns with one typed
+meaning. Do not add a generic metadata, extension, or action dictionary.
+
+### Publish typed diagnostics
+
+Use envelope diagnostics for cross-host disclosures that are not primary
+content rows, such as a rejected participant beside useful neighboring
+content, an uncertified target, or an owner-issued limitation.
+
+A diagnostic carries a stable owner-scoped code, severity, contained summary,
+and optional correspondence through an existing typed identity. The CLI may
+lower it to stderr or structured diagnostics; Web may use a notice or
+diagnostics surface. Neither host parses the summary to recover semantic
+meaning.
+
+Diagnostics do not determine success, completeness, retry, exit status, or
+navigation by themselves. They cannot replace a typed failure, turn failed
+execution into successful empty content, or change logical row selection.
+
 ### Retain typed meaning
 
 Use typed values for:
@@ -142,6 +200,9 @@ substitute for one.
 Return the useful result and its limitations together when partial evidence is
 meaningful. Return a typed non-success when no valid result exists.
 
+Use diagnostics to disclose supplemental limitations, not as a second failure
+model.
+
 Do not:
 
 - translate decode, acquisition, authorization, or execution failure into an
@@ -156,10 +217,10 @@ decides how to explain it; the query owns whether the answer is complete.
 
 ### Return resource-free data
 
-An L1 or L2 result that crosses the query boundary must not contain a live
-Workspace participant, metadata reader, stream, content lease, callback, or
-service. Execute while the host-owned operation or Workspace scope is valid,
-detach the result, then release the resource.
+An envelope and its primary L1 or L2 result must not contain a live Workspace
+participant, metadata reader, stream, content lease, callback, or service.
+Execute while the host-owned operation or Workspace scope is valid, detach the
+result and diagnostics, then release the resource.
 
 Use owner-issued references, receipts, identities, and immutable evidence for
 correspondence. Follow
@@ -352,6 +413,7 @@ same selected logical rows.
 | Concern | Shared product | CLI | Inspect Web |
 | --- | --- | --- | --- |
 | Facts and relationships | Typed producer/query result | Consume unchanged | Consume unchanged |
+| Terminal result | `InspectionEnvelope<TContent>` | Consume the baseline | Consume the same baseline and compose a broader experience |
 | Semantic request | Subject-specific plan | Lower argv | Lower gesture or restored state |
 | Source authority | Owner-issued capability contract | Desktop capabilities | Browser-authorized capabilities |
 | Workspace lifetime | Same admission and query semantics | Usually one operation | One retained active Workspace |
@@ -368,8 +430,9 @@ The CLI should:
 - resolve source and target identity once;
 - construct the shared query or section plan;
 - execute it through a command-owned lifetime;
-- lower typed results into Markout or another documented structured format;
-  and
+- consume the shared envelope, lowering primary content into Markout or another
+  documented structured format and diagnostics into the applicable diagnostic
+  channel; and
 - preserve typed failure distinctions in diagnostics and exit status.
 
 New commands use the current section, discovery, output-shape, and progressive
@@ -386,7 +449,9 @@ Inspect Web should:
 - construct the same plan from its typed gesture or view policy;
 - borrow the active Workspace only for the managed operation;
 - keep resource-bearing values behind the managed boundary;
-- transport typed detached data through the narrow owning facade;
+- transport the same baseline envelope through the narrow owning facade;
+- compose additional owner-issued content and Browser-only Share, navigation,
+  interaction, and presentation without mutating the baseline;
 - include complete request identity in cache and stale-result suppression;
 - keep failures visible in the owning inspector; and
 - add navigation and interactive rendering without changing semantic facts.
@@ -405,15 +470,18 @@ Use proportional evidence at each owned boundary.
    completion, and resource-free behavior.
 3. **L2 tests.** Gate section applicability, row units, selection, shaping,
    Count, and strict semantic failure.
-4. **CLI tests.** Gate syntax lowering, authorization, output modes,
-   diagnostics, and exit codes.
-5. **Inspect Web managed tests.** Gate Workspace use, participant selection,
+4. **Envelope tests.** Gate non-null primary content, deterministic typed
+   diagnostics, and baseline equality for equivalent plans and content
+   generations.
+5. **CLI tests.** Gate syntax lowering, authorization, output modes,
+   diagnostic lowering, and exit codes.
+6. **Inspect Web managed tests.** Gate Workspace use, participant selection,
    typed transport, and Browser/Wasm compatibility.
-6. **Inspect Web frontend tests.** Gate request identity, stale-result
+7. **Inspect Web frontend tests.** Gate request identity, stale-result
    suppression, visible failure, navigation, and presentation.
-7. **Neighboring case.** Show the closest valid case that must remain
+8. **Neighboring case.** Show the closest valid case that must remain
    unchanged.
-8. **Pathological case.** Demonstrate the ambiguity, bound, malformed input, or
+9. **Pathological case.** Demonstrate the ambiguity, bound, malformed input, or
    partial result that shaped the design.
 
 Run the smallest Release suites that prove the changed contracts. A test
@@ -431,6 +499,8 @@ repair the product evidence it claims to verify.
 | Reopen a path after Workspace selection | Query the admitted participant or owner-issued content |
 | Infer identity or provenance from labels | Preserve owner-issued typed correspondence |
 | Return `[]` after a decode or acquisition failure | Return typed failure or uncertified partial evidence |
+| Put diagnostics directly in each host DTO | Publish typed diagnostics in the shared envelope and lower them per host |
+| Add Browser facts to the shared content after execution | Request another owner-issued result and compose it around the unchanged baseline |
 | Apply `-n` to rendered lines or graph nodes | Declare and select the logical row unit in L2 |
 | Use a row window to reduce upstream work implicitly | Add a separately owned work-bound or delegation contract |
 | Serialize argv for sharing | Project portable semantic state through Workspace Definitions |
@@ -459,9 +529,9 @@ For each materially different command mode, classify these stages:
    and whether subjects are independent or intentionally composed.
 6. **Ecosystem context** — registrations, package sets, retrieval knowledge,
    Integration bindings, and consumer-selected breadth where relevant.
-7. **Information and presentation** — one typed result, Markout-backed CLI
-   lowering by default, deliberate Web transport/rendering, and consistent
-   logical rows across formats.
+7. **Information and presentation** — one shared envelope baseline,
+   Markout-backed CLI lowering by default, deliberate broader Web composition,
+   and consistent logical rows and diagnostics across hosts and formats.
 
 Each stage is:
 
@@ -486,7 +556,9 @@ command.
 ## Worked pattern: type relationships
 
 The first shared-operation pilot is
-[#6664](https://github.com/richlander/dotnet-inspect/pull/6664):
+[#6664](https://github.com/richlander/dotnet-inspect/pull/6664), with authentic
+package evidence added by
+[#6709](https://github.com/richlander/dotnet-inspect/pull/6709):
 
 - Metadata owns type-dependency facts and matched participant registration.
 - Queries owns population execution, exact participant selection, typed
@@ -503,6 +575,12 @@ The example is valuable because the hosts intentionally disagree about
 Workspace lifetime, exposed controls, transport, and rendering while agreeing
 on the semantic operation and result.
 
+[#6710](https://github.com/richlander/dotnet-inspect/issues/6710) tracks the
+successor adoption of `InspectionEnvelope<TypeDependencySectionResult>` or its
+design-approved equivalent. The CLI will consume that baseline directly.
+Inspect Web will consume the same dependency envelope and compose its
+Research-owned derived relationships and Browser experience around it.
+
 ## Definition of done
 
 A new command and website inspector are complete when:
@@ -514,6 +592,10 @@ A new command and website inspector are complete when:
 - L1 returns typed, safe, resource-free results with visible failure and
   completion;
 - L2 owns shared section, row, and shaping semantics where applicable;
+- the terminal shared result is an `InspectionEnvelope<TContent>` whose
+  primary content and diagnostics agree across hosts for an equivalent plan;
+- broader clients request and compose additional owner-issued content rather
+  than privately extending the baseline;
 - Execute, Discover, and Share are not conflated;
 - CLI and Web lower their gestures into the same host-neutral plans;
 - host-specific code is limited to authorization, lifetime, transport,
