@@ -96,7 +96,7 @@ Discover the stable IDs accepted by body queries:
 
 ```bash
 dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds" \
-  --columns "ID;Label" --rows 5 --table
+  --columns "ID;Label" -n 5 --table
 ```
 
 Then use one as a typed predicate. `Kind=...` auto-selects `Body Shapes`, while
@@ -318,7 +318,7 @@ dotnet-inspect type -Q "Body Shapes"
 dotnet-inspect library -Q "Performance: Arrays" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect vocabulary -D
-dotnet-inspect vocabulary -S "C# Body Kinds" --rows 10
+dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations

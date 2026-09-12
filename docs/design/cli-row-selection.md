@@ -10,8 +10,10 @@ This document owns the `dotnet-inspect` command-line grammar and lowering
 boundary for semantic row selection and rendered-line selection. The package
 `--versions` and `--versions-with-feed` lenses adopt the Head/Tail, Window, and
 Lines subset. The finite `demo list` catalog and the equivalent bare `demo`
-listing adopt the same subset; other command surfaces retain their existing
-contracts.
+listing adopt the same subset. `vocabulary` value rendering adopts Head/Tail
+and Window without rendered-line selection; its `-D` structural discovery
+retains the existing discovery-row window contract. Other command surfaces
+retain their existing contracts.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -27,8 +29,9 @@ issue #6327 constructs candidates from the real package, library, type, and
 member commands and each selected lens declaration, then runs the envelope
 before the commandless router enters target acquisition. #6379 adopts the
 finite product-demo catalog for explicit `demo list` and equivalent bare
-`demo` listing. Remaining command adoptions and shared universal guidance
-remain unimplemented.
+`demo` listing. #6643 adopts product-vocabulary value rows across selected
+sections. Remaining command adoptions and shared universal guidance remain
+unimplemented.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -165,9 +168,10 @@ explicit-occurrence lowerer therefore owns repeated-gesture failure. The
 adapter preserves parser errors and structured row-arity failures but does not
 yet select or render the one diagnostic when both exist.
 
-This adapter is installed only for the plural package-version lenses. Existing
-rendered-line compatibility behavior for other command surfaces and the
-general implicit-routing envelope remain unchanged.
+This adapter is installed only for explicitly registered command or lens
+adoptions: the plural package-version lenses, demo listing, ecosystem catalog,
+and vocabulary value rendering. Existing behavior for unregistered command
+surfaces and the general implicit-routing envelope remains unchanged.
 
 Existing options-first implicit package routing preserves direction-modifier
 presence arity when a prospective package parse owns the selected plural lens.
@@ -594,6 +598,26 @@ $ dotnet-inspect demo list -n 2 --rows 2..3 --json
 Error: Demo row selection stage 2 requires row 3, but only 2 demo rows are available.
 ```
 
+## Vocabulary adoption
+
+`vocabulary` declares one row per stable product-owned value in each selected
+vocabulary section. Every participating section is a separate named sequence
+in owner catalog order. Head/Tail and Window stages apply independently to all
+of them before count or format lowering; one strict Window failure withholds
+every selected section.
+
+```console
+$ dotnet-inspect vocabulary -S Accessibility -n 2 --tail --columns ID --tsv
+id
+internal
+private
+```
+
+The command does not expose Lines, Top, or `--order-by`. Predicate and ranking
+adoption waits for the shared row-query owner rather than adding a
+vocabulary-local implementation. Structural `-D` output remains outside this
+adoption and keeps the existing discovery projection behavior.
+
 ## Required gates
 
 All gates run in Release. New gates are **unverified** until implemented.
@@ -659,6 +683,12 @@ The demo-list adoption is enforced by:
 | Gate | Property |
 | --- | --- |
 | `DemoCommandTests` | Explicit `demo list` and equivalent bare `demo` apply semantic Head/Tail and ordered Window stages to complete catalog descriptors before JSON or Markout projection; every format observes the same selected demo identities; strict Window failure emits no partial payload; JSON rejects rendered-line clipping; scenario execution remains non-adopted. |
+
+The vocabulary adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `VocabularyCommandTests` | Explicit `vocabulary` value rendering applies semantic Head/Tail and ordered Window stages to stable catalog rows before count or format lowering; bare `-N` and explicit `-n` select the same identities, multiple selected sections remain independent named sequences, and one strict Window failure emits no partial document. Structural discovery retains its existing projection path. |
 
 The remaining implementation must satisfy:
 
