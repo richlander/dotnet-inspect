@@ -358,14 +358,16 @@ executable IDs before constructing a query:
 
 ```bash
 dotnet-inspect find -Q Packages
-dotnet-inspect find --package-prefix dotnet-inspect -S Packages \
+dotnet-inspect find --package-prefix dotnet-inspect --package-content -S Packages \
   --where "facet=package.query.dotnet-tool" --candidates 5 --matches 5
 dotnet-inspect find --package-prefix dotnet-inspect --package-content \
   --where "facet=package.query.dotnet-tool-v2" --candidates 5 --matches 5 --jsonl
 ```
 
 Repeat `--where` to combine facets; the engine rejects incompatible selections.
-Tool v1 and v2 are compatible alternatives. `--candidates` bounds candidate
+The broad tool facet reports CLI v1, CLI v2, or unrecognized settings from
+`DotnetToolSettings.xml`; tool v1 and v2 are compatible filtering alternatives.
+`--candidates` bounds candidate
 work (default 200), while `--matches` stops after matching packages (default
 100); each has a CLI maximum of 1,000. Content facets require
 `--package-content`, which defaults to and permits at most 20 candidates.
