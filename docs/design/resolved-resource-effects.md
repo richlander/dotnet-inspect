@@ -844,6 +844,10 @@ The implementation gate must cover:
   non-implementation and a public same-signature decoy beside an explicit
   `MethodImpl` receive no propagated effect, and ambiguous, unsupported, or
   incomplete relation evidence prevents completeness;
+- a constructed generic interface exercising both implicit and explicit
+  implementation matching after exact `InterfaceImpl` type-argument
+  substitution, with a decoy that would match only under the unsubstituted or
+  incorrectly substituted slot remaining `NotApplicable`;
 - separately retained copies with equal assembly/MVID/token values producing
   distinct participant-qualified physical invocation sites;
 - unresolved calls retaining physical site identity without a selected
