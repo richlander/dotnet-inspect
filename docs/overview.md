@@ -519,6 +519,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Inspection envelope](design/inspection-envelope.md): host-neutral terminal
+  wrapper preserving owner-issued primary content and typed cross-host
+  diagnostics while broader clients compose additional results and experience
+  state separately.
 - [Library family boundaries](design/library-family-boundaries.md): subject
   families for shared inspection substrate, compiled-program inspection,
   ecosystem composition, independent domains, and product hosts.
