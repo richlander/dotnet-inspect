@@ -1368,15 +1368,25 @@ the concrete resolved occurrence, not declaration admission.
 
 ## Evidence plan
 
-This design is specification-only. Runtime and Analysis properties remain
-**unverified** until their named implementation slices add Release gates.
+The source-neutral parser and declaration-admission boundary are implemented in
+`ILInspector.Analysis`. Their Release gate is:
+
+```bash
+dotnet run --project tests/ILInspector.Analysis.Tests -c Release -- \
+  --filter-class '*ResourceEffectLanguageTests'
+```
+
+Carrier-specific attribute extraction, JSON decoding, concrete metadata
+resolution, and lifecycle Analysis properties remain **unverified** until their
+named implementation slices add Release gates.
 
 The language admission gates must establish:
 
-- bounded parsing and all-or-nothing validation for attribute and JSON inputs;
-- exact version, carrier placement, selector structure, generic scope,
+- bounded parsing and all-or-nothing validation for statement and typed C#
+  model inputs;
+- exact version, target placement, selector structure, generic scope,
   signature terms, and ref-kind representation;
-- equal admitted declarations from equivalent attribute and JSON models;
+- equal admitted declarations from equivalent statement and typed C# models;
 - explicit malformed, unknown-version, unresolved-local-reference, and
   work-budget outcomes;
 - no inspected-assembly loading or executable model extension;
