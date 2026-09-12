@@ -125,21 +125,255 @@ definition of enumeration support.
 
 ## Command placement
 
+For this exploration, assume the standalone `ecosystem`, `extensions`,
+`implements`, and `depends` commands are removed after replacement coverage is
+demonstrated. Preserve their useful workflows, not their command tokens.
+
 | Surface | Target role |
 | --- | --- |
-| `find` | Locate packages, libraries, types and members, with exact reopening context. Ecosystem selection narrows its candidate population. |
+| `find` | Discover ecosystem catalog records and locate packages, libraries, types and members, with exact reopening context. Ecosystem selection narrows its candidate population. |
 | Subject commands plus `@Relations` | Primary single-subject relation experience, with the subject's existing resolution and sharing path. |
-| `ecosystem` | Discover configured ecosystems, contributions and availability; it is not a second artifact-inspection command. |
-| `graph` | Retain independently useful peer-seed, induced-set and path questions that do not start from one subject. |
-| `depends` | Retain the independently useful multi-root package/project dependency workflow; migrate duplicated single-type navigation to subject relations. |
-| `extensions`, `implements` | Migrate their single-subject discovery roles to the locator/Relations path; retire those routes after demonstrated parity. |
+| Subject shortcut flags | High-value entry points such as `--depends` select the subject's section preset, rather than starting another resolver or inspection pipeline. |
+| `graph` | Retain independently useful peer-seed, induced-set and path questions. A section-backed dependency mode can host the existing heterogeneous root-set workflow. |
+| Removed verbs | Ecosystem catalog discovery moves to `find`; extension and implementer discovery move to subject sections; dependencies move to subject sections or the explicit root-set graph mode. |
 
 A top-level verb per relation is initially easy to discover but repeats
-coordinate binding, defaults, filters, scope and sharing. Keeping every verb
-as a permanent alias would preserve that cognitive cost. Conversely, forcing
-multi-root dependency or peer-graph questions through an arbitrary fake subject
-would make the subject model worse. Retirement follows these distinctions,
-not a blanket ban on top-level commands.
+coordinate binding, defaults, filters, scope and sharing. That is not a ban on
+shortcuts: a flag or focused command can earn its place by exposing a useful
+section-backed workflow. Its underlying sections remain discoverable and
+queryable through the ordinary system. A shortcut must not become the only
+way to access its evidence.
+
+Conversely, forcing multi-root dependency or peer-graph questions through an
+arbitrary fake subject would make the subject model worse. Removing `depends`
+therefore requires both a convenient single-subject path and a complete
+root-set replacement, not just renaming its type mode.
+
+## Worked example: replace the verbs, keep the workflows
+
+Imagine inspecting an unfamiliar Aspire application: discover the ecosystem,
+find provider APIs, inspect the contracts they extend or implement, then ask
+what the package and application depend on. **Before** blocks use current
+command shapes; **after** blocks are proposed UX, not executable product
+documentation. New section, facet and shortcut spellings are illustrative.
+The existing command contracts remain authoritative until their owners adopt
+these replacements.
+
+### Discover Aspire, then inspect its APIs
+
+Before, ecosystem knowledge and artifact discovery use separate verbs:
+
+```console
+dotnet-inspect ecosystem
+dotnet-inspect ecosystem aspire
+dotnet-inspect ecosystem aspire -S Integrations
+dotnet-inspect find AddRedis --members --package Aspire.Hosting.Redis@13.5.3
+```
+
+After, start with the locator's catalog sections, then select a search
+population:
+
+```console
+dotnet-inspect find -S Ecosystems
+dotnet-inspect find --ecosystem aspire -S "Ecosystem Info"
+dotnet-inspect find --ecosystem aspire -S "Integration Concepts"
+dotnet-inspect find --ecosystem aspire
+dotnet-inspect find AddRedis --members --ecosystem aspire
+```
+
+The first three requests read configured knowledge without package
+acquisition. `Integration Concepts` replaces the catalog meaning of today's
+`ecosystem ... -S Integrations`; it is not an API inventory. Core/tool packages,
+namespace hints, demos and availability remain discoverable catalog sections
+on `find`, rather than disappearing with the verb. The fourth request
+discovers package/library roots; the fifth finds members in that population.
+Those last two requests may need bounded, source-authorized acquisition.
+
+Select the exact AddRedis overload from the locator. Its copyable subject
+command retains the provider package, TFM, selected library and member anchor.
+For example, the previously inspected overload can be reopened as:
+
+```console
+dotnet-inspect member Aspire.Hosting.RedisBuilderExtensions \
+  --package Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
+  -m AddRedis~7618364a03 -S @Relations
+dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
+  -S Integration --where "ecosystem=ecosystem.aspire"
+```
+
+The provider inventory includes AddRedis and Redis resource types. On the
+member, an outgoing extension-receiver row identifies
+`IDistributedApplicationBuilder`; a caller search may separately find an
+AppHost invocation when that local consumer is in the candidate population.
+Selecting the provider package does not make it the complete caller corpus.
+
+### Replace extensions and implements with focused subject views
+
+Before:
+
+```console
+dotnet-inspect extensions HttpClient --platform
+dotnet-inspect implements IDisposable --platform
+dotnet-inspect implements Stream --platform
+```
+
+After locating each exact type, select its focused relation section:
+
+```console
+dotnet-inspect type HttpClient --platform System.Net.Http -S Extensions
+dotnet-inspect type IDisposable --platform System.Private.CoreLib -S Implementers
+dotnet-inspect type Stream --platform System.Private.CoreLib -S "Derived Types"
+```
+
+Illustrative answers include `HttpClientJsonExtensions` receiver declarations,
+`MemoryStream` as an IDisposable implementation, and `MemoryStream` as a Stream
+subclass. These are three evidence readings, not three coordinate grammars.
+The focused sections are projections over the same owner-issued relations as
+`Relations`; `-Q` discloses their applicable relation and evidence filters.
+They preserve the current concrete-type and inherited-interface semantics,
+not merely a filter over direct one-hop declarations.
+
+The old examples explicitly search platform candidates. The proposed examples
+pin the focus's platform library but leave relation candidates broad by default.
+For the subject-continuity comparison, explicitly select the same finite
+platform population on both sides; measure the extra ecosystem results
+separately as the breadth experiment.
+
+Reachable extension discovery must survive too: the replacement of
+`extensions HttpClient --platform --reachable --depth 2` is the same focused
+type request with `-S Extensions --reachable --depth 2`. The existing producer
+still owns reachable-type selection and its depth; a generic one-hop receiver
+filter is not a replacement for that workflow. View-specific traversal is
+explicit and does not deepen every other Relations section.
+
+### Replace depends without hiding the dependency question
+
+Start with the real package already selected, rather than entering a
+relationship command and resupplying that package as a root:
+
+```console
+# Before: direct declarations, then a bounded dependency graph.
+dotnet-inspect depends --package Aspire.Hosting.Redis@13.5.3 \
+  --tfm net8.0 -S Dependencies
+dotnet-inspect depends --package Aspire.Hosting.Redis@13.5.3 \
+  --tfm net8.0 --depth 2 --tree
+
+# After: the same package, selecting evidence or graph sections.
+dotnet-inspect package Aspire.Hosting.Redis@13.5.3 \
+  --tfm net8.0 -S Dependencies
+dotnet-inspect package Aspire.Hosting.Redis@13.5.3 \
+  --tfm net8.0 -S "Dependency Graph" --depth 2 --tree
+```
+
+The declaration view retains requested version ranges and target groups. The
+graph retains owner-resolved endpoints, paths and partial failures; it must
+not relabel a version constraint as a resolved version. The replacement
+consumes the existing dependency evidence/traversal result, not a new
+package-specific approximation.
+
+For frequent use, propose **`--depends` as shorthand for `-S @Dependencies`**
+on all four subjects:
+
+```console
+dotnet-inspect package Aspire.Hosting.Redis@13.5.3 --tfm net8.0 --depends
+dotnet-inspect library ./AppHost.dll --depends
+dotnet-inspect type RedisResource \
+  --package Aspire.Hosting.Redis@13.5.3 --tfm net8.0 --depends
+dotnet-inspect member Aspire.Hosting.RedisBuilderExtensions \
+  --package Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
+  -m AddRedis~7618364a03 --depends
+```
+
+The category is a subject-specific outward dependency preset, not a claim that
+all four subjects have package dependencies:
+
+| Subject | Backing evidence and reading |
+| --- | --- |
+| Package | Package dependency graph, declarations and failures from the existing dependency operation. |
+| Library | Assembly references and their supported traversal, retaining unresolved references. |
+| Type | Base-type/interface dependency hierarchy; for RedisResource, its resource contract relationships. |
+| Member | Outgoing static calls; for the selected AddRedis overload, its implementation calls rather than its incoming callers. This is not a complete inventory of every field, type or runtime service the member could use. |
+
+Existing focused names such as `Dependencies`, `References` and `Calls`
+remain useful. Category adoption cross-lists the relevant sections rather than
+requiring another producer. The shortcut retains their disclosed depth and
+evidence semantics: package graph traversal and type hierarchy traversal do
+not become direct-only tables, nor do direct member calls silently become a
+transitive call graph. Use an explicit graph section and its depth controls
+when that is the question. Transitive graph sections are not automatically
+added to the one-hop `@Relations` view.
+
+The exact counterpart of each `--depends` request is the same command with
+`-S @Dependencies`. Selecting only `Dependencies` on the package still avoids
+transitive acquisition. This difference remains visible in discovery rather
+than being hidden behind the convenient flag.
+
+### Preserve the multi-root case
+
+There is no honest single package or type for a restored project, a nuspec and
+a provider package taken together. A candidate replacement uses the existing
+graph host with a dependency preset:
+
+```console
+# Before.
+dotnet-inspect depends \
+  --project ./AppHost/AppHost.csproj --nuspec ./artifacts/App.nuspec \
+  --package Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
+  -S "Dependency Graph,Dependencies,Failures" --depth 2
+
+# After: proposed section-backed root-set mode.
+dotnet-inspect graph dependencies \
+  --project ./AppHost/AppHost.csproj --nuspec ./artifacts/App.nuspec \
+  --package Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
+  -S "Dependency Graph,Dependencies,Failures" --depth 2
+```
+
+This is a traversal, not the induced-set semantics of `graph integrations`.
+The dependency mode consumes the existing typed root-set request and
+sectioned result. It preserves repeatable package/library/project/nuspec
+roots, exclusive bounded package-prefix discovery, shared-target edges,
+root-relative depth, direct-evidence-only selection, per-root failures,
+exit status, and tree/Mermaid/tabular/JSON projections. A missing nuspec must
+remain a failed root beside usable package evidence; no implicit restore or
+build occurs.
+
+The [Dependency inspection command owner](dependency-inspection-command.md)
+currently places this operation under `depends`. Adopting the new entry point
+belongs there; this worked example does not override its admission, traversal
+or evidence contracts. If this mode cannot preserve them, removing `depends`
+is blocked. Moving only its easy single-root cases is not retirement parity.
+
+### Shortcuts remain part of the section system
+
+Discovery is useful even when the first command someone learns is a shortcut:
+
+```console
+dotnet-inspect package -D @Dependencies
+dotnet-inspect package -Q @Dependencies
+dotnet-inspect type -D @Relations
+dotnet-inspect type -Q Extensions
+dotnet-inspect library -Q Integration
+dotnet-inspect find -D "Integration Concepts"
+dotnet-inspect graph dependencies -D
+dotnet-inspect graph dependencies -Q "Dependency Graph"
+```
+
+These are separate discovery requests, not `-Q` combined with execution.
+Help advertises a shortcut's canonical section expansion; `-D` exposes the
+backing sections and `-Q` their actually supported query capabilities,
+including an explicit no-operators result when appropriate. Discovery does
+not acquire an ecosystem corpus or run the dependency traversal.
+
+A shortcut lowers through the same subject/root binding, section selection,
+typed query, coverage, errors and rendering as its expanded spelling.
+Ordinary `--where`, projection, row limits, output formats and `--share`
+therefore apply where that backing section supports them; no shortcut grants
+additional capabilities or bypasses a non-projectable sharing outcome.
+Conflicting explicit section selections follow the section-binding owner's
+visible diagnostic rather than silently choosing one route. A future
+`--extensions` shortcut could follow the same pattern if usage warrants it.
+This is permission for high-value shorthand, not a requirement to recreate
+every removed verb as an alias.
 
 ## One subject, a separate population
 
@@ -375,6 +609,7 @@ map, not a specification of the participating components' internals.
 | Metadata | Hierarchy, extension, reference and signature producers must issue exact typed endpoints; name matching alone is not endpoint correspondence or general assignability. |
 | Analysis | [Pair call-use](pairwise-library-call-use.md) supplies physical invocation evidence and static-target qualifications; keep Metadata-to-call-node correspondence owner-issued. |
 | Integration | [Integration](integrations.md) supplies concepts, classified currency and opportunity evidence; adopt annotations on composed declaration/use evidence without redefining call semantics. |
+| Dependencies | [Dependency inspection](dependency-inspection-command.md) owns the current root-set operation and section/traversal contract; adopt subject presets and a graph-host entry point before retiring `depends`. Existing package/restored-project evidence and traversal owners remain unchanged. |
 | Language patterns | A focused producer must own candidate identity, checked shape and applicability limits before pattern rows can enter the view. |
 | Graph / Relations composition | [Graph documents](inspection-graph-document.md) and [modes](inspection-graph-modes.md) retain canonical endpoints/occurrences; this owner selects and composes evidence relative to the focused subject and population. |
 | Presentation / hosts | [Output shapes](output-shapes.md) lower one typed row set; CLI and browser consume shared results and coverage rather than inferring relations from text. |
@@ -406,7 +641,7 @@ The 2026-09-11 CLI probes used released `0.25.0+473d56a` and current-main
 | --- | --- |
 | `library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S "Integration: Aspire"` returns resource types and `AddRedis`; a bare copy gives the same inventory. | Preserve useful provider discovery, but do not call it consumer-use evidence. |
 | A compiled Aspire AppHost calling `AddRedis` has no rows in that Integration section. Main's `graph libraries` reports `Program.<Main>$` calling the exact overload at `IL_0016`. | Composition must join distinct provider and invocation evidence. |
-| Main's `ecosystem aspire -S Integrations` reports the configured Aspire binding, not concrete APIs. | Keep catalog discovery distinct from artifact inventory. |
+| Main's `ecosystem aspire -S Integrations` reports the configured Aspire binding, not concrete APIs. | Preserve that catalog evidence in Find sections, distinct from artifact inventory. |
 | Prefix discovery works, while direct prefix/curated-set Integration scope is not wired. The shipped four-package Integration graph example returns 91 relationships. | Reuse working producers and explicit-set composition; make population handoff first-class. |
 
 Real motivating assets for implementation are
@@ -448,9 +683,9 @@ unreviewable changes inside a nominal slice.
 | 10 | Shared Subject Relations query composition over adopted producers. |
 | 11 | Shared typed section projection and Markout format lowerings. |
 | 12 | Workspace Definitions adoption for portable relation views and locator context. |
-| 13 | CLI locator, subject category, Integration view, queries, sharing and focused ecosystem skill adoption. |
+| 13 | CLI locator/catalog sections, subject categories, Integration view, section-backed shortcuts and dependency root-set mode, queries, sharing and focused ecosystem skill adoption. |
 | 14 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results. |
-| 15 | Retire superseded single-subject routes and per-ecosystem sections after parity and disclosure. |
+| 15 | Retire `ecosystem`, `extensions`, `implements`, `depends` and per-ecosystem Integration sections after catalog, single-subject and root-set parity and disclosure. Coordinate existing `dependency-evidence` retirement with its owner. |
 
 CLI adoption is step 13 and website adoption step 14; neither is optional
 for this shared substrate. Step 15 is part of completion. Producers may ship
@@ -478,7 +713,8 @@ the named adoption gates run in Release:
 | Pattern qualification | IEnumerable/List and Span-style candidates differ correctly; unsuitable or ambiguous GetEnumerator shapes are rejected or qualified, not certified as compilable. |
 | Format and host correspondence | CLI formats and browser consume identical logical edges, occurrence associations and coverage; windowing does not change query completeness or row meaning. |
 | Sharing fidelity | A portable narrowed Relations view restores the same registrations, focus and filters; an unprojectable local/private case reports the actual limitation. |
-| Retirement parity | Migrated extension, implementer and type-dependency workflows retain required results, bounds and diagnostics before their old routes disappear. |
+| Shortcut equivalence | Each `--depends` request and its `-S @Dependencies` expansion preserve the same focus, population, selected producers, evidence, bounds, errors and output. `-D` exposes those sections; `-Q` describes only executable query bindings without running producers. |
+| Retirement parity | Find retains ecosystem catalog evidence without acquisition. Migrated extension/reachable-extension, implementer/subclass and type-hierarchy workflows retain their results and bounds. Single- and mixed-root dependency replacements preserve declarations, traversal, unresolved targets, partial failures, exit status and formats before their old routes disappear. |
 
 Use the smallest real-asset and boundary fixtures proving these outcomes.
 Do not harden trusted internal callers as though they were adversaries.
