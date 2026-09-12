@@ -175,11 +175,12 @@ substrates, and inspection producers that will extend that space.
   leases, while session settlement drains children and scoped accesses before
   releasing source acquisition resources.
 - [Resource Effect Language](design/resource-effect-language.md) owns the
-  portable compiled-attribute and JSON declaration language, exact structural
-  API matching, declaration validation and provenance, and normalization into
-  resource-neutral effects. ArrayPool and repository ownership declarations
-  enter the same lifecycle engine through this boundary; the language owns no
-  control-flow or Finding policy.
+  portable compiled-attribute and JSON declaration language, structural
+  selectors, bounded source admission, local declaration validation and
+  provenance, and immutable admitted declarations. Concrete metadata matching
+  and occurrence-local compatibility are assigned to the planned Analysis-owned
+  [Resolved Resource Effects](https://github.com/richlander/dotnet-inspect/issues/6728)
+  successor; the language owns no control-flow or Finding policy.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its
@@ -519,6 +520,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Inspection envelope](design/inspection-envelope.md): host-neutral terminal
+  wrapper preserving owner-issued primary content and typed cross-host
+  diagnostics while broader clients compose additional results and experience
+  state separately.
 - [Library family boundaries](design/library-family-boundaries.md): subject
   families for shared inspection substrate, compiled-program inspection,
   ecosystem composition, independent domains, and product hosts.
