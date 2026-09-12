@@ -96,9 +96,13 @@ public sealed partial class BrowserEngineBoundaryTests
                     [
                         PackageQuery.ToolFacetId,
                         PackageQuery.NoDependenciesFacetId,
-                    ]))).Plan;
+                    ],
+                    MaximumCandidates:
+                        PackageQuery.MaximumPackageContentCandidates))).Plan;
 
-        Assert.Equal(PackageQueryFacetTier.Nuspec, plan.Facets[0].Tier);
+        Assert.Equal(
+            PackageQueryFacetTier.PackageContent,
+            plan.Facets[0].Tier);
         Assert.Equal(
             [
                 PackageQuery.ToolFacetId,
@@ -5471,6 +5475,28 @@ public sealed partial class BrowserEngineBoundaryTests
                 $"{surfaceAsset.AssemblyName}:{typeof(BrowserEngineBoundaryTests).FullName}",
                 type.GetProperty("id").GetString());
             Assert.Single(type.GetProperty("api").EnumerateArray());
+
+            string declarationJson =
+                await DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberDeclaration(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    surfaceAsset.Id,
+                    typeof(BrowserEngineBoundaryTests).FullName!,
+                    method.Name,
+                    "stale-selector",
+                    method.MetadataToken,
+                    implementationMember: true);
+            using JsonDocument declarationDocument =
+                JsonDocument.Parse(declarationJson);
+            Assert.Equal(
+                JsonValueKind.String,
+                declarationDocument.RootElement
+                    .GetProperty("text").ValueKind);
+            Assert.Equal(
+                JsonValueKind.Null,
+                declarationDocument.RootElement
+                    .GetProperty("unavailable").ValueKind);
         }
     }
 

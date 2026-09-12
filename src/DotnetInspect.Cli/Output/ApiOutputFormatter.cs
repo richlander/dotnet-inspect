@@ -1037,7 +1037,28 @@ public static class ApiOutputFormatter
             return;
 
         var member = type.Members[0];
-        var sigDisplay = FormatMemberDeclaration(type, member, abbreviate: false);
+        CSharpMemberDeclarationOutcome declaration =
+            new CSharpFormatter(new CSharpFormatOptions
+            {
+                MemorySafetyLanguage =
+                    CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+            }).FormatMemberOutcome(type, member);
+        string sigDisplay;
+        string? unavailable;
+        switch (declaration)
+        {
+            case CSharpMemberDeclarationOutcome.Rendered rendered:
+                sigDisplay = MarkoutInline.Code(rendered.Declaration.Text);
+                unavailable = null;
+                break;
+            case CSharpMemberDeclarationOutcome.NotRendered notRendered:
+                sigDisplay = "Unavailable";
+                unavailable = notRendered.Diagnostic.Message;
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "CSharp returned an unknown member declaration outcome.");
+        }
         var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
 
         var docsRequested = options.ShowDocs
@@ -1047,11 +1068,12 @@ public static class ApiOutputFormatter
         view.SignatureRows =
         [
             new MemberSignatureRow(
-                MarkoutInline.Code(sigDisplay),
+                sigDisplay,
                 MarkoutInline.Code(anchor.Fingerprint),
                 MarkoutInline.Code(anchor.CanonicalSignature),
                 SignatureDecodeMarker(member),
-                description)
+                description,
+                unavailable)
         ];
     }
 

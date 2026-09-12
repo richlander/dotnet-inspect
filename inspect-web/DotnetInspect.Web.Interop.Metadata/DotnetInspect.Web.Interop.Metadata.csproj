@@ -16,6 +16,7 @@
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.CSharp\ILInspector.CSharp.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
   </ItemGroup>
