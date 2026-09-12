@@ -38,6 +38,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [CLI Workspace Sharing](design/cli-workspace-sharing.md) | Common `--share` projection of an inspection command's effective resolved state to a canonical Workspace packet or Inspect Web URL, without a second Workspace-construction grammar. |
 | [Inspection Plan Projections](design/inspection-plan-projections.md) | Shared resolved inspection basis with distinct typed plans for section execution, effective-section discovery, and portable sharing. |
 | [Inspection Operation Composition](design/inspection-operation-composition.md) | Cross-host sequencing of semantic intent, House and Workspace resolution, terminal purpose, query/section/row/work plans, typed results, and host-specific projection. |
+| [Inspection Envelope](design/inspection-envelope.md) | Shared terminal wrapper that preserves owner-issued primary content while carrying typed cross-host diagnostics and supporting broader host composition. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
 | [CLI Option-Value Validation](design/cli-option-value-validation.md) | Shared zero-arity diagnostics that preserve positional ownership and command-owned capacity. |
@@ -79,6 +80,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 
 | Document | Need served |
 | -------- | ----------- |
+| [Building Shared Inspections](building-shared-inspections.md) | Prescriptive path from a real product question through Houses, Workspaces, L1 queries, L2 inspection plans, typed results, and thin CLI/Inspect Web adapters. |
 | [Style Guide](design/style-guide.md) | Output formatting conventions. |
 | [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
 | [Body Shape Views](design/body-shape-views.md) | Explicit counted summaries and locatable rendered-syntax occurrences. |
