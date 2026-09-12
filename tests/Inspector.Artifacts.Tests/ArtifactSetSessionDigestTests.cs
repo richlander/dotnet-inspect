@@ -185,7 +185,7 @@ public sealed partial class ArtifactSetSessionTests
     }
 
     [Fact]
-    public async Task Digest_CancellationRemainsCancellationAndCompletedWorkIsMemoized()
+    public async Task Digest_CompletedWorkWinsLaterCancellationAndIsMemoized()
     {
         await using var session = new ArtifactSetSession();
         ArtifactIdentity identity = await PublishDigestFixture(session, [1, 2]);
@@ -197,7 +197,7 @@ public sealed partial class ArtifactSetSessionTests
             identity, lease, _ => Assert.Fail("Cancelled charge."), cancellation.Token));
         using var duringPass = new CancellationTokenSource();
         int charges = 0;
-        Assert.Throws<OperationCanceledException>(() => session.GetContentDigest(
+        AccessedDigest(session.GetContentDigest(
             identity, lease, _ =>
             {
                 charges++;
