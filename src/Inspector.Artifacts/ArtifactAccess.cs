@@ -229,7 +229,6 @@ public sealed class RetainedArtifactContent
                 Registration.Artifact,
                 _snapshot.AsSpan()),
             cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
         return new ArtifactContentAccessOutcome<TResult>.Accessed(result);
     }
 
@@ -251,8 +250,16 @@ public sealed class RetainedArtifactContent
                 Registration.Artifact,
                 _snapshot.AsSpan()),
             cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
         return new ArtifactContentAccessOutcome<TResult>.Accessed(result);
+    }
+
+    internal ImmutableArray<byte> Snapshot
+    {
+        get
+        {
+            EnsureSnapshot();
+            return _snapshot;
+        }
     }
 
     private void EnsureSnapshot()
