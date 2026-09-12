@@ -362,15 +362,19 @@ public static partial class PackageQuery
             new PackageQueryFacetDescriptor(
                 ToolFacetId,
                 ".NET Tool",
-                "The package manifest declares the .NET tool package type.",
+                "Downloads the package and inspects its .NET tool CLI format.",
                 200,
-                PackageQueryFacetTier.Nuspec,
+                PackageQueryFacetTier.PackageContent,
                 ToolSelectionGroupId,
                 ToolDisplayGroupId,
                 ".NET tool format"),
             static match => match.RequiredManifest.IsToolPackage,
-            static (_, _) => Describe(
-                "The package manifest declares a .NET tool package.")),
+            static (_, content) => DescribeToolFormat(
+                (content
+                    ?? throw new InvalidOperationException(
+                        ".NET tool evidence requires package-content facts."))
+                    .ToolSettingsVersion),
+            static _ => true),
         new(
             new PackageQueryFacetDescriptor(
                 ToolV1FacetId,
@@ -385,8 +389,7 @@ public static partial class PackageQuery
                 CombinesWithinSelectionGroup = true,
             },
             static match => match.RequiredManifest.IsToolPackage,
-            static (_, _) => Describe(
-                "DotnetToolSettings.xml declares the portable .NET tool v1 format."),
+            static (_, _) => DescribeToolFormat("1"),
             static content => content.ToolSettingsVersion == "1"),
         new(
             new PackageQueryFacetDescriptor(
@@ -402,8 +405,7 @@ public static partial class PackageQuery
                 CombinesWithinSelectionGroup = true,
             },
             static match => match.RequiredManifest.IsToolPackage,
-            static (_, _) => Describe(
-                "DotnetToolSettings.xml declares the RID-specific .NET tool v2 format."),
+            static (_, _) => DescribeToolFormat("2"),
             static content => content.ToolSettingsVersion == "2"),
         new(
             new PackageQueryFacetDescriptor(
@@ -942,7 +944,7 @@ public static partial class PackageQuery
                 {
                     continue;
                 }
-                evidence.Add(CreateFacetEvidence(candidate, match, null));
+                AddFacetEvidence(candidate, match, null, evidence);
             }
         }
 
@@ -990,7 +992,7 @@ public static partial class PackageQuery
 
             foreach (PackageQueryFacetDefinition candidate in matched)
             {
-                evidence.Add(CreateFacetEvidence(candidate, match, content));
+                AddFacetEvidence(candidate, match, content, evidence);
             }
         }
 
@@ -1007,7 +1009,8 @@ public static partial class PackageQuery
         bool needsSkills = definitions.Any(definition =>
             definition.Descriptor.Id == EmbeddedSkillFacetId);
         bool needsToolSettings = definitions.Any(definition =>
-            definition.Descriptor.Id is ToolV1FacetId or ToolV2FacetId);
+            definition.Descriptor.Id
+                is ToolFacetId or ToolV1FacetId or ToolV2FacetId);
         PackageQueryEvidenceSummary? skills = needsSkills
             ? SummarizeItems(entries.Where(IsSkillDocument), StringComparer.Ordinal)
             : null;
@@ -1137,6 +1140,18 @@ public static partial class PackageQuery
             "dependency",
             "dependencies");
 
+    static PackageQueryFacetEvidence DescribeToolFormat(
+        string? settingsVersion) =>
+        settingsVersion switch
+        {
+            "1" => Describe(
+                "DotnetToolSettings.xml declares the portable .NET tool CLI v1 format."),
+            "2" => Describe(
+                "DotnetToolSettings.xml declares the RID-specific .NET tool CLI v2 format."),
+            _ => Describe(
+                "The package manifest declares a .NET tool, but its settings do not identify CLI v1 or CLI v2."),
+        };
+
     static PackageQueryEvidenceSummary SummarizeItems(
         IEnumerable<string> items,
         StringComparer comparer)
@@ -1182,6 +1197,27 @@ public static partial class PackageQuery
         {
             Summary = description.Summary,
         };
+    }
+
+    static void AddFacetEvidence(
+        PackageQueryFacetDefinition definition,
+        PackageQueryPackage package,
+        PackageContentFacts? content,
+        ImmutableArray<PackageQueryEvidence>.Builder evidence)
+    {
+        int insertionIndex = 1;
+        while (insertionIndex < evidence.Count
+            && DefinitionsById.TryGetValue(
+                evidence[insertionIndex].Id,
+                out PackageQueryFacetDefinition? existing)
+            && existing.Descriptor.Weight < definition.Descriptor.Weight)
+        {
+            insertionIndex++;
+        }
+
+        evidence.Insert(
+            insertionIndex,
+            CreateFacetEvidence(definition, package, content));
     }
 
     static string Pluralize(int count, string singular, string plural) =>

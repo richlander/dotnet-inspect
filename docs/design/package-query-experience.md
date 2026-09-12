@@ -167,11 +167,14 @@ and
   mutually exclusive facets, such as has-dependencies and no-dependencies,
   replace one another. Product-issued display groups render `.NET Tool`, `v1`,
   and `v2` as one segmented control while retaining three independently
-  focusable buttons and opaque facet IDs. `.NET Tool` matches any tool from
-  manifest evidence and replaces selected version segments. `v1` and `v2`
-  inspect `DotnetToolSettings.xml`; either replaces `.NET Tool`, while both
-  version segments may remain selected and form an OR-union. A matching row's
-  product evidence identifies the format it matched.
+  focusable buttons and opaque facet IDs. `.NET Tool` prefilters tools from
+  manifest evidence, opens each admitted package, and reports CLI v1, CLI v2,
+  or explicitly unrecognized settings from `DotnetToolSettings.xml`; it
+  replaces selected version segments. `v1` and `v2` filter to their recognized
+  settings versions; either replaces `.NET Tool`, while both version segments
+  may remain selected and form an OR-union. Every tool segment is bounded
+  package-content work, and a matching row's product evidence identifies the
+  observed format.
   `embedded SKILL.md` matches package entries at `skills/SKILL.md` or
   `skills/**/SKILL.md`, case-insensitively. The rail persistently discloses
   that content facets may download up to 20 candidate archives.
@@ -514,7 +517,7 @@ and browser-history and focus-return outcomes are proved by
 8. Run a sparse or zero-match query and confirm source, manifest, and
    package-content progress advances before completion without manufacturing
    rows. Confirm semantic completion crosses the Browser boundary only once.
-9. Select `v1`, `v2`, or `embedded SKILL.md`; confirm the request bound drops
+9. Select `.NET Tool`, `v1`, `v2`, or `embedded SKILL.md`; confirm the request bound drops
    to 20 candidates, archive acquisition uses the Browser package store and
    deadline, and acquisition/evaluation failures remain visible. Remove the
    final package-content facet and confirm the default returns to 200.
