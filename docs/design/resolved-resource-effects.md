@@ -560,8 +560,8 @@ Two `operation` effects conflict when their guards overlap and their
 At overlapping applicability, an `independent(source,target)` effect conflicts
 when:
 
-- a `borrow`, `derive`, or `pass` effect has that resolved primary source and
-  target; or
+- a `borrow`, `derive`, `pass`, `move`, `consume`, or `accept` effect has that
+  resolved primary source and target; or
 - an `acquire` or `borrow` effect has an explicit resolved lender equal to that
   source and its resolved target equals that target.
 
@@ -671,9 +671,15 @@ the frozen resolution context. It returns:
   unavailable.
 
 The proof first resolves an exact closed `InterfaceImpl` relationship for the
-concrete declaring type. An exact `MethodImpl` whose declaration resolves to
-the interface slot and whose body is the concrete MethodDef wins. Without that
-row, version 1 admits only one implicit public virtual instance MethodDef on
+concrete declaring type. It then evaluates every `MethodImpl` row on that type
+whose declaration may name the exact closed interface slot. One unique
+successfully resolved row makes only its exact body MethodDef `Applied`; every
+other candidate is `NotApplicable`. Multiple authoritative bodies are
+`Ambiguous`, and an unreadable or incompletely resolved potentially matching
+row is `Incomplete`. Candidate-local absence never enables implicit fallback.
+
+Only when the complete slot-wide scan proves that no `MethodImpl` row names the
+slot does version 1 admit one implicit public virtual instance MethodDef on
 that declaring type whose exact name, generic arity, calling convention,
 parameter/ref signature, and return type match after interface substitution.
 Inherited implementation search, default-interface dispatch expansion,
@@ -825,7 +831,7 @@ The implementation gate must cover:
 - callback and outcome local labels normalizing to occurrence-local facts;
 - equal effects coalescing with every provenance association retained;
 - borrow-versus-consume, unequal terminal transition, overlapping operation
-  fact, borrow-versus-independent, derivation/pass-versus-independent, and
+  fact, borrow/derive/pass/move/consume/accept-versus-independent, and
   acquire/borrow-lender-versus-independent conflicts, plus callback conflicts;
 - disjoint completion and guard controls remaining compatible;
 - an absent API remaining inert;
@@ -835,8 +841,9 @@ The implementation gate must cover:
   with unexpected `PlanExpansionRequired` remaining incomplete;
 - an interface-member effect applying to exact implicit and explicit
   implementations through `InterfaceApplication`, while a same-signature
-  non-implementation receives no propagated effect and ambiguous, unsupported,
-  or incomplete relation evidence prevents completeness;
+  non-implementation and a public same-signature decoy beside an explicit
+  `MethodImpl` receive no propagated effect, and ambiguous, unsupported, or
+  incomplete relation evidence prevents completeness;
 - separately retained copies with equal assembly/MVID/token values producing
   distinct participant-qualified physical invocation sites;
 - unresolved calls retaining physical site identity without a selected
