@@ -98,45 +98,31 @@ public static class SourceIntegrityService
                         return;
                     }
 
-                    byte[]? body;
-                    try
-                    {
-                        HttpRetryHelper.HttpBodyFetchResult fetch =
-                            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
-                                httpClient,
+                    HttpRetryHelper.HttpBodyFetchResult fetch =
+                        await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                            httpClient,
+                            document.ResolvedUrl!,
+                            response => SourceFetchOriginValidator.Validate(
                                 document.ResolvedUrl!,
-                                response => SourceFetchOriginValidator.Validate(
-                                    document.ResolvedUrl!,
-                                    response.RequestMessage?.RequestUri?.AbsoluteUri).IsAllowed,
-                                log: null,
-                                cancellationToken: ct,
-                                trafficKind: NetworkTrafficKind.SourceIntegrity,
-                                maxDownloadSize: SourceFetch.MaxSourceDownloadSize)
-                                .ConfigureAwait(false);
-                        if (fetch.Status
-                            == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)
-                        {
-                            log?.Invoke(
-                                "Could not verify the final SourceLink response origin.");
-                            body = null;
-                        }
-                        else if (fetch.Bytes is { } bytes)
-                        {
-                            body = bytes;
-                        }
-                        else
-                        {
-                            log?.Invoke("Source integrity fetch failed.");
-                            body = null;
-                        }
+                                response.RequestMessage?.RequestUri?.AbsoluteUri).IsAllowed,
+                            log: null,
+                            cancellationToken: ct,
+                            trafficKind: NetworkTrafficKind.SourceIntegrity,
+                            maxDownloadSize: SourceFetch.MaxSourceDownloadSize)
+                            .ConfigureAwait(false);
+                    ct.ThrowIfCancellationRequested();
+                    if (fetch.Status
+                        == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)
+                    {
+                        log?.Invoke(
+                            "Could not verify the final SourceLink response origin.");
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    else if (fetch.Bytes is null)
                     {
                         log?.Invoke("Source integrity fetch failed.");
-                        body = null;
                     }
 
-                    if (body == null)
+                    if (fetch.Bytes is not { } body)
                     {
                         Interlocked.Increment(ref unverifiable);
                         return;
@@ -144,6 +130,7 @@ public static class SourceIntegrityService
 
                     SourceChecksumVerification verification =
                         PdbSourceHouse.VerifyChecksum(document, body);
+                    ct.ThrowIfCancellationRequested();
                     if (verification == SourceChecksumVerification.Exact)
                     {
                         Interlocked.Increment(ref verified);
