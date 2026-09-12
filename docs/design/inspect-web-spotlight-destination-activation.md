@@ -65,8 +65,11 @@ snapshot:
   activation action;
 - a registration-covered package or package-origin Library explicitly adds
   its exact enclosing package to the current Workspace, then requests focus;
-- a registration-covered Platform Library delegates to the exact Browser
-  Platform activation action while retaining the current Workspace;
+- a registration-covered or already-realized Platform Library delegates to
+  the exact Browser Platform activation action while retaining the current
+  Workspace;
+- a Platform Type or Member emitted from the resident Platform surface uses
+  its exact Browser Platform action in the current Workspace;
 - an uncovered package constructs and activates a fresh Ecosystems-curated
   Workspace containing that package; and
 - an uncovered Library is unavailable rather than being reinterpreted by name
@@ -105,7 +108,7 @@ SpotlightDestinationActivationPlan
   = NavigateCurrent(exact Navigation action)
   | ActivateCurrentPackageLibrary(exact occurrence, exact Library intent)
   | AddCurrentPackage(exact package request, optional exact Library intent)
-  | ActivateCurrentPlatformLibrary(exact Browser Platform action)
+  | ActivateCurrentPlatformDestination(exact Browser Platform action)
   | RestoreExternalPackageWorkspace(exact Definitions request)
   | Unavailable(exact reason)
 ```
@@ -118,7 +121,8 @@ The classification table is:
 | Package-origin Library not yet realized beneath an exact current Package occurrence | Exact occurrence and Library intent | `ActivateCurrentPackageLibrary` |
 | Package covered by a package-prefix contribution | Exact coverage witnesses | `AddCurrentPackage` |
 | Package-origin Library covered by an exact-Library registration or a matching package-prefix contribution, without a current enclosing Package occurrence | Exact coverage witnesses | `AddCurrentPackage` with the Library intent |
-| Platform Library covered by an exact-Library or Platform-population contribution | Exact coverage witnesses and Platform action | `ActivateCurrentPlatformLibrary` |
+| Platform Library already realized or covered by an exact-Library or Platform-population contribution | Exact realization or coverage witnesses and Platform action | `ActivateCurrentPlatformDestination` |
+| Platform Type or Member emitted from the resident Platform surface | Exact Browser Platform action | `ActivateCurrentPlatformDestination` |
 | Package with no current membership or registration coverage | Exact external package coordinate | `RestoreExternalPackageWorkspace` |
 | Library with no current membership or registration coverage | Exact candidate and reason | `Unavailable` |
 
@@ -168,7 +172,7 @@ the source owner's typed non-success outcomes.
 `NavigateCurrent` submits the exact current Navigation action already issued
 for the destination. It performs no Scope mutation and does not reconstruct
 ancestry from Spotlight text. Browser-local Platform actions use
-`ActivateCurrentPlatformLibrary` instead.
+`ActivateCurrentPlatformDestination` instead.
 
 ### Covered packages and package-origin Libraries
 
@@ -201,20 +205,30 @@ requested destination did not become active. Spotlight never rolls back the
 committed Package and never converts that failure into a new-Workspace
 activation.
 
-### Covered Platform Libraries
+### Platform destinations
 
-`ActivateCurrentPlatformLibrary` preserves the active Workspace and invokes
-the exact host-local Platform action. It never represents Platform as a
-Package, manufactures package ancestry, or promotes a package merely because
-the Library has a package counterpart. A Platform Library that is already
-realized remains on this Browser-local action path when selected again; it
-does not become a shared `NavigateCurrent` subject.
+`ActivateCurrentPlatformDestination` preserves the active Workspace and
+invokes the exact host-local Platform action for a Library, Type, or Member. It
+never represents Platform as a Package, manufactures package ancestry, or
+promotes a package merely because the Library has a package counterpart.
+
+A Platform Library may receive this action because current registration
+coverage permits its realization or because that exact Library is already
+realized in the same Workspace. Registration-free repeat activation never
+transfers to a replacement Workspace.
+
+Platform Type and Member results are emitted only from an already-resident
+Platform surface. Their descriptor carries the exact Browser Platform action;
+Spotlight does not reinterpret it as shared Navigation. This owner classifies
+the current-Workspace effect and settles the action without redefining
+Platform's target, catalog, or deep-focus mechanics.
 
 Shared Scope and Navigation currently have no Platform structural subject.
-Unifying Platform Library activation with the shared
-`Workspace -> Package -> Library` grammar requires a separate focused Scope,
-Navigation, and inventory extension. This owner exposes the present Browser
-boundary rather than hiding it behind a generic Library identity.
+Unifying Platform Library, Type, or Member activation with the shared
+`Workspace -> Package -> Library -> Type -> Member` grammar requires a separate
+focused Scope, Navigation, and inventory extension. This owner exposes the
+present Browser boundary rather than hiding it behind generic subject
+identity.
 
 ## Fresh-Workspace activation
 
@@ -338,8 +352,12 @@ The model checks:
 - a realized Platform Library selected again retains its exact Browser-local
   Platform action even after its covering registration is removed from the
   same Workspace;
+- Platform Type and Member results retain their exact Browser-local actions
+  rather than flowing through shared Navigation;
 - a never-realized Platform Library without current coverage remains
   unavailable;
+- Platform realization in one Workspace does not make the same destination
+  realized in a replacement Workspace;
 - every overlapping registration contribution remains in the exact ordered
   coverage projection;
 - package-origin Library focus consumes the exact retained or newly issued
@@ -401,8 +419,10 @@ owners.
 | Select a package-origin Library covered only by an exact-Library registration | Its exact enclosing package is admitted in the current Workspace; no other package asset is inferred as the destination |
 | Select the Platform and package forms of `System.Text.Json` with only Platform registered | The Platform row preserves the Workspace; the package row creates a new Workspace |
 | Select the Platform `System.Text.Json` Library again after it is realized | The exact Browser Platform action runs again; shared Navigation is not substituted |
+| Select a Platform Type or Member returned from the resident Platform surface | Its exact Browser Platform action runs in the current Workspace; shared Navigation is not substituted |
 | Remove the covering Platform registration after the Platform `System.Text.Json` Library is realized, then select it again in the same Workspace | The exact Browser Platform action still runs because realization remains current; missing registration coverage does not make it unavailable |
 | Select a never-realized Platform Library after its covering registration is removed | The result is unavailable; registration removal does not manufacture realization |
+| Realize a Platform Library, replace the active Workspace, remove the replacement's covering registration, then select the same Library | The replacement settles it unavailable; realization from the prior Workspace does not transfer |
 | Add a package-prefix contribution covering `System.Text.Json` and obtain fresh results | The exact package row now preserves the current Workspace; the Platform row remains distinct |
 | Remove or replace the covering registration before selection or completion | The stale action does not mutate or publish and reports its exact stale outcome |
 | Scope commits a selected Package and Navigation then fails | Membership remains committed; focus failure is visible; no fallback Workspace is created |

@@ -24,6 +24,8 @@ WrongLibraryOccurrence == "WrongLibraryOccurrence"
 PublishFailedFreshActivation == "PublishFailedFreshActivation"
 DualCurrentAndFreshPublication == "DualCurrentAndFreshPublication"
 RepeatPlatformNavigation == "RepeatPlatformNavigation"
+PlatformDescendantNavigation == "PlatformDescendantNavigation"
+LeakRealizationAcrossWorkspace == "LeakRealizationAcrossWorkspace"
 
 Mutations ==
     {NoMutation,
@@ -37,7 +39,9 @@ Mutations ==
      WrongLibraryOccurrence,
      PublishFailedFreshActivation,
      DualCurrentAndFreshPublication,
-     RepeatPlatformNavigation}
+     RepeatPlatformNavigation,
+     PlatformDescendantNavigation,
+     LeakRealizationAcrossWorkspace}
 
 ASSUME Mutation \in Mutations
 
@@ -47,13 +51,15 @@ LibraryScenario == "Library"
 ExactLibraryScenario == "ExactLibrary"
 OverlapScenario == "Overlap"
 RepeatPlatformScenario == "RepeatPlatform"
+PlatformDescendantsScenario == "PlatformDescendants"
 Scenarios ==
     {SourcePairScenario,
      CoveredPackageScenario,
      LibraryScenario,
      ExactLibraryScenario,
      OverlapScenario,
-     RepeatPlatformScenario}
+     RepeatPlatformScenario,
+     PlatformDescendantsScenario}
 
 ASSUME Scenario \in Scenarios
 
@@ -69,18 +75,27 @@ Workspaces ==
 
 ExistingPackage == "existing-package"
 PlatformJsonLibrary == "platform-System.Text.Json"
+PlatformJsonType == "platform-System.Text.Json/JsonSerializer"
+PlatformJsonMember ==
+    "platform-System.Text.Json/JsonSerializer.Serialize"
 PackageJson == "package-System.Text.Json"
 PackageJsonLibrary == "package-System.Text.Json-library"
 ExtensionsPackage == "package-Microsoft.Extensions.Logging"
 Destinations ==
     {ExistingPackage,
      PlatformJsonLibrary,
+     PlatformJsonType,
+     PlatformJsonMember,
      PackageJson,
      PackageJsonLibrary,
      ExtensionsPackage}
 
 PackageDestinations ==
     {ExistingPackage, PackageJson, ExtensionsPackage}
+PlatformDestinations ==
+    {PlatformJsonLibrary, PlatformJsonType, PlatformJsonMember}
+PlatformDeepDestinations ==
+    {PlatformJsonType, PlatformJsonMember}
 LibraryDestinations ==
     {PlatformJsonLibrary, PackageJsonLibrary}
 
@@ -229,16 +244,22 @@ PlanFor(occurrences, realizedLibraries, coverage, destination) ==
     IF /\ destination \in PackageDestinations
        /\ OccurrenceFor(occurrences, destination) # NoOccurrence
     THEN NavigateCurrent
-    ELSE IF destination = PlatformJsonLibrary
+    ELSE IF destination \in PlatformDestinations
     THEN
-        IF destination \in realizedLibraries
+        IF destination \in PlatformDeepDestinations
         THEN
-            IF Mutation = RepeatPlatformNavigation
+            IF Mutation = PlatformDescendantNavigation
             THEN NavigateCurrent
             ELSE ActivateCurrentPlatform
-        ELSE IF Len(coverage) > 0
-        THEN ActivateCurrentPlatform
-        ELSE UnavailableLibrary
+        ELSE
+            IF destination \in realizedLibraries
+            THEN
+                IF Mutation = RepeatPlatformNavigation
+                THEN NavigateCurrent
+                ELSE ActivateCurrentPlatform
+            ELSE IF Len(coverage) > 0
+            THEN ActivateCurrentPlatform
+            ELSE UnavailableLibrary
     ELSE IF destination \in realizedLibraries
     THEN NavigateCurrent
     ELSE IF /\ destination = PackageJsonLibrary
@@ -279,6 +300,10 @@ AllowedDestination(token, destination) ==
         ELSE destination = ExistingPackage
       [] Scenario = RepeatPlatformScenario ->
         destination = PlatformJsonLibrary
+      [] Scenario = PlatformDescendantsScenario ->
+        IF token = 1
+        THEN destination = PlatformJsonType
+        ELSE destination = PlatformJsonMember
       [] OTHER -> FALSE
 
 AllowedReplacementProfile(profile) ==
@@ -287,6 +312,7 @@ AllowedReplacementProfile(profile) ==
       [] Scenario = ExactLibraryScenario -> profile = 2
       [] Scenario = OverlapScenario -> profile = 3
       [] Scenario = RepeatPlatformScenario -> profile = 2
+      [] Scenario = PlatformDescendantsScenario -> profile = 2
       [] OTHER -> profile \in {2, 3}
 
 NoAttempt ==
@@ -595,12 +621,18 @@ ReplaceActiveWorkspace ==
     /\ activeWorkspace = CurrentWorkspace
     /\ activeWorkspace' = ReplacementWorkspace
     /\ focus' = NoFocus
+    /\ realizedLibraries' =
+        IF Mutation = LeakRealizationAcrossWorkspace
+        THEN
+            [realizedLibraries EXCEPT
+                ![ReplacementWorkspace] =
+                    realizedLibraries[CurrentWorkspace]]
+        ELSE realizedLibraries
     /\ UNCHANGED
         <<scopeRevision,
           scopeBase,
           registrationProfile,
           packageOccurrences,
-          realizedLibraries,
           intent,
           attempts,
           results,
@@ -1135,6 +1167,21 @@ RepeatedPlatformSelectionUsesPlatformAction ==
     /\ attempts[2].workspace = attempts[1].workspace
     => attempts[2].plan = ActivateCurrentPlatform
 
+PlatformDescendantSelectionsUsePlatformAction ==
+    \A token \in Tokens :
+        attempts[token].destination \in PlatformDeepDestinations
+        => attempts[token].plan = ActivateCurrentPlatform
+
+PlatformRealizationStaysWorkspaceLocal ==
+    /\ attempts[1].destination = PlatformJsonLibrary
+    /\ attempts[1].workspace = CurrentWorkspace
+    /\ results[1] = PlatformActivated
+    /\ attempts[2].state # Unused
+    /\ attempts[2].destination = PlatformJsonLibrary
+    /\ attempts[2].workspace = ReplacementWorkspace
+    /\ attempts[2].coverage = <<>>
+    => attempts[2].plan = UnavailableLibrary
+
 CapturedCoverageIsCompleteAndOrdered ==
     \A token \in Tokens :
         attempts[token].state # Unused
@@ -1247,6 +1294,12 @@ NoRepeatedPlatformActivationAfterCoverageRemoval ==
       /\ attempts[2].coverage = <<>>
       /\ results[2] = PlatformActivated)
 
+NoPlatformDescendantActivations ==
+    ~(/\ attempts[1].destination = PlatformJsonType
+      /\ results[1] = PlatformActivated
+      /\ attempts[2].destination = PlatformJsonMember
+      /\ results[2] = PlatformActivated)
+
 NoUnavailablePlatformSettlement ==
     \A token \in Tokens :
         ~(/\ attempts[token].destination = PlatformJsonLibrary
@@ -1255,6 +1308,18 @@ NoUnavailablePlatformSettlement ==
           /\ attempts[token].destination
                 \notin realizedLibraries[attempts[token].workspace]
           /\ results[token] = Unavailable)
+
+NoReplacementWorkspaceUnavailableAfterSourceRealization ==
+    ~(/\ attempts[1].destination = PlatformJsonLibrary
+      /\ attempts[1].workspace = CurrentWorkspace
+      /\ results[1] = PlatformActivated
+      /\ attempts[2].destination = PlatformJsonLibrary
+      /\ attempts[2].workspace = ReplacementWorkspace
+      /\ attempts[2].registrationProfile = 2
+      /\ attempts[2].coverage = <<>>
+      /\ attempts[2].destination
+            \notin realizedLibraries[ReplacementWorkspace]
+      /\ results[2] = Unavailable)
 
 NoFreshWorkspacePublication ==
     \A token \in Tokens :

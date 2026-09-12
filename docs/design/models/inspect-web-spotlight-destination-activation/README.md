@@ -25,6 +25,8 @@ This is bounded design evidence, not implementation conformance.
   registration profiles;
 - one already admitted Package occurrence;
 - same-name Platform and package `System.Text.Json` candidates;
+- one Platform `System.Text.Json.JsonSerializer` Type and one `Serialize`
+  Member candidate emitted from a resident Platform surface;
 - one package-origin `System.Text.Json` Library candidate; and
 - one `Microsoft.Extensions.Logging` package covered by the initial curated
   registration profile.
@@ -70,8 +72,10 @@ Workspace replacement, or settlement at the consumed boundary.
 | --- | --- | --- |
 | Same-name Platform and package destinations retain source-specific classification | `Safety` | `BrokenCollapseSameNameCoverage` |
 | A realized Platform Library selected again in the same Workspace retains its Browser-local Platform action after covering registration is removed | `SafetyRepeatPlatform`, `ReachabilityRepeatPlatform` | `BrokenRepeatPlatformNavigation` |
+| Platform Type and Member selections retain exact Browser-local Platform actions | `SafetyPlatformDescendants`, `ReachabilityPlatformDescendants` | `BrokenPlatformDescendantNavigation` |
+| Platform realization remains scoped to its exact Workspace | `SafetyRepeatPlatform`, `ReachabilityReplacementPlatformIsolation` | `BrokenCrossWorkspaceRealization` |
 | Every overlapping registration contribution remains in exact order | `Safety`, `ReachabilityOverlappingWitnesses` | `BrokenDropOverlappingWitnesses` |
-| Every plan arm has an exact reachable settlement, including exact-Library-only package admission and never-realized uncovered Platform unavailability | `ReachabilityNavigateCurrent`, `ReachabilityCurrentMembership`, `ReachabilityAddCurrentPackageLibrary`, `ReachabilityMembershipCoveredLibrary`, `ReachabilityPlatform`, `ReachabilityFreshWorkspace`, `ReachabilityUnavailableLibrary`, `ReachabilityUnavailablePlatform` | positive census, not a mutation pair |
+| Every plan arm has an exact reachable settlement, including exact-Library-only package admission, Platform Type/Member activation, and never-realized uncovered Platform unavailability | `ReachabilityNavigateCurrent`, `ReachabilityCurrentMembership`, `ReachabilityAddCurrentPackageLibrary`, `ReachabilityMembershipCoveredLibrary`, `ReachabilityPlatform`, `ReachabilityPlatformDescendants`, `ReachabilityFreshWorkspace`, `ReachabilityUnavailableLibrary`, `ReachabilityUnavailablePlatform` | positive census, not a mutation pair |
 | Current Package membership classifies its not-yet-realized Library without duplicate Add | `Safety`, `ReachabilityMembershipCoveredLibrary` | occurrence checks below |
 | Package-origin Library focus uses the exact retained or Scope-returned occurrence | `Safety` | `BrokenWrongLibraryOccurrence` |
 | One attempt cannot produce both current and fresh-Workspace effects | `Safety` | `BrokenDualCurrentAndFreshPublication` |
@@ -81,20 +85,21 @@ Workspace replacement, or settlement at the consumed boundary.
 | A failed Definitions result is never published by the host | `Safety` | `BrokenPublishFailedFreshActivation` |
 | Every bounded attempt settles under weakly fair adjacent completion | `Liveness` | safety mutations are not treated as liveness evidence |
 
-The six safety profiles and six liveness profiles expect TLC exit 0. Their
+The seven safety profiles and seven liveness profiles expect TLC exit 0. Their
 fixed destination schedules partition the package/Platform source pair,
 covered-Package, exact-Library-only, Package-to-Library, and
-overlapping-Library, and repeated-Platform scenarios while retaining every
-permitted revision, publication-base, failure, replacement, and supersession
-placement within each profile. Each `Broken*.cfg` expects exit 12 at its named
-invariant. The thirteen `Reachability*.cfg` files intentionally check a false
-absence invariant and expect exit 12 when TLC reaches every plan arm,
-exact-Library-only package admission, repeated Platform activation after
-in-place coverage removal, never-realized uncovered Platform unavailability,
-complete overlapping coverage, visible failure, post-commit focus failure, or
-stale/superseded settlement.
+overlapping-Library, repeated-Platform, and Platform Type/Member scenarios while
+retaining every permitted revision, publication-base, failure, replacement,
+and supersession placement within each profile. Each `Broken*.cfg` expects
+exit 12 at its named invariant. The fifteen `Reachability*.cfg` files
+intentionally check a false absence invariant and expect exit 12 when TLC
+reaches every plan arm, exact-Library-only package admission, Platform
+Type/Member activation, repeated Platform activation after in-place coverage
+removal, replacement-Workspace isolation, never-realized uncovered Platform
+unavailability, complete overlapping coverage, visible failure, post-commit
+focus failure, or stale/superseded settlement.
 
-The checked profiles explore 120,831 to 682,847 distinct states each. All 36
+The checked profiles explore 120,831 to 682,847 distinct states each. All 42
 registered configurations produced their exact expected semantic verdict.
 
 All configurations are registered with their exact expected semantic verdict
