@@ -223,6 +223,15 @@ public sealed record BrowserGraphMemberSurface(
     BrowserMemberBodySelector SelectedBody);
 
 /// <summary>
+/// One selected C# declaration or its CSharp-owned visible unavailability.
+/// Compatibility is true only for an older surface without typed module facts.
+/// </summary>
+public sealed record BrowserMemberDeclaration(
+    string? Text,
+    string? Unavailable,
+    bool Compatibility);
+
+/// <summary>
 /// One type row projected for a graph target. See the package facade's declaration for the
 /// identity rules these fields carry; this facade owns its own copy of the transport.
 /// </summary>
@@ -259,6 +268,7 @@ public sealed record BrowserMemberSurface(
     bool IsObsolete,
     int GenericArity,
     int? MetadataToken,
+    int? DeclarationMetadataToken,
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
     string? DocumentationId,
@@ -295,5 +305,6 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
+[JsonSerializable(typeof(BrowserMemberDeclaration))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;

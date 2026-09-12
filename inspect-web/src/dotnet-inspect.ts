@@ -521,7 +521,10 @@ import type {
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
 } from "./facades/inspect-web-package.d.ts";
-import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
+import type {
+  BrowserMemberDeclaration,
+  BrowserTypeMetadata,
+} from "./facades/inspect-web-metadata.d.ts";
 import type {
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
@@ -572,6 +575,8 @@ let inspectClearWorkspacePackageOccurrences:
   EngineClient["package"]["clearWorkspacePackageOccurrences"];
 let inspectGraphMemberSurface:
   EngineClient["metadata"]["queryGraphMemberSurface"];
+let inspectMemberDeclaration:
+  EngineClient["metadata"]["queryMemberDeclaration"];
 let inspectPackageHeapEntries:
   EngineClient["metadata"]["queryPackageHeapEntries"];
 let inspectPackageMetadata:
@@ -688,6 +693,7 @@ async function loadEngineModule() {
     } = engineClient.package);
     ({
       queryGraphMemberSurface: inspectGraphMemberSurface,
+      queryMemberDeclaration: inspectMemberDeclaration,
       queryPackageHeapEntries: inspectPackageHeapEntries,
       queryPackageMetadata: inspectPackageMetadata,
       queryPackageMetadataTable: inspectPackageMetadataTable,
@@ -984,6 +990,10 @@ const initialState = {
   memberDocumentationLoading: false,
   memberDocumentationError: "",
   memberDocumentationKey: "",
+  memberDeclaration: null as BrowserMemberDeclaration | null,
+  memberDeclarationLoading: false,
+  memberDeclarationError: "",
+  memberDeclarationKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
   libraryLens: "overview" as const,
@@ -1251,6 +1261,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
   const memberFactsLoading = snapshotState.memberFactsLoading;
   const memberDocumentationLoading = snapshotState.memberDocumentationLoading;
+  const memberDeclarationLoading = snapshotState.memberDeclarationLoading;
 
   snapshotState.loading = false;
   snapshotState.memberSourceLoading = false;
@@ -1267,6 +1278,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.platformDrillLoading = false;
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
+  snapshotState.memberDeclarationLoading = false;
   snapshotState.runtimePackLoading = false;
   settleInterruptedPlatformStatus(snapshotState);
   if (snapshotState.graphSource.status === "loading") {
@@ -1303,6 +1315,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   }
   if (memberFactsLoading) snapshotState.memberFactsKey = "";
   if (memberDocumentationLoading) snapshotState.memberDocumentationKey = "";
+  if (memberDeclarationLoading) snapshotState.memberDeclarationKey = "";
 }
 
 function settleInterruptedPlatformStatus(targetState: AppState): void {
@@ -1958,6 +1971,17 @@ const metadataInspection = createMetadataInspectionCoordinator({
 });
 const memberDetailInspection = createMemberDetailInspectionCoordinator({
   state,
+  queryDeclaration: request =>
+    inspectMemberDeclaration(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.typeIdentity,
+      request.member,
+      request.selectorKey,
+      request.metadataToken,
+      request.implementationMember),
   queryDocumentation: (request, documentationId) =>
     inspectMemberDocumentation(
       request.packageId,
@@ -2226,6 +2250,10 @@ function applyView(view: WorkspaceView) {
   state.memberCallGraphKey = "";
   state.memberFacts = null;
   state.memberFactsError = "";
+  state.memberDeclaration = null;
+  state.memberDeclarationLoading = false;
+  state.memberDeclarationError = "";
+  state.memberDeclarationKey = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
   state.memberFindingInteraction = null;
@@ -6540,6 +6568,25 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     state.memberDocumentationError);
   const documentationLoading = documentationState.loading;
   const documentationError = documentationState.error;
+  const declarationState = scopedRequestState(
+    state.memberDeclarationKey,
+    documentationKey,
+    state.memberDeclarationLoading,
+    state.memberDeclarationError);
+  const selectedDeclaration =
+    state.memberDeclarationKey === documentationKey
+      ? state.memberDeclaration
+      : null;
+  const declaration = declarationState.loading
+    ? '<p class="docs-loading">Loading C# declaration…</p>'
+    : declarationState.error
+      ? `<p class="docs-unavailable">Declaration query failed: ${escapeHtml(declarationState.error)}</p>`
+      : selectedDeclaration?.text
+        ? `<pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(selectedDeclaration.text)}</code></pre>`
+        : `<p class="docs-unavailable">${escapeHtml(selectedDeclaration?.unavailable ?? "The selected declaration is unavailable.")}</p>`;
+  const copyDeclaration = selectedDeclaration?.text
+    ? '<button id="copy-signature" type="button" aria-label="Copy declaration">copy</button>'
+    : "";
   let content;
   if (state.memberSection === "overview") {
     const parameters = overload.parameters ?? [];
@@ -6556,9 +6603,9 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
           <section class="signature-panel" aria-labelledby="member-declaration-title">
             <div class="signature-language">
               <h2 id="member-declaration-title"><span>C#</span><small>declaration</small></h2>
-              <button id="copy-signature" type="button" aria-label="Copy declaration">copy</button>
+              ${copyDeclaration}
             </div>
-            <pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(overload.signature)}</code></pre>
+            ${declaration}
           </section>
           <section class="member-documentation" aria-labelledby="member-documentation-title">
             <div class="member-documentation-heading">
@@ -7051,8 +7098,15 @@ function bindTypePanelEvents() {
       const type = selectedType();
       const member = selectedMember(type);
       const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-      if (overload)
-        void copyText(overload.signature, "signature copied");
+      const signature = type && overload
+        ? memberRequestSignature(type, overload)
+        : "";
+      if (type
+        && overload
+        && state.memberDeclarationKey === signature
+        && state.memberDeclaration?.text) {
+        void copyText(state.memberDeclaration.text, "declaration copied");
+      }
     },
     onCopyTypeSource: () => {
       if (state.typeSource)
@@ -11581,16 +11635,32 @@ async function loadSelectedMemberDocumentation() {
   }
   const signature = memberRequestSignature(type, overload);
   const pkg = currentPackage();
-  return memberDetailInspection.loadDocumentation({
-    signature,
-    packageId: pkg.id,
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
-    overload,
-    isRuntimePack: Boolean(state.package?.isRuntimePack),
-    isCurrent: () => memberRequestIsCurrent(signature),
-  });
+  await Promise.all([
+    memberDetailInspection.loadDocumentation({
+      signature,
+      packageId: pkg.id,
+      version: pkg.version,
+      framework: pkg.activeFramework,
+      assembly: type.assembly,
+      overload,
+      isRuntimePack: Boolean(state.package?.isRuntimePack),
+      isCurrent: () => memberRequestIsCurrent(signature),
+    }),
+    memberDetailInspection.loadDeclaration({
+      signature,
+      packageId: pkg.id,
+      version: pkg.version,
+      framework: pkg.activeFramework,
+      assembly: type.assembly,
+      typeIdentity: type.definitionId ?? type.id,
+      member: overload.name,
+      selectorKey: overload.graphSelectorKey,
+      metadataToken:
+        overload.declarationMetadataToken ?? overload.metadataToken ?? 0,
+      implementationMember: Boolean(overload.graphOnly),
+      isCurrent: () => memberRequestIsCurrent(signature),
+    }),
+  ]);
 }
 
 async function loadSelectedMemberSource() {

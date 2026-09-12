@@ -140,6 +140,7 @@ public sealed record BrowserMemberSurface(
     bool IsObsolete,
     int GenericArity,
     int? MetadataToken,
+    int? DeclarationMetadataToken,
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
     string? DocumentationId,

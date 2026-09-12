@@ -55,6 +55,7 @@ type PackageOperationName =
 
 type MetadataOperationName =
   | "queryTypeProjection"
+  | "queryMemberDeclaration"
   | "queryPackageMetadataTable"
   | "queryPlatformMetadataTable"
   | "queryPackageHeapEntries"
@@ -850,6 +851,14 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   metadata: {
+    queryMemberDeclaration: valueOperation(
+      "ordinary-metadata-query-member-declaration",
+      9,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["queryMemberDeclaration"]>
+      ) => facades.metadata.queryMemberDeclaration(...args),
+    ),
     queryTypeProjection: valueOperation(
       "ordinary-metadata-query-type-projection",
       6,
@@ -1212,6 +1221,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     metadata: {
+      queryMemberDeclaration: bind(
+        engineWorkerOrdinaryOperations.metadata.queryMemberDeclaration,
+      ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,
       ),

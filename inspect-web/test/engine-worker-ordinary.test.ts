@@ -73,6 +73,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("resolvePackageDependencyVersion"),
   },
   metadata: {
+    queryMemberDeclaration: () =>
+      unexpected("queryMemberDeclaration"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -553,6 +555,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     ],
     metadata: [
       "queryGraphMemberSurface",
+      "queryMemberDeclaration",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -604,7 +607,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 49);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 50);
 
   const state = fixture();
   const groups = [

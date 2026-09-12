@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Analysis = ILInspector.Analysis;
@@ -394,6 +395,82 @@ public static partial class MetadataExports
         return JsonSerializer.Serialize(
             surface,
             BrowserMetadataJsonContext.Default.BrowserGraphMemberSurface);
+    }
+
+    /// <summary>
+    /// Renders one explicitly selected declaration under the product's C# display policy.
+    /// Inventory signatures remain compatibility projections and do not use this result.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryMemberDeclaration(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        bool implementationMember)
+    {
+        BrowserMemberDeclaration declaration = await MemberDeclarationAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken,
+            implementationMember);
+        return JsonSerializer.Serialize(
+            declaration,
+            BrowserMetadataJsonContext.Default.BrowserMemberDeclaration);
+    }
+
+    static async Task<BrowserMemberDeclaration> MemberDeclarationAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        bool implementationMember)
+    {
+        await using BrowserMemberResolution.ScopedDeclarationResolution resolved =
+            await BrowserMemberResolution.DeclarationMemberAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken,
+                implementationMember);
+        CSharpMemberDeclarationOutcome outcome =
+            new CSharpFormatter(new CSharpFormatOptions
+            {
+                MemorySafetyLanguage =
+                    CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+            }).FormatMemberOutcome(
+                resolved.Member.Type,
+                resolved.Member.Member);
+        return outcome switch
+        {
+            CSharpMemberDeclarationOutcome.Rendered rendered => new(
+                rendered.Declaration.Text,
+                null,
+                rendered.UsesCompatibilitySpelling),
+            CSharpMemberDeclarationOutcome.NotRendered notRendered => new(
+                null,
+                notRendered.Diagnostic.Message,
+                false),
+            _ => throw new InvalidOperationException(
+                "CSharp returned an unknown member declaration outcome."),
+        };
     }
 
     static async Task<BrowserGraphMemberSurface> GraphMemberSurfaceAsync(

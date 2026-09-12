@@ -15,6 +15,7 @@ import {
   type DocumentableMemberSurface,
   type MemberDetailInspectionDependencies,
   type MemberDetailInspectionState,
+  type MemberDeclarationRequest,
   type MemberDocumentationRequest,
   type MemberFindingCensusRequest,
   type MemberFacts,
@@ -33,6 +34,9 @@ import {
 import type {
   BrowserMemberSurface,
 } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  BrowserMemberDeclaration,
+} from "../src/facades/inspect-web-metadata.d.ts";
 import {
   memberFindingCensusFixture,
 } from "./member-finding-census-fixture.ts";
@@ -54,6 +58,7 @@ function wireMemberSurface(
     isObsolete: false,
     genericArity: 0,
     metadataToken: 0x06000001,
+    declarationMetadataToken: 0x06000001,
     returnType: "void",
     parameters: [{
       name: "value",
@@ -159,6 +164,10 @@ function inspectionState(
     memberDocumentationLoading: false,
     memberDocumentationError: "",
     memberDocumentationKey: "",
+    memberDeclaration: null,
+    memberDeclarationLoading: false,
+    memberDeclarationError: "",
+    memberDeclarationKey: "",
     ...overrides,
   };
 }
@@ -187,6 +196,25 @@ function documentationRequest(
     assembly: "Example.Package.dll",
     overload,
     isRuntimePack: false,
+    isCurrent: () => true,
+    ...overrides,
+  };
+}
+
+function declarationRequest(
+  overrides: Partial<MemberDeclarationRequest> = {},
+): MemberDeclarationRequest {
+  return {
+    signature: "declaration",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package.dll",
+    typeIdentity: "Example.Widget",
+    member: "Run",
+    selectorKey: "Run|System.String",
+    metadataToken: 0x06000001,
+    implementationMember: false,
     isCurrent: () => true,
     ...overrides,
   };
@@ -240,6 +268,11 @@ function inspectionDependencies(
 ): MemberDetailInspectionDependencies {
   return {
     state,
+    queryDeclaration: async (): Promise<BrowserMemberDeclaration> => ({
+      text: "public void Run(string value)",
+      unavailable: null,
+      compatibility: false,
+    }),
     queryDocumentation: async () => ({
       summary: "Runs the widget.",
       returns: null,
@@ -255,6 +288,51 @@ function inspectionDependencies(
     ...overrides,
   };
 }
+
+test("selected declaration completion publishes the typed host result", async () => {
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDeclaration: async request => {
+        assert.equal(request.typeIdentity, "Example.Widget");
+        assert.equal(request.implementationMember, false);
+        return {
+          text: "public unsafe void Run(string value)",
+          unavailable: null,
+          compatibility: false,
+        };
+      },
+    }));
+
+  await coordinator.loadDeclaration(declarationRequest());
+
+  assert.equal(state.memberDeclarationKey, "declaration");
+  assert.equal(state.memberDeclarationLoading, false);
+  assert.equal(
+    state.memberDeclaration?.text,
+    "public unsafe void Run(string value)");
+  assert.equal(state.memberDeclarationError, "");
+});
+
+test("selected declaration unavailability remains typed data", async () => {
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDeclaration: async () => ({
+        text: null,
+        unavailable: "Model-aware property spelling is not supported.",
+        compatibility: false,
+      }),
+    }));
+
+  await coordinator.loadDeclaration(declarationRequest());
+
+  assert.equal(state.memberDeclaration?.text, null);
+  assert.match(
+    state.memberDeclaration?.unavailable ?? "",
+    /not supported/);
+  assert.equal(state.memberDeclarationError, "");
+});
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

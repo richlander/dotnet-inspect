@@ -10,6 +10,9 @@ import type {
 import type {
   BrowserMemberDocumentation,
 } from "./facades/inspect-web-package.d.ts";
+import type {
+  BrowserMemberDeclaration,
+} from "./facades/inspect-web-metadata.d.ts";
 import type { BrowserMemberFacts } from "./facades/inspect-web-analysis.d.ts";
 import {
   createMemberFindingInteraction,
@@ -62,6 +65,20 @@ export interface MemberFactsRequest extends MemberCoordinates {
   isCurrent(): boolean;
 }
 
+export interface MemberDeclarationRequest {
+  signature: string;
+  packageId: string;
+  version: string;
+  framework: string;
+  assembly: string;
+  typeIdentity: string;
+  member: string;
+  selectorKey: string;
+  metadataToken: number;
+  implementationMember: boolean;
+  isCurrent(): boolean;
+}
+
 export interface MemberDetailInspectionState {
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedLoading: boolean;
@@ -78,6 +95,10 @@ export interface MemberDetailInspectionState {
   memberDocumentationLoading: boolean;
   memberDocumentationError: string;
   memberDocumentationKey: string;
+  memberDeclaration: BrowserMemberDeclaration | null;
+  memberDeclarationLoading: boolean;
+  memberDeclarationError: string;
+  memberDeclarationKey: string;
 }
 
 export function cancelFindingCensusRequest(
@@ -99,6 +120,9 @@ export interface MemberDetailInspectionDependencies {
     request: MemberDocumentationRequest,
     documentationId: string,
   ): Promise<BrowserMemberDocumentation>;
+  queryDeclaration(
+    request: MemberDeclarationRequest,
+  ): Promise<BrowserMemberDeclaration>;
   queryFindingCensus(
     request: MemberFindingCensusRequest,
   ): Promise<MemberFindingCensus>;
@@ -112,6 +136,7 @@ export interface MemberDetailInspectionDependencies {
 
 export interface MemberDetailInspectionCoordinator {
   invalidate(): void;
+  loadDeclaration(request: MemberDeclarationRequest): Promise<void>;
   loadDocumentation(request: MemberDocumentationRequest): Promise<void>;
   loadFindingCensus(request: MemberFindingCensusRequest): Promise<void>;
   loadFacts(request: MemberFactsRequest): Promise<void>;
@@ -123,12 +148,14 @@ export function createMemberDetailInspectionCoordinator(
   const { state } = dependencies;
   const memberFactsQueries = new Map<string, Promise<MemberFacts>>();
   let memberDocumentationRequestId = 0;
+  let memberDeclarationRequestId = 0;
   let memberFindingCensusRequestId = 0;
   let memberFactsRequestId = 0;
 
   return {
     invalidate() {
       memberDocumentationRequestId++;
+      memberDeclarationRequestId++;
       memberFindingCensusRequestId++;
       memberFactsRequestId++;
       memberFactsQueries.clear();
@@ -136,6 +163,11 @@ export function createMemberDetailInspectionCoordinator(
         state.memberDocumentationLoading = false;
         state.memberDocumentationKey = "";
         state.memberDocumentationError = "";
+      }
+      if (state.memberDeclarationLoading) {
+        state.memberDeclarationLoading = false;
+        state.memberDeclarationKey = "";
+        state.memberDeclarationError = "";
       }
       if (state.memberAnnotatedLoading) {
         state.memberAnnotatedLoading = false;
@@ -146,6 +178,44 @@ export function createMemberDetailInspectionCoordinator(
         state.memberFactsLoading = false;
         state.memberFactsKey = "";
         state.memberFactsError = "";
+      }
+    },
+
+    async loadDeclaration(request) {
+      if (state.memberDeclarationKey === request.signature
+        && !state.memberDeclarationLoading
+        && (state.memberDeclaration || state.memberDeclarationError)) {
+        dependencies.render();
+        return;
+      }
+
+      const requestId = ++memberDeclarationRequestId;
+      state.memberDeclarationKey = request.signature;
+      state.memberDeclaration = null;
+      state.memberDeclarationLoading = true;
+      state.memberDeclarationError = "";
+      const preservedFocus = dependencies.renderPreservingMemberFocus();
+      try {
+        const declaration = await dependencies.queryDeclaration(request);
+        if (request.isCurrent()
+          && state.memberDeclarationKey === request.signature
+          && memberDeclarationRequestId === requestId) {
+          state.memberDeclaration = declaration;
+        }
+      } catch (error) {
+        if (request.isCurrent()
+          && state.memberDeclarationKey === request.signature
+          && memberDeclarationRequestId === requestId) {
+          state.memberDeclarationError = dependencies.describeError(error);
+        }
+      } finally {
+        if (state.memberDeclarationKey === request.signature
+          && memberDeclarationRequestId === requestId) {
+          state.memberDeclarationLoading = false;
+          if (request.isCurrent()) {
+            dependencies.renderPreservingMemberFocus(preservedFocus);
+          }
+        }
       }
     },
 

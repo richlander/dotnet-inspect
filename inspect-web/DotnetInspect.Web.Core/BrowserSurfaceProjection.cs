@@ -254,6 +254,7 @@ internal static class BrowserSurfaceProjection
             member.IsObsolete,
             member.SignatureModel?.TypeParameters.Count ?? 0,
             member.MetadataToken,
+            member.DeclarationMetadataToken,
             member.SignatureModel?.ReturnType ?? member.ReturnType,
             [
                 .. (member.SignatureModel?.Parameters ?? []).Select(

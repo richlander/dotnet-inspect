@@ -40,6 +40,11 @@ export interface BrowserMemberBodySelector {
     readonly memberName: string;
     readonly selectorKey: string;
 }
+export interface BrowserMemberDeclaration {
+    readonly text: string | null;
+    readonly unavailable: string | null;
+    readonly compatibility: boolean;
+}
 export interface BrowserMemberSurface {
     readonly name: string;
     readonly kind: string;
@@ -54,6 +59,7 @@ export interface BrowserMemberSurface {
     readonly isObsolete: boolean;
     readonly genericArity: number;
     readonly metadataToken: number | null;
+    readonly declarationMetadataToken: number | null;
     readonly returnType: string | null;
     readonly parameters: ReadonlyArray<BrowserParameterSurface>;
     readonly documentationId: string | null;
@@ -266,6 +272,7 @@ export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
 export declare function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserGraphMemberSurface>;
+export declare function queryMemberDeclaration(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, implementationMember: boolean): Promise<BrowserMemberDeclaration>;
 export declare function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, heap: string): Promise<BrowserHeapListing>;
 export declare function queryPackageMetadata(packageId: string, version: string, targetFramework: string, assemblyFileName: string): Promise<BrowserPackageMetadata>;
 export declare function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;

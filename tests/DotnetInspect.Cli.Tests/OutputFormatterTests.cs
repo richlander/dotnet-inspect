@@ -2006,6 +2006,28 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void SignatureUnavailableIsEmpty_HidesColumnOnlyWhenAllDeclarationsRender()
+    {
+        Assert.True(TypeView.SignatureUnavailableIsEmpty(null));
+        Assert.True(TypeView.SignatureUnavailableIsEmpty(
+        [
+            new MemberSignatureRow("void A()", "aaaa", "M:A", null, null),
+            new MemberSignatureRow("void B()", "bbbb", "M:B", null, null),
+        ]));
+
+        Assert.False(TypeView.SignatureUnavailableIsEmpty(
+        [
+            new MemberSignatureRow(
+                "Unavailable",
+                "aaaa",
+                "M:A",
+                null,
+                null,
+                "model-aware property spelling is not supported"),
+        ]));
+    }
+
+    [Fact]
     public void MemberIndexDecodeIsEmpty_HidesColumnOnlyWhenNoMemberDegraded()
     {
         Assert.True(MemberIndexView.DecodeIsEmpty(null));

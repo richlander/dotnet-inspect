@@ -67,6 +67,7 @@ internal sealed record BrowserMemberSurfaceInfo(
     bool IsObsolete,
     int GenericArity,
     int? MetadataToken,
+    int? DeclarationMetadataToken,
     string? ReturnType,
     BrowserParameterSurfaceInfo[] Parameters,
     string? DocumentationId,

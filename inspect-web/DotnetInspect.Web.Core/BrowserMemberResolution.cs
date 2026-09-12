@@ -24,6 +24,10 @@ internal static class BrowserMemberResolution
         BrowserWorkspaceParticipant ImplementationParticipant,
         Analysis.CallGraphMemberResolution Member);
 
+    internal sealed record DeclarationResolved(
+        ApiType Type,
+        ApiMember Member);
+
     /// <summary>
     /// One resolved member and the protected use of the workspace it was resolved in. The lease
     /// holds that workspace for the whole of the caller's query, including its asynchronous
@@ -37,6 +41,13 @@ internal static class BrowserMemberResolution
     {
         internal BrowserInspectionScope Scope => Lease.Scope;
 
+        public ValueTask DisposeAsync() => Lease.DisposeAsync();
+    }
+
+    internal sealed record ScopedDeclarationResolution(
+        BrowserScopeLease<BrowserInspectionScope> Lease,
+        DeclarationResolved Member) : IAsyncDisposable
+    {
         public ValueTask DisposeAsync() => Lease.DisposeAsync();
     }
 
@@ -115,6 +126,55 @@ internal static class BrowserMemberResolution
         }
     }
 
+    internal static async Task<ScopedDeclarationResolution> DeclarationMemberAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        bool implementationMember,
+        CancellationToken cancellationToken = default)
+    {
+        BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework,
+                cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            BrowserInspectionScope scope = lease.Scope;
+            BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+            DeclarationResolved member = implementationMember
+                ? ResolveImplementationDeclaration(
+                    scope,
+                    coordinate,
+                    assemblyName,
+                    typeId,
+                    memberName,
+                    selectorKey,
+                    metadataToken)
+                : ResolveSurfaceDeclaration(
+                    scope,
+                    coordinate,
+                    assemblyName,
+                    typeId,
+                    memberName,
+                    selectorKey,
+                    metadataToken);
+            return new ScopedDeclarationResolution(lease, member);
+        }
+        catch
+        {
+            await lease.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
     internal static Resolved ResolveImplementationMember(
         BrowserInspectionScope scope,
         BrowserPackageCoordinate coordinate,
@@ -163,6 +223,134 @@ internal static class BrowserMemberResolution
         return BrowserSurfaceProjection.Require(
             implementationSurfaces.Assemblies.Assemblies.Single(),
             "Implementation surface").Surface;
+    }
+
+    static DeclarationResolved ResolveSurfaceDeclaration(
+        BrowserInspectionScope scope,
+        BrowserPackageCoordinate coordinate,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        PackageCompileAsset surfaceAsset = coordinate.CompileAsset(assemblyName);
+        BrowserWorkspaceParticipant participant =
+            scope.SurfaceParticipant(coordinate, surfaceAsset);
+        ApiSurface surface = scope.UseSurfaceParticipant(
+            participant,
+            (group, selected) => ParticipantSurface(group, selected, "surface"));
+        return ResolveDeclaration(
+            surface,
+            typeId,
+            memberName,
+            selectorKey,
+            metadataToken);
+    }
+
+    static DeclarationResolved ResolveImplementationDeclaration(
+        BrowserInspectionScope scope,
+        BrowserPackageCoordinate coordinate,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        PackageCompileAsset surfaceAsset = coordinate.CompileAsset(assemblyName);
+        BrowserWorkspaceParticipant surfaceParticipant =
+            scope.SurfaceParticipant(coordinate, surfaceAsset);
+        BrowserWorkspaceParticipant participant =
+            scope.ImplementationParticipant(surfaceParticipant);
+        return scope.UseImplementationParticipant(
+            participant,
+            (group, selected) => ResolveDeclaration(
+                ImplementationSurface(group, selected),
+                typeId,
+                memberName,
+                selectorKey,
+                metadataToken));
+    }
+
+    static DeclarationResolved ResolveDeclaration(
+        ApiSurface surface,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        ApiType[] typeMatches =
+        [
+            .. surface.Types.Where(candidate =>
+                candidate.DefinitionName?.ToEscapedFullName()
+                    .Equals(typeIdentity, StringComparison.Ordinal) == true),
+        ];
+        if (typeMatches.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"The selected surface does not contain one exact type identity "
+                + $"for '{typeIdentity}'.");
+        }
+
+        ApiType type = typeMatches[0];
+        ApiMember[] named =
+        [
+            .. type.Members.Where(candidate =>
+                candidate.Name.Equals(memberName, StringComparison.Ordinal)),
+        ];
+        if (metadataToken != 0)
+        {
+            ApiMember[] tokenMatches =
+            [
+                .. named.Where(candidate =>
+                    (candidate.DeclarationMetadataToken
+                        ?? candidate.MetadataToken) == metadataToken),
+            ];
+            if (tokenMatches.Length == 1)
+                return new DeclarationResolved(type, tokenMatches[0]);
+            if (tokenMatches.Length > 1)
+            {
+                throw new InvalidOperationException(
+                    $"The selected declaration token for "
+                    + $"'{typeIdentity}.{memberName}' is ambiguous.");
+            }
+        }
+
+        ApiMember[] selectorMatches =
+        [
+            .. named.Where(candidate =>
+                Analysis.CallGraphMemberResolver.CreateSelector(type, candidate)
+                    .Key.Equals(selectorKey, StringComparison.Ordinal)),
+        ];
+        return selectorMatches.Length == 1
+            ? new DeclarationResolved(type, selectorMatches[0])
+            : throw new InvalidOperationException(
+                $"The surface of '{typeIdentity}.{memberName}' does not contain "
+                + "one exact selected API declaration.");
+    }
+
+    static ApiSurface ParticipantSurface(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        string role)
+    {
+        AssemblyContextApiSurfaceResult surfaces =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.IncludeAll,
+                BrowserApiSurfacePolicy.Limits,
+                [participant]);
+        if (surfaces.Truncation is { } truncation)
+        {
+            throw new InvalidOperationException(
+                $"The {role} surface exceeds the browser projection bounds, so "
+                + "the selected declaration cannot be resolved. "
+                + BrowserApiSurfacePolicy.TruncationNotice(truncation));
+        }
+
+        return BrowserSurfaceProjection.Require(
+            surfaces.Assemblies.Assemblies.Single(),
+            $"{role} surface").Surface;
     }
 
     internal static Analysis.CallGraphMemberResolution ResolveImplementationMember(

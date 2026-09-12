@@ -46,6 +46,7 @@ const run: BrowserMemberSurface = {
   isObsolete: false,
   genericArity: 0,
   metadataToken: 0x06000001,
+  declarationMetadataToken: 0x06000001,
   returnType: "void",
   parameters: [],
   documentationId: "M:Example.Widget.Run",
