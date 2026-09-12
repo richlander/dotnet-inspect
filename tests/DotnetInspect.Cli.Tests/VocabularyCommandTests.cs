@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -168,7 +169,8 @@ public sealed class VocabularyCommandTests
                 Tabular = true,
                 Tsv = true,
                 Columns = ["ID", "Tier"],
-                Rows = RowWindow.Range(1, 2),
+                RowSelection = Select(
+                    RowSelectionIntentOperation<string>.Window(1, 2)),
             })));
         var counted = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
@@ -201,7 +203,8 @@ public sealed class VocabularyCommandTests
                 Tabular = true,
                 Tsv = true,
                 Fields = ["ID", "Tier"],
-                Rows = RowWindow.Range(1, 1),
+                RowSelection = Select(
+                    RowSelectionIntentOperation<string>.Window(1, 1)),
             })));
 
         Assert.Equal(0, result.ExitCode);
@@ -438,6 +441,135 @@ public sealed class VocabularyCommandTests
                 JsonValueKind.Number,
                 row.GetProperty("count").ValueKind));
     }
+
+    [Fact]
+    public async Task CommandLine_HeadTailAndBareLimitUseSemanticRows()
+    {
+        var tail = await RunCliAsync(
+            "vocabulary",
+            "-S",
+            "Accessibility",
+            "-n",
+            "2",
+            "--tail",
+            "--columns",
+            "ID",
+            "--tsv");
+        var head = await RunCliAsync(
+            "vocabulary",
+            "-S",
+            "Accessibility",
+            "-2",
+            "--columns",
+            "ID",
+            "--tsv");
+        string[] expectedIds =
+        [
+            .. VocabularyCatalog.GetById("api.accessibility")
+                .Values.Select(ValueId),
+        ];
+
+        Assert.Equal(0, tail.ExitCode);
+        Assert.Empty(tail.Error);
+        Assert.Equal(expectedIds[^2..], TsvValues(tail.Output));
+
+        Assert.Equal(0, head.ExitCode);
+        Assert.Empty(head.Error);
+        Assert.Equal(expectedIds[..2], TsvValues(head.Output));
+    }
+
+    [Fact]
+    public async Task CommandLine_ComposesSemanticStagesInArgumentOrder()
+    {
+        var result = await RunCliAsync(
+            "vocabulary",
+            "-S",
+            "Accessibility",
+            "-n",
+            "3",
+            "--tail",
+            "--rows",
+            "2..3",
+            "--columns",
+            "ID",
+            "--tsv");
+        string[] expectedIds =
+        [
+            .. VocabularyCatalog.GetById("api.accessibility")
+                .Values.Select(ValueId),
+        ];
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(expectedIds[^2..], TsvValues(result.Output));
+    }
+
+    [Fact]
+    public async Task Command_MultiSectionStrictWindowFailsWithoutPartialOutput()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select =
+                [
+                    VocabularyCatalog.StyleChoicesSection,
+                    VocabularyCatalog.AccessibilitySection,
+                ],
+                RowSelection = Select(
+                    RowSelectionIntentOperation<string>.Window(5, null)),
+            })));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(
+            "Error: Vocabulary row selection stage 1 for 'Accessibility' "
+                + "requires row 5, but only 4 rows are available.",
+            result.Error.Trim());
+    }
+
+    [Fact]
+    public async Task CommandLine_MultiSectionCountObservesSemanticWindow()
+    {
+        var result = await RunCliAsync(
+            "vocabulary",
+            "-S",
+            "C#*",
+            "--rows",
+            "2..",
+            "--count");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        foreach (VocabularySection section in VocabularyCatalog.Document.Sections
+            .Where(section => section.Name.StartsWith("C#", StringComparison.Ordinal)))
+        {
+            Assert.Contains(
+                $"| {section.Name} | {section.Values.Length - 1} |",
+                result.Output);
+        }
+    }
+
+    private static async Task<(int ExitCode, string Output, string Error)> RunCliAsync(
+        params string[] args) =>
+        await ConsoleCapture.RunAsync(async () =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            args = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeAsync(
+                root.Parse(args),
+                args);
+        });
+
+    private static RowSelectionIntent<string> Select(
+        params RowSelectionIntentOperation<string>[] operations) =>
+        RowSelectionIntent<string>.Create(operations);
+
+    private static string[] TsvValues(string output) =>
+        output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .ToArray();
 
     private static string ValueId(VocabularyRow row) =>
         row.GetRequired("id").Text!;
