@@ -271,6 +271,15 @@ concept become discoverable facets. One fact may carry multiple associations
 without becoming several physical calls or several logical relation rows.
 Unclassified relations remain available in `Relations`.
 
+For invocation evidence, the composition may attach a callee API's Integration
+associations only after owner-issued correspondence joins that exact selected
+member to the provider evidence in the same binding attempt. The claim is
+"this caller statically invokes an API classified for this concept", not
+"this application successfully configured or ran the integration".
+A package reference, similar name, other overload or different version cannot
+supply that join. An unavailable correspondence stays unavailable rather than
+becoming an unclassified negative or an inferred invocation.
+
 The conceptual axes are independent:
 
 | Axis | Meaning |
@@ -430,7 +439,7 @@ unreviewable changes inside a nominal slice.
 | 1 | This Subject Relations workflow/composition design, [#6760](https://github.com/richlander/dotnet-inspect/issues/6760). |
 | 2 | Workspace registration retention and finite population realization. |
 | 3 | Ecosystems-owned platform and all-known-pack factories/manifests, preserving empty raw Workspace construction. |
-| 4 | Source/search owners adopt broad versus explicit candidate intent; keep any separate owner changes separate and update the step count. |
+| 4 | Search Scope Resolution adopts broad versus explicit candidate intent using existing Source Selection declarations. |
 | 5 | Find's exact host-neutral locator/context handoff. |
 | 6 | Metadata-owned typed hierarchy, extension and reference relation projections. |
 | 7 | Analysis-owned invocation/correspondence joins. |
