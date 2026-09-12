@@ -1,4 +1,6 @@
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
+using DotnetInspect.Cli;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
@@ -235,6 +237,145 @@ public class ExtensionsCommandTests
             nameof(ExtensionWorkspaceMethods.WorkspaceExtension),
             output);
         Assert.Contains("\"reachable_path\": \".Reachable\"", output);
+    }
+
+    [Fact]
+    public async Task CommandLine_SemanticTailSelectionReturnsOneCollapsedRow()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "extensions",
+            "String",
+            "--library",
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            "--all",
+            "--json",
+            "-n",
+            "1",
+            "--tail");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
+        Assert.Equal(
+            "ToUpperCase",
+            document.RootElement[0].GetProperty("method").GetString());
+    }
+
+    [Fact]
+    public async Task CommandLine_SemanticRangeSelectionAppliesBeforeCount()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "extensions",
+            "String",
+            "--library",
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            "--all",
+            "--count",
+            "--rows",
+            "1..2");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("2", result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task CommandLine_SemanticRangeSelectionReportsStrictFailure()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "extensions",
+            "String",
+            "--library",
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            "--all",
+            "--json",
+            "--rows",
+            "1..10");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("Extensions row selection stage", result.Error);
+        Assert.Contains("requires row 10", result.Error);
+    }
+
+    [Fact]
+    public async Task CommandLine_SemanticSelectionRejectsCountFormRows()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "extensions",
+            "String",
+            "--library",
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            "--rows",
+            "3");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("--rows requires N..M", result.Error);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_LegacyRowsFallbackWindowsRenderedOutputOnce()
+    {
+        var options = new ExtensionsOptions
+        {
+            TargetType = "String",
+            Assemblies = [typeof(ExtensionsCommandTests).Assembly.Location],
+            IncludeAll = true,
+            Rows = RowWindow.Range(1, 1),
+            Tabular = true,
+        };
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => ExtensionsCommand.ExecuteAsync(
+                    options,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("Repeat", output);
+        Assert.DoesNotContain("ToUpperCase", output);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CompactJsonPreservesTypedArrayContract()
+    {
+        var options = new ExtensionsOptions
+        {
+            TargetType = "String",
+            Assemblies = [typeof(ExtensionsCommandTests).Assembly.Location],
+            IncludeAll = true,
+            JsonOutput = true,
+            CompactJson = true,
+        };
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => ExtensionsCommand.ExecuteAsync(
+                    options,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        string compact = output.TrimEnd();
+        Assert.DoesNotContain('\n', compact);
+        using JsonDocument document = JsonDocument.Parse(compact);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.NotEmpty(document.RootElement.EnumerateArray());
+    }
+
+    private static async Task<(int ExitCode, string Output, string Error)> ExecuteCommandLineAsync(
+        params string[] arguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] processed = CommandLineBuilder.PreprocessArgs(arguments, root);
+        return await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed));
     }
 
     [Fact]
