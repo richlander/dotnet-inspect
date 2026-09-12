@@ -329,13 +329,11 @@ AllowedDestination(token, destination) ==
         THEN destination = PlatformJsonType
         ELSE destination = PlatformJsonMember
       [] Scenario = StaleDescriptorScenario ->
-        IF token = 1
-        THEN destination = PackageJson
-        ELSE destination = ExistingPackage
+        /\ token = 1
+        /\ destination = PackageJson
       [] Scenario = StalePlatformDescriptorScenario ->
-        IF token = 1
-        THEN destination = PlatformJsonLibrary
-        ELSE destination = ExistingPackage
+        /\ token = 1
+        /\ destination = PlatformJsonLibrary
       [] OTHER -> FALSE
 
 AllowedReplacementProfile(profile) ==

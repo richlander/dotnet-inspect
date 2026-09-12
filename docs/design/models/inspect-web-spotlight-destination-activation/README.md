@@ -102,9 +102,10 @@ also explores render, preselection registration movement, descriptor
 replacement, selection, and settlement; the other profiles admit environment
 movement before rendering or after selection so this dedicated profile owns
 the preselection registration-change interleavings. A separate bounded
-Platform scenario owns active-Workspace replacement before selection. Each of
-the fourteen `Broken*.cfg` files expects exit 12 at its named invariant. The
-seventeen
+Platform scenario owns active-Workspace replacement before selection. These
+focused stale profiles schedule one activation because no second ordinary
+selection contributes to either preselection claim. Each of the fourteen
+`Broken*.cfg` files expects exit 12 at its named invariant. The seventeen
 `Reachability*.cfg` files
 intentionally check a false absence invariant and expect exit 12 when TLC
 reaches every plan arm, exact-Library-only package admission, Platform
@@ -114,8 +115,9 @@ unavailability, complete overlapping coverage, visible failure, post-commit
 focus failure, stale/superseded settlement, or stale-before-selection
 settlement after registration or active-Workspace change.
 
-The checked profiles explore 126,863 to 913,782 distinct states each. All 48
-registered configurations produced their exact expected semantic verdict.
+The checked positive profiles explore 14,054 to 735,578 distinct states each.
+All 48 registered configurations produced their exact expected semantic
+verdict.
 
 All configurations are registered with their exact expected semantic verdict
 in
