@@ -901,6 +901,11 @@ labels the results panel. Both full labels remain available at narrow widths.
 
 The shared frame uses a quiet count/state header, an optional platform Library
 selector, one full-area results scroller, and bottom assembly context.
+The title and count/state share the existing 40px header with right-aligned
+mode tabs, following Compare's shared header. There is no separate tab row.
+Count/state text may elide, with its complete text retained, before either tab
+label loses space. The existing narrow-screen Types control still occupies
+the title's place.
 It replaces the generic Library hero, repeated summary heading/noninteractive
 category chips, and inset signal cards.
 
@@ -914,8 +919,7 @@ catalog describes the same consolidated inspector; no scanner, acquisition, CLI
 section, or result contract changes.
 
 ```text
-Integrations                             category/signal count or state
-[Integrations]  Opportunities
+Integrations  count/state                 [Integrations]  Opportunities
 optional platform Library selector
 category headings and full-width signal rows
 Library asset and assembly identity              TFM · package@version
@@ -948,8 +952,9 @@ Scan classification, catalog ownership, other lenses, and subject-strip
 interaction remain separate work. `inspect-web/test/integration-inspector.test.ts`
 and the Integration tab scenarios in
 `inspect-web/browser/library-hierarchy.spec.ts` gate the consolidated frame,
-manual activation, same-Library mode changes, navigation retention, and an
-inactive scan settling without replacing the selected mode or keyboard focus.
+single-row header geometry and full tab labels down to 320px, manual activation,
+same-Library mode changes, navigation retention, and an inactive scan settling
+without replacing the selected mode or keyboard focus.
 
 #### Opportunities tab
 
