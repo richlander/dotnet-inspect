@@ -80,6 +80,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 
 | Document | Need served |
 | -------- | ----------- |
+| [Building Shared Inspections](building-shared-inspections.md) | Prescriptive path from a real product question through Houses, Workspaces, L1 queries, L2 inspection plans, typed results, and thin CLI/Inspect Web adapters. |
 | [Style Guide](design/style-guide.md) | Output formatting conventions. |
 | [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
 | [Body Shape Views](design/body-shape-views.md) | Explicit counted summaries and locatable rendered-syntax occurrences. |
