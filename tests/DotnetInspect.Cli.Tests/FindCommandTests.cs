@@ -2844,6 +2844,36 @@ public class FindCommandIntegrationTests
     }
 
     [Theory]
+    [InlineData(false, "Json*")]
+    [InlineData(true, "Serialize")]
+    public async Task FindCount_PackagePrefixLimitAllowsSatisfiedComposedWitness(
+        bool members,
+        string pattern)
+    {
+        var options = new FindOptions
+        {
+            Pattern = pattern,
+            Members = members,
+            PlatformAssemblies = ["System.Text.Json"],
+            Count = true,
+            PackagePrefixLimitReached = true,
+            RowSelection =
+                RowSelectionIntent<string>.Create(
+                    [
+                        RowSelectionIntentOperation<string>.Head(2),
+                        RowSelectionIntentOperation<string>.Window(2, null),
+                    ]),
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
     [MemberData(nameof(ExactCountCases))]
     public void FindCountSufficiency_FollowsOrderedSemanticSelection(
         RowSelectionIntent<string>? selection,

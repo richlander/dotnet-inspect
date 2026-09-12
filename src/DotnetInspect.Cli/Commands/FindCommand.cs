@@ -149,6 +149,7 @@ public class FindCommand
                     context.HttpClient,
                     cancellationToken);
             List<TypeFindResult> results = search.Rows;
+            int observedRowCount = results.Count;
             if (!TrySelectRows(
                     options.RowSelection,
                     results,
@@ -170,7 +171,7 @@ public class FindCommand
                 if (search.HasFailures
                     || !CliSemanticRowSelection.ProvidesExactCount(
                         options.RowSelection,
-                        results.Count,
+                        observedRowCount,
                         sourceComplete:
                             !search.SourceSelectionIncomplete))
                 {
@@ -726,6 +727,7 @@ public class FindCommand
                 httpClient,
                 cancellationToken);
         List<MemberFindResult> results = search.Rows;
+        int observedRowCount = results.Count;
         if (!TrySelectRows(
                 options.RowSelection,
                 results,
@@ -742,7 +744,7 @@ public class FindCommand
             if (search.HasFailures
                 || !CliSemanticRowSelection.ProvidesExactCount(
                     options.RowSelection,
-                    results.Count,
+                    observedRowCount,
                     sourceComplete:
                         !search.SourceSelectionIncomplete))
             {
