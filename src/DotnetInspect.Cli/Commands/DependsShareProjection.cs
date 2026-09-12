@@ -1,8 +1,10 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using NuGet.Frameworks;
+using NuGet.Versioning;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
@@ -188,7 +190,127 @@ internal static class DependsShareProjection
             options.ShareFormat!.Value);
     }
 
-    private static bool TryNormalizeFramework(
+    internal static InspectionShare ProjectType(DependsOptions options)
+    {
+        if (options.Packages.Length != 1)
+        {
+            return NonProjectableShare(
+                "type dependency Share requires exactly one package root.");
+        }
+
+        string packageReference = options.Packages[0];
+        if (packageReference.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return NonProjectableShare(
+                "local package archives cannot be restored by the published Browser.");
+        }
+
+        (string packageId, string? versionText) =
+            PackageReferenceParser.Parse(packageReference);
+        if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
+        {
+            return NonProjectableShare("the package id is not canonical.");
+        }
+        if (string.Equals(
+                packageId,
+                BrowserPlatformPackageId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return NonProjectableShare(
+                $"the published Browser reserves package '{packageId}' for the .NET Platform.");
+        }
+        if (string.IsNullOrWhiteSpace(versionText)
+            || string.Equals(versionText, "latest", StringComparison.OrdinalIgnoreCase)
+            || versionText.Contains('+', StringComparison.Ordinal)
+            || !NuGetVersion.TryParse(versionText, out NuGetVersion? version))
+        {
+            return NonProjectableShare(
+                "the package root must include one exact normalized NuGet version.");
+        }
+        if (!TryNormalizeFramework(options.Tfm, out string? framework))
+        {
+            return NonProjectableShare(
+                "one valid target framework is required with --tfm.");
+        }
+
+        PackageSourceAuthorization sourceAuthorization =
+            new SourcePolicyPackageSourceAuthorization(options.SourceOptions)
+                .AuthorizeSourcesFor(packageId);
+        if (sourceAuthorization.DenialReason is { } denialReason)
+        {
+            return NonProjectableShare(
+                "the effective package source policy was denied: "
+                + denialReason);
+        }
+        if (sourceAuthorization.Sources.Count != 1
+            || !sourceAuthorization.Sources[0].IsNuGetOrg)
+        {
+            return NonProjectableShare(
+                "the effective package source policy must authorize exactly one NuGet.org source.");
+        }
+
+        var coordinate =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                packageId,
+                version.ToNormalizedString(),
+                framework);
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.WorkspaceId,
+            [
+                new WorkspaceContextDefinition(
+                    "g0",
+                    framework: framework,
+                    members: [coordinate]),
+            ]);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.NavigationId,
+            [
+                new NavigationTabDefinition(
+                    "t0",
+                    coordinate: coordinate),
+            ],
+            "t0");
+        var view = new ViewDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.ViewId,
+            lens: "dependencies",
+            type: options.TargetType);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.ScenarioId,
+            workspace: workspace.Id,
+            context: "g0",
+            view: view.Id,
+            navigation: navigation.Id);
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                new WorkspaceSharePacketDefinitionSet(
+                    workspace,
+                    navigation,
+                    view,
+                    scenario));
+        if (!projection.Succeeded)
+        {
+            WorkspaceSharePacketProjectionFailure failure =
+                projection.Failure!;
+            return NonProjectableShare(
+                $"the type dependency view is not projectable at "
+                + $"{failure.Path}: {failure.Message}");
+        }
+
+        string encoded = WorkspaceSharePacketCodec.Encode(projection.Packet!);
+        return new InspectionShare.Available(
+            WorkspaceShareOutput.UrlPrefix + encoded);
+    }
+
+    private static InspectionShare NonProjectableShare(string reason) =>
+        new InspectionShare.NonProjectable("type-dependency-share", reason);
+
+    internal static bool TryNormalizeFramework(
         string? value,
         out string? framework)
     {

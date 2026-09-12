@@ -88,7 +88,15 @@ public sealed class TypeDependencyRowSelectionResult
 
 public sealed record TypeDependencySectionResult(
     AssemblyContextTypeDependencyResult QueryResult,
-    TypeDependencyRowSelectionResult RowSelection);
+    TypeDependencyRowSelectionResult RowSelection)
+{
+    public static TypeDependencySectionResult NotFound() =>
+        new(
+            new AssemblyContextTypeDependencyResult(
+                new TypeDependencyResult(null, []),
+                []),
+            new TypeDependencyRowSelectionResult([], failure: null));
+}
 
 public static class TypeDependencySectionExecutor
 {

@@ -90,6 +90,13 @@ public sealed partial class BrowserEngineBoundaryTests
                 && edge.ToId == typeof(IDisposable).FullName
                 && edge.Kind == "implements");
         Assert.Empty(workspace.InspectionFailures);
+        Assert.Equal(
+            typeName,
+            workspace.TypeDependencyInspection.Content.MatchedType);
+        Assert.Equal(
+            "Available",
+            workspace.TypeDependencyInspection.Share.Kind.ToString());
+        Assert.Empty(workspace.TypeDependencyInspection.Diagnostics);
     }
 
     [Fact]
@@ -242,6 +249,13 @@ public sealed partial class BrowserEngineBoundaryTests
             edge => edge.FromId == typeName
                 && edge.ToId
                     == typeof(IPackagePayloadReservation).FullName);
+        var rejection = Assert.Single(
+            metadata.TypeDependencyInspection.Diagnostics,
+            diagnostic =>
+                diagnostic.Code
+                    == "type-dependency.participant-rejected");
+        Assert.Equal("Warning", rejection.Severity.ToString());
+        Assert.Contains(rejectedPackageId, rejection.Summary);
     }
 
     [Fact]

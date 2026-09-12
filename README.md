@@ -638,6 +638,13 @@ versions, omitted frameworks, the Browser-reserved `Microsoft.NETCore.App`
 Platform id, row windows, counts, and other rendering formats fail visibly
 rather than producing a non-reproducible link.
 
+`depends <type> --package <id>@<version> --tfm <tfm> --share[=url|packet]`
+keeps the type dependency result on stdout and appends its canonical
+Dependencies URL or packet to stderr. Type sharing is limited to one exact
+NuGet.org package coordinate, a valid target framework, and the requested type;
+local, floating, ranged, private-feed, multi-source, platform, and
+non-projectable requests fail visibly.
+
 ## Requirements
 
 .NET 10.0 SDK or later.

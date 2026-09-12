@@ -35,6 +35,21 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
     composition: null,
     graphNodes: [],
     graphEdges: [],
+    typeDependencyInspection: {
+      content: {
+        found: false,
+        matchedType: null,
+        relationships: [],
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        path: "type",
+        reason: "not available",
+      },
+      diagnostics: [],
+    },
     inspectionFailures: [],
   };
 }

@@ -1,7 +1,9 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Core;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -103,6 +105,12 @@ public static partial class MetadataExports
         (BrowserTypeGraphNode[] graphNodes,
             BrowserTypeGraphEdge[] graphEdges) =
             TypeRelationshipGraph(projection, result.Dependencies);
+        BrowserTypeDependencyEnvelope dependencyEnvelope =
+            TypeDependencyEnvelope(
+                scope,
+                root,
+                result.Dependencies,
+                projection.Identity.FullName);
 
         return new BrowserTypeMetadata(
                 projection.Identity.FullName,
@@ -145,11 +153,189 @@ public static partial class MetadataExports
                     : null,
                 graphNodes,
                 graphEdges,
+                dependencyEnvelope,
                 [
                     .. projection.InspectionFailures.Select(
                         failure => $"{failure.Operation}: {failure.Detail}"),
                     .. TypeDependencyFailures(scope, result.Dependencies),
                 ]);
+    }
+
+    static BrowserTypeDependencyEnvelope TypeDependencyEnvelope(
+        BrowserInspectionScope scope,
+        BrowserPackageCoordinate root,
+        TypeDependencySectionResult dependencies,
+        string typeName)
+    {
+        var diagnostics = new List<InspectionDiagnostic>();
+        foreach (AssemblyContextTypeDependencyEntry.Rejected rejected
+                 in dependencies.QueryResult.Participants.OfType<
+                     AssemblyContextTypeDependencyEntry.Rejected>())
+        {
+            BrowserWorkspaceParticipant? participant =
+                scope.SurfaceParticipants.FirstOrDefault(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        rejected.Subject.Registration));
+            string correspondence = participant is null
+                ? "workspace.participant"
+                : $"{participant.Coordinate.PackageId}@"
+                    + $"{participant.Coordinate.Version}/"
+                    + participant.Coordinate.Framework;
+            diagnostics.Add(
+                new InspectionDiagnostic(
+                    "type-dependency.participant-rejected",
+                    InspectionDiagnosticSeverity.Warning,
+                    $"Type dependency participant '{correspondence}' was rejected "
+                        + $"({rejected.Failure.Kind}).",
+                    correspondence));
+        }
+
+        if (!dependencies.QueryResult.HasSurvivingParticipant)
+        {
+            diagnostics.Add(
+                new InspectionDiagnostic(
+                    "type-dependency.unavailable",
+                    InspectionDiagnosticSeverity.Error,
+                    "Workspace type dependencies are unavailable because every participant was rejected."));
+        }
+        if (dependencies.RowSelection.Failure is { } rowFailure)
+        {
+            diagnostics.Add(
+                new InspectionDiagnostic(
+                    "type-dependency.row-selection-failed",
+                    InspectionDiagnosticSeverity.Error,
+                    $"Type dependency row selection stage "
+                        + $"{rowFailure.Failure.StageNumber} requires row "
+                        + $"{rowFailure.Failure.RequiredPosition}, but "
+                        + $"{rowFailure.Identity} has "
+                        + $"{rowFailure.Failure.AvailableCount} rows.",
+                    rowFailure.Identity.ToString()));
+        }
+
+        BrowserTypeDependencyContent content =
+            new(
+                dependencies.QueryResult.Dependency.Found,
+                dependencies.QueryResult.Dependency.MatchedType,
+                [
+                    .. dependencies.RowSelection.Relationships.Select(
+                        static relationship =>
+                            new BrowserTypeDependencyRelationship(
+                                relationship.Ordinal,
+                                relationship.SourceTypeName,
+                                relationship.TargetTypeName,
+                                relationship.Kind.ToString())),
+                ],
+                dependencies.QueryResult.IsComplete
+                && dependencies.RowSelection.IsSuccess);
+        InspectionShare share =
+            ProjectTypeShare(
+                root,
+                typeName);
+        var envelope =
+            new InspectionEnvelope<TypeDependencySectionResult>(
+                dependencies,
+                share,
+                diagnostics);
+        BrowserInspectionDiagnostic[] projectedDiagnostics =
+        [
+            .. envelope.Diagnostics.Select(
+                static diagnostic => new BrowserInspectionDiagnostic(
+                    diagnostic.Code,
+                    diagnostic.Severity switch
+                    {
+                        InspectionDiagnosticSeverity.Information =>
+                            BrowserInspectionDiagnosticSeverity.Info,
+                        InspectionDiagnosticSeverity.Warning =>
+                            BrowserInspectionDiagnosticSeverity.Warning,
+                        InspectionDiagnosticSeverity.Error =>
+                            BrowserInspectionDiagnosticSeverity.Error,
+                        _ => throw new InvalidOperationException(
+                            "Unknown inspection diagnostic severity."),
+                    },
+                    diagnostic.Summary.ToString(),
+                    diagnostic.Correspondence?.ToString())),
+        ];
+        return new BrowserTypeDependencyEnvelope(
+            content,
+            share switch
+            {
+                InspectionShare.NonProjectable nonProjectable =>
+                    new BrowserInspectionShare(
+                        BrowserInspectionShareKind.NonProjectable,
+                        null,
+                        nonProjectable.Path,
+                        nonProjectable.Reason.ToString()),
+                InspectionShare.Available available =>
+                    new BrowserInspectionShare(
+                        BrowserInspectionShareKind.Available,
+                        available.FullUrl,
+                        null,
+                        null),
+                _ => throw new InvalidOperationException(
+                    "Unknown inspection Share outcome."),
+            },
+            projectedDiagnostics);
+    }
+
+    static InspectionShare ProjectTypeShare(
+        BrowserPackageCoordinate root,
+        string typeName)
+    {
+        var coordinate =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                root.PackageId,
+                root.Version,
+                root.Framework);
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.WorkspaceId,
+            [
+                new WorkspaceContextDefinition(
+                    "g0",
+                    framework: root.Framework,
+                    members: [coordinate]),
+            ]);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.NavigationId,
+            [
+                new NavigationTabDefinition(
+                    "t0",
+                    coordinate: coordinate),
+            ],
+            "t0");
+        var view = new ViewDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.ViewId,
+            lens: "dependencies",
+            type: typeName);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.ScenarioId,
+            workspace: workspace.Id,
+            context: "g0",
+            view: view.Id,
+            navigation: navigation.Id);
+        WorkspaceSharePacketProjectionResult packet =
+            WorkspaceSharePacketTransposer.ToPacket(
+                new WorkspaceSharePacketDefinitionSet(
+                    workspace,
+                    navigation,
+                    view,
+                    scenario));
+        if (!packet.Succeeded)
+        {
+            WorkspaceSharePacketProjectionFailure failure =
+                packet.Failure!;
+            return new InspectionShare.NonProjectable(
+                $"type-dependency-share/{failure.Path}",
+                failure.Message);
+        }
+
+        return new InspectionShare.Available(
+            "https://dotnet-inspect.net/?w="
+            + WorkspaceSharePacketCodec.Encode(packet.Packet!));
     }
 
     internal static (BrowserPackageRequest[] Requests, int RootIndex)

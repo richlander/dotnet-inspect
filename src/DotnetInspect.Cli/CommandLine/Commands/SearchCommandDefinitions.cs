@@ -774,11 +774,29 @@ public static class SearchCommandDefinitions
                 || (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) > 0
                 || parseResult.GetValue(extensionsOption)
                 || parseResult.GetValue(aspnetcoreOption);
-            if (shareFormat is not null && hasNonPackageShareInput)
+            bool hasValidTypeShareInput =
+                !string.IsNullOrEmpty(targetType)
+                && packages.Length == 1
+                && (parseResult.GetValue(nuspecOption)?.Length ?? 0) == 0
+                && assemblies.Length == 0
+                && projects.Length == 0
+                && parseResult.GetValue(packagePrefixOption) is null
+                && (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) == 0
+                && !parseResult.GetValue(platformOption)
+                && !parseResult.GetValue(extensionsOption)
+                && !parseResult.GetValue(aspnetcoreOption);
+            bool invalidShareInput =
+                string.IsNullOrEmpty(targetType)
+                    ? hasNonPackageShareInput
+                    : !hasValidTypeShareInput;
+            if (shareFormat is not null && invalidShareInput)
             {
                 CommandError.Write(
-                    "--share requires exactly one --package input and "
-                    + "cannot be used with type, library, project, or platform dependency modes.");
+                    string.IsNullOrEmpty(targetType)
+                        ? "--share requires exactly one --package input and "
+                            + "cannot be used with type, library, project, or platform dependency modes."
+                        : "--share in type mode requires exactly one --package "
+                            + "input and cannot be used with another dependency source.");
                 return 1;
             }
 
@@ -913,7 +931,8 @@ public static class SearchCommandDefinitions
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
-                SourceOptions = sourceOptions
+                SourceOptions = sourceOptions,
+                ShareFormat = shareFormat
             };
 
             var outcome = await DependsCommand.ExecuteTypeDependsAsync(

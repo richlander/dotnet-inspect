@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
@@ -10,6 +11,41 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Fact]
+    public async Task DependsTypeShareAppendsUrlWithoutChangingJsonContent()
+    {
+        var result = await RunAppAsync(
+            "depends",
+            "NpgsqlOptionsExtension",
+            "--package",
+            "Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4",
+            "--tfm",
+            "net8.0",
+            "--json",
+            "--share",
+            "url",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension",
+            document.RootElement
+                .GetProperty("nodes")[0]
+                .GetProperty("label")
+                .GetString());
+        string shareLine = result.Error
+            .Split(
+                ['\r', '\n'],
+                StringSplitOptions.RemoveEmptyEntries)
+            .Last();
+        Assert.StartsWith(
+            "https://dotnet-inspect.net/?w=",
+            shareLine,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task DependsShare_PacketProjectsExactPackageDependencyView()
     {

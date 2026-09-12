@@ -53,7 +53,52 @@ public sealed record BrowserTypeMetadata(
     BrowserTypeComposition? Composition,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
+    BrowserTypeDependencyEnvelope TypeDependencyInspection,
     string[] InspectionFailures);
+
+public sealed record BrowserTypeDependencyEnvelope(
+    BrowserTypeDependencyContent Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics);
+
+public sealed record BrowserTypeDependencyContent(
+    bool Found,
+    string? MatchedType,
+    BrowserTypeDependencyRelationship[] Relationships,
+    bool IsComplete);
+
+public sealed record BrowserTypeDependencyRelationship(
+    int Ordinal,
+    string SourceTypeName,
+    string TargetTypeName,
+    string Kind);
+
+public sealed record BrowserInspectionShare(
+    BrowserInspectionShareKind Kind,
+    string? FullUrl,
+    string? Path,
+    string? Reason);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionShareKind>))]
+public enum BrowserInspectionShareKind
+{
+    Available,
+    NonProjectable,
+}
+
+public sealed record BrowserInspectionDiagnostic(
+    string Code,
+    BrowserInspectionDiagnosticSeverity Severity,
+    string Summary,
+    string? Correspondence);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionDiagnosticSeverity>))]
+public enum BrowserInspectionDiagnosticSeverity
+{
+    Info,
+    Warning,
+    Error,
+}
 
 public sealed record BrowserTypeParameter(string Name, string? Variance, string[] Constraints);
 
