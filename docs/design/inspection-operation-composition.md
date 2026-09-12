@@ -44,7 +44,7 @@ rather than another producer of the same semantic plan.
 | Section identity, applicability, declared rows, and shaping | [Section Model](section-model.md), [Section Pipeline](section-pipeline.md), and [Section-row shaping](section-row-shaping.md) | Supplies L2 plans and results |
 | Head, Tail, Window, and Top meaning | [Semantic row selection](semantic-row-selection.md) | Supplies the renderer-independent row language |
 | Explicit incomplete-work authorization | Each operation owner, with CLI lowering from [CLI execution bounds](cli-execution-bounds.md) | Supplies work-bound plans and completion evidence |
-| Content disposition and required share projection | [Inspection Plan Projections](inspection-plan-projections.md) | Supplies the closed content-purpose model and share companion |
+| Content purpose and required share projection | [Inspection Plan Projections](inspection-plan-projections.md) | Supplies the closed content-purpose model and share companion |
 | Portable scenario records | [Workspace Definitions](workspace-definitions.md) | Supplies share projection and restoration |
 | CLI parsing and output | [CLI Host Architecture](../cli-architecture.md) | Supplies argv lowering, ephemeral lifetime policy, diagnostics, and rendering |
 | Browser interaction and output | Inspect Web focused owners | Supplies gestures, retained lifetime policy, transport, navigation, and rendering |
@@ -60,16 +60,15 @@ CLI argv / Web gesture / restored Workspace definition
   -> subject-specific semantic request
   -> House settlement and Workspace admission when content is required
   -> resolved inspection basis
-  -> exactly one content disposition
+  -> exactly one content purpose
        |-- Execute
        |     -> L1 query plan(s)
        |     -> L2 section and logical-row plan
        |     -> optional owner-issued work-bound plan
        |     `-> typed result plus completion evidence
-       |-- Discover
-       |     -> applicability/probe plan
-       |     `-> typed effectiveness outcomes
-       `-- Content not requested
+       `-- Discover
+             -> applicability/probe plan
+             `-> typed effectiveness outcomes
   -> required share projection
        `-> Workspace Definitions
   -> host projection and presentation
@@ -99,19 +98,17 @@ policy:
 It does not retain live content, a Workspace lease, an executable closure,
 probe outcomes, rendered rows, credentials, or host UI state.
 
-Exactly one content disposition consumes that basis:
+Exactly one content purpose consumes that basis:
 
 - **Execute** produces typed query and section results.
 - **Discover** determines applicability or effectiveness without pretending
   ordinary rendering is a probe.
-- **Content not requested** authorizes neither result execution nor
-  effectiveness probes.
 
-One required Share projection accompanies every disposition. It projects only
+One required Share projection accompanies every content plan. It projects only
 portable semantic state and does not execute the selected inspection. A
 non-projectable Share outcome does not invalidate independently valid Execute
-or Discover content; it is the visible failure when Share was the only
-requested output.
+or Discover content. A host may classify an explicitly requested Share
+presentation as unsuccessful without discarding that content.
 
 Content and Share consume the same resolution without accepting the same
 inputs. For example, CLI verbosity may select automatic execution sections but
@@ -180,7 +177,7 @@ permission.
 | Query | Same L1 definitions, plans, costs, failures, and resource-free results | Executes in-process and writes diagnostics | Executes through managed facade and worker transport |
 | Section/rows | Same L2 section and logical-row plans | Exposes the broad CLI grammar | May expose fewer controls but constructs the same plan |
 | Work bounds | Same owner-issued dimensions and completion evidence | Lowers CLI options | Uses view policy or future UI controls |
-| Share | Same required portable projection and facet identity accompanies content | Renders it for `--share`; otherwise retains it without ordinary display | Restores it and may expose it with content |
+| Share | Same required portable projection and facet identity accompanies content | Writes it to stderr for `--share`; otherwise retains it without ordinary display | Restores it and exposes it with content |
 | Presentation | Typed result is unchanged | Markout, JSON, tables, trees, stderr, exit codes | Browser DTOs, interactive graph, navigation, diagnostics |
 
 Transport DTOs are not semantic plans. CLI option objects and browser request
@@ -276,7 +273,7 @@ those are separate follow-ups in
    command mode at a time.
 4. Route package realization through PackageHouse-to-Workspace orchestration
    without folding that migration into section plans.
-5. Adopt discovery content and required Share projection per subject,
+5. Adopt Discover content and required Share projection per subject,
    preserving their different inputs and outputs.
 6. Record each materially different CLI route and corresponding Web adoption
    or explicit non-applicability in
@@ -291,7 +288,7 @@ This document does not:
 - make CLI verbosity, output formats, diagnostics, or browser navigation
   portable;
 - treat semantic row selection as an execution bound;
-- make every content disposition or Share projection accept identical options;
+- make every content purpose or Share projection accept identical policy;
 - require Web to expose every CLI row-control widget;
 - define PackageHouse-to-Workspace orchestration;
 - finish the section-pipeline extraction from the CLI project; or
