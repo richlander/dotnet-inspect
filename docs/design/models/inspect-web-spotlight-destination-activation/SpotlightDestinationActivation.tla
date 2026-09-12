@@ -167,6 +167,21 @@ Phases ==
      DefinitionsPending,
      DefinitionsPrepared}
 
+NoSelectionBasisStatus == "no-selection-basis-status"
+CurrentAtSelection == "current-at-selection"
+WorkspaceStaleAtSelection == "workspace-stale-at-selection"
+RegistrationStaleAtSelection == "registration-stale-at-selection"
+RevisionStaleAtSelection == "revision-stale-at-selection"
+PublicationBaseStaleAtSelection == "publication-base-stale-at-selection"
+StaleSelectionBasisStatuses ==
+    {WorkspaceStaleAtSelection,
+     RegistrationStaleAtSelection,
+     RevisionStaleAtSelection,
+     PublicationBaseStaleAtSelection}
+SelectionBasisStatuses ==
+    StaleSelectionBasisStatuses
+        \cup {NoSelectionBasisStatus, CurrentAtSelection}
+
 NoResult == "none"
 CurrentActivated == "current-activated"
 PlatformActivated == "platform-activated"
@@ -344,6 +359,7 @@ NoAttempt ==
       destination            |-> NoDestination,
       coverage               |-> <<>>,
       occurrence             |-> NoOccurrence,
+      selectionBasisStatus   |-> NoSelectionBasisStatus,
       phase                  |-> Ready,
       committedScopeRevision |-> 0,
       committedScopeBase     |-> 0,
@@ -467,6 +483,8 @@ TypeOK ==
         /\ attempts[token].coverage \in Seq(CoverageWitnesses)
         /\ attempts[token].occurrence
             \in Occurrences \cup {NoOccurrence}
+        /\ attempts[token].selectionBasisStatus
+            \in SelectionBasisStatuses
         /\ attempts[token].phase \in Phases
         /\ attempts[token].committedScopeRevision \in 0..3
         /\ attempts[token].committedScopeBase \in 0..4
@@ -518,6 +536,18 @@ RenderedDescriptorBasisIsCurrent ==
         registrationProfile[activeWorkspace]
 
 DescriptorSlotIsEmpty == renderedDescriptor.generation = 0
+
+SelectionBasisStatus(descriptor) ==
+    IF descriptor.workspace # activeWorkspace
+    THEN WorkspaceStaleAtSelection
+    ELSE IF descriptor.registrationProfile
+                # registrationProfile[activeWorkspace]
+    THEN RegistrationStaleAtSelection
+    ELSE IF descriptor.scopeRevision # scopeRevision[activeWorkspace]
+    THEN RevisionStaleAtSelection
+    ELSE IF descriptor.scopeBase # scopeBase[activeWorkspace]
+    THEN PublicationBaseStaleAtSelection
+    ELSE CurrentAtSelection
 
 CapturedBasisIsCurrent(token) ==
     /\ attempts[token].state = Pending
@@ -599,6 +629,7 @@ StartSelection ==
     LET descriptor == renderedDescriptor
         token == intent + 1
         destination == descriptor.destination
+        basisStatus == SelectionBasisStatus(descriptor)
         rebind ==
             /\ Mutation = RebindRenderedDescriptor
             /\ ~RenderedDescriptorBasisIsCurrent
@@ -648,6 +679,7 @@ StartSelection ==
                   destination            |-> destination,
                   coverage               |-> coverage,
                   occurrence             |-> occurrence,
+                  selectionBasisStatus   |-> basisStatus,
                   phase                  |-> Ready,
                   committedScopeRevision |-> 0,
                   committedScopeBase     |-> 0,
@@ -1333,6 +1365,15 @@ ExactSourceIdentityControlsClassification ==
 RenderedDescriptorSelectionPreservesBasis ==
     ~badDescriptorRebind
 
+StaleAtSelectionNeverPublishesEffects ==
+    \A token \in Tokens :
+        attempts[token].selectionBasisStatus
+            \in StaleSelectionBasisStatuses
+        =>
+            /\ token \notin membershipCommits
+            /\ token \notin focusPublications
+            /\ token \notin freshPublications
+
 RepeatedPlatformSelectionUsesPlatformAction ==
     /\ results[1] = PlatformActivated
     /\ attempts[2].state # Unused
@@ -1519,6 +1560,8 @@ NoStaleOrSupersededSettlement ==
 NoStalePresentedDescriptorSettlement ==
     ~(/\ attempts[1].resultGeneration > 0
       /\ attempts[1].destination = PackageJson
+      /\ attempts[1].selectionBasisStatus =
+            RegistrationStaleAtSelection
       /\ attempts[1].registrationProfile = 1
       /\ attempts[1].plan = RestoreExternalPackageWorkspace
       /\ registrationProfile[CurrentWorkspace] = 3
@@ -1530,6 +1573,8 @@ NoStalePresentedDescriptorSettlement ==
 NoStalePlatformDescriptorSettlement ==
     ~(/\ attempts[1].resultGeneration > 0
       /\ attempts[1].destination = PlatformJsonLibrary
+      /\ attempts[1].selectionBasisStatus =
+            WorkspaceStaleAtSelection
       /\ attempts[1].workspace = CurrentWorkspace
       /\ attempts[1].registrationProfile = 1
       /\ attempts[1].plan = ActivateCurrentPlatform

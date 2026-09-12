@@ -106,6 +106,12 @@ not reclassify the old row from live Workspace or Scope state. If the captured
 basis is no longer current, the attempt settles stale before any current- or
 fresh-Workspace effect.
 
+The attempt retains whether the descriptor was current at selection and, when
+stale, which captured basis dimension first differed: Workspace identity,
+registration profile, Scope revision, or publication base. This retained
+selection fact distinguishes a row that was already stale when clicked from an
+attempt that became stale only after selection.
+
 A later result generation may replace an unselected stale descriptor with a
 freshly classified descriptor. Rendering that newer result does not supersede
 an activation that already started from an earlier descriptor; activation
@@ -379,6 +385,8 @@ The model checks:
 - registration change or active-Workspace replacement before selection makes
   the old descriptor settle stale without membership, focus, or fresh
   publication;
+- the preselection evidence distinguishes registration-stale and
+  Workspace-stale selection from ordinary post-selection staleness;
 - package-origin Library focus consumes the exact retained or newly issued
   Package occurrence;
 - one attempt cannot publish both a current-Workspace effect and a new

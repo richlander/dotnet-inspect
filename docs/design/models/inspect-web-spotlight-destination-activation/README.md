@@ -80,7 +80,8 @@ Workspace replacement, or settlement at the consumed boundary.
 | Platform Type and Member selections retain exact Browser-local Platform actions | `SafetyPlatformDescendants`, `ReachabilityPlatformDescendants` | `BrokenPlatformDescendantNavigation` |
 | Platform realization remains scoped to its exact Workspace | `SafetyRepeatPlatform`, `ReachabilityReplacementPlatformIsolation` | `BrokenCrossWorkspaceRealization` |
 | Every overlapping registration contribution remains in exact order | `Safety`, `ReachabilityOverlappingWitnesses` | `BrokenDropOverlappingWitnesses` |
-| Selection retains the rendered descriptor's captured plan and basis rather than reclassifying from live state | `SafetyStaleDescriptor`, `ReachabilityPreselectionRegistrationStale`, `ReachabilityPreselectionWorkspaceStale` | `BrokenRebindRenderedDescriptor` |
+| Selection retains the rendered descriptor's captured plan and basis rather than reclassifying from live state | `SafetyStaleDescriptor`, `SafetyStalePlatformDescriptor`, `ReachabilityPreselectionRegistrationStale`, `ReachabilityPreselectionWorkspaceStale` | `BrokenRebindRenderedDescriptor` |
+| The preselection witnesses require the exact registration-stale or Workspace-stale status recorded when selection begins | `SafetyStaleDescriptor`, `SafetyStalePlatformDescriptor`, `ReachabilityPreselectionRegistrationStale`, `ReachabilityPreselectionWorkspaceStale` | positive ordering evidence, not a separate mutation |
 | Every plan arm has an exact reachable settlement, including exact-Library-only package admission, Platform Type/Member activation, and never-realized uncovered Platform unavailability | `ReachabilityNavigateCurrent`, `ReachabilityCurrentMembership`, `ReachabilityAddCurrentPackageLibrary`, `ReachabilityMembershipCoveredLibrary`, `ReachabilityPlatform`, `ReachabilityPlatformDescendants`, `ReachabilityFreshWorkspace`, `ReachabilityUnavailableLibrary`, `ReachabilityUnavailablePlatform` | positive census, not a mutation pair |
 | Current Package membership classifies its not-yet-realized Library without duplicate Add | `Safety`, `ReachabilityMembershipCoveredLibrary` | occurrence checks below |
 | Package-origin Library focus uses the exact retained or Scope-returned occurrence | `Safety` | `BrokenWrongLibraryOccurrence` |
@@ -91,7 +92,7 @@ Workspace replacement, or settlement at the consumed boundary.
 | A failed Definitions result is never published by the host | `Safety` | `BrokenPublishFailedFreshActivation` |
 | Every bounded attempt settles under weakly fair adjacent completion | `Liveness` | safety mutations are not treated as liveness evidence |
 
-The eight safety profiles and eight liveness profiles expect TLC exit 0. Their
+The nine safety profiles and eight liveness profiles expect TLC exit 0. Their
 fixed destination schedules partition the package/Platform source pair,
 covered-Package, exact-Library-only, Package-to-Library, and
 overlapping-Library, repeated-Platform, and Platform Type/Member scenarios while
@@ -113,7 +114,7 @@ unavailability, complete overlapping coverage, visible failure, post-commit
 focus failure, stale/superseded settlement, or stale-before-selection
 settlement after registration or active-Workspace change.
 
-The checked profiles explore 126,863 to 842,480 distinct states each. All 47
+The checked profiles explore 126,863 to 913,782 distinct states each. All 48
 registered configurations produced their exact expected semantic verdict.
 
 All configurations are registered with their exact expected semantic verdict

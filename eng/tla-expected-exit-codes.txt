@@ -105,6 +105,7 @@ docs/design/models/inspect-web-spotlight-destination-activation/SafetyOverlap.cf
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyPlatformDescendants.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyRepeatPlatform.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyStaleDescriptor.cfg=0
+docs/design/models/inspect-web-spotlight-destination-activation/SafetyStalePlatformDescriptor.cfg=0
 docs/design/models/resolver-lineage/BrokenAlwaysInherit.cfg=12
 docs/design/models/resolver-lineage/BrokenCandidateCache.cfg=12
 docs/design/models/resolver-lineage/BrokenRegistrationMap.cfg=12
