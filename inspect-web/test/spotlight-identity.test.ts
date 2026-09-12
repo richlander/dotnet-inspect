@@ -29,8 +29,6 @@ import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
   pdbSourceLimitationHtml,
-  beginSourceRequestState,
-  cancelSourceRequestState,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
@@ -102,6 +100,10 @@ import {
   uniqueWorkspaceTypeByQueryId,
   workspaceCoordinatesMatch
 } from "../src/data.ts";
+import {
+  normalizeSourceResultSnapshot,
+  sourceResultNeedsLoad,
+} from "../src/source-inspection.ts";
 import type {
   CallGraphDiagnostics,
   CallGraphTarget,
@@ -1235,7 +1237,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
   const homeBinding =
-    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction openProductDemos)/)?.[0]
+    appSource.match(/function bindHomeEvents\([^)]*\) \{[\s\S]*?\n}(?=\n\nfunction openProductDemos)/)?.[0]
     ?? "";
   const loadingBinding =
     appSource.match(/function renderLoading\(\) \{[\s\S]*?\n}(?=\n\nasync function loadSelectedMemberDocumentation)/)?.[0]
@@ -1245,7 +1247,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /export function bindWorkbenchShell\([\s\S]*\[data-subject-copy\][\s\S]*#application-menu-button[\s\S]*#application-menu[\s\S]*\[data-application-action\][\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
   assert.match(
     shellControlsSource,
-    /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-credits[\s\S]*#home-demos/);
+    /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-demos/);
   assert.match(
     shellControlsSource,
     /export function bindLoadErrorShell\([\s\S]*#retry-load[\s\S]*#error-package-query[\s\S]*#error-package-input[\s\S]*#toggle-error-detail[\s\S]*\.load-error-detail/);
@@ -1275,17 +1277,17 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onSearch: \(\) => openSpotlight\(\)/);
   assert.match(
     homeActions,
-    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onOpenCredits: openCredits,\s*onToggleTheme: toggleTheme/);
+    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.doesNotMatch(
     appSource,
-    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-demos|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-subject-copy\]|\.load-error-detail)"\)/);
+    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-demos|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-subject-copy\]|\.load-error-detail)"\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help)/);
-  assert.doesNotMatch(homeBinding, /#(?:home-theme|dismiss-notice|home-demos|home-credits)/);
+  assert.doesNotMatch(homeBinding, /#(?:home-theme|dismiss-notice|home-demos)/);
   assert.doesNotMatch(
     loadingBinding,
     /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
@@ -1661,7 +1663,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /onCopyAnchor: anchor => \{[\s\S]*selector: overload\?\.stableSelector,[\s\S]*digest: overload\?\.anchorDigest,[\s\S]*canonical: overload\?\.canonicalSignature[\s\S]*void copyText\(value, `\$\{anchor\} copied`\)/);
   assert.match(
     binding,
-    /onCopyMemberSource: \(\) => \{[\s\S]*void copyText\(state\.memberSource\.text, "source copied"\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*void copyText\(state\.typeSource\.text, "source copied"\)/);
+    /onCopyMemberSource: \(\) => \{[\s\S]*state\.memberSource\.status === "ready"[\s\S]*void copyText\(state\.memberSource\.source\.text, "source copied"\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*state\.typeSource\.status === "ready"[\s\S]*void copyText\(state\.typeSource\.source\.text, "source copied"\)/);
   assert.match(
     binding,
     /onMemberFilterClear: \(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*renderMemberFilterAndRestoreFocus\("#clear-member-filter"\)/);
@@ -2494,11 +2496,8 @@ test("data bar shows versioned linked build provenance", () => {
     appSource,
     /producer: \{ kind: "acquisition", label: "Platform" \}/);
   assert.match(
-    appSource,
-    /href="\$\{CLI_TOOL_URL\}"[\s\S]*href="\$\{AGENT_SKILL_URL\}"/);
-  assert.match(
     dataBarSource,
-    /href="\$\{CLI_TOOL_URL\}"[\s\S]*href="\$\{AGENT_SKILL_URL\}"/);
+    /href="\$\{CLI_TOOL_URL\}"[\s\S]*href="\$\{AGENT_SKILL_URL\}"[\s\S]*href="\$\{ROUTED_ENTRY_PATHS\.credits\}"/);
   assert.match(
     dataBarSource,
     /identity\.commitUrl[\s\S]*target="_blank" rel="noopener noreferrer"/);
@@ -3747,7 +3746,7 @@ test("type projection completions render only while current and preserve navigat
     ?? "";
   assert.match(
     typeSourceAuthority,
-    /case "started":[\s\S]*case "replaced":[\s\S]*context\.preservedFocus =\s*dependencies\.renderPreservingMemberFocus\(\);[\s\S]*case "terminal":[\s\S]*state\.typeSourceLoading = false;[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
+    /case "started":[\s\S]*case "replaced":[\s\S]*state\.typeSource = \{[\s\S]*status: "loading"[\s\S]*context\.preservedFocus =\s*dependencies\.renderPreservingMemberFocus\(\);[\s\S]*case "terminal":[\s\S]*state\.typeSource = event\.outcome\.kind === "succeeded"[\s\S]*status: "ready"[\s\S]*status: "failed"[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
   assert.match(
     typeSource,
     /typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);
@@ -3907,7 +3906,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
   assert.match(
     typeSourceAuthority,
-    /case "terminal":[\s\S]*state\.typeSourceLoading = false;[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
+    /case "terminal":[\s\S]*state\.typeSource = event\.outcome\.kind === "succeeded"[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
   assert.match(
     typeSource,
     /typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);
@@ -4464,7 +4463,7 @@ test("source operations cancel when superseded or hidden", () => {
     /createSourceInspectionCoordinator\(\{[\s\S]*memberSourceHasConcreteOverload,[\s\S]*cancelEngineSourceRequest: \(\) => \{[\s\S]*observeAsync\(\s*cancelSourceInspection\(\),\s*"Cancelling the Source request"\)/);
   assert.match(
     sourceInspectionSource,
-    /const cancelCurrentRequest = \(\) => \{[\s\S]*cancelSourceRequestState\(state\)[\s\S]*cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(\s*state,\s*dependencies\.memberSourceHasConcreteOverload\(\)\)[\s\S]*cancelCurrentRequest\(\)/);
+    /const cancelCurrentRequest = \(\) => \{[\s\S]*cancelMemberSourceRequest\(\)[\s\S]*cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(\s*state,\s*dependencies\.memberSourceHasConcreteOverload\(\)\)[\s\S]*cancelCurrentRequest\(\)/);
   assert.match(
     sourceInspectionSource,
     /dependencies\.operationAuthority\.createSession\([\s\S]*typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);
@@ -4488,6 +4487,8 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(autoLoadBody, /kind === "graph"/);
   assert.match(autoLoadBody, /loadSelectedTypeSource\(\)/);
   assert.match(autoLoadBody, /loadSelectedMemberSource\(\)/);
+  assert.match(autoLoadBody, /sourceResultNeedsLoad\(state\.typeSource, signature\)/);
+  assert.match(autoLoadBody, /sourceResultNeedsLoad\(state\.memberSource, signature\)/);
   assert.match(
     autoLoadBody,
     /graphSourceAutoLoadRequest\(state\.graphSource\)/);
@@ -4605,25 +4606,19 @@ test("source operations cancel when superseded or hidden", () => {
     sourceRequestNeedsLoad(false, true, { text: "stale" }, ""),
     true);
 
-  const requestState = {
-    sourceRequestGeneration: 4,
-    memberSourceLoading: true,
-    memberSourceKey: "member",
-    memberSourceError: "",
-    typeSourceLoading: false,
-    typeSourceKey: "",
-    typeSourceError: ""
-  };
-  assert.equal(beginSourceRequestState(requestState), 5);
-  assert.equal(requestState.memberSourceLoading, false);
-  assert.equal(requestState.memberSourceKey, "");
-  requestState.typeSourceLoading = true;
-  requestState.typeSourceKey = "type";
-  assert.equal(cancelSourceRequestState(requestState), true);
-  assert.equal(requestState.sourceRequestGeneration, 6);
-  assert.equal(requestState.typeSourceLoading, false);
-  assert.equal(requestState.typeSourceKey, "");
-  assert.equal(requestState.typeSourceError, "");
+  const failed = {
+    status: "failed",
+    signature: "member",
+    error: "",
+  } as const;
+  assert.equal(sourceResultNeedsLoad(failed, "member"), false);
+  assert.equal(sourceResultNeedsLoad(failed, "other"), true);
+  assert.deepEqual(
+    normalizeSourceResultSnapshot({
+      status: "loading",
+      signature: "member",
+    }),
+    { status: "idle" });
 });
 
 test("browser consumer explicitly sequences same-origin host configuration", () => {
@@ -4869,7 +4864,7 @@ test("decompiled source discloses the PDB-source limitation", () => {
     /renderSourceResult[\s\S]*pdbSourceLimitationHtml\(source\)/);
   assert.match(
     appSource,
-    /state\.memberSource\s*\?\s*renderSourceResult\(\{/);
+    /case "ready":\s*return renderSourceResult\(\{\s*source: state\.memberSource\.source,/);
 });
 
 test("history never applies a selection to another coordinate", () => {

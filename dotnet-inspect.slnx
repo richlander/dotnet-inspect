@@ -123,6 +123,7 @@
     <Project Path="src/CSharpText/CSharpText.csproj" />
     <Project Path="src/CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
     <Project Path="src/DotnetInspector.Cache/DotnetInspector.Cache.csproj" />
+    <Project Path="src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
@@ -178,6 +179,7 @@
     <Project Path="tests/DecompilerHarness.Tests/DecompilerHarness.Tests.csproj" />
     <Project Path="tests/DotnetInspector.AssemblyOnlyHost.Fixture/DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <Project Path="tests/DotnetInspector.Cache.Tests/DotnetInspector.Cache.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.DependencyManifests.Tests/DotnetInspector.DependencyManifests.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Consumer.Tests/DotnetInspector.Ecosystems.Consumer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />

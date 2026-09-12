@@ -113,6 +113,11 @@ substrates, and inspection producers that will extend that space.
   exact Workspace revision and Metadata name evidence without redefining
   Analysis retrieval.
   The project has no Markout, console, or filesystem-path dependency.
+- `src/DotnetInspector.DependencyManifests/` processes bounded immutable
+  SDK-generated application `.deps.json` bytes into exact compilation/runtime
+  target asset coordinates and library metadata. It owns no filesystem,
+  package-store, platform, Workspace, compiler, or presentation policy. RTS is
+  its first direct consumer under the tools-first migration tracked by #6199.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
