@@ -369,9 +369,11 @@ dotnet-inspect member Utf8JsonWriter WriteStringValue:7 \
 
 The graph contains real inbound `EnumConverter<T>.Write` and
 `UriConverter.Write` callers plus null, span, validation, escaping, and writer
-branches. The execution plan produces that result. Effective discovery reports
-section dispositions under probe policy. Every operation also projects the
-target and `member.call-graph` configuration without graph nodes or edges.
+branches. The execution plan produces that result and projects the
+`member.call-graph` scenario without graph nodes or edges. Effective discovery
+reports section dispositions under probe policy and retains the subject's
+default `member.overview` Share projection because that invocation makes no
+explicit facet selection. The final invocation explicitly selects Call Graph;
 `--share` suppresses content and renders only that URL.
 
 ## Comparative evidence
