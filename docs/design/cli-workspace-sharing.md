@@ -435,7 +435,8 @@ coordinate projection and Browser restoration through a share-only fast path.
 Those implementations verify projection but do not yet satisfy the additive
 stdout/stderr contract. The real-package Member Call Graph adoption is designed
 and tracked by #6540 but remains unverified until its CLI-to-Browser production
-slice lands.
+slice lands. Existing-adopter migration is tracked by
+[#6725](https://github.com/richlander/dotnet-inspect/issues/6725).
 
 Each adoption must add focused Release gates proving:
 
