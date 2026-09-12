@@ -263,7 +263,10 @@ unconstrained and an exact-version declaration of the same consume relationship
 compose on the exact version, while genuinely different sources, kinds, or
 destinations remain distinct. Outcome and guard subjects use the same
 structural relation: compatible selector policies identify one subject on
-their shared domain, so disjoint predicate values remain disjoint there.
+their shared domain, so disjoint predicate values remain disjoint there. One
+selector-binding solve governs the complete comparison: locations, resource
+kinds, operation-slot lineage, predicates, and transition destinations retain
+the variable relationships established by the enclosing target selectors.
 
 ## Cross-resource composition
 
@@ -324,7 +327,9 @@ across declaring type, parameters, return type, resource kind, and authority.
 Variables from independently matched selectors occupy independent binding
 namespaces even when they use the same local index. Cross-selector overlap
 preserves every within-selector binding relationship while solving whether the
-two complete selector patterns share a closed CLR witness.
+two complete selector patterns share a closed CLR witness. That same solve
+continues through resource-kind arguments and effect locations; it is not
+discarded and recomputed from their model-local variable spellings.
 
 ### Member selectors
 

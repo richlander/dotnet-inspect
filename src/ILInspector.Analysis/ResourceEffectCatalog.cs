@@ -1610,15 +1610,23 @@ public static class ResourceEffectCatalogBuilder
                  secondIndex++)
             {
                 NormalizedResourceEffectDeclaration second = declarations[secondIndex];
-                if (!TargetsCanOverlap(first.Target, second.Target))
+                var targetUnification = new SelectorUnification();
+                if (!targetUnification.TryUnifyTargets(first.Target, second.Target))
                     continue;
-                if (TerminalConflict(first.Effect, second.Effect)
-                    || EntryConflict(first.Effect, second.Effect)
+                if (TerminalConflict(
+                        first.Effect,
+                        second.Effect,
+                        targetUnification.Clone())
+                    || EntryConflict(
+                        first.Effect,
+                        second.Effect,
+                        targetUnification.Clone())
                     || OperationConflict(
                         first.Effect,
                         first.Target,
                         second.Effect,
-                        second.Target))
+                        second.Target,
+                        targetUnification.Clone()))
                 {
                     ImmutableArray<ResourceDeclarationProvenance> provenances =
                         [.. first.Provenances
@@ -1646,7 +1654,8 @@ public static class ResourceEffectCatalogBuilder
 
     static bool TerminalConflict(
         ResourceEffect first,
-        ResourceEffect second)
+        ResourceEffect second,
+        SelectorUnification unification)
     {
         TerminalEffect? left = Terminal(first);
         TerminalEffect? right = Terminal(second);
@@ -1656,12 +1665,19 @@ public static class ResourceEffectCatalogBuilder
                 left.Source,
                 left.Kind,
                 right.Source,
-                right.Kind))
+                right.Kind,
+                unification))
             return false;
-        if (!CompletionsOverlap(left.When, right.When))
+        if (!CompletionsOverlap(left.When, right.When, unification))
             return false;
-        return !CompletionsEquivalentOnOverlap(left.When, right.When)
-            || !TerminalTransitionsEquivalent(left.Effect, right.Effect);
+        return !CompletionsEquivalentOnOverlap(
+                left.When,
+                right.When,
+                unification)
+            || !TerminalTransitionsEquivalent(
+                left.Effect,
+                right.Effect,
+                unification);
     }
 
     static TerminalEffect? Terminal(ResourceEffect effect)
@@ -1687,24 +1703,27 @@ public static class ResourceEffectCatalogBuilder
 
     static bool TerminalTransitionsEquivalent(
         ResourceEffect first,
-        ResourceEffect second)
+        ResourceEffect second,
+        SelectorUnification unification)
         => (first, second) switch
         {
             (ResourceEffect.Move left, ResourceEffect.Move right) =>
-                left.Kind == right.Kind
-                && LocationsCanOverlap(left.Target, right.Target),
+                unification.TryUnifyKinds(left.Kind, right.Kind)
+                && unification.TryUnifyLocations(left.Target, right.Target),
             (ResourceEffect.Release left, ResourceEffect.Release right) =>
-                left.Kind == right.Kind
+                unification.TryUnifyKinds(left.Kind, right.Kind)
                 && OptionalLocationsEquivalentOnOverlap(
                     left.Correspondence,
-                    right.Correspondence)
+                    right.Correspondence,
+                    unification)
                 && OptionalLocationsEquivalentOnOverlap(
                     left.Observation,
-                    right.Observation),
+                    right.Observation,
+                    unification),
             (ResourceEffect.Accept left, ResourceEffect.Accept right) =>
-                left.Kind == right.Kind
+                unification.TryUnifyKinds(left.Kind, right.Kind)
                 && left.Order == right.Order
-                && LocationsCanOverlap(left.Target, right.Target),
+                && unification.TryUnifyLocations(left.Target, right.Target),
             _ => false,
         };
 
@@ -1712,7 +1731,8 @@ public static class ResourceEffectCatalogBuilder
         ResourceEffect first,
         ResourceEffectTargetSelector firstTarget,
         ResourceEffect second,
-        ResourceEffectTargetSelector secondTarget)
+        ResourceEffectTargetSelector secondTarget,
+        SelectorUnification unification)
     {
         if (first is not ResourceEffect.Operation left
             || second is not ResourceEffect.Operation right)
@@ -1725,10 +1745,14 @@ public static class ResourceEffectCatalogBuilder
             left.Guard,
             firstTarget,
             right.Guard,
-            secondTarget);
+            secondTarget,
+            unification);
     }
 
-    static bool EntryConflict(ResourceEffect first, ResourceEffect second)
+    static bool EntryConflict(
+        ResourceEffect first,
+        ResourceEffect second,
+        SelectorUnification unification)
     {
         EntryEffect? left = Entry(first);
         EntryEffect? right = Entry(second);
@@ -1737,34 +1761,45 @@ public static class ResourceEffectCatalogBuilder
         if (left.Effect is ResourceEffect.Consume
             && right.Effect is ResourceEffect.Consume)
         {
-            if (!LocationsCanOverlap(left.Source, right.Source)
-                || !KindsOverlap(left.Kind, right.Kind))
+            if (!unification.TryUnifyLocations(left.Source, right.Source)
+                || !unification.TryUnifyKinds(left.Kind, right.Kind))
             {
                 return false;
             }
-            return !EntryTransitionsEquivalent(left.Effect, right.Effect);
+            return !EntryTransitionsEquivalent(
+                left.Effect,
+                right.Effect,
+                unification);
         }
         if (left.Effect is ResourceEffect.Borrow leftBorrow
             && right.Effect is ResourceEffect.Consume rightConsume)
         {
-            return KindsOverlap(left.Kind, right.Kind)
-                && LocationsCanOverlap(leftBorrow.Source, rightConsume.Source);
+            return unification.TryUnifyKinds(left.Kind, right.Kind)
+                && unification.TryUnifyLocations(
+                    leftBorrow.Source,
+                    rightConsume.Source);
         }
         if (left.Effect is ResourceEffect.Consume leftConsume
             && right.Effect is ResourceEffect.Borrow rightBorrow)
         {
-            return KindsOverlap(left.Kind, right.Kind)
-                && LocationsCanOverlap(leftConsume.Source, rightBorrow.Source);
+            return unification.TryUnifyKinds(left.Kind, right.Kind)
+                && unification.TryUnifyLocations(
+                    leftConsume.Source,
+                    rightBorrow.Source);
         }
         if (!ObligationsCanOverlap(
                 left.Source,
                 left.Kind,
                 right.Source,
-                right.Kind))
+                right.Kind,
+                unification))
             return false;
         if (left.IsBorrow || right.IsBorrow)
             return left.IsBorrow != right.IsBorrow;
-        return !EntryTransitionsEquivalent(left.Effect, right.Effect);
+        return !EntryTransitionsEquivalent(
+            left.Effect,
+            right.Effect,
+            unification);
     }
 
     static EntryEffect? Entry(ResourceEffect effect)
@@ -1809,84 +1844,62 @@ public static class ResourceEffectCatalogBuilder
 
     static bool EntryTransitionsEquivalent(
         ResourceEffect first,
-        ResourceEffect second)
+        ResourceEffect second,
+        SelectorUnification unification)
         => (first, second) switch
         {
             (ResourceEffect.Consume left, ResourceEffect.Consume right) =>
-                left.Kind == right.Kind
-                && LocationsCanOverlap(left.Target, right.Target),
+                unification.TryUnifyKinds(left.Kind, right.Kind)
+                && unification.TryUnifyLocations(left.Target, right.Target),
             (ResourceEffect.Move left, ResourceEffect.Move right) =>
-                left.Kind == right.Kind
-                && LocationsCanOverlap(left.Target, right.Target),
+                unification.TryUnifyKinds(left.Kind, right.Kind)
+                && unification.TryUnifyLocations(left.Target, right.Target),
             (ResourceEffect.Release left, ResourceEffect.Release right) =>
-                left.Kind == right.Kind
+                unification.TryUnifyKinds(left.Kind, right.Kind)
                 && OptionalLocationsEquivalentOnOverlap(
                     left.Correspondence,
-                    right.Correspondence)
+                    right.Correspondence,
+                    unification)
                 && OptionalLocationsEquivalentOnOverlap(
                     left.Observation,
-                    right.Observation),
+                    right.Observation,
+                    unification),
             (ResourceEffect.Accept left, ResourceEffect.Accept right) =>
-                left.Kind == right.Kind
+                unification.TryUnifyKinds(left.Kind, right.Kind)
                 && left.Order == right.Order
-                && LocationsCanOverlap(left.Target, right.Target),
+                && unification.TryUnifyLocations(left.Target, right.Target),
             _ => false,
         };
 
     static bool OptionalLocationsEquivalentOnOverlap(
         ResourceEffectLocation? first,
-        ResourceEffectLocation? second)
+        ResourceEffectLocation? second,
+        SelectorUnification unification)
         => first is null
             ? second is null
-            : second is not null && LocationsCanOverlap(first, second);
+            : second is not null
+                && unification.TryUnifyLocations(first, second);
 
     static bool CompletionsEquivalentOnOverlap(
         ResourceEffectCompletion first,
-        ResourceEffectCompletion second)
+        ResourceEffectCompletion second,
+        SelectorUnification unification)
     {
-        if (first == second)
-            return true;
-        return first is ResourceEffectCompletion.ResolvedOutcome left
-            && second is ResourceEffectCompletion.ResolvedOutcome right
-            && left.Test == right.Test
-            && LocationsCanOverlap(left.Source, right.Source);
-    }
-
-    static bool TargetsCanOverlap(
-        ResourceEffectTargetSelector first,
-        ResourceEffectTargetSelector second)
-        => (first, second) switch
+        return (first, second) switch
         {
-            (ResourceEffectTargetSelector.Type left,
-                ResourceEffectTargetSelector.Type right) =>
-                TypeExpressionsCanUnify(left.Selector, right.Selector),
-            (ResourceEffectTargetSelector.Member left,
-                ResourceEffectTargetSelector.Member right) =>
-                MembersCanOverlap(left.Selector, right.Selector),
+            (ResourceEffectCompletion.Entry, ResourceEffectCompletion.Entry)
+                or (ResourceEffectCompletion.NormalReturn,
+                    ResourceEffectCompletion.NormalReturn)
+                or (ResourceEffectCompletion.ExceptionalExit,
+                    ResourceEffectCompletion.ExceptionalExit)
+                or (ResourceEffectCompletion.SuccessfulAwait,
+                    ResourceEffectCompletion.SuccessfulAwait) => true,
+            (ResourceEffectCompletion.ResolvedOutcome left,
+                ResourceEffectCompletion.ResolvedOutcome right) =>
+                left.Test == right.Test
+                && unification.TryUnifyLocations(left.Source, right.Source),
             _ => false,
         };
-
-    static bool MembersCanOverlap(
-        ResourceEffectMemberSelector first,
-        ResourceEffectMemberSelector second)
-    {
-        if (first.MetadataName != second.MetadataName
-            || first.Kind != second.Kind
-            || first.IsStatic != second.IsStatic
-            || first.GenericArity != second.GenericArity
-            || first.CallingConvention != second.CallingConvention
-            || first.HasThis != second.HasThis
-            || first.ExplicitThis != second.ExplicitThis
-            || first.Parameters.Length != second.Parameters.Length)
-        {
-            return false;
-        }
-        for (int index = 0; index < first.Parameters.Length; index++)
-        {
-            if (first.Parameters[index].RefKind != second.Parameters[index].RefKind)
-                return false;
-        }
-        return TypeExpressionPairsCanUnify(MemberTypePairs(first, second));
     }
 
     static IEnumerable<(ResourceTypeExpression First, ResourceTypeExpression Second)>
@@ -1900,17 +1913,12 @@ public static class ResourceEffectCatalogBuilder
         yield return (first.ReturnType, second.ReturnType);
     }
 
-    static bool KindsOverlap(ResourceKindReference? first, ResourceKindReference? second)
-        => first is null
-            || second is null
-            || (first.Identity == second.Identity
-                && first.Arguments.Length == second.Arguments.Length);
-
     static bool ObligationsCanOverlap(
         ResourceEffectLocation firstLocation,
         ResourceKindReference? firstKind,
         ResourceEffectLocation secondLocation,
-        ResourceKindReference? secondKind)
+        ResourceKindReference? secondKind,
+        SelectorUnification unification)
     {
         if (!TryResolveObligationOrigin(
                 firstLocation,
@@ -1925,8 +1933,8 @@ public static class ResourceEffectCatalogBuilder
         {
             return false;
         }
-        return KindsOverlap(firstResolvedKind, secondResolvedKind)
-            && LocationsCanOverlap(firstOrigin, secondOrigin);
+        return unification.TryUnifyKinds(firstResolvedKind, secondResolvedKind)
+            && unification.TryUnifyLocations(firstOrigin, secondOrigin);
     }
 
     static bool TryResolveObligationOrigin(
@@ -1937,7 +1945,9 @@ public static class ResourceEffectCatalogBuilder
     {
         while (location is ResourceEffectLocation.ResolvedOperation operation)
         {
-            if (!KindsOverlap(kind, operation.Kind))
+            if (kind is not null
+                && operation.Kind is not null
+                && kind != operation.Kind)
             {
                 origin = location;
                 resolvedKind = kind;
@@ -1951,29 +1961,10 @@ public static class ResourceEffectCatalogBuilder
         return true;
     }
 
-    static bool LocationsCanOverlap(
-        ResourceEffectLocation first,
-        ResourceEffectLocation second)
-    {
-        if (first == second)
-            return true;
-        return (first, second) switch
-        {
-            (ResourceEffectLocation.ResolvedField left,
-                ResourceEffectLocation.ResolvedField right) =>
-                LocationsCanOverlap(left.Root, right.Root)
-                && MembersCanOverlap(left.Selector, right.Selector),
-            (ResourceEffectLocation.ResolvedOperation left,
-                ResourceEffectLocation.ResolvedOperation right) =>
-                LocationsCanOverlap(left.Source, right.Source)
-                && KindsOverlap(left.Kind, right.Kind),
-            _ => false,
-        };
-    }
-
     static bool CompletionsOverlap(
         ResourceEffectCompletion first,
-        ResourceEffectCompletion second)
+        ResourceEffectCompletion second,
+        SelectorUnification unification)
     {
         if (first is ResourceEffectCompletion.Entry
             || second is ResourceEffectCompletion.Entry)
@@ -1991,7 +1982,8 @@ public static class ResourceEffectCatalogBuilder
                 firstOutcome.Source,
                 firstOutcome.Test,
                 secondOutcome.Source,
-                secondOutcome.Test);
+                secondOutcome.Test,
+                unification);
         }
         return true;
     }
@@ -2000,9 +1992,10 @@ public static class ResourceEffectCatalogBuilder
         ResourceEffectLocation firstSource,
         ResourceEffectOutcomeTest firstTest,
         ResourceEffectLocation secondSource,
-        ResourceEffectOutcomeTest secondTest)
+        ResourceEffectOutcomeTest secondTest,
+        SelectorUnification unification)
     {
-        if (!LocationsCanOverlap(firstSource, secondSource))
+        if (!unification.TryUnifyLocations(firstSource, secondSource))
             return false;
         return (firstTest, secondTest) switch
         {
@@ -2022,13 +2015,14 @@ public static class ResourceEffectCatalogBuilder
         ResourceEffectGuard? first,
         ResourceEffectTargetSelector firstTarget,
         ResourceEffectGuard? second,
-        ResourceEffectTargetSelector secondTarget)
+        ResourceEffectTargetSelector secondTarget,
+        SelectorUnification unification)
     {
         if (first is null || second is null)
             return true;
         var left = (ResourceEffectGuard.ExactRuntimeType)first;
         var right = (ResourceEffectGuard.ExactRuntimeType)second;
-        if (!LocationsCanOverlap(left.Subject, right.Subject))
+        if (!unification.TryUnifyLocations(left.Subject, right.Subject))
             return true;
         ResourceTypeExpression? leftExpected =
             ExpectedType(firstTarget, left.Expected);
@@ -2036,199 +2030,7 @@ public static class ResourceEffectCatalogBuilder
             ExpectedType(secondTarget, right.Expected);
         if (leftExpected is null || rightExpected is null)
             return true;
-        if (firstTarget is ResourceEffectTargetSelector.Member firstMember
-            && secondTarget is ResourceEffectTargetSelector.Member secondMember)
-        {
-            return TypeExpressionPairsCanUnify(
-                MemberTypePairs(firstMember.Selector, secondMember.Selector)
-                    .Append((leftExpected, rightExpected)));
-        }
-        return TypeExpressionsCanUnify(leftExpected, rightExpected);
-    }
-
-    static bool TypeExpressionsCanUnify(
-        ResourceTypeExpression first,
-        ResourceTypeExpression second)
-        => TypeExpressionPairsCanUnify([(first, second)]);
-
-    static bool TypeExpressionPairsCanUnify(
-        IEnumerable<(ResourceTypeExpression First, ResourceTypeExpression Second)> pairs)
-    {
-        var substitutions =
-            new Dictionary<ScopedGenericVariable, ScopedTypeExpression>();
-        foreach ((ResourceTypeExpression first, ResourceTypeExpression second) in pairs)
-        {
-            if (!Unify(
-                    new ScopedTypeExpression(first, FromFirstSelector: true),
-                    new ScopedTypeExpression(second, FromFirstSelector: false)))
-            {
-                return false;
-            }
-        }
-        return true;
-
-        bool Unify(ScopedTypeExpression left, ScopedTypeExpression right)
-        {
-            left = Resolve(left);
-            right = Resolve(right);
-            if (left.Expression is ResourceTypeExpression.Variable leftVariable)
-            {
-                return Bind(
-                    new ScopedGenericVariable(
-                        left.FromFirstSelector,
-                        leftVariable.Value),
-                    right);
-            }
-            if (right.Expression is ResourceTypeExpression.Variable rightVariable)
-            {
-                return Bind(
-                    new ScopedGenericVariable(
-                        right.FromFirstSelector,
-                        rightVariable.Value),
-                    left);
-            }
-            return (left.Expression, right.Expression) switch
-            {
-                (ResourceTypeExpression.Named leftNamed,
-                    ResourceTypeExpression.Named rightNamed) =>
-                    AssemblySelectorsCanOverlap(
-                        leftNamed.Assembly,
-                        rightNamed.Assembly)
-                    && leftNamed.Namespace == rightNamed.Namespace
-                    && leftNamed.Segments.SequenceEqual(rightNamed.Segments)
-                    && leftNamed.Arguments.Length == rightNamed.Arguments.Length
-                    && leftNamed.Arguments
-                        .Zip(rightNamed.Arguments)
-                        .All(pair => Unify(
-                            new ScopedTypeExpression(
-                                pair.First,
-                                left.FromFirstSelector),
-                            new ScopedTypeExpression(
-                                pair.Second,
-                                right.FromFirstSelector))),
-                (ResourceTypeExpression.SzArray leftArray,
-                    ResourceTypeExpression.SzArray rightArray) =>
-                    Unify(
-                        new ScopedTypeExpression(
-                            leftArray.Element,
-                            left.FromFirstSelector),
-                        new ScopedTypeExpression(
-                            rightArray.Element,
-                            right.FromFirstSelector)),
-                (ResourceTypeExpression.Array leftArray,
-                    ResourceTypeExpression.Array rightArray) =>
-                    leftArray.Rank == rightArray.Rank
-                    && Unify(
-                        new ScopedTypeExpression(
-                            leftArray.Element,
-                            left.FromFirstSelector),
-                        new ScopedTypeExpression(
-                            rightArray.Element,
-                            right.FromFirstSelector)),
-                (ResourceTypeExpression.ByReference leftReference,
-                    ResourceTypeExpression.ByReference rightReference) =>
-                    Unify(
-                        new ScopedTypeExpression(
-                            leftReference.Element,
-                            left.FromFirstSelector),
-                        new ScopedTypeExpression(
-                            rightReference.Element,
-                            right.FromFirstSelector)),
-                (ResourceTypeExpression.Pointer leftPointer,
-                    ResourceTypeExpression.Pointer rightPointer) =>
-                    Unify(
-                        new ScopedTypeExpression(
-                            leftPointer.Element,
-                            left.FromFirstSelector),
-                        new ScopedTypeExpression(
-                            rightPointer.Element,
-                            right.FromFirstSelector)),
-                _ => false,
-            };
-        }
-
-        ScopedTypeExpression Resolve(ScopedTypeExpression expression)
-        {
-            var seen = new HashSet<ScopedGenericVariable>();
-            while (expression.Expression is ResourceTypeExpression.Variable variable)
-            {
-                var key = new ScopedGenericVariable(
-                    expression.FromFirstSelector,
-                    variable.Value);
-                if (!substitutions.TryGetValue(
-                        key,
-                        out ScopedTypeExpression replacement)
-                    || !seen.Add(key))
-                {
-                    break;
-                }
-                expression = replacement;
-            }
-            return expression;
-        }
-
-        bool Bind(
-            ScopedGenericVariable variable,
-            ScopedTypeExpression expression)
-        {
-            expression = Resolve(expression);
-            if (expression.Expression is ResourceTypeExpression.Variable other
-                && new ScopedGenericVariable(
-                    expression.FromFirstSelector,
-                    other.Value) == variable)
-            {
-                return true;
-            }
-            if (Occurs(variable, expression))
-                return false;
-            substitutions[variable] = expression;
-            return true;
-        }
-
-        bool Occurs(
-            ScopedGenericVariable variable,
-            ScopedTypeExpression expression)
-        {
-            expression = Resolve(expression);
-            return expression.Expression switch
-            {
-                ResourceTypeExpression.Variable candidate =>
-                    new ScopedGenericVariable(
-                        expression.FromFirstSelector,
-                        candidate.Value) == variable,
-                ResourceTypeExpression.Named named =>
-                    named.Arguments.Any(argument => Occurs(
-                        variable,
-                        new ScopedTypeExpression(
-                            argument,
-                            expression.FromFirstSelector))),
-                ResourceTypeExpression.SzArray array =>
-                    Occurs(
-                        variable,
-                        new ScopedTypeExpression(
-                            array.Element,
-                            expression.FromFirstSelector)),
-                ResourceTypeExpression.Array array =>
-                    Occurs(
-                        variable,
-                        new ScopedTypeExpression(
-                            array.Element,
-                            expression.FromFirstSelector)),
-                ResourceTypeExpression.ByReference reference =>
-                    Occurs(
-                        variable,
-                        new ScopedTypeExpression(
-                            reference.Element,
-                            expression.FromFirstSelector)),
-                ResourceTypeExpression.Pointer pointer =>
-                    Occurs(
-                        variable,
-                        new ScopedTypeExpression(
-                            pointer.Element,
-                            expression.FromFirstSelector)),
-                _ => false,
-            };
-        }
+        return unification.TryUnify(leftExpected, rightExpected);
     }
 
     static bool AssemblySelectorsCanOverlap(
@@ -2624,6 +2426,291 @@ public static class ResourceEffectCatalogBuilder
 
     sealed record ScopedLocal(string Target, ResourceEffectLocalIdentity Identity);
     sealed record ScopedIndex(string Target, int Index);
+
+    sealed class SelectorUnification
+    {
+        readonly Dictionary<ScopedGenericVariable, ScopedTypeExpression> _substitutions;
+
+        public SelectorUnification()
+            : this([])
+        {
+        }
+
+        SelectorUnification(
+            Dictionary<ScopedGenericVariable, ScopedTypeExpression> substitutions)
+            => _substitutions = substitutions;
+
+        public SelectorUnification Clone()
+            => new(new Dictionary<ScopedGenericVariable, ScopedTypeExpression>(
+                _substitutions));
+
+        public bool TryUnifyTargets(
+            ResourceEffectTargetSelector first,
+            ResourceEffectTargetSelector second)
+            => (first, second) switch
+            {
+                (ResourceEffectTargetSelector.Type left,
+                    ResourceEffectTargetSelector.Type right) =>
+                    TryUnify(left.Selector, right.Selector),
+                (ResourceEffectTargetSelector.Member left,
+                    ResourceEffectTargetSelector.Member right) =>
+                    TryUnifyMembers(left.Selector, right.Selector),
+                _ => false,
+            };
+
+        public bool TryUnifyMembers(
+            ResourceEffectMemberSelector first,
+            ResourceEffectMemberSelector second)
+        {
+            if (first.MetadataName != second.MetadataName
+                || first.Kind != second.Kind
+                || first.IsStatic != second.IsStatic
+                || first.GenericArity != second.GenericArity
+                || first.CallingConvention != second.CallingConvention
+                || first.HasThis != second.HasThis
+                || first.ExplicitThis != second.ExplicitThis
+                || first.Parameters.Length != second.Parameters.Length)
+            {
+                return false;
+            }
+            for (int index = 0; index < first.Parameters.Length; index++)
+            {
+                if (first.Parameters[index].RefKind != second.Parameters[index].RefKind)
+                    return false;
+            }
+            foreach ((ResourceTypeExpression left, ResourceTypeExpression right)
+                in MemberTypePairs(first, second))
+            {
+                if (!TryUnify(left, right))
+                    return false;
+            }
+            return true;
+        }
+
+        public bool TryUnifyKinds(
+            ResourceKindReference? first,
+            ResourceKindReference? second)
+        {
+            if (first is null || second is null)
+                return true;
+            if (first.Identity != second.Identity
+                || first.Arguments.Length != second.Arguments.Length)
+            {
+                return false;
+            }
+            for (int index = 0; index < first.Arguments.Length; index++)
+            {
+                if (!TryUnify(
+                        new ResourceTypeExpression.Variable(first.Arguments[index]),
+                        new ResourceTypeExpression.Variable(second.Arguments[index])))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public bool TryUnifyLocations(
+            ResourceEffectLocation first,
+            ResourceEffectLocation second)
+            => (first, second) switch
+            {
+                (ResourceEffectLocation.Receiver, ResourceEffectLocation.Receiver)
+                    or (ResourceEffectLocation.Return, ResourceEffectLocation.Return)
+                    or (ResourceEffectLocation.Constructed,
+                        ResourceEffectLocation.Constructed) => true,
+                (ResourceEffectLocation.Parameter left,
+                    ResourceEffectLocation.Parameter right) =>
+                    left.Index == right.Index,
+                (ResourceEffectLocation.CallbackParameter left,
+                    ResourceEffectLocation.CallbackParameter right) =>
+                    left.CallbackIndex == right.CallbackIndex
+                    && left.ParameterIndex == right.ParameterIndex,
+                (ResourceEffectLocation.CallbackReturn left,
+                    ResourceEffectLocation.CallbackReturn right) =>
+                    left.CallbackIndex == right.CallbackIndex,
+                (ResourceEffectLocation.ResolvedField left,
+                    ResourceEffectLocation.ResolvedField right) =>
+                    TryUnifyLocations(left.Root, right.Root)
+                    && TryUnifyMembers(left.Selector, right.Selector),
+                (ResourceEffectLocation.ResolvedOperation left,
+                    ResourceEffectLocation.ResolvedOperation right) =>
+                    TryUnifyLocations(left.Source, right.Source)
+                    && TryUnifyKinds(left.Kind, right.Kind),
+                _ => false,
+            };
+
+        public bool TryUnify(
+            ResourceTypeExpression first,
+            ResourceTypeExpression second)
+            => Unify(
+                new ScopedTypeExpression(first, FromFirstSelector: true),
+                new ScopedTypeExpression(second, FromFirstSelector: false));
+
+        bool Unify(ScopedTypeExpression left, ScopedTypeExpression right)
+        {
+            left = Resolve(left);
+            right = Resolve(right);
+            if (left.Expression is ResourceTypeExpression.Variable leftVariable)
+            {
+                return Bind(
+                    new ScopedGenericVariable(
+                        left.FromFirstSelector,
+                        leftVariable.Value),
+                    right);
+            }
+            if (right.Expression is ResourceTypeExpression.Variable rightVariable)
+            {
+                return Bind(
+                    new ScopedGenericVariable(
+                        right.FromFirstSelector,
+                        rightVariable.Value),
+                    left);
+            }
+            return (left.Expression, right.Expression) switch
+            {
+                (ResourceTypeExpression.Named leftNamed,
+                    ResourceTypeExpression.Named rightNamed) =>
+                    AssemblySelectorsCanOverlap(
+                        leftNamed.Assembly,
+                        rightNamed.Assembly)
+                    && leftNamed.Namespace == rightNamed.Namespace
+                    && leftNamed.Segments.SequenceEqual(rightNamed.Segments)
+                    && leftNamed.Arguments.Length == rightNamed.Arguments.Length
+                    && leftNamed.Arguments
+                        .Zip(rightNamed.Arguments)
+                        .All(pair => Unify(
+                            new ScopedTypeExpression(
+                                pair.First,
+                                left.FromFirstSelector),
+                            new ScopedTypeExpression(
+                                pair.Second,
+                                right.FromFirstSelector))),
+                (ResourceTypeExpression.SzArray leftArray,
+                    ResourceTypeExpression.SzArray rightArray) =>
+                    Unify(
+                        new ScopedTypeExpression(
+                            leftArray.Element,
+                            left.FromFirstSelector),
+                        new ScopedTypeExpression(
+                            rightArray.Element,
+                            right.FromFirstSelector)),
+                (ResourceTypeExpression.Array leftArray,
+                    ResourceTypeExpression.Array rightArray) =>
+                    leftArray.Rank == rightArray.Rank
+                    && Unify(
+                        new ScopedTypeExpression(
+                            leftArray.Element,
+                            left.FromFirstSelector),
+                        new ScopedTypeExpression(
+                            rightArray.Element,
+                            right.FromFirstSelector)),
+                (ResourceTypeExpression.ByReference leftReference,
+                    ResourceTypeExpression.ByReference rightReference) =>
+                    Unify(
+                        new ScopedTypeExpression(
+                            leftReference.Element,
+                            left.FromFirstSelector),
+                        new ScopedTypeExpression(
+                            rightReference.Element,
+                            right.FromFirstSelector)),
+                (ResourceTypeExpression.Pointer leftPointer,
+                    ResourceTypeExpression.Pointer rightPointer) =>
+                    Unify(
+                        new ScopedTypeExpression(
+                            leftPointer.Element,
+                            left.FromFirstSelector),
+                        new ScopedTypeExpression(
+                            rightPointer.Element,
+                            right.FromFirstSelector)),
+                _ => false,
+            };
+        }
+
+        ScopedTypeExpression Resolve(ScopedTypeExpression expression)
+        {
+            var seen = new HashSet<ScopedGenericVariable>();
+            while (expression.Expression is ResourceTypeExpression.Variable variable)
+            {
+                var key = new ScopedGenericVariable(
+                    expression.FromFirstSelector,
+                    variable.Value);
+                if (!_substitutions.TryGetValue(
+                        key,
+                        out ScopedTypeExpression replacement)
+                    || !seen.Add(key))
+                {
+                    break;
+                }
+                expression = replacement;
+            }
+            return expression;
+        }
+
+        bool Bind(
+            ScopedGenericVariable variable,
+            ScopedTypeExpression expression)
+        {
+            expression = Resolve(expression);
+            if (expression.Expression is ResourceTypeExpression.Variable other
+                && new ScopedGenericVariable(
+                    expression.FromFirstSelector,
+                    other.Value) == variable)
+            {
+                return true;
+            }
+            if (Occurs(variable, expression))
+                return false;
+            _substitutions[variable] = expression;
+            return true;
+        }
+
+        bool Occurs(
+            ScopedGenericVariable variable,
+            ScopedTypeExpression expression)
+        {
+            expression = Resolve(expression);
+            return expression.Expression switch
+            {
+                ResourceTypeExpression.Variable candidate =>
+                    new ScopedGenericVariable(
+                        expression.FromFirstSelector,
+                        candidate.Value) == variable,
+                ResourceTypeExpression.Named named =>
+                    named.Arguments.Any(argument => Occurs(
+                        variable,
+                        new ScopedTypeExpression(
+                            argument,
+                            expression.FromFirstSelector))),
+                ResourceTypeExpression.SzArray array =>
+                    Occurs(
+                        variable,
+                        new ScopedTypeExpression(
+                            array.Element,
+                            expression.FromFirstSelector)),
+                ResourceTypeExpression.Array array =>
+                    Occurs(
+                        variable,
+                        new ScopedTypeExpression(
+                            array.Element,
+                            expression.FromFirstSelector)),
+                ResourceTypeExpression.ByReference reference =>
+                    Occurs(
+                        variable,
+                        new ScopedTypeExpression(
+                            reference.Element,
+                            expression.FromFirstSelector)),
+                ResourceTypeExpression.Pointer pointer =>
+                    Occurs(
+                        variable,
+                        new ScopedTypeExpression(
+                            pointer.Element,
+                            expression.FromFirstSelector)),
+                _ => false,
+            };
+        }
+    }
+
     readonly record struct ScopedGenericVariable(
         bool FromFirstSelector,
         ResourceEffectGenericVariable Variable);

@@ -1386,6 +1386,71 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void Catalog_ComposesEquivalentKindsUnderPermutedSelectorBindings()
+    {
+        ResourceEffectModelIdentity firstConsume =
+            new("example.generic-kind-permuted.consume-first");
+        ResourceEffectModelIdentity secondConsume =
+            new("example.generic-kind-permuted.consume-second");
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    GenericKindModel(
+                        firstConsume,
+                        [TypeVariable(0), TypeVariable(1)],
+                        "consume(kind=example.generic<type[0]>,source=parameter[0],target=operation[0])"),
+                    GenericKindModel(
+                        secondConsume,
+                        [TypeVariable(1), TypeVariable(0)],
+                        "consume(kind=example.generic<type[1]>,source=parameter[0],target=operation[0])"),
+                ]));
+
+        ResourceEffectModelIdentity firstRelease =
+            new("example.generic-kind-permuted.release-first");
+        ResourceEffectModelIdentity secondRelease =
+            new("example.generic-kind-permuted.release-second");
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    GenericKindModel(
+                        firstRelease,
+                        [TypeVariable(0), TypeVariable(1)],
+                        "release(kind=example.generic<type[0]>,source=parameter[0],when=entry)"),
+                    GenericKindModel(
+                        secondRelease,
+                        [TypeVariable(1), TypeVariable(0)],
+                        "release(kind=example.generic<type[1]>,source=parameter[0],when=entry)"),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_ComposesDisjointKindsUnderRelatedSelectorBindings()
+    {
+        ResourceEffectGenericVariable variable =
+            new(ResourceEffectGenericVariableKind.Type, 0);
+        ResourceEffectModelIdentity direct =
+            new("example.generic-kind-related.direct");
+        ResourceEffectModelIdentity array =
+            new("example.generic-kind-related.array");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    GenericKindModel(
+                        direct,
+                        [new ResourceTypeExpression.Variable(variable)],
+                        "consume(kind=example.generic<type[0]>,source=parameter[0],target=operation[0])"),
+                    GenericKindModel(
+                        array,
+                        [
+                            new ResourceTypeExpression.SzArray(
+                                new ResourceTypeExpression.Variable(variable)),
+                        ],
+                        "release(kind=example.generic<type[0]>,source=parameter[0],when=entry)"),
+                ]));
+    }
+
+    [Fact]
     public void Catalog_ConflictsAcrossCompatibleTargetAssemblyPolicies()
     {
         ResourceAssemblySelector any = Assembly(
@@ -2559,16 +2624,32 @@ public class ResourceEffectLanguageTests
                 Named("Object")));
 
     static ResourceEffectTargetSelector GenericDeclaringTypeOperationTarget(
-        ResourceTypeExpression typeArgument)
+        params ResourceTypeExpression[] typeArguments)
         => OperationTargetWithDeclaring(
             new ResourceTypeExpression.Named(
                 Assembly(
                     publicKeyToken: null,
                     ResourceAssemblyVersionPolicy.Any),
                 "Example",
-                [new ResourceTypeNameSegment("Owner", 1)],
-                [typeArgument]),
+                [new ResourceTypeNameSegment("Owner", typeArguments.Length)],
+                [.. typeArguments]),
             "Transform");
+
+    static ResourceEffectModelDefinition GenericKindModel(
+        ResourceEffectModelIdentity model,
+        ResourceTypeExpression[] typeArguments,
+        string effect)
+        => Model(
+            model,
+            GenericDeclaringTypeOperationTarget(typeArguments),
+            [effect],
+            [Kind(model, "example.generic", 1)]);
+
+    static ResourceTypeExpression TypeVariable(int index)
+        => new ResourceTypeExpression.Variable(
+            new ResourceEffectGenericVariable(
+                ResourceEffectGenericVariableKind.Type,
+                index));
 
     static ResourceEffectTargetSelector GenericGuardTarget()
     {
