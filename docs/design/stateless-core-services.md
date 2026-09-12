@@ -342,6 +342,7 @@ listed owners.
 | `InspectionWorkspace` combines logical scope and physical ownership | Resource-free definition plus one active realization owner | Workspace Definitions [#6750](https://github.com/richlander/dotnet-inspect/issues/6750) and realization [#6752](https://github.com/richlander/dotnet-inspect/issues/6752) |
 | Scope supports Replace, Clear, Add, and Remove | Evidence-bearing non-interfering extension or fresh-realization replacement | Workspace Scope [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) |
 | Browser retains several live Workspace scopes | Retained definitions with one materialized realization | Inspect Web retained host [#6757](https://github.com/richlander/dotnet-inspect/issues/6757) |
+| Spotlight activation preserves current realized content after registration removal | Current consumer requiring focused adaptation, not rollback here | Workspace Scope [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) and retained host [#6757](https://github.com/richlander/dotnet-inspect/issues/6757) |
 | Artifact sessions, groups, snapshots, and query admissions | Correctness-bearing active-realization ownership | Artifact and Workspace owners |
 | `AnalysisIndexCache` survives Workspaces | Realization- or operation-owned derived evidence | Analysis [#6754](https://github.com/richlander/dotnet-inspect/issues/6754) |
 | `ResearchAssemblyContextCache` strongly retains exact indexes | Exact-index memoization without lifetime extension | Research [#6755](https://github.com/richlander/dotnet-inspect/issues/6755) |
