@@ -300,6 +300,30 @@ public static class ResourceEffectAdmissionBuilder
         out AdmittedResourceEffectModel? admitted)
     {
         admitted = null;
+        int provenanceCount = 0;
+        foreach (ResourceKindDefinition definition in model.ResourceKinds)
+        {
+            ResourceEffectAdmissionOutcome? provenanceFailure =
+                ChargeProvenances(definition.Provenances);
+            if (provenanceFailure is not null)
+                return provenanceFailure;
+        }
+        foreach (ResourceEffectTargetDeclaration declaration in model.Declarations)
+        {
+            ResourceEffectAdmissionOutcome? provenanceFailure =
+                ChargeProvenances(
+                    declaration.Statements.Select(statement => statement.Provenance));
+            if (provenanceFailure is not null)
+                return provenanceFailure;
+        }
+        foreach (ResourceEffectTypedDeclaration declaration in model.TypedDeclarations)
+        {
+            ResourceEffectAdmissionOutcome? provenanceFailure =
+                ChargeProvenances(declaration.Provenances);
+            if (provenanceFailure is not null)
+                return provenanceFailure;
+        }
+
         var definitions = new Dictionary<ResourceKindIdentity, ResourceKindDefinition>();
         foreach (ResourceKindDefinition definition in model.ResourceKinds)
         {
@@ -529,7 +553,7 @@ public static class ResourceEffectAdmissionBuilder
         }
 
         ResourceEffectAdmissionOutcome? localFailure =
-            ValidateModelLocalReferences(model.Identity, declarations);
+            ValidateModelLocalReferences(model.Identity, declarations, limits);
         if (localFailure is not null)
             return localFailure;
 
@@ -583,6 +607,25 @@ public static class ResourceEffectAdmissionBuilder
             admittedDeclarations,
             receipt);
         return null;
+
+        ResourceEffectAdmissionOutcome? ChargeProvenances(
+            IEnumerable<ResourceDeclarationProvenance> provenances)
+        {
+            foreach (ResourceDeclarationProvenance provenance in provenances)
+            {
+                provenanceCount++;
+                if (provenanceCount > limits.MaxProvenancesPerModel)
+                {
+                    return Limit(
+                        ResourceEffectWorkLimitKind.ModelProvenances,
+                        limits.MaxProvenancesPerModel,
+                        provenanceCount,
+                        model.Identity,
+                        provenance);
+                }
+            }
+            return null;
+        }
     }
 
     static ResourceEffectAdmissionOutcome ResourceKindLimit(
@@ -1246,7 +1289,8 @@ public static class ResourceEffectAdmissionBuilder
 
     static ResourceEffectAdmissionOutcome? ValidateModelLocalReferences(
         ResourceEffectModelIdentity model,
-        List<ParsedDeclaration> declarations)
+        List<ParsedDeclaration> declarations,
+        ResourceEffectWorkLimits limits)
     {
         var fields = new Dictionary<ResourceEffectLocalIdentity, ResourceEffectMemberSelector>();
         foreach (ParsedDeclaration declaration in declarations)
@@ -1340,8 +1384,7 @@ public static class ResourceEffectAdmissionBuilder
             string target = ResourceEffectCanonicalizer.Target(declaration.Target);
             foreach (ResourceEffectLocation location in Locations(declaration.Effect))
             {
-                if (location is ResourceEffectLocation.Field field
-                    && !fields.ContainsKey(field.Selector))
+                if (!AllLocalFieldsDefined(location, fields))
                 {
                     return Failure(
                         declaration,
@@ -1447,6 +1490,15 @@ public static class ResourceEffectAdmissionBuilder
                 fields,
                 outcomes,
                 operations);
+            ResourceEffectAdmissionOutcome? budgetFailure =
+                ValidateStructuralBudget(
+                    model,
+                    declaration.Provenance,
+                    declaration.Target,
+                    resolved,
+                    limits);
+            if (budgetFailure is not null)
+                return budgetFailure;
             if (!StructuralFieldsAreValid(declaration.Target, resolved))
             {
                 return Failure(
@@ -1511,6 +1563,16 @@ public static class ResourceEffectAdmissionBuilder
                     reference,
                     ResourceEffectDiagnosticKind.DuplicateLocalIdentity,
                     "Model-local operation slots form a cyclic consume definition.");
+                return null;
+            }
+            if (resolvingOperations.Count > limits.MaxNestingDepth)
+            {
+                operationFailure = Limit(
+                    ResourceEffectWorkLimitKind.NestingDepth,
+                    limits.MaxNestingDepth,
+                    resolvingOperations.Count,
+                    model,
+                    reference.Provenance);
                 return null;
             }
 

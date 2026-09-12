@@ -14,6 +14,7 @@ public enum ResourceEffectWorkLimitKind
     ModelDeclarations,
     ModelStatements,
     ModelResourceKinds,
+    ModelProvenances,
     AdmissionStatements,
     StructuralNodes,
 }
@@ -31,6 +32,7 @@ public sealed record ResourceEffectWorkLimits
         int maxDeclarationsPerModel = 512,
         int maxStatementsPerModel = 1024,
         int maxResourceKindsPerModel = 256,
+        int maxProvenancesPerModel = 4096,
         int maxAdmissionStatements = 4096,
         int maxStructuralNodesPerDeclaration = 256)
     {
@@ -45,6 +47,7 @@ public sealed record ResourceEffectWorkLimits
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDeclarationsPerModel);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxStatementsPerModel);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxResourceKindsPerModel);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxProvenancesPerModel);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxAdmissionStatements);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxStructuralNodesPerDeclaration);
         MaxStatementCharacters = maxStatementCharacters;
@@ -55,6 +58,7 @@ public sealed record ResourceEffectWorkLimits
         MaxDeclarationsPerModel = maxDeclarationsPerModel;
         MaxStatementsPerModel = maxStatementsPerModel;
         MaxResourceKindsPerModel = maxResourceKindsPerModel;
+        MaxProvenancesPerModel = maxProvenancesPerModel;
         MaxAdmissionStatements = maxAdmissionStatements;
         MaxStructuralNodesPerDeclaration = maxStructuralNodesPerDeclaration;
     }
@@ -67,6 +71,7 @@ public sealed record ResourceEffectWorkLimits
     public int MaxDeclarationsPerModel { get; }
     public int MaxStatementsPerModel { get; }
     public int MaxResourceKindsPerModel { get; }
+    public int MaxProvenancesPerModel { get; }
     public int MaxAdmissionStatements { get; }
     public int MaxStructuralNodesPerDeclaration { get; }
 }

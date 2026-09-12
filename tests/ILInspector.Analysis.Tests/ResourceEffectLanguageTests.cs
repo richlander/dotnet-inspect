@@ -491,6 +491,69 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void Admission_ProvenanceBudgetCoversTypedDeclarationsAndResourceKinds()
+    {
+        ResourceEffectModelIdentity typedModel = new("example.typed-provenance-budget");
+        ResourceEffectTargetSelector target = SimpleOperationTarget();
+        var typedDeclaration = new ResourceEffectTypedDeclaration(
+            target,
+            new ResourceEffect.Pass(
+                new ResourceEffectLocation.Parameter(0),
+                new ResourceEffectLocation.Return(),
+                null),
+            [
+                Provenance(typedModel, "typed.one", 0),
+                Provenance(typedModel, "typed.two", 1),
+            ]);
+        ResourceEffectModelDefinition typedDefinition = new(
+            ResourceEffectLanguageIdentity.Version1,
+            typedModel,
+            [],
+            [],
+            [typedDeclaration]);
+
+        Assert.IsType<ResourceEffectAdmissionOutcome.Admitted>(
+            ResourceEffectAdmissionBuilder.Admit(
+                [typedDefinition],
+                new ResourceEffectWorkLimits(maxProvenancesPerModel: 2)));
+        var typedExceeded =
+            Assert.IsType<ResourceEffectAdmissionOutcome.WorkLimitExceeded>(
+                ResourceEffectAdmissionBuilder.Admit(
+                    [typedDefinition],
+                    new ResourceEffectWorkLimits(maxProvenancesPerModel: 1)));
+        Assert.Equal(ResourceEffectWorkLimitKind.ModelProvenances, typedExceeded.LimitKind);
+        Assert.Equal(2, typedExceeded.Required);
+        Assert.Equal(typedDeclaration.Provenances[1], typedExceeded.Provenance);
+
+        ResourceEffectModelIdentity kindModel = new("example.kind-provenance-budget");
+        var kind = new ResourceKindDefinition(
+            new ResourceKindIdentity("example.resource"),
+            0,
+            [
+                Provenance(kindModel, "kind.one", 0),
+                Provenance(kindModel, "kind.two", 1),
+            ]);
+        ResourceEffectModelDefinition kindDefinition = new(
+            ResourceEffectLanguageIdentity.Version1,
+            kindModel,
+            [kind],
+            []);
+
+        Assert.IsType<ResourceEffectAdmissionOutcome.Admitted>(
+            ResourceEffectAdmissionBuilder.Admit(
+                [kindDefinition],
+                new ResourceEffectWorkLimits(maxProvenancesPerModel: 2)));
+        var kindExceeded =
+            Assert.IsType<ResourceEffectAdmissionOutcome.WorkLimitExceeded>(
+                ResourceEffectAdmissionBuilder.Admit(
+                    [kindDefinition],
+                    new ResourceEffectWorkLimits(maxProvenancesPerModel: 1)));
+        Assert.Equal(ResourceEffectWorkLimitKind.ModelProvenances, kindExceeded.LimitKind);
+        Assert.Equal(2, kindExceeded.Required);
+        Assert.Equal(kind.Provenances[1], kindExceeded.Provenance);
+    }
+
+    [Fact]
     public void Admission_BoundsTypedStructuralDepthAndNodeCount()
     {
         ResourceEffectModelIdentity model = new("example.typed-structure-budget");
@@ -1566,6 +1629,90 @@ public class ResourceEffectLanguageTests
             ResourceEffectDiagnosticKind.DuplicateLocalIdentity,
             Assert.IsType<ResourceEffectAdmissionOutcome.Rejected>(outcome)
                 .Diagnostics.Single().Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void Admission_BoundsCanonicalOperationAliasExpansion()
+    {
+        ResourceEffectModelIdentity model = new("example.operation-budget");
+        string[] statements =
+            [.. Enumerable.Range(0, 12).Select(index =>
+                index == 11
+                    ? "consume(source=parameter[0],target=operation[11])"
+                    : $"consume(source=operation[{index + 1}],target=operation[{index}])")];
+        ResourceEffectModelDefinition definition =
+            Model(model, SimpleOperationTarget(), statements);
+
+        var depthExceeded =
+            Assert.IsType<ResourceEffectAdmissionOutcome.WorkLimitExceeded>(
+                ResourceEffectAdmissionBuilder.Admit(
+                    [definition],
+                    new ResourceEffectWorkLimits(maxNestingDepth: 8)));
+        Assert.Equal(ResourceEffectWorkLimitKind.NestingDepth, depthExceeded.LimitKind);
+        Assert.Equal(9, depthExceeded.Required);
+        Assert.NotNull(depthExceeded.Provenance);
+
+        Assert.IsType<ResourceEffectAdmissionOutcome.Admitted>(
+            ResourceEffectAdmissionBuilder.Admit(
+                [definition],
+                new ResourceEffectWorkLimits(
+                    maxNestingDepth: ResourceEffectWorkLimits.MaximumNestingDepth)));
+
+        string kindArguments =
+            string.Join(',', Enumerable.Repeat("type[0]", 10));
+        string[] wideStatements =
+            [.. Enumerable.Range(0, 8).Select(index =>
+                index == 7
+                    ? $"consume(kind=example.resource<{kindArguments}>,source=parameter[0],target=operation[7])"
+                    : $"consume(kind=example.resource<{kindArguments}>,source=operation[{index + 1}],target=operation[{index}])")];
+        var nodesExceeded =
+            Assert.IsType<ResourceEffectAdmissionOutcome.WorkLimitExceeded>(
+                ResourceEffectAdmissionBuilder.Admit(
+                    [
+                        Model(
+                            new ResourceEffectModelIdentity("example.operation-node-budget"),
+                            OpenGenericOperationTarget(),
+                            wideStatements),
+                    ],
+                    new ResourceEffectWorkLimits(
+                        maxNestingDepth: ResourceEffectWorkLimits.MaximumNestingDepth,
+                        maxStructuralNodesPerDeclaration: 64)));
+        Assert.Equal(ResourceEffectWorkLimitKind.StructuralNodes, nodesExceeded.LimitKind);
+        Assert.Equal(65, nodesExceeded.Required);
+        Assert.NotNull(nodesExceeded.Provenance);
+    }
+
+    [Fact]
+    public void Admission_RejectsNestedUnresolvedFieldsWithoutThrowing()
+    {
+        ResourceEffectModelIdentity model = new("example.nested-unresolved-field");
+        ResourceDeclarationProvenance provenance =
+            Provenance(model, model.Value, 0);
+        var declaration = new ResourceEffectTypedDeclaration(
+            SimpleOperationTarget(),
+            new ResourceEffect.Pass(
+                new ResourceEffectLocation.OperationSlot(
+                    new ResourceEffectLocation.Field(
+                        new ResourceEffectLocation.Receiver(),
+                        new ResourceEffectLocalIdentity("missing")),
+                    null),
+                new ResourceEffectLocation.Return(),
+                null),
+            [provenance]);
+
+        var rejected = Assert.IsType<ResourceEffectAdmissionOutcome.Rejected>(
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    new ResourceEffectModelDefinition(
+                        ResourceEffectLanguageIdentity.Version1,
+                        model,
+                        [],
+                        [],
+                        [declaration]),
+                ]));
+        ResourceEffectModelDiagnostic diagnostic = Assert.Single(rejected.Diagnostics);
+        Assert.Equal(ResourceEffectDiagnosticKind.UnresolvedField, diagnostic.Diagnostic.Kind);
+        Assert.Equal(provenance, diagnostic.Provenance);
     }
 
     [Fact]
