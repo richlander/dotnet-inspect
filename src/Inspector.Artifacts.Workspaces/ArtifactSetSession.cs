@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using Inspector.Resources;
 
 namespace Inspector.Artifacts.Workspaces;
@@ -1043,7 +1042,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
     }
 
     /// <summary>
-    /// Projects one published artifact into an owner-bound content reference.
+    /// Gets the exact resource-free reference for one published artifact.
     /// </summary>
     public ArtifactContentReference GetContentReference(
         ArtifactIdentity identity,
@@ -1056,10 +1055,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             EnsurePublished();
             _authority.ValidateQueryLease(lease);
             PublishedArtifact artifact = FindArtifact(identity);
-            return new ArtifactContentReference(
-                this,
-                artifact.Descriptor,
-                lease);
+            return artifact.Reference;
         }
     }
 
@@ -1076,23 +1072,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         {
             EnsurePublished();
             _authority.ValidateQueryLease(lease);
-            if (!ReferenceEquals(reference.Owner, this))
-            {
-                throw new ArgumentException(
-                    "The artifact content reference belongs to another session.",
-                    nameof(reference));
-            }
-
-            PublishedArtifact artifact =
-                FindArtifact(reference.Descriptor.Identity);
-            if (!ReferenceEquals(
-                    artifact.Descriptor,
-                    reference.Descriptor))
-            {
-                throw new ArgumentException(
-                    "The artifact content reference does not match the published content.",
-                    nameof(reference));
-            }
+            PublishedArtifact artifact = FindArtifact(reference);
 
             if (_contentLeases.Count == 0)
             {
@@ -1104,8 +1084,9 @@ public sealed class ArtifactSetSession : IAsyncDisposable
 
             var contentLease = new ArtifactContentLease(
                 this,
-                artifact.Descriptor.Identity,
-                artifact.Content.Snapshot);
+                artifact.Reference,
+                artifact.Content.Snapshot,
+                artifact.DigestCache);
             _contentLeases.Add(contentLease);
             return contentLease;
         }
@@ -1136,7 +1117,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         {
             TResult result = callback(
                 new ArtifactContentView(
-                    lease.Artifact,
+                    lease.Reference,
                     snapshot.AsSpan()),
                 cancellationToken);
             return new ArtifactContentAccessOutcome<TResult>.Accessed(
@@ -1217,7 +1198,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         {
             EnsurePublished();
             _authority.ValidateQueryLease(lease);
-            return FindArtifact(identity).Roles.Contains(role);
+            return FindArtifact(identity).Reference.HasRole(role);
         }
     }
 
@@ -1237,6 +1218,26 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         return retained.OpenRead(lease);
     }
 
+    /// <summary>
+    /// Opens one compatibility stream under explicit current query authority.
+    /// </summary>
+    public Stream OpenRead(
+        ArtifactContentReference reference,
+        ArtifactQueryLease lease)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(lease);
+        RetainedArtifactContent retained;
+        lock (_gate)
+        {
+            EnsurePublished();
+            _authority.ValidateQueryLease(lease);
+            retained = FindArtifact(reference).Content;
+        }
+
+        return retained.OpenRead(lease);
+    }
+
     public ArtifactContentAccessOutcome<TResult> WithQueryContent<TResult>(
         ArtifactIdentity identity,
         ArtifactQueryLease? lease,
@@ -1251,6 +1252,29 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             return new ArtifactContentAccessOutcome<TResult>.Unauthorized();
 
         return artifact.Content.WithQueryContent(lease, callback, cancellationToken);
+    }
+
+    /// <summary>
+    /// Borrows exact referenced content under explicit current query authority.
+    /// </summary>
+    public ArtifactContentAccessOutcome<TResult> WithQueryContent<TResult>(
+        ArtifactContentReference reference,
+        ArtifactQueryLease? lease,
+        ArtifactQueryContentCallback<TResult> callback,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(callback);
+        cancellationToken.ThrowIfCancellationRequested();
+        PublishedArtifact? artifact =
+            FindQueryArtifact(reference, lease);
+        if (artifact is null)
+            return new ArtifactContentAccessOutcome<TResult>.Unauthorized();
+
+        return artifact.Content.WithQueryContent(
+            lease,
+            callback,
+            cancellationToken);
     }
 
     /// <summary>
@@ -1276,9 +1300,54 @@ public sealed class ArtifactSetSession : IAsyncDisposable
 
         return artifact.Content.WithQueryContent(
             lease,
-            (view, token) => artifact.GetDigest(view, chargeWork, token),
+            (view, token) => artifact.DigestCache.GetDigest(
+                view.Content,
+                chargeWork,
+                token),
             cancellationToken);
     }
+
+    /// <summary>
+    /// Gets the referenced SHA-256 digest under explicit query authority.
+    /// </summary>
+    public ArtifactContentAccessOutcome<ArtifactContentDigest> GetContentDigest(
+        ArtifactContentReference reference,
+        ArtifactQueryLease? lease,
+        Action<long> chargeWork,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(chargeWork);
+        cancellationToken.ThrowIfCancellationRequested();
+        PublishedArtifact? artifact =
+            FindQueryArtifact(reference, lease);
+        if (artifact is null)
+        {
+            return new ArtifactContentAccessOutcome<
+                ArtifactContentDigest>.Unauthorized();
+        }
+
+        return artifact.Content.WithQueryContent(
+            lease,
+            (view, token) => artifact.DigestCache.GetDigest(
+                view.Content,
+                chargeWork,
+                token),
+            cancellationToken);
+    }
+
+    internal ArtifactContentAccessOutcome<ArtifactContentDigest>
+        GetContentDigest(
+        ArtifactContentLease lease,
+        Action<long> chargeWork,
+        CancellationToken cancellationToken) =>
+        WithContent(
+            lease,
+            (view, token) => lease.GetContentDigest(
+                view,
+                chargeWork,
+                token),
+            cancellationToken);
 
     private PublishedArtifact? FindQueryArtifact(
         ArtifactIdentity identity,
@@ -1298,6 +1367,28 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                 return null;
             }
             return FindArtifact(identity);
+        }
+    }
+
+    private PublishedArtifact? FindQueryArtifact(
+        ArtifactContentReference reference,
+        ArtifactQueryLease? lease)
+    {
+        lock (_gate)
+        {
+            if (_state != SessionState.Published || lease is null)
+                return null;
+            try
+            {
+                _authority.ValidateQueryLease(lease);
+            }
+            catch (Exception ex) when (
+                ex is UnauthorizedAccessException or ObjectDisposedException)
+            {
+                return null;
+            }
+
+            return FindArtifact(reference);
         }
     }
 
@@ -1538,13 +1629,13 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             _authority.CreateRetainedContent(
                 contribution.Registration,
                 ImmutableCollectionsMarshal.AsImmutableArray(snapshot));
-        return new PublishedArtifact(
+        var reference = new ArtifactContentReference(
             contribution.Descriptor,
             contribution.Registration,
+            [.. roles]);
+        return new PublishedArtifact(
+            reference,
             retained,
-            new HashSet<ArtifactWorkspaceRole>(
-                roles,
-                ReferenceEqualityComparer.Instance),
             snapshot.LongLength);
     }
 
@@ -1921,6 +2012,28 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         return artifact;
     }
 
+    private PublishedArtifact FindArtifact(
+        ArtifactContentReference reference)
+    {
+        if (!ReferenceEquals(reference.Generation, Generation))
+        {
+            throw new ArgumentException(
+                "The artifact content reference belongs to another session.",
+                nameof(reference));
+        }
+
+        PublishedArtifact artifact =
+            FindArtifact(reference.Artifact);
+        if (!ReferenceEquals(artifact.Reference, reference))
+        {
+            throw new ArgumentException(
+                "The artifact content reference does not match the published content.",
+                nameof(reference));
+        }
+
+        return artifact;
+    }
+
     private void EnsureConstructing()
     {
         if (_state != SessionState.Constructing)
@@ -2058,33 +2171,15 @@ public sealed class ArtifactSetSession : IAsyncDisposable
     }
 
     private sealed record PublishedArtifact(
-        ArtifactDescriptor Descriptor,
-        ArtifactAcquisitionRegistration Registration,
+        ArtifactContentReference Reference,
         RetainedArtifactContent Content,
-        HashSet<ArtifactWorkspaceRole> Roles,
         long RetainedBytes)
     {
-        private readonly object _digestGate = new();
-        private ArtifactContentDigest? _digest;
-
-        public ArtifactContentDigest GetDigest(
-            scoped ArtifactQueryContentView view,
-            Action<long> chargeWork,
-            CancellationToken cancellationToken)
-        {
-            lock (_digestGate)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (_digest is not null)
-                    return _digest;
-
-                chargeWork(view.Content.Length);
-                string hexValue = Convert.ToHexStringLower(
-                    SHA256.HashData(view.Content));
-                _digest = new ArtifactContentDigest(view.Artifact, hexValue);
-                return _digest;
-            }
-        }
+        public ArtifactDescriptor Descriptor => Reference.Descriptor;
+        public ArtifactAcquisitionRegistration Registration =>
+            Reference.Registration;
+        public ArtifactContentDigestCache DigestCache { get; } =
+            new(Reference.Artifact);
     }
 
     private sealed record SessionDiagnostic(

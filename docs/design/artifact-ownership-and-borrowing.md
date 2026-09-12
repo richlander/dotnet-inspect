@@ -11,14 +11,15 @@ It expands step 9 of
 tracked end to end by
 [#6647](https://github.com/richlander/dotnet-inspect/issues/6647).
 
-The current implementation floor classifies the existing Artifact obligations
-and issues `ArtifactContentLease` children from a published session. A child
-retains the exact Artifact identity and immutable snapshot without retaining
-the current authority-bearing compatibility reference. Session disposal
-rejects new issuance, keeps existing children usable, waits for their release
-and active-borrow completion, and only then releases acquisition leases.
-Making `ArtifactContentReference` resource-free and adding that exact reference
-to the child view remains the next slice.
+The current implementation floor classifies the existing Artifact obligations,
+issues `ArtifactContentLease` children from a published session, and makes
+`ArtifactContentReference` resource-free. The reference carries immutable
+identity, registration, provenance, and role evidence but no content operation
+or query authority. Query operations now receive the reference and current
+query lease explicitly; an issued content child carries the same exact
+reference and remains usable while session retirement drains it. Replacing the
+remaining Artifact-owned hidden-reference gates and adopting the assembly-only
+fixture as a dedicated explicit-authority canary remains the next slice.
 
 ## Authority and exact claim
 
@@ -77,11 +78,12 @@ independent of Metadata, package, storage, Workspace composition, and host
 implementations. `Inspector.Artifacts.Workspaces` consumes both contract
 floors.
 
-The current `ArtifactContentReference` is migration evidence, not the target.
-It captures both `ArtifactSetSession` and `ArtifactQueryLease`, so registration,
-roles, digests, and content opening appear to be reference operations while
-actually using hidden revocable authority. A downstream aggregate cannot own
-that shape without retaining another caller's query-policy lease.
+The former `ArtifactContentReference` migration shape captured both
+`ArtifactSetSession` and `ArtifactQueryLease`, so registration, roles, digests,
+and content opening appeared to be reference operations while actually using
+hidden revocable authority. Slice 4 retired that capture. Compatibility
+consumers may still retain session and query authority explicitly until their
+owner-scoped adopter slices transfer content children instead.
 
 ## Motivating product scenario
 
@@ -351,10 +353,10 @@ is detached resource-free evidence and may escape. Cached digest reuse never
 bypasses authority validation.
 
 Parameterless `ArtifactContentReference.OpenRead()` and
-`GetContentDigest()` are migration surfaces to retire. While stream consumers
-remain, an explicit Artifact authority operation returns an owned child stream
-whose disposal keeps the parent access registration live. No resource-free
-reference captures the opener.
+`GetContentDigest()` have been retired. While stream consumers remain, an
+explicit Artifact authority operation returns an owned child stream whose
+disposal keeps the parent access registration live. No resource-free reference
+captures the opener.
 
 Metadata's `ResolvedAssemblyReference` opener and path compatibility are owned
 by the Metadata migration. Artifact adopter work supplies explicit references,

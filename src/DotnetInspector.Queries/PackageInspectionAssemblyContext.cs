@@ -184,7 +184,10 @@ public sealed partial class InspectionWorkspace
                         selection.Input.Provenance(entry.TargetFramework);
                     if (artifact.Projection is not ArtifactAssemblyProjectionOutcome.Projected
                         && ResolvedAssemblyReference.CreateFromStreamIfManaged(
-                            artifact.Content.OpenRead, provenance) is null)
+                            () => session.OpenRead(
+                                artifact.Content,
+                                lease),
+                            provenance) is null)
                     {
                         lease.Dispose();
                         await session.DisposeAsync().ConfigureAwait(false);
@@ -195,10 +198,18 @@ public sealed partial class InspectionWorkspace
                         continue;
                     }
                     long retainedBytes;
-                    using (Stream retained = artifact.Content.OpenRead())
+                    using (Stream retained =
+                        session.OpenRead(
+                            artifact.Content,
+                            lease))
                         retainedBytes = retained.Length;
                     ResolvedAssemblyReference assembly = CreatePackageArtifactAssembly(
-                        artifact, provenance, acquired.Count, out _);
+                        artifact,
+                        session,
+                        lease,
+                        provenance,
+                        acquired.Count,
+                        out _);
                     remainingBytes -= retainedBytes;
                     acquired.Add(new InspectionArtifact(
                         new PackageInspectionAssemblyReference(entry, assembly),
