@@ -274,9 +274,11 @@ records for every supported `T`; direct `T[]` is not parametric because
 `T = byte` closes to `byte[]`, whose JSON form is a Base64 string rather than
 an array. A generic parameter directly wrapped in an array therefore fails
 visibly before publication, including when that array is nested in another
-supported container. Open, other embedded non-parametric, or unauthenticated
-constructions also fail visibly; the boundary does not infer arbitrary CLR
-generic shapes.
+supported container. Nullable-reference annotation on an unconstrained
+parameter does not change that CLR array shape, while a value-constrained
+`T?[]` remains a genuine array of `System.Nullable<T>` and stays supported.
+Open, other embedded non-parametric, or unauthenticated constructions also fail
+visibly; the boundary does not infer arbitrary CLR generic shapes.
 
 Deserialize-reached unions, unavailable case/null evidence, unsupported
 converters, unmapped alternatives, and recursive union-case alias components
@@ -297,8 +299,9 @@ discriminated TypeScript union.
 `eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
 source-generated serializer results and compiled TypeScript consumers,
 including an annotation-erased null reference root, a generic-record union
-alternative with null content, and rejected direct and container-nested `T[]`
-constructions whose `byte[]` payloads are Base64 text.
+alternative with null content, rejected direct and container-nested `T[]` and
+unconstrained `T?[]` constructions whose `byte[]` payloads are Base64 text, and
+a supported value-constrained `T?[]` neighboring case.
 The four-step adoption path remains Metadata evidence, JsExportSurface
 evidence, this CLI generation/harness slice, and inspect-web browser/Wasm
 adoption. The existing TypeScript emitter owns this format lowering; no new

@@ -288,6 +288,47 @@ public sealed class JsonUnionWireTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(
+        nameof(UnionExports.GetNonParametricAnnotatedArrayRecord),
+        "{\"items\":\"AQID\"}")]
+    [InlineData(
+        nameof(UnionExports.GetNonParametricNestedAnnotatedArrayRecord),
+        "{\"items\":{\"value\":\"AQID\"}}")]
+    public void Emit_DoesNotPublishAnnotatedGenericRecordParameterArrays(
+        string method,
+        string expectedPayload)
+    {
+        string payload = method switch
+        {
+            nameof(UnionExports.GetNonParametricAnnotatedArrayRecord) =>
+                UnionExports.GetNonParametricAnnotatedArrayRecord(),
+            _ => UnionExports.GetNonParametricNestedAnnotatedArrayRecord(),
+        };
+        Assert.Equal(expectedPayload, payload);
+        var exception = Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(Build(method)));
+        Assert.Contains(
+            "array whose JSON mapping is not parametric",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_PreservesParametricNullableValueArrays()
+    {
+        Assert.Equal(
+            "{\"items\":[1,null]}",
+            UnionExports.GetParametricNullableValueArrayRecord());
+        string declaration = DtsEmitter.Emit(
+            Build(nameof(
+                UnionExports.GetParametricNullableValueArrayRecord)));
+        Assert.Contains(
+            "readonly items: ReadonlyArray<T0 | null>;",
+            declaration,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Emit_DoesNotConfuseConcreteArrayTypesWithGenericParameters()
     {

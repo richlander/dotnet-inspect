@@ -1002,10 +1002,20 @@ static class DtsEmitter
                         && canonicalType[offset - 1] != '_'
                         && canonicalType[offset - 1] != '.'
                         && canonicalType[offset - 1] != ':');
+                ReadOnlySpan<char> arraySuffix =
+                    canonicalType.AsSpan(suffix);
+                bool directArray = arraySuffix.StartsWith(
+                    "[]",
+                    StringComparison.Ordinal);
+                bool annotatedParameterArray =
+                    arraySuffix.StartsWith(
+                        "?[]",
+                        StringComparison.Ordinal)
+                    && parameter.TypeKind is
+                        TypeParameterTypeKind.Undetermined
+                        or TypeParameterTypeKind.NeitherReferenceNorValue;
                 if (identifierStart
-                    && canonicalType.AsSpan(suffix).StartsWith(
-                        "[]",
-                        StringComparison.Ordinal))
+                    && (directArray || annotatedParameterArray))
                 {
                     parameterName = parameter.Name;
                     return true;
