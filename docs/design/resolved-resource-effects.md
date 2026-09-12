@@ -15,8 +15,10 @@ The first production consumer is the existing
 [Resource Effect Language](resource-effect-language.md) owns admitted
 selectors, effects, provenance, and the admission receipt. Metadata owns
 assembly binding, type forwarding, definition correspondence, and catalog
-generation. This owner consumes those contracts and publishes
-occurrence-bound resource effects. It does not redefine either owner.
+generation. This owner consumes those contracts and exact retained SRM
+interface facts, proves the narrower Analysis-owned relation that carries an
+interface effect to a concrete implementation, and publishes occurrence-bound
+resource effects. It does not redefine either adjacent owner.
 
 ## Authority and exact claim
 
@@ -135,6 +137,9 @@ The design composes existing owner-issued contracts:
   operand token, selected member shape, call kind, and exact-target state.
 - `CallGraphMemberResolver` demonstrates structural member correspondence
   without parsing display signatures.
+- `StateMachineRelationshipIndex` demonstrates exact `MethodImpl` precedence
+  and bounded implicit-interface matching over retained SRM facts. Its
+  state-machine-specific result is not reused as a general interface service.
 
 Resolved Resource Effects uses these facts. It does not create another
 metadata graph, binding policy, call census, or display-name resolver.
@@ -196,12 +201,11 @@ Resolution has a planning phase before its immutable execution request exists.
 The Analysis coordinator:
 
 1. derives the required Metadata type-resolution requests from admitted target
-   selectors, structural field selectors, signature locations, and the
-   occurrence population's decoded member shapes;
+   selectors, structural field selectors, signature locations, implemented
+   interface instantiations, `MethodImpl` declarations, and the occurrence
+   population's decoded member shapes;
 2. reuses `CatalogMemberCorrespondencePlan` where the existing member
-   correspondence boundary already describes the required open signature, and
-   requests exact interface-member correspondence facts for interface targets
-   that may apply to concrete member occurrences;
+   correspondence boundary already describes the required open signature;
 3. unions those requests with the inspection operation's existing Metadata
    discovery manifest;
 4. asks the Metadata-owned builder to reach its bounded fixed point and freeze
@@ -285,10 +289,12 @@ Member definitions retain their exact participant, MVID, and metadata handle.
 A display name, simple assembly name, source path, or independently rebuilt
 signature is not a definition occurrence.
 
-An interface application association retains the exact interface declaration
-definition, exact concrete implementation definition, and Metadata-owned
-correspondence evidence. It does not collapse those definitions into one
-identity or infer a relationship from equal signatures.
+An Analysis-owned interface application association retains the exact
+interface declaration definition, exact concrete implementation definition,
+and the retained `InterfaceImpl`, `MethodImpl`, and structural-match evidence
+that proved the relationship. It does not collapse those definitions into one
+identity, decide cross-acquisition definition correspondence, or infer a
+relationship from equal signatures.
 
 Property getters and setters are selected through Metadata method semantics,
 not a `get_` or `set_` spelling convention. Constructors are selected through
@@ -442,7 +448,7 @@ A resolved effect retains:
 
 - the exact declaration definition, applied definition, or invocation
   occurrence;
-- any Metadata-owned correspondence evidence that carries an interface
+- any Analysis-owned correspondence evidence that carries an interface
   declaration to an exact concrete implementation;
 - the fully occurrence-substituted effect;
 - every exact declaration provenance that produced it;
@@ -551,9 +557,16 @@ Two `operation` effects conflict when their guards overlap and their
 
 ### Independence
 
-An `independent(source,target)` effect conflicts with a `borrow`, `derive`, or
-`pass` effect over the same resolved source and target. Relationships through
-a different source or target are independent claims and may coexist.
+At overlapping applicability, an `independent(source,target)` effect conflicts
+when:
+
+- a `borrow`, `derive`, or `pass` effect has that resolved primary source and
+  target; or
+- an `acquire` or `borrow` effect has an explicit resolved lender equal to that
+  source and its resolved target equals that target.
+
+Relationships through a different source and with no matching lender
+dependency are independent claims and may coexist.
 
 ### Callback facts
 
@@ -587,7 +600,7 @@ Each admitted target receives one deterministic evaluation:
 | `Unmatched` | Complete population evidence proves no occurrence matched. The declaration is inert for this request. |
 | `Ambiguous` | Metadata supplied more than one authoritative candidate for a potentially applicable occurrence. |
 | `Unsupported` | The occurrence uses a metadata or signature shape outside the version-1 resolver contract. |
-| `Incomplete` | Required image, body, definition, forwarding, interface correspondence, signature, bounded-work, or exhaustive-population evidence is unavailable or incomplete; any exact positive matches remain attached. |
+| `Incomplete` | Required image, body, definition, forwarding, interface application, signature, bounded-work, or exhaustive-population evidence is unavailable or incomplete; any exact positive matches remain attached. |
 
 The whole operation returns one of:
 
@@ -643,23 +656,43 @@ effects declared on that selected contract occurrence. `DirectCall.ExactTarget`
 continues to disclose whether the runtime target is fixed.
 
 An effect declared on an interface member also applies to each exact concrete
-implementation occurrence only when Metadata-owned correspondence proves that
-the concrete MethodDef implements that exact closed interface slot through the
-normal interface relationship or `MethodImpl` evidence. The resolved effect
-retains both definition occurrences and the correspondence evidence.
-The target evaluation is not complete until every potentially corresponding
-concrete occurrence in the exact population has a terminal correspondence
-outcome. Ambiguous, unavailable, rejected, or unsupported correspondence is
-incomplete; a same-signature method with an authoritative no-relationship
-outcome receives no propagated effect.
+implementation occurrence only when this resolver proves that the concrete
+MethodDef implements that exact closed interface slot. The bounded
+`InterfaceApplication` relation consumes one interface definition occurrence,
+one concrete MethodDef occurrence, their retained declaring-type metadata, and
+the frozen resolution context. It returns:
 
-This propagation is definition correspondence, not runtime dispatch
-expansion. The resolver does not copy effects between unrelated virtual
-declarations and overrides or infer reflection, dynamic, or additional runtime
-targets. When a consumer requires effects from runtime targets outside the
-exact static operand or proven interface implementation, that need remains
-visibly incomplete until a separately owned dispatch-expansion contract
-supplies those targets.
+- `Applied`, with the exact closed `InterfaceImpl` path and either the winning
+  `MethodImpl` row or the exact implicit member match;
+- `NotApplicable`, when complete readable evidence proves no relationship;
+- `Ambiguous`, when more than one authoritative implementation remains;
+- `Unsupported`, when the relationship uses a version-1-excluded shape; or
+- `Incomplete`, when required metadata, type binding, or bounded work is
+  unavailable.
+
+The proof first resolves an exact closed `InterfaceImpl` relationship for the
+concrete declaring type. An exact `MethodImpl` whose declaration resolves to
+the interface slot and whose body is the concrete MethodDef wins. Without that
+row, version 1 admits only one implicit public virtual instance MethodDef on
+that declaring type whose exact name, generic arity, calling convention,
+parameter/ref signature, and return type match after interface substitution.
+Inherited implementation search, default-interface dispatch expansion,
+variance-based dispatch, and other runtime target inference are unsupported
+and therefore incomplete when needed.
+
+The resolved effect retains both definition occurrences and the
+`InterfaceApplication.Applied` evidence. The target evaluation is not complete
+until every potentially corresponding concrete occurrence in the exact
+population has a terminal relation outcome. A same-signature method with an
+authoritative `NotApplicable` outcome receives no propagated effect.
+
+This propagation is interface applicability, not definition identity,
+cross-acquisition correspondence, or runtime dispatch expansion. The resolver
+does not copy effects between unrelated virtual declarations and overrides or
+infer reflection, dynamic, or additional runtime targets. When a consumer
+requires effects from runtime targets outside the exact static operand or
+`InterfaceApplication.Applied`, that need remains visibly incomplete until a
+separately owned dispatch-expansion contract supplies those targets.
 
 ## Bounds and failure
 
@@ -793,7 +826,7 @@ The implementation gate must cover:
 - equal effects coalescing with every provenance association retained;
 - borrow-versus-consume, unequal terminal transition, overlapping operation
   fact, borrow-versus-independent, derivation/pass-versus-independent, and
-  callback conflicts;
+  acquire/borrow-lender-versus-independent conflicts, plus callback conflicts;
 - disjoint completion and guard controls remaining compatible;
 - an absent API remaining inert;
 - ambiguous definition, unavailable image, forwarding failure, unsupported
@@ -801,9 +834,9 @@ The implementation gate must cover:
 - request planning contributing every required Metadata lookup before freeze,
   with unexpected `PlanExpansionRequired` remaining incomplete;
 - an interface-member effect applying to exact implicit and explicit
-  implementations through Metadata-owned correspondence, while a
-  same-signature non-implementation receives no propagated effect and unresolved
-  correspondence remains incomplete;
+  implementations through `InterfaceApplication`, while a same-signature
+  non-implementation receives no propagated effect and ambiguous, unsupported,
+  or incomplete relation evidence prevents completeness;
 - separately retained copies with equal assembly/MVID/token values producing
   distinct participant-qualified physical invocation sites;
 - unresolved calls retaining physical site identity without a selected
@@ -838,6 +871,9 @@ must not:
 - perform a second IL body scan when the existing occurrence census is
   available;
 - create a second assembly-binding or type-forwarding engine;
+- require a new Metadata-owned general interface-correspondence service instead
+  of proving the bounded `InterfaceApplication` relation from retained SRM
+  facts and the frozen resolution context;
 - use display names as semantic identity;
 - make ArrayPool names part of the generic resolver;
 - consume unresolved selectors directly in lifecycle Analysis; or
