@@ -549,19 +549,10 @@ public static class CommandLineBuilder
                     errorToken => ReferenceEquals(
                         token,
                         errorToken)));
-        // Keep an earlier invalid value's token identity; otherwise the
-        // aggregate arity failure completes at the first excess value.
-        bool hasUnmatchedOptionValue =
-            error.SymbolResult is OptionResult repeatedOption
-            && repeatedOption.Tokens.Any(token =>
-                parseResult.UnmatchedTokens.Contains(
-                    token.Value,
-                    StringComparer.Ordinal));
         if (error.SymbolResult is OptionResult optionResult
             && optionResult.Option.Arity.MaximumNumberOfValues
                 < optionResult.Tokens.Count
-            && !hasOwnedOptionValueFailure
-            && !hasUnmatchedOptionValue)
+            && !hasOwnedOptionValueFailure)
         {
             Token excessValue =
                 optionResult.Tokens[
@@ -574,7 +565,20 @@ public static class CommandLineBuilder
                             excessValue)),
                     -1);
             if (excessIndex >= 0)
-                return argumentPositions?[excessIndex] ?? excessIndex;
+            {
+                int excessPosition =
+                    argumentPositions?[excessIndex] ?? excessIndex;
+                int rejectedValuePosition =
+                    CliOptionValueValidation
+                        .FindFirstRejectedValuePosition(
+                            optionResult,
+                            mapped,
+                            argumentPositions)
+                    ?? int.MaxValue;
+                return Math.Min(
+                    excessPosition,
+                    rejectedValuePosition);
+            }
         }
         int[] tokenMatches =
         [
@@ -928,7 +932,10 @@ public static class CommandLineBuilder
 
         // Root-level display options (distinct instances so they appear in root help)
         var rootVerbosityOption = new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" };
-        rootVerbosityOption.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, OptionParsers.ValidVerbosityValues);
+        CliOptionValueValidation.AcceptOnlyFromAmong(
+            rootVerbosityOption,
+            StringComparer.OrdinalIgnoreCase,
+            OptionParsers.ValidVerbosityValues);
         rootCommand.Options.Add(rootVerbosityOption);
         var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
         rootTipsOption.Aliases.Add("-T");

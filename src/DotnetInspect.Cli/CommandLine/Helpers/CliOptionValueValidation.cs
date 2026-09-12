@@ -14,6 +14,8 @@ internal static class CliOptionValueValidation
     private static readonly ConditionalWeakTable<Argument, Func<ParseResult, int>> Capacities = new();
     private static readonly ConditionalWeakTable<Command, IReadOnlyList<Option>>
         PresenceOptionsByCommand = new();
+    private static readonly ConditionalWeakTable<Option, HashSet<string>>
+        AcceptedValuesByOption = new();
 
     public static void RegisterCapacity(Argument argument, Func<ParseResult, int> capacity) =>
         Capacities.Add(argument, capacity);
@@ -22,6 +24,49 @@ internal static class CliOptionValueValidation
         Command command,
         params Option[] options) =>
         PresenceOptionsByCommand.Add(command, options);
+
+    public static void AcceptOnlyFromAmong<T>(
+        Option<T> option,
+        StringComparer comparer,
+        params string[] values)
+    {
+        option.AcceptOnlyFromAmong(comparer, values);
+        AcceptedValuesByOption.Add(
+            option,
+            new HashSet<string>(values, comparer));
+    }
+
+    public static int? FindFirstRejectedValuePosition(
+        OptionResult optionResult,
+        IReadOnlyList<ParsedArgument> mapped,
+        IReadOnlyList<int>? argumentPositions)
+    {
+        if (!AcceptedValuesByOption.TryGetValue(
+                optionResult.Option,
+                out HashSet<string>? acceptedValues))
+        {
+            return null;
+        }
+
+        foreach (Token value in optionResult.Tokens.Where(
+            static token => token.Type == TokenType.Argument))
+        {
+            if (acceptedValues.Contains(value.Value))
+                continue;
+
+            int index = Enumerable.Range(0, mapped.Count)
+                .FirstOrDefault(
+                    index => mapped[index].Tokens.Any(
+                        token => ReferenceEquals(
+                            token,
+                            value)),
+                    -1);
+            if (index >= 0)
+                return argumentPositions?[index] ?? index;
+        }
+
+        return null;
+    }
 
     public static string DoesNotAcceptValue(string optionName) =>
         $"{optionName} does not accept a value.";

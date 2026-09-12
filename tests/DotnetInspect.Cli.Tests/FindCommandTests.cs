@@ -1840,6 +1840,79 @@ public class FindCommandIntegrationTests
     }
 
     [Fact]
+    public void UnknownOption_PrecedesLaterRepeatedScalarWithDuplicatedPositionalText()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "Json",
+                "--type",
+                "String",
+                "--unknown",
+                "--type",
+                "Object",
+                "String",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--unknown", error);
+        Assert.DoesNotContain(
+            "expects a single argument",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MissingTakeValue_PrecedesLaterRepeatedScalarWithDuplicatedPositionalText()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "Json",
+                "--type",
+                "String",
+                "--take",
+                "--take",
+                "1",
+                "--type",
+                "Object",
+                "String",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--take requires a value.", error);
+        Assert.DoesNotContain(
+            "expects a single argument",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AttachedPresenceValue_PrecedesLaterValidRepeatedScalar()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "Json",
+                "-v:n",
+                "--head=n",
+                "-v:q",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--head does not accept a value.",
+            error);
+        Assert.DoesNotContain(
+            "expects a single argument",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MissingTakeValue_PrecedesLaterPositionalDuplicatingAttachedValue()
     {
         var (exit, output, error) = RunCli(
