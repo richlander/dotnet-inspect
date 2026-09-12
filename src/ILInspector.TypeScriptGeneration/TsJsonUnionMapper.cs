@@ -86,8 +86,18 @@ static class TsJsonUnionMapper
                 }
                 if (arity == type.TypeArguments.Length)
                 {
+                    bool conservativeArguments =
+                        context.GenericRecords?.Contains(identity) == true;
                     return $"{name}<{string.Join(", ", type.TypeArguments.Select(
-                        argument => MapClosedCase(argument, context, location)))}>";
+                        argument => conservativeArguments
+                            ? MapCollectionCase(
+                                argument,
+                                context,
+                                location)
+                            : MapClosedCase(
+                                argument,
+                                context,
+                                location)))}>";
                 }
             }
             throw Unsupported(location, "unsupported generic union case type");

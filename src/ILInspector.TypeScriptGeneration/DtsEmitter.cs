@@ -1353,6 +1353,21 @@ static class DtsEmitter
             candidate = candidate[globalPrefix.Length..];
         }
 
+        while (true)
+        {
+            if (candidate.EndsWith("[]", StringComparison.Ordinal))
+            {
+                candidate = candidate[..^2].TrimEnd();
+                continue;
+            }
+            if (candidate.EndsWith("?", StringComparison.Ordinal))
+            {
+                candidate = candidate[..^1].TrimEnd();
+                continue;
+            }
+            break;
+        }
+
         return string.Equals(
             LastSegment(candidate),
             parameterName,

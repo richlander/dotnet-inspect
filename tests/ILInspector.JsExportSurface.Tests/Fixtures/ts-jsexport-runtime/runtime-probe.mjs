@@ -36,6 +36,7 @@ for (
     "widgetEnvelope",
     "blobEnvelope",
     "directNullableTextEnvelope",
+    "genericRecordChoice",
     "collisionEnvelope",
     "nullableIntEnvelope",
     "nullableIntEnvelopeNull",
@@ -96,6 +97,8 @@ const getCollisionEnvelopeKey =
   facadeSource.match(/"(GetCollisionEnvelope\.-?\d+)"/)?.[1];
 const getDirectNullableTextEnvelopeKey =
   facadeSource.match(/"(GetDirectNullableTextEnvelope\.-?\d+)"/)?.[1];
+const getGenericRecordChoiceKey =
+  facadeSource.match(/"(GetGenericRecordChoice\.-?\d+)"/)?.[1];
 const getNullableIntEnvelopeKey =
   facadeSource.match(/"(GetNullableIntEnvelope\.-?\d+)"/)?.[1];
 const getNullableTextRootKey =
@@ -210,6 +213,10 @@ assert.ok(
   getDirectNullableTextEnvelopeKey,
   "The generated GetDirectNullableTextEnvelope runtime dispatch key "
     + "was not found.",
+);
+assert.ok(
+  getGenericRecordChoiceKey,
+  "The generated GetGenericRecordChoice runtime dispatch key was not found.",
 );
 assert.ok(
   getNullableIntEnvelopeKey,
@@ -347,6 +354,9 @@ function managedExports(methods = {}) {
             [getDirectNullableTextEnvelopeKey]:
               methods.getDirectNullableTextEnvelope
               ?? (() => unionPayloads.directNullableTextEnvelope),
+            [getGenericRecordChoiceKey]:
+              methods.getGenericRecordChoice
+              ?? (() => unionPayloads.genericRecordChoice),
             [getNullableIntEnvelopeKey]:
               methods.getNullableIntEnvelope
               ?? ((hasValue) => (hasValue
@@ -549,6 +559,7 @@ async function freshFacade() {
       content: 7,
       other: { value: "concrete" },
       included: { value: "included" },
+      includedItems: [{ value: "included-array" }],
     },
   );
   assert.deepEqual(
@@ -556,6 +567,13 @@ async function freshFacade() {
     {
       content: null,
       label: "direct-nullable",
+    },
+  );
+  assert.deepEqual(
+    facade.getGenericRecordChoice(),
+    {
+      content: null,
+      label: "union-nullable",
     },
   );
   assert.deepEqual(
@@ -612,7 +630,8 @@ async function freshFacade() {
   assert.equal(
     unionUsage.describeGenericEnvelopes(),
     "generic:widget/AQID:blob/null:direct-nullable"
-      + "/7:concrete:included/42:null/null:nullable",
+      + "/null:union-nullable"
+      + "/7:concrete:included:included-array/42:null/null:nullable",
   );
   assert.equal(unionUsage.missingSelectionEntry, null);
   assert.equal(unionUsage.missingMapEntry, null);

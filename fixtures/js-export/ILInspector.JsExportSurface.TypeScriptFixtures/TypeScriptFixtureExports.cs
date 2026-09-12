@@ -279,6 +279,15 @@ public static partial class TypeScriptFixtureExports
             GenericRecordFixtureJsonContext.Default.DirectNullableTextEnvelope);
 
     [JSExport]
+    public static string GetGenericRecordChoice() =>
+        JsonSerializer.Serialize(
+            new GenericRecordChoice(
+                new GenericEnvelope<string?>(
+                    null,
+                    "union-nullable")),
+            GenericRecordFixtureJsonContext.Default.GenericRecordChoice);
+
+    [JSExport]
     public static string GetCollisionEnvelope() =>
         JsonSerializer.Serialize(
             new GenericCollision<int>(

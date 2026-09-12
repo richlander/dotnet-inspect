@@ -834,11 +834,22 @@ public sealed class DtsEmitterTests
             facade,
             StringComparison.Ordinal);
         Assert.Contains(
+            "export type GenericRecordChoice = "
+                + "GenericEnvelope<string | null> | number | null;",
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getGenericRecordChoice(): "
+                + "GenericRecordChoice",
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
             """
             export interface GenericCollision<T0> {
               readonly content: T0;
               readonly other: T;
               readonly included: T;
+              readonly includedItems: ReadonlyArray<T>;
             }
             """,
             facade,

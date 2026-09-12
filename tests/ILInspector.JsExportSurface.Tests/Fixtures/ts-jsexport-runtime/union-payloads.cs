@@ -36,6 +36,9 @@ if (args is not [string outputPath])
     (
         "directNullableTextEnvelope",
         TypeScriptFixtureExports.GetDirectNullableTextEnvelope()),
+    (
+        "genericRecordChoice",
+        TypeScriptFixtureExports.GetGenericRecordChoice()),
     ("collisionEnvelope", TypeScriptFixtureExports.GetCollisionEnvelope()),
     (
         "nullableIntEnvelope",

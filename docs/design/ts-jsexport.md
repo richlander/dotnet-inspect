@@ -327,6 +327,11 @@ conservatively nullable. A direct `GenericEnvelope<byte[]>` root is therefore
 This is disclosure of unavailable evidence, not a claim that every producer
 writes null.
 
+Union case signatures have the same nested-annotation erasure. When an
+authenticated union alternative is a generic record, its reference-shaped
+arguments are therefore conservative by the same rule; an outer union `null`
+alternative cannot substitute for a nullable member inside a non-null record.
+
 The initial contract intentionally admits only direct type-parameter members,
 including their direct nullable form. A parameter embedded in a CLR shape is
 not generally parametric in the corresponding TypeScript wire type. For
@@ -339,6 +344,10 @@ arguments because each argument is mapped from its own closed wire shape.
 
 The projection retains the existing naming, direction, converter,
 constructor-binding, scoped-identity, and declaration-name allocation rules.
+Retained concrete field references preserve matching concrete components,
+including array elements, when field metadata lacks a structured return shape.
+A genuine parameter component has no such concrete identity and still reaches
+the non-parametric rejection boundary.
 It does not invent serializer support for the record's reachable graph:
 envelope Share, diagnostic, content, and collection types must independently
 carry supported System.Text.Json evidence. The production adoption path is
@@ -352,8 +361,9 @@ reachable wire graph is authenticated.
 constructions, rejects a mismatched argument, and executes the facade against
 real source-generated System.Text.Json payloads, including the wire-sensitive
 `byte[]` argument, a direct root whose erased reference argument carries null,
-a nullable-reference member argument, and a concrete included-field identity
-that collides with a generic parameter name.
+a nullable-reference member argument, a union alternative carrying a generic
+record with null content, and direct and array-valued included-field identities
+that collide with a generic parameter name.
 
 ### Public facade view
 

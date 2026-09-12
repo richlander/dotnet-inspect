@@ -65,6 +65,7 @@ import {
   getBoxedWidget,
   getCollisionEnvelope,
   getDirectNullableTextEnvelope,
+  getGenericRecordChoice,
   getCollectionSelection,
   getDefaultSelection,
   getFlagSelection,
@@ -83,6 +84,7 @@ import type {
   FlagSelection,
   GenericCollision,
   GenericEnvelope,
+  GenericRecordChoice,
   KindSelection,
   NullableEnvelope,
   NullableTextRoot,
@@ -109,6 +111,9 @@ export const missingMapEntry: SelectionMap[string] = null;
 export const missingGroupEntry: GroupEntries[number] = null;
 export const missingGenericArgument:
   NullableTextRoot["result"]["content"] = null;
+export const missingUnionRecordContent:
+  Extract<GenericRecordChoice, { readonly content: unknown }>["content"] =
+    null;
 
 function isEntryArray(
   selection: CollectionSelection,
@@ -208,6 +213,7 @@ export function describeGenericEnvelopes(): string {
   const blob: GenericEnvelope<string | null> = getBlobEnvelope();
   const directNullable: GenericEnvelope<string | null> =
     getDirectNullableTextEnvelope();
+  const choice: GenericRecordChoice = getGenericRecordChoice();
   const collision: GenericCollision<number> = getCollisionEnvelope();
   const concrete: T = collision.other;
   const nullable: NullableEnvelope<number> =
@@ -218,7 +224,13 @@ export function describeGenericEnvelopes(): string {
   return `${widget.content?.name ?? "none"}:${widget.label}`
     + `/${blob.content}:${blob.label}`
     + `/${directNullable.content}:${directNullable.label}`
+    + `/${choice === null || typeof choice === "number"
+      ? choice
+      : choice.content}:${choice === null || typeof choice === "number"
+      ? "union"
+      : choice.label}`
     + `/${collision.content}:${concrete.value}:${collision.included.value}`
+    + `:${collision.includedItems[0]?.value ?? "missing"}`
     + `/${nullable.content}:${missing.content}`
     + `/${nullableText.result.content}:${nullableText.result.label}`;
 }
@@ -478,6 +490,11 @@ expect_union_facade_compile_failure \
   'GenericEnvelope<string \| null>' \
   'GenericEnvelope<string>' \
   '^  readonly result:'
+expect_union_facade_compile_failure \
+  generic-record-union-nullable-argument \
+  'GenericEnvelope<string \| null>' \
+  'GenericEnvelope<string>' \
+  '^export type GenericRecordChoice'
 
 expect_union_facade_compile_failure \
   union-collection-entry-null \

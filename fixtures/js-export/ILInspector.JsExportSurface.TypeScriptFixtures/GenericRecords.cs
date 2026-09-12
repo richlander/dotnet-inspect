@@ -6,6 +6,8 @@ public sealed record GenericEnvelope<TContent>(
     TContent Content,
     string Label);
 
+public union GenericRecordChoice(GenericEnvelope<string?>, int);
+
 public sealed record T(string Value);
 
 public sealed record GenericCollision<T>(
@@ -15,6 +17,10 @@ public sealed record GenericCollision<T>(
     [JsonInclude]
     public global::ILInspector.JsExportSurface.TypeScriptFixtures.T Included =
         new("included");
+
+    [JsonInclude]
+    public global::ILInspector.JsExportSurface.TypeScriptFixtures.T[]
+        IncludedItems = [new("included-array")];
 }
 
 public sealed record NullableEnvelope<T>(T? Content)
@@ -32,6 +38,7 @@ public sealed record NullableTextRoot(
 [JsonSerializable(
     typeof(GenericEnvelope<string>),
     TypeInfoPropertyName = "DirectNullableTextEnvelope")]
+[JsonSerializable(typeof(GenericRecordChoice))]
 [JsonSerializable(
     typeof(GenericCollision<int>),
     TypeInfoPropertyName = "CollisionEnvelope")]
