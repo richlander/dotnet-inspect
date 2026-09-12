@@ -338,11 +338,6 @@ public static class ResourceEffectAdmissionBuilder
         var declarations = new List<ParsedDeclaration>();
         foreach (ResourceEffectTargetDeclaration targetDeclaration in model.Declarations)
         {
-            ResourceEffectAdmissionOutcome? targetFailure =
-                ValidateTarget(targetDeclaration.Target, model.Identity);
-            if (targetFailure is not null)
-                return targetFailure;
-
             foreach (ResourceEffectSourceStatement source in targetDeclaration.Statements)
             {
                 if (source.Provenance.Model != model.Identity)
@@ -355,7 +350,31 @@ public static class ResourceEffectAdmissionBuilder
                         source.Text.Length,
                         "Declaration provenance must identify its containing atomic model.");
                 }
+            }
 
+            ResourceDeclarationProvenance? targetProvenance =
+                targetDeclaration.Statements.IsEmpty
+                    ? null
+                    : targetDeclaration.Statements[0].Provenance;
+            ResourceEffectAdmissionOutcome? targetBudgetFailure =
+                ValidateStructuralBudget(
+                    model.Identity,
+                    targetProvenance,
+                    targetDeclaration.Target,
+                    null,
+                    limits);
+            if (targetBudgetFailure is not null)
+                return targetBudgetFailure;
+            ResourceEffectAdmissionOutcome? targetFailure =
+                ValidateTarget(
+                    targetDeclaration.Target,
+                    model.Identity,
+                    targetDeclaration.Statements.Select(source => source.Provenance));
+            if (targetFailure is not null)
+                return targetFailure;
+
+            foreach (ResourceEffectSourceStatement source in targetDeclaration.Statements)
+            {
                 ResourceEffectParseOutcome parse =
                     ResourceEffectStatementParser.Parse(source.Text, limits);
                 switch (parse)
@@ -377,6 +396,15 @@ public static class ResourceEffectAdmissionBuilder
                     case ResourceEffectParseOutcome.Parsed completed:
                     {
                         ResourceEffect effect = completed.Effect;
+                        ResourceEffectAdmissionOutcome? budgetFailure =
+                            ValidateStructuralBudget(
+                                model.Identity,
+                                source.Provenance,
+                                targetDeclaration.Target,
+                                effect,
+                                limits);
+                        if (budgetFailure is not null)
+                            return budgetFailure;
                         ResourceEffectAdmissionOutcome? validationFailure =
                             ValidateDeclaration(
                                 model.Identity,
@@ -426,10 +454,6 @@ public static class ResourceEffectAdmissionBuilder
         foreach (ResourceEffectTypedDeclaration declaration
                  in model.TypedDeclarations)
         {
-            ResourceEffectAdmissionOutcome? targetFailure =
-                ValidateTarget(declaration.Target, model.Identity);
-            if (targetFailure is not null)
-                return targetFailure;
             foreach (ResourceDeclarationProvenance provenance in declaration.Provenances)
             {
                 if (provenance.Model != model.Identity)
@@ -445,6 +469,22 @@ public static class ResourceEffectAdmissionBuilder
             }
 
             ResourceEffect effect = declaration.Effect;
+            ResourceEffectAdmissionOutcome? budgetFailure =
+                ValidateStructuralBudget(
+                    model.Identity,
+                    declaration.Provenances[0],
+                    declaration.Target,
+                    effect,
+                    limits);
+            if (budgetFailure is not null)
+                return budgetFailure;
+            ResourceEffectAdmissionOutcome? targetFailure =
+                ValidateTarget(
+                    declaration.Target,
+                    model.Identity,
+                    declaration.Provenances);
+            if (targetFailure is not null)
+                return targetFailure;
             ResourceEffectAdmissionOutcome? validationFailure =
                 ValidateDeclaration(
                     model.Identity,
@@ -598,9 +638,210 @@ public static class ResourceEffectAdmissionBuilder
         return null;
     }
 
+    static ResourceEffectAdmissionOutcome? ValidateStructuralBudget(
+        ResourceEffectModelIdentity model,
+        ResourceDeclarationProvenance? provenance,
+        ResourceEffectTargetSelector? target,
+        ResourceEffect? effect,
+        ResourceEffectWorkLimits limits)
+    {
+        var pending = new Stack<(object Node, int Depth)>();
+        int nodes = 0;
+        ResourceEffectAdmissionOutcome? failure = Push(target, 1) ?? Push(effect, 1);
+        if (failure is not null)
+            return failure;
+        while (pending.TryPop(out (object Node, int Depth) item))
+        {
+            foreach (object child in StructuralChildren(item.Node))
+            {
+                failure = Push(child, item.Depth + 1);
+                if (failure is not null)
+                    return failure;
+            }
+        }
+        return null;
+
+        ResourceEffectAdmissionOutcome? Push(object? node, int depth)
+        {
+            if (node is null)
+                return null;
+            if (depth > limits.MaxNestingDepth)
+            {
+                return Limit(
+                    ResourceEffectWorkLimitKind.NestingDepth,
+                    limits.MaxNestingDepth,
+                    depth,
+                    model,
+                    provenance);
+            }
+            nodes++;
+            if (nodes > limits.MaxStructuralNodesPerDeclaration)
+            {
+                return Limit(
+                    ResourceEffectWorkLimitKind.StructuralNodes,
+                    limits.MaxStructuralNodesPerDeclaration,
+                    nodes,
+                    model,
+                    provenance);
+            }
+            pending.Push((node, depth));
+            return null;
+        }
+    }
+
+    static IEnumerable<object> StructuralChildren(object node)
+    {
+        switch (node)
+        {
+            case ResourceEffectTargetSelector.Type type:
+                yield return type.Selector;
+                break;
+            case ResourceEffectTargetSelector.Member member:
+                yield return member.Selector;
+                break;
+            case ResourceEffectMemberSelector member:
+                yield return member.DeclaringType;
+                yield return member.ReturnType;
+                foreach (ResourceEffectParameterSelector parameter in member.Parameters)
+                    yield return parameter;
+                break;
+            case ResourceEffectParameterSelector parameter:
+                yield return parameter.Type;
+                break;
+            case ResourceTypeExpression.Named named:
+                foreach (ResourceTypeNameSegment segment in named.Segments)
+                    yield return segment;
+                foreach (ResourceTypeExpression argument in named.Arguments)
+                    yield return argument;
+                break;
+            case ResourceTypeExpression.SzArray array:
+                yield return array.Element;
+                break;
+            case ResourceTypeExpression.Array array:
+                yield return array.Element;
+                break;
+            case ResourceTypeExpression.ByReference reference:
+                yield return reference.Element;
+                break;
+            case ResourceTypeExpression.Pointer pointer:
+                yield return pointer.Element;
+                break;
+            case ResourceEffect.Resource resource:
+                yield return resource.Kind;
+                break;
+            case ResourceEffect.Authority authority:
+                yield return authority.Kind;
+                yield return authority.Target;
+                yield return authority.Key;
+                break;
+            case ResourceEffect.Acquire acquire:
+                yield return acquire.Kind;
+                yield return acquire.Target;
+                yield return acquire.When;
+                if (acquire.Correspondence is not null)
+                    yield return acquire.Correspondence;
+                if (acquire.Lender is not null)
+                    yield return acquire.Lender;
+                break;
+            case ResourceEffect.Move move:
+                yield return move.Source;
+                yield return move.Target;
+                yield return move.When;
+                if (move.Kind is not null)
+                    yield return move.Kind;
+                break;
+            case ResourceEffect.Consume consume:
+                yield return consume.Source;
+                yield return consume.Target;
+                if (consume.Kind is not null)
+                    yield return consume.Kind;
+                break;
+            case ResourceEffect.Release release:
+                yield return release.Source;
+                yield return release.When;
+                if (release.Kind is not null)
+                    yield return release.Kind;
+                if (release.Correspondence is not null)
+                    yield return release.Correspondence;
+                if (release.Observation is not null)
+                    yield return release.Observation;
+                break;
+            case ResourceEffect.Borrow borrow:
+                yield return borrow.Source;
+                yield return borrow.Target;
+                yield return borrow.Scope;
+                if (borrow.Kind is not null)
+                    yield return borrow.Kind;
+                if (borrow.Lender is not null)
+                    yield return borrow.Lender;
+                break;
+            case ResourceEffect.Derive derive:
+                yield return derive.Source;
+                yield return derive.Target;
+                if (derive.Guard is not null)
+                    yield return derive.Guard;
+                break;
+            case ResourceEffect.Pass pass:
+                yield return pass.Source;
+                yield return pass.Target;
+                break;
+            case ResourceEffect.Independent independent:
+                yield return independent.Source;
+                yield return independent.Target;
+                break;
+            case ResourceEffect.Callback callback:
+                yield return callback.Delegate;
+                yield return callback.Scope;
+                break;
+            case ResourceEffect.Accept accept:
+                yield return accept.Source;
+                yield return accept.Target;
+                yield return accept.When;
+                if (accept.Kind is not null)
+                    yield return accept.Kind;
+                break;
+            case ResourceEffect.Operation operation when operation.Guard is not null:
+                yield return operation.Guard;
+                break;
+            case ResourceEffect.Outcome outcome:
+                yield return outcome.Source;
+                yield return outcome.Test;
+                break;
+            case ResourceEffectLocation.OperationSlot operation:
+                yield return operation.Source;
+                if (operation.Kind is not null)
+                    yield return operation.Kind;
+                break;
+            case ResourceEffectLocation.Field field:
+                yield return field.Root;
+                break;
+            case ResourceEffectLocation.StructuralField field:
+                yield return field.Root;
+                yield return field.Selector;
+                break;
+            case ResourceEffectCompletion.OutcomeCase outcome:
+                yield return outcome.Source;
+                yield return outcome.Test;
+                break;
+            case ResourceEffectGuard.ExactRuntimeType guard:
+                yield return guard.Subject;
+                yield return guard.Expected;
+                break;
+            case ResourceKindReference kind:
+                foreach (ResourceEffectGenericVariable argument in kind.Arguments)
+                    yield return argument;
+                break;
+            case ResourceAuthorityKey.Singleton singleton:
+                foreach (ResourceEffectGenericVariable argument in singleton.Arguments)
+                    yield return argument;
+                break;
+        }
+    }
+
     static ResourceEffectAdmissionOutcome? ValidateTarget(
         ResourceEffectTargetSelector target,
-        ResourceEffectModelIdentity model)
+        ResourceEffectModelIdentity model,
+        IEnumerable<ResourceDeclarationProvenance> provenances)
     {
         bool valid = target switch
         {
@@ -610,28 +851,48 @@ public static class ResourceEffectAdmissionBuilder
                 ValidateMemberVariables(member.Selector),
             _ => false,
         };
-        return valid
-            ? null
-            : Reject(
+        if (valid)
+            return null;
+        ImmutableArray<ResourceDeclarationProvenance> provenanceSnapshot =
+            [.. provenances.Distinct()];
+        return provenanceSnapshot.IsEmpty
+            ? Reject(
                 model,
                 null,
                 ResourceEffectDiagnosticKind.UnboundGenericVariable,
                 0,
                 0,
+                "A structural selector contains an unbound generic variable.")
+            : RejectAll(
+                provenanceSnapshot,
+                ResourceEffectDiagnosticKind.UnboundGenericVariable,
                 "A structural selector contains an unbound generic variable.");
     }
 
     static bool ValidateMemberVariables(ResourceEffectMemberSelector member)
     {
         int typeArity = member.DeclaringType.Segments.Sum(segment => segment.GenericArity);
-        if (!ValidateTypeVariables(member.DeclaringType, typeArity, member.GenericArity))
+        if (!ValidateTypeVariables(member.DeclaringType, typeArity, 0))
             return false;
+        HashSet<ResourceEffectGenericVariable> boundTypeVariables =
+            [.. TypeVariables(member.DeclaringType).Where(variable =>
+                variable.Kind == ResourceEffectGenericVariableKind.Type)];
         foreach (ResourceEffectParameterSelector parameter in member.Parameters)
         {
-            if (!ValidateTypeVariables(parameter.Type, typeArity, member.GenericArity))
+            if (!ValidateTypeVariables(parameter.Type, typeArity, member.GenericArity)
+                || !TypeVariables(parameter.Type)
+                    .Where(variable =>
+                        variable.Kind == ResourceEffectGenericVariableKind.Type)
+                    .All(boundTypeVariables.Contains))
+            {
                 return false;
+            }
         }
-        return ValidateTypeVariables(member.ReturnType, typeArity, member.GenericArity);
+        return ValidateTypeVariables(member.ReturnType, typeArity, member.GenericArity)
+            && TypeVariables(member.ReturnType)
+                .Where(variable =>
+                    variable.Kind == ResourceEffectGenericVariableKind.Type)
+                .All(boundTypeVariables.Contains);
     }
 
     static bool ValidateStructuralFieldVariables(
@@ -1011,7 +1272,10 @@ public static class ResourceEffectAdmissionBuilder
             fields[selector] = member;
         }
 
-        var outcomes = new Dictionary<ScopedLocal, ResourceEffect.Outcome>();
+        var outcomeDeclarations =
+            new Dictionary<
+                ScopedLocal,
+                List<(ParsedDeclaration Declaration, ResourceEffect.Outcome Outcome)>>();
         var callbacks = new Dictionary<ScopedIndex, ResourceEffect.Callback>();
         var operationDeclarations =
             new Dictionary<ScopedIndex, List<ParsedDeclaration>>();
@@ -1027,20 +1291,19 @@ public static class ResourceEffectAdmissionBuilder
                         ResourceEffectDiagnosticKind.UnresolvedField,
                         "An outcome subject references no field declaration in the atomic model.");
                 }
-                var canonicalOutcome = new ResourceEffect.Outcome(
+                var fieldResolvedOutcome = new ResourceEffect.Outcome(
                     outcome.Identity,
                     ResolveLocation(outcome.Source, fields),
                     outcome.Test);
                 var key = new ScopedLocal(target, outcome.Identity);
-                if (outcomes.TryGetValue(key, out ResourceEffect.Outcome? existing)
-                    && existing != canonicalOutcome)
+                if (!outcomeDeclarations.TryGetValue(
+                        key,
+                        out List<(ParsedDeclaration, ResourceEffect.Outcome)>? definitions))
                 {
-                    return Failure(
-                        declaration,
-                        ResourceEffectDiagnosticKind.DuplicateLocalIdentity,
-                        "One outcome identity has inconsistent definitions on the same operation.");
+                    definitions = [];
+                    outcomeDeclarations.Add(key, definitions);
                 }
-                outcomes[key] = canonicalOutcome;
+                definitions.Add((declaration, fieldResolvedOutcome));
             }
             if (declaration.Effect is ResourceEffect.Callback callback)
             {
@@ -1121,7 +1384,8 @@ public static class ResourceEffectAdmissionBuilder
             foreach (ResourceEffectCompletion completion in Completions(declaration.Effect))
             {
                 if (completion is ResourceEffectCompletion.Outcome outcome
-                    && !outcomes.ContainsKey(new ScopedLocal(target, outcome.Identity)))
+                    && !outcomeDeclarations.ContainsKey(
+                        new ScopedLocal(target, outcome.Identity)))
                 {
                     return Failure(
                         declaration,
@@ -1141,6 +1405,37 @@ public static class ResourceEffectAdmissionBuilder
             ResolveOperation(key, definitions[0]);
             if (operationFailure is not null)
                 return operationFailure;
+        }
+        var outcomes = new Dictionary<ScopedLocal, ResourceEffect.Outcome>();
+        foreach ((
+                     ScopedLocal key,
+                     List<(ParsedDeclaration Declaration, ResourceEffect.Outcome Outcome)> definitions)
+                 in outcomeDeclarations)
+        {
+            ResourceEffect.Outcome? resolved = null;
+            foreach ((
+                         ParsedDeclaration declaration,
+                         ResourceEffect.Outcome outcome)
+                     in definitions)
+            {
+                var candidate = new ResourceEffect.Outcome(
+                    outcome.Identity,
+                    ResolveLocation(
+                        outcome.Source,
+                        key.Target,
+                        fields,
+                        operations),
+                    outcome.Test);
+                if (resolved is not null && resolved != candidate)
+                {
+                    return Failure(
+                        declaration,
+                        ResourceEffectDiagnosticKind.DuplicateLocalIdentity,
+                        "One outcome identity has inconsistent definitions on the same operation.");
+                }
+                resolved = candidate;
+            }
+            outcomes.Add(key, resolved!);
         }
         for (int index = 0; index < declarations.Count; index++)
         {
@@ -1966,6 +2261,7 @@ static class ResourceEffectCanonicalizer
             Atom("model", provenance.Model.Value),
             Atom("authority", ((int)provenance.Authority).ToString(CultureInfo.InvariantCulture)),
             Atom("source", provenance.SourceIdentity.ToString()),
+            Atom("source-truncated", provenance.SourceIdentity.IsTruncated ? "1" : "0"),
             Atom(
                 "ordinal",
                 provenance.DeclarationOrdinal.ToString(CultureInfo.InvariantCulture)));

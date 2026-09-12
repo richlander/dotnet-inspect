@@ -133,6 +133,14 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void WorkLimits_RejectUnsafeConfiguredNestingDepth()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ResourceEffectWorkLimits(
+                maxNestingDepth: ResourceEffectWorkLimits.MaximumNestingDepth + 1));
+    }
+
+    [Fact]
     public void Admission_CompleteSnapshotWitnessRetainsPurposePreservingTerms()
     {
         ResourceEffectModelIdentity model = new("example.snapshot");
@@ -483,6 +491,95 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void Admission_BoundsTypedStructuralDepthAndNodeCount()
+    {
+        ResourceEffectModelIdentity model = new("example.typed-structure-budget");
+        ResourceTypeExpression nested = Named("Value");
+        for (int depth = 0; depth < 32; depth++)
+            nested = new ResourceTypeExpression.SzArray(nested);
+        ResourceEffectTargetSelector deepTarget =
+            OperationTarget("Transform", nested, returnType: Named("Result"));
+        ResourceEffectTypedDeclaration deepDeclaration = new(
+            deepTarget,
+            new ResourceEffect.Pass(
+                new ResourceEffectLocation.Parameter(0),
+                new ResourceEffectLocation.Return(),
+                null),
+            [Provenance(model, model.Value, 0)]);
+
+        Assert.IsType<ResourceEffectAdmissionOutcome.Admitted>(
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    new ResourceEffectModelDefinition(
+                        ResourceEffectLanguageIdentity.Version1,
+                        model,
+                        [],
+                        [],
+                        [deepDeclaration]),
+                ],
+                new ResourceEffectWorkLimits(
+                    maxNestingDepth: 37,
+                    maxStructuralNodesPerDeclaration: 256)));
+        var depthExceeded = Assert.IsType<ResourceEffectAdmissionOutcome.WorkLimitExceeded>(
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    new ResourceEffectModelDefinition(
+                        ResourceEffectLanguageIdentity.Version1,
+                        model,
+                        [],
+                        [],
+                        [deepDeclaration]),
+                ],
+                new ResourceEffectWorkLimits(
+                    maxNestingDepth: 36,
+                    maxStructuralNodesPerDeclaration: 256)));
+        Assert.Equal(ResourceEffectWorkLimitKind.NestingDepth, depthExceeded.LimitKind);
+        Assert.Equal(37, depthExceeded.Required);
+        Assert.Equal(deepDeclaration.Provenances[0], depthExceeded.Provenance);
+
+        ResourceEffectTargetSelector wideTarget = OperationTarget(
+            "Transform",
+            [.. Enumerable.Range(0, 32).Select(_ => Named("Value"))],
+            Named("Result"));
+        ResourceEffectTypedDeclaration wideDeclaration = new(
+            wideTarget,
+            new ResourceEffect.Pass(
+                new ResourceEffectLocation.Parameter(0),
+                new ResourceEffectLocation.Return(),
+                null),
+            [Provenance(model, model.Value, 1)]);
+        Assert.IsType<ResourceEffectAdmissionOutcome.Admitted>(
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    new ResourceEffectModelDefinition(
+                        ResourceEffectLanguageIdentity.Version1,
+                        model,
+                        [],
+                        [],
+                        [wideDeclaration]),
+                ],
+                new ResourceEffectWorkLimits(
+                    maxNestingDepth: 8,
+                    maxStructuralNodesPerDeclaration: 105)));
+        var nodesExceeded = Assert.IsType<ResourceEffectAdmissionOutcome.WorkLimitExceeded>(
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    new ResourceEffectModelDefinition(
+                        ResourceEffectLanguageIdentity.Version1,
+                        model,
+                        [],
+                        [],
+                        [wideDeclaration]),
+                ],
+                new ResourceEffectWorkLimits(
+                    maxNestingDepth: 8,
+                    maxStructuralNodesPerDeclaration: 104)));
+        Assert.Equal(ResourceEffectWorkLimitKind.StructuralNodes, nodesExceeded.LimitKind);
+        Assert.Equal(105, nodesExceeded.Required);
+        Assert.Equal(wideDeclaration.Provenances[0], nodesExceeded.Provenance);
+    }
+
+    [Fact]
     public void Admission_ResolvesModelLocalFieldSelectors()
     {
         ResourceEffectModelIdentity model = new("example.fields");
@@ -659,6 +756,60 @@ public class ResourceEffectLanguageTests
             ResourceEffectDiagnosticKind.UnboundGenericVariable,
             Assert.IsType<ResourceEffectAdmissionOutcome.Rejected>(outcome)
                 .Diagnostics.Single().Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void Admission_RejectsUnboundVariablesInClosedMemberSignaturesWithProvenance()
+    {
+        ResourceEffectModelIdentity parsedModel = new("example.closed-signature-statement");
+        ResourceEffectTargetSelector parsedTarget = ClosedOwnerVariableParameterTarget();
+        ResourceEffectSourceStatement source = Source(
+            parsedModel,
+            parsedModel.Value,
+            7,
+            "pass(source=parameter[0],target=return)");
+        var parsedRejected = Assert.IsType<ResourceEffectAdmissionOutcome.Rejected>(
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    new ResourceEffectModelDefinition(
+                        ResourceEffectLanguageIdentity.Version1,
+                        parsedModel,
+                        [],
+                        [new ResourceEffectTargetDeclaration(parsedTarget, [source])]),
+                ]));
+        ResourceEffectModelDiagnostic parsedDiagnostic =
+            Assert.Single(parsedRejected.Diagnostics);
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.UnboundGenericVariable,
+            parsedDiagnostic.Diagnostic.Kind);
+        Assert.Equal(source.Provenance, parsedDiagnostic.Provenance);
+
+        ResourceEffectModelIdentity typedModel = new("example.closed-signature-typed");
+        ResourceDeclarationProvenance typedProvenance =
+            Provenance(typedModel, typedModel.Value, 9);
+        var typedDeclaration = new ResourceEffectTypedDeclaration(
+            ClosedOwnerVariableParameterTarget(),
+            new ResourceEffect.Pass(
+                new ResourceEffectLocation.Parameter(0),
+                new ResourceEffectLocation.Return(),
+                null),
+            [typedProvenance]);
+        var typedRejected = Assert.IsType<ResourceEffectAdmissionOutcome.Rejected>(
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    new ResourceEffectModelDefinition(
+                        ResourceEffectLanguageIdentity.Version1,
+                        typedModel,
+                        [],
+                        [],
+                        [typedDeclaration]),
+                ]));
+        ResourceEffectModelDiagnostic typedDiagnostic =
+            Assert.Single(typedRejected.Diagnostics);
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.UnboundGenericVariable,
+            typedDiagnostic.Diagnostic.Kind);
+        Assert.Equal(typedProvenance, typedDiagnostic.Provenance);
     }
 
     [Fact]
@@ -1017,6 +1168,46 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void Admission_ReceiptsDistinguishTruncatedSourceIdentityState()
+    {
+        ResourceEffectModelIdentity model = new("example.provenance-truncation");
+        var truncated = new InertString(TextPolicy.Field, "source-identity", 6);
+        var complete = new InertString(TextPolicy.Field, truncated.ToString());
+        Assert.True(truncated.IsTruncated);
+        Assert.False(complete.IsTruncated);
+        Assert.Equal(truncated.ToString(), complete.ToString());
+        Assert.NotEqual(truncated, complete);
+
+        ResourceEffectModelDefinition Definition(InertString sourceIdentity)
+            => new(
+                ResourceEffectLanguageIdentity.Version1,
+                model,
+                [],
+                [
+                    new ResourceEffectTargetDeclaration(
+                        SimpleOperationTarget(),
+                        [
+                            new ResourceEffectSourceStatement(
+                                "pass(source=parameter[0],target=return)",
+                                new ResourceDeclarationProvenance(
+                                    model,
+                                    ResourceDeclarationAuthority.ProductShipped,
+                                    sourceIdentity,
+                                    0)),
+                        ]),
+                ]);
+
+        ResourceEffectAdmission first = Build(Definition(truncated));
+        ResourceEffectAdmission second = Build(Definition(complete));
+
+        Assert.NotEqual(first.Receipt, second.Receipt);
+        Assert.NotEqual(first.Receipt.ContentHash, second.Receipt.ContentHash);
+        Assert.Equal(
+            first.Receipt.Models.Single().ContentHash,
+            second.Receipt.Models.Single().ContentHash);
+    }
+
+    [Fact]
     public void Admission_ReceiptsPreserveDistinctUtf16CodeUnits()
     {
         ResourceEffectModelIdentity model = new("example.utf16-framing");
@@ -1156,6 +1347,54 @@ public class ResourceEffectLanguageTests
                 declaration.Effect is ResourceEffect.Outcome));
         Assert.Equal(2, outcome.Provenances.Length);
         Assert.IsType<ResourceEffectLocation.StructuralField>(
+            Assert.IsType<ResourceEffect.Outcome>(outcome.Effect).Source);
+    }
+
+    [Fact]
+    public void Admission_CoalescesParsedAndCanonicalTypedOperationOutcomes()
+    {
+        ResourceEffectModelIdentity model = new("example.outcome-operation-alias");
+        ResourceEffectTargetSelector target = SimpleOperationTarget();
+        var typedOutcome = new ResourceEffectTypedDeclaration(
+            target,
+            new ResourceEffect.Outcome(
+                new ResourceEffectLocalIdentity("done"),
+                new ResourceEffectLocation.OperationSlot(
+                    new ResourceEffectLocation.Parameter(0),
+                    null),
+                new ResourceEffectOutcomeTest.Boolean(true)),
+            [Provenance(model, model.Value + ".typed", 2)]);
+        ResourceEffectAdmission admission = Build(
+            new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                model,
+                [],
+                [
+                    new ResourceEffectTargetDeclaration(
+                        target,
+                        [
+                            Source(
+                                model,
+                                model.Value,
+                                0,
+                                "consume(source=parameter[0],target=operation[0])"),
+                            Source(
+                                model,
+                                model.Value,
+                                1,
+                                "outcome(id=done,source=operation[0],test=bool[true])"),
+                        ]),
+                ],
+                [typedOutcome]));
+
+        AdmittedResourceEffectDeclaration outcome = Assert.Single(
+            SingleModel(admission).Declarations,
+            declaration => declaration.Effect is ResourceEffect.Outcome);
+        Assert.Equal(2, outcome.Provenances.Length);
+        Assert.Equal(
+            new ResourceEffectLocation.OperationSlot(
+                new ResourceEffectLocation.Parameter(0),
+                null),
             Assert.IsType<ResourceEffect.Outcome>(outcome.Effect).Source);
     }
 
@@ -1829,6 +2068,36 @@ public class ResourceEffectLanguageTests
         => OperationTargetWithDeclaring(
             OpenGenericOwner(),
             "Transform");
+
+    static ResourceEffectTargetSelector ClosedOwnerVariableParameterTarget()
+    {
+        var declaringType = new ResourceTypeExpression.Named(
+            Assembly(
+                publicKeyToken: null,
+                ResourceAssemblyVersionPolicy.Any),
+            "Example",
+            [new ResourceTypeNameSegment("Owner", 1)],
+            [Named("String")]);
+        return new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                declaringType,
+                "Transform",
+                ResourceEffectMemberKind.Method,
+                isStatic: false,
+                genericArity: 0,
+                ResourceEffectCallingConvention.Default,
+                hasThis: true,
+                explicitThis: false,
+                [
+                    new ResourceEffectParameterSelector(
+                        new ResourceTypeExpression.Variable(
+                            new ResourceEffectGenericVariable(
+                                ResourceEffectGenericVariableKind.Type,
+                                0)),
+                        ResourceEffectRefKind.Value),
+                ],
+                Named("Result")));
+    }
 
     static ResourceEffectTargetSelector GenericFieldTarget()
         => new ResourceEffectTargetSelector.Member(

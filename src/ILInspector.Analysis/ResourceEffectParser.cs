@@ -15,10 +15,13 @@ public enum ResourceEffectWorkLimitKind
     ModelStatements,
     ModelResourceKinds,
     AdmissionStatements,
+    StructuralNodes,
 }
 
 public sealed record ResourceEffectWorkLimits
 {
+    public const int MaximumNestingDepth = 64;
+
     public ResourceEffectWorkLimits(
         int maxStatementCharacters = 4096,
         int maxStatementTokens = 256,
@@ -28,17 +31,22 @@ public sealed record ResourceEffectWorkLimits
         int maxDeclarationsPerModel = 512,
         int maxStatementsPerModel = 1024,
         int maxResourceKindsPerModel = 256,
-        int maxAdmissionStatements = 4096)
+        int maxAdmissionStatements = 4096,
+        int maxStructuralNodesPerDeclaration = 256)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxStatementCharacters);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxStatementTokens);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxNestingDepth);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            maxNestingDepth,
+            MaximumNestingDepth);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxStatementArguments);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxModels);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDeclarationsPerModel);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxStatementsPerModel);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxResourceKindsPerModel);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxAdmissionStatements);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxStructuralNodesPerDeclaration);
         MaxStatementCharacters = maxStatementCharacters;
         MaxStatementTokens = maxStatementTokens;
         MaxNestingDepth = maxNestingDepth;
@@ -48,6 +56,7 @@ public sealed record ResourceEffectWorkLimits
         MaxStatementsPerModel = maxStatementsPerModel;
         MaxResourceKindsPerModel = maxResourceKindsPerModel;
         MaxAdmissionStatements = maxAdmissionStatements;
+        MaxStructuralNodesPerDeclaration = maxStructuralNodesPerDeclaration;
     }
 
     public int MaxStatementCharacters { get; }
@@ -59,6 +68,7 @@ public sealed record ResourceEffectWorkLimits
     public int MaxStatementsPerModel { get; }
     public int MaxResourceKindsPerModel { get; }
     public int MaxAdmissionStatements { get; }
+    public int MaxStructuralNodesPerDeclaration { get; }
 }
 
 public enum ResourceEffectDiagnosticKind

@@ -947,7 +947,8 @@ Admission validates only properties owned by one model:
 - resource-kind identity and consistent arity within that model;
 - selector-local generic-variable scope;
 - model-local field, callback, outcome, and operation references;
-- finite terms and explicit parser or model work budgets; and
+- finite terms and explicit parser, typed-structure depth and node, or model
+  work budgets; and
 - source authority, provenance, and deterministic content identity.
 
 Equal declarations within one model may normalize to one semantic declaration.
@@ -1384,6 +1385,8 @@ The language admission gates must establish:
 
 - bounded parsing and all-or-nothing validation for statement and typed C#
   model inputs;
+- stack-safe typed target and effect traversal with exact structural depth and
+  node budget outcomes;
 - exact version, target placement, selector structure, generic scope,
   signature terms, and ref-kind representation;
 - equal admitted declarations from equivalent statement and typed C# models;
