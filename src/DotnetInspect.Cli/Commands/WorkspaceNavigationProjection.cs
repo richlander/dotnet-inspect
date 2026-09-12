@@ -516,8 +516,9 @@ internal static class WorkspaceNavigationPortableSelector
                 '\\' => "\\\\",
                 '\r' => "\\r",
                 '\n' => "\\n",
-                _ when CSharpText.CSharpIdentifier.IsRenderingHazard(
-                    character) =>
+                _ when character == '\t'
+                    || CSharpText.CSharpIdentifier.RequiresLiteralEscape(
+                        character) =>
                     "\\u" + ((int)character).ToString(
                         "X4",
                         CultureInfo.InvariantCulture),

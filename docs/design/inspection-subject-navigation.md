@@ -73,15 +73,17 @@ are
 `ActivePackage_JsonlCarriesPortableDescriptorRecords`,
 `ActivePackage_ActiveEntriesExecuteAndTombstoneRemainsRetired`,
 `PortableSelectors_RoundTripThroughDisplayContainment`,
+`PortableSelectors_RoundTripThroughSupportedOutputFormats`,
 `MissingType_RendersNonSuccessSnapshotAndDiagnostic`,
 `RootOnlyAllLibraries_RendersTypedUnavailableSnapshot`, and
 `AllLibrariesRejectsIgnoredLibraryWithoutTypeDestination`. Default package
 inventory, row selection, and Count remain unchanged. Portable Type and Member
 rows retain defining Library asset IDs; Member rows distinguish containing
 from declaring Type. Portable Library, Type, and Member selectors use a
-reversible backslash transport spelling before display containment, and the
-CLI decodes that spelling before exact ordinal resolution. Runtime Workspace,
-occurrence, generation, action, and authority identities are not serialized.
+reversible backslash transport spelling before display containment and
+tabular lowering, and the CLI decodes that spelling before exact ordinal
+resolution. Runtime Workspace, occurrence, generation, action, and authority
+identities are not serialized.
 
 Snapshot installation, reconciliation, revision behavior, retained sessions,
 synchronization, and restoration remain unverified until their implementation

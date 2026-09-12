@@ -4,11 +4,13 @@ using System.Text.Json;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
+using Markout;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
@@ -28,6 +30,10 @@ public sealed class WorkspaceCommandTests
     [InlineData("Namespace.Type\\+Nested")]
     [InlineData("A\nB")]
     [InlineData("A\r\nB")]
+    [InlineData("A\tB")]
+    [InlineData("A\u0085B")]
+    [InlineData("A\u2028B")]
+    [InlineData("A\u2029B")]
     [InlineData("A\u202EB")]
     [InlineData("A\\u000AB")]
     public void PortableSelectors_RoundTripThroughDisplayContainment(
@@ -39,6 +45,92 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(
             encoded,
             CSharpText.CSharpIdentifier.ContainRenderedText(encoded));
+        Assert.Equal(
+            selector,
+            WorkspaceNavigationPortableSelector.Decode(encoded));
+    }
+
+    [Theory]
+    [InlineData("A\tB")]
+    [InlineData("A\u0085B")]
+    [InlineData("A\u2028B")]
+    [InlineData("A\u2029B")]
+    public void PortableSelectors_RoundTripThroughSupportedOutputFormats(
+        string selector)
+    {
+        string encoded =
+            WorkspaceNavigationPortableSelector.Encode(selector);
+        var view = new WorkspaceNavigationView
+        {
+            Types =
+            [
+                new WorkspaceNavigationTypeRow(
+                    encoded,
+                    "Library",
+                    "compile:lib/Fixture.dll",
+                    "public",
+                    "Available",
+                    active: false,
+                    retained: false),
+            ],
+        };
+
+        Assert.Equal(encoded, Assert.Single(view.Types).Type);
+        Assert.Contains(
+            encoded,
+            MarkoutSerializer.Serialize(
+                view,
+                WorkspaceNavigationViewContext.Default),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            encoded,
+            RenderNavigation(view, new PlainTextFormatter()),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            encoded,
+            RenderNavigationTable(view, tsv: false, jsonl: false),
+            StringComparison.Ordinal);
+
+        string tsv = RenderNavigationTable(
+            view,
+            tsv: true,
+            jsonl: false,
+            showHeader: false);
+        string[] tsvFields = Assert.Single(
+            tsv.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries)).Split('\t');
+        Assert.Equal(10, tsvFields.Length);
+        Assert.Equal(encoded, tsvFields[2]);
+
+        string jsonl = RenderNavigationTable(
+            view,
+            tsv: false,
+            jsonl: true);
+        using (JsonDocument document = JsonDocument.Parse(
+            Assert.Single(
+                jsonl.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries))))
+        {
+            Assert.Equal(
+                encoded,
+                document.RootElement.GetProperty("subject").GetString());
+        }
+
+        string json = JsonSerializer.Serialize(
+            view,
+            WorkspaceCommandJsonContext.Default.WorkspaceNavigationView);
+        using (JsonDocument document = JsonDocument.Parse(json))
+        {
+            Assert.Equal(
+                encoded,
+                document.RootElement
+                    .GetProperty("types")[0]
+                    .GetProperty("type")
+                    .GetString());
+        }
+
         Assert.Equal(
             selector,
             WorkspaceNavigationPortableSelector.Decode(encoded));
@@ -945,6 +1037,33 @@ public sealed class WorkspaceCommandTests
             "--library names the exact defining Library",
             captured.Error);
     }
+
+    static string RenderNavigation(
+        WorkspaceNavigationView view,
+        Markout.Formatting.IMarkoutFormatter formatter)
+    {
+        var writer = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            view,
+            writer,
+            formatter,
+            WorkspaceNavigationViewContext.Default);
+        return writer.ToString();
+    }
+
+    static string RenderNavigationTable(
+        WorkspaceNavigationView view,
+        bool tsv,
+        bool jsonl,
+        bool showHeader = true) =>
+        OutputFormatter.RenderTable(
+            showHeader,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                WorkspaceNavigationProjection.CreateStream(view),
+                writer,
+                formatter,
+                WorkspaceNavigationViewContext.Default,
+                OutputFormatter.CreateTableWriterOptions(tsv, jsonl)));
 
     static WorkspaceContextLoadOptions LoadOptions(HttpClient client, IPackageStore store) => new()
     {
