@@ -178,11 +178,30 @@ known to that product build registered**. At the design baseline those are
 Platform, ASP.NET Core, Microsoft.Extensions and Aspire. It does not mean all
 ecosystems or packages that exist on nuget.org.
 
-This is a deliberate target change from the existing curated-Workspace
-proposal, whose manifest excludes Aspire. It applies to new operations, not
-restoration of a saved Workspace: restored registrations remain the saved
-declarations. The Ecosystems owner authors the new default and the Workspace
-handoff owns its realization; discovery order is not a construction contract.
+The operator clarified three construction gestures. Names below are
+illustrative, not a commitment to concrete API spelling:
+
+| Gesture | Construction intent |
+| --- | --- |
+| `Workspace.Create()` | Empty host-neutral Workspace, without product curation. |
+| `Ecosystem.CreatePlatformWorkspace()` | Application-curated Workspace with the platform-related ecosystems registered. |
+| `Ecosystem.CreateWorkspace()` | Application-curated Workspace with all product-known ecosystems registered. |
+
+The broad ecosystem factory is the natural default on the Ecosystems owner;
+the narrower platform variant earns the qualifier. A name such as
+`CreateWorkspaceWithAllEcosystems` adds little distinction.
+This preserves the platform-curated policy, currently Platform, ASP.NET Core
+and Microsoft.Extensions, rather than changing its meaning to include Aspire.
+New `find` and Relations operations choose the broader factory. The platform
+factory remains independently available to consumers that deliberately want
+that smaller registration set.
+
+Both curated gestures author registrations, not eager package acquisition or
+query execution. They belong to the application Ecosystems owner and consume
+the Workspace-owned handoff; raw Workspace construction remains neutral.
+Discovery order is not a construction contract. Restoration is separate from
+all three gestures: it preserves recorded registrations and never re-applies
+either current curated manifest.
 
 Registration, candidate selection, acquisition, admission and reporting remain
 different events:
@@ -410,7 +429,7 @@ unreviewable changes inside a nominal slice.
 | --- | --- |
 | 1 | This Subject Relations workflow/composition design, [#6760](https://github.com/richlander/dotnet-inspect/issues/6760). |
 | 2 | Workspace registration retention and finite population realization. |
-| 3 | Ecosystems-owned all-known-pack default manifest and handoff adoption. |
+| 3 | Ecosystems-owned platform and all-known-pack factories/manifests, preserving empty raw Workspace construction. |
 | 4 | Source/search owners adopt broad versus explicit candidate intent; keep any separate owner changes separate and update the step count. |
 | 5 | Find's exact host-neutral locator/context handoff. |
 | 6 | Metadata-owned typed hierarchy, extension and reference relation projections. |
@@ -445,7 +464,7 @@ the named adoption gates run in Release:
 | --- | --- |
 | Exact locator continuity | Find two same-named types or overloads; reopening each preserves its package/source, target, subject and context without substitution. |
 | Direction and evidence fidelity | One AddRedis declaration and a real caller remain separate rows; incoming/outgoing views retain the same canonical endpoints and physical call receipt. |
-| Broad but honest scope | Aspire is registered with the other known packs; unavailable/offline/budget-limited populations remain visible; an empty partial scan never reports complete absence. Exercise more than 64 candidate packages. |
+| Construction and broad scope | Empty, platform-curated and all-known factories retain distinct registration sets without acquisition; find/Relations use the all-known set. Unavailable/offline/budget-limited populations remain visible; an empty partial scan never reports complete absence. Exercise more than 64 candidate packages. |
 | Explicit selection | A local-only or empty explicit corpus does not acquire an implicit ecosystem population; a subject's source coordinate alone does not erase broad caller scope. |
 | Pattern qualification | IEnumerable/List and Span-style candidates differ correctly; unsuitable or ambiguous GetEnumerator shapes are rejected or qualified, not certified as compilable. |
 | Format and host correspondence | CLI formats and browser consume identical logical edges, occurrence associations and coverage; windowing does not change query completeness or row meaning. |
