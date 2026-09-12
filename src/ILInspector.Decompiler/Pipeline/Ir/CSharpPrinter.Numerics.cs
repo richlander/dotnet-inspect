@@ -2870,21 +2870,9 @@ public sealed partial class CSharpPrinter
 
     static bool TryCharConstantText(IrExpression expression, out string text)
     {
-        switch (expression)
-        {
-            case Constant { Value: char c }:
-                text = CharText(c);
-                return true;
-            case Constant { Value: int i } when i is >= char.MinValue and <= char.MaxValue:
-                text = CharText((char)i);
-                return true;
-            case Constant { Value: long l } when l is >= char.MinValue and <= char.MaxValue:
-                text = CharText((char)l);
-                return true;
-            default:
-                text = "";
-                return false;
-        }
+        bool isChar = CoercionRendering.TryCharConstantValue(expression, out char value);
+        text = isChar ? CharText(value) : "";
+        return isChar;
     }
 
     /// <summary>

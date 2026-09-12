@@ -488,8 +488,7 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    coercion insertion, which discharges the minted loads' sink obligations
    like any local's. What stays on the print-time unifier is the counted
    residual: ambiguous testimony, cross-family (true disjoint ranges),
-   element-store identity recovery (the #1751 char class — the printer
-   re-types those slots, which a materialized local would foreclose), incomplete
+   unproven element-store identity recovery, incomplete
    slot-copy components, and nested `Lambda`/`LocalFunctionStatement` scopes.
    The nested-name prerequisite #2275 landed in #2356; recursively materializing
    each nested body's own locals table remains. Direct slot-copy components now
@@ -535,6 +534,32 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    decided case; an undecided member still retains the entire component.
    The C2 deletion and invariant extension follow once the residual census
    reaches the printer-owned floor.
+
+   Element-store identity also recovers late: integer-typed loads used as the
+   value of a char or metadata-resolved enum array store may testify to that
+   element type when every producer is a conditional with two representable
+   constant arms. Char recovery shares
+   `CoercionRendering.TryCharConstantValue` with the printer; enum recovery
+   requires resolved backing data and constants within its signed/unsigned
+   range. Stack-family compatibility alone is not a value-preservation proof.
+   The existing slot-coercion gate still rejects unsupported widths. Every
+   observer contributes testimony, and all existing scope, control-flow, and
+   atomic copy-component gates remain. No expression or condition moves.
+   Nonconditional producers, nonconstant arms, out-of-range values, and missing
+   enum backing remain printer-owned. Earlier testimony is unchanged; the
+   general element-target printer fallback remains necessary for lowered and
+   deferred trees.
+
+   Real witnesses are Newtonsoft.Json 13.0.4
+   `DateTimeUtils.WriteDateTimeOffset` (`'+'`/`'-'`),
+   Microsoft.CodeAnalysis 5.0.0 `BitVector.GetDebuggerDisplay` (`'1'`/`'0'`),
+   and the two `ReadParameterRefKinds` implementations in
+   dotnet-inspect.any 0.14.0 (`ArgumentRefKind.Ref`/`Value`).
+   `ElementSlotIdentityTests` gates compiler-produced activation, constant
+   boundaries, competing and underivable observations, all-store agreement,
+   and incomplete copies. Its compile-back gate preserves the existing
+   retained-temporary `OpcodeDiff`, not an exact-IL claim. The existing
+   `CharElementStorePrinterTests` binding gate remains in force.
 
    `MaterializesSingleStoreConditionalWithSingleRead` and
    `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate
