@@ -5,9 +5,12 @@
 Focused query-contract proposal for
 [#6131](https://github.com/richlander/dotnet-inspect/issues/6131), contributing
 to [#6124](https://github.com/richlander/dotnet-inspect/issues/6124).
-This design is not implemented; the product properties below are targets,
-not current-head guarantees. The Catalog experiments are evidence about
-acquisition, not a shipping report or security classifier.
+The host-neutral query and its typed output are implemented in
+`DotnetInspector.Queries`; the executable Release gates are in
+`tests/DotnetInspector.Queries.Tests/EcosystemChangeReportQueryTests.cs`.
+Shared Markout/structured presentation and CLI and browser/Wasm adoption remain
+later delivery steps. Historical security changes remain unsupported because
+no owner supplies the required before/after evidence.
 
 The **Ecosystem Change Report query** in `DotnetInspector.Queries` is the
 single normative owner. Its claim is:
@@ -86,26 +89,36 @@ Current context has a separately identified lookup/observation basis and
 retains the acquisition owner's cache policy; lookup time is not presented
 as advisory publication or modification time.
 
-Existing `PackageMetadata`/`PackageVulnerability` and the metadata service can
-support the current-context category. Their unavailable versus checked-empty
-distinction must survive the query. Empty matching vulnerability evidence
-means **no match in the acquired advisory data**, not that a version is safe.
-Those existing values cannot supply the first two categories.
+The
+[GitHub reviewed-NuGet-advisory evidence owner](github-nuget-advisory-evidence.md)
+supplies independent current-affected and exact `first_patched_version`
+associations. Its unavailable versus checked-empty distinction survives the
+query. Empty matching advisory evidence means **no match in the acquired
+reviewed data**, not that a version is safe.
 
-Producer capabilities for security releases and historical changes are
-prerequisites to advertising those categories. Until their separate owner
-work exists, a host may offer clearly labeled current context, but not a
-control promising historical security changes that silently returns none.
-The query does not parse publisher feeds or invent the missing evidence.
+An exact fixed-version association becomes security-release evidence only
+when the same normalized Details coordinate has source-issued
+[package-receipt evidence](nuget-catalog-package-receipt.md). The query accepts
+both the leaf's `created` timestamp and the specification-defined `published`
+fallback as receipt-time evidence, preserves the basis, and uses that receipt
+time rather than Catalog commit or advisory-document time for interval
+membership. A Delete observation cannot supply that Details receipt
+correspondence. Failed, unavailable, or bounded receipt enrichment remains
+unevaluable rather than becoming a negative security result.
+
+Producer capabilities for historical changes remain a prerequisite to
+advertising that category. A host must not offer a control promising
+historical security changes that silently returns none. The query does not
+parse publisher feeds or invent the missing evidence.
 
 ## Selection, ordering, and completion
 
 The normal report order is newest observed activity first, with a stable
 source/event identity tie-breaker. This is presentation order, not causality
-between providers. A source ordering guarantee may support early emission;
-otherwise the query must finish its bounded collection before claiming that
-the selected rows are the newest qualifying results. A partial observed set
-must not be labeled the complete latest set.
+between providers. The implementation uses a bounded collection barrier,
+retaining at most 1,000 newest scope-matching Catalog observations before
+enrichment. Crossing that bound remains visible as partial coverage; the
+retained rows are not labeled the complete latest set.
 
 Scope and security predicates precede the semantic row limit. The requested
 `n` counts usable matching activity rows, not pages, source candidates,
@@ -154,7 +167,7 @@ Illustrative rendering, using synthetic package/evidence records:
 | Observed activity | Package | Version | Activity | Security evidence |
 | --- | --- | --- | --- | --- |
 | September 4 | Example.Client | 2.1.1 | Snapshot observed | Current advisory match; not a new security-change claim |
-| September 3 | Example.Client | 2.1.2 | Snapshot observed | Publisher-confirmed security release dated September 3 |
+| September 3 | Example.Client | 2.1.2 | Snapshot observed | Exact first-patched association; source receipt dated September 3 |
 | September 2 | Example.Legacy | 1.0.0 | Deletion observed | Advisory context unavailable |
 
 An adjacent example is the same 2.1.2 coordinate with only an empty current
@@ -183,12 +196,11 @@ adoption; and end-to-end evidence/docs. The named production consumers are
 both hosts. This proposal introduces one query owner, retires no architecture,
 and depends on separate owner work for missing source/security capabilities.
 
-Required future Release gates are outcome-level cases for the default 42-day
-range and explicit bounds, scope non-substitution, exact-coordinate evidence
-association, repeated activity, current context versus historical/security
-release evidence, out-of-window security facts, unavailable versus
-checked-empty data, take after predicates, ordering barriers, and partial
-failure/cancellation after rows. CLI and browser adoption must demonstrate
-equivalent semantic results and disclose their own publication timing.
-These product gates are **unverified until implementation**; the existing
-research probe's offline cases do not satisfy them.
+The shared-query Release gates cover the default 42-day range and explicit
+bounds, exact-set and literal-prefix scope, exact-coordinate evidence
+association, repeated activity, current context versus security-release
+evidence, `created` and `published` fallback receipt bases, out-of-window
+security facts, unavailable versus checked-empty data, take after predicates,
+ordering barriers and candidate bounds, provider failures, and cancellation
+after rows. CLI and browser adoption must still demonstrate equivalent
+semantic results and disclose their own publication timing.
