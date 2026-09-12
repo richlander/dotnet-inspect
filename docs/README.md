@@ -42,6 +42,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
 | [CLI Option-Value Validation](design/cli-option-value-validation.md) | Shared zero-arity diagnostics that preserve positional ownership and command-owned capacity. |
 | [Dependency Inspection Command](design/dependency-inspection-command.md) | Target unification of dependency graph traversal and normalized evidence under one asset-driven `depends` operation. |
+| [Application Dependency Manifest Format](design/application-dependency-manifest-format.md) | Host-neutral bounded interpretation of SDK application compile/runtime asset coordinates for direct RTS consumption. |
 | [Assembly Dependency Candidate Inventory](design/assembly-dependency-candidate-inventory.md) | Services-owned undiscarded discovery evidence, target-input association and typed acquisition outcomes before consumer selection. |
 | [Assembly Reference Resolution Ladder](design/assembly-reference-resolution-ladder.md) | Ordered, revision-bound resolution of one exact `AssemblyRef` through its referencing context, applicable platform, and owner-issued package dependency routes under finite operation work. |
 | [Search Scope Resolution](design/search-scope-resolution.md) | Default activation, explicit-source suppression and composition, and named platform/package scope expansion for search commands. |

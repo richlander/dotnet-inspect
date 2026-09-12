@@ -993,6 +993,9 @@ jobs:
       - name: Run platform manifest format tests
         run: dotnet run --project tests/DotnetInspector.Platforms.Formats.Tests -c Release
 
+      - name: Run application dependency manifest format tests
+        run: dotnet run --project tests/DotnetInspector.DependencyManifests.Tests -c Release
+
       - name: Run PlatformHouse contract tests
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Tests -c Release
 
